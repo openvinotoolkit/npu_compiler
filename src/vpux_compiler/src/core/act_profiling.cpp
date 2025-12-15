@@ -18,25 +18,23 @@
 #include <sstream>
 #include <string>
 
-// E#73766: merge NCETiledActShaveProfiler and UniformNonTiledActShaveProfiler in the end of epic
-
 namespace vpux {
 
 mlir::IntegerType getActShaveProfilingElementType(mlir::MLIRContext* ctx) {
     return getUInt32Type(ctx);
 }
 
-unsigned BaseActShaveProfiler::getNextBufferId() {
+unsigned ActShaveProfiler::getNextBufferId() {
     return uniqBufferId++;
 }
 
-void BaseActShaveProfiler::resetBufferIdCounter() {
+void ActShaveProfiler::resetBufferIdCounter() {
     uniqBufferId = 0;
 }
 
-BaseActShaveProfiler::BaseActShaveProfiler(unsigned clustersNum, mlir::OpBuilder& builder, mlir::MLIRContext* ctx,
-                                           vpux::IndexedSymbolAttr memKindAttr, mlir::func::FuncOp netFunc,
-                                           vpux::Logger& log, std::shared_ptr<NameUniqifier> uniqifier)
+ActShaveProfiler::ActShaveProfiler(unsigned clustersNum, mlir::OpBuilder& builder, mlir::MLIRContext* ctx,
+                                   vpux::IndexedSymbolAttr memKindAttr, mlir::func::FuncOp netFunc, vpux::Logger& log,
+                                   std::shared_ptr<NameUniqifier> uniqifier)
         : _clustersNum(clustersNum),
           _profilingWorkloadSize(VPUIP::HW_ACT_SHAVE_PROFILING_SIZE_BYTES),
           _profilingElementSize(VPUIP::HW_ACT_SHAVE_PROFILING_SIZE_BYTES /
@@ -51,7 +49,7 @@ BaseActShaveProfiler::BaseActShaveProfiler(unsigned clustersNum, mlir::OpBuilder
 }
 
 // Get count of memory needed to store profiling data of all ActShave tasks in the model
-unsigned BaseActShaveProfiler::getRequiredDdrMemory() const {
+unsigned ActShaveProfiler::getRequiredDdrMemory() const {
     unsigned swTasksCount =
             std::accumulate(_swTaskSignatures.begin(), _swTaskSignatures.end(), 0, [](const auto& a, const auto& b) {
                 return a + b._maxSubTasks;
@@ -61,7 +59,7 @@ unsigned BaseActShaveProfiler::getRequiredDdrMemory() const {
 
 // Go over all SwKernelOps and store required information about those tasks like required size of
 // profiling buffer or size of profiling buffer instances
-void BaseActShaveProfiler::scheduleTask(VPUIP::SwKernelOp swOp) {
+void ActShaveProfiler::scheduleTask(VPUIP::SwKernelOp swOp) {
     const auto taskSignature = getTaskSignature(swOp);
 
     // How many elements are needed to store profiling data of one task
@@ -75,9 +73,8 @@ void BaseActShaveProfiler::scheduleTask(VPUIP::SwKernelOp swOp) {
     // Trying to reuse last profiling buffer
     const auto currentBufferSize = _profilingBufferSizes.back();
     const auto newBufferSize = currentBufferSize + maxSwTasks;
-    bool isDistributed = vpux::VPUIP::hasDistributedOperand(swOp);
     _log.trace("Schedule '{0}' operation with '{1}' subtask, op: '{2}'",
-               (isDistributed ? "MultiCluster " : "SingleCluster "), maxSwTasks, swOp->getLoc());
+               (this->_clustersNum > 1 ? "distributed " : "non-distributed "), maxSwTasks, swOp->getLoc());
     // If we can store profiling result of current task in last buffer without exceeding
     // max size - reuse it, otherwise - scheduling one more
     if (newBufferSize * _profilingWorkloadSize > VPUIP::HW_ACT_SHAVE_PROFILING_MAX_BUFFER_SIZE) {
@@ -91,13 +88,13 @@ void BaseActShaveProfiler::scheduleTask(VPUIP::SwKernelOp swOp) {
 // Main function which goes through all identified ActShave ops and based on gathered data recreates
 // those operations to have profiling output with proper slot in profiling buffer instance. When profiling
 // buffer is full it also inserts CMX2DDR DMA and allocates new profiling buffer
-void BaseActShaveProfiler::addProfilingOps(mlir::BlockArgument& profilingDdrResult,
-                                           SmallVector<mlir::Value>& clusterResults) {
+void ActShaveProfiler::addProfilingOps(mlir::BlockArgument& profilingDdrResult,
+                                       SmallVector<mlir::Value>& clusterResults) {
     // Contains profiling_output of individual swTaskOp and count of profiled tiles
     ProfilingResults nceProfilingOutputs;
     size_t currentDDROffset = 0;
     mlir::Operation* currentProfilingBuffer = nullptr;
-    unsigned currentBufferSize;
+    unsigned currentBufferSize = 0;
     unsigned currentBufferId = 0;
     const auto allocateProfilingBufferCMX = [&]() {
         if (_profilingBufferSizes.empty()) {
@@ -176,78 +173,21 @@ void BaseActShaveProfiler::addProfilingOps(mlir::BlockArgument& profilingDdrResu
     flushCMX2DDR();
 }
 
-SWTaskSignature BaseActShaveProfiler::getTaskSignature(VPUIP::SwKernelOp swOp) const {
+SWTaskSignature ActShaveProfiler::getTaskSignature(VPUIP::SwKernelOp swOp) const {
     auto numOfProfiledTasks = getNumProfiledTasks(swOp);
     return {swOp, numOfProfiledTasks, {numOfProfiledTasks}};
 }
 
-mlir::Type BaseActShaveProfiler::getTimestampType(int64_t tasksCount) {
+mlir::Type ActShaveProfiler::getTimestampType(int64_t tasksCount) {
     return getMemRefType({_profilingElementSize * tasksCount}, getActShaveProfilingElementType(_ctx), DimsOrder::C,
                          _memKindAttr);
 }
 
-UniformNonTiledActShaveProfiler::UniformNonTiledActShaveProfiler(unsigned clustersNum, mlir::OpBuilder& builder,
-                                                                 mlir::MLIRContext* ctx,
-                                                                 vpux::IndexedSymbolAttr memKindAttr,
-                                                                 mlir::func::FuncOp netFunc, vpux::Logger& log,
-                                                                 std::shared_ptr<NameUniqifier> uniqifier)
-        : BaseActShaveProfiler(clustersNum, builder, ctx, memKindAttr, netFunc, log, std::move(uniqifier)) {
-}
-
-// Create allocation operation representing profiling buffer instance in CMX. If such buffer is full
-// new one needs to be allocated. Type of this alloc is a memref
-mlir::Operation* UniformNonTiledActShaveProfiler::createAllocationOp(unsigned totalSizeCMXElements,
-                                                                     const std::string& location) {
-    auto profBuffType =
-            getMemRefType({totalSizeCMXElements}, getActShaveProfilingElementType(_ctx), DimsOrder::C, _memKindAttr);
-
-    _log.trace("Create new allocation op of type - '{0}'", profBuffType);
-    return _builder.create<mlir::memref::AllocOp>(mlir::NameLoc::get(mlir::StringAttr::get(_ctx, location)),
-                                                  profBuffType);
-}
-
-// Insert DMA that will copy profiling buffer instance to proper offset in profiling output once
-// profiling buffer instance is full or there are no more tasks to profile
-mlir::Value UniformNonTiledActShaveProfiler::copyToDdr(ProfilingResults profilingResults, mlir::Operation* cmxMemOp,
-                                                       size_t& currentDDROffset,
-                                                       mlir::BlockArgument& profilingDdrResult) {
-    SmallVector<mlir::Value> concatInputs;
-    int64_t totalNumElements = 0;
-    _log.trace("Insert chunk copy to DDR offset '{0}'", currentDDROffset);
-    for (auto& profRes : profilingResults) {
-        auto profResult = profRes.first;
-
-        totalNumElements += profRes.second;
-        concatInputs.push_back(profResult);
-    }
-
-    const auto resultType = mlir::MemRefType::get({static_cast<int64_t>(totalNumElements) * _profilingElementSize},
-                                                  getActShaveProfilingElementType(_ctx));
-
-    auto subDDR = _builder.create<VPUIP::SubViewOp>(
-            mlir::NameLoc::get(mlir::StringAttr::get(_ctx, "actshaveDDR" + std::to_string(currentDDROffset))),
-            profilingDdrResult, SmallVector<int64_t>({static_cast<int64_t>(currentDDROffset * _profilingElementSize)}),
-            resultType.getShape());
-
-    // Create DMA from CMX to Profiling Output
-    auto copyLoc = mlir::NameLoc::get(mlir::StringAttr::get(
-            _ctx,
-            mlir::StringRef("actshave") + profiling::PROFILING_CMX_2_DDR_OP_NAME + std::to_string(currentDDROffset)));
-    auto concatview = _builder.create<VPUIP::ConcatViewOp>(
-            mlir::NameLoc::get(mlir::StringAttr::get(
-                    _ctx, mlir::StringRef("actshaveProfilingConcat") + std::to_string(currentDDROffset))),
-            concatInputs, cmxMemOp->getResult(0));
-
-    auto dmaOp = _builder.create<VPUIP::NNDMAOp>(copyLoc, concatview.getOutput(), subDDR.getResult());
-    dmaOp.setProfilingBufferMgmt(true);
-    return dmaOp;
-}
-
 // Get a SubView of profiling buffer instance so that given ActShave task is given required chunk of it
-mlir::Value UniformNonTiledActShaveProfiler::getViewToBuffer(mlir::Operation* currentProfilingBuffer,
-                                                             unsigned profilingSamplesInCMX, int64_t numTasks) {
+mlir::Value ActShaveProfiler::getViewToBuffer(mlir::Operation* currentProfilingBuffer, unsigned profilingSamplesInCMX,
+                                              int64_t numTasks) {
     const SmallVector<int64_t> sizes({numTasks * _profilingElementSize});
-    int offset = profilingSamplesInCMX * _profilingElementSize;
+    int offset = profilingSamplesInCMX * _profilingElementSize / _clustersNum;
 
     _log.trace("Get view to profiling buffer, offset '{0}', size '{1}'", offset, sizes[0]);
 
@@ -261,13 +201,20 @@ mlir::Value UniformNonTiledActShaveProfiler::getViewToBuffer(mlir::Operation* cu
 }
 
 // Replace a Actshave task with new one that has profiling output set
-mlir::Value UniformNonTiledActShaveProfiler::replaceOpWithProfiledOp(VPUIP::SwKernelOp origSwTask,
-                                                                     mlir::Value profilingBuffer, mlir::Location loc,
-                                                                     VPUIP::SwProfilingMetadataAttr profMeta) {
+mlir::Value ActShaveProfiler::replaceOpWithProfiledOp(VPUIP::SwKernelOp origSwTask, mlir::Value profilingBuffer,
+                                                      mlir::Location loc, VPUIP::SwProfilingMetadataAttr profMeta) {
     _log.trace("Replace op with new profiled task '{0}'", loc);
 
-    auto swTask = _builder.create<VPUIP::SwKernelOp>(loc, origSwTask, profilingBuffer);
-    swTask.getProfilingDataMutable().assign(profilingBuffer);
+    auto profilingSlot = profilingBuffer;
+    bool isCurrentSwTaskDistributed = vpux::VPUIP::hasDistributedOperand(origSwTask);
+    if (this->_clustersNum > 1 && !isCurrentSwTaskDistributed) {
+        auto viewOpName = appendLoc(loc, "_view_cast");
+        auto viewOp = _builder.create<VPUIP::ViewOp>(viewOpName, getTimestampType(1), profilingBuffer);
+        profilingSlot = viewOp.getResult();
+    }
+
+    auto swTask = _builder.create<VPUIP::SwKernelOp>(loc, origSwTask, profilingSlot);
+    swTask.getProfilingDataMutable().assign(profilingSlot);
     swTask.setProfilingMetadataAttr(profMeta);
 
     swTask.getRegion().takeBody(origSwTask.getRegion());
@@ -280,7 +227,7 @@ mlir::Value UniformNonTiledActShaveProfiler::replaceOpWithProfiledOp(VPUIP::SwKe
     return swTask.getProfilingOutput();
 }
 
-VPUIP::DistributedBufferType NCETiledActShaveProfiler::getDistributedBufferType(unsigned totalElements) {
+VPUIP::DistributedBufferType ActShaveProfiler::getDistributedBufferType(unsigned totalElements) {
     const auto layout = mlir::AffineMapAttr::get(DimsOrder::C.toAffineMap(_ctx));
 
     const auto distributionModeAttr = VPU::DistributionModeAttr::get(_ctx, VPU::DistributionMode::SEGMENTED);
@@ -295,27 +242,28 @@ VPUIP::DistributedBufferType NCETiledActShaveProfiler::getDistributedBufferType(
                                              memKindAttr, distributedTensorAttr);
 }
 
-NCETiledActShaveProfiler::NCETiledActShaveProfiler(unsigned clustersNum, mlir::OpBuilder& builder,
-                                                   mlir::MLIRContext* ctx, vpux::IndexedSymbolAttr memKindAttr,
-                                                   mlir::func::FuncOp netFunc, vpux::Logger& log,
-                                                   std::shared_ptr<NameUniqifier> uniqifier)
-        : BaseActShaveProfiler(clustersNum, builder, ctx, memKindAttr, netFunc, log, std::move(uniqifier)) {
-}
-
 // Create allocation operation representing profiling buffer instance in CMX. If such buffer is full
 // new one needs to be allocated. Type of this alloc is a DistributedBufferType
-mlir::Operation* NCETiledActShaveProfiler::createAllocationOp(unsigned totalSizeCMXElements,
-                                                              const std::string& location) {
-    const auto bufferType = getDistributedBufferType(totalSizeCMXElements);
-    _log.trace("Create new allocation op of type - '{0}'", bufferType);
-    return _builder.create<VPURT::AllocDistributed>(mlir::NameLoc::get(mlir::StringAttr::get(_ctx, location)),
-                                                    bufferType, nullptr, nullptr);
+mlir::Operation* ActShaveProfiler::createAllocationOp(unsigned totalSizeCMXElements, const std::string& location) {
+    if (this->_clustersNum > 1) {
+        const auto bufferType = getDistributedBufferType(totalSizeCMXElements);
+        _log.trace("Create new distributed allocation op of type - '{0}'", bufferType);
+        return _builder.create<VPURT::AllocDistributed>(mlir::NameLoc::get(mlir::StringAttr::get(_ctx, location)),
+                                                        bufferType, nullptr, nullptr);
+    } else {
+        auto profBuffType = getMemRefType({totalSizeCMXElements}, getActShaveProfilingElementType(_ctx), DimsOrder::C,
+                                          _memKindAttr);
+
+        _log.trace("Create new non-distributed allocation op of type - '{0}'", profBuffType);
+        return _builder.create<mlir::memref::AllocOp>(mlir::NameLoc::get(mlir::StringAttr::get(_ctx, location)),
+                                                      profBuffType);
+    }
 }
 
 // Insert DMA that will copy profiling buffer instance to proper offset in profiling output once
 // profiling buffer instance is full or there are no more tasks to profile
-mlir::Value NCETiledActShaveProfiler::copyToDdr(ProfilingResults profilingResults, mlir::Operation* cmxMemOp,
-                                                size_t& currentDDROffset, mlir::BlockArgument& profilingDdrResult) {
+mlir::Value ActShaveProfiler::copyToDdr(const ProfilingResults& profilingResults, mlir::Operation* cmxMemOp,
+                                        size_t& currentDDROffset, mlir::BlockArgument& profilingDdrResult) {
     SmallVector<mlir::Value> concatInputs;
     int64_t totalNumElements = 0;
 
@@ -325,7 +273,8 @@ mlir::Value NCETiledActShaveProfiler::copyToDdr(ProfilingResults profilingResult
 
         totalNumElements += profRes.second;
 
-        if (mlir::isa<mlir::MemRefType>(profResult.getType())) {
+        const auto isCurrentResultMemref = mlir::isa<mlir::MemRefType>(profResult.getType());
+        if (this->_clustersNum > 1 && isCurrentResultMemref) {
             // Result is a plain memref, need to cast back to DistributedBuffer
             auto distType = getDistributedBufferType(profRes.second * _profilingElementSize);
             auto viewLoc = appendLoc(profResult.getLoc(), "_view_cast_to_distributed");
@@ -356,52 +305,6 @@ mlir::Value NCETiledActShaveProfiler::copyToDdr(ProfilingResults profilingResult
     auto dmaOp = _builder.create<VPUIP::NNDMAOp>(copyLoc, concatview.getOutput(), subDDR.getResult());
     dmaOp.setProfilingBufferMgmt(true);
     return dmaOp;
-}
-
-// Get a SubView of profiling buffer instance so that given ActShave task is given required chunk of it
-mlir::Value NCETiledActShaveProfiler::getViewToBuffer(mlir::Operation* currentProfilingBuffer,
-                                                      unsigned profilingSamplesInCMX, int64_t numTasks) {
-    const SmallVector<int64_t> sizes({numTasks * _profilingElementSize});
-    int offset = profilingSamplesInCMX * _profilingElementSize / _clustersNum;
-
-    _log.trace("Get view to profiling buffer, offset '{0}', size '{1}'", offset, sizes[0]);
-
-    auto subViewLoc =
-            appendLoc(currentProfilingBuffer->getLoc(), formatv("_actshaveProfilingSubview_{0}", offset).str());
-
-    auto sub = _builder.create<VPUIP::SubViewOp>(subViewLoc, currentProfilingBuffer->getResult(0),
-                                                 SmallVector<int64_t>({static_cast<int64_t>(offset)}), sizes);
-
-    return sub.getResult();
-}
-
-// Replace a Actshave task with new one that has profiling output set. If this task is not multiclustered
-// then additional cast (ViewOp) is inserted for profiling slot to maintain type compatibility
-mlir::Value NCETiledActShaveProfiler::replaceOpWithProfiledOp(VPUIP::SwKernelOp origSwTask, mlir::Value profilingBuffer,
-                                                              mlir::Location loc,
-                                                              VPUIP::SwProfilingMetadataAttr profMeta) {
-    _log.trace("Replace op with new profiled task '{0}'", loc);
-
-    auto profilingSlot = profilingBuffer;
-    bool isDistributed = vpux::VPUIP::hasDistributedOperand(origSwTask);
-    if (!isDistributed) {
-        auto viewOpName = appendLoc(loc, "_view_cast");
-        auto viewOp = _builder.create<VPUIP::ViewOp>(viewOpName, getTimestampType(1), profilingBuffer);
-        profilingSlot = viewOp.getResult();
-    }
-
-    auto swTask = _builder.create<VPUIP::SwKernelOp>(loc, origSwTask, profilingSlot);
-    swTask.getProfilingDataMutable().assign(profilingSlot);
-    swTask.setProfilingMetadataAttr(profMeta);
-
-    swTask.getRegion().takeBody(origSwTask.getRegion());
-
-    // can't use origSwTask.replaceAllUsesWith() because swTask has 1 more result than origSwTask
-    for (unsigned i = 0; i < origSwTask->getNumResults(); i++) {
-        origSwTask->getResult(i).replaceAllUsesWith(swTask->getResult(i));
-    }
-
-    return swTask.getProfilingOutput();
 }
 
 }  // namespace vpux

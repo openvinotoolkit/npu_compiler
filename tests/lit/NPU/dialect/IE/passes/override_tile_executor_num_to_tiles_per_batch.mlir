@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values=true" --override-tile-executor-num="override-to-tiles-per-batch-mode=apply" %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 module @OverrideToTilesPerBatchForNonBatchedCase {
     config.Resources 4 of @NCE at 1.700000e+03 MHz

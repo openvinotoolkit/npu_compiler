@@ -306,7 +306,8 @@ def VPU_PPEMode :
                 I64EnumAttrCase<"SIN",     28>,
                 I64EnumAttrCase<"COS",     29>,
                 I64EnumAttrCase<"SWISH",   30>,
-                I64EnumAttrCase<"GELU",    31>
+                I64EnumAttrCase<"GELU",    31>,
+                I64EnumAttrCase<"HSWISH",  32>
             ]
         > {
 }

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --mlir-print-elementsattrs-with-hex-if-larger=512 --init-compiler="vpu-arch=%arch% enable-adaptive-stripping=true" --handle-u16-fake-quantize %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 
 // CHECK-LABEL: func.func @RemoveFQU16
@@ -140,9 +140,10 @@ func.func @ApplyTwoU16FQToConstMultipleUses(%arg0: tensor<1x512x128x128xf32>) ->
 func.func @ReplaceDoubleFQU16WithReLU(%arg0: tensor<1x512x51x39xf32>, %arg1: tensor<512x512x3x3xf32>) -> tensor<1x512x25x19xf32> {
     %cst = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
     %cst_0 = const.Declare tensor<1x1x1x1xf32> = dense<12.7559032> : tensor<1x1x1x1xf32>
+    %cst_1 = const.Declare tensor<1x1x1x1xf32> = dense<5.000000> : tensor<1x1x1x1xf32>
 
     %0 = IE.FakeQuantize(%arg0, %cst, %cst_0, %cst, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x512x51x39xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x512x51x39xf32>
-    %1 = IE.FakeQuantize(%0, %cst, %cst_0, %cst, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x512x51x39xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x512x51x39xf32>
+    %1 = IE.FakeQuantize(%0, %cst, %cst_1, %cst, %cst_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x512x51x39xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x512x51x39xf32>
     %conv = IE.Convolution(%1, %arg1) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [2, 2]} : tensor<1x512x51x39xf32>, tensor<512x512x3x3xf32> -> tensor<1x512x25x19xf32>
     return %conv : tensor<1x512x25x19xf32>
 
@@ -257,4 +258,86 @@ func.func @RemoveFQU16WithOutputMatmul(%arg0: tensor<1x512x51x39xf32>) -> tensor
     // CHECK:    [[CST:%.+]] = const.Declare tensor<51x512x39x5xf32> = dense<1.000000e+00> : tensor<51x512x39x5xf32>
     // CHECK:    [[MATMUL:%.+]] = IE.MatMul([[ARG0]], [[CST]]) : tensor<1x512x51x39xf32>, tensor<51x512x39x5xf32> -> tensor<51x512x51x5xf32>
     // CHECK:    return [[MATMUL]] : tensor<51x512x51x5xf32>
+}
+
+// -----
+
+// CHECK: !qElemType = !quant.uniform<u16:f32, 7.6295109483482109E-5:39321>
+
+// CHECK-LABEL: @ConvertU16FQConvertToU16ToQuantize
+// CHECK:   [[ARG0:%.+]]: tensor<1x1x64x3072xf32>
+func.func @ConvertU16FQConvertToU16ToQuantize(%arg0: tensor<1x1x64x3072xf32>) -> (tensor<1x1x64x3072xf32>, tensor<1x1x64x3072xui16>) {
+    %fq_in_low_cst = const.Declare tensor<1x1x1x1xf32> = dense<-3.000000e+00> : tensor<1x1x1x1xf32> isSplat
+    %fq_in_high_cst = const.Declare tensor<1x1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1x1xf32> isSplat
+    %fq_out_low_cst = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32> isSplat
+    %fq_out_high_cst = const.Declare tensor<1x1x1x1xf32> = dense<65535.000000e+00> : tensor<1x1x1x1xf32> isSplat
+    %mul_cst = const.Declare tensor<1x1x1x1xf32> = dense<5.000000e+00> : tensor<1x1x1x1xf32> isSplat
+    %fq = IE.FakeQuantize(%arg0, %fq_in_low_cst, %fq_in_high_cst, %fq_out_low_cst, %fq_out_high_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x1x64x3072xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x64x3072xf32>
+    %cvt = IE.Convert(%fq) {dstElemType = ui16} : tensor<1x1x64x3072xf32> -> tensor<1x1x64x3072xui16>
+    %mul = IE.Multiply(%fq, %mul_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x64x3072xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x64x3072xf32>
+
+    return %mul, %cvt : tensor<1x1x64x3072xf32>, tensor<1x1x64x3072xui16>
+
+    // CHECK: [[MUL1_CST:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<5.000000e+00> : tensor<1x1x1x1xf32>
+    // CHECK: [[MUL0_CST:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<1.310700e+04> : tensor<1x1x1x1xf32>
+    // CHECK: [[ADD_CST:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<3.932100e+04> : tensor<1x1x1x1xf32>
+    // CHECK: [[MUL0:%.+]] = IE.Multiply([[ARG0]], [[MUL0_CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x64x3072xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x64x3072xf32>
+    // CHECK: [[ADD:%.+]] = IE.Add([[MUL0]], [[ADD_CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x64x3072xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x64x3072xf32> 
+    // CHECK: [[QUANT:%.+]] = IE.Quantize([[ARG0]]) {dstElemType = !qElemType} : tensor<1x1x64x3072xf32> -> tensor<1x1x64x3072x!qElemType>
+    // CHECK: [[QCAST:%.+]] = IE.QuantizeCast([[QUANT]]) {dstElemType = ui16} : tensor<1x1x64x3072x!qElemType> -> tensor<1x1x64x3072xui16>
+    // CHECK: [[MUL1:%.+]] = IE.Multiply([[ADD]], [[MUL1_CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x64x3072xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x64x3072xf32>
+    // CHECK: return [[MUL1]], [[QCAST]] : tensor<1x1x64x3072xf32>, tensor<1x1x64x3072xui16>
+}
+
+// -----
+
+// CHECK-LABEL: @DoNotConvertU8FQConvertToU16ToQuantize
+// CHECK:   [[ARG0:%.+]]: tensor<1x1x64x3072xf32>
+func.func @DoNotConvertU8FQConvertToU16ToQuantize(%arg0: tensor<1x1x64x3072xf32>) -> (tensor<1x1x64x3072xf32>, tensor<1x1x64x3072xui16>) {
+    %fq_in_low_cst = const.Declare tensor<1x1x1x1xf32> = dense<-3.000000e+00> : tensor<1x1x1x1xf32> isSplat
+    %fq_in_high_cst = const.Declare tensor<1x1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1x1xf32> isSplat
+    %fq_out_low_cst = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32> isSplat
+    %fq_out_high_cst = const.Declare tensor<1x1x1x1xf32> = dense<256.000000e+00> : tensor<1x1x1x1xf32> isSplat
+    %mul_cst = const.Declare tensor<1x1x1x1xf32> = dense<5.000000e+00> : tensor<1x1x1x1xf32> isSplat
+    %fq = IE.FakeQuantize(%arg0, %fq_in_low_cst, %fq_in_high_cst, %fq_out_low_cst, %fq_out_high_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x1x64x3072xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x64x3072xf32>
+    %cvt = IE.Convert(%fq) {dstElemType = ui16} : tensor<1x1x64x3072xf32> -> tensor<1x1x64x3072xui16>
+    %mul = IE.Multiply(%fq, %mul_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x64x3072xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x64x3072xf32>
+
+    return %mul, %cvt : tensor<1x1x64x3072xf32>, tensor<1x1x64x3072xui16>
+
+    // CHECK: [[FQ_IN_LOW_CST:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<-3.000000e+00> : tensor<1x1x1x1xf32>
+    // CHECK: [[FQ_IN_HIGH_CST:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1x1xf32>
+    // CHECK: [[FQ_OUT_LOW_CST:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
+    // CHECK: [[FQ_OUT_HIGH_CST:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<2.560000e+02> : tensor<1x1x1x1xf32>
+    // CHECK: [[MUL1_CST:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<5.000000e+00> : tensor<1x1x1x1xf32>
+    // CHECK: [[FQ:%.+]] = IE.FakeQuantize([[ARG0]], [[FQ_IN_LOW_CST]], [[FQ_IN_HIGH_CST]], [[FQ_OUT_LOW_CST]], [[FQ_OUT_HIGH_CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x1x64x3072xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x64x3072xf32>
+    // CHECK: [[CVT:%.+]] = IE.Convert([[FQ]]) {dstElemType = ui16} : tensor<1x1x64x3072xf32> -> tensor<1x1x64x3072xui16>
+    // CHECK: [[MUL1:%.+]] = IE.Multiply([[FQ]], [[MUL1_CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x64x3072xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x64x3072xf32>
+    // CHECK: return [[MUL1]], [[CVT]] : tensor<1x1x64x3072xf32>, tensor<1x1x64x3072xui16>
+}
+
+// -----
+
+// CHECK-LABEL: @DoNotConvertU16FQConvertToU8ToQuantize
+// CHECK:   [[ARG0:%.+]]: tensor<1x1x64x3072xf32>
+func.func @DoNotConvertU16FQConvertToU8ToQuantize(%arg0: tensor<1x1x64x3072xf32>) -> (tensor<1x1x64x3072xf32>, tensor<1x1x64x3072xui8>) {
+    %fq_in_low_cst = const.Declare tensor<1x1x1x1xf32> = dense<-3.000000e+00> : tensor<1x1x1x1xf32> isSplat
+    %fq_in_high_cst = const.Declare tensor<1x1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1x1xf32> isSplat
+    %fq_out_low_cst = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32> isSplat
+    %fq_out_high_cst = const.Declare tensor<1x1x1x1xf32> = dense<65535.000000e+00> : tensor<1x1x1x1xf32> isSplat
+    %mul_cst = const.Declare tensor<1x1x1x1xf32> = dense<5.000000e+00> : tensor<1x1x1x1xf32> isSplat
+    %fq = IE.FakeQuantize(%arg0, %fq_in_low_cst, %fq_in_high_cst, %fq_out_low_cst, %fq_out_high_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x1x64x3072xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x64x3072xf32>
+    %cvt = IE.Convert(%fq) {dstElemType = ui8} : tensor<1x1x64x3072xf32> -> tensor<1x1x64x3072xui8>
+    %mul = IE.Multiply(%fq, %mul_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x64x3072xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x64x3072xf32>
+
+    return %mul, %cvt : tensor<1x1x64x3072xf32>, tensor<1x1x64x3072xui8>
+
+    // CHECK: [[MUL1_CST:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<5.000000e+00> : tensor<1x1x1x1xf32>
+    // CHECK: [[MUL0_CST:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<1.310700e+04> : tensor<1x1x1x1xf32>
+    // CHECK: [[ADD_CST:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<3.932100e+04> : tensor<1x1x1x1xf32>
+    // CHECK: [[MUL0:%.+]] = IE.Multiply([[ARG0]], [[MUL0_CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x64x3072xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x64x3072xf32>
+    // CHECK: [[ADD:%.+]] = IE.Add([[MUL0]], [[ADD_CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x64x3072xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x64x3072xf32> 
+    // CHECK: [[CVT:%.+]] = IE.Convert([[ADD]]) {dstElemType = ui8} : tensor<1x1x64x3072xf32> -> tensor<1x1x64x3072xui8>
+    // CHECK: [[MUL1:%.+]] = IE.Multiply([[ADD]], [[MUL1_CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x64x3072xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x64x3072xf32>
+    // CHECK: return [[MUL1]], [[CVT]] : tensor<1x1x64x3072xf32>, tensor<1x1x64x3072xui8>
 }

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 func.func @FuseFQ(%arg0: tensor<1x3x16x16xf16>) -> tensor<1x3x16x16xf16> {
     %input_low = const.Declare tensor<f32> = dense<0.0> : tensor<f32>

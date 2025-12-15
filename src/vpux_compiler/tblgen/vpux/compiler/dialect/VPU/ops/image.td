@@ -11,7 +11,7 @@ include "vpux/compiler/dialect/VPU/attributes.td"
 include "vpux/compiler/dialect/VPU/ops_interfaces.td"
 include "vpux/compiler/dialect/VPU/types.td"
 
-include "mlir/Dialect/Quant/QuantOpsBase.td"
+include "mlir/Dialect/Quant/IR/QuantBase.td"
 
 
 def VPU_DeformablePSROIPoolingOp :
@@ -44,27 +44,34 @@ def VPU_DeformablePSROIPoolingOp :
 def VPU_ExperimentalDetectronROIFeatureExtractorOp :
         VPU_LayerOp<
             "ExperimentalDetectronROIFeatureExtractor", [
-               DeclareOpInterfaceMethods<VPU_AuxiliaryBufferOpInterface>,
-               AttrSizedOperandSegments
+                DeclareOpInterfaceMethods<VPU_AuxiliaryBufferOpInterface>
             ]
         > {
     let summary = "ExperimentalDetectronROIFeatureExtractor VPU layer";
 
     let arguments = (ins
         Variadic<AnyRankedTensor>:$inputs,
-        Optional<1DTensorOf<[F16, F32]>>:$reorderedRois,
-        Optional<1DTensorOf<[UI32]>>:$originalRoiMap,
-        Optional<1DTensorOf<[F16, F32]>>:$outputRoisFeaturesTemp,
-        Optional<1DTensorOf<[UI32]>>:$levels,
+        1DTensorOf<[F16, F32]>:$reorderedRois,
+        1DTensorOf<[UI32]>:$originalRoiMap,
+        1DTensorOf<[F16, F32]>:$outputRoisFeaturesTemp,
+        1DTensorOf<[UI32]>:$levels,
 
         IE_ExperimentalDetectronROIFeatureExtractorAttr:$attr
-
    );
 
     let results = (outs
         RankedTensorOf<[F16, F32]>:$output,
         RankedTensorOf<[F16, F32]>:$outputROIs
     );
+
+    let builders = [
+        OpBuilder<(ins
+            "mlir::ValueRange":$inputs,
+            "IE::ExperimentalDetectronROIFeatureExtractorAttr":$attr
+        )>
+    ];
+
+    let hasVerifier = 1;
 }
 
 
@@ -110,6 +117,7 @@ def VPU_GridSampleOp :
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
     }] # baseExtraClassDeclaration;
 
+    let checkInferredMemSpace = 0;
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 }
 

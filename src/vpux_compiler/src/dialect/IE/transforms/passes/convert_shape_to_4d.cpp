@@ -1248,7 +1248,7 @@ mlir::LogicalResult RMSOpConverter::matchAndRewrite(IE::RMSOp origOp, OpAdaptor,
                                                                 nullptr, false, newInShapeAttr);
     const auto gammaReshape = rewriter.createOrFold<IE::ReshapeOp>(
             takeOpLoc(origOp, "reshape_gamma"), origOp.getGamma(), nullptr, false, newGammaShapeAttr);
-    auto newRMSOp = rewriter.create<IE::RMSOp>(origOp->getLoc(), inReshape, gammaReshape, origOp.getEpsilonAttr());
+    auto newRMSOp = rewriter.create<IE::RMSOp>(origOp->getLoc(), inReshape, gammaReshape, origOp.getEpsAttr());
     auto outReshape =
             rewriter.replaceOpWithNewOp<IE::ReshapeOp>(origOp, newRMSOp.getOutput(), nullptr, false, outShapeAttr);
     extendOpLoc(outReshape, "reshape_out");
@@ -3604,6 +3604,18 @@ void ConvertShapeTo4DPass::safeRunOnFunc() {
         return typeConverter.isLegal(op);
     };
 
+    const auto isLegalPReluOp = [&](IE::PReluOp op) {
+        if (IE::hasDynamicTensors(op)) {
+            auto inputType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType());
+            auto inputShape = inputType.getShape();
+            if (inputShape.size() < 4) {
+                return typeConverter.isLegal(op);
+            }
+            return true;
+        }
+        return typeConverter.isLegal(op);
+    };
+
     // TODO: E#-171827 Ideally we want to use `isLegalOp` also for quantized ops, but for now we don't modify per-tensor
     // quant ops, only per-axis.
     const auto isLegalQuantOp = [&](mlir::Operation* op) {
@@ -3896,7 +3908,7 @@ void ConvertShapeTo4DPass::safeRunOnFunc() {
     target.addDynamicallyLegalOp<IE::LogOp>(isLegalOp);
     target.addDynamicallyLegalOp<IE::AcosOp>(isLegalOp);
     target.addDynamicallyLegalOp<IE::RoundOp>(isLegalOp);
-    target.addDynamicallyLegalOp<IE::PReluOp>(isLegalOp);
+    target.addDynamicallyLegalOp<IE::PReluOp>(isLegalPReluOp);
     target.addDynamicallyLegalOp<IE::LeakyReluOp>(isLegalOp);
     target.addDynamicallyLegalOp<IE::AddOp>(isLegalEltwiseOp);
     target.addDynamicallyLegalOp<IE::MultiplyOp>(isLegalEltwiseOp);
@@ -3926,6 +3938,7 @@ void ConvertShapeTo4DPass::safeRunOnFunc() {
     target.addDynamicallyLegalOp<IE::ReduceMinOp>(isLegalReduceOp<IE::ReduceMinOp>);
     target.addDynamicallyLegalOp<IE::ReduceProdOp>(isLegalReduceOp<IE::ReduceProdOp>);
     target.addDynamicallyLegalOp<IE::ReduceSumOp>(isLegalReduceOp<IE::ReduceSumOp>);
+    target.addDynamicallyLegalOp<IE::ReduceMeanSquareOp>(isLegalReduceOp<IE::ReduceMeanSquareOp>);
     target.addDynamicallyLegalOp<IE::TileOp>(isLegalTileOp);
     target.addDynamicallyLegalOp<IE::LSTMGatesOp>(is4DLegalOp);
     target.addDynamicallyLegalOp<IE::LSTMCellOp>(is4DLegalOp);
@@ -3945,8 +3958,8 @@ void ConvertShapeTo4DPass::safeRunOnFunc() {
     target.addDynamicallyLegalOp<IE::SplitOp>(isLegalSplitOp);
     target.addDynamicallyLegalOp<IE::RollOp>(isLegalRollOp);
     target.addDynamicallyLegalOp<IE::ReverseOp>(isLegalReverseOp);
-    target.addDynamicallyLegalOp<IE::QuantizeOp>(isLegalQuantOp);
-    target.addDynamicallyLegalOp<IE::DequantizeOp>(isLegalQuantOp);
+    target.addDynamicallyLegalOp<IE::QuantizeOp>(isLegalOp);
+    target.addDynamicallyLegalOp<IE::DequantizeOp>(isLegalOp);
     target.addDynamicallyLegalOp<IE::QuantizeCastOp>(isLegalQuantOp);
     target.addDynamicallyLegalOp<IE::NormalizeL2Op>(isLegalNormalizeL2Op);
 
@@ -4033,6 +4046,7 @@ void ConvertShapeTo4DPass::safeRunOnFunc() {
     patterns.add<ReduceConverter<IE::ReduceMinOp>>(typeConverter, &ctx, _log);
     patterns.add<ReduceConverter<IE::ReduceProdOp>>(typeConverter, &ctx, _log);
     patterns.add<ReduceConverter<IE::ReduceSumOp>>(typeConverter, &ctx, _log);
+    patterns.add<ReduceConverter<IE::ReduceMeanSquareOp>>(typeConverter, &ctx, _log);
     patterns.add<ReverseSequenceOpConverter>(typeConverter, &ctx, _log);
     patterns.add<StridedSliceConverter>(typeConverter, &ctx, _log);
     patterns.add<ConcatConverter>(typeConverter, &ctx, _log);

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values=true" --convert-VPUASM-to-NPUReg40XX %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: dev-build && arch-NPU40XX
 
 module @Test attributes {config.arch = #config.arch_kind<NPU40XX>} {
   config.ExecutorResource 1 of @M2I
@@ -46,7 +46,7 @@ module @Test attributes {config.arch = #config.arch_kind<NPU40XX>} {
 //CHECK:     NNRTCfg_stack_10 = UINT 0,
 //CHECK:     NNRTCfg_stack_11 = UINT 0,
 //CHECK:     NNRTCfg_stack_size = UINT 0,
-//CHECK:     NNRTCfg_code_window_buffer_size = UINT 0x2450,
+//CHECK:     NNRTCfg_code_window_buffer_size = UINT 0x2440,
 //CHECK:     NNRTCfg_perf_metrics_mask = UINT 0,
 //CHECK:     NNRTCfg_runtime_version = UINT 0x10009,
 //CHECK:     NNRTCfg_use_schedule_embedded_rt = UINT 1,

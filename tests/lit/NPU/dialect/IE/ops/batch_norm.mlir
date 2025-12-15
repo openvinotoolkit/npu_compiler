@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @BatchNormAttr
 func.func @BatchNormAttr(%arg0: tensor<1x3x256x256xf16>) -> tensor<1x3x256x256xf16> {

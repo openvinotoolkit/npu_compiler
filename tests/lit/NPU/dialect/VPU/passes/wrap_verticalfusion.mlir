@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --wrap-in-vertical-fusion %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -288,4 +288,19 @@ func.func @WrapSWDynamicDequantize(%arg0: tensor<1x3072x48x64x!qElemType>, %arg1
     // CHECK: VPU.VerticalFusion ([[INPUT0]] as [[INNER_ARG0:[^:]+]]: tensor<1x3072x48x64x!qElemType>, [[INPUT1]] as [[INNER_ARG1:[^:]+]]: tensor<1x3072x48x1xf16>, [[INPUT2]] as [[INNER_ARG2:[^:]+]]: tensor<1x3072x48x1xui2>) attributes {tilingStrategy = [1, 4, 1, 1]} -> tensor<1x3072x48x64xf16> {
     // CHECK: VPU.DynamicDequantize([[INNER_ARG0]], [[INNER_ARG1]], [[INNER_ARG2]]) {dstElemType = f16, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x3072x48x64x!qElemType>, tensor<1x3072x48x1xf16>, tensor<1x3072x48x1xui2> -> tensor<1x3072x48x64xf16>
     // CHECK: VPU.Yield
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+//CHECK-LABEL: @WrapRelu
+//CHECK-SAME: [[INPUT:%.+]]: tensor<1x16x448x392xf16, {order = #NHWC}>
+func.func @WrapRelu(%arg0: tensor<1x16x448x392xf16, {order = #NHWC}>) -> tensor<1x16x448x392xf16, {order = #NHWC}> {
+    %0 = VPU.ReLU(%arg0) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x448x392xf16, {order = #NHWC}> -> tensor<1x16x448x392xf16, {order = #NHWC}>
+    return %0 : tensor<1x16x448x392xf16, {order = #NHWC}>
+
+    // CHECK:  VPU.VerticalFusion ([[INPUT]] as [[INNER_ARG1:[^:]+]]: tensor<1x16x448x392xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 2, 1]} -> tensor<1x16x448x392xf16, {order = #NHWC}> {
+    // CHECK:    VPU.ReLU([[INNER_ARG1]]) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x16x448x392xf16, {order = #NHWC}> -> tensor<1x16x448x392xf16, {order = #NHWC}>
+    // CHECK:    VPU.Yield
 }

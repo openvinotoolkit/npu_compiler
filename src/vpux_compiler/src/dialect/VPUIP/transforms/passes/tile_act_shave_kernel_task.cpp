@@ -651,6 +651,13 @@ bool doesSwKernelSupportTiling(VPUIP::SwKernelOp swKernelOp, vpux::Logger log) {
                 std::find(kernelAxes.begin(), kernelAxes.begin() + numOfAxis, highestDim.ind()) != kernelAxes.end();
 
         return !isHighestDimRevAxis;
+    } else if (kernelEntryName == "reverse_sequence") {
+        const auto outputType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getResult(0).getType());
+        auto highestDim = getHighestNonTrivialDim(outputType.getShape(), outputType.getDimsOrder()).value_or(Dim(0));
+        auto taskArgs = kernelArgsRange(swKernelOp);
+        const auto seqAxis = mlir::cast<mlir::IntegerAttr>(taskArgs[1]).getInt();
+        auto isHighestDimRevAxis = seqAxis == highestDim.ind();
+        return !isHighestDimRevAxis;
     } else if (kernelEntryName == "roll") {
         // check whether the last dim will be shifted,
         // only support tile on the last dim now
@@ -1061,6 +1068,10 @@ bool SwKernelRewriterBase::needInsertSubviewOnly(VPUIP::SwKernelOp swKernelOp) c
 
     if (kernelEntryName == "topk") {
         return isTopKOpTileAtHighestDim(swKernelOp);
+    }
+
+    if (kernelEntryName == "flash_sdpa") {
+        return true;
     }
 
     // E-184947 Inserting SubviewOnly in legal cases, produces accuracy issues
@@ -1875,7 +1886,10 @@ mlir::FailureOr<VPUIP::ShapeCastOp> ClusterSwKernelRewriter::getSWKernelWithFuse
                     VPUIP::DistributedBufferType::get(ctx, fuseNewShapeArray, outType.getElementType(),
                                                       mlir::AffineMapAttr::get(outType.getDimsOrder().toAffineMap(ctx)),
                                                       outType.getMemSpace(), newDistribution);
-            if (!isShapeCastCorrect(newShapeCastOutType, newPerClusterShapes, newPerClusterOffsets)) {
+            if (!isShapeCastCorrect(newShapeCastOutType, newPerClusterShapes, newPerClusterOffsets) ||
+                !VPUIP::isDistributedCompatibleAfterShapeChangeForViewOps(newShapeCastOutType, outShape,
+                                                                          newShapeCastOutType.getDimsOrder(),
+                                                                          config::getArch(swKernelOp))) {
                 return mlir::failure();
             }
             inShapeCastOp = rewriter.create<VPUIP::ShapeCastOp>(swKernelOp->getLoc(), swKernelOp.getOperand(inputInd),
@@ -2943,7 +2957,7 @@ void TileActShaveKernelTaskPass::safeRunOnFunc() {
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<SwKernelRewriter>(&ctx, shaveActCount, _log);
     patterns.add<ClusterSwKernelRewriter>(&ctx, shaveActCount, _log);
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

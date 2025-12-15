@@ -9,14 +9,13 @@
 namespace ov {
 namespace test {
 
-class TopKLayerTestCommon : virtual public TopKLayerTest, virtual public VpuOv2LayerTest {};
-class TopK11LayerTestCommon : public TopK11LayerTest, virtual public VpuOv2LayerTest {};
-class TopKDDRLayerTestCommon : public TopK11LayerTest, virtual public VpuOv2LayerTest {};
-class TopKLayerTest_SW_FP32 : public TopKLayerTestCommon {
+class TopKLayerTestCommon : virtual public TopKLayerTest, virtual public VpuOv2LayerTest {
     void configure_model() override {
         configuration[ov::intel_npu::compilation_mode_params.name()] = "convert-precision-to-fp16=false";
     }
 };
+class TopK11LayerTestCommon : public TopK11LayerTest, virtual public VpuOv2LayerTest {};
+class TopKDDRLayerTestCommon : public TopK11LayerTest, virtual public VpuOv2LayerTest {};
 
 TEST_P(TopKLayerTestCommon, NPU3720_HW) {
     setDefaultHardwareMode();
@@ -33,16 +32,6 @@ TEST_P(TopKDDRLayerTestCommon, NPU4000_SW) {
     run(Platform::NPU4000);
 }
 
-TEST_P(TopKLayerTest_SW_FP32, NPU3720_SW) {
-    setReferenceSoftwareMode();
-    run(Platform::NPU3720);
-}
-
-TEST_P(TopKLayerTest_SW_FP32, NPU4000_SW) {
-    setReferenceSoftwareMode();
-    run(Platform::NPU4000);
-}
-
 TEST_P(TopK11LayerTestCommon, NPU3720_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU3720);
@@ -51,6 +40,15 @@ TEST_P(TopK11LayerTestCommon, NPU3720_HW) {
 TEST_P(TopK11LayerTestCommon, NPU4000_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU4000);
+}
+TEST_P(TopKLayerTestCommon, NPU5010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(TopK11LayerTestCommon, NPU5010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
 }
 class TopK1LayerTest : public TopKLayerTest, virtual public VpuOv2LayerTest {
     void SetUp() override {
@@ -86,7 +84,6 @@ TEST_P(TopK1LayerTest, NPU3720_HW) {
 using ov::test::TopK11LayerTestCommon;
 using ov::test::TopK1LayerTest;
 using ov::test::TopKDDRLayerTestCommon;
-using ov::test::TopKLayerTest_SW_FP32;
 using ov::test::TopKLayerTestCommon;
 
 namespace {
@@ -127,8 +124,8 @@ const auto paramsConfigPrecommitFP32 = ::testing::Combine(
                 ov::test::static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{5, 5, 5}}}))),
         ::testing::Values(test_utils::TARGET_DEVICE));
 
-INSTANTIATE_TEST_SUITE_P(smoke_precommit_TopK_FP32, TopKLayerTest_SW_FP32, paramsConfigPrecommitFP32,
-                         TopKLayerTest_SW_FP32::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_TopK_FP32, TopKLayerTestCommon, paramsConfigPrecommitFP32,
+                         TopKLayerTestCommon::getTestCaseName);
 
 // Tiling tests
 const std::vector<int64_t> k_Tilling = {1};
@@ -196,6 +193,26 @@ INSTANTIATE_TEST_SUITE_P(smoke_TopK11, TopK11LayerTestCommon,
                                             ::testing::Values(ov::element::f16),
                                             ::testing::Values(ov::test::static_shapes_to_test_representation(
                                                     std::vector<ov::Shape>({{{10, 10, 10}}}))),
+                                            ::testing::Values(true), ::testing::Values(test_utils::TARGET_DEVICE)),
+                         TopK11LayerTestCommon::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_TopK11_K1, TopK11LayerTestCommon,
+                         ::testing::Combine(::testing::Values(1), ::testing::Values(2),
+                                            ::testing::Values(ov::op::v3::TopK::Mode::MAX),
+                                            ::testing::Values(ov::op::v3::TopK::SortType::SORT_VALUES),
+                                            ::testing::Values(ov::element::f16),
+                                            ::testing::Values(ov::test::static_shapes_to_test_representation(
+                                                    std::vector<ov::Shape>({{{1, 300, 8}}}))),
+                                            ::testing::Values(true), ::testing::Values(test_utils::TARGET_DEVICE)),
+                         TopK11LayerTestCommon::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_TopK11_K300, TopK11LayerTestCommon,
+                         ::testing::Combine(::testing::Values(300), ::testing::Values(1),
+                                            ::testing::Values(ov::op::v3::TopK::Mode::MAX),
+                                            ::testing::Values(ov::op::v3::TopK::SortType::SORT_VALUES),
+                                            ::testing::Values(ov::element::f16),
+                                            ::testing::Values(ov::test::static_shapes_to_test_representation(
+                                                    std::vector<ov::Shape>({{{1, 3600}}}))),
                                             ::testing::Values(true), ::testing::Values(test_utils::TARGET_DEVICE)),
                          TopK11LayerTestCommon::getTestCaseName);
 

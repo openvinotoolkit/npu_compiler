@@ -59,13 +59,28 @@ void CheckWlmPageSplitConstraintsPass::safeRunOnFunc() {
     auto& barrierInfo = getAnalysis<BarrierInfo>();
     VPUX_THROW_UNLESS(barrierInfo.verifyControlGraphSplit(), "Encountered split of control graph is incorrect");
 
-    VPURT::BarrierPagesSplitHandler barrierPagesSplitHandler(barrierInfo, numBarriers, _log);
+    VPURT::BarrierPagesSplitHandler barrierPagesSplitHandler(func, barrierInfo, numBarriers, _log);
     barrierPagesSplitHandler.initializeForVerification(func);
     barrierPagesSplitHandler.verifyTaskBarrierPagesAreValid();
     barrierPagesSplitHandler.verifyNoCyclicDeps();
     VPUX_THROW_UNLESS(barrierPagesSplitHandler.isSplitToPagesValid(), "Split to pages is not valid");
 
     barrierPagesSplitHandler.verifyPhysicalBarsDependencies();
+
+    if (_workloadManagementMode.value() == WorkloadManagementMode::FWLM_V1_PAGES) {
+        barrierPagesSplitHandler.verifyBarProgDmaDependencies(func);
+        barrierPagesSplitHandler.verifyEnqueueDmas(func);
+        barrierPagesSplitHandler.verifyEnqueueOfDmas(func);
+
+        // Once we have enqueues inserted, check if FetchTasks have all required dependencies
+        auto& execGroupAnalysis = getAnalysis<ExecutionGroupAnalysis>();
+        auto dpuGroups = execGroupAnalysis.getDPUExecutionGroups();
+        auto swGroups = execGroupAnalysis.getActShvExecutionGroups();
+        VPUX_THROW_WHEN(!barrierPagesSplitHandler.verifyFetchDmaDependencies(func, dpuGroups),
+                        "Unsafe dependencies for Fetch DMA around DPUs");
+        VPUX_THROW_WHEN(!barrierPagesSplitHandler.verifyFetchDmaDependencies(func, swGroups),
+                        "Unsafe dependencies for Fetch DMA around SHVs");
+    }
 
     barrierInfo.clearAttributes();
 }

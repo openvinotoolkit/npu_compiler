@@ -144,6 +144,8 @@ def VPU_GRUSequenceOp :
     let extraClassDeclaration = [{
         OutputTiling getOutputTiling(const vpux::TileInfo& outputTile, vpux::Logger log);
     }] # baseExtraClassDeclaration;
+
+    let checkInferredMemSpace = 0;
 }
 
 
@@ -198,6 +200,8 @@ def VPU_GRUSequenceLastPartOp :
     let extraClassDeclaration = [{
         OutputTiling getOutputTiling(const vpux::TileInfo& outputTile, vpux::Logger log);
     }] # baseExtraClassDeclaration;
+
+    let checkInferredMemSpace = 0;
 }
 
 

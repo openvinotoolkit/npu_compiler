@@ -103,7 +103,7 @@ void SatisfyOneWaitBarrierPerTaskPass::safeRunOnFunc() {
     barrierInfo.clearAttributes();
     VPURT::postProcessBarrierOps(func);
     if (!_workloadManagementMode.has_value() ||
-        _workloadManagementMode.value() <= WorkloadManagementMode::PWLM_V2_PAGES) {
+        _workloadManagementMode.value() < WorkloadManagementMode::FWLM_V1_PAGES) {
         VPUX_THROW_UNLESS(VPURT::verifyBarrierSlots(func, _log), "Barrier slot count check failed");
     }
     auto hasOneWaitBarrierPerTask = VPURT::verifyOneWaitBarrierPerTask(func, _log);

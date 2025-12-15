@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
+#include "vpux/compiler/dialect/IE/utils/permute_quantize_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/attributes_utils.hpp"
@@ -306,6 +307,67 @@ bool MoveTransposeAffineReshapeThroughAdd::isBeneficialConversion(IE::AddOp orig
                  |
     */
     if (mlir::isa<Const::DeclareOp>(nonAffineReshapeInput)) {
+        return true;
+    }
+
+    /*
+        For the Asymmetry case like below:
+              NCEOp
+                |
+            Transpose     Operand
+                |            |
+          AffineReshape   Convert
+                \          /
+                    Add
+                     |
+                  Softmax
+                     |
+
+            will be converted into:
+
+              NCEOp     Operand
+                |          |
+                |       Convert
+                |          |
+                |    AffineReshape
+                |          |
+                |      Transpose(will convert to PermuteCast)
+                 \       /
+                    Add
+                     |
+                  Softmax
+                     |
+                AffineReshape
+                     |
+                 Transpose
+                     |
+
+        Another input's transpose can be replaced by PermuteCast
+        After the conversion, the Convolution, Add, SoftMax ir reorders will be changed, all NCEOps will in parallel
+        with SoftMax, this will benefit SDPA case.
+    */
+
+    auto checkAsymmetricPatternWithDirectSoftMax = [&]() -> bool {
+        auto childOp = *origOp.getOutput().user_begin();
+        auto softmaxOp = mlir::dyn_cast<IE::SoftMaxOp>(childOp);
+        if (softmaxOp == nullptr) {
+            return false;
+        }
+
+        mlir::Value nonAffineReshapeInputValue =
+                affineReshapeInputOp == origOp.getInput1().getDefiningOp() ? origOp.getInput2() : origOp.getInput1();
+
+        auto checkOnlyTwoNonUnitDims = [](mlir::Value input) -> bool {
+            auto inputShape = getShape(input);
+            return std::count_if(inputShape.begin(), inputShape.end(), [](int64_t dim) {
+                       return dim != 1;
+                   }) == 2;
+        };
+
+        return checkOnlyTwoNonUnitDims(nonAffineReshapeInputValue);
+    };
+
+    if (checkAsymmetricPatternWithDirectSoftMax()) {
         return true;
     }
 

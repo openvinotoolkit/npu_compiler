@@ -5,7 +5,6 @@
 
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/interfaces/workload_splitter.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/nce_workload_channels.hpp"

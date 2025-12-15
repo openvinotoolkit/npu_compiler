@@ -13,8 +13,8 @@ namespace vpumi40xx2vpuasm {
 namespace {
 
 template <typename Type>
-std::optional<mlir::LogicalResult> doNotConvert(Type, llvm::SmallVectorImpl<mlir::Type>& results) {
-    results.clear();
+std::optional<mlir::LogicalResult> doNotConvert(Type type, llvm::SmallVectorImpl<mlir::Type>& results) {
+    results.push_back(type);
     return mlir::success();
 }
 

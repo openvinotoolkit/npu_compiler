@@ -21,6 +21,7 @@ list (APPEND SOURCES
             type/float8_e5m2.cpp
             type/float16.cpp
             type/bfloat16.cpp
+            type/float4_e2m1.cpp
 )
 
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})

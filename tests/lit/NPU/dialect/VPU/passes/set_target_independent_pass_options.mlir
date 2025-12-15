@@ -4,11 +4,11 @@
 //
 
 // RUN: vpux-opt --vpu-arch=%arch% --split-input-file --set-target-independent-options="enable-auto-padding-odu enable-auto-padding-idu" %s | FileCheck --check-prefix=CHECK-PAD %s --strict-whitespace
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 // RUN: vpux-opt --vpu-arch=%arch% --split-input-file --set-target-independent-options="enable-is-reduce-supported " %s | FileCheck --check-prefix=CHECK-REDUCE %s --strict-whitespace
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 // RUN: vpux-opt --vpu-arch=%arch% --split-input-file --set-target-independent-options="allow-custom-values=true" %s | FileCheck --check-prefix=CHECK-CUSTOM %s --strict-whitespace
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 module @mainModule attributes {} {
 }

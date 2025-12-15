@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/unroll_dma_analysis.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
@@ -35,7 +36,6 @@ private:
 };
 
 void UnrollSpaceToDepthDMAPass::safeRunOnFunc() {
-    auto& ctx = getContext();
     auto func = getOperation();
     markAnalysesPreserved<VPUIP::UnrollDMAAnalysis>();
     auto analysis = getAnalysis<VPUIP::UnrollDMAAnalysis>();
@@ -43,13 +43,12 @@ void UnrollSpaceToDepthDMAPass::safeRunOnFunc() {
         return;
     }
 
-    mlir::RewritePatternSet patterns(&ctx);
+    llvm::SmallVector<mlir::RewritePatternSet> patternSets;
     auto unrollStrategy = VPUIP::createUnrollSpaceToDepthDMAStrategy(func);
-    unrollStrategy->addPatterns(patterns, _log);
+    unrollStrategy->addPatterns(patternSets, _log);
 
-    if (mlir::failed(
-                mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), vpux::getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
+    for (auto& patternSet : patternSets) {
+        collectOpsAndApplyPatterns(func, std::move(patternSet));
     }
 }
 

@@ -33,7 +33,7 @@ def VPU_Dialect : Dialect {
         "vpux::net::NetDialect",
         "vpux::IE::IEDialect",
         "mlir::func::FuncDialect",
-        "mlir::quant::QuantizationDialect",
+        "mlir::quant::QuantDialect",
         "mlir::scf::SCFDialect"
     ];
 

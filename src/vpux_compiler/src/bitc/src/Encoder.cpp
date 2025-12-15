@@ -110,8 +110,16 @@ void Encoder::Impl::verify_config(const BitCompactorConfig& config) {
         if (config.mode_fp16_enable) {
             throw std::logic_error{"FP16 is not supported when using NPU27"};
         }
+        if (config.sparse_mode_enable) {
+            throw std::logic_error{"NPU27 doesn't support sparse mode"};
+        }
         if (!config.weight_compress_enable) {
             throw std::logic_error{"NPU27 doesn't support activation compression"};
+        }
+    }
+    if (config.arch_type == ArchType::NPU4) {
+        if (config.sparse_mode_enable) {
+            throw std::logic_error{"NPU4 doesn't suport sparse mode"};
         }
     }
 }
@@ -742,6 +750,9 @@ void Encoder::Impl::pack_sparse_data(const BitCompactorConfig& config) {
 void Encoder::Impl::encode(const BitCompactorConfig& config, const std::vector<uint8_t>& in,
                            std::vector<uint8_t>& out) {
     init(config, in);
+    if (config.sparse_mode_enable) {
+        pack_sparse_data(config);
+    }
     if (config.bypass_compression) {
         out.resize(bit_stream_in_.source_stream_length());
         memcpy(out.data(), bit_stream_in_.get_byte_pointer(0), bit_stream_in_.source_stream_length());

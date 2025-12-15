@@ -14,7 +14,7 @@
 
 #include <llvm/ADT/TypeSwitch.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinDialect.h>
 #include <mlir/IR/DialectImplementation.h>

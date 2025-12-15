@@ -77,6 +77,11 @@ TEST_P(MergeDequantChainTestCommon, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
+TEST_P(MergeDequantChainTestCommon, NPU5010_HW) {
+    rel_threshold = 0.5f;
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
 }  // namespace ov::test::subgraph
 
 using namespace ov::test::subgraph;

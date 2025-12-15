@@ -7,6 +7,7 @@
 #include "vpux/compiler/NPU37XX/dialect/NPUReg37XX/ops.hpp"
 #include "vpux/compiler/NPU40XX/dialect/ELF/dialect.hpp"
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/dialect.hpp"
+#include "vpux/compiler/NPU50XX/dialect/NPUReg50XX/dialect.hpp"
 #include "vpux/compiler/conversion/passes/VPU2VPUIP/bufferizable_ops_interface.hpp"
 #include "vpux/compiler/core/types/quantile_float/dialect.hpp"
 #include "vpux/compiler/core/types/quantile_float/types.hpp"
@@ -42,22 +43,21 @@
 #include <mlir/Dialect/Linalg/IR/Linalg.h>
 #include <mlir/Dialect/Math/IR/Math.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
-#include <mlir/Dialect/Quant/QuantOps.h>
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/Quant.h>
+
 #include <mlir/Dialect/SCF/IR/SCF.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/IR/BuiltinDialect.h>
 #include <mlir/IR/BuiltinTypes.h>
-#include <mlir/Transforms/BufferizationUtils.h>
 
 #include <mlir/Conversion/ConvertToLLVM/ToLLVMPass.h>
 #include <mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h>
 #include <mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h>
 
 #include <mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h>
+#include <mlir/Dialect/LLVMIR/Transforms/InlinerInterfaceImpl.h>
 #include <mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h>
 #include <mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h>
-#include <mlir/Transforms/BufferizationUtils.h>
 
 using namespace vpux;
 
@@ -68,15 +68,6 @@ using namespace vpux;
 namespace {
 
 class MemRefElementTypeModel final : public mlir::MemRefElementTypeInterface::FallbackModel<MemRefElementTypeModel> {};
-
-struct CustomBuiltinBufferizerInterface : mlir::DialectBufferizerInterface {
-    using mlir::DialectBufferizerInterface::DialectBufferizerInterface;
-
-    mlir::Type getTensorTypeFromMemRefType(mlir::Type type) const final {
-        // ensures encoding is correct in the builtin ranked tensor
-        return reconstructTensorType(type);
-    }
-};
 
 void registerDialects(mlir::DialectRegistry& registry) {
     registry.insert<vpux::Const::ConstDialect,                //
@@ -96,21 +87,22 @@ void registerDialects(mlir::DialectRegistry& registry) {
                     vpux::HostExec::HostExecDialect,          //
                     vpux::NPUReg37XX::NPUReg37XXDialect,      //
                     vpux::NPUReg40XX::NPUReg40XXDialect,      //
+                    vpux::NPUReg50XX::NPUReg50XXDialect,      //
                     vpux::ELFNPU37XX::ELFNPU37XXDialect,      //
                     vpux::type::QuantileFloatDialect>();
 
-    registry.insert<mlir::func::FuncDialect,           //
-                    mlir::async::AsyncDialect,         //
-                    mlir::memref::MemRefDialect,       //
-                    mlir::quant::QuantizationDialect,  //
-                    mlir::tensor::TensorDialect,       //
-                    mlir::arith::ArithDialect,         //
-                    mlir::affine::AffineDialect,       //
-                    mlir::scf::SCFDialect,             //
-                    mlir::math::MathDialect,           //
-                    mlir::cf::ControlFlowDialect,      //
-                    mlir::LLVM::LLVMDialect,           //
-                    mlir::linalg::LinalgDialect,       //
+    registry.insert<mlir::func::FuncDialect,       //
+                    mlir::async::AsyncDialect,     //
+                    mlir::memref::MemRefDialect,   //
+                    mlir::quant::QuantDialect,     //
+                    mlir::tensor::TensorDialect,   //
+                    mlir::arith::ArithDialect,     //
+                    mlir::affine::AffineDialect,   //
+                    mlir::scf::SCFDialect,         //
+                    mlir::math::MathDialect,       //
+                    mlir::cf::ControlFlowDialect,  //
+                    mlir::LLVM::LLVMDialect,       //
+                    mlir::linalg::LinalgDialect,   //
                     mlir::index::IndexDialect>();
 }
 
@@ -120,7 +112,7 @@ mlir::DialectRegistry vpux::createDialectRegistry(DummyOpMode dummyOpMode) {
     mlir::DialectRegistry registry;
     registerDialects(registry);
 
-    registry.addExtension(+[](mlir::MLIRContext* ctx, mlir::quant::QuantizationDialect*) {
+    registry.addExtension(+[](mlir::MLIRContext* ctx, mlir::quant::QuantDialect*) {
         mlir::quant::AnyQuantizedType::attachInterface<MemRefElementTypeModel>(*ctx);
         mlir::quant::UniformQuantizedType::attachInterface<MemRefElementTypeModel>(*ctx);
         mlir::quant::UniformQuantizedPerAxisType::attachInterface<MemRefElementTypeModel>(*ctx);
@@ -144,13 +136,10 @@ mlir::DialectRegistry vpux::createDialectRegistry(DummyOpMode dummyOpMode) {
     mlir::registerConvertMemRefToLLVMInterface(registry);
     mlir::registerConvertFuncToLLVMInterface(registry);
     mlir::cf::registerConvertControlFlowToLLVMInterface(registry);
+    mlir::LLVM::registerInlinerInterface(registry);
     if (dummyOpMode == DummyOpMode::ENABLED) {
         VPUIP::VPUIPDialect::setupExtraInterfacesAdditional(registry);
     }
-
-    registry.addExtension(+[](mlir::MLIRContext*, mlir::BuiltinDialect* dialect) {
-        dialect->addInterfaces<CustomBuiltinBufferizerInterface>();
-    });
 
     return registry;
 }

@@ -7,13 +7,14 @@
 #include <vpux/compiler/utils/infer_output_shape.hpp>
 #include "vpux/compiler/core/attributes/dim.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sibling_ops_analysis.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+#include <mlir/Dialect/ControlFlow/IR/ControlFlowOps.h>
 #include "mlir/IR/Attributes.h"
 
 using namespace vpux::VPU;
@@ -63,7 +64,7 @@ mlir::OpFoldResult vpux::VPU::getDimValue(mlir::OpBuilder& builder, mlir::Operat
 }
 
 mlir::Value vpux::VPU::generateTile(mlir::Location loc, mlir::OpBuilder& builder, mlir::Value origInput,
-                                    const SCFTileInfo& inputTileInfo) {
+                                    const SCFTileInfo& inputTileInfo, SmallVector<mlir::Operation*>& generatedSlices) {
     auto origType = mlir::cast<vpux::NDTypeInterface>(origInput.getType());
 
     auto staticNewShape = mlir::getConstantIntValues(inputTileInfo.shape);
@@ -102,6 +103,8 @@ mlir::Value vpux::VPU::generateTile(mlir::Location loc, mlir::OpBuilder& builder
 
     // by default output type loses NPU-specific attributes so we have to set it manually
     extractTile->getResult(0).setType(newType);
+
+    generatedSlices.emplace_back(extractTile);
 
     return extractTile;
 }
@@ -530,11 +533,27 @@ bool AffineChainUtils::processArithOp(mlir::Operation* op, llvm::DenseMap<mlir::
             })
             .Case<mlir::arith::DivSIOp>([&](auto op) {
                 auto divOp = mlir::cast<mlir::arith::DivSIOp>(op);
-                if (divOp.getRhs() == 0) {
+                if (valueMap[divOp.getRhs()] == 0) {
                     _log.trace("Division by zero encountered in DivSIOp");
                     return false;
                 }
                 auto resultValue = valueMap[divOp.getLhs()] / valueMap[divOp.getRhs()];
+                valueMap[op->getResult(0)] = resultValue;
+                return true;
+            })
+            .Case<mlir::arith::DivUIOp>([&](auto op) {
+                auto divOp = mlir::cast<mlir::arith::DivUIOp>(op);
+                if (valueMap[divOp.getRhs()] == 0) {
+                    _log.trace("Division by zero encountered in DivUIOp");
+                    return false;
+                }
+                auto resultValue = valueMap[divOp.getLhs()] / valueMap[divOp.getRhs()];
+                valueMap[op->getResult(0)] = resultValue;
+                return true;
+            })
+            .Case<mlir::arith::MulIOp>([&](auto op) {
+                auto mulOp = mlir::cast<mlir::arith::MulIOp>(op);
+                auto resultValue = valueMap[mulOp.getLhs()] * valueMap[mulOp.getRhs()];
                 valueMap[op->getResult(0)] = resultValue;
                 return true;
             })
@@ -771,4 +790,164 @@ mlir::RankedTensorType vpux::VPU::removeBoundsAttr(mlir::RankedTensorType type) 
     const auto tensorType = vpux::getTensorType(ndType.getShape(), ndType.getElementType(), ndType.getDimsOrder(),
                                                 ndType.getMemSpace(), {}, {});
     return tensorType;
+}
+
+// Check if all operands of op are defined before 'beforeOp' and op has no side effects
+bool isSafeToMoveBefore(mlir::Operation* op, mlir::Operation* beforeOp) {
+    // Check SSA dependencies
+    for (auto operand : op->getOperands()) {
+        if (auto definingOp = operand.getDefiningOp()) {
+            if (definingOp->getBlock() != op->getBlock()) {
+                continue;
+            }
+
+            if (!definingOp->isBeforeInBlock(beforeOp)) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+/**
+ * @brief Moves affine and arithmetic operations early in the execution order within a block
+ *
+ * This function optimizes the placement of affine dialect and arithmetic dialect operations
+ * by moving them as early as possible in the block's execution order, while maintaining
+ * correctness. It also handles scf.if operations that return only index types by treating
+ * them similarly to affine/arithmetic operations.
+ *
+ * The function performs a two-phase operation:
+ * 1. Identifies all affine/arithmetic operations and scf.if operations that return only
+ *    index types as candidates for early movement
+ * 2. For each candidate operation, finds the earliest safe position in the block where
+ *    it can be moved without violating dependencies
+ *
+ * @param block The MLIR block within which to perform the optimization
+ */
+void vpux::VPU::moveAffineArithOpsEarly(mlir::Block& block) {
+    SmallVector<mlir::Operation*> affineArithOps;
+
+    // Collect affine/arithmetic operations and qualifying scf.if operations
+    for (auto& op : block) {
+        if (mlir::isa<mlir::arith::ArithDialect, mlir::affine::AffineDialect>(op.getDialect())) {
+            affineArithOps.push_back(&op);
+            continue;
+        }
+
+        if (auto ifOp = mlir::dyn_cast<mlir::scf::IfOp>(op)) {
+            // Only move scf.if operations that return only index types
+            bool allIndexTypes = llvm::all_of(ifOp.getResultTypes(), [](mlir::Type type) {
+                return mlir::isa<mlir::IndexType>(type);
+            });
+            if (allIndexTypes) {
+                affineArithOps.push_back(&op);
+            }
+        }
+    }
+
+    // Move operations to earliest safe positions
+    for (auto* op : affineArithOps) {
+        mlir::Operation* targetPosition = nullptr;
+
+        // Find the earliest position where this operation can be safely moved
+        for (auto& candidate : block) {
+            if (&candidate == op) {
+                break;  // Don't move past current position
+            }
+
+            // Skip other affine/arithmetic operations - we want to move before them
+            if (mlir::isa<mlir::arith::ArithDialect, mlir::affine::AffineDialect>(candidate.getDialect())) {
+                continue;
+            }
+
+            // Check if it's safe to move before this candidate
+            if (isSafeToMoveBefore(op, &candidate)) {
+                targetPosition = &candidate;
+                break;
+            }
+        }
+
+        // Only move if we found a valid earlier position
+        if (targetPosition != nullptr) {
+            op->moveBefore(targetPosition);
+        }
+    }
+}
+
+void vpux::VPU::addCheckForBlockSize(mlir::OpBuilder& builder, mlir::tensor::DimOp dimOp, mlir::Value blockSize,
+                                     mlir::func::FuncOp funcOp, llvm::StringRef errorMsg) {
+    mlir::OpBuilder::InsertionGuard guard(builder);
+
+    auto blockSizeDefiningOp = blockSize.getDefiningOp();
+    mlir::Location loc = mlir::UnknownLoc::get(builder.getContext());
+    if (dimOp->getBlock() == blockSizeDefiningOp->getBlock()) {
+        if (dimOp->isBeforeInBlock(blockSizeDefiningOp)) {
+            builder.setInsertionPointAfter(blockSizeDefiningOp);
+            loc = appendLoc(blockSizeDefiningOp->getLoc(), "tile0_check");
+        } else {
+            builder.setInsertionPointAfter(dimOp);
+            loc = appendLoc(dimOp->getLoc(), "tile0_check");
+        }
+    } else {
+        mlir::DominanceInfo dom(funcOp);
+        if (dom.dominates(blockSizeDefiningOp, dimOp)) {
+            builder.setInsertionPointAfter(dimOp);
+            loc = appendLoc(dimOp->getLoc(), "tile0_check");
+        } else {
+            builder.setInsertionPointAfter(blockSizeDefiningOp);
+            loc = appendLoc(blockSizeDefiningOp->getLoc(), "tile0_check");
+        }
+    }
+
+    auto stepGreaterThanBound =
+            builder.create<mlir::arith::CmpIOp>(loc, mlir::arith::CmpIPredicate::sge, dimOp, blockSize);
+    builder.create<mlir::cf::AssertOp>(takeOpLoc(stepGreaterThanBound, "assert"), stepGreaterThanBound, errorMsg);
+}
+
+mlir::LogicalResult vpux::VPU::getTensorDimOpFromIndex(mlir::OpBuilder& builder, mlir::Value tensor, int64_t dimIdx,
+                                                       mlir::tensor::DimOp& dimOp) {
+    mlir::OpBuilder::InsertionGuard guard(builder);
+    bool tensorIsBlockArg = false;
+    if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(tensor)) {
+        auto blockParentOp = blockArg.getOwner()->getParentOp();
+        tensorIsBlockArg = true;
+        while (blockParentOp != nullptr) {
+            if (mlir::isa<mlir::func::FuncOp>(blockParentOp)) {
+                break;
+            }
+
+            auto forOp = mlir::dyn_cast_or_null<mlir::scf::ForOp>(blockParentOp);
+            if (forOp == nullptr) {
+                return vpux::errorAt(blockParentOp->getLoc(),
+                                     "Expected parent scf.for operation for block argument but got {0}",
+                                     blockParentOp->getName());
+            }
+
+            unsigned idx = blockArg.getArgNumber() - 1;
+            mlir::Value initVal = forOp.getInitArgs()[idx];
+            auto definingOp = initVal.getDefiningOp();
+            if (definingOp != nullptr) {
+                tensor = initVal;
+                tensorIsBlockArg = false;
+                break;
+            }
+
+            blockParentOp = blockParentOp->getParentOp();
+        }
+    }
+
+    if (tensorIsBlockArg) {
+        auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(tensor);
+        auto blockParentOp = blockArg.getOwner()->getParentOp();
+        builder.setInsertionPointToStart(blockArg.getOwner());
+        dimOp = builder.create<mlir::tensor::DimOp>(takeOpLoc(blockParentOp, "dim_" + std::to_string(dimIdx)), tensor,
+                                                    dimIdx);
+    } else {
+        auto loc = tensor.getDefiningOp();
+        builder.setInsertionPointAfter(loc);
+        dimOp = builder.create<mlir::tensor::DimOp>(takeOpLoc(loc, "dim_" + std::to_string(dimIdx)), tensor, dimIdx);
+    }
+    return mlir::success();
 }

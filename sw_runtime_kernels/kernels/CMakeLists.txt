@@ -99,6 +99,11 @@ if(build_kernels)
     "${MV_TOOLS_PATH}/common/moviCompile/lib/40xxxx/mlibc_lite.a"
     "${MV_TOOLS_PATH}/common/moviCompile/lib/40xxxx/mlibcrt.a"
   )
+  set(link_libraries_list_VPU5000
+    "${MV_TOOLS_PATH}/common/moviCompile/lib/50xxxx/mlibm.a"
+    "${MV_TOOLS_PATH}/common/moviCompile/lib/50xxxx/mlibc_lite.a"
+    "${MV_TOOLS_PATH}/common/moviCompile/lib/50xxxx/mlibcrt.a"
+  )
 endif()
 
 if(ENABLE_MANAGEMENT_KERNEL_BUILD OR ENABLE_FIRMWARE_SOURCES_KERNEL_BUILD)
@@ -191,6 +196,12 @@ foreach(kernel_descrip IN LISTS kernel_descrip_list)
     set(link_libraries_list ${link_libraries_list_VPU4000})
     if(rt_kernel)
       list(APPEND define_symbols_list "CONFIG_TARGET_SOC_4000")
+    endif()
+  elseif(kernel_cpunum STREQUAL "5000")
+    list(APPEND define_symbols_list "USE_5000_INSTRUCTIONS")
+    set(link_libraries_list ${link_libraries_list_VPU5000})
+    if(rt_kernel)
+      list(APPEND define_symbols_list "CONFIG_TARGET_SOC_4000" "CONFIG_TARGET_SOC_5000")
     endif()
   endif()
 

@@ -72,6 +72,8 @@ runs:
           PLATFORM="METEORLAKE"
         elif [[ "${{ inputs.npu-platform }}" == "NPU.4000" ]]; then
           PLATFORM="LUNARLAKE"
+        elif [[ "${{ inputs.npu-platform }}" == "NPU.5010" ]]; then
+          PLATFORM="PANTHERLAKE"
         else
           PLATFORM="not_valid_platform"
         fi

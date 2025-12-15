@@ -57,6 +57,12 @@ struct DefaultHWOptions :
             *this, "configure-update-barriers-for-sw-prefetch",
             llvm::cl::desc("Configure update barrier to block shave execution until prefetch finishes"),
             llvm::cl::init(true)};
+
+    // Should only be enabled when accurate VPUNN cost is supported
+    BoolOption enableMultiScheduleHeuristic{
+            *this, "enable-multi-schedule-heuristic",
+            ::llvm::cl::desc("Enables compiler to schedule with different heuristic logics and compare costs"),
+            ::llvm::cl::init(false)};
 };
 
 void buildDefaultHWPipeline(mlir::OpPassManager& pm, const DefaultHWOptions& options, Logger log = Logger::global());

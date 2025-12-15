@@ -11,7 +11,7 @@ include "vpux/compiler/dialect/IE/ops_interfaces.td"
 include "vpux/compiler/dialect/IE/attributes.td"
 include "vpux/compiler/dialect/core/ops_interfaces.td"
 
-include "mlir/Dialect/Quant/QuantOpsBase.td"
+include "mlir/Dialect/Quant/IR/QuantBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 
 def IE_AccumulateOp :
@@ -95,7 +95,8 @@ def IE_DivideOp :
             "Divide",
             [
                 DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
-                IE_EltwiseOp
+                IE_EltwiseOp,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
             ]
         > {
     let summary = "InferenceEngine Divide layer";
@@ -116,7 +117,8 @@ def IE_FloorModOp :
         IE_LayerOp<
             "FloorMod",
             [
-                IE_EltwiseOp
+                IE_EltwiseOp,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
             ]
         > {
     let summary = "InferenceEngine FloorMod layer";
@@ -183,7 +185,8 @@ def IE_ModOp :
         IE_LayerOp<
             "Mod",
             [
-                IE_EltwiseOp
+                IE_EltwiseOp,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
             ]
         > {
     let summary = "InferenceEngine Mod layer";
@@ -237,7 +240,8 @@ def IE_PowerOp :
         IE_LayerOp<
             "Power",
             [
-                IE_EltwiseOp
+                IE_EltwiseOp,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
             ]
         > {
     let summary = "InferenceEngine Power layer";

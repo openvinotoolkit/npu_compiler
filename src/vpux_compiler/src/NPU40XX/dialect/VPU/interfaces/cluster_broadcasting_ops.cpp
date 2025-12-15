@@ -6,7 +6,8 @@
 #include "vpux/compiler/NPU40XX/dialect/VPU/IR/ops_interfaces.hpp"
 
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+
 #include "vpux/compiler/dialect/VPU/utils/cluster_broadcasting_utils.hpp"
 
 void vpux::VPU::arch40xx::registerClusterBroadcastingOpInterfaces(mlir::DialectRegistry& registry) {

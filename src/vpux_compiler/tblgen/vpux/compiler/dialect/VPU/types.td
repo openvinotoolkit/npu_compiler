@@ -15,6 +15,7 @@ include "vpux/compiler/dialect/core/type_interfaces.td"
 include "vpux/compiler/dialect/const/attributes.td"
 
 include "mlir/IR/BuiltinTypeInterfaces.td"
+include "mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.td"
 
 // Base class for VPU dialect types.
 class VPU_Type<string name, list<Trait> traits = []>
@@ -33,7 +34,8 @@ def VPU_DistributedTensor :
                 DeclareTypeInterfaceMethods<NDTypeInterface>,
                 DeclareTypeInterfaceMethods<ClusterTypeInterface>,
                 VPU_DistributedTypeInterface,
-                TensorTypeInterface
+                ShapedTypeInterface,
+                DeclareTypeInterfaceMethods<Bufferization_TensorLikeTypeInterface>
             ]
         > {
     let summary = "VPU tensor type to describe the tensor tiling";
@@ -56,7 +58,7 @@ def VPU_DistributedTensor :
         DistributionInfoAttr getDistribution() const;
         vpux::Const::OpaqueI64ElementsAttr getDynamicDimsMask() const;
 
-        DistributedTensorType cloneWith(std::optional<mlir::ArrayRef<int64_t>> shape, mlir::Type elementType) const;
+        ::mlir::ShapedType cloneWith(std::optional<mlir::ArrayRef<int64_t>> shape, mlir::Type elementType) const;
 
         static DistributedTensorType get(::mlir::MLIRContext *context, ::llvm::ArrayRef<int64_t> shape,
             mlir::Type elementType, mlir::AffineMapAttr order, vpux::IndexedSymbolAttr memSpace,
@@ -79,7 +81,8 @@ def VPU_SparseTensor :
             "SparseTensor",
             [
                 GroupedTypeInterface,
-                TensorTypeInterface,
+                ShapedTypeInterface,
+                DeclareTypeInterfaceMethods<Bufferization_TensorLikeTypeInterface>,
                 DeclareTypeInterfaceMethods<NDTypeInterface>,
                 DeclareTypeInterfaceMethods<VPU_DistributedTypeInterface,
                     ["containsDistributedTypes", "getDistributedTypes", "changeShapeForExplicitDistribution",
@@ -114,7 +117,7 @@ def VPU_SparseTensor :
         "mlir::Type":$storageElementTable,
         "mlir::UnitAttr":$isWeights,
         "VPU::SparsityCompressionAttr":$sparsityCompression,
-        VPU_SEAttr:$seAttr
+        "VPU::SEAttr":$seAttr
     );
 
     let builders = [
@@ -132,7 +135,7 @@ def VPU_SparseTensor :
     ];
 
     let extraClassDeclaration = [{
-        SparseTensorType cloneWith(std::optional<mlir::ArrayRef<int64_t>> shape, mlir::Type elementType) const;
+        ::mlir::ShapedType cloneWith(std::optional<mlir::ArrayRef<int64_t>> shape, mlir::Type elementType) const;
     }];
 
     let skipDefaultBuilders = 1;

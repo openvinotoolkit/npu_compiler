@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --decompose-concat-matmul %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @DecomposeConcatMatMul
 // CHECK-SAME: ([[ARG0:%arg[0-9]+]]: tensor<1x256x2048x1xf32>, [[ARG1:%arg[0-9]+]]: tensor<1x256x2048x1xf32>,

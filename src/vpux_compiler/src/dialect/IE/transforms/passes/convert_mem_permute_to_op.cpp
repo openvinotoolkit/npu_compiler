@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
@@ -19,7 +20,7 @@
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 
 namespace vpux::IE {
 #define GEN_PASS_DECL_CONVERTMEMPERMUTETOOPPASS
@@ -433,7 +434,7 @@ mlir::LogicalResult ConvertMemPermuteWithPermuteCast::matchAndRewrite(IE::MemPer
         return matchFailed(_log.nest(), rewriter, origOp, "No need to permute cast");
     }
     auto hasValidInPermutationMap =
-            vpux::tryToFindPermutationForPermuteCast(inputType, inputType.getDimsOrder(), mergedLogicShape, rewriter);
+            vpux::tryToFindPermutationForPermuteCast(inputType, inputType.getDimsOrder(), mergedLogicShape, ctx);
     if (!hasValidInPermutationMap.has_value()) {
         return matchFailed(_log.nest(), rewriter, origOp, "Can not convert to inPermuteCastOp");
     }
@@ -446,7 +447,7 @@ mlir::LogicalResult ConvertMemPermuteWithPermuteCast::matchAndRewrite(IE::MemPer
         return matchFailed(_log.nest(), rewriter, origOp, "Not legal to convert MemPermute to Pool");
     }
     auto hasValidOutPermutationMap = vpux::tryToFindPermutationForPermuteCast(
-            newMemPermuteOutput, outputType.getDimsOrder(), getShape(origOp.getResult()), rewriter);
+            newMemPermuteOutput, outputType.getDimsOrder(), getShape(origOp.getResult()), ctx);
     if (!hasValidOutPermutationMap.has_value()) {
         return matchFailed(_log.nest(), rewriter, origOp, "Can not convert to outPermuteCastOp");
     }
@@ -729,7 +730,15 @@ mlir::LogicalResult ConvertMemPermuteToPermuteQuantize::matchAndRewrite(IE::MemP
                        origOp->getName(), origOp->getLoc());
             return false;
         }
-
+        // Add quant type
+        // TODO: If consumer is convolution op we can support quantized input.
+        // E#-183528 is to address some regressions caused by pass MovePermutePostEltwise after dropping the WA.
+        auto consumer = *origOp.getResult().getUsers().begin();
+        auto inElemType = inType.getElementType();
+        if (mlir::isa<mlir::quant::QuantizedType>(inElemType) && !mlir::isa<IE::ConvolutionOp>(consumer)) {
+            _log.trace("Cannot convert MemPermute with quantized input to PermuteQuantize when consumer is not a conv");
+            return false;
+        }
         return true;
     };
 
@@ -796,7 +805,7 @@ void ConvertMemPermuteToOpPass::safeRunOnFunc() {
     mlir::RewritePatternSet pqPatterns(&ctx);
     pqPatterns.add<ConvertMemPermuteToPermuteQuantize>(&ctx, _log);
 
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(pqPatterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(pqPatterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 
@@ -812,7 +821,7 @@ void ConvertMemPermuteToOpPass::safeRunOnFunc() {
     patterns.add<ConvertMemPermuteWithExpand>(&ctx, benefitLevels[2], numClusters, _log);
     patterns.add<ConvertMemPermuteToMaxPool>(&ctx, benefitLevels[3], numClusters, _log);
 
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

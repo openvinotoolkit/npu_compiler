@@ -16,6 +16,7 @@
 
 namespace vpux {
 
+config::Platform getPlatform(const intel_npu::Config& config);
 config::ArchKind getArchKind(const intel_npu::Config& config);
 config::CompilationMode getCompilationMode(const intel_npu::Config& config);
 std::optional<int> getRevisionID(const intel_npu::Config& config);
@@ -32,6 +33,7 @@ std::optional<bool> getEnableFunctionStatisticsInstrumentation(const intel_npu::
 std::optional<DummyOpMode> getDummyOpReplacement(const intel_npu::Config& config);
 std::optional<bool> getCompilerDynamicQuantization(const intel_npu::Config& config);
 std::optional<bool> getPerfCount(const intel_npu::Config& config);
+std::optional<bool> getEnableDecomposeSDPA(const intel_npu::Config& config);
 
 #ifdef BACKGROUND_FOLDING_ENABLED
 struct ConstantFoldingConfig {

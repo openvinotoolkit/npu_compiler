@@ -5,7 +5,7 @@
 
 #include "vpux/compiler/ShaveCodeGen/passes.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 
@@ -192,7 +192,7 @@ void OutlineCodeGenCapsulesPass::safeRunOnModule() {
     mlir::RewritePatternSet patterns(&ctx);
     patterns.insert<OutlineCodeGenCapsule>(&ctx, swModule, counter, swModule.getSymNameAttr());
     mlir::tensor::BitcastOp::getCanonicalizationPatterns(patterns, &ctx);
-    if (failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns)))) {
+    if (failed(mlir::applyPatternsGreedily(func, std::move(patterns)))) {
         return signalPassFailure();
     }
 }

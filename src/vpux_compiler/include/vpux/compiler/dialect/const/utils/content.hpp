@@ -14,7 +14,7 @@
 #include "vpux/utils/core/mem_size.hpp"
 #include "vpux/utils/core/type/float16.hpp"
 
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 
 #include <llvm/Support/TypeName.h>
 

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --m2i-batchnorm-fusion --canonicalize %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @FuseInterpMultAddTask
 func.func @FuseInterpMultAddTask(%arg0: tensor<1x3x64x64xf16>) -> tensor<1x3x256x256xf16> {
@@ -72,7 +72,10 @@ func.func @FuseCSCConvertPermuteMultAddTask(%arg0: tensor<1x360x320x1xui8, {orde
     %add = IE.Add(%mul, %cst_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x3x240x320xf16, {order = #NCHW}>, tensor<1x3x1x1xf16> -> tensor<1x3x240x320xf16, {order = #NCHW}>
     return %add : tensor<1x3x240x320xf16, {order = #NCHW}>
 
-    // CHECK: [[CSC:%.+]] = IE.YuvToRgb(%arg0) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 0, 0>, outFmt = #IE.color_fmt<RGB>} : tensor<1x360x320x1xui8, {order = #NHWC}> -> tensor<1x240x320x3xui8, {order = #NHWC}>
+    // CHECK: [[LUMA:%.*]] = IE.Slice %arg0 [0, 0, 0, 0] [1, 240, 320, 1] : tensor<1x360x320x1xui8, {order = #NHWC}> to tensor<1x240x320x1xui8, {order = #NHWC}>
+    // CHECK: [[CHROMA:%.*]] = IE.Slice %arg0 [0, 240, 0, 0] [1, 120, 320, 1] : tensor<1x360x320x1xui8, {order = #NHWC}> to tensor<1x120x320x1xui8, {order = #NHWC}>
+    // CHECK: [[RESHAPE:%.*]] = IE.Reshape([[CHROMA]]) {shape_value = [1, 120, 160, 2]} : tensor<1x120x320x1xui8, {order = #NHWC}> -> tensor<1x120x160x2xui8>
+    // CHECK: [[CSC:%.+]] = IE.YuvToRgb([[LUMA]], [[RESHAPE]]) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>} : tensor<1x240x320x1xui8, {order = #NHWC}>, tensor<1x120x160x2xui8> -> tensor<1x240x320x3xui8, {order = #NHWC}>
     // CHECK: [[CONVERT:%.+]] = IE.Convert([[CSC]]) {dstElemType = f16} : tensor<1x240x320x3xui8, {order = #NHWC}> -> tensor<1x240x320x3xf16, {order = #NHWC}>
     // CHECK: [[MEMPERM:%.+]] = IE.MemPermute([[CONVERT]]) {dst_order = #NCHW, mem_perm = #NHWC} : tensor<1x240x320x3xf16, {order = #NHWC}> -> tensor<1x3x240x320xf16, {order = #NCHW}>
     // CHECK: [[BATCHNORM:%.+]] = IE.BatchNormInference([[MEMPERM]]) {beta_value = [0.000000e+00, 0.265380859375, 0.6357421875], eps = 0.000000e+00 : f64, gamma_value = [0.000000e+00, 0.363525390625, 0.364013671875], mean_value = [0.000000e+00, 0.000000e+00, 0.000000e+00], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0>, variance_value = [1.000000e+00, 1.000000e+00, 1.000000e+00]} : tensor<1x3x240x320xf16, {order = #NCHW}> -> tensor<1x3x240x320xf16, {order = #NCHW}>
@@ -93,7 +96,12 @@ func.func @FuseCSCConvertTransposeMultAddTask(%arg0: tensor<1x360x320x1xui8>) ->
     %add = IE.Add(%mul, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x3x240x320xf16>, tensor<1x3x1x1xf16> -> tensor<1x3x240x320xf16>
     return %add : tensor<1x3x240x320xf16>
 
-    // CHECK: [[CSC:%.+]] = IE.YuvToRgb(%arg0) {inFmt = #IE.color_fmt<I420>, operandSegmentSizes = array<i32: 1, 0, 0>, outFmt = #IE.color_fmt<RGB>} : tensor<1x360x320x1xui8> -> tensor<1x240x320x3xui8>
+    // CHECK: [[SLICE_Y:%.+]] = IE.Slice %arg0 [0, 0, 0, 0] [1, 240, 320, 1] : tensor<1x360x320x1xui8> to tensor<1x240x320x1xui8>
+    // CHECK: [[SLICE_UV:%.+]] = IE.Slice %arg0 [0, 240, 0, 0] [1, 120, 320, 1] : tensor<1x360x320x1xui8> to tensor<1x120x320x1xui8>
+    // CHECK: [[RESHAPE_UV:%.+]] = IE.Reshape([[SLICE_UV]]) {shape_value = [1, 240, 160, 1]} : tensor<1x120x320x1xui8> -> tensor<1x240x160x1xui8>
+    // CHECK: [[SLICE_U:%.+]] = IE.Slice [[RESHAPE_UV]] [0, 0, 0, 0] [1, 120, 160, 1] : tensor<1x240x160x1xui8> to tensor<1x120x160x1xui8>
+    // CHECK: [[SLICE_V:%.+]] = IE.Slice [[RESHAPE_UV]] [0, 120, 0, 0] [1, 120, 160, 1] : tensor<1x240x160x1xui8> to tensor<1x120x160x1xui8>
+    // CHECK: [[CSC:%.+]] = IE.YuvToRgb([[SLICE_Y]], [[SLICE_U]], [[SLICE_V]]) {inFmt = #IE.color_fmt<I420>, operandSegmentSizes = array<i32: 1, 1, 1>, outFmt = #IE.color_fmt<RGB>} : tensor<1x240x320x1xui8>, tensor<1x120x160x1xui8>, tensor<1x120x160x1xui8> -> tensor<1x240x320x3xui8>
     // CHECK: [[CONVERT:%.+]] = IE.Convert([[CSC]]) {dstElemType = f16} : tensor<1x240x320x3xui8> -> tensor<1x240x320x3xf16>
     // CHECK: [[TRANSPOSE:%.+]] = IE.Transpose([[CONVERT]]) {order_value = #NWCH} : tensor<1x240x320x3xf16> -> tensor<1x3x240x320xf16>
     // CHECK: [[BATCHNORM:%.+]] = IE.BatchNormInference([[TRANSPOSE]]) {beta_value = [0.000000e+00, 0.265380859375, 0.6357421875], eps = 0.000000e+00 : f64, gamma_value = [0.000000e+00, 0.363525390625, 0.364013671875], mean_value = [0.000000e+00, 0.000000e+00, 0.000000e+00], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0>, variance_value = [1.000000e+00, 1.000000e+00, 1.000000e+00]} : tensor<1x3x240x320xf16> -> tensor<1x3x240x320xf16>

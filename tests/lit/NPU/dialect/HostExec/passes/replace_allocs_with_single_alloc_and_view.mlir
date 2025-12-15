@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --replace-allocs-with-single-alloc-and-views --canonicalize --cse --verify-diagnostics %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 func.func @StaticShapeAllocs(%arg0: memref<1x1024xf16>, %arg1: memref<1x1024xf16>) -> memref<1x1024xf16> {
     %alloc = memref.alloc() : memref<1x1024xf16>
@@ -115,3 +115,36 @@ func.func @AllocDeallocInvalid() {
     memref.dealloc %alloc : memref<1x16x720x40xf16>
     return
 }
+
+
+// -----
+
+func.func @NestedAlloc(%arg0: memref<1x16x4x4xf16>, %arg1: memref<1x16x4x4xf16>, %flag: i1) -> memref<1x16x4x4xf16> {
+
+    scf.if %flag {
+        %alloc0 = memref.alloc() : memref<1x16x4x4xf16>
+        memref.copy %arg0, %alloc0 : memref<1x16x4x4xf16> to memref<1x16x4x4xf16>
+        memref.copy %alloc0, %arg1 : memref<1x16x4x4xf16> to memref<1x16x4x4xf16>
+    } else {
+        %alloc2 = memref.alloc() : memref<1x16x4x4xf16>
+        memref.copy %arg0, %alloc2 : memref<1x16x4x4xf16> to memref<1x16x4x4xf16>
+        memref.copy %alloc2, %arg1 : memref<1x16x4x4xf16> to memref<1x16x4x4xf16>
+    }
+
+    return %arg1 : memref<1x16x4x4xf16>
+}
+
+// CHECK: func.func @NestedAlloc([[ARG0:%.+]]: memref<1x16x4x4xf16>, [[ARG1:%.+]]: memref<1x16x4x4xf16>, [[ARG2:%.+]]: i1) -> memref<1x16x4x4xf16> {
+// CHECK:   [[C0:%.+]] = arith.constant 0 : index
+// CHECK:   [[C512:%.+]] = arith.constant 512 : index
+// CHECK:   [[ALLOC:%.+]] = memref.alloc() {alignment = 64 : i64} : memref<1024xi8>
+// CHECK:   [[VIEW_0:%.+]] = memref.view [[ALLOC]][[[C0]]][] : memref<1024xi8> to memref<1x16x4x4xf16>
+// CHECK:   [[VIEW_1:%.+]] = memref.view [[ALLOC]][[[C512]]][] : memref<1024xi8> to memref<1x16x4x4xf16>
+// CHECK:   scf.if [[ARG2]] {
+// CHECK:     memref.copy [[ARG0]], [[VIEW_0]] : memref<1x16x4x4xf16> to memref<1x16x4x4xf16>
+// CHECK:     memref.copy [[VIEW_0]], [[ARG1]] : memref<1x16x4x4xf16> to memref<1x16x4x4xf16>
+// CHECK:   } else {
+// CHECK:     memref.copy [[ARG0]], [[VIEW_1]] : memref<1x16x4x4xf16> to memref<1x16x4x4xf16>
+// CHECK:     memref.copy [[VIEW_1]], [[ARG1]] : memref<1x16x4x4xf16> to memref<1x16x4x4xf16>
+// CHECK:   }
+// CHECK:   return [[ARG1]]

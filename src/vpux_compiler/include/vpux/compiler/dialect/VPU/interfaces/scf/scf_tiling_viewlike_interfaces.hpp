@@ -6,6 +6,7 @@
 #pragma once
 
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/VPU/utils/scf/scf_utils.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 
@@ -58,6 +59,7 @@ public:
         auto inputTiling = backInferSCFTileInfo(operation, builder, outputTile);
 
         SmallVector<mlir::Value> tiledOperands;
+        SmallVector<mlir::Operation*> generatedSlices;
         tiledOperands.reserve(operation->getNumOperands());
 
         for (auto p : operation->getOperands() | indexed) {
@@ -70,16 +72,17 @@ public:
             }
 
             auto inputTileInfo = inputTiling.tiles[inputIdx];
-            auto tiledInput = generateTile(operation->getLoc(), builder, origInput, inputTileInfo);
+            auto tiledInput = generateTile(operation->getLoc(), builder, origInput, inputTileInfo, generatedSlices);
 
             tiledOperands.emplace_back(tiledInput);
         }
 
         auto resultDenseTile = extractResultType(operation->getResult(0).getType(), sizes, resultBounds);
         auto* tiledOp = mlir::cloneWithoutRegions(builder, operation, {resultDenseTile}, tiledOperands);
+        vpux::inferReturnTypes(tiledOp, vpux::InferShapedTypeMode::SHAPE);
         tiledOp->removeAttr(tilingStrategy);
 
-        return mlir::TilingResult{{tiledOp}, {tiledOp->getResult(resultNumber)}};
+        return mlir::TilingResult{{tiledOp}, {tiledOp->getResult(resultNumber)}, std::move(generatedSlices)};
     }
 
     mlir::LogicalResult getResultTilePosition(mlir::Operation*, mlir::OpBuilder&, unsigned,
@@ -90,10 +93,12 @@ public:
     }
 };
 
-class SCFLayoutCastTilingModelOp : public SCFViewLikeTilingModelOp<SCFLayoutCastTilingModelOp, VPU::LayoutCastOp> {
+template <typename ConcreteOp>
+class SCFGenericViewLikeTilingModelOp :
+        public SCFViewLikeTilingModelOp<SCFGenericViewLikeTilingModelOp<ConcreteOp>, ConcreteOp> {
 public:
     SCFTilingInfo backInferSCFTileInfo(mlir::Operation*, mlir::OpBuilder&, const SCFTileInfo& outputTile) const {
-        return SCFTilingInfo{{outputTile}};
+        return SCFTilingInfo{SmallVector<SCFTileInfo, 1>{outputTile}};
     }
 };
 

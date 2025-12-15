@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/IE/transforms/passes/expand_activation_channels.hpp"
+#include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
@@ -11,8 +12,10 @@
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/utils/interpolate_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/numeric.hpp"
@@ -20,6 +23,8 @@
 #include "vpux/compiler/dialect/IE/transforms/factories/expand_activation_channels_strategy_getter.hpp"
 
 #include "vpux/compiler/utils/passes.hpp"
+#include "vpux/utils/core/range.hpp"
+
 namespace vpux::IE {
 #define GEN_PASS_DECL_EXPANDACTIVATIONCHANNELS
 #define GEN_PASS_DEF_EXPANDACTIVATIONCHANNELS
@@ -547,66 +552,6 @@ mlir::LogicalResult IE::SoftMaxRewriter::matchAndRewrite(IE::SoftMaxOp origOp, m
     return generalRewrite(origOp, rewriter, opCreator, IE::extractMeaningfulOutput, _log.nest());
 }
 
-namespace {
-//
-// ExpandActivationChannelsPass
-//
-
-class ExpandActivationChannelsPass final : public IE::impl::ExpandActivationChannelsBase<ExpandActivationChannelsPass> {
-public:
-    explicit ExpandActivationChannelsPass(const bool seOpsEnabled, Logger log): _seOpsEnabled(seOpsEnabled) {
-        Base::initLogger(log, Base::getArgumentName());
-    }
-
-    mlir::LogicalResult initialize(mlir::MLIRContext* ctx) override;
-
-private:
-    bool _seOpsEnabled;
-    void safeRunOnFunc() override;
-};  // class ExpandActivationChannelsPass
-
-mlir::LogicalResult ExpandActivationChannelsPass::initialize(mlir::MLIRContext* ctx) {
-    if (mlir::failed(Base::initialize(ctx))) {
-        return mlir::failure();
-    }
-
-    // When this parameter has a value, it probably comes from LIT test.
-    // Override the default
-    if (seOpsEnabled.hasValue()) {
-        _seOpsEnabled = seOpsEnabled.getValue();
-    }
-
-    return mlir::success();
-}
-
-void ExpandActivationChannelsPass::safeRunOnFunc() {
-    auto& ctx = getContext();
-    auto func = getOperation();
-    auto strategy = IE::createExpandActivationChannelsStrategy(func, _seOpsEnabled, _log);
-
-    mlir::ConversionTarget target(ctx);
-    strategy->addTargets(target);
-
-    mlir::RewritePatternSet patterns(&ctx);
-    strategy->addPatterns(patterns);
-
-    if (mlir::failed(mlir::applyFullConversion(func, target, std::move(patterns)))) {
-        signalPassFailure();
-    }
-}
-
-}  // namespace
-
-//
-// createExpandActivationChannelsPass
-//
-
-namespace vpux::IE {
-std::unique_ptr<mlir::Pass> createExpandActivationChannelsPass(const bool seOpsEnabled, Logger log) {
-    return std::make_unique<ExpandActivationChannelsPass>(seOpsEnabled, log);
-}
-}  // namespace vpux::IE
-
 //
 // SDPAExtendedRewriter
 //
@@ -688,3 +633,144 @@ mlir::LogicalResult IE::SDPAExtendedRewriter::matchAndRewrite(IE::SDPAExtendedOp
 
     return mlir::success();
 }
+
+mlir::LogicalResult vpux::IE::FlashSDPARewriter::matchAndRewrite(IE::FlashSDPAOp origOp,
+                                                                 mlir::PatternRewriter& rewriter) const {
+    _log.trace("[{0}] Got '{1}' layer at '{2}'", getDebugName(), origOp->getName(), origOp->getLoc());
+
+    auto keyType = mlir::cast<NDTypeInterface>(origOp.getKey().getType());
+    auto keyShape = keyType.getShape();
+    auto valueShape = getShape(origOp.getValue());
+
+    // Dimensions that should be aligned to satisfy DPU requirements for 2 DWConv layers in FlashSDPA kernel
+    auto qkEmbedding = keyShape[Dims4D::Act::W];
+    auto sourceSeqLen = keyShape[Dims4D::Act::H];
+    auto vEmbedding = valueShape[Dims4D::Act::H];
+
+    auto elemType = keyType.getElementType();
+    auto alignment = vpux::VPU::NCEInvariant::getAlignment(elemType);
+
+    auto alignedQkEmbedding = alignValUp(qkEmbedding, alignment);
+    auto alignedSourceSeqLen = alignValUp(sourceSeqLen, alignment);
+    auto alignedVEmbedding = alignValUp(vEmbedding, alignment);
+
+    auto qkEmbeddingPad = alignedQkEmbedding - qkEmbedding;
+    auto sourceSeqLenPad = alignedSourceSeqLen - sourceSeqLen;
+    auto vEmbeddingPad = alignedVEmbedding - vEmbedding;
+
+    auto queryPadEnd = Shape{0, 0, 0, qkEmbeddingPad};
+    auto keyPadEnd = Shape{0, 0, sourceSeqLenPad, qkEmbeddingPad};
+    auto valuePadEnd = Shape{0, 0, vEmbeddingPad, sourceSeqLenPad};
+
+    auto expand = [&rewriter](mlir::Value value, ShapeRef padsEnd) -> mlir::Value {
+        // pads_end must contain at most one non-zero value.
+        for (auto [index, padEnd] : enumerate(padsEnd)) {
+            if (padEnd == 0) {
+                continue;
+            }
+
+            auto padsBegin = SmallVector<int64_t>(padsEnd.size());
+
+            auto padsEndOneDim = SmallVector<int64_t>(padsEnd.size());
+            padsEndOneDim[index] = padEnd;
+
+            auto loc = appendLoc(value.getLoc(), "pad_{0}", Dim(index));
+            value = rewriter.createOrFold<IE::ExpandOp>(loc, value, getIntArrayAttr(rewriter, padsBegin),
+                                                        getIntArrayAttr(rewriter, padsEndOneDim));
+        }
+
+        return value;
+    };
+
+    auto paddedQuery = expand(origOp.getQuery(), queryPadEnd);
+    auto paddedKey = expand(origOp.getKey(), keyPadEnd);
+    auto paddedValue = expand(origOp.getValue(), valuePadEnd);
+
+    auto paddedAttentionMask = mlir::Value{origOp.getAttentionMask()};
+    if (paddedAttentionMask != nullptr) {
+        auto attentionMaskPadsEnd = Shape{0, 0, 0, sourceSeqLenPad};
+        paddedAttentionMask = expand(origOp.getAttentionMask(), attentionMaskPadsEnd);
+    }
+
+    auto newOp =
+            rewriter.create<IE::FlashSDPAOp>(origOp.getLoc(), paddedQuery, paddedKey, paddedValue, paddedAttentionMask,
+                                             origOp.getScale(), getIntAttr(rewriter, sourceSeqLenPad));
+
+    if (vEmbeddingPad == 0) {
+        _log.trace("Output channels are already aligned");
+        rewriter.replaceOp(origOp, newOp);
+    } else {
+        _log.trace("Extract meaningful part from extended output");
+
+        const auto outShape = getShape(origOp.getOutput());
+        auto offsets = SmallVector<int64_t>(outShape.size());
+
+        auto sliceOp = rewriter.createOrFold<IE::SliceOp>(
+                appendLoc(origOp.getLoc(), "sliced"), origOp.getOutput().getType(), newOp.getOutput(),
+                getIntArrayAttr(rewriter, offsets), getIntArrayAttr(rewriter, outShape));
+
+        rewriter.replaceOp(origOp, sliceOp);
+    }
+
+    return mlir::success();
+};
+
+namespace {
+//
+// ExpandActivationChannelsPass
+//
+
+class ExpandActivationChannelsPass final : public IE::impl::ExpandActivationChannelsBase<ExpandActivationChannelsPass> {
+public:
+    explicit ExpandActivationChannelsPass(const bool seOpsEnabled, Logger log): _seOpsEnabled(seOpsEnabled) {
+        Base::initLogger(log, Base::getArgumentName());
+    }
+
+    mlir::LogicalResult initialize(mlir::MLIRContext* ctx) override;
+
+private:
+    bool _seOpsEnabled;
+    void safeRunOnFunc() override;
+};  // class ExpandActivationChannelsPass
+
+mlir::LogicalResult ExpandActivationChannelsPass::initialize(mlir::MLIRContext* ctx) {
+    if (mlir::failed(Base::initialize(ctx))) {
+        return mlir::failure();
+    }
+
+    // When this parameter has a value, it probably comes from LIT test.
+    // Override the default
+    if (seOpsEnabled.hasValue()) {
+        _seOpsEnabled = seOpsEnabled.getValue();
+    }
+
+    return mlir::success();
+}
+
+void ExpandActivationChannelsPass::safeRunOnFunc() {
+    auto& ctx = getContext();
+    auto func = getOperation();
+    auto strategy = IE::createExpandActivationChannelsStrategy(func, _seOpsEnabled, _log);
+
+    mlir::ConversionTarget target(ctx);
+    strategy->addTargets(target);
+
+    mlir::RewritePatternSet patterns(&ctx);
+    strategy->addPatterns(patterns);
+
+    if (mlir::failed(mlir::applyFullConversion(func, target, std::move(patterns)))) {
+        signalPassFailure();
+    }
+}
+
+}  // namespace
+
+//
+// createExpandActivationChannelsPass
+//
+
+namespace vpux::IE {
+std::unique_ptr<mlir::Pass> createExpandActivationChannelsPass(const bool seOpsEnabled, Logger log) {
+    return std::make_unique<ExpandActivationChannelsPass>(seOpsEnabled, log);
+}
+}  // namespace vpux::IE

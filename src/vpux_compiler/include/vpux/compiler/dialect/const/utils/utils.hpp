@@ -72,6 +72,9 @@ mlir::Value buildWeightsConst(mlir::OpBuilder& builder, mlir::Location loc, mlir
 /// Returns whether constant content has negative values.
 bool hasNegativeValues(const Const::Content& content);
 
+// Returns whether constant content has all zero values.
+bool hasAllZeroValues(const Const::Content& content);
+
 // Returns all Const::DeclareOp operations nested in 'from' that use the symbol defined by 'rodataOp'.
 SmallVector<Const::DeclareOp> getDeclareOpsUses(Const::RodataOp rodataOp, mlir::Operation* from);
 // Returns all Const::DeclareOp operations nested in 'from' that use the symbol 'symbol'.

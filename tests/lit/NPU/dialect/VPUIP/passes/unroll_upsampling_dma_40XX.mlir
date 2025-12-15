@@ -268,14 +268,17 @@ func.func @UnrollUpsamplingDMAWithCstInputWithNHWC() -> memref<1x32x8x33554432xf
     }
     return %output: memref<1x32x8x33554432xf16, #NHWC, [@CMX_NN, 0]>
 
-    // CHECK-DAG:    [[CST_0:%.*]] = const.Declare memref<1x32x1x16777216xf16, {order = #NHWC, strides = [2147483648, 1, 536870912, 32]}> = dense<1.000000e+00> : tensor<1x32x4x16777216xf16>, [#const.SubView<[0, 0, 3, 0], [1, 32, 1, 16777216]>, #const.Reorder<#NHWC>]
-    // CHECK-DAG:    [[CST_1:%.*]] = const.Declare memref<1x32x3x16777216xf16, {order = #NHWC, strides = [2147483648, 1, 536870912, 32]}> = dense<1.000000e+00> : tensor<1x32x4x16777216xf16>, [#const.SubView<[0, 0, 0, 0], [1, 32, 3, 16777216]>, #const.Reorder<#NHWC>]
 
     // CHECK:    [[BARRIER_0:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK:    [[BARRIER_1:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
+
+    // CHECK:    [[CST_0:%.*]] = const.Declare memref<1x32x4x16777216xf16, #NHWC> = dense<1.000000e+00> : tensor<1x32x4x16777216xf16>, [#const.Reorder<#NHWC>]
+
     // CHECK:    [[OUTPUT:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x32x8x33554432xf16, #NHWC, [@CMX_NN, 0]>
     // CHECK:    [[OUTPUT_0:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <12884901888> -> memref<1x32x2x33554432xf16, #NHWC, [@CMX_NN, 0]>
     // CHECK:    [[OUTPUT_1:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x32x6x33554432xf16, #NHWC, [@CMX_NN, 0]>
+
+    // CHECK:    [[SUBVIEW_0:%.*]] = VPUIP.SubView [[CST_0]] [0, 0, 0, 0] [1, 32, 3, 16777216] : memref<1x32x4x16777216xf16, #NHWC> to memref<1x32x3x16777216xf16, {order = #NHWC, strides = [2147483648, 1, 536870912, 32]}>
 
     // CHECK:     VPURT.Task waits([[BARRIER_0]] : !VPURT.Barrier) updates([[BARRIER_1]] : !VPURT.Barrier)
     // CHECK-SAME:  {
@@ -292,10 +295,11 @@ func.func @UnrollUpsamplingDMAWithCstInputWithNHWC() -> memref<1x32x8x33554432xf
     // CHECK-SAME:        >,
     // CHECK-SAME:        upsampling_factor = [1, 1, 2, 2]
     // CHECK-SAME:      }
-    // CHECK-SAME:      inputs([[CST_1]] : memref<1x32x3x16777216xf16, {order = #NHWC, strides = [2147483648, 1, 536870912, 32]}>)
+    // CHECK-SAME:      inputs([[SUBVIEW_0]] : memref<1x32x3x16777216xf16, {order = #NHWC, strides = [2147483648, 1, 536870912, 32]}>)
     // CHECK-SAME:      outputs([[OUTPUT_1]] : memref<1x32x6x33554432xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x32x6x33554432xf16, #NHWC, [@CMX_NN, 0]>
     // CHECK:       }
 
+    // CHECK:    [[SUBVIEW_1:%.*]] = VPUIP.SubView [[CST_0]] [0, 0, 3, 0] [1, 32, 1, 16777216] : memref<1x32x4x16777216xf16, #NHWC> to memref<1x32x1x16777216xf16, {order = #NHWC, strides = [2147483648, 1, 536870912, 32]}>
     // CHECK:       VPURT.Task waits([[BARRIER_0]] : !VPURT.Barrier) updates([[BARRIER_1]] : !VPURT.Barrier)
     // CHECK-SAME:  {
     // CHECK:           VPUIP.UpsamplingDMAOp {
@@ -312,7 +316,7 @@ func.func @UnrollUpsamplingDMAWithCstInputWithNHWC() -> memref<1x32x8x33554432xf
     // CHECK-SAME:      port = 1 : i64,
     // CHECK-SAME:      upsampling_factor = [1, 1, 2, 2]
     // CHECK-SAME:      }
-    // CHECK-SAME:      inputs([[CST_0]] : memref<1x32x1x16777216xf16, {order = #NHWC, strides = [2147483648, 1, 536870912, 32]}>)
+    // CHECK-SAME:      inputs([[SUBVIEW_1]] : memref<1x32x1x16777216xf16, {order = #NHWC, strides = [2147483648, 1, 536870912, 32]}>)
     // CHECK-SAME:      outputs([[OUTPUT_0]] : memref<1x32x2x33554432xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x32x2x33554432xf16, #NHWC, [@CMX_NN, 0]>
     // CHECK:       }
 
@@ -341,13 +345,15 @@ func.func @UnrollUpsamplingDMAWithCstInputWithNCHW() -> memref<1x4x33554432x64xf
     }
     return %output: memref<1x4x33554432x64xf16, #NCHW, [@CMX_NN, 0]>
 
-    // CHECK-DAG:    [[CST_0:%.*]] = const.Declare memref<1x1x1x32xf16, {order = #NCHW, strides = [2147483648, 2147483648, 32, 1]}> = dense<1.000000e+00> : tensor<1x4x16777216x32xf16>, [#const.Reshape<[1, 1, 67108864, 32]>, #const.SubView<[0, 0, 67108863, 0], [1, 1, 1, 32]>, #const.CastElemType<f16>]
-    // CHECK-DAG:    [[CST_1:%.*]] =  const.Declare memref<1x1x67108863x32xf16, {order = #NCHW, strides = [2147483648, 2147483648, 32, 1]}> = dense<1.000000e+00> : tensor<1x4x16777216x32xf16>, [#const.Reshape<[1, 1, 67108864, 32]>, #const.SubView<[0, 0, 0, 0], [1, 1, 67108863, 32]>, #const.CastElemType<f16>]
     // CHECK:    [[BARRIER_0:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK:    [[BARRIER_1:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
+
     // CHECK:    [[OUTPUT:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x4x33554432x64xf16, [@CMX_NN, 0]>
     // CHECK:    [[OUTPUT_0:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <17179868928> -> memref<1x1x2x64xf16, [@CMX_NN, 0]>
     // CHECK:    [[OUTPUT_1:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1x134217726x64xf16, [@CMX_NN, 0]>
+
+    // CHECK:    [[CST_0:%.*]] =  const.Declare memref<1x1x67108864x32xf16> = dense<1.000000e+00> : tensor<1x4x16777216x32xf16>, [#const.Reshape<[1, 1, 67108864, 32]>, #const.CastElemType<f16>]
+    // CHECK:    [[SUBVIEW_0:%.*]] = VPUIP.SubView [[CST_0]] [0, 0, 0, 0] [1, 1, 67108863, 32] : memref<1x1x67108864x32xf16> to memref<1x1x67108863x32xf16, {order = #NCHW, strides = [2147483648, 2147483648, 32, 1]}>
 
     // CHECK:     VPURT.Task waits([[BARRIER_0]] : !VPURT.Barrier) updates([[BARRIER_1]] : !VPURT.Barrier)
     // CHECK-SAME:  {
@@ -364,10 +370,12 @@ func.func @UnrollUpsamplingDMAWithCstInputWithNCHW() -> memref<1x4x33554432x64xf
     // CHECK-SAME:        >,
     // CHECK-SAME:        upsampling_factor = [1, 1, 2, 2]
     // CHECK-SAME:        }
-    // CHECK-SAME:        inputs([[CST_1]] : memref<1x1x67108863x32xf16, {order = #NCHW, strides = [2147483648, 2147483648, 32, 1]}>)
+    // CHECK-SAME:        inputs([[SUBVIEW_0]] : memref<1x1x67108863x32xf16, {order = #NCHW, strides = [2147483648, 2147483648, 32, 1]}>)
     // CHECK-SAME:        outputs([[OUTPUT_1]] : memref<1x1x134217726x64xf16, [@CMX_NN, 0]>) -> memref<1x1x134217726x64xf16, [@CMX_NN, 0]>
     // CHECK:       }
 
+
+    // CHECK:    [[SUBVIEW_1:%.*]] = VPUIP.SubView [[CST_0]] [0, 0, 67108863, 0] [1, 1, 1, 32] : memref<1x1x67108864x32xf16> to memref<1x1x1x32xf16, {order = #NCHW, strides = [2147483648, 2147483648, 32, 1]}>
     // CHECK:     VPURT.Task waits([[BARRIER_0]] : !VPURT.Barrier) updates([[BARRIER_1]] : !VPURT.Barrier)
     // CHECK-SAME:  {
     // CHECK:           VPUIP.UpsamplingDMAOp {
@@ -384,7 +392,7 @@ func.func @UnrollUpsamplingDMAWithCstInputWithNCHW() -> memref<1x4x33554432x64xf
     // CHECK-SAME:        port = 1 : i64,
     // CHECK-SAME:        upsampling_factor = [1, 1, 2, 2]
     // CHECK-SAME:        }
-    // CHECK-SAME:        inputs([[CST_0]] : memref<1x1x1x32xf16, {order = #NCHW, strides = [2147483648, 2147483648, 32, 1]}>)
+    // CHECK-SAME:      inputs([[SUBVIEW_1]] : memref<1x1x1x32xf16, {order = #NCHW, strides = [2147483648, 2147483648, 32, 1]}>)
     // CHECK-SAME:        outputs([[OUTPUT_0]] : memref<1x1x2x64xf16, [@CMX_NN, 0]>) -> memref<1x1x2x64xf16, [@CMX_NN, 0]>
     // CHECK:       }
 

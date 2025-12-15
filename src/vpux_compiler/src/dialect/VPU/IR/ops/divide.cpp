@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
@@ -22,19 +22,8 @@ mlir::LogicalResult vpux::VPU::DivideOp::inferReturnTypes(mlir::MLIRContext* ctx
         return mlir::failure();
     }
 
-    const auto in1Type = mlir::cast<vpux::NDTypeInterface>(divide.getInput1().getType());
-    const auto in2Type = mlir::cast<vpux::NDTypeInterface>(divide.getInput2().getType());
-
-    const auto outShapeRes = IE::broadcastEltwiseShape(in1Type.getShape().raw(), in2Type.getShape().raw(),
-                                                       divide.getAutoBroadcast(), loc);
-
-    if (mlir::succeeded(outShapeRes)) {
-        const auto outType = mlir::RankedTensorType::get(outShapeRes.value(), in1Type.getElementType(),
-                                                         createTensorAttrFromType(in1Type));
-        inferredReturnTypes.push_back(outType);
-    }
-
-    return mlir::success();
+    return inferEltwiseReturnTypes(inferredReturnTypes, loc, divide.getInput1(), divide.getInput2(),
+                                   divide.getAutoBroadcast());
 }
 
 void vpux::VPU::DivideOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState, ::mlir::Value input1,

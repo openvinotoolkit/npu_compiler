@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/conversion/passes/ShaveCodeGen/conversions.hpp"
+#include "vpux/compiler/conversion/passes/ShaveCodeGen/linalg_type_conversion.hpp"
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/arithmetic.hpp"
@@ -13,10 +14,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/logical.hpp"
-#include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
-#include "vpux/compiler/utils/ShaveCodeGen/linalg_type_conversion.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
@@ -1129,6 +1127,91 @@ mlir::Value emitLinalgRegion<IE::HSigmoidOp>(IE::HSigmoidOp op, mlir::ValueRange
     return rewriter.create<mlir::arith::MulFOp>(loc, min, divSix);
 }
 
+// SoftPlus
+
+static mlir::Value createSoftPlusComputation(mlir::Location loc, mlir::Value input, mlir::PatternRewriter& rewriter,
+                                             bool isFP16Conversion) {
+    // Threshold values from OpenVINO spec
+    double threshold_val = isFP16Conversion ? 11.0f : 20.0f;
+
+    auto inputType = input.getType();
+    auto threshold = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(inputType, threshold_val));
+    auto one = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(inputType, 1.0));
+
+    // Use fast math flags to enable backend optimizations
+    auto fmFlags = mlir::arith::FastMathFlagsAttr::get(rewriter.getContext(), mlir::arith::FastMathFlags::afn |
+                                                                                      mlir::arith::FastMathFlags::nnan |
+                                                                                      mlir::arith::FastMathFlags::ninf);
+
+    // Compute SoftPlus: log(1 + exp(input)) for values below threshold
+    auto exp_result = rewriter.create<mlir::math::ExpOp>(loc, input, fmFlags);
+    auto one_plus_exp = rewriter.create<mlir::arith::AddFOp>(loc, one, exp_result);
+    auto softplus_result = rewriter.create<mlir::math::LogOp>(loc, one_plus_exp, fmFlags);
+
+    // Use linear function for values above threshold (x >= threshold)
+    auto is_below_threshold =
+            rewriter.create<mlir::arith::CmpFOp>(loc, mlir::arith::CmpFPredicate::OLT, input, threshold);
+
+    return rewriter.create<mlir::arith::SelectOp>(loc, is_below_threshold, softplus_result, input);
+}
+
+template <>
+mlir::Value emitLinalgRegion<IE::SoftPlusOp>(IE::SoftPlusOp op, mlir::ValueRange args,
+                                             llvm::ArrayRef<mlir::Type> resultTypes, mlir::PatternRewriter& rewriter) {
+    VPUX_UNUSED(resultTypes);
+    auto loc = op.getLoc();
+    auto input = args[0];
+    auto elTy = mlir::cast<NDTypeInterface>(op->getOperand(0).getType()).getElementType();
+
+    // For FP16, use FP16->FP32->FP16 pattern
+    if (mlir::isa<mlir::Float16Type>(elTy)) {
+        auto f32Type = mlir::Float32Type::get(rewriter.getContext());
+        auto extArg = rewriter.create<mlir::arith::ExtFOp>(loc, f32Type, input);
+
+        // Create SoftPlus operation in fp32
+        auto softplusF32 = createSoftPlusComputation(loc, extArg, rewriter, true);
+
+        // Convert back to f16
+        auto f16Type = mlir::Float16Type::get(rewriter.getContext());
+        return rewriter.create<mlir::arith::TruncFOp>(loc, f16Type, softplusF32);
+    }
+
+    // Non-FP16: direct computation
+    return createSoftPlusComputation(loc, input, rewriter, false);
+}
+
+// Mish
+
+template <>
+mlir::Value emitLinalgRegion<IE::MishOp>(IE::MishOp op, mlir::ValueRange args, llvm::ArrayRef<mlir::Type> resultTypes,
+                                         mlir::PatternRewriter& rewriter) {
+    VPUX_UNUSED(resultTypes);
+    auto loc = op.getLoc();
+    auto input = args[0];
+
+    // Create constants with proper type
+    auto one = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(input.getType(), 1.0));
+
+    // Afn (approximate functions) flag for exponential and tanh operations
+    auto fmFlags = mlir::arith::FastMathFlagsAttr::get(rewriter.getContext(), mlir::arith::FastMathFlags::afn);
+
+    // Mish(x) = x * tanh(ln(1 + e^x)), steps:
+    // Compute e^x
+    auto exp_x = rewriter.create<mlir::math::ExpOp>(loc, input, fmFlags);
+
+    // Compute 1 + e^x
+    auto one_plus_exp = rewriter.create<mlir::arith::AddFOp>(loc, one, exp_x);
+
+    // Compute ln(1 + e^x)
+    auto softplus = rewriter.create<mlir::math::LogOp>(loc, one_plus_exp, fmFlags);
+
+    // Compute tanh(softplus)
+    auto tanh_softplus = rewriter.create<mlir::math::TanhOp>(loc, softplus, fmFlags);
+
+    // Compute x * tanh(softplus)
+    return rewriter.create<mlir::arith::MulFOp>(loc, input, tanh_softplus);
+}
+
 void ConvertEltwiseLayers2MathPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
@@ -1138,33 +1221,18 @@ void ConvertEltwiseLayers2MathPass::safeRunOnFunc() {
     target.addLegalDialect<mlir::arith::ArithDialect, mlir::linalg::LinalgDialect, mlir::tensor::TensorDialect,
                            mlir::math::MathDialect, mlir::func::FuncDialect>();
 
-    target.addLegalDialect<IE::IEDialect>();
-    target.addIllegalOp<IE::TanhOp>();
-    target.addIllegalOp<IE::CosOp>();
-    target.addIllegalOp<IE::MaximumOp>();
-    target.addIllegalOp<IE::MinimumOp>();
-    target.addIllegalOp<IE::DivideOp>();
-    target.addIllegalOp<IE::LogOp>();
-    target.addIllegalOp<IE::ExpOp>();
-    target.addIllegalOp<IE::BitwiseAndOp, IE::BitwiseOrOp, IE::BitwiseXorOp, IE::BitwiseNotOp>();
-    target.addIllegalOp<IE::LogicalOrOp, IE::LogicalXorOp, IE::AndOp, IE::LogicalNotOp, IE::SelectOp>();
-    target.addIllegalOp<IE::EqualOp, IE::NotEqualOp, IE::LessOp, IE::LessEqualOp, IE::GreaterOp, IE::GreaterEqualOp>();
-    target.addIllegalOp<IE::SquaredDifferenceOp>();
-    target.addIllegalOp<IE::SinOp>();
-    target.addIllegalOp<IE::SqrtOp>();
-    target.addIllegalOp<IE::ErfOp>();
-    target.addIllegalOp<IE::RoundOp>();
-    target.addIllegalOp<IE::PReluOp, IE::ReLUOp, IE::LeakyReluOp, IE::ClampOp>();
-    target.addIllegalOp<IE::AddOp, IE::MultiplyOp, IE::SubtractOp>();
-    target.addIllegalOp<IE::ConvertOp>();
-    target.addIllegalOp<IE::TanOp, IE::SinhOp, IE::CoshOp, IE::AtanOp, IE::AtanhOp>();
-    target.addIllegalOp<IE::AbsOp>();
-    target.addIllegalOp<IE::NegativeOp>();
-    target.addIllegalOp<IE::SignOp>();
-    target.addIllegalOp<IE::HSwishOp>();
-    target.addIllegalOp<IE::HSigmoidOp>();
-    target.addIllegalOp<IE::ReduceMaxOp, IE::ReduceMinOp, IE::ReduceL2Op>();
-    target.addIllegalOp<IE::EluOp, IE::GeluOp, IE::SeluOp>();
+    target.addIllegalDialect<IE::IEDialect>();
+    target.addLegalOp<IE::CodeGenCapsuleOp>();
+    target.addLegalOp<IE::CGCYieldOp>();
+    target.addDynamicallyLegalOp<IE::PermuteCastOp>([&](IE::PermuteCastOp op) {
+        // Legal with identity mapping mem permute, otherwise needs decomposing
+        // since it performs an additional reshape.
+        // This should always be illegal after E#187489.
+        if (op.getMemPerm().isIdentity()) {
+            return true;
+        }
+        return false;
+    });
 
     auto populatePatterns = [&](mlir::RewritePatternSet& patternSet) {
         patternSet.add<IEEltwiseToLinalg<IE::MaximumOp>, IEEltwiseToLinalg<IE::MinimumOp>,
@@ -1193,11 +1261,14 @@ void ConvertEltwiseLayers2MathPass::safeRunOnFunc() {
                        IEEltwiseToLinalg<IE::HSwishOp>, IEEltwiseToLinalg<IE::HSigmoidOp>>(&ctx);
         patternSet.add<IEEltwiseToLinalg<IE::EluOp>, IEEltwiseToLinalg<IE::GeluOp>, IEEltwiseToLinalg<IE::SeluOp>>(
                 &ctx);
+        patternSet.add<IEEltwiseToLinalg<IE::SoftPlusOp>, IEEltwiseToLinalg<IE::MishOp>>(&ctx);
     };
 
     mlir::RewritePatternSet patterns(&ctx);
     populatePatterns(patterns);
     ShaveCodeGen::populateIEReduceToLinalgPatterns(patterns);
+    ShaveCodeGen::populateIEDataMovementToTensorPatterns(patterns);
+    ShaveCodeGen::populateIEShapeManipulationToTensorPatterns(patterns);
     mlir::FrozenRewritePatternSet frozenPatterns(std::move(patterns));
 
     // E#172607 [ShaveCodeGen] Make Linalg lowering pass run on CodeGenCapsuleOps

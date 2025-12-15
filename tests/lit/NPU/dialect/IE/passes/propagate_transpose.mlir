@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --propagate-transpose %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 #NWHC = affine_map<(d0, d1, d2, d3) -> (d0, d3, d2, d1)>
 
@@ -544,4 +544,44 @@ func.func @SwapWithFixedOrderSlice(%arg0 : tensor<1x192x9x16xf16>) -> tensor<1x9
     // CHECK-SAME{LITERAL}:    {static_offsets = [[0, 0, 0, 0], [0, 0, 0, 1], [0, 0, 0, 2]]} : tensor<1x9x16x1xf16>, tensor<1x9x16x1xf16>, tensor<1x9x16x1xf16> -> tensor<1x9x16x3xf16>
 
     // CHECK: return [[CONCAT]] : tensor<1x9x16x3xf16>
+}
+
+// -----
+
+#NHCW = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>
+
+// CHECK-LABEL: @SwapWithRMS
+// CHECK-SAME:    [[INPUT:%.+]]: tensor<1x256x24x64xf16>
+func.func @SwapWithRMS(%arg0 : tensor<1x256x24x64xf16>) -> tensor<1x24x256x64xf16> {
+    %cst = const.Declare tensor<1x1x1x64xf16> = dense<2.0> : tensor<1x1x1x64xf16>, [#const.Rescale<1.250000e-01 : f64>]
+
+    %0 = IE.Transpose(%arg0) {order_value = #NHCW} : tensor<1x256x24x64xf16> -> tensor<1x24x256x64xf16>
+    %1 = IE.RMS(%0, %cst) {eps = 1.0132789611816406E-6 : f64} : tensor<1x24x256x64xf16>, tensor<1x1x1x64xf16> -> tensor<1x24x256x64xf16>
+
+    return %1 : tensor<1x24x256x64xf16>
+
+    // CHECK-DAG:    [[CST:%.+]] = const.Declare tensor<1x1x1x64xf16> = dense<2.000000e+00> : tensor<1x1x1x64xf16>, [#const.Rescale<1.250000e-01 : f64>]
+    // CHECK:        [[RMS:%.+]] = IE.RMS([[INPUT]], [[CST]]) {eps = 1.0132789611816406E-6 : f64} : tensor<1x256x24x64xf16>, tensor<1x1x1x64xf16> -> tensor<1x256x24x64xf16>
+    // CHECK:        [[TRANSPOSE:%.+]] = IE.Transpose([[RMS]]) {order_value = #NHCW} : tensor<1x256x24x64xf16> -> tensor<1x24x256x64xf16>
+    // CHECK:        return [[TRANSPOSE]] : tensor<1x24x256x64xf16>
+}
+
+// -----
+
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+
+// CHECK-LABEL: @NotSwapWithRMS
+// CHECK-SAME:    [[INPUT:%.+]]: tensor<1x256x24x64xf16>
+func.func @NotSwapWithRMS(%arg0 : tensor<1x256x24x64xf16>) -> tensor<1x256x64x24xf16> {
+    %cst = const.Declare tensor<1x1x1x24xf16> = dense<2.0> : tensor<1x1x1x24xf16>, [#const.Rescale<1.250000e-01 : f64>]
+
+    %0 = IE.Transpose(%arg0) {order_value = #NCWH} : tensor<1x256x24x64xf16> -> tensor<1x256x64x24xf16>
+    %1 = IE.RMS(%0, %cst) {eps = 1.0132789611816406E-6 : f64} : tensor<1x256x64x24xf16>, tensor<1x1x1x24xf16> -> tensor<1x256x64x24xf16>
+
+    return %1 : tensor<1x256x64x24xf16>
+
+    // CHECK-DAG:    [[CST:%.+]] = const.Declare tensor<1x1x1x24xf16> = dense<2.000000e+00> : tensor<1x1x1x24xf16>, [#const.Rescale<1.250000e-01 : f64>]
+    // CHECK:        [[TRANSPOSE:%.+]] = IE.Transpose([[INPUT]]) {order_value = #NCWH} : tensor<1x256x24x64xf16> -> tensor<1x256x64x24xf16>
+    // CHECK:        [[RMS:%.+]] = IE.RMS([[TRANSPOSE]], [[CST]]) {eps = 1.0132789611816406E-6 : f64} : tensor<1x256x64x24xf16>, tensor<1x1x1x24xf16> -> tensor<1x256x64x24xf16>
+    // CHECK:        return [[RMS]] : tensor<1x256x64x24xf16>
 }

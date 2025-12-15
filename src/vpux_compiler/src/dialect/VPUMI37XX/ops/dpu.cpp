@@ -3,11 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/blob_writer.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
-#include "vpux/compiler/utils/ELF/utils.hpp"
+#include "vpux/compiler/dialect/VPURegMapped/types.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
 
 #include <mlir/IR/BuiltinTypes.h>

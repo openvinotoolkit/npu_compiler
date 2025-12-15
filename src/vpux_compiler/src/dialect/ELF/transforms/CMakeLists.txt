@@ -8,7 +8,8 @@ add_npu_library(npu_compiler_dialect_elf_transforms
     ${SRC_FILES}
     DIALECT_LIB
     LINK_LIBS PRIVATE
+        npu_compiler_dialect_elf
+        npu_compiler_dialect_elf_utils
         npu_llvm_utils
         npu_elf
-        MLIRFuncDialect
-    )
+        MLIRFuncDialect)

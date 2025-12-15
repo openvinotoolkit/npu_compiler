@@ -9,6 +9,7 @@ add_npu_library(npu_compiler_dialect_elf
     DIALECT_LIB
     LINK_LIBS PRIVATE
         compiler_commit_hash
+        npu_compiler_dialect_config
         npu_llvm_utils
         npu_ov_utils
         npu_elf

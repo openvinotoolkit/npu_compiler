@@ -9,13 +9,14 @@
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
 #include <mlir/IR/IRMapping.h>
@@ -589,7 +590,7 @@ private:
 
 mlir::LogicalResult ReshapeExpandDWConvInput::matchAndRewrite(IE::GroupConvolutionOp origOp,
                                                               mlir::PatternRewriter& rewriter) const {
-    _log.trace("Got '{1}' at '{2}'", origOp->getName(), origOp->getLoc());
+    _log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
     // Only support GroupConvolution with constant filter
     // Kernel size must be 1x1, and must be a depthwise convolution.
@@ -790,9 +791,7 @@ void AdjustConvolutionInputShapePass::safeRunOnFunc() {
     // Also need stride[H] > 1
     patterns.add<ReshapeExpandDWConvInput>(&ctx, _log);
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
-    }
+    collectOpsAndApplyPatterns(func, std::move(patterns));
 }
 }  // namespace
 

@@ -15,14 +15,16 @@
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
-#include "vpux/compiler/utils/IE/locations.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
+#include "vpux/compiler/utils/locations.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/types.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
 #include "vpux/utils/profiling/location.hpp"
 
 #include <mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h>
+#include <mlir/Dialect/Bufferization/IR/Bufferization.h>
+#include <mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.h>
 #include <mlir/Dialect/Linalg/IR/Linalg.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
@@ -157,7 +159,7 @@ namespace {
 
 // tensors -> buffers
 
-mlir::BaseMemRefType tensorWithBoundsToBoundedBuffer(mlir::RankedTensorType tensorType) {
+mlir::bufferization::BufferLikeType tensorWithBoundsToBoundedBuffer(mlir::RankedTensorType tensorType) {
     VPUX_THROW_UNLESS(mlir::isa<Core::DynamicDimsMaskTensorType>(tensorType),
                       "Expected to have dynamic tensor, got {0}", tensorType);
 
@@ -176,7 +178,7 @@ mlir::BaseMemRefType tensorWithBoundsToBoundedBuffer(mlir::RankedTensorType tens
     return VPUIP::BoundedBufferType::get(dataMemRef, dynamicShapeMemRef);
 }
 
-mlir::BaseMemRefType tensorToBuffer(mlir::RankedTensorType tensorType) {
+mlir::bufferization::BufferLikeType tensorToBuffer(mlir::RankedTensorType tensorType) {
     if (mlir::isa<Core::DynamicDimsMaskTensorType>(tensorType)) {
         return tensorWithBoundsToBoundedBuffer(tensorType);
     }
@@ -185,10 +187,10 @@ mlir::BaseMemRefType tensorToBuffer(mlir::RankedTensorType tensorType) {
     const auto elemType = type.getElementType();
     const auto order = type.getDimsOrder();
     const auto memSpace = type.getMemSpace();
-    return getMemRefType(shape, elemType, order, memSpace);
+    return mlir::cast<mlir::bufferization::BufferLikeType>(getMemRefType(shape, elemType, order, memSpace));
 }
 
-mlir::BaseMemRefType distributedTensorToBuffer(VPU::DistributedTensorType type) {
+mlir::bufferization::BufferLikeType distributedTensorToBuffer(VPU::DistributedTensorType type) {
     mlir::MLIRContext* ctx = type.getContext();
     if (mlir::isa<Core::DynamicDimsMaskTensorType>(type)) {
         const auto data =
@@ -318,7 +320,7 @@ mlir::Value materializeToMemref(mlir::OpBuilder& builder, mlir::BaseMemRefType t
                                 mlir::Location loc) {
     VPUX_THROW_UNLESS(inputs.size() == 1, "Expected only one input");
     VPUX_THROW_UNLESS(mlir::isa<mlir::TensorType>(inputs[0].getType()), "Expected input type is TensorType");
-    return builder.create<mlir::bufferization::ToMemrefOp>(loc, type, inputs[0]);
+    return builder.create<mlir::bufferization::ToBufferOp>(loc, type, inputs[0]);
 };
 
 }  // namespace
@@ -374,7 +376,7 @@ mlir::LogicalResult vpux::convertFunc(mlir::func::FuncOp funcOp, ArrayRef<mlir::
         OpBuilderLogger builderLog(log.nest(2));
         mlir::OpBuilder argBuilder(firstUser, &builderLog);
 
-        auto* cvtOp = cvtOpBuilder(argBuilder, IE::getValueLocation(val), val, origType);
+        auto* cvtOp = cvtOpBuilder(argBuilder, getValueLocation(val), val, origType);
 
         val.replaceAllUsesExcept(cvtOp->getResult(0), llvm::SmallPtrSet<mlir::Operation*, 1>{cvtOp});
     }
@@ -417,7 +419,7 @@ mlir::LogicalResult vpux::convertFunc(mlir::func::FuncOp funcOp, ArrayRef<mlir::
 
             mlir::Location cvtLoc = mlir::UnknownLoc::get(retOp.getContext());
             if (outputsInfo.empty()) {
-                cvtLoc = appendLoc(IE::getValueLocation(val), "out_{0}", p.index());
+                cvtLoc = appendLoc(getValueLocation(val), "out_{0}", p.index());
             } else {
                 cvtLoc = outputsInfo[p.index()]->getLoc();
             }
@@ -503,14 +505,6 @@ vpux::BufferizeOneShotTypeConverter::BufferizeOneShotTypeConverter() {
     addTargetMaterialization(materializeToMemref);
 }
 
-namespace {
-// NPU compiler's wrapper around preferred unknown type bufferization function
-mlir::BaseMemRefType getMemRefTypeForUnknownTensorType(mlir::Type type, mlir::Attribute memorySpace) {
-    auto tensorType = mlir::cast<mlir::TensorType>(type);
-    return mlir::bufferization::getMemRefTypeWithStaticIdentityLayout(tensorType, memorySpace);
-}
-}  // namespace
-
 mlir::bufferization::OneShotBufferizationOptions vpux::getOneShotBufferizationOptions() {
     mlir::bufferization::OneShotBufferizationOptions options;
     options.bufferizeFunctionBoundaries = true;
@@ -520,9 +514,15 @@ mlir::bufferization::OneShotBufferizationOptions vpux::getOneShotBufferizationOp
     // but only adding `__inplace_operands_attr__`. Need to investigate whether it could be set to false,
     // and eliminate the introduced `bufferization.alloc_tensor, which will reduce the insertion of VPUIP.Copy
     options.testAnalysisOnly = true;
-    options.unknownTypeConverterFn = [](mlir::Value value, mlir::Attribute memorySpace,
+    options.unknownTypeConverterFn = [](mlir::TensorType tensorType, mlir::Attribute memorySpace,
                                         const mlir::bufferization::BufferizationOptions& /*options*/) {
-        return getMemRefTypeForUnknownTensorType(value.getType(), memorySpace);
+        return mlir::bufferization::getMemRefTypeWithStaticIdentityLayout(tensorType, memorySpace);
+    };
+    options.defaultMemorySpaceFn = [](mlir::TensorType tensorType) -> std::optional<mlir::Attribute> {
+        if (auto rankedType = mlir::dyn_cast<mlir::RankedTensorType>(tensorType)) {
+            return getMemorySpace(rankedType);
+        }
+        return nullptr;
     };
     options.opFilter
             .allowDialect<mlir::bufferization::BufferizationDialect, mlir::memref::MemRefDialect,
@@ -543,12 +543,12 @@ vpux::NDTypeInterface vpux::getBufferType(mlir::Type tensorType) {
     }
 
     return llvm::TypeSwitch<mlir::Type, mlir::Type>(tensorType)
-            .Case<mlir::RankedTensorType>([&](mlir::RankedTensorType rankedTensorType) {
+            .Case<mlir::RankedTensorType>([&](mlir::RankedTensorType rankedTensorType) -> mlir::Type {
                 const auto encoding = vpux::getTensorAttr(rankedTensorType);
                 if (encoding != nullptr) {
                     return tensorToBuffer(rankedTensorType);
                 }
-                return getMemRefTypeForUnknownTensorType(rankedTensorType, nullptr);
+                return mlir::bufferization::getMemRefTypeWithStaticIdentityLayout(rankedTensorType, nullptr);
             })
             .Case<VPU::DistributedTensorType>([&](VPU::DistributedTensorType distributedTensorType) {
                 return distributedTensorToBuffer(distributedTensorType);
@@ -556,13 +556,14 @@ vpux::NDTypeInterface vpux::getBufferType(mlir::Type tensorType) {
             .Case<VPU::SparseTensorType>([&](VPU::SparseTensorType sparseTensorType) {
                 return sparseTensorToBuffer(sparseTensorType);
             })
-            .Default([&](mlir::Type type) {
+            .Default([&](mlir::Type type) -> mlir::Type {
                 // this is likely an unranked tensor type and we don't know how
                 // to get a memSpace for it.
                 const mlir::Attribute unknownMemSpace = nullptr;
                 // E#108407: use UnknownTypeConverterFn directly, once it
                 // accepts mlir::Type
-                return getMemRefTypeForUnknownTensorType(type, unknownMemSpace);
+                return mlir::bufferization::getMemRefTypeWithStaticIdentityLayout(mlir::cast<mlir::TensorType>(type),
+                                                                                  unknownMemSpace);
             });
 }
 
@@ -602,7 +603,7 @@ mlir::Type vpux::reconstructTensorType(mlir::Type type) {
 
 mlir::Value vpux::getBuffer(mlir::RewriterBase& rewriter, mlir::Value value) {
     if (auto toTensorOp = value.getDefiningOp<mlir::bufferization::ToTensorOp>()) {
-        return toTensorOp.getMemref();
+        return toTensorOp.getBuffer();
     }
 
     const auto tensorType = value.getType();
@@ -621,7 +622,7 @@ mlir::Value vpux::getBuffer(mlir::RewriterBase& rewriter, mlir::Value value) {
 
     // E#109609: replace with getResult()/getMemref() once we can convert
     //           VPUIP::{Distributed, Sparse}BufferType to mlir::BaseMemRefType
-    return rewriter.create<mlir::bufferization::ToMemrefOp>(value.getLoc(), bufferType, value)->getResult(0);
+    return rewriter.create<mlir::bufferization::ToBufferOp>(value.getLoc(), bufferType, value)->getResult(0);
 }
 
 //

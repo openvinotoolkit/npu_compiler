@@ -39,6 +39,7 @@ bool isOp(mlir::Operation* op) {
 
 ConditionFunc makeStubCondition();
 
+std::unique_ptr<mlir::Pass> createAddPlaceholderFetchDMAsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createLegalizeScheduleForPartialWlmFetchDmasPass(
         const int virtualBarrierThreshold = VIRTUAL_BARRIER_THRESHOLD_WLM, Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createFuseSegmentedDmaPass(Logger log = Logger::global());
@@ -65,7 +66,8 @@ std::unique_ptr<mlir::Pass> createDumpStatisticsOfTaskOpsPass(Logger log = Logge
 std::unique_ptr<mlir::Pass> createUnrollDistributedOpsPass(Logger log = Logger::global(),
                                                            std::optional<bool> enableSegmentedDmaFusion = std::nullopt);
 std::unique_ptr<mlir::Pass> createUnrollSwKernelPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createDMABarrierOptimizationPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createDMABarrierOptimizationPass(
+        std::optional<WorkloadManagementMode> workloadManagementMode = std::nullopt, Logger log = Logger::global());
 
 std::unique_ptr<mlir::Pass> createFuseConstantsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createResolveDMAWithSwizzlingPass(Logger log = Logger::global());
@@ -163,7 +165,7 @@ std::unique_ptr<mlir::Pass> createFeasibleAllocationPass(
         MemKindCreateFunc memKindCb, MemKindCreateFunc secondLvlMemKindCb = nullptr,
         const bool linearizeSchedule = false, const bool enablePipelining = true, const bool enablePrefetching = true,
         const bool optimizeFragmentation = true, const bool optimizeDynamicSpilling = true,
-        Logger log = Logger::global());
+        const bool enableMultiScheduleHeuristic = false, Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createQueryArgsAllocationAnalysisPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createStaticAllocationPass(MemKindCreateFunc memKindCb, Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createBatchMatMulToMatMulPass(Logger log = Logger::global());

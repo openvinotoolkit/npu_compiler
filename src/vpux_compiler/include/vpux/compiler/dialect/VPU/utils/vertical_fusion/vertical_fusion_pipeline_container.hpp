@@ -16,15 +16,54 @@ Interval for operation in the timeline
 Constructed based on its cost
 */
 struct TimelineInterval {
-    TimelineInterval(StrategyCost begin, StrategyCost end, mlir::Operation* operation, int64_t index,
-                     bool isLastInPipeline = false);
+    TimelineInterval(StrategyCost begin, StrategyCost end, mlir::Location location, mlir::Operation* operation,
+                     int64_t index, bool isLastInPipeline = false);
     StrategyCost _mBegin = 0;
     StrategyCost _mEnd = 0;
 
+    mlir::Location _mLoc = nullptr;
     mlir::Operation* _mOperation = nullptr;
     int64_t _mIndex = 0;
     VPU::ExecutorKind _mExecutor;
     bool _mIsLastInPipeline = false;
+};
+
+/*
+VF Linear container
+*/
+class VFLinearContainer {
+public:
+    VFLinearContainer() = default;
+
+    // add new operation to the container
+    void addOperation(mlir::Operation* operation, int64_t index, const StrategyCost& begin,
+                      const StrategyCost& duration);
+
+    // add new operation DMA to the container
+    void addDMA(mlir::Operation* operation, int64_t index, const StrategyCost begin, const StrategyCost& duration);
+
+    // get all time intervals
+    SmallVector<TimelineInterval> getAllIntervals() const;
+
+    // get max cost of operations from the container
+    StrategyCost maxCost() const;
+
+    // invalidate time intervals
+    void invalidate();
+
+    // is empty
+    bool isEmpty() const;
+
+private:
+    // insert operation into the timeline
+    void setPlaceInTimeline(mlir::Operation* operation, int64_t index, const StrategyCost& begin,
+                            const StrategyCost& duration, bool isDMA);
+
+    // timeline intervals
+    SmallVector<TimelineInterval> _containerMapper;
+
+    // last interval in the timeline with biggest end value
+    std::optional<TimelineInterval> _lastInterval = std::nullopt;
 };
 
 /*
@@ -37,7 +76,7 @@ public:
 
     // add new operation to the container to be pipelined with current ones
     bool addOperation(mlir::Operation* operation, int64_t index, const StrategyCost& cost);
-    bool addDMA(int64_t index, const StrategyCost& cost, const bool isLast = false);
+    bool addDMA(mlir::Operation* operation, int64_t index, const StrategyCost& cost, const bool isLast = false);
 
     // get max cost of operations from the container
     StrategyCost maxCost() const;
@@ -54,10 +93,13 @@ public:
     // check if there is possibility to pipeline operation
     bool isPipelineAvailable(int64_t pipelinedIndex, mlir::Operation* operation, StrategyCost cost) const;
 
+    // get all time intervals
+    SmallVector<TimelineInterval> getAllIntervals() const;
+
 private:
     // insert operation into the timeline
-    bool setPlaceInTimeline(mlir::Operation* operation, int64_t index, const StrategyCost& cost,
-                            const bool isLast = false);
+    bool setPlaceInTimeline(mlir::Location location, mlir::Operation* operation, int64_t index,
+                            const StrategyCost& cost, const bool isLast = false);
 
     // timeline intervals
     SmallVector<TimelineInterval> _containerMapper;

@@ -24,6 +24,10 @@ TEST_P(ScatterUpdateLayerTestCommon, NPU4000_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU4000);
 }
+TEST_P(ScatterUpdateLayerTestCommon, NPU5010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
 }  // namespace test
 }  // namespace ov
 

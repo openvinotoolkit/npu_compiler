@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 
 using namespace vpux;
@@ -140,6 +141,52 @@ mlir::LogicalResult FuseLayoutCasts::matchAndRewrite(VPU::LayoutCastOp origOp, m
     return mlir::success();
 }
 
+//
+// FuseLayoutCastsWithShapeCast
+//
+
+class FuseLayoutCastsWithShapeCast final : public mlir::OpRewritePattern<VPU::LayoutCastOp> {
+public:
+    using mlir::OpRewritePattern<VPU::LayoutCastOp>::OpRewritePattern;
+
+public:
+    mlir::LogicalResult matchAndRewrite(VPU::LayoutCastOp origOp, mlir::PatternRewriter& rewriter) const final;
+};
+
+mlir::LogicalResult FuseLayoutCastsWithShapeCast::matchAndRewrite(VPU::LayoutCastOp origOp,
+                                                                  mlir::PatternRewriter& rewriter) const {
+    // Transform
+    // Input type1 -> VPU.LayoutCast type2 -> VPU.ShapeCast -> VPU.LayoutCast type1 -> Output type1
+    // into
+    // Input type1 -> VPU.ShapeCast -> Output type1
+    auto shapeCastOp = origOp.getInput().getDefiningOp<VPU::ShapeCastOp>();
+    if (shapeCastOp == nullptr || !shapeCastOp.getOutput().hasOneUse()) {
+        return mlir::failure();
+    }
+    auto layoutCastOp = shapeCastOp.getInput().getDefiningOp<VPU::LayoutCastOp>();
+    if (layoutCastOp == nullptr || !layoutCastOp.getOutput().hasOneUse()) {
+        return mlir::failure();
+    }
+    auto firstLayoutCastInputDimOrder =
+            mlir::cast<vpux::NDTypeInterface>(layoutCastOp.getInput().getType()).getDimsOrder();
+    ;
+    auto firstLayoutCastOutputDimOrder =
+            mlir::cast<vpux::NDTypeInterface>(layoutCastOp.getOutput().getType()).getDimsOrder();
+    ;
+    auto currentLayoutCastInputDimOrder = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType()).getDimsOrder();
+    auto currentLayoutCastOutputDimOrder =
+            mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType()).getDimsOrder();
+
+    if (firstLayoutCastInputDimOrder != currentLayoutCastOutputDimOrder ||
+        firstLayoutCastOutputDimOrder != currentLayoutCastInputDimOrder) {
+        return mlir::failure();
+    }
+
+    rewriter.replaceOpWithNewOp<VPU::ShapeCastOp>(origOp, layoutCastOp.getInput(), shapeCastOp.getShape());
+
+    return mlir::success();
+}
+
 }  // namespace
 
 //
@@ -148,4 +195,5 @@ mlir::LogicalResult FuseLayoutCasts::matchAndRewrite(VPU::LayoutCastOp origOp, m
 
 void vpux::VPU::LayoutCastOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns, mlir::MLIRContext* ctx) {
     patterns.add<FuseLayoutCasts>(ctx);
+    patterns.add<FuseLayoutCastsWithShapeCast>(ctx);
 }

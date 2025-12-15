@@ -5,9 +5,9 @@
 
 #pragma once
 
+#include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUIPDPU/rewriters/utils.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/types.hpp"
-#include "vpux/compiler/utils/ELF/utils.hpp"
 
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinTypes.h>

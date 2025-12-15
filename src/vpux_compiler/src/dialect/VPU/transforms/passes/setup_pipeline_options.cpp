@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/NPU37XX/dialect/VPU/impl/ppe_factory.hpp"
+#include "vpux/compiler/NPU50XX/dialect/VPU/impl/ppe_factory.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/factories/cost_model_config.hpp"
@@ -43,6 +44,7 @@ private:
     void safeRunOnModule() final;
 
 private:
+    config::ArchKind getArch();
     // Initialize fields from pass options
     void initializeFromOptions();
 
@@ -61,10 +63,21 @@ mlir::LogicalResult SetupPipelineOptionsPass::initializeOptions(
     return mlir::success();
 }
 
+config::ArchKind SetupPipelineOptionsPass::getArch() {
+    VPUX_THROW_WHEN(platformOpt.hasValue() && archOpt.hasValue(), "Either 'platform' or 'vpu-arch' shall be set.");
+    if (platformOpt.hasValue()) {
+        const auto platform = config::symbolizeEnum<config::Platform>(platformOpt.getValue());
+        VPUX_THROW_UNLESS(platform.has_value(), "Unknown NPU platform : '{0}'", platformOpt.getValue());
+        return config::getArch(platform.value());
+    } else {
+        auto arch_opt = config::symbolizeEnum<config::ArchKind>(archOpt.getValue());
+        VPUX_THROW_UNLESS(arch_opt.has_value(), "Unknown NPU architecture : '{0}'", archOpt.getValue());
+        return arch_opt.value();
+    }
+}
+
 void SetupPipelineOptionsPass::initializeFromOptions() {
-    auto archStr = config::symbolizeEnum<config::ArchKind>(archOpt.getValue());
-    VPUX_THROW_UNLESS(archStr.has_value(), "Unknown VPU architecture : '{0}'", archOpt.getValue());
-    const auto _arch = archStr.value();
+    const auto arch = getArch();
 
     if (allowCustomValues.hasValue()) {
         _allowCustomValues = allowCustomValues.getValue();
@@ -73,20 +86,25 @@ void SetupPipelineOptionsPass::initializeFromOptions() {
     // Register the default PPE factory singleton
     const auto& ppeVersion = ppeVersionOpt.getValue();
     if (ppeVersion == "Auto") {
-        if (_arch == config::ArchKind::NPU37XX || _arch == config::ArchKind::NPU40XX) {
+        if (arch == config::ArchKind::NPU37XX || arch == config::ArchKind::NPU40XX) {
             VPU::PpeVersionConfig::setFactory<VPU::arch37xx::PpeFactory>();
             _log.info("Auto target PPE version set to: 'IntPPE'");
+        } else {
+            VPU::PpeVersionConfig::setFactory<VPU::arch50xx::PpeFactory>();
+            _log.info("Auto target PPE version set to: 'FpPPE'");
         }
     } else if (ppeVersion == "IntPPE") {
         VPU::PpeVersionConfig::setFactory<VPU::arch37xx::PpeFactory>();
+    } else if (ppeVersion == "FpPPE") {
+        VPU::PpeVersionConfig::setFactory<VPU::arch50xx::PpeFactory>();
     } else {
         _log.error("Unknown PPE version name: '{0}'", ppeVersion);
     }
 
     // Register the default cost model factory singleton
-    VPU::CostModelConfig::setFactory(_arch);
+    VPU::CostModelConfig::setFactory(arch);
     // Create the ShaveUtil based on how Factory was generated
-    VPU::CostModelConfig::setCMShaveUtils(_arch);
+    VPU::CostModelConfig::setCMShaveUtils(arch);
 }
 
 void SetupPipelineOptionsPass::safeRunOnModule() {

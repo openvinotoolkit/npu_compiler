@@ -148,7 +148,7 @@ void SetupNpuConstraintPass::safeRunOnModule() {
     bool isWlmWithoutRollback = workloadManagementStatus == WorkloadManagementStatus::ENABLED && !isRollBackPossible;
     if (_enableSwFifoPerShave && !config::hasSupportForFifoPerShaveEngine(arch, isWlmWithoutRollback)) {
         // if dedicated SHAVE FIFOs are not, or cannot be supported, the feature will be disabled. For convenience, this
-        // will be reflected in the iR in pipeline options section, as the value will be accessed by multiple passes.
+        // will be reflected in the IR in pipeline options section, as the value will be accessed by multiple passes.
         _enableSwFifoPerShave = false;
         _log.info("Dedicated FIFOs per SHAVE engine were requested but are currently not supported by the architecture "
                   "({0}) or WLM ({1}) and rollback ({2}) options setting. The feature will not be enabled.",
@@ -192,11 +192,13 @@ void SetupNpuConstraintPass::safeRunOnModule() {
     auto shvRegAddrs = regConfig.getSHVRegisterAddrs();
     auto dpuRegAddrs = regConfig.getDPURegisterAddrs();
     auto barrierFifoAddr = regConfig.getNCEBarrierFifoAddr();
+    auto barrierFifoDepth = regConfig.getNCEBarrierFifoDepth();
     addConstraint(optionsBuilder, pipelineOptionsOp, config::DPU_FIFO_ADDRS, std::move(dpuRegAddrs),
                   _allowCustomValues);
     addConstraint(optionsBuilder, pipelineOptionsOp, config::SHV_FIFO_ADDRS, std::move(shvRegAddrs),
                   _allowCustomValues);
     addConstraint(optionsBuilder, pipelineOptionsOp, config::BARRIER_FIFO_ADDR, barrierFifoAddr, _allowCustomValues);
+    addConstraint(optionsBuilder, pipelineOptionsOp, config::BARRIER_FIFO_DEPTH, barrierFifoDepth, _allowCustomValues);
 
     // Get Maximum available space in CMX Metadata for various descriptor types
     auto maxVariants = vpux::VPU::getDefaultTaskListCount(VPU::TaskType::DPUVariant, arch);

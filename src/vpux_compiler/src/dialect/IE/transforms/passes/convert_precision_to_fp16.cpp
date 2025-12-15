@@ -16,10 +16,13 @@
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/convert_op_types.hpp"
+#include "vpux/compiler/dialect/IE/utils/power_utils.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
 #include <mlir/Transforms/DialectConversion.h>
@@ -67,6 +70,52 @@ Const::ContentAttr clampF16Splat(const Const::ContentAttr& input) {
     // constant operation. This cast costs nothing and is likely to be fused
     // with other casts.
     return Const::ContentAttr::get(content, {Const::CastElemTypeAttr::get(input.getType().getElementType())});
+}
+
+void insertEpsilonClamp(mlir::OpBuilder& builder, mlir::Operation* divLikeOp, mlir::Operation* op) {
+    // Return if there is a subsequent Select designed to screen out Inf/NaN
+    if (divLikeOp != nullptr && divLikeOp->hasOneUse()) {
+        auto& dataOperand = *divLikeOp->getUses().begin();
+        if (auto selOp = mlir::dyn_cast_or_null<IE::SelectOp>(dataOperand.getOwner())) {
+            auto dataIndex = dataOperand.getOperandNumber();
+            auto maybeZeros = dataIndex == 1 ? selOp.getInput3().getDefiningOp<Const::DeclareOp>()
+                                             : selOp.getInput2().getDefiningOp<Const::DeclareOp>();
+            if (dataIndex > 0 && maybeZeros != nullptr && Const::hasAllZeroValues(maybeZeros.getContent())) {
+                return;
+            }
+        }
+    }
+
+    if (auto sqrtOp = mlir::dyn_cast_or_null<IE::SqrtOp>(op)) {
+        // Skip over Sqrt Op since epsilon Add/Max/Clamp Op is usually located before it.
+        op = sqrtOp.getInput().getDefiningOp();
+    }
+
+    if (op == nullptr || !op->hasOneUse() || mlir::isa_and_nonnull<Const::DeclareOp>(op)) {
+        return;
+    }
+
+    if (auto inputVal = op->getOperands().front()) {
+        if (inputVal.getDefiningOp<Const::DeclareOp>() != nullptr) {
+            return;
+        }
+    }
+
+    const auto outputType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType());
+    if (!outputType.getElementType().isF16()) {
+        return;
+    }
+
+    // Insert a new Clamp op to prevent float16 precision divide-by-zero in subsequent Op.
+    builder.setInsertionPointAfter(op);
+    auto& useResult = *op->getUses().begin();
+
+    auto ctx = op->getContext();
+    auto clampMin = getFPAttr(ctx, std::numeric_limits<type::float16>::nearest_non_zero_positive_value);
+    auto clampMax = getFPAttr(ctx, static_cast<double>(std::numeric_limits<type::float16>::max()));
+    auto newClampOp = builder.create<IE::ClampOp>(takeOpLoc(op, "epsilon"), op->getResult(0), clampMin, clampMax);
+
+    useResult.assign(newClampOp.getResult());
 }
 
 //
@@ -321,6 +370,24 @@ void ConvertPrecisionToFP16Pass::safeRunOnModule() {
     if (mlir::failed(runConvertPrecision(module, selectOpConverter, selectOpTarget, _log))) {
         signalPassFailure();
     }
+
+    mlir::OpBuilder builder(module);
+
+    // Insert Clamp Ops to prevent divide-by-zero in low precision Divide and Divide-like Power Ops
+    // to ensure accurate results (e.g. when comparing to CPU inference).
+    module.walk([&](IE::DivideOp divideOp) {
+        insertEpsilonClamp(builder, divideOp, divideOp.getInput2().getDefiningOp());
+    });
+
+    module.walk([&](IE::PowerOp powerOp) {
+        auto exponent = IE::getExponentSplatVal(powerOp);
+        const bool powerIsDivisionLike = (exponent.has_value() && exponent.value() < 0.f);
+        if (!powerIsDivisionLike) {
+            return;
+        }
+
+        insertEpsilonClamp(builder, powerOp, powerOp.getInput1().getDefiningOp());
+    });
 }
 
 }  // namespace

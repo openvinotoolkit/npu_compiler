@@ -18,6 +18,7 @@ add_npu_library(${TARGET_NAME}
         npu_profiling_utils
         npu_elf
         openvino::npu_al
+        npu_compiler_dialect_elf_utils
         npu_compiler_dialect_vpurt
         npu_compiler_dialect_vpuip
         npu_costmodel)

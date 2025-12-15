@@ -13,7 +13,7 @@
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/utils/error.hpp"
 
-#include <mlir/Dialect/Quant/QuantOps.h>
+#include <mlir/Dialect/Quant/IR/Quant.h>
 #include <mlir/Transforms/DialectConversion.h>
 
 namespace vpux::IE {

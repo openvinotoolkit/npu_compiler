@@ -553,8 +553,7 @@ void OptimizeSyncTasksPass::safeRunOnFunc() {
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<MergeSyncTasks>(&ctx, _log);
 
-    if (mlir::failed(
-                mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), vpux::getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), vpux::getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 

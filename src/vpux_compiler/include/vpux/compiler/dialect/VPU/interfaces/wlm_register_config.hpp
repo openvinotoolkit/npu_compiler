@@ -24,6 +24,7 @@ struct RegisterConfig {
     llvm::SmallVector<uint32_t> getSHVRegisterAddrs() const;
     llvm::SmallVector<uint32_t> getDPURegisterAddrs() const;
     uint32_t getNCEBarrierFifoAddr() const;
+    uint32_t getNCEBarrierFifoDepth() const;
 
 private:
     struct Concept {
@@ -31,6 +32,7 @@ private:
         virtual llvm::SmallVector<uint32_t> getSHVRegisterAddrs() const = 0;
         virtual llvm::SmallVector<uint32_t> getDPURegisterAddrs() const = 0;
         virtual uint32_t getNCEBarrierFifoAddr() const = 0;
+        virtual uint32_t getNCEBarrierFifoDepth() const = 0;
     };
 
     template <typename T>
@@ -45,6 +47,9 @@ private:
         }
         uint32_t getNCEBarrierFifoAddr() const override {
             return self.getNCEBarrierFifoAddr();
+        }
+        uint32_t getNCEBarrierFifoDepth() const override {
+            return self.getNCEBarrierFifoDepth();
         }
         T self;
     };

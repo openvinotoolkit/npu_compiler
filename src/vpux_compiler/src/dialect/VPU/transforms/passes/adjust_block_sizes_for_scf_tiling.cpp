@@ -5,7 +5,6 @@
 
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/scf/scf_utils.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
@@ -27,9 +26,6 @@ using namespace vpux;
 using namespace VPU;
 
 namespace {
-
-enum class TilePosition { MIDDLE = 0, END = 1, START = 2, FULLBLK = 3 };
-constexpr size_t NUMBITS = 2;
 
 //
 // AdjustBlockSizeForScfTilingPass
@@ -60,7 +56,7 @@ private:
             llvm::DenseMap<mlir::Operation*, llvm::DenseMap<int64_t, Shape>>& mapSliceOpToBlockSizes);
     mlir::scf::IfOp getBacktrackIndex(mlir::scf::ForOp forOp, mlir::OpBuilder builder, mlir::Value offsetVal,
                                       mlir::Operation* insertionPoint, mlir::Value currentBlkSize,
-                                      mlir::Value staticSize, mlir::Value upperBound);
+                                      ArrayRef<mlir::Value> staticSize, mlir::Value upperBound);
     mlir::scf::ForOp getEnclosingForOp(mlir::Value offsetVal);
 
     std::pair<mlir::IntegerAttr, mlir::Value> createConstOpOutsideForOp(int64_t val) {
@@ -77,7 +73,7 @@ private:
 
     mlir::tensor::DimOp createDimOp(mlir::OpBuilder builder, mlir::scf::ForOp forOp, mlir::Value tensor, size_t idx) {
         mlir::OpBuilder localBuilder(forOp);
-        auto dimOp = isDefinedOutsideForLoop(tensor, forOp)
+        auto dimOp = forOp.isDefinedOutsideOfLoop(tensor)
                              ? localBuilder.create<mlir::tensor::DimOp>(takeOpLoc(forOp, "dim"), tensor, idx)
                              : builder.create<mlir::tensor::DimOp>(takeOpLoc(forOp, "dim"), tensor, idx);
         return dimOp;
@@ -95,12 +91,12 @@ private:
         return cstOp;
     }
 
-    bool isDefinedOutsideForLoop(mlir::Value val, mlir::scf::ForOp forOp);
     mlir::Value encodeIndexBitwise(mlir::OpBuilder builder, mlir::Location loc, ArrayRef<mlir::Value> values);
 
     AffineChainUtils _affineChainUtils;
     mlir::ModuleOp _moduleOp;
     mlir::scf::ForOp _firstForOp;
+    mlir::func::FuncOp _mainFuncOp;
     llvm::DenseMap<int64_t, mlir::arith::ConstantIndexOp> _constIndexOpCache;
     llvm::DenseMap<int64_t, std::pair<mlir::IntegerAttr, mlir::Value>> _constOpCache;
 };
@@ -145,22 +141,6 @@ mlir::scf::ForOp AdjustBlockSizeForScfTilingPass::getEnclosingForOp(mlir::Value 
     return nullptr;
 };
 
-bool AdjustBlockSizeForScfTilingPass::isDefinedOutsideForLoop(mlir::Value val, mlir::scf::ForOp forOp) {
-    if (auto definingOp = val.getDefiningOp()) {
-        if (auto parentForOp = definingOp->getParentOfType<mlir::scf::ForOp>()) {
-            return parentForOp != forOp;
-        }
-    } else {
-        if (auto arg = mlir::dyn_cast<mlir::BlockArgument>(val)) {
-            if (mlir::isa<mlir::scf::ForOp>(arg.getOwner()->getParentOp())) {
-                auto parentForOp = arg.getOwner()->getParentOp()->getParentOfType<mlir::scf::ForOp>();
-                return parentForOp != forOp;
-            }
-        }
-    }
-    return true;
-};
-
 // Get the top-most scf.for op in the nested loops
 mlir::scf::ForOp getOutermostForOp(mlir::scf::ForOp forOp) {
     auto currentForOp = forOp;
@@ -181,19 +161,34 @@ mlir::scf::ForOp getOutermostForOp(mlir::scf::ForOp forOp) {
  * when processing tensor slice insertions within nested SCF for loops. It determines the appropriate tile
  * position and backtrack size based on the current offset value and loop bounds.
  *
+ * Tensor Block Division Diagram:
+ * ┌─────────────┬──────────────────────────────────┬─────────────┐
+ * │    START    │             MIDDLE               │     END     │
+ * │   (index=0) │        (index > 0, sum < bound)  │ (last tile) │
+ * └─────────────┴──────────────────────────────────┴─────────────┘
+ *   startBlkSize        middleBlkSize                 lastBlkSize
+ *
  * The generated logic handles three main cases:
- * 1. When offset is zero: Asserts that there are enough elements to backtrack, yields (2, 0)
- * 2. When offset + step < upper_bound: Yields (0, 0) - no backtracking needed
+ * 1. When offset is zero: StartBlkSize should have at least step size elements. yields (2, 0)
+ * 2. When offset + step < upper_bound: Middle tile. Yields (0, 0) - no backtracking needed
  * 3. When offset + step >= upper_bound:
  *    - If sum equals upper bound: Yields (1, 0)
  *    - Otherwise: Calculates backtrack size and yields (1, backtrack_size)
+ *
+ * Since the tiling algorithm tiles on the output tensor, the expected_block_size during each iteration is always the
+ * same as the step_size on the output tensor. However, the input tensor might have a different shape than the output
+ * tensor due to padding or alignment requirements. So the expected_block_size is different based on block position.
+ * With first, middle and last blocks having different sizes, the backtrack index calculation needs to be adjusted using
+ * the expected block size for the last tile position. All middle block sizes have the same shape (can be different from
+ * start/end block sizes).
  *
  * @return mlir::scf::IfOp The root conditional operation containing the tile position logic,
  *         or nullptr if the parent SCF for operation cannot be found
  */
 mlir::scf::IfOp AdjustBlockSizeForScfTilingPass::getBacktrackIndex(mlir::scf::ForOp forOp, mlir::OpBuilder builder,
                                                                    mlir::Value offset, mlir::Operation* insertionPoint,
-                                                                   mlir::Value currentBlkSize, mlir::Value staticSize,
+                                                                   mlir::Value currentBlkSize,
+                                                                   ArrayRef<mlir::Value> staticSizes,
                                                                    mlir::Value upperBound) {
     auto outerMostForOp = getOutermostForOp(forOp);
     builder.setInsertionPoint(insertionPoint);
@@ -203,24 +198,25 @@ mlir::scf::IfOp AdjustBlockSizeForScfTilingPass::getBacktrackIndex(mlir::scf::Fo
     auto threeConst = getCstIndexOp(static_cast<int64_t>(TilePosition::FULLBLK));
     auto indexIsZero = builder.create<mlir::arith::CmpIOp>(takeOpLoc(insertionPoint, "cmp_index_zero"),
                                                            mlir::arith::CmpIPredicate::eq, offset, zeroConst);
+    if (staticSizes.size() != 2) {
+        _log.error("Expected two static sizes for start/middle and end block positions, but got {0}",
+                   staticSizes.size());
+        return nullptr;
+    }
+
+    auto lastBlkSize = staticSizes[1];
     auto ifIndexZero = builder.create<mlir::scf::IfOp>(
             takeOpLoc(insertionPoint, "if_offset_zero"),
             llvm::ArrayRef<mlir::Type>{builder.getIndexType(), builder.getIndexType()}, indexIsZero,
             /*withElseRegion=*/true);
-    // Then block:
     // if index == 0 :
-    //    assert if num_elements < step_size
+    //    assert if num_elements < first_blk_size
     //    if num_elements == total_elements
-    //       yield 3, 0
+    //       yield 3, index
     //    else:
-    //       yield 2, 0
+    //       yield 2, index
     {
         mlir::OpBuilder thenBuilder = ifIndexZero.getThenBodyBuilder();
-        auto stepGreaterThanBound =
-                thenBuilder.create<mlir::arith::CmpIOp>(appendLoc(insertionPoint->getLoc(), "tile0_check"),
-                                                        mlir::arith::CmpIPredicate::sge, currentBlkSize, staticSize);
-        thenBuilder.create<mlir::cf::AssertOp>(takeOpLoc(ifIndexZero, "assert"), stepGreaterThanBound,
-                                               "Not enough elements to backtrack in scf.for loop");
         auto checkForFullTile = thenBuilder.create<mlir::arith::CmpIOp>(
                 takeOpLoc(ifIndexZero, "full_tile_check"), mlir::arith::CmpIPredicate::eq, currentBlkSize, upperBound);
         auto selectIndex = thenBuilder.create<mlir::arith::SelectOp>(takeOpLoc(ifIndexZero, "select_full_tile"),
@@ -229,18 +225,19 @@ mlir::scf::IfOp AdjustBlockSizeForScfTilingPass::getBacktrackIndex(mlir::scf::Fo
                                                mlir::ValueRange{selectIndex->getResult(0), offset});
     }
     // Else block: index != 0
-    // %sum = index + step
-    // if %sum < upper_bound :
-    //    yield 1, 0
+    // sum = index + current_block_size
+    // if sum < upper_bound :
+    //    yield 0, index
     // else:
-    //    if %sum == upper_bound:
-    //        yield 2, 0
+    //    if expected_block_size == current_block_size:
+    //        yield 1, index
     //    else:
-    //        backtrack_size = upper_bound - index - step
-    //        yield 2, backtrack_size
+    //        remainder = upper_bound % expected_block_size
+    //        backtrack_index = index + remainder - expected_block_size
+    //        yield 1, backtrack_index
     {
         mlir::OpBuilder elseBuilder = ifIndexZero.getElseBodyBuilder();
-        auto sum = elseBuilder.create<mlir::arith::AddIOp>(takeOpLoc(ifIndexZero, "else_add"), offset, staticSize);
+        auto sum = elseBuilder.create<mlir::arith::AddIOp>(takeOpLoc(ifIndexZero, "else_add"), offset, currentBlkSize);
         auto sumLessThanBound = elseBuilder.create<mlir::arith::CmpIOp>(
                 takeOpLoc(ifIndexZero, "pos_check"), mlir::arith::CmpIPredicate::slt, sum, upperBound);
         auto ifSumLess = elseBuilder.create<mlir::scf::IfOp>(
@@ -254,7 +251,7 @@ mlir::scf::IfOp AdjustBlockSizeForScfTilingPass::getBacktrackIndex(mlir::scf::Fo
         {
             mlir::OpBuilder elseBuilder2 = ifSumLess.getElseBodyBuilder();
             auto sumEqualsUpper = elseBuilder2.create<mlir::arith::CmpIOp>(
-                    takeOpLoc(ifSumLess, "last_tile"), mlir::arith::CmpIPredicate::eq, sum, upperBound);
+                    takeOpLoc(ifSumLess, "last_tile"), mlir::arith::CmpIPredicate::eq, currentBlkSize, lastBlkSize);
             auto ifSumEquals = elseBuilder2.create<mlir::scf::IfOp>(
                     takeOpLoc(ifSumLess, "last_tile_check"),
                     llvm::ArrayRef<mlir::Type>{builder.getIndexType(), builder.getIndexType()}, sumEqualsUpper,
@@ -267,12 +264,11 @@ mlir::scf::IfOp AdjustBlockSizeForScfTilingPass::getBacktrackIndex(mlir::scf::Fo
             {
                 mlir::OpBuilder elseBuilder3 = ifSumEquals.getElseBodyBuilder();
 
-                if (isDefinedOutsideForLoop(staticSize, outerMostForOp) &&
-                    isDefinedOutsideForLoop(upperBound, outerMostForOp)) {
+                if (outerMostForOp.isDefinedOutsideOfLoop(lastBlkSize) &&
+                    outerMostForOp.isDefinedOutsideOfLoop(upperBound)) {
                     mlir::OpBuilder localBuilder(outerMostForOp);
-                    // mlir::OpBuilder remBuilder(outerMostForOp);
-                    auto currentBlkSize = localBuilder.create<mlir::arith::RemUIOp>(
-                            takeOpLoc(outerMostForOp, "remainder"), upperBound, staticSize);
+                    auto remainder = localBuilder.create<mlir::arith::RemUIOp>(takeOpLoc(outerMostForOp, "remainder"),
+                                                                               upperBound, lastBlkSize);
 
                     mlir::AffineExpr d0, d1, d2;
                     bindDims(localBuilder.getContext(), d0, d1, d2);
@@ -280,7 +276,7 @@ mlir::scf::IfOp AdjustBlockSizeForScfTilingPass::getBacktrackIndex(mlir::scf::Fo
                     auto indexMap = mlir::AffineMap::get(3, 0, {adjustedOffsetExpr}, localBuilder.getContext());
                     auto newOffset = mlir::affine::makeComposedFoldedAffineApply(
                             elseBuilder3, appendLoc(forOp->getLoc(), "adjusted_offset_idx"), indexMap,
-                            {offset, currentBlkSize.getResult(), staticSize});
+                            {offset, remainder.getResult(), lastBlkSize});
                     auto newOffsetVal = mlir::getValueOrCreateConstantIndexOp(
                             elseBuilder3, takeOpLoc(ifSumEquals, "backtrack"), newOffset);
                     elseBuilder3.create<mlir::scf::YieldOp>(takeOpLoc(ifSumEquals, "yield"),
@@ -288,9 +284,9 @@ mlir::scf::IfOp AdjustBlockSizeForScfTilingPass::getBacktrackIndex(mlir::scf::Fo
                 } else {
                     // backtrack_size = upper_bound - index - step_value
                     auto remainder = elseBuilder3.create<mlir::arith::RemUIOp>(takeOpLoc(ifSumEquals, "remainder"),
-                                                                               upperBound, staticSize);
+                                                                               upperBound, lastBlkSize);
                     auto backtrackSize = elseBuilder3.create<mlir::arith::SubIOp>(
-                            takeOpLoc(remainder, "backtrack_value"), staticSize, remainder);
+                            takeOpLoc(remainder, "backtrack_value"), lastBlkSize, remainder);
                     auto newOffset = elseBuilder3.create<mlir::arith::SubIOp>(takeOpLoc(backtrackSize, "adjusted_idx"),
                                                                               offset, backtrackSize);
                     elseBuilder3.create<mlir::scf::YieldOp>(takeOpLoc(ifSumEquals, "yield"),
@@ -353,8 +349,15 @@ mlir::LogicalResult AdjustBlockSizeForScfTilingPass::adjustOutputBlockIdxAndSize
             auto offsetValue = mlir::dyn_cast_or_null<mlir::Value>(offset);
             assert(offsetValue != nullptr && "Expected a non-const offsetValue");
 
-            auto ifIndexZero =
-                    getBacktrackIndex(parentForOp, builder, offsetValue, insertionPoint, val, blockSize, upperBound);
+            mlir::tensor::DimOp dimOp;
+            if (mlir::failed(getTensorDimOpFromIndex(builder, insertSliceOp.getDest(), idx, dimOp))) {
+                return mlir::failure();
+            }
+            addCheckForBlockSize(builder, dimOp, blockSize, _mainFuncOp,
+                                 "Not enough elements to backtrack in scf.for loop for Output tensor");
+
+            auto ifIndexZero = getBacktrackIndex(parentForOp, builder, offsetValue, insertionPoint, val,
+                                                 {blockSize, blockSize}, upperBound);
             if (ifIndexZero == nullptr) {
                 return mlir::emitError(parentForOp.getLoc(),
                                        "Failed to create backtrack index for insert slice operation");
@@ -440,7 +443,7 @@ bool getTensorBlockSizes(mlir::Value val, llvm::DenseMap<int64_t, int64_t>& mapT
         valueMap.push_back(upperBoundInt - stepInt);
     }
 
-    llvm::DenseMap<mlir::Value, llvm::SmallVector<int64_t>> mapToValues;
+    llvm::DenseMap<mlir::Value, SmallVector<int64_t>> mapToValues;
     mapToValues[blockArgVal] = std::move(valueMap);
 
     auto blockSizesVal = affineUtils.getOpFoldResultValue(val, mapToValues, AffineChainUtils::MODE::ALL_VALUES);
@@ -530,11 +533,22 @@ mlir::LogicalResult AdjustBlockSizeForScfTilingPass::adjustInputBlockIdxAndSize(
             }
             dynDimsToTilePositionAndSizeVec.push_back({vpux::Dim(idx), mapToBlockPosAndSize});
 
-            auto staticShape = mapToBlockPosAndSize.size() == 1
-                                       ? mapToBlockPosAndSize[static_cast<int64_t>(TilePosition::FULLBLK)]
-                                       : mapToBlockPosAndSize[static_cast<int64_t>(TilePosition::END)];
-            auto [shapeAttr, blockSize] = createConstOpOutsideForOp(staticShape);
-            newSizes.push_back(shapeAttr);
+            SmallVector<mlir::Value> blockSizes;
+            if (mapToBlockPosAndSize.size() == 1) {
+                auto staticShape = mapToBlockPosAndSize[static_cast<int64_t>(TilePosition::FULLBLK)];
+                auto [shapeAttr, blockSize] = createConstOpOutsideForOp(staticShape);
+                newSizes.push_back(shapeAttr);
+                blockSizes.push_back(blockSize);
+                blockSizes.push_back(blockSize);
+            } else {
+                auto shapeForStartBlk = mapToBlockPosAndSize[static_cast<int64_t>(TilePosition::START)];
+                auto [shapeAttr, blockSize] = createConstOpOutsideForOp(shapeForStartBlk);
+                newSizes.push_back(shapeAttr);
+                blockSizes.push_back(blockSize);
+
+                auto shapeForEndBlk = mapToBlockPosAndSize[static_cast<int64_t>(TilePosition::END)];
+                blockSizes.push_back(createConstOpOutsideForOp(shapeForEndBlk).second);
+            }
 
             auto offset = sliceOp.getMixedOffsets()[idx];
             auto offsetValue = mlir::dyn_cast_or_null<mlir::Value>(offset);
@@ -551,7 +565,10 @@ mlir::LogicalResult AdjustBlockSizeForScfTilingPass::adjustInputBlockIdxAndSize(
             // Get the upperbound
             auto src = sliceOp.getSource();
             mlir::tensor::DimOp srcDimOp = createDimOp(builder, outermostForOp, src, idx);
-            auto ifIndexZero = getBacktrackIndex(forOp, builder, offsetValue, insertionPoint, val, blockSize, srcDimOp);
+            addCheckForBlockSize(builder, srcDimOp, blockSizes[0], _mainFuncOp,
+                                 "Not enough elements to backtrack in scf.for loop for Input tensor");
+            auto ifIndexZero =
+                    getBacktrackIndex(forOp, builder, offsetValue, insertionPoint, val, blockSizes, srcDimOp);
             if (ifIndexZero == nullptr) {
                 return errorAt(sliceOp,
                                "Failed to create tile position and backtrack index for insert_slice operation");
@@ -576,7 +593,7 @@ mlir::LogicalResult AdjustBlockSizeForScfTilingPass::adjustInputBlockIdxAndSize(
 
         // ExtractSliceOp -> CastOp -> xxxOp require CastOp to change the input type
         // ExtractSliceOp -> xxxOp require castOp to get the dynamic shape back from static shape
-        llvm::SmallVector<mlir::OpOperand*> requireCastOp;
+        SmallVector<mlir::OpOperand*> requireCastOp;
         for (auto& use : sliceOp->getUses()) {
             if (mlir::isa<mlir::tensor::CastOp>(use.getOwner())) {
                 auto castOp = mlir::cast<mlir::tensor::CastOp>(use.getOwner());
@@ -895,8 +912,7 @@ void AdjustBlockSizeForScfTilingPass::generateBlockAwareFuncOps(
 void AdjustBlockSizeForScfTilingPass::safeRunOnModule() {
     _moduleOp = getOperation();
     net::NetworkInfoOp netInfoOp;
-    mlir::func::FuncOp mainFuncOp;
-    net::NetworkInfoOp::getFromModule(_moduleOp, netInfoOp, mainFuncOp);
+    net::NetworkInfoOp::getFromModule(_moduleOp, netInfoOp, _mainFuncOp);
     mlir::OpBuilder builder(_moduleOp.getContext());
 
     auto checkForPaddedOps = [&](mlir::func::FuncOp funcOp) {
@@ -915,7 +931,7 @@ void AdjustBlockSizeForScfTilingPass::safeRunOnModule() {
         return false;
     };
 
-    auto forOps = mainFuncOp.getOps<mlir::scf::ForOp>();
+    auto forOps = _mainFuncOp.getOps<mlir::scf::ForOp>();
     if (forOps.empty()) {
         _log.trace("No scf.for operations found in the main function. Skipping the pass.");
         return;
@@ -925,7 +941,7 @@ void AdjustBlockSizeForScfTilingPass::safeRunOnModule() {
     llvm::DenseMap<mlir::Value, AdjustedIndexInfo> mapToAdjustedIdx;
     SmallVector<std::pair<vpux::Dim, mlir::Value>> dynDimsAndTensorBlockId;
     llvm::DenseMap<mlir::Operation*, llvm::DenseMap<int64_t, Shape>> dynDimToBlockIds;
-    mainFuncOp.walk([&](mlir::scf::ForOp forOp) {
+    _mainFuncOp.walk([&](mlir::scf::ForOp forOp) {
         if (mlir::failed(adjustOutputBlockIdxAndSize(forOp, mapToAdjustedIdx))) {
             signalPassFailure();
             return;

@@ -24,10 +24,12 @@ namespace {
 // ensures we deal with tensors where necessary -- making this internally
 // simplifies the job for the user as one does not have to specify custom
 // conversions or supply 2 types instead of 1.
-mlir::RankedTensorType ensureRankedTensor(mlir::RankedTensorType type) {
-    return type;
+mlir::RankedTensorType ensureRankedTensor(mlir::TensorType type) {
+    // Note: casting to ranked tensor is safe because we never deal with
+    // unranked tensors.
+    return mlir::cast<mlir::RankedTensorType>(type);
 }
-mlir::RankedTensorType ensureRankedTensor(mlir::MemRefType type) {
+mlir::RankedTensorType ensureRankedTensor(mlir::BaseMemRefType type) {
     return mlir::cast<mlir::RankedTensorType>(reconstructTensorType(type));
 }
 
@@ -118,6 +120,18 @@ bool hasNegativeValues(const Const::Content& content) {
     return content.read([](auto vals) {
         return std::any_of(vals.begin(), vals.end(), [](auto val) {
             return checked_cast<double>(val) < 0.0;
+        });
+    });
+}
+
+bool hasAllZeroValues(const Const::Content& content) {
+    if (content.isSplat()) {
+        return isFloatEqual(content.getSplatValue<float>(), 0.0f);
+    }
+
+    return content.read([](auto vals) {
+        return std::all_of(vals.begin(), vals.end(), [](auto val) {
+            return isFloatEqual(checked_cast<float>(val), 0.0f);
         });
     });
 }

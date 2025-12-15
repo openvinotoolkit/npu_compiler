@@ -6,10 +6,11 @@
 #include "vpux/compiler/utils/locations_verifier.hpp"
 #include "vpux/compiler/core/developer_build_utils.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/control_flow.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
@@ -107,9 +108,23 @@ bool hasExcludedPatterns(mlir::Operation* op) {
     return false;
 }
 
+bool isFoldedLater(mlir::Operation* op) {
+    // FakeQuantize operations created by the compiler with constant input will get folded later in the pipeline, so
+    // there is no need to verify their locations.
+    auto fqOp = mlir::dyn_cast<IE::FakeQuantizeOp>(op);
+    if (fqOp == nullptr) {
+        return false;
+    }
+    auto constInput = fqOp.getInput().getDefiningOp<Const::DeclareOp>();
+    if (constInput != nullptr) {
+        return true;
+    }
+    return false;
+}
+
 bool isIgnoredOp(mlir::Operation* op) {
     const bool hasUnknownLoc = mlir::isa<mlir::UnknownLoc>(op->getLoc());
-    const bool isIgnored = hasUnknownLoc || isIgnoredOpType(op) || hasExcludedPatterns(op);
+    const bool isIgnored = hasUnknownLoc || isIgnoredOpType(op) || hasExcludedPatterns(op) || isFoldedLater(op);
     return isIgnored;
 }
 

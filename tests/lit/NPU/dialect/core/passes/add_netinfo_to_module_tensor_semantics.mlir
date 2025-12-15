@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --init-compiler=vpu-arch=%arch% --split-input-file --add-netinfo-to-module=has-tensor-semantics=true %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 
 // CHECK-LABEL:  module @Module0

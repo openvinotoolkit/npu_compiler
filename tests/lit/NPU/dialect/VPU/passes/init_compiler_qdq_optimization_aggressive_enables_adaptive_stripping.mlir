@@ -12,7 +12,7 @@
 // RUN: vpux-opt --init-compiler="vpu-arch=%arch% enable-adaptive-stripping=true" %s | FileCheck --check-prefix=CHECK-AGG-UNSET-ADA-ON %s
 // RUN: vpux-opt --init-compiler="vpu-arch=%arch% enable-qdq-optimization-aggressive=false" %s | FileCheck --check-prefix=CHECK-AGG-OFF-ADA-UNSET %s
 // RUN: vpux-opt --init-compiler="vpu-arch=%arch% enable-qdq-optimization-aggressive=true" %s | FileCheck --check-prefix=CHECK-AGG-ON-ADA-UNSET %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-AGG-OFF-ADA-OFF: module @CheckQDQOptimizationAggressiveEnablesAdaptiveStripping
 // CHECK-AGG-OFF-ADA-ON: module @CheckQDQOptimizationAggressiveEnablesAdaptiveStripping

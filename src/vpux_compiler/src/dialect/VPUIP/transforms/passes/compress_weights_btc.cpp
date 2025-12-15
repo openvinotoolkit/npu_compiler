@@ -229,7 +229,7 @@ void CompressWeightsBTCPass::safeRunOnFunc() {
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<NNDMAOpConverter>(&ctx, algo, arch, _log);
 
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), vpux::getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), vpux::getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

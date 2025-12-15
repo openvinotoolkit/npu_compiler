@@ -7,7 +7,7 @@
 // So if there is no analysis cached (as in no previous pass perfomed it), the pass is expected to fail
 
 // RUN: vpux-opt --init-compiler="vpu-arch=%arch%" --early-codegen-capsule-fusion %s -verify-diagnostics
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 module @InvalidMultipleCosFuse {
   net.NetworkInfo entryPoint : @main inputsInfo : {

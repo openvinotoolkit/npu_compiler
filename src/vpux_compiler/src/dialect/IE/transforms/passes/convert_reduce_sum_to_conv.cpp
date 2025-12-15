@@ -344,7 +344,7 @@ void ConvertReduceSumToConvPass::safeRunOnFunc() {
     pattern.add<ReduceSumToConvRewriter>(&ctx, _log);
     pattern.add<InnerDimReduceSumToConvRewriter>(&ctx, _log);
 
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(pattern), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(pattern), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

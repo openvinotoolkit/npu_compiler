@@ -5,8 +5,8 @@
 
 #include <cstring>
 #include <vpux_elf/writer.hpp>
+#include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
-#include "vpux/compiler/utils/ELF/utils.hpp"
 
 using namespace vpux;
 using MIVersionNote = elf::elf_note::VersionNote;

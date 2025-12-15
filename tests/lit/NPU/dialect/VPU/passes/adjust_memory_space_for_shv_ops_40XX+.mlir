@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --adjust-memory-space-for-shv-ops %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 // Only conversions that cannot be done via DMA are lowered to SHAVE. This DMA feature is only supported starting with NPU4
 

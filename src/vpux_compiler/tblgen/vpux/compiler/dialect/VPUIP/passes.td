@@ -511,6 +511,18 @@ def DPUProfiling : PassBase<"dpu-profiling", "vpux::ModulePass"> {
     }];
 
 }
+// M2IProfiling
+//
+
+def M2IProfiling : PassBase<"m2i-profiling", "vpux::ModulePass"> {
+    let summary = "M2I task profiling";
+
+    let description = [{
+        This pass allocate required memory for M2I profiling and perform buffer spilling
+    }];
+
+    let constructor = "vpux::VPUIP::createM2IProfilingPass()";
+}
 def LegalizeRepeatingFuncCalls : PassBase<"legalize-repeating-func-calls", "vpux::FunctionPass"> {
     let summary = "Ensure repeating func calls adhere to VPUIP constaints";
 
@@ -849,6 +861,11 @@ def FeasibleAllocation : PassBase<"feasible-allocation", "vpux::FunctionPass"> {
             "optimizeDynamicSpilling", "optimize-dynamic-spilling",
             "bool", "true",
             "Perform dynamic spill DMA optimization"
+        >,
+        Option<
+            "enableMultiScheduleHeuristic", "enable-multi-schedule-heuristic",
+            "bool", "false",
+            "Enables compiler to schedule with different heuristic logics and compare costs"
         >
     ];
 
@@ -1327,6 +1344,19 @@ def Swizzling : PassBase<"swizzling", "vpux::FunctionPass"> {
 def DMABarrierOptimization : PassBase<"dma-barrier-optimization", "vpux::FunctionPass"> {
     let summary = "Optimize DMA related barriers after dma port has been assigned for VPUX37XX";
     let constructor = "vpux::VPUIP::createDMABarrierOptimizationPass()";
+    let options = [
+        Option<
+            "workloadManagementModeOpt", "workload-management-mode",
+            "vpux::WorkloadManagementMode", "",
+            "Setting which controls mode of WLM",
+            [{::llvm::cl::values(
+                clEnumValN(vpux::WorkloadManagementMode::PWLM_V0_LCA, "PWLM_V0_LCA", "WLM enqueue barriers search algorithm at VPURT ENABLED"),
+                clEnumValN(vpux::WorkloadManagementMode::PWLM_V1_BARRIER_FIFO, "PWLM_V1_BARRIER_FIFO", "WLM enqueue barriers search algorithm at VPURT DISABLED"),
+                clEnumValN(vpux::WorkloadManagementMode::PWLM_V2_PAGES, "PWLM_V2_PAGES", "WLM with split into subgraphs(pages)")
+                , clEnumValN(vpux::WorkloadManagementMode::FWLM_V1_PAGES, "FWLM_V1_PAGES", "Full WLM with split into pages")
+            )}]
+        >
+    ];
 }
 
 //
@@ -2215,4 +2245,34 @@ def LegalizeScheduleForPartialWlmFetchDmas : PassBase<"legalize-schedule-for-par
 
     let constructor = "vpux::VPUIP::createLegalizeScheduleForPartialWlmFetchDmasPass()";
 }
+
+//
+// AddPlaceholderFetchDMAs
+//
+
+def AddPlaceholderFetchDMAs : PassBase<"add-placeholder-fetch-dmas", "vpux::FunctionPass"> {
+    let summary = "Pass inserts fetch dmas to facilitate add-fetch-ops pass";
+
+    let description = [{
+        [Group N-2]..[Group N-1]..[Group N]
+        For the first 2 available groups it inserts FetchDMAs at beginning of the DMA list on port 0 ch:DDR
+
+        For the rest of groups it inserts FetchDMA with barriers. It creates 2 barriers such that last task of Group N-2 updates
+        barrier X and last task of Group N-1 waits for barrier Y. In such case it inserts FetchDMA which waits for barrier X and
+        updates barrier Y ensuring fetching for Group N is finished before Group N-1 is finished execution
+
+        These FetchDMAs are replaced with actual fetch DMAs by add-fetch-dma-ops-full-wlm pass
+        To identify which DMA belongs to which group on which queue we store fetchDMAAttr which contains information like
+        FetchDMAAttr{
+            executorKind
+            tileIdx
+            listIdx
+            executionGroupIdx
+        }
+        Any FetchDMA can be uniquely identified by above parameters and replaced
+    }];
+
+    let constructor = "vpux::VPUIP::createAddPlaceholderFetchDMAsPass()";
+}
+
 #endif

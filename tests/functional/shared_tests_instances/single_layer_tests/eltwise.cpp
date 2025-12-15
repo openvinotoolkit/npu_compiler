@@ -16,39 +16,40 @@ using ov::test::utils::OpType;
 namespace ov {
 namespace test {
 
+// Helper for filling base tensor for POWER operation.
+// Force only positive base values for stability in POWER tests.
+template <typename T>
+void fill_power_base_tensor(ov::Tensor& tensor) {
+    auto* data = tensor.data<T>();
+    for (size_t i = 0; i < tensor.get_size(); ++i) {
+        float val = static_cast<float>(data[i]);
+        if (val == 0.0f) {
+            val = 1.0f;
+        }
+        val = std::abs(val);
+        data[i] = static_cast<T>(val);
+    }
+}
+
+// Helper for filling exponent tensor for POWER operation.
+// Scalars default to 0.5 to stress the fractional exponent path, while
+// vector tensors still cycle through a mix of integer and fractional values.
+template <typename T>
+void fill_power_exp_tensor(ov::Tensor& tensor) {
+    auto* data = tensor.data<T>();
+    constexpr float exponents[] = {2.0f, 3.0f, 0.5f, -1.0f, -0.5f, 0.0f};
+    if (tensor.get_size() == 1) {
+        data[0] = static_cast<T>(0.5f);
+    } else {
+        constexpr size_t exponents_size = sizeof(exponents) / sizeof(exponents[0]);
+        for (size_t i = 0; i < tensor.get_size(); ++i) {
+            data[i] = static_cast<T>(exponents[i % exponents_size]);
+        }
+    }
+}
+
 class EltwiseLayerTestCommon : public EltwiseLayerTest, virtual public VpuOv2LayerTest {
     void SetUp() override;
-    // Helper for filling base tensor for POWER operation.
-    // Force only positive base values for stability in POWER tests.
-    template <typename T>
-    void fill_power_base_tensor(ov::Tensor& tensor) {
-        auto* data = tensor.data<T>();
-        for (size_t i = 0; i < tensor.get_size(); ++i) {
-            float val = static_cast<float>(data[i]);
-            if (val == 0.0f) {
-                val = 1.0f;
-            }
-            val = std::abs(val);
-            data[i] = static_cast<T>(val);
-        }
-    }
-
-    // Helper for filling exponent tensor for POWER operation.
-    // Scalars default to 0.5 to stress the fractional exponent path, while
-    // vector tensors still cycle through a mix of integer and fractional values.
-    template <typename T>
-    void fill_power_exp_tensor(ov::Tensor& tensor) {
-        auto* data = tensor.data<T>();
-        constexpr float exponents[] = {2.0f, 3.0f, 0.5f, -1.0f, -0.5f, 0.0f};
-        if (tensor.get_size() == 1) {
-            data[0] = static_cast<T>(0.5f);
-        } else {
-            constexpr size_t exponents_size = sizeof(exponents) / sizeof(exponents[0]);
-            for (size_t i = 0; i < tensor.get_size(); ++i) {
-                data[i] = static_cast<T>(exponents[i % exponents_size]);
-            }
-        }
-    }
 
     void generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) override {
         const auto eltwiseType = std::get<1>(GetParam());
@@ -153,12 +154,46 @@ class EltwiseLayerTestDynamic : public EltwiseLayerTest, virtual public VpuOv2La
         ov::ParameterVector inputs{std::make_shared<ov::op::v0::Parameter>(modelType, inputDynamicShapes[0])};
 
         std::shared_ptr<ov::Node> secondInput;
-        if (secondInputType == InputLayerType::PARAMETER) {
-            secondInput = std::make_shared<ov::op::v0::Parameter>(modelType, inputDynamicShapes[1]);
-            inputs.push_back(ov::as_type_ptr<ov::op::v0::Parameter>(secondInput));
+        if (eltwiseOpType == EltwiseTypes::POWER && (modelType == ov::element::f16 || modelType == ov::element::f32) &&
+            inputDynamicShapes.size() == 2) {
+            ov::Tensor baseTensor = [&]() {
+                if (modelType == ov::element::f16) {
+                    return ov::test::utils::create_and_fill_tensor(modelType, targetStaticShapes.front()[0], 5, 1, 1);
+                } else {
+                    return ov::test::utils::create_and_fill_tensor(modelType, targetStaticShapes.front()[0], 11, 1, 1);
+                }
+            }();
+            ov::Tensor expTensor(modelType, targetStaticShapes.front()[1]);
+            if (modelType == ov::element::f16) {
+                fill_power_base_tensor<ov::float16>(baseTensor);
+                fill_power_exp_tensor<ov::float16>(expTensor);
+            } else if (modelType == ov::element::f32) {
+                fill_power_base_tensor<float>(baseTensor);
+                fill_power_exp_tensor<float>(expTensor);
+            }
+            inputs[0]->set_friendly_name("param0");
+            if (secondInputType == InputLayerType::PARAMETER) {
+                auto paramExp = std::make_shared<ov::op::v0::Parameter>(modelType, inputDynamicShapes[1]);
+                paramExp->set_friendly_name("param1");
+                inputs.push_back(paramExp);
+                this->inputs[paramExp] = expTensor;
+            } else {
+                auto constExp = std::make_shared<ov::op::v0::Constant>(expTensor);
+                constExp->set_friendly_name("param1");
+                secondInput = constExp;
+            }
+            this->inputs[inputs[0]] = baseTensor;
+            if (!secondInput) {
+                secondInput = inputs.size() > 1 ? inputs[1] : nullptr;
+            }
         } else {
-            ov::Tensor tensor = ov::test::utils::create_and_fill_tensor(modelType, targetStaticShapes.front()[1]);
-            secondInput = std::make_shared<ov::op::v0::Constant>(tensor);
+            if (secondInputType == InputLayerType::PARAMETER) {
+                secondInput = std::make_shared<ov::op::v0::Parameter>(modelType, inputDynamicShapes[1]);
+                inputs.push_back(ov::as_type_ptr<ov::op::v0::Parameter>(secondInput));
+            } else {
+                ov::Tensor tensor = ov::test::utils::create_and_fill_tensor(modelType, targetStaticShapes.front()[1]);
+                secondInput = std::make_shared<ov::op::v0::Constant>(tensor);
+            }
         }
 
         auto eltwiseNode = ov::test::utils::make_eltwise(inputs[0], secondInput, eltwiseOpType);
@@ -170,6 +205,12 @@ class EltwiseLayerTestDynamic : public EltwiseLayerTest, virtual public VpuOv2La
 
 class EltwiseEmptyShapeInputLayerTest : public EltwiseLayerTest, virtual public VpuOv2LayerTest {};
 class EltwiseIntegerLayerTest : public EltwiseLayerTest, virtual public VpuOv2LayerTest {};
+
+class EltwiseLayerTestDynamicSCFUnroll : public EltwiseLayerTestDynamic {
+    void configure_model() override {
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "loop-unroll-factor=1,1,2,1";
+    }
+};
 
 TEST_P(EltwiseLayerTestCommon, NPU3720_SW) {
     abs_threshold = 0.6;
@@ -221,6 +262,16 @@ TEST_P(EltwiseLayerTestF32Common, NPU3720_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU3720);
 }
+TEST_P(EltwiseLayerTestCommon, NPU5010_SW) {
+    abs_threshold = 0.6;
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(EltwiseLayerTestF32Common, NPU5010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
 TEST_P(EltwiseEmptyShapeInputLayerTest, NPU3720_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU3720);
@@ -268,16 +319,51 @@ TEST_P(EltwiseIntegerLayerTest, NPU4000_SW) {
     run(Platform::NPU4000);
 }
 
-TEST_P(EltwiseLayerTestDynamic, NPU3720_HW) {
+TEST_P(EltwiseLayerTestDynamicSCFUnroll, NPU4000_HC) {
     abs_threshold = 0.0f;
+    setSkipInferenceCallback([](std::stringstream& skip) {
+        skip << "Host Pipeline does not support inference yet: C#164943";
+    });
+
+    setHostCompileMode();
+    setMLIRCompilerType();
+    run(Platform::NPU4000);
+}
+
+TEST_P(EltwiseIntegerLayerTest, NPU5010_SW) {
+    abs_threshold = 0.6;
+    setCommonSkipCompilationCallback(this);
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(EltwiseLayerTestDynamic, NPU3720_HW) {
+    abs_threshold = 0.3f;
     setDefaultHardwareMode();
     run(Platform::NPU3720);
 }
 
 TEST_P(EltwiseLayerTestDynamic, NPU4000_HW) {
-    abs_threshold = 0.0f;
+    abs_threshold = 0.3f;
     setDefaultHardwareMode();
     run(Platform::NPU4000);
+}
+
+TEST_P(EltwiseLayerTestDynamic, NPU5010_HW) {
+    abs_threshold = 0.3f;
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(EltwiseLayerTestDynamicSCFUnroll, NPU5010_HC) {
+    abs_threshold = 0.0f;
+    setSkipInferenceCallback([](std::stringstream& skip) {
+        skip << "Host Pipeline does not support inference yet: C#164943";
+    });
+
+    setHostCompileMode();
+    setMLIRCompilerType();
+    run(Platform::NPU5010);
 }
 
 }  // namespace test
@@ -346,7 +432,8 @@ INSTANTIATE_TEST_SUITE_P(precommit_EltwiseTypesF32, EltwiseLayerTestF32Common, t
 // Dynamic shape tests
 //
 
-std::set<EltwiseTypes> DynamicEltwiseOpTypes = {EltwiseTypes::SUBTRACT};
+std::set<EltwiseTypes> DynamicEltwiseOpTypes = {EltwiseTypes::SUBTRACT, EltwiseTypes::MOD, EltwiseTypes::FLOOR_MOD,
+                                                EltwiseTypes::DIVIDE, EltwiseTypes::POWER};
 
 std::vector<std::vector<ov::test::InputShape>> in_shapes_dynamic = {
         {{{1, 1, 1, ov::Dimension(1, 10)}, {{1, 1, 1, 10}, {1, 1, 1, 5}}},
@@ -391,20 +478,27 @@ const auto broadcastTestParams =
 INSTANTIATE_TEST_SUITE_P(precommit_InputBroadcastEltwise, EltwiseLayerTestCommon, broadcastTestParams,
                          EltwiseLayerTestCommon::getTestCaseName);
 
-std::set<EltwiseTypes> scalarInput2broadcastTestEltwiseTypes = {EltwiseTypes::DIVIDE};
-std::vector<std::vector<ov::Shape>> scalarInput2broadcastTestInputShape = {
+std::set<EltwiseTypes> oneScalarInputbroadcastTestEltwiseTypes = {EltwiseTypes::DIVIDE};
+std::vector<std::vector<ov::Shape>> oneScalarInputbroadcastTestInputShape = {
+        // input2 is scalar
         {{1, 1, 1, 512}, {1, 1, 1, 1}},
         {{1, 1, 512, 1}, {1, 1, 1, 1}},
         {{1, 512, 1, 1}, {1, 1, 1, 1}},
+        // input1 is scalar
+        {{1, 1, 1, 1}, {1, 32, 1024, 1}},
+        {{1, 1, 1, 1}, {1, 32, 8, 48}},
+        {{1, 1, 1, 1}, {1, 1, 1024, 1}},
+        {{1, 1, 1, 1}, {1, 1024, 1, 1}},
+        {{1, 1, 1, 1}, {1, 1, 1, 1024}},
 };
-const auto scalarInput2BroadcastTestParams = ::testing::Combine(
-        ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(scalarInput2broadcastTestInputShape)),
-        ::testing::ValuesIn(scalarInput2broadcastTestEltwiseTypes), ::testing::ValuesIn(secondaryInputTypes),
+const auto oneScalarInputbroadcastTestParams = ::testing::Combine(
+        ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(oneScalarInputbroadcastTestInputShape)),
+        ::testing::ValuesIn(oneScalarInputbroadcastTestEltwiseTypes), ::testing::ValuesIn(secondaryInputTypes),
         ::testing::ValuesIn(opTypes), ::testing::ValuesIn(netPrecisionsF16), ::testing::Values(ov::element::dynamic),
         ::testing::Values(ov::element::dynamic), ::testing::Values(test_utils::TARGET_DEVICE),
         ::testing::Values(ov::test::Config{}));
-INSTANTIATE_TEST_SUITE_P(precommit_scalarInput2BroadcastEltwise, EltwiseLayerTestCommon,
-                         scalarInput2BroadcastTestParams, EltwiseLayerTestCommon::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(oneScalarInputbroadcastTestEltwiseTypes, EltwiseLayerTestCommon,
+                         oneScalarInputbroadcastTestParams, EltwiseLayerTestCommon::getTestCaseName);
 
 //
 // Test Eltwise batch input
@@ -648,6 +742,27 @@ TEST_P(ShaveCodeGenEltwiseIntegerLayerTest, NPU4000_SW) {
     run(Platform::NPU4000);
 }
 
+TEST_P(ShaveCodeGenEltwiseLayerTestCommon, NPU5010_SW) {
+    abs_threshold = 0.6;
+    setReferenceSoftwareMode();
+    setMLIRCompilerType();
+    run(Platform::NPU5010);
+}
+
+TEST_P(ShaveCodeGenEltwiseLayerTestF32Common, NPU5010_SW) {
+    setReferenceSoftwareMode();
+    setMLIRCompilerType();
+    run(Platform::NPU5010);
+}
+
+TEST_P(ShaveCodeGenEltwiseIntegerLayerTest, NPU5010_SW) {
+    abs_threshold = 0.6;
+    setCommonSkipCompilationCallback(this);
+    setReferenceSoftwareMode();
+    setMLIRCompilerType();
+    run(Platform::NPU5010);
+}
+
 }  // namespace test
 }  // namespace ov
 
@@ -770,4 +885,35 @@ INSTANTIATE_TEST_SUITE_P(precommit_Bitwisei8, ShaveCodeGenEltwiseLayerTestCommon
                          ShaveCodeGenEltwiseLayerTestCommon::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(precommit_BitwiseNot, ShaveCodeGenEltwiseLayerTestCommon, bitwiseNotParams,
                          ShaveCodeGenEltwiseLayerTestCommon::getTestCaseName);
+
+//
+// Dynamic shape tests for SCF unroll
+//
+
+std::set<EltwiseTypes> DynamicEltwiseOpTypesSCFUnroll = {EltwiseTypes::ADD};
+
+std::vector<std::vector<ov::test::InputShape>> inShapesDynamicSCFUnroll = {
+        {{{1, 16, ov::Dimension(1, 1024), ov::Dimension(1, 1024)}, {{1, 16, 1024, 1024}}},
+         {{1, 16, ov::Dimension(1, 1024), ov::Dimension(1, 1024)}, {{1, 16, 1024, 1024}}}},
+};
+
+std::vector<ov::test::ElementType> precisionSCFUnroll = {
+        ov::element::f16,
+};
+
+std::vector<InputLayerType> secondInputTypeSCFUnroll = {InputLayerType::PARAMETER};
+
+std::vector<ov::test::utils::OpType> opTypesSCFUnroll = {
+        ov::test::utils::OpType::VECTOR,
+};
+
+const auto eltwise_params_dynamic_scf_unroll = ::testing::Combine(
+        ::testing::ValuesIn(inShapesDynamicSCFUnroll), ::testing::ValuesIn(DynamicEltwiseOpTypesSCFUnroll),
+        ::testing::ValuesIn(secondInputTypeSCFUnroll), ::testing::ValuesIn(opTypesSCFUnroll),
+        ::testing::ValuesIn(precisionSCFUnroll), ::testing::Values(ov::element::f32),
+        ::testing::Values(ov::element::f32), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(ov::test::Config{}));
+
+INSTANTIATE_TEST_SUITE_P(smoke_EltwiseDynamicSCF, EltwiseLayerTestDynamicSCFUnroll, eltwise_params_dynamic_scf_unroll,
+                         EltwiseLayerTestDynamicSCFUnroll::getTestCaseName);
 }  // namespace

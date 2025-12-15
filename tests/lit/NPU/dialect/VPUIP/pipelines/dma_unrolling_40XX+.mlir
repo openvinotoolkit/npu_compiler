@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --dma-unrolling %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
@@ -55,7 +55,7 @@ func.func @UnrollS2DepthAndUpsamplingDMA() -> !OutputDistributed {
     //CHECK:    [[BARRIER_1:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     //CHECK:    [[BARRIER_2:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     //CHECK:    [[BARRIER_3:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    
+
     //CHECK:    [[INPUT_BUFFER_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x4x8x48x!qElemType, {order = #NHWC, strides = [9216, 1, 192, 4]}, [@CMX_NN, 0]>
     //CHECK:    [[INPUT_BUFFER_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1536> -> memref<1x4x8x48x!qElemType, {order = #NHWC, strides = [9216, 1, 192, 4]}, [@CMX_NN, 0]>
     //CHECK:    [[INPUT_BUFFER_2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <2304> -> memref<1x4x8x48x!qElemType, {order = #NHWC, strides = [9216, 1, 192, 4]}, [@CMX_NN, 0]>

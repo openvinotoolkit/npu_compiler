@@ -319,20 +319,20 @@ func.func @InterpolateIncrementalPipeline(%arg0: tensor<1x2x540x1920xf16>) -> te
     %0 = VPU.Interpolate(%arg0) {attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SIZES>, coord_mode = <ALIGN_CORNERS>, nearest_mode = <ROUND_PREFER_FLOOR>, antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>, axes_attr = [2, 3], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, scales_attr = [1.3333300352096558, 1.3333300352096558], sizes_attr = [256, 512]} : tensor<1x2x540x1920xf16> -> tensor<1x2x256x512xf16>
     return %0 : tensor<1x2x256x512xf16>
 
-    // CHECK-DAG:   %[[VAL_1:.*]] = const.Declare tensor<1x1x1x512xsi32> = dense<
-    // CHECK-DAG:   %[[VAL_2:.*]] = const.Declare tensor<1x1x1x1024xf16> = dense<
     // CHECK:   %[[VAL_3:.*]] = VPU.Copy(%[[VAL_0]]) {out_mem_space = @CMX_NN} : tensor<1x2x540x1920xf16> ->
     // CHECK-SAME:  !VPU.DistributedTensor<1x2x540x1920xf16, #NCHW, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 6, 1], num_clusters = 6 : i64, uniform_distributed_segments,
     // CHECK-SAME{LITERAL}: compute_shapes = [[1, 2, 90, 1920], [1, 2, 91, 1920], [1, 2, 91, 1920], [1, 2, 91, 1920], [1, 2, 89, 1920], [1, 2, 88, 1920]],
     // CHECK-SAME{LITERAL}: compute_offsets = [[0, 0, 0, 0], [0, 0, 90, 0], [0, 0, 181, 0], [0, 0, 272, 0], [0, 0, 363, 0], [0, 0, 452, 0]],
     // CHECK-SAME{LITERAL}: memory_shapes = [[1, 2, 90, 1920], [1, 2, 91, 1920], [1, 2, 91, 1920], [1, 2, 91, 1920], [1, 2, 89, 1920], [1, 2, 88, 1920]],
     // CHECK-SAME{LITERAL}: memory_offsets = [[0, 0, 0, 0], [0, 0, 90, 0], [0, 0, 181, 0], [0, 0, 272, 0], [0, 0, 363, 0], [0, 0, 452, 0]]}>
+    // CHECK:   %[[VAL_1:.*]] = const.Declare tensor<1x1x1x512xsi32> = dense<
     // CHECK:   %[[VAL_4:.*]] = VPU.Copy(%[[VAL_1]]) {out_mem_space = @CMX_NN} : tensor<1x1x1x512xsi32> ->
     // CHECK-SAME:  !VPU.DistributedTensor<1x1x1x512xsi32, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 6 : i64, uniform_distributed_segments,
     // CHECK-SAME{LITERAL}: compute_shapes = [[1, 1, 1, 512], [1, 1, 1, 512], [1, 1, 1, 512], [1, 1, 1, 512], [1, 1, 1, 512], [1, 1, 1, 512]],
     // CHECK-SAME{LITERAL}: compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
     // CHECK-SAME{LITERAL}: memory_shapes = [[1, 1, 1, 512], [1, 1, 1, 512], [1, 1, 1, 512], [1, 1, 1, 512], [1, 1, 1, 512], [1, 1, 1, 512]],
     // CHECK-SAME{LITERAL}: memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
+    // CHECK:   %[[VAL_2:.*]] = const.Declare tensor<1x1x1x1024xf16> = dense<
     // CHECK:   %[[VAL_5:.*]] = VPU.Copy(%[[VAL_2]]) {out_mem_space = @CMX_NN} : tensor<1x1x1x1024xf16> ->
     // CHECK-SAME:  !VPU.DistributedTensor<1x1x1x1024xf16, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 6 : i64, uniform_distributed_segments,
     // CHECK-SAME{LITERAL}: compute_shapes = [[1, 1, 1, 1024], [1, 1, 1, 1024], [1, 1, 1, 1024], [1, 1, 1, 1024], [1, 1, 1, 1024], [1, 1, 1, 1024]],

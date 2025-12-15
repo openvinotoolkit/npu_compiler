@@ -27,7 +27,6 @@ using BarrierConfig = SmallVector<uint32_t>;
 
 // HW reg address for barrier fifo
 constexpr uint32_t STRIDE = 0x20U;
-constexpr uint8_t BARRIER_FIFO_DEPTH = 4;
 
 struct BarrierDesc final {
     uint8_t producerCount;
@@ -100,6 +99,7 @@ private:
     int64_t _barrierWithMaximumUsage;
     int64_t _numberOfDescriptorsPerBarrier;
     uint32_t _barrierFIFOAddr = 0;
+    uint32_t _barrierFIFODepth = 0;
 
     // _barrierUsageIndex keeps track of how many configurations of each pid has been programmed
     // "Programmed" means how many configurations are part of a DMA
@@ -138,9 +138,8 @@ VPUMI40XX::NNDMAOp AddBarrierConfigurationOps::createBarrierProgrammingDmaOp(
     auto physicalBarrierRangeAttr = referenceDMAOp != nullptr ? referenceDMAOp.getPhysicalBarrierRangeAttr() : nullptr;
     auto totalPidsToProgram = physicalBarrierRangeAttr != nullptr ? physicalBarrierRangeAttr.getPidCount() : _nBarrs;
     size_t firstPidInBuffer = physicalBarrierRangeAttr != nullptr ? physicalBarrierRangeAttr.getFirstPid() : 0;
-
     auto barrierConfigConstOp =
-            createConstant(builder, cstInsertionPoint, barrierConfig, totalPidsToProgram * BARRIER_FIFO_DEPTH);
+            createConstant(builder, cstInsertionPoint, barrierConfig, totalPidsToProgram * _barrierFIFODepth);
 
     const auto type = mlir::cast<vpux::NDTypeInterface>(barrierConfigConstOp.getOutput().getType());
     vpux::IndexedSymbolAttr memKindAttr =
@@ -246,8 +245,8 @@ void AddBarrierConfigurationOps::createBarrierConfigurationStrideConstant(VPUMI4
 void AddBarrierConfigurationOps::createRawBarrierConfigurationConstant(VPUMI40XX::MappedInferenceOp mpi,
                                                                        mlir::OpBuilder& builder,
                                                                        mlir::Operation* cstInsertionPoint) {
-    auto maxBarrierReusage = std::max(_barrierWithMaximumUsage, static_cast<int64_t>(BARRIER_FIFO_DEPTH));
-    _numberOfDescriptorsPerBarrier = maxBarrierReusage + BARRIER_FIFO_DEPTH - 1;
+    auto maxBarrierReusage = std::max(_barrierWithMaximumUsage, static_cast<int64_t>(_barrierFIFODepth));
+    _numberOfDescriptorsPerBarrier = maxBarrierReusage + _barrierFIFODepth - 1;
     auto totalAmountOfBarrierProgrammingDescs = _nBarrs * _numberOfDescriptorsPerBarrier;
     _barrierConfigurationsRaw.resize(totalAmountOfBarrierProgrammingDescs, 0);
     for (auto pid : irange(_nBarrs)) {
@@ -277,7 +276,7 @@ void AddBarrierConfigurationOps::createRawBarrierConfigurationConstant(VPUMI40XX
 //
 // ## Details:
 // - Each tile has 16 available PIDs, and each chunk has a size of
-//   (availablePids × BARRIER_FIFO_DEPTH).
+//   (availablePids × _barrierFIFODepth).
 // - Barriers are assigned one of the following descriptor types:
 //   NOTE: For ALL_BARRIER_DMAS_SCHEDULED cInterrupt is set to 1 for one barrier per page, required for heartbeat
 //
@@ -328,7 +327,6 @@ BarrierConfig AddBarrierConfigurationOps::getBarrierConfig(std::ostringstream& l
     // We have a reference DMA with pid_start and pid_end defined
     if (barrierProgrammingDMAOp != nullptr) {
         physicalBarrierRangeAttr = barrierProgrammingDMAOp.getPhysicalBarrierRangeAttr();
-
         pidStart = physicalBarrierRangeAttr.getStart().getValue().getSExtValue();
         pidEnd = physicalBarrierRangeAttr.getEnd().getValue().getSExtValue();
     }
@@ -342,7 +340,7 @@ BarrierConfig AddBarrierConfigurationOps::getBarrierConfig(std::ostringstream& l
 
         logStream << "PID: " << pid << " ";
 
-        for (size_t i = 0; i < BARRIER_FIFO_DEPTH; ++i) {
+        for (size_t i = 0; i < _barrierFIFODepth; ++i) {
             if (startIndex < usageSize) {
                 auto barrierDesc = pidUsage[startIndex];
                 logStream << "  ViD: " << static_cast<int>(barrierDesc.virtualId)
@@ -451,6 +449,7 @@ void AddBarrierConfigurationOps::safeRunOnFunc() {
     auto mpi = VPUMI40XX::getMPI(netFunc);
     auto builder = mlir::OpBuilder(mpi.getOperation());
     _barrierFIFOAddr = config::getConstraint(netFunc, config::BARRIER_FIFO_ADDR);
+    _barrierFIFODepth = config::getConstraint(netFunc, config::BARRIER_FIFO_DEPTH);
 
     auto bufferOps = netFunc.getOps<VPURT::DeclareBufferOp>();
     auto bufferInsertionPoint = !bufferOps.empty() ? *bufferOps.begin() : &netFunc.getBody().front().front();

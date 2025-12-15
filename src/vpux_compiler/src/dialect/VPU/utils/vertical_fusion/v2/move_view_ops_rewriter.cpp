@@ -5,9 +5,9 @@
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/move_view_ops_rewriter.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sw_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
-#include "vpux/compiler/utils/VPU/tile_utils.hpp"
 
 // An experimental number to help get the threshold of tiling size.
 // The purpose is to avoid fuse view like op with tiling limitations.

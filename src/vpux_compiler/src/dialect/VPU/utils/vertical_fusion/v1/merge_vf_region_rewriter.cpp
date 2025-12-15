@@ -4,12 +4,12 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/merge_vf_region_rewriter.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/vertical_fusion_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/vertical_fusion_scheduling_factory.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vf_axis_increment.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 
 #include <llvm/ADT/SetOperations.h>
 #include <llvm/ADT/SmallSet.h>
@@ -26,57 +26,60 @@ std::optional<int64_t> findOptimalTilingStrategyInRange(const MergeVFRegionRewri
                                                         TilingOperationStorage::UPtr& minStorage,
                                                         TilingOperationStorage::UPtr& maxStorage, VFConfig& config,
                                                         Logger log) {
-    std::optional<int64_t> result = std::nullopt;
     const auto origMaxTile = maxNTiles;
-    auto nextValueFromMin = minNTiles;
-    axisIncrement->increasedValue(nextValueFromMin, maxNTiles);
     SmallVector<int64_t> tilingMaxStrategy(origTilingArray.begin(), origTilingArray.end());
     SmallVector<int64_t> tilingArray(origTilingArray.begin(), origTilingArray.end());
 
+    // Binary search: find minimal valid tiling number within [minNTiles, maxNTiles)
     while (minNTiles < maxNTiles) {
-        auto currentNTiles = axisIncrement->getMiddleValue(minNTiles, maxNTiles);
-
+        // Check convergence: if next increment equals max, it is the boundary
+        auto nextValueFromMin = minNTiles;
+        axisIncrement->increasedValue(nextValueFromMin, maxNTiles);
         if (maxNTiles == nextValueFromMin) {
-            result = maxNTiles;
+            // Use maxStorage if returning origMaxTile, otherwise minStorage already set
             if (maxNTiles == origMaxTile) {
                 minStorage.reset(maxStorage.release());
             }
-            break;
+            return maxNTiles;
         }
 
+        // Calculate middle point
+        auto currentNTiles = axisIncrement->getMiddleValue(minNTiles, maxNTiles);
         if (currentNTiles == minNTiles) {
             return std::nullopt;
         }
 
+        // Get valid tiling strategy for currentNTiles
         tilingMaxStrategy[dim.ind()] = maxNTiles;
         tilingArray[dim.ind()] = currentNTiles;
 
         auto opStorage = std::make_unique<TilingOperationStorage>();
-        auto getValidTilingStrategy = getMinimalValidTilingStrategyFromRange(config.getSubgraph(), tilingArray,
-                                                                             tilingMaxStrategy, dim, opStorage, log);
-        if (mlir::failed(getValidTilingStrategy)) {
+        auto validStrategy = getMinimalValidTilingStrategyFromRange(config.getSubgraph(), tilingArray,
+                                                                    tilingMaxStrategy, dim, opStorage, log);
+        if (mlir::failed(validStrategy)) {
             return std::nullopt;
         }
 
-        tilingArray = getValidTilingStrategy.value();
-        currentNTiles = tilingArray[dim.ind()];
-        result = currentNTiles;
+        currentNTiles = validStrategy.value()[dim.ind()];
 
+        // Handle reaching upper bound
         if (currentNTiles == maxNTiles) {
-            break;
+            minStorage.reset(opStorage.release());
+            return currentNTiles;
         }
 
+        // Update search range based on validation result
         if (scheduling->validate(config, opStorage)) {
             maxNTiles = currentNTiles;
             minStorage.reset(opStorage.release());
+            log.trace("Valid tiling found: tiles={0}", currentNTiles);
         } else {
             minNTiles = currentNTiles;
+            log.trace("Invalid tiling: tiles={0}, searching higher", currentNTiles);
         }
-
-        nextValueFromMin = minNTiles;
-        axisIncrement->increasedValue(nextValueFromMin, maxNTiles);
     }
-    return result;
+
+    return std::nullopt;
 };
 
 std::optional<int64_t> MergeVFRegionRewriter::getOptimalTilingStrategy(

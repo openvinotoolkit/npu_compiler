@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --fuse-fq-and-mul="fuse-fq-and-mul-with-non-const-input=true" %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @FuseFQAndMulAtConstWeightsAndMulLhsIsActivation
 // CHECK-SAME: [[INPUT:%.+]]: tensor<1x288x20x20xf32>

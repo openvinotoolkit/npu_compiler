@@ -105,8 +105,6 @@ mlir::LogicalResult bufferizeOp(mlir::MLIRContext* ctx, VPU::QuantizeCastOp orig
                                 VPU::QuantizeCastOp::Adaptor& newArgs, mlir::RewriterBase& rewriter);
 mlir::LogicalResult bufferizeOp(mlir::MLIRContext* ctx, VPU::DistributedCastOp origOp,
                                 VPU::DistributedCastOp::Adaptor& newArgs, mlir::RewriterBase& rewriter);
-mlir::LogicalResult bufferizeOp(mlir::MLIRContext* ctx, VPU::M2ITaskOp origOp, VPU::M2ITaskOp::Adaptor& newArgs,
-                                mlir::RewriterBase& rewriter);
 mlir::LogicalResult bufferizeOp(mlir::MLIRContext* ctx, VPU::StubOp origOp, VPU::StubOp::Adaptor& newArgs,
                                 mlir::RewriterBase& rewriter);
 mlir::LogicalResult bufferizeOp(mlir::MLIRContext* ctx, VPU::GroupSparseTensorOp origOp,

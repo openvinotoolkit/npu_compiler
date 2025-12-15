@@ -70,7 +70,17 @@ void ReplaceAllocsWithSingleAllocAndViewsPass::safeRunOnFunc() {
     }
 
     // compute total size and offsets (in bytes)
-    rewriter.setInsertionPoint(allocsToReplace.front());
+
+    // Check if the parent of the first alloc is in the main function scope and is not inside a nested scope
+    // If we are in highest scope, we can insert the scratch alloc before the first alloc
+    // Otherwise, we need to insert the scratch alloc at the beginning of the parent op
+    auto parentOfFirstAllocToReplace = allocsToReplace.front()->getParentOp();
+    if (mlir::isa<mlir::func::FuncOp>(parentOfFirstAllocToReplace)) {
+        rewriter.setInsertionPoint(allocsToReplace.front());
+    } else {
+        rewriter.setInsertionPoint(parentOfFirstAllocToReplace);
+    }
+
     auto loc = func.getLoc();
 
     SmallVector<mlir::Value> offsets;

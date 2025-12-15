@@ -15,7 +15,10 @@
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/strings.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 
+#include <mlir/IR/Builders.h>
+#include <mlir/Rewrite/PatternApplicator.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
 namespace vpux::VPUIP {
@@ -276,10 +279,8 @@ void UnrollSwKernelPass::safeRunOnFunc() {
     mlir::RewritePatternSet patterns(&ctx);
     patterns.insert<SwKernelRewriter>(&ctx, swKernelFifoPerShaveEngine, _log);
 
-    if (mlir::failed(
-                mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), vpux::getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
-    }
+    collectOpsAndApplyPatterns(func, std::move(patterns));
+
     VPUX_THROW_UNLESS(verifySwKernelOpsWithDedicatedFifoPerShaveEngine(func, _log),
                       "Inconsistent use of listIndex attribute");
 }

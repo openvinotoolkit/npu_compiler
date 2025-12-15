@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-non-constant-pad-to-slice-and-concat %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK: func.func @convert2DReflectPad([[INPUT:%.+]]: tensor<1x8x13x29xf16>)
 func.func @convert2DReflectPad(%arg0: tensor<1x8x13x29xf16>) -> tensor<1x8x16x32xf16> {

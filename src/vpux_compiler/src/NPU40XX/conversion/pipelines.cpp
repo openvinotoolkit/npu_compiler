@@ -50,7 +50,8 @@ void vpux::arch40xx::buildLowerVPUIP2ELFPipeline(mlir::OpPassManager& pm,
     // Those can be moved to the end of VPURT once WLM rollback does not happen.
     // Currently only ELF backend is retriggered during rollback and IR after VPURT
     // needs to be left in a state suitable for nonWLM flow.
-    if (backendCompilationOptions.workloadManagementEnable) {
+    if (backendCompilationOptions.workloadManagementEnable &&
+        backendCompilationOptions.workloadManagementMode != WorkloadManagementMode::FWLM_V1_PAGES) {
         if (backendCompilationOptions.workloadManagementMode != WorkloadManagementMode::PWLM_V0_LCA) {
             pm.addPass(VPURT::createFindWlmEnqueueBarrierPass(
                     backendCompilationOptions.workloadManagementMode,
@@ -116,10 +117,16 @@ void vpux::arch40xx::elfSubsetPipelineVPUMI(
         pm.addPass(VPUMI40XX::reorderMappedInferenceOpsPass(log));
 
         // No passes following this point need barriers ordered for FWLM
-        pm.addPass(VPUMI40XX::createBarrierTopologicalMappingPass(log));
+        if (workloadManagementMode != WorkloadManagementMode::FWLM_V1_PAGES) {
+            pm.addPass(VPUMI40XX::createBarrierTopologicalMappingPass(log));
+        }
 
         pm.addPass(VPUMI40XX::createGroupExecutionOpsPass(log));
-        pm.addPass(VPUMI40XX::createAddFetchOpsPass(log));
+        if (workloadManagementMode == WorkloadManagementMode::FWLM_V1_PAGES) {
+            pm.addPass(VPUMI40XX::createConvertFetchDmasToFetchTaskOpsPass(log));
+        } else {
+            pm.addPass(VPUMI40XX::createAddFetchOpsPass(log));
+        }
 
         pm.addPass(VPUMI40XX::createResolveWLMTaskLocationPass(log));
         pm.addPass(VPUMI40XX::createUnGroupExecutionOpsPass(log));
@@ -127,7 +134,9 @@ void vpux::arch40xx::elfSubsetPipelineVPUMI(
         pm.addPass(mlir::createCanonicalizerPass());
         pm.addPass(VPUMI40XX::createNextSameIdAssignmentPass(log));
 
-        pm.addPass(VPUMI40XX::createAddEnqueueOpsPass(workloadManagementMode, log));
+        if (workloadManagementMode != WorkloadManagementMode::FWLM_V1_PAGES) {
+            pm.addPass(VPUMI40XX::createAddEnqueueOpsPass(workloadManagementMode, log));
+        }
 
         pm.addPass(VPUMI40XX::createUnrollFetchTaskOpsPass(log));
         if (workloadManagementMode != WorkloadManagementMode::PWLM_V0_LCA) {
@@ -135,14 +144,23 @@ void vpux::arch40xx::elfSubsetPipelineVPUMI(
                                                                    workloadManagementBarrierProgrammingMode, log));
         }
 
-        pm.addPass(VPUMI40XX::createAddBootstrapBarriersPass(log));
+        if (workloadManagementMode != WorkloadManagementMode::FWLM_V1_PAGES) {
+            pm.addPass(VPUMI40XX::createAddBootstrapBarriersPass(log));
+        }
 
         pm.addPass(VPUMI40XX::createAddBootstrapWorkItemsPass(workloadManagementMode, log));
 
-        pm.addPass(VPUMI40XX::createSplitEnqueueOpsPass(log));
+        if (workloadManagementMode != WorkloadManagementMode::FWLM_V1_PAGES) {
+            pm.addPass(VPUMI40XX::createSplitEnqueueOpsPass(log));
+        }
 
         pm.addPass(VPUMI40XX::createLinkEnqueueTargetsPass(workloadManagementMode, log));
-        pm.addPass(VPUMI40XX::createUnrollEnqueueOpsPass(log));
+        if (workloadManagementMode == WorkloadManagementMode::FWLM_V1_PAGES) {
+            pm.addPass(VPUMI40XX::createUpdateEnqueueDMAInputAndOutput(log));
+        }
+        if (workloadManagementMode != WorkloadManagementMode::FWLM_V1_PAGES) {
+            pm.addPass(VPUMI40XX::createUnrollEnqueueOpsPass(log));
+        }
 
         if (workloadManagementMode != WorkloadManagementMode::PWLM_V0_LCA) {
             pm.addPass(VPUMI40XX::createLinkEnqueueOpsForSameBarrierPass(log));

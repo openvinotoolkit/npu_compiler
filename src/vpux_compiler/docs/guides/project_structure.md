@@ -125,8 +125,10 @@ void UnrollDistributedOpsPass::safeRunOnFunc() {
     // add necessary rewriters here
     strategy.addPatterns(patterns);
 
-    if (mlir::failed(
-                mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), vpux::getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(
+            func,
+            std::move(patterns),
+            vpux::getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/reorder_ir_utils.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 
 #include "vpux/utils/core/range.hpp"

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --split-conv-with-multiple-fq %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @SplitConvWithOnlyFakeQuantConsumers
 func.func @SplitConvWithOnlyFakeQuantConsumers(%input: tensor<1x3x62x62xf32>) -> (tensor<1x4x60x60xf32>, tensor<1x4x60x60xf32>, tensor<1x4x60x60xf32>) {

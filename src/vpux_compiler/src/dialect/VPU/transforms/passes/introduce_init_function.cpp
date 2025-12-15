@@ -4,17 +4,17 @@
 //
 
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/weights_separation.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
+#include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/ir_modification.hpp"
 #include "vpux/compiler/utils/logging.hpp"
-#include "vpux/compiler/utils/net/network_info_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <llvm/ADT/Hashing.h>
@@ -22,7 +22,7 @@
 #include <llvm/ADT/TypeSwitch.h>
 #include <llvm/IR/Type.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinDialect.h>
 #include <mlir/IR/BuiltinTypes.h>

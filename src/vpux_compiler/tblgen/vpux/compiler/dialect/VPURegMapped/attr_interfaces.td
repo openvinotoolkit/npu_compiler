@@ -30,9 +30,8 @@ class DescriptorAttrBase<Dialect dialect, string descriptorType, string descript
 }
 
 class PropertyBase<string registerName, string attr, string dialect> : Property<registerName> {
-
     let convertToAttribute = [{
-        }] # dialect # [{::}] # attr # [{::get($_ctxt, $_storage)
+        return }] # dialect # [{::}] # attr # [{::get($_ctxt, $_storage);
     }];
     let convertFromAttribute = [{
         auto desc = mlir::cast<}] # dialect # [{::}] # attr # [{>($_attr).getRegMapped();

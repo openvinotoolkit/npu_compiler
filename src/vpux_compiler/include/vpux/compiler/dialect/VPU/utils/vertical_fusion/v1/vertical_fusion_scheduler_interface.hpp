@@ -31,7 +31,7 @@ public:
     const std::deque<std::shared_ptr<IVFScheduling<VFConfig>>>& nextChecks() const override;
 
     /*
-      Add dependend check
+      Add dependent check
     */
     void addNext(std::shared_ptr<IVFScheduling<VFConfig>> check) override;
 

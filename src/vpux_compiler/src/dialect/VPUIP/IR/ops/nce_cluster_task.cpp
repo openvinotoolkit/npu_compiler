@@ -160,7 +160,8 @@ void vpux::VPUIP::NCEClusterTaskOp::build(
         mlir::UnitAttr is_zero_offset_weights_table, mlir::UnitAttr is_superdense, mlir::BoolAttr is_inplace,
         mlir::IntegerAttr input_se_size, mlir::IntegerAttr output_se_size, mlir::UnitAttr isPermuteQuantize,
         mlir::UnitAttr isSmallKernelOptimized, VPU::MPEEngineAttr mpeEngineAttr, VPU::EltwiseTypeAttr eltwiseType,
-        vpux::VPUIP::DynamicScaleConfigAttr dynamicScaleConfig, vpux::VPUIP::LocalRegionAttr localRegion) {
+        vpux::VPUIP::DynamicScaleConfigAttr dynamicScaleConfig, vpux::VPUIP::LocalRegionAttr localRegion,
+        vpux::VPUIP::S2DConfigAttr s2dConfig) {
     build(builder, state, output_buff.getType(),
           output_sparsity_map_buff ? output_sparsity_map_buff.getType() : nullptr,
           (profiling_data != nullptr) ? profiling_data.getType() : nullptr, input, input_sparsity_map,
@@ -172,7 +173,7 @@ void vpux::VPUIP::NCEClusterTaskOp::build(
           kernel_strides, kernel_padding, is_continued, cm_sp_pattern, is_segmented, out_channel_offset,
           input_channels_compression, is_zero_offset_weights_table, is_superdense, is_inplace, input_se_size,
           output_se_size, isPermuteQuantize, isSmallKernelOptimized, mpeEngineAttr, eltwiseType, dynamicScaleConfig,
-          localRegion);
+          localRegion, s2dConfig);
 }
 
 void vpux::VPUIP::NCEClusterTaskOp::build(
@@ -192,7 +193,8 @@ void vpux::VPUIP::NCEClusterTaskOp::build(
         mlir::UnitAttr is_zero_offset_weights_table, mlir::UnitAttr is_superdense, mlir::BoolAttr is_inplace,
         mlir::IntegerAttr input_se_size, mlir::IntegerAttr output_se_size, mlir::UnitAttr isPermuteQuantize,
         mlir::UnitAttr isSmallKernelOptimized, VPU::MPEEngineAttr mpeEngineAttr, VPU::EltwiseTypeAttr eltwiseType,
-        vpux::VPUIP::DynamicScaleConfigAttr dynamicScaleConfig, vpux::VPUIP::LocalRegionAttr localRegion) {
+        vpux::VPUIP::DynamicScaleConfigAttr dynamicScaleConfig, vpux::VPUIP::LocalRegionAttr localRegion,
+        vpux::VPUIP::S2DConfigAttr s2dConfig) {
     build(builder, state, output, output_sparsity_map, profiling_output, input, input_sparsity_map,
           input_storage_element_table, weights, weights_sparsity_map, weight_table, weight_table_data_ptr,
           weight_table_sp_ptr, weight_table_scale, weight_table_bias, weight_zero_points, spr_lookup_table,
@@ -202,7 +204,7 @@ void vpux::VPUIP::NCEClusterTaskOp::build(
           kernel_strides, kernel_padding, is_continued, cm_sp_pattern, is_segmented, out_channel_offset,
           input_channels_compression, is_zero_offset_weights_table, is_superdense, is_inplace, input_se_size,
           output_se_size, isPermuteQuantize, isSmallKernelOptimized, mpeEngineAttr, eltwiseType, dynamicScaleConfig,
-          localRegion);
+          localRegion, s2dConfig);
 }
 
 void vpux::VPUIP::NCEClusterTaskOp::build(
@@ -223,7 +225,8 @@ void vpux::VPUIP::NCEClusterTaskOp::build(
         mlir::UnitAttr is_superdense, mlir::BoolAttr is_inplace, mlir::IntegerAttr input_se_size,
         mlir::IntegerAttr output_se_size, mlir::UnitAttr isPermuteQuantize, mlir::UnitAttr isSmallKernelOptimized,
         VPU::MPEEngineAttr mpeEngineAttr, VPU::EltwiseTypeAttr eltwiseType,
-        vpux::VPUIP::DynamicScaleConfigAttr dynamicScaleConfig, vpux::VPUIP::LocalRegionAttr localRegion) {
+        vpux::VPUIP::DynamicScaleConfigAttr dynamicScaleConfig, vpux::VPUIP::LocalRegionAttr localRegion,
+        vpux::VPUIP::S2DConfigAttr s2dConfig) {
     auto taskTypeAttr = vpux::VPUIP::NCETaskTypeAttr::get(builder.getContext(), task_type);
 
     build(builder, state, output, output_sparsity_map, profiling_output, input, input_sparsity_map,
@@ -235,7 +238,7 @@ void vpux::VPUIP::NCEClusterTaskOp::build(
           eltwiseType, kernel_size, kernel_strides, kernel_padding, is_continued, cm_sp_pattern, is_segmented,
           out_channel_offset, input_channels_compression, is_zero_offset_weights_table, is_superdense, is_inplace,
           input_se_size, output_se_size, isPermuteQuantize, isSmallKernelOptimized,
-          /*profilingMetadata=*/nullptr, mpeEngineAttr, dynamicScaleConfig, localRegion);
+          /*profilingMetadata=*/nullptr, mpeEngineAttr, dynamicScaleConfig, localRegion, s2dConfig);
 
     // The auto-generated builders don't populate the regions even if SizedRegion<1> is specified.
     for (auto& region : state.regions) {
@@ -371,7 +374,8 @@ mlir::LogicalResult verifyNCEConv(VPUIP::NCEClusterTaskOp op, config::ArchKind a
     if (!doAccuLoad && op.getWeights() == nullptr) {
         return errorAt(op, "weights is required for NCETaskType : '{0}'", op.getTaskType());
     }
-    if ((op.getWeightTableDataPtr() || op.getWeightTableSpPtr() || op.getWeightTableScale() ||
+    if (arch != config::ArchKind::UNKNOWN && arch <= config::ArchKind::NPU50XX &&
+        (op.getWeightTableDataPtr() || op.getWeightTableSpPtr() || op.getWeightTableScale() ||
          op.getWeightTableBias() || op.getWeightZeroPoints())) {
         return errorAt(op, "Only weight_table can be populated for NCETaskType : '{0}'", op.getTaskType());
     } else if (doAccuLoad == false && op.getWeightTableDataPtr() && op.getWeightZeroPoints()) {
@@ -409,7 +413,7 @@ mlir::LogicalResult verifyNCEConv(VPUIP::NCEClusterTaskOp op, config::ArchKind a
         return errorAt(op, "Kernel verification failed");
     }
 
-    {
+    if (op.getWeightTable() != nullptr) {
         const auto weightsShape = getShape(op.getWeights());
         auto OC = weightsShape[Dims4D::Filter::OC];
 
@@ -457,6 +461,55 @@ mlir::LogicalResult verifyNCEConv(VPUIP::NCEClusterTaskOp op, config::ArchKind a
             return errorAt(op, "Got unsupported input batch '{0}' expected to be less than or equal to '{1}'", batch,
                            vpux::VPU::getMaxArchDPUClusterNum(arch));
         }
+    }
+
+    return mlir::success();
+}
+mlir::LogicalResult verifyReduction(VPUIP::NCEClusterTaskOp op, config::ArchKind arch,
+                                    VPUIP::NCETaskType reductionType) {
+    VPUX_THROW_UNLESS(op.getTaskType() == reductionType, "Expected task type '{0}', but got '{1}'", reductionType,
+                      op.getTaskType());
+
+    if (arch <= config::ArchKind::NPU40XX) {
+        return errorAt(op, "{0} task type is only supported by NPU50XX+");
+    }
+
+    if (op.getKernelSizeAttr() == nullptr) {
+        return errorAt(op, "kernel_size is required for NCETaskType : '{0}'", op.getTaskType());
+    }
+    if (op.getKernelStridesAttr() == nullptr) {
+        return errorAt(op, "kernel_strides is required for NCETaskType : '{0}'", op.getTaskType());
+    }
+    if (op.getKernelPaddingAttr() == nullptr) {
+        return errorAt(op, "kernel_padding is required for NCETaskType : '{0}'", op.getTaskType());
+    }
+
+    const auto kernelSize = parseIntArrayAttr<int64_t>(op.getKernelSizeAttr());
+    const auto KY = kernelSize[0];
+    const auto KX = kernelSize[1];
+
+    const auto kernelStrides = parseIntArrayAttr<int64_t>(op.getKernelStridesAttr());
+    const auto SY = kernelStrides[0];
+    const auto SX = kernelStrides[1];
+
+    const auto kernelPadding = op.getKernelPaddingAttr();
+    const auto padLeft = kernelPadding.getLeft().getInt();
+    const auto padRight = kernelPadding.getRight().getInt();
+    const auto padTop = kernelPadding.getTop().getInt();
+    const auto padBottom = kernelPadding.getBottom().getInt();
+
+    if (mlir::failed(VPU::NCEInvariant::verifyKernel(op, KY, KX, SY, SX, padTop, padBottom, padLeft, padRight))) {
+        return errorAt(op, "Kernel verification failed");
+    }
+
+    const auto inOrder = DimsOrder::fromValue(op.getInput());
+    const auto outOrder = DimsOrder::fromValue(op.getOutputBuff());
+
+    if (inOrder != DimsOrder::NHWC) {
+        return errorAt(op, "For NCE z-major convolution input must have NHWC layout, got '{0}'", inOrder);
+    }
+    if (outOrder != DimsOrder::NHWC) {
+        return errorAt(op, "For NCE convolution output must have NHWC layout, got '{0}'", outOrder);
     }
 
     return mlir::success();
@@ -521,7 +574,8 @@ mlir::LogicalResult verifyNCEDWConv(VPUIP::NCEClusterTaskOp op, [[maybe_unused]]
     if (op.getWeights() == nullptr) {
         return errorAt(op, "weights is required for NCETaskType : '{0}'", op.getTaskType());
     }
-    if ((op.getWeightTableDataPtr() || op.getWeightTableSpPtr() || op.getWeightTableScale() ||
+    if (arch <= config::ArchKind::NPU50XX &&
+        (op.getWeightTableDataPtr() || op.getWeightTableSpPtr() || op.getWeightTableScale() ||
          op.getWeightTableBias() || op.getWeightZeroPoints())) {
         return errorAt(op, "Only weight_table can be populated for NCETaskType : '{0}'", op.getTaskType());
     } else if (op.getWeightTableDataPtr() && op.getWeightZeroPoints()) {
@@ -561,7 +615,7 @@ mlir::LogicalResult verifyNCEDWConv(VPUIP::NCEClusterTaskOp op, [[maybe_unused]]
         return errorAt(op, "Kernel verification failed");
     }
 
-    {
+    if (op.getWeightTable() != nullptr) {
         const auto weightsShape = getShape(op.getWeights());
         auto OC = weightsShape[Dims4D::Filter::OC];
 
@@ -659,6 +713,18 @@ mlir::LogicalResult vpux::VPUIP::NCEClusterTaskOp::verify() {
         }
     } else if (getTaskType() == VPUIP::NCETaskType::DWCONV) {
         if (mlir::failed(verifyNCEDWConv(*this, arch))) {
+            return mlir::failure();
+        }
+    } else if (getTaskType() == VPUIP::NCETaskType::REDUCEMEAN) {
+        if (mlir::failed(verifyReduction(*this, arch, getTaskType()))) {
+            return mlir::failure();
+        }
+    } else if (getTaskType() == VPUIP::NCETaskType::REDUCESUMSQUARE) {
+        if (mlir::failed(verifyReduction(*this, arch, getTaskType()))) {
+            return mlir::failure();
+        }
+    } else if (getTaskType() == VPUIP::NCETaskType::REDUCESUM) {
+        if (mlir::failed(verifyReduction(*this, arch, getTaskType()))) {
             return mlir::failure();
         }
     } else {

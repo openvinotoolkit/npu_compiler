@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --init-compiler="vpu-arch=%arch% allow-custom-values" --split-input-file --dispatched-inliner --move-declarations-to-top %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @CallChain
 module @CallChain {

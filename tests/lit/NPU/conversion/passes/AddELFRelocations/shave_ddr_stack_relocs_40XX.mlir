@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --init-compiler="vpu-arch=%arch%" --create-elf-relocations %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: dev-build && arch-NPU40XX
 
 func.func @main() {
 ELF.Main @ELFMain {

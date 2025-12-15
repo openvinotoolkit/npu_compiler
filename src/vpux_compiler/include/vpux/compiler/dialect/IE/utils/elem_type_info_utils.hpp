@@ -10,7 +10,6 @@
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
-
 namespace vpux {
 namespace IE {
 
@@ -20,10 +19,12 @@ bool isSupportedNearestNCEInterpolate(InterpolateOp interpolateOp, LogCb logCb =
 bool isSupportedElemTypeInfoCase(mlir::Operation* op, bool seOpsEnabled, LogCb logCb = globalLogCb);
 
 void propagateElemTypeDownForAffineReshapeOp(AffineReshapeOp affineReshape, LayerDataInfo<mlir::Type>& info);
+void propagateElemTypeUpForAffineReshapeOp(AffineReshapeOp affineReshape, LayerDataInfo<mlir::Type>& info);
 void propagateElemTypeDownForConcatOp(ConcatOp concat, LayerDataInfo<mlir::Type>& info);
 void propagateElemTypeDownForExpandDilatedOp(ExpandDilatedOp expandDilated, LayerDataInfo<mlir::Type>& info);
 void propagateElemTypeDownForReorderOp(ReorderOp reorder, LayerDataInfo<mlir::Type>& info);
 void propagateElemTypeDownForTransposeOp(TransposeOp transpose, LayerDataInfo<mlir::Type>& info);
+void propagateElemTypeUpForTransposeOp(TransposeOp transpose, LayerDataInfo<mlir::Type>& info);
 void propagateElemTypeUpForExpandDilatedOp(ExpandDilatedOp expandDilated, LayerDataInfo<mlir::Type>& info);
 
 std::optional<mlir::Type> inferElemTypeAffineReshape(AffineReshapeOpAdaptor affineReshapeOp, mlir::Type inputElemType);
@@ -40,14 +41,31 @@ mlir::Type inferElemTypeTranspose(mlir::AffineMap map, mlir::Type inputElemType)
 class PerTensorElemTypeInfoOpModel final :
         public IE::ElemTypeInfoOpInterface::FallbackModel<PerTensorElemTypeInfoOpModel> {
 public:
-    static void inferElemTypeInfo(mlir::Operation* /*op*/, LayerDataInfo<mlir::Type>& info) {
+    static void inferElemTypeInfo(mlir::Operation* op, LayerDataInfo<mlir::Type>& info) {
+        if (dontPropagateElementType(op, info.getInput(0))) {
+            return;
+        }
         propagateElementTypeDown(info);
     }
-    static void inferElemTypeInfoUp(mlir::Operation* /*op*/, LayerDataInfo<mlir::Type>& info) {
+    static void inferElemTypeInfoUp(mlir::Operation* op, LayerDataInfo<mlir::Type>& info) {
+        if (dontPropagateElementType(op, info.getOutput(0))) {
+            return;
+        }
         propagateElementTypeUp(info);
     }
     static LayerDataInfo<mlir::Type> getElemTypeInfo(mlir::Operation* op) {
         return vpux::IE::getElemTypeInfo(op);
+    }
+
+private:
+    static bool dontPropagateElementType(mlir::Operation* op, mlir::Type elemType) {
+        if (mlir::isa<IE::InterpolateOp, IE::PadOp>(op)) {
+            if (auto uqType = mlir::dyn_cast<mlir::quant::QuantizedType>(elemType)) {
+                const auto storageType = uqType.getStorageType();
+                return storageType.isInteger(16);
+            }
+        }
+        return false;
     }
 };
 
@@ -60,8 +78,12 @@ public:
 
         propagateElemTypeDownForAffineReshapeOp(origOp, info);
     }
-    static void inferElemTypeInfoUp(mlir::Operation* /*op*/, LayerDataInfo<mlir::Type>& info) {
-        propagateElementTypeUp(info);
+
+    static void inferElemTypeInfoUp(mlir::Operation* op, LayerDataInfo<mlir::Type>& info) {
+        auto origOp = mlir::dyn_cast<IE::AffineReshapeOp>(op);
+        VPUX_THROW_WHEN(origOp == nullptr, "Expected AffineReshapeOp, got {0} at loc {1}", op->getName(), op->getLoc());
+
+        propagateElemTypeUpForAffineReshapeOp(origOp, info);
     }
     static LayerDataInfo<mlir::Type> getElemTypeInfo(mlir::Operation* op) {
         return vpux::IE::getElemTypeInfo(op);
@@ -154,8 +176,11 @@ public:
 
         propagateElemTypeDownForTransposeOp(origOp, info);
     }
-    static void inferElemTypeInfoUp(mlir::Operation* /*op*/, LayerDataInfo<mlir::Type>& info) {
-        propagateElementTypeUp(info);
+    static void inferElemTypeInfoUp(mlir::Operation* op, LayerDataInfo<mlir::Type>& info) {
+        auto origOp = mlir::dyn_cast<IE::TransposeOp>(op);
+        VPUX_THROW_WHEN(origOp == nullptr, "Expected TransposeOp, got {0} at loc {1}", op->getName(), op->getLoc());
+
+        propagateElemTypeUpForTransposeOp(origOp, info);
     }
     static LayerDataInfo<mlir::Type> getElemTypeInfo(mlir::Operation* op) {
         return vpux::IE::getElemTypeInfo(op);

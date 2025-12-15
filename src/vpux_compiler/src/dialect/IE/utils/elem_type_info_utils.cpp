@@ -91,6 +91,23 @@ void vpux::IE::propagateElemTypeDownForAffineReshapeOp(IE::AffineReshapeOp affin
     }
 }
 
+void vpux::IE::propagateElemTypeUpForAffineReshapeOp(IE::AffineReshapeOp affineReshape,
+                                                     IE::LayerDataInfo<mlir::Type>& info) {
+    auto outputElemType = info.getOutput(0);
+    auto dimMapping = parseIntArrayOfArrayAttr<int64_t>(affineReshape.getDimMapping());
+    const auto outputShape = getShape(affineReshape.getOutput()).raw();
+
+    auto inType = Const::backInferElemTypeAffineReshape(getShape(affineReshape.getInput()), outputElemType, dimMapping,
+                                                        outputShape);
+
+    if (!inType.has_value()) {
+        // Could not back-infer input element type
+        return;
+    }
+
+    info.setInput(0, inType.value());
+}
+
 void vpux::IE::propagateElemTypeDownForConcatOp(IE::ConcatOp concat, IE::LayerDataInfo<mlir::Type>& info) {
     auto loc = concat->getLoc();
 
@@ -140,6 +157,38 @@ void vpux::IE::propagateElemTypeDownForTransposeOp(IE::TransposeOp transpose, IE
     for (size_t outputInd = 0; outputInd < info.getNumOutputs(); ++outputInd) {
         info.setOutput(outputInd, outputElemType);
     }
+}
+
+void vpux::IE::propagateElemTypeUpForTransposeOp(IE::TransposeOp transpose, IE::LayerDataInfo<mlir::Type>& info) {
+    auto outputElemType = info.getOutput(0);
+    auto perAxisType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(outputElemType);
+    if (perAxisType == nullptr) {
+        propagateElementTypeUp(info);
+        return;
+    }
+
+    auto inversePermutation = mlir::inversePermutation(transpose.getOrderValue().value());
+
+    const auto origAxis = perAxisType.getQuantizedDimension();
+    const auto newAxis = static_cast<int32_t>(DimsOrder::fromAffineMap(inversePermutation).dimPos(Dim(origAxis)));
+
+    mlir::Type inType = nullptr;
+    if (const auto perAxisQuantileQType =
+                mlir::dyn_cast_or_null<mlir::quant::QuantileQuantizedPerAxisType>(outputElemType)) {
+        inType = mlir::quant::QuantileQuantizedPerAxisType::get(
+                perAxisQuantileQType.getFlags(), perAxisQuantileQType.getStorageType(),
+                perAxisQuantileQType.getQuantileType(), perAxisQuantileQType.getExpressedType(),
+                perAxisQuantileQType.getQuantiles(), perAxisQuantileQType.getScales(),
+                perAxisQuantileQType.getZeroPoints(), newAxis, perAxisQuantileQType.getStorageTypeMin(),
+                perAxisQuantileQType.getStorageTypeMax());
+    } else {
+        inType = mlir::quant::UniformQuantizedPerAxisType::get(
+                perAxisType.getFlags(), perAxisType.getStorageType(), perAxisType.getExpressedType(),
+                perAxisType.getScales(), perAxisType.getZeroPoints(), newAxis, perAxisType.getStorageTypeMin(),
+                perAxisType.getStorageTypeMax());
+    }
+
+    info.setInput(0, inType);
 }
 
 void vpux::IE::propagateElemTypeUpForExpandDilatedOp(IE::ExpandDilatedOp expandDilated,

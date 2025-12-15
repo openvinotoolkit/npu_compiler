@@ -315,7 +315,7 @@ void FuseSoftmaxPass::safeRunOnFunc() {
         if (axisInfo.axes != reduceMaxAxisInfo.axes || subtractOp.getInput1() != reduceMaxOp.getInput()) {
             return;
         }
-        _log.trace("FuseSoftmax pattern detected at {}", divideOp->getLoc());
+        _log.trace("FuseSoftmax pattern detected at {0}", divideOp->getLoc());
 
         auto originalShape = inputType.getShape();
         mlir::Value softmaxOutput;

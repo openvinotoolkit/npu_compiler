@@ -22,6 +22,10 @@ TEST_P(CumSumLayerTestCommon, NPU4000_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU4000);
 }
+TEST_P(CumSumLayerTestCommon, NPU5010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
 }  // namespace test
 }  // namespace ov
 
@@ -73,6 +77,17 @@ const auto testCasePrecommit = testing::Combine(testing::ValuesIn({static_shapes
                                                 testing::ValuesIn(exclusive), testing::ValuesIn(reverse),
                                                 testing::Values(test_utils::TARGET_DEVICE));
 
+std::vector<std::vector<ov::test::InputShape>> cumSumDynamicShapes = {
+        {{{{1, 1, 1, ov::Dimension(1, 10)}, {{1, 1, 1, 10}, {1, 1, 1, 5}}}},
+         {{{1, ov::Dimension(1, 32)}, {{1, 16}, {1, 32}}}},
+         {{{ov::Dimension(1, 8), 128}, {{4, 128}, {8, 128}}}}}};
+
+const auto cumSumParamsDynamic = ::testing::Combine(
+        ::testing::ValuesIn(cumSumDynamicShapes), ::testing::Values(inputPrecision[0]), ::testing::Values(axes[1]),
+        ::testing::Values(exclusive[1]), ::testing::Values(reverse[1]), ::testing::Values(test_utils::TARGET_DEVICE));
+
+INSTANTIATE_TEST_SUITE_P(smoke_CumSumDynamic, CumSumLayerTestCommon, cumSumParamsDynamic,
+                         CumSumLayerTestCommon::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(smoke_CumSum_axis_0, CumSumLayerTestCommon, testCaseAxis_0,
                          CumSumLayerTestCommon::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(smoke_CumSum_negative_axis, CumSumLayerTestCommon, testCasesNegativeAxis,

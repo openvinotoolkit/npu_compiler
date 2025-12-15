@@ -27,7 +27,9 @@ def Net_Dialect : Dialect {
     let cppNamespace = "vpux::net";
 
     let dependentDialects = [
-        "vpux::Core::CoreDialect"
+        "vpux::Core::CoreDialect",
+        // Note: required because relies on one-shot "tensors" and "buffers"
+        "mlir::bufferization::BufferizationDialect"
     ];
 
     let extraClassDeclaration = [{

@@ -6,8 +6,6 @@
 #include "vpux/compiler/NPU40XX/utils.hpp"
 #include "vpux/compiler/conversion/passes/VPU2VPUIP/bufferizable_ops_interface.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
-#include "vpux/compiler/dialect/VPU/utils/m2i_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
@@ -449,60 +447,6 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::DistributedCastOp
 }
 
 //
-// bufferize VPU::M2ITaskOp
-//
-
-mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::M2ITaskOp origOp, VPU::M2ITaskOp::Adaptor& newArgs,
-                                      mlir::RewriterBase& rewriter) {
-    auto log = Logger::global().nest("one-shot-bufferize-VPUM2ITaskOp", 0);
-    log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
-
-    const auto outputBuffer = allocateBuffers(log, origOp->getLoc(), rewriter, {origOp.getOutput()},
-                                              /*individualBuffers =*/false);
-    const auto inputShapeRaw = mlir::cast<vpux::NDTypeInterface>(newArgs.getInput().getType()).getShape().raw();
-    const auto outputShapeRaw = mlir::cast<vpux::NDTypeInterface>(outputBuffer[0].getType()).getShape().raw();
-
-    struct M2IDims {
-        unsigned w;
-        unsigned h;
-    };
-
-    const auto getDimsFromRawShape = [](const VPU::M2iColorFmt fmt, const auto& shape) -> M2IDims {
-        M2IDims dims;
-        if ((fmt == VPU::M2iColorFmt::PL_YUV420_8) || (fmt == VPU::M2iColorFmt::SP_NV12_8)) {
-            dims.h = (shape[1] * 2) / 3;
-            dims.w = shape[2];
-        } else if (fmt == VPU::M2iColorFmt::PL_RGB24 || fmt == VPU::M2iColorFmt::PL_FP16_RGB) {
-            dims.h = shape[2];
-            dims.w = shape[3];
-        } else if (fmt == VPU::M2iColorFmt::IL_RGB888) {
-            dims.h = shape[1];
-            dims.w = shape[2];
-        } else {
-            VPUX_THROW("M2iTask currently unsupported format '{0}'", fmt);
-        }
-        return dims;
-    };
-
-    const auto inDims = getDimsFromRawShape(origOp.getInFmt(), inputShapeRaw);
-    const auto outDims = getDimsFromRawShape(origOp.getOutFmt(), outputShapeRaw);
-
-    const auto scaleFactorWidth =
-            VPU::getM2iFixedPointScaleFactor(inDims.w, outDims.w, VPU::M2I_SCALE_FACTOR_FRACTIONAL_BITS);
-    const auto scaleFactorHeight =
-            VPU::getM2iFixedPointScaleFactor(inDims.h, outDims.h, VPU::M2I_SCALE_FACTOR_FRACTIONAL_BITS);
-
-    auto m2iOp = rewriter.create<VPUIP::M2ITaskOp>(
-            origOp->getLoc(), newArgs.getInput(), outputBuffer[0], nullptr, origOp.getDoCsc(), origOp.getDoNorm(),
-            origOp.getInFmt(), origOp.getOutFmt(), origOp.getChromaInReverseChannels(),
-            origOp.getChromaOutReverseChannels(), origOp.getLumaInReverseChannels(), origOp.getLumaOutReverseChannels(),
-            scaleFactorWidth, scaleFactorHeight, origOp.getNormAttr(), nullptr, nullptr, /*profilingMetadata*/ nullptr,
-            origOp.getInterp());
-    mlir::bufferization::replaceOpWithBufferizedValues(rewriter, origOp, m2iOp.getOutput());
-    return mlir::success();
-}
-
-//
 // bufferize VPU::StubOp
 //
 
@@ -626,7 +570,6 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::GatherDMAOp origO
         auto outputCMXBuffers = allocateBuffers(log, origOp.getLoc(), rewriter, origOp.getOutput(), true);
         auto newOp = rewriter.create<VPUIP::GatherDMAOp>(origOp.getLoc(), newArgs.getInput(), newArgs.getIndices(),
                                                          outputCMXBuffers[0], 0, 0, 0, addressingMode);
-        newOp.setChannelType(VPUIP::DmaChannelType::DDR);
         mlir::bufferization::replaceOpWithBufferizedValues(rewriter, origOp, newOp.getResult());
         return mlir::success();
     }
@@ -642,7 +585,6 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::GatherDMAOp origO
     auto outputCMXBuffers = allocateBuffer(log, origOp.getLoc(), rewriter, origOp.getOutput(), memSpaceCMX);
     auto newOp = rewriter.create<VPUIP::GatherDMAOp>(origOp.getLoc(), newArgs.getInput(), indicesCMXCopy.getOutput(),
                                                      outputCMXBuffers, 0, 0, 0, addressingMode);
-    newOp.setChannelType(VPUIP::DmaChannelType::DDR);
     auto outputDDRBuffers = allocateBuffers(log, origOp.getLoc(), rewriter, origOp->getOpResults(),
                                             /*individualBuffers =*/false);
     auto newResult =
@@ -744,7 +686,6 @@ void vpux::registerVPUBufferizableOpInterfaces(mlir::DialectRegistry& registry) 
         VPU::PermuteCastOp::attachInterface<VpuGenericOneShotBufferizeModel<VPU::PermuteCastOp>>(*ctx);
         VPU::QuantizeCastOp::attachInterface<VpuGenericOneShotBufferizeModel<VPU::QuantizeCastOp>>(*ctx);
         VPU::DistributedCastOp::attachInterface<VpuGenericOneShotBufferizeModel<VPU::DistributedCastOp>>(*ctx);
-        VPU::M2ITaskOp::attachInterface<VpuGenericOneShotBufferizeModel<VPU::M2ITaskOp>>(*ctx);
         VPU::StubOp::attachInterface<VpuGenericOneShotBufferizeModel<VPU::StubOp>>(*ctx);
         VPU::GroupSparseTensorOp::attachInterface<VpuGenericOneShotBufferizeModel<VPU::GroupSparseTensorOp>>(*ctx);
         VPU::UngroupSparseTensorOp::attachInterface<VpuGenericOneShotBufferizeModel<VPU::UngroupSparseTensorOp>>(*ctx);

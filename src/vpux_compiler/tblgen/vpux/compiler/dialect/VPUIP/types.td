@@ -13,6 +13,7 @@ include "vpux/compiler/dialect/VPU/attributes.td"
 include "vpux/compiler/dialect/core/type_interfaces.td"
 
 include "mlir/IR/BuiltinTypeInterfaces.td"
+include "mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.td"
 
 // Base class for VPUIP dialect types.
 class VPUIP_Type<string name, list<Trait> traits = []>
@@ -30,7 +31,8 @@ def VPUIP_DistributedBuffer :
             [
                 DeclareTypeInterfaceMethods<NDTypeInterface>,
                 DeclareTypeInterfaceMethods<ClusterTypeInterface>,
-                DeclareTypeInterfaceMethods<BaseMemRefTypeInterface>,
+                ShapedTypeInterface,
+                DeclareTypeInterfaceMethods<Bufferization_BufferLikeTypeInterface>,
                 VPU_DistributedTypeInterface,
             ]
         > {
@@ -68,7 +70,7 @@ def VPUIP_DistributedBuffer :
         mlir::MemRefLayoutAttrInterface getLayout() const;
         VPU::DistributionInfoAttr getDistribution() const;
         VPUIP::SparsityCompressionAttr getSparsityCompression() const;
-        DistributedBufferType cloneWith(std::optional<mlir::ArrayRef<int64_t>> shape,
+        ::mlir::ShapedType cloneWith(std::optional<mlir::ArrayRef<int64_t>> shape,
                                         mlir::Type elementType) const;
         Byte getAllocSizeOfCluster(size_t clusterId) const;
     }];
@@ -87,7 +89,8 @@ def VPUIP_SparseBuffer :
             "SparseBuffer",
             [
                 GroupedTypeInterface,
-                DeclareTypeInterfaceMethods<BaseMemRefTypeInterface>,
+                ShapedTypeInterface,
+                DeclareTypeInterfaceMethods<Bufferization_BufferLikeTypeInterface>,
                 DeclareTypeInterfaceMethods<NDTypeInterface>,
                 DeclareTypeInterfaceMethods<VPU_DistributedTypeInterface,
                     ["containsDistributedTypes", "getDistributedTypes", "changeShapeForExplicitDistribution",
@@ -122,7 +125,7 @@ def VPUIP_SparseBuffer :
         "mlir::Type":$storageElementTable,
         "mlir::UnitAttr":$isWeights,
         "VPUIP::SparsityCompressionAttr":$sparsityCompression,
-        VPU_SEAttr:$seAttr
+        "VPU::SEAttr":$seAttr
     );
 
     let builders = [
@@ -140,7 +143,7 @@ def VPUIP_SparseBuffer :
     ];
 
     let extraClassDeclaration = [{
-        SparseBufferType cloneWith(std::optional<mlir::ArrayRef<int64_t>> /*shape*/,
+        ::mlir::ShapedType cloneWith(std::optional<mlir::ArrayRef<int64_t>> /*shape*/,
                                     mlir::Type /*elementType*/) const;
     }];
 
@@ -207,7 +210,8 @@ def VPUIP_BoundedBuffer :
         "BoundedBuffer",
         [
             DeclareTypeInterfaceMethods<NDTypeInterface>,
-            DeclareTypeInterfaceMethods<BaseMemRefTypeInterface>,
+            ShapedTypeInterface,
+            DeclareTypeInterfaceMethods<Bufferization_BufferLikeTypeInterface>,
             DeclareTypeInterfaceMethods<VPU_DistributedTypeInterface,
                 ["containsDistributedTypes", "getDistributedTypes", "changeShapeForExplicitDistribution",
                  "changeShapeElemTypeForExplicitDistribution", "changeTypeComponentsForExplicitDistribution",
@@ -240,7 +244,7 @@ def VPUIP_BoundedBuffer :
     ];
 
     let extraClassDeclaration = [{
-        BoundedBufferType cloneWith(std::optional<mlir::ArrayRef<int64_t>> /*shape*/,
+        ::mlir::ShapedType cloneWith(std::optional<mlir::ArrayRef<int64_t>> /*shape*/,
                                     mlir::Type /*elementType*/) const;
     }];
 

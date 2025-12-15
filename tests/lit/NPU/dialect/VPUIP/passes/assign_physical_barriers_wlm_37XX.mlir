@@ -15,7 +15,7 @@ func.func @LinearDMA(%arg0: memref<10xf16>, %arg1: memref<10xf16>) -> memref<10x
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %buf0 = VPURT.DeclareBuffer <DDR> <0> -> memref<10xf16, @DDR>
     VPURT.Task updates(%bar0 : !VPURT.Barrier) {
-        %0 = VPUIP.NNDMA
+        %0 = VPUIP.NNDMA {port = 0 : i64}
             inputs(
                 %arg0 : memref<10xf16>
             ) outputs(
@@ -27,7 +27,7 @@ func.func @LinearDMA(%arg0: memref<10xf16>, %arg1: memref<10xf16>) -> memref<10x
     %bar1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %buf1 = VPURT.DeclareBuffer <DDR> <2048> -> memref<10xf16, @DDR>
     VPURT.Task waits(%bar0 : !VPURT.Barrier) updates(%bar1 : !VPURT.Barrier) {
-        %1 = VPUIP.NNDMA
+        %1 = VPUIP.NNDMA {port = 0 : i64}
             inputs(
                 %buf0 : memref<10xf16, @DDR>
             ) outputs(
@@ -38,7 +38,7 @@ func.func @LinearDMA(%arg0: memref<10xf16>, %arg1: memref<10xf16>) -> memref<10x
     // CHECK: VPURT.ConfigureBarrier<2>
     %bar2 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     VPURT.Task waits(%bar1 : !VPURT.Barrier) updates(%bar2 : !VPURT.Barrier) {
-        %2 = VPUIP.NNDMA
+        %2 = VPUIP.NNDMA {port = 0 : i64}
             inputs(
                 %buf1 : memref<10xf16, @DDR>
             ) outputs(

@@ -5,8 +5,8 @@
 
 #include <mlir/IR/BuiltinTypes.h>
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/ops.hpp"
+#include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUASM/utils.hpp"
-#include "vpux/compiler/utils/ELF/utils.hpp"
 #include "vpux/utils/core/error.hpp"
 
 #include <npu_40xx_nnrt.hpp>

@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/core/layers.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/utils/error.hpp"
 
 using namespace vpux;

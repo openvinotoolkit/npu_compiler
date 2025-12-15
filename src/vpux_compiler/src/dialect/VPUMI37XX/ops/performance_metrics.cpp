@@ -4,10 +4,11 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/performance_metrics.hpp"
-#include "vpux/compiler/NPU37XX/dialect/VPU/utils/performance_metrics.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/ops.hpp"
+#include "vpux/compiler/dialect/VPURegMapped/types.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
+#include "vpux/compiler/dialect/config/constraints.hpp"
 
 #include <npu_37xx_nnrt.hpp>
 
@@ -21,14 +22,15 @@ using namespace npu37xx;
 void vpux::VPUMI37XX::PerformanceMetricsOp::serialize(elf::writer::BinaryDataSection<uint8_t>& binDataSection) {
     VpuPerformanceMetrics perf{};
 
-    auto freqTable = VPU::arch37xx::getFrequencyTable();
-    perf.freq_base = freqTable.base;
-    perf.freq_step = freqTable.step;
     perf.bw_base = VPU::getBWBase();
     perf.bw_step = VPU::getBWStep();
 
     auto operation = getOperation();
     auto mainModule = operation->getParentOfType<mlir::ModuleOp>();
+
+    const auto& freqTable = config::getNPUConstraints(mainModule->getContext()).frequencyTable;
+    perf.freq_base = freqTable.base;
+    perf.freq_step = freqTable.step;
 
     // Here we must get AF from NCE res (a TileResourceOp) as the AF attribute is attached to tile op
     auto tileResources = config::getTileExecutor(mainModule);

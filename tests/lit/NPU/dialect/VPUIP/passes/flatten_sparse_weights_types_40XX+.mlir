@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --init-compiler="vpu-arch=%arch%" --flatten-sparse-weights-types %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -12,7 +12,6 @@ func.func @SparseConvWeightsWithCompressCandidate(%arg0: memref<1x32x3x3xf16, #N
   %cst_weights = const.Declare memref<64x32x1x1xf16, {sparsityCompression = #VPUIP.SparsityCompressionAttr<axis = 0 : i64, numElems = dense<32> : tensor<64xi64>, alignment = 16 : i64>, order = #NHWC}>
     = dense<1.0> : tensor<64x32x1x1xf16>, [#const.Reorder<#NHWC>, #const.Sparsify<false>]
   %cst_weights_sm = const.Declare memref<64x1x1x128xi1> = dense<1.0> : tensor<64x32x1x1xf16>, [#const.Reorder<#NHWC>, #const.GetSparsityMap]
-  %cst_weights_table = const.Declare memref<64x1x1x4xsi32> = dense<1> : tensor<64x1x1x4xsi32>
 
   %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
   %bar1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
@@ -22,7 +21,6 @@ func.func @SparseConvWeightsWithCompressCandidate(%arg0: memref<1x32x3x3xf16, #N
   %2 = VPURT.DeclareBuffer <CMX_NN> [0] <6688> -> memref<1x64x3x3xf16, #NHWC, [@CMX_NN, 0]>
   %3 = VPURT.DeclareBuffer <CMX_NN> [0] <576>-> memref<64x32x1x1xf16, {sparsityCompression = #VPUIP.SparsityCompressionAttr<axis = 0 : i64, numElems = dense<32> : tensor<64xi64>, alignment = 16 : i64>, order = #NHWC}, [@CMX_NN, 0]>
   %4 = VPURT.DeclareBuffer <CMX_NN> [0] <4672>-> memref<64x1x1x128xi1, [@CMX_NN, 0]>
-  %5 = VPURT.DeclareBuffer <CMX_NN> [0] <5696> -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
   %6 = VPURT.DeclareBuffer <DDR> <0> -> memref<64x32x1x1xf16, {allocSize = 4192 : i64, compression = #VPUIP.Compression<CompressionCandidate>, sparsityCompression = #VPUIP.SparsityCompressionAttr<axis = 0 : i64, numElems = dense<32> : tensor<64xi64>, alignment = 16 : i64>, order = #NHWC}, @DDR>
   %7 = VPURT.DeclareBuffer <CMX_NN> [0] <7840> -> memref<64x32x1x1xf16, {sparsityCompression = #VPUIP.SparsityCompressionAttr<axis = 0 : i64, numElems = dense<32> : tensor<64xi64>, alignment = 16 : i64>, order = #NHWC}, [@CMX_NN, 0]>
 
@@ -33,9 +31,6 @@ func.func @SparseConvWeightsWithCompressCandidate(%arg0: memref<1x32x3x3xf16, #N
   }
   VPURT.Task updates(%bar2 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
     %8 = VPUIP.NNDMA inputs(%cst_weights_sm : memref<64x1x1x128xi1>) outputs(%4 : memref<64x1x1x128xi1, [@CMX_NN, 0]>) -> memref<64x1x1x128xi1, [@CMX_NN, 0]>
-  }
-  VPURT.Task updates(%bar2 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
-    %8 = VPUIP.NNDMA inputs(%cst_weights_table : memref<64x1x1x4xsi32>) outputs(%5 : memref<64x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
   }
   VPURT.Task waits(%bar0 : !VPURT.Barrier) updates(%bar1 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
     %8 = VPUIP.NNDMA {compress_candidate, spillId = 0 : i64} inputs(%3 : memref<64x32x1x1xf16, {sparsityCompression = #VPUIP.SparsityCompressionAttr<axis = 0 : i64, numElems = dense<32> : tensor<64xi64>, alignment = 16 : i64>, order = #NHWC}, [@CMX_NN, 0]>)
@@ -53,7 +48,6 @@ func.func @SparseConvWeightsWithCompressCandidate(%arg0: memref<1x32x3x3xf16, #N
             input(%1 : memref<1x32x3x3xf16, #NHWC, [@CMX_NN, 0]>)
             weights(%7 : memref<64x32x1x1xf16, {sparsityCompression = #VPUIP.SparsityCompressionAttr<axis = 0 : i64, numElems = dense<32> : tensor<64xi64>, alignment = 16 : i64>, order = #NHWC}, [@CMX_NN, 0]>)
             weights_sparsity_map(%4 : memref<64x1x1x128xi1, [@CMX_NN, 0]>)
-            weight_table(%5 : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
             parent_input(%1 : memref<1x32x3x3xf16, #NHWC, [@CMX_NN, 0]>)
             parent_output(%2 : memref<1x64x3x3xf16, #NHWC, [@CMX_NN, 0]>)
             outputs(%2 : memref<1x64x3x3xf16, #NHWC, [@CMX_NN, 0]>)

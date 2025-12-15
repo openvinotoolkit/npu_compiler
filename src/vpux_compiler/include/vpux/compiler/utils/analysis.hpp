@@ -44,6 +44,7 @@ mlir::SmallVector<mlir::Value> getInputsSanitized(VPUIP::LayerOpInterface layerO
 //
 
 mlir::ModuleOp getModuleOp(mlir::Operation* op);
+mlir::ModuleOp getModuleOp(mlir::OpBuilder& builder);
 
 /// @brief This function returns the top parent operation of type OpT which contains this op. If the op itself is of
 /// type OpT, then op is returned. If it doesn't exist, nullptr is returned.

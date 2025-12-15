@@ -26,15 +26,17 @@ mlir::Operation* vpux::VPURT::TaskOp::getInnerTaskOp() {
 
 void vpux::VPURT::TaskOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState,
                                 mlir::ValueRange waitBarriers, mlir::ValueRange updateBarriers) {
-    build(odsBuilder, odsState, nullptr, waitBarriers, updateBarriers, nullptr, /*isTrailingSWLayer*/ false,
-          /*wlmPage*/ nullptr, /* start_after */ nullptr, /* clean_after */ nullptr);
+    build(odsBuilder, odsState, /*profiling_data*/ nullptr, waitBarriers, updateBarriers,
+          /*enqueueBarrier*/ nullptr, /*isTrailingSWLayer*/ false, /*wlmPage*/ nullptr,
+          /*taskIndex*/ std::nullopt, /*start_after*/ nullptr, /*clean_after*/ nullptr);
 }
 
 void vpux::VPURT::TaskOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState,
                                 mlir::ValueRange waitBarriers, mlir::ValueRange updateBarriers,
                                 mlir::Value enqueueBarrier) {
-    build(odsBuilder, odsState, nullptr, waitBarriers, updateBarriers, enqueueBarrier, /*isTrailingSWLayer*/ false,
-          /*wlmPage*/ nullptr, /* start_after */ nullptr, /* clean_after */ nullptr);
+    build(odsBuilder, odsState, /*profiling_data*/ nullptr, waitBarriers, updateBarriers, enqueueBarrier,
+          /*isTrailingSWLayer*/ false, /*wlmPage*/ nullptr,
+          /*taskIndex*/ std::nullopt, /*start_after*/ nullptr, /*clean_after*/ nullptr);
 }
 
 VPU::ExecutorKind vpux::VPURT::TaskOp::getExecutorKind() {
@@ -143,77 +145,6 @@ mlir::ParseResult VPURT::TaskOp::parseProperties(mlir::OpAsmParser& parser, mlir
         prop.setTaskIndex(value);
     }
     return parseEnd();
-}
-
-SmallVector<int64_t> vpux::VPURT::getDMATaskPorts(TaskOp task) {
-    VPUX_THROW_UNLESS(task.getExecutorKind() == VPU::ExecutorKind::DMA_NN, "Unexpected task type find at '{0}'",
-                      task->getLoc());
-    SmallVector<int64_t> ports;
-    auto* wrappedTaskOp = task.getInnerTaskOp();
-    if (vpux::VPUIP::hasDistributedOperand(wrappedTaskOp)) {
-        auto module = wrappedTaskOp->getParentOfType<mlir::ModuleOp>();
-        auto dmaOp = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
-        auto dmaPortCount = dmaOp.getCount();
-
-        const auto input = VPUIP::getLayerInputs(wrappedTaskOp).begin();
-        const auto output = VPUIP::getLayerOutputs(wrappedTaskOp).begin();
-        auto inputType = mlir::cast<vpux::NDTypeInterface>((*input).getType());
-        auto outputType = mlir::cast<vpux::NDTypeInterface>((*output).getType());
-
-        const auto distributedType = mlir::isa<vpux::VPUIP::DistributedBufferType>(inputType)
-                                             ? mlir::dyn_cast<vpux::VPUIP::DistributedBufferType>(inputType)
-                                             : mlir::dyn_cast<vpux::VPUIP::DistributedBufferType>(outputType);
-
-        VPUX_THROW_UNLESS(distributedType != nullptr, "At least one of operands must have DistributedBuffer type");
-
-        int64_t numClusters = 0;
-        const auto checkSegmentedOrOverlapped = [&](vpux::NDTypeInterface type) {
-            const auto distType = mlir::dyn_cast<vpux::VPUIP::DistributedBufferType>(type);
-            if (distType == nullptr) {
-                return false;
-            }
-            const auto distributionAttr = distType.getDistribution();
-            VPUX_THROW_WHEN(distributionAttr == nullptr, "Failed to get distribution attribute.");
-            const auto mode = distributionAttr.getMode().getValue();
-            if (mode == VPU::DistributionMode::SEGMENTED || mode == VPU::DistributionMode::OVERLAPPED) {
-                numClusters = distributionAttr.getNumClusters().getInt();
-                return true;
-            }
-            return false;
-        };
-
-        if (checkSegmentedOrOverlapped(inputType) || checkSegmentedOrOverlapped(inputType)) {
-            ports.resize(std::min(numClusters, dmaPortCount));
-            std::iota(ports.begin(), ports.end(), 0);
-            return ports;
-        }
-    }
-
-    ports.push_back(vpux::getDMAPortValue(wrappedTaskOp));
-    return ports;
-}
-
-std::optional<SmallVector<VPURT::TaskQueueType>> vpux::VPURT::getDMATaskQueueType(TaskOp taskOp) {
-    if (taskOp.getExecutorKind() != VPU::ExecutorKind::DMA_NN) {
-        return std::nullopt;
-    }
-    SmallVector<VPURT::TaskQueueType> queueTypes;
-
-    mlir::Operation* innerOp = taskOp.getInnerTaskOp();
-
-    auto ports = VPURT::getDMATaskPorts(taskOp);
-    auto dmaTask = mlir::dyn_cast<VPUIP::DMATypeOpInterface>(innerOp);
-    VPUX_THROW_WHEN(dmaTask == nullptr, "Not a DMA task");
-
-    const auto channelType = dmaTask.getChannelType();
-
-    for (auto port : ports) {
-        TaskQueueType queueType;
-        queueType.type = VPU::ExecutorKind::DMA_NN;
-        queueType.id = getDMAQueueIdEncoding(port, channelType);
-        queueTypes.push_back(queueType);
-    }
-    return queueTypes;
 }
 
 VPURT::TaskQueueType vpux::VPURT::getTaskQueueType(TaskOp taskOp, bool ignoreIndexForNce) {

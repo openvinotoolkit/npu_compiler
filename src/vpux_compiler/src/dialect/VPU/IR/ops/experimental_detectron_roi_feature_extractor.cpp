@@ -3,11 +3,48 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
-
+#include "vpux/compiler/dialect/VPU/IR/ops/image.hpp"
+#include "vpux/compiler/dialect/VPU/utils/auxiliary_buffers.hpp"
 #include "vpux/compiler/utils/error.hpp"
 
 using namespace vpux;
+
+SmallVector<mlir::Type> getAuxiliaryBufferTypes(mlir::ValueRange inputs,
+                                                IE::ExperimentalDetectronROIFeatureExtractorAttr attr) {
+    const auto shapeROI = getShape(inputs[0]);
+    const auto shapeFeature = getShape(inputs[1]);
+    const auto outputSize = attr.getOutputSize().getInt();
+
+    const auto reorderedRoisBuffSize = static_cast<int32_t>(4 * shapeROI[Dim(0)]);
+    const auto reorderedRoisType =
+            mlir::RankedTensorType::get(reorderedRoisBuffSize, mlir::Float32Type::get(attr.getContext()));
+
+    const auto originalRoiMapBuffSize = static_cast<int32_t>(shapeROI[Dim(0)]);
+    const auto originalRoiMapType =
+            mlir::RankedTensorType::get(originalRoiMapBuffSize, getUInt32Type(attr.getContext()));
+
+    const auto outputRoisFeaturesTempBuffSize =
+            static_cast<int32_t>(shapeFeature[Dim(1)] * outputSize * outputSize * shapeROI[Dim(0)]);
+    const auto outputRoisFeaturesTempType =
+            mlir::RankedTensorType::get(outputRoisFeaturesTempBuffSize, mlir::Float32Type::get(attr.getContext()));
+
+    const auto levelsBuffSize = static_cast<int32_t>(shapeROI[Dim(0)]);
+    const auto levelsType = mlir::RankedTensorType::get(levelsBuffSize, getUInt32Type(attr.getContext()));
+
+    return {reorderedRoisType, originalRoiMapType, outputRoisFeaturesTempType, levelsType};
+}
+
+void VPU::ExperimentalDetectronROIFeatureExtractorOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState,
+                                                            mlir::ValueRange inputs,
+                                                            IE::ExperimentalDetectronROIFeatureExtractorAttr attr) {
+    const auto auxBufferTypes = getAuxiliaryBufferTypes(inputs, attr);
+    VPUX_THROW_WHEN(auxBufferTypes.size() != 4, "Expected 4 auxiliary buffer types, got {0}", auxBufferTypes.size());
+    auto reorderedRois = VPU::createAuxiliaryBuffer(odsBuilder, odsState.location, auxBufferTypes[0]);
+    auto originalRoiMap = VPU::createAuxiliaryBuffer(odsBuilder, odsState.location, auxBufferTypes[1]);
+    auto outputRoisFeaturesTemp = VPU::createAuxiliaryBuffer(odsBuilder, odsState.location, auxBufferTypes[2]);
+    auto levels = VPU::createAuxiliaryBuffer(odsBuilder, odsState.location, auxBufferTypes[3]);
+    build(odsBuilder, odsState, inputs, reorderedRois, originalRoiMap, outputRoisFeaturesTemp, levels, attr);
+}
 
 mlir::LogicalResult VPU::ExperimentalDetectronROIFeatureExtractorOp::inferReturnTypes(
         mlir::MLIRContext* ctx, std::optional<mlir::Location> optLoc, mlir::ValueRange operands,
@@ -54,43 +91,28 @@ mlir::LogicalResult VPU::ExperimentalDetectronROIFeatureExtractorOp::inferReturn
     return mlir::success();
 }
 
-SmallVector<mlir::Value> VPU::ExperimentalDetectronROIFeatureExtractorOp::getAuxiliaryBuffers() {
-    return {getReorderedRois(), getOriginalRoiMap(), getOutputRoisFeaturesTemp(), getLevels()};
-}
-
-mlir::LogicalResult VPU::ExperimentalDetectronROIFeatureExtractorOp::setAuxiliaryBuffers(
-        ArrayRef<mlir::Value> buffers) {
-    if (buffers.size() != 4 || llvm::any_of(buffers, [](mlir::Value buffer) {
-            return buffer == nullptr;
-        })) {
-        return mlir::failure();
+llvm::LogicalResult VPU::ExperimentalDetectronROIFeatureExtractorOp::verify() {
+    auto expectedAuxBuffTypes = getAuxiliaryBufferTypes(getInputs(), getAttr());
+    if (expectedAuxBuffTypes.size() != 4) {
+        return errorAt(getOperation(), "Expected four reference auxiliary buffer types, but got {0}",
+                       expectedAuxBuffTypes.size());
     }
-    getReorderedRoisMutable().assign(buffers[0]);
-    getOriginalRoiMapMutable().assign(buffers[1]);
-    getOutputRoisFeaturesTempMutable().assign(buffers[2]);
-    getLevelsMutable().assign(buffers[3]);
+    auto loc = getOperation()->getLoc();
+    if (mlir::failed(VPU::compareTypes(loc, getReorderedRois().getType(), expectedAuxBuffTypes[0]))) {
+        return errorAt(getOperation(), "Invalid reordered ROIs auxiliary buffer");
+    }
+    if (mlir::failed(VPU::compareTypes(loc, getOriginalRoiMap().getType(), expectedAuxBuffTypes[1]))) {
+        return errorAt(getOperation(), "Invalid original ROI map auxiliary buffer");
+    }
+    if (mlir::failed(VPU::compareTypes(loc, getOutputRoisFeaturesTemp().getType(), expectedAuxBuffTypes[2]))) {
+        return errorAt(getOperation(), "Invalid output ROI features auxiliary buffer");
+    }
+    if (mlir::failed(VPU::compareTypes(loc, getLevels().getType(), expectedAuxBuffTypes[3]))) {
+        return errorAt(getOperation(), "Invalid levels auxiliary buffer");
+    }
     return mlir::success();
 }
 
-SmallVector<mlir::Type> VPU::ExperimentalDetectronROIFeatureExtractorOp::getBufferTypes() {
-    const auto shapeROI = getShape(getInputs()[0]);
-    const auto shapeFeature = getShape(getInputs()[1]);
-    const auto outputSize = getAttr().getOutputSize().getInt();
-
-    const auto reorderedRoisBuffSize = static_cast<int32_t>(4 * shapeROI[Dim(0)]);
-    const auto reorderedRoisType =
-            mlir::RankedTensorType::get(reorderedRoisBuffSize, mlir::Float32Type::get(getContext()));
-
-    const auto originalRoiMapBuffSize = static_cast<int32_t>(shapeROI[Dim(0)]);
-    const auto originalRoiMapType = mlir::RankedTensorType::get(originalRoiMapBuffSize, getUInt32Type(getContext()));
-
-    const auto outputRoisFeaturesTempBuffSize =
-            static_cast<int32_t>(shapeFeature[Dim(1)] * outputSize * outputSize * shapeROI[Dim(0)]);
-    const auto outputRoisFeaturesTempType =
-            mlir::RankedTensorType::get(outputRoisFeaturesTempBuffSize, mlir::Float32Type::get(getContext()));
-
-    const auto levelsBuffSize = static_cast<int32_t>(shapeROI[Dim(0)]);
-    const auto levelsType = mlir::RankedTensorType::get(levelsBuffSize, getUInt32Type(getContext()));
-
-    return {reorderedRoisType, originalRoiMapType, outputRoisFeaturesTempType, levelsType};
+SmallVector<mlir::Value> VPU::ExperimentalDetectronROIFeatureExtractorOp::getAuxiliaryBuffers() {
+    return {getReorderedRois(), getOriginalRoiMap(), getOutputRoisFeaturesTemp(), getLevels()};
 }

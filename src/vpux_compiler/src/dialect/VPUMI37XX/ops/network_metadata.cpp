@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/ELFNPU37XX/utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/ops.hpp"
+#include "vpux/compiler/dialect/VPURegMapped/types.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux_headers/serial_metadata.hpp"
 

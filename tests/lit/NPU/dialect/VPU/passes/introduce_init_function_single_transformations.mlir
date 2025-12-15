@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --introduce-init-function="ws-extraction-mode=gen-init" %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 {-#
     dialect_resources: {
@@ -668,7 +668,7 @@ module @AffineReshape {
 
     // CHECK:           func.func @init([[CST:%.+]]: tensor<1x1x3x3xf32>) -> tensor<1x1x3x3xf16, {order = #NCWH}>
     // CHECK-NEXT:          [[AFFINE:%.+]] = IE.AffineReshape([[CST]])
-    // CHECK-LITERAL:           {dim_mapping = [[0], [1], [3], [2]], shape_value = [1, 1, 3, 3]}
+    // CHECK{LITERAL}:           {dim_mapping = [[0], [1], [3], [2]], shape_value = [1, 1, 3, 3]}
     // CHECK-NEXT:          [[CVT:%.+]] = IE.Convert([[AFFINE]]) {dstElemType = f16}
     // CHECK-NEXT:          return [[CVT]]
 }

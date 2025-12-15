@@ -29,7 +29,7 @@
 #include "vpux/compiler/utils/error.hpp"
 
 #include <mlir/Dialect/Func/IR/FuncOps.h>
-#include <mlir/Dialect/Quant/QuantOps.h>
+#include <mlir/Dialect/Quant/IR/Quant.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/IR/TensorEncoding.h>
 

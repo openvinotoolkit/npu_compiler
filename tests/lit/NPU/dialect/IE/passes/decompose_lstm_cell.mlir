@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --decompose-lstm-cell %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @DecomposeLSTMCell
 func.func @DecomposeLSTMCell(%arg0: tensor<5x67xf16>, %arg1: tensor<5x64xf16>, %arg2: tensor<5x64xf16>, %arg3: tensor<256x67xf16>, %arg4: tensor<256x64xf16>, %arg5: tensor<256xf16>) -> (tensor<5x64xf16>, tensor<5x64xf16>) {

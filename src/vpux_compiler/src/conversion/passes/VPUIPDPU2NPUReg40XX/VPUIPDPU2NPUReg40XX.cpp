@@ -10,13 +10,13 @@
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUIPDPU2NPUReg40XX/dpu_invariant_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUIPDPU2NPUReg40XX/dpu_variant_rewriter.hpp"
+#include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/dry_run_utils.hpp"
 #include "vpux/compiler/dialect/VPUASM/utils.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/types.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/utils.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
-#include "vpux/compiler/utils/ELF/utils.hpp"
 
 #include <mlir/Transforms/DialectConversion.h>
 

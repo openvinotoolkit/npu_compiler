@@ -35,15 +35,17 @@ static llvm::cl::opt<ActionType> Action(llvm::cl::desc("Actions to perform"),
                                         llvm::cl::values(clEnumValN(Generate, "generate", "")),
                                         llvm::cl::init(Generate));
 
-static llvm::cl::opt<vpux::config::ArchKind> Platform(llvm::cl::desc("Specify the platform type"),
-                                                      llvm::cl::values(clEnumValN(vpux::config::ArchKind::NPU40XX,
-                                                                                  "NPU40XX", "LNL platform")
-                                                                       // clang-format off
+static llvm::cl::opt<vpux::config::ArchKind> Platform(
+        llvm::cl::desc("Specify the platform type"),
+        llvm::cl::values(clEnumValN(vpux::config::ArchKind::NPU40XX, "NPU40XX", "LNL platform")
+                         // clang-format off
+        , clEnumValN(vpux::config::ArchKind::NPU50XX, "NPU50XX", "PTL platform")
         ), llvm::cl::init(vpux::config::ArchKind::NPU40XX));
 // clang-format on
 
 static std::map<std::string, std::string> platformTypeMap{
         {"NPU40XX", "NPUReg40XX"},
+        {"NPU50XX", "NPUReg50XX"},
 };
 
 template <class... Args>

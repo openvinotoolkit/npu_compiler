@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-expand-to-conv %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -18,18 +18,18 @@ func.func @ConvertExpandToConv16Channels(%arg0: tensor<1x3x64x224xf16, {order = 
 
     return %EXPAND : tensor<1x16x64x224xf16, {order = #NHWC}>
 
-    // CHECK:   [[EXPAND_WEIGHTS:%.*]] = const.Declare tensor<256x48x1x1xf16, {order = #NHWC}> = dense<"0x
-    // CHECK-SAME:      003C00000000{{([0]{180})}}
-    // CHECK-SAME:      0000003C0000{{([0]{180})}}
-    // CHECK-SAME:      00000000003C{{([0]{180})}}
-    // CHECK-SAME:      000000000000{{([0]{180})}}
-
     // CHECK:   [[RESHAPE_INPUT:%.*]] = IE.AffineReshape(%arg0) {
     // CHECK-SAME:      dim_mapping = [
     // CHECK-SAME:          [0], [1], [2], [3]
     // CHECK-SAME:      ],
     // CHECK-SAME:      shape_value = [1, 48, 64, 14]
     // CHECK-SAME:  } : tensor<1x3x64x224xf16, {order = #NHWC}> -> tensor<1x48x64x14xf16, {order = #NHWC}>
+
+    // CHECK:   [[EXPAND_WEIGHTS:%.*]] = const.Declare tensor<256x48x1x1xf16, {order = #NHWC}> = dense<"0x
+    // CHECK-SAME:      003C00000000{{([0]{180})}}
+    // CHECK-SAME:      0000003C0000{{([0]{180})}}
+    // CHECK-SAME:      00000000003C{{([0]{180})}}
+    // CHECK-SAME:      000000000000{{([0]{180})}}
 
     // CHECK:   [[CONV:%.*]] = IE.Convolution([[RESHAPE_INPUT]], [[EXPAND_WEIGHTS]]) {
     // CHECK-SAME:      dilations = [1, 1],
@@ -64,6 +64,13 @@ func.func @ConvertExpandToConv4Channels(%arg0: tensor<1x3x64x224xf16, {order = #
 
     return %EXPAND : tensor<1x4x64x224xf16, {order = #NHWC}>
 
+    // CHECK:   [[RESHAPE_INPUT:%.*]] = IE.AffineReshape(%arg0) {
+    // CHECK-SAME:      dim_mapping = [
+    // CHECK-SAME:          [0], [1], [2], [3]
+    // CHECK-SAME:      ],
+    // CHECK-SAME:      shape_value = [1, 48, 64, 14]
+    // CHECK-SAME:  } : tensor<1x3x64x224xf16, {order = #NHWC}> -> tensor<1x48x64x14xf16, {order = #NHWC}>
+
     // CHECK:   [[EXPAND_WEIGHTS:%.*]] = const.Declare tensor<64x48x1x1xf16, {order = #NHWC}> = dense<"0x
     // CHECK-SAME:      003C00000000000000000000{{([0]{168})}}
     // CHECK-SAME:      0000003C0000000000000000{{([0]{168})}}
@@ -73,13 +80,6 @@ func.func @ConvertExpandToConv4Channels(%arg0: tensor<1x3x64x224xf16, {order = #
     // CHECK-SAME:      0000000000000000003C0000{{([0]{168})}}
     // CHECK-SAME:      00000000000000000000003C{{([0]{168})}}
     // CHECK-SAME:      000000000000000000000000{{([0]{168})}}
-
-    // CHECK:   [[RESHAPE_INPUT:%.*]] = IE.AffineReshape(%arg0) {
-    // CHECK-SAME:      dim_mapping = [
-    // CHECK-SAME:          [0], [1], [2], [3]
-    // CHECK-SAME:      ],
-    // CHECK-SAME:      shape_value = [1, 48, 64, 14]
-    // CHECK-SAME:  } : tensor<1x3x64x224xf16, {order = #NHWC}> -> tensor<1x48x64x14xf16, {order = #NHWC}>
 
     // CHECK:   [[CONV:%.*]] = IE.Convolution([[RESHAPE_INPUT]], [[EXPAND_WEIGHTS]]) {
     // CHECK-SAME:      dilations = [1, 1],
@@ -115,12 +115,6 @@ func.func @ConvertExpandToConv16ChannelsPadded(%arg0: tensor<1x3x64x220xf16, {or
 
     return %EXPAND : tensor<1x16x64x220xf16, {order = #NHWC}>
 
-    // CHECK:   [[EXPAND_WEIGHTS:%.+]] = const.Declare tensor<256x48x1x1xf16, {order = #NHWC}> = dense<"0x
-    // CHECK-SAME:      003C00000000{{([0]{180})}}
-    // CHECK-SAME:      0000003C0000{{([0]{180})}}
-    // CHECK-SAME:      00000000003C{{([0]{180})}}
-    // CHECK-SAME:      000000000000{{([0]{180})}}
-
     // CHECK:   [[LINEAR_RESHAPE_INPUT:%.+]] = IE.AffineReshape([[ARG0]]) {
     // CHECK-SAME:      dim_mapping = [
     // CHECK-SAME:          [0], [1], [2], [3]
@@ -139,6 +133,12 @@ func.func @ConvertExpandToConv16ChannelsPadded(%arg0: tensor<1x3x64x220xf16, {or
     // CHECK-SAME:      ],
     // CHECK-SAME:      shape_value = [1, 48, 64, 14]
     // CHECK-SAME:  } : tensor<1x1x43008x1xf16, {order = #NHWC}> -> tensor<1x48x64x14xf16, {order = #NHWC}>
+
+    // CHECK:   [[EXPAND_WEIGHTS:%.+]] = const.Declare tensor<256x48x1x1xf16, {order = #NHWC}> = dense<"0x
+    // CHECK-SAME:      003C00000000{{([0]{180})}}
+    // CHECK-SAME:      0000003C0000{{([0]{180})}}
+    // CHECK-SAME:      00000000003C{{([0]{180})}}
+    // CHECK-SAME:      000000000000{{([0]{180})}}
 
     // CHECK:   [[CONV:%.+]] = IE.Convolution([[RESHAPE_INPUT]], [[EXPAND_WEIGHTS]]) {
     // CHECK-SAME:      dilations = [1, 1],
@@ -183,16 +183,6 @@ func.func @ConvertExpandToConv4ChannelsPadded(%arg0: tensor<1x3x64x220xf16, {ord
 
     return %EXPAND : tensor<1x4x64x220xf16, {order = #NHWC}>
 
-    // CHECK:   [[EXPAND_WEIGHTS:%.*]] = const.Declare tensor<64x48x1x1xf16, {order = #NHWC}> = dense<"0x
-    // CHECK-SAME:      003C00000000000000000000{{([0]{168})}}
-    // CHECK-SAME:      0000003C0000000000000000{{([0]{168})}}
-    // CHECK-SAME:      00000000003C000000000000{{([0]{168})}}
-    // CHECK-SAME:      000000000000000000000000{{([0]{168})}}
-    // CHECK-SAME:      000000000000003C00000000{{([0]{168})}}
-    // CHECK-SAME:      0000000000000000003C0000{{([0]{168})}}
-    // CHECK-SAME:      00000000000000000000003C{{([0]{168})}}
-    // CHECK-SAME:      000000000000000000000000{{([0]{168})}}
-
     // CHECK:   [[LINEAR_RESHAPE_INPUT:%.+]] = IE.AffineReshape([[ARG0]]) {
     // CHECK-SAME:      dim_mapping = [
     // CHECK-SAME:          [0], [1], [2], [3]
@@ -211,6 +201,16 @@ func.func @ConvertExpandToConv4ChannelsPadded(%arg0: tensor<1x3x64x220xf16, {ord
     // CHECK-SAME:      ],
     // CHECK-SAME:      shape_value = [1, 48, 64, 14]
     // CHECK-SAME:  } : tensor<1x1x43008x1xf16, {order = #NHWC}> -> tensor<1x48x64x14xf16, {order = #NHWC}>
+
+    // CHECK:   [[EXPAND_WEIGHTS:%.*]] = const.Declare tensor<64x48x1x1xf16, {order = #NHWC}> = dense<"0x
+    // CHECK-SAME:      003C00000000000000000000{{([0]{168})}}
+    // CHECK-SAME:      0000003C0000000000000000{{([0]{168})}}
+    // CHECK-SAME:      00000000003C000000000000{{([0]{168})}}
+    // CHECK-SAME:      000000000000000000000000{{([0]{168})}}
+    // CHECK-SAME:      000000000000003C00000000{{([0]{168})}}
+    // CHECK-SAME:      0000000000000000003C0000{{([0]{168})}}
+    // CHECK-SAME:      00000000000000000000003C{{([0]{168})}}
+    // CHECK-SAME:      000000000000000000000000{{([0]{168})}}
 
     // CHECK:   [[CONV:%.+]] = IE.Convolution([[RESHAPE_INPUT]], [[EXPAND_WEIGHTS]]) {
     // CHECK-SAME:      dilations = [1, 1],
@@ -265,8 +265,6 @@ func.func @ConvertExpandAvgPoolToConv16ChannelsPadded(%arg0: tensor<1x3x513x513x
 
     return %AVGPOOL : tensor<1x16x513x513x!qElemType, {order = #NHWC}>
 
-    // CHECK:   [[EXPAND_WEIGHTS:%.+]] = const.Declare tensor<256x48x1x1xf16, {order = #NHWC}>
-
     // CHECK:   [[LINEAR_RESHAPE_INPUT:%.+]] = IE.AffineReshape([[ARG0]]) {
     // CHECK-SAME:      dim_mapping = [
     // CHECK-SAME:          [0], [1], [2], [3]
@@ -285,6 +283,8 @@ func.func @ConvertExpandAvgPoolToConv16ChannelsPadded(%arg0: tensor<1x3x513x513x
     // CHECK-SAME:      ],
     // CHECK-SAME:      shape_value = [1, 48, 513, 33]
     // CHECK-SAME:  } : tensor<1x1x812592x1xf16, {order = #NHWC}> -> tensor<1x48x513x33xf16, {order = #NHWC}>
+
+    // CHECK:   [[EXPAND_WEIGHTS:%.+]] = const.Declare tensor<256x48x1x1xf16, {order = #NHWC}>
 
     // CHECK:   [[CONV:%.+]] = IE.Convolution([[RESHAPE_INPUT]], [[EXPAND_WEIGHTS]]) {
     // CHECK-SAME:      dilations = [1, 1],
@@ -341,8 +341,6 @@ func.func @ConvertExpandAvgPoolToConv4ChannelsPadded(%arg0: tensor<1x3x513x513xf
 
     return %SLICE : tensor<1x3x513x513x!quant.uniform<u8:f16, 0.0078657811763239837:128>, {order = #NHWC}>
 
-    // CHECK:   [[EXPAND_WEIGHTS:%.+]] = const.Declare tensor<64x48x1x1xf16, {order = #NHWC}>
-
     // CHECK:   [[LINEAR_RESHAPE_INPUT:%.+]] = IE.AffineReshape([[ARG0]]) {
     // CHECK-SAME:      dim_mapping = [
     // CHECK-SAME:          [0], [1], [2], [3]
@@ -361,6 +359,8 @@ func.func @ConvertExpandAvgPoolToConv4ChannelsPadded(%arg0: tensor<1x3x513x513xf
     // CHECK-SAME:      ],
     // CHECK-SAME:      shape_value = [1, 48, 513, 33]
     // CHECK-SAME:  } : tensor<1x1x812592x1xf16, {order = #NHWC}> -> tensor<1x48x513x33xf16, {order = #NHWC}>
+
+    // CHECK:   [[EXPAND_WEIGHTS:%.+]] = const.Declare tensor<64x48x1x1xf16, {order = #NHWC}>
 
     // CHECK:   [[CONV:%.+]] = IE.Convolution([[RESHAPE_INPUT]], [[EXPAND_WEIGHTS]]) {
     // CHECK-SAME:      dilations = [1, 1],
@@ -419,8 +419,6 @@ func.func @ConvertExpandAvgPoolToConv4ChannelsPaddedAndFold(%arg0: tensor<1x3x51
 
     return %SLICE : tensor<1x4x513x513x!quant.uniform<u8:f16, 0.0078657811763239837:128>, {order = #NHWC}>
 
-    // CHECK:   [[EXPAND_WEIGHTS:%.+]] = const.Declare tensor<64x48x1x1xf16, {order = #NHWC}>
-
     // CHECK:   [[LINEAR_RESHAPE_INPUT:%.+]] = IE.AffineReshape([[ARG0]]) {
     // CHECK-SAME:      dim_mapping = [
     // CHECK-SAME:          [0], [1], [2], [3]
@@ -439,6 +437,8 @@ func.func @ConvertExpandAvgPoolToConv4ChannelsPaddedAndFold(%arg0: tensor<1x3x51
     // CHECK-SAME:      ],
     // CHECK-SAME:      shape_value = [1, 48, 513, 33]
     // CHECK-SAME:  } : tensor<1x1x812592x1xf16, {order = #NHWC}> -> tensor<1x48x513x33xf16, {order = #NHWC}>
+
+    // CHECK:   [[EXPAND_WEIGHTS:%.+]] = const.Declare tensor<64x48x1x1xf16, {order = #NHWC}>
 
     // CHECK:   [[CONV:%.+]] = IE.Convolution([[RESHAPE_INPUT]], [[EXPAND_WEIGHTS]]) {
     // CHECK-SAME:      dilations = [1, 1],
@@ -465,7 +465,10 @@ func.func @ConvertExpandAvgPoolToConv4ChannelsPaddedAndFold(%arg0: tensor<1x3x51
     // CHECK-SAME:      shape_value = [1, 4, 513, 513]
     // CHECK-SAME:  } : tensor<1x1x1052676x1x!qElemType, {order = #NHWC}> -> tensor<1x4x513x513x!qElemType, {order = #NHWC}>
 
-    // CHECK:   return [[RESHAPE_OUTPUT]] : tensor<1x4x513x513x!qElemType, {order = #NHWC}>
+    // CHECK:       [[IDENTITY_SLICE:%.+]] = IE.Slice [[RESHAPE_OUTPUT]]
+    // CHECK-SAME:  [0, 0, 0, 0] [1, 4, 513, 513] : tensor<1x4x513x513x!qElemType, {order = #NHWC}> to tensor<1x4x513x513x!qElemType, {order = #NHWC}>
+
+    // CHECK:   return [[IDENTITY_SLICE]] : tensor<1x4x513x513x!qElemType, {order = #NHWC}>
 }
 
 // -----
@@ -488,8 +491,6 @@ func.func @ConvertExpandQuantizeToConv4ChannelsPadded(%arg0: tensor<1x3x299x299x
     %QUANTCAST = IE.QuantizeCast(%SLICE) {dstElemType = !qElemType} : tensor<1x3x299x299x!qElemTypeAdd, {order = #NHWC}> -> tensor<1x3x299x299x!qElemType, {order = #NHWC}>
     return %QUANTCAST : tensor<1x3x299x299x!qElemType, {order = #NHWC}>
 
-    // CHECK:   [[EXPAND_WEIGHTS:%.+]] = const.Declare tensor<48x48x1x1xf16, {order = #NHWC}>
-
     // CHECK:   [[LINEAR_RESHAPE_INPUT:%.+]] = IE.AffineReshape([[ARG0]]) {
     // CHECK-SAME:      dim_mapping = [
     // CHECK-SAME:          [0], [1], [2], [3]
@@ -508,6 +509,8 @@ func.func @ConvertExpandQuantizeToConv4ChannelsPadded(%arg0: tensor<1x3x299x299x
     // CHECK-SAME:      ],
     // CHECK-SAME:      shape_value = [1, 48, 299, 19]
     // CHECK-SAME:  } : tensor<1x1x272688x1xf16, {order = #NHWC}> -> tensor<1x48x299x19xf16, {order = #NHWC}>
+
+    // CHECK:   [[EXPAND_WEIGHTS:%.+]] = const.Declare tensor<48x48x1x1xf16, {order = #NHWC}>
 
     // CHECK:   [[CONV:%.+]] = IE.Convolution([[RESHAPE_INPUT]], [[EXPAND_WEIGHTS]]) {
     // CHECK-SAME:      dilations = [1, 1],
@@ -558,7 +561,6 @@ func.func @ConvertExpandQuantize9OutChannelsPadded(%arg0: tensor<1x3x299x299xf16
     %QUANTCAST = IE.QuantizeCast(%SLICE) {dstElemType = !qElemType} : tensor<1x9x299x299x!qElemTypeAdd, {order = #NHWC}> -> tensor<1x9x299x299x!qElemType, {order = #NHWC}>
     return %QUANTCAST : tensor<1x9x299x299x!qElemType, {order = #NHWC}>
 
-    // CHECK:   [[EXPAND_WEIGHTS:%.+]] = const.Declare tensor<144x48x1x1xf16, {order = #NHWC}>
 
     // CHECK:   [[LINEAR_RESHAPE_INPUT:%.+]] = IE.AffineReshape([[ARG0]]) {
     // CHECK-SAME:      dim_mapping = [
@@ -578,6 +580,8 @@ func.func @ConvertExpandQuantize9OutChannelsPadded(%arg0: tensor<1x3x299x299xf16
     // CHECK-SAME:      ],
     // CHECK-SAME:      shape_value = [1, 48, 299, 19]
     // CHECK-SAME:  } : tensor<1x1x272688x1xf16, {order = #NHWC}> -> tensor<1x48x299x19xf16, {order = #NHWC}>
+
+    // CHECK:   [[EXPAND_WEIGHTS:%.+]] = const.Declare tensor<144x48x1x1xf16, {order = #NHWC}>
 
     // CHECK:   [[CONV:%.+]] = IE.Convolution([[RESHAPE_INPUT]], [[EXPAND_WEIGHTS]]) {
     // CHECK-SAME:      dilations = [1, 1],
@@ -629,7 +633,6 @@ func.func @ConvertExpandQuantizeSlicePadded(%arg0: tensor<1x3x299x299xf16, {orde
     %SLICE2 = IE.Slice %QUANTCAST [0, 0, 0, 0] [1, 3, 299, 299] : tensor<1x9x299x299x!qElemType, {order = #NHWC}> to tensor<1x3x299x299x!qElemType, {order = #NHWC}>
     return %SLICE2 : tensor<1x3x299x299x!qElemType, {order = #NHWC}>
 
-    // CHECK:   [[EXPAND_WEIGHTS:%.+]] = const.Declare tensor<64x48x1x1xf16, {order = #NHWC}>
 
     // CHECK:   [[LINEAR_RESHAPE_INPUT:%.+]] = IE.AffineReshape([[ARG0]]) {
     // CHECK-SAME:      dim_mapping = [
@@ -649,6 +652,8 @@ func.func @ConvertExpandQuantizeSlicePadded(%arg0: tensor<1x3x299x299xf16, {orde
     // CHECK-SAME:      ],
     // CHECK-SAME:      shape_value = [1, 48, 299, 19]
     // CHECK-SAME:  } : tensor<1x1x272688x1xf16, {order = #NHWC}> -> tensor<1x48x299x19xf16, {order = #NHWC}>
+
+    // CHECK:   [[EXPAND_WEIGHTS:%.+]] = const.Declare tensor<64x48x1x1xf16, {order = #NHWC}>
 
     // CHECK:   [[CONV:%.+]] = IE.Convolution([[RESHAPE_INPUT]], [[EXPAND_WEIGHTS]]) {
     // CHECK-SAME:      dilations = [1, 1],
@@ -702,8 +707,6 @@ func.func @ConvertExpandSkipSliceQuantizeOnHWPadded(%arg0: tensor<1x3x299x299xf1
     %QUANTCAST = IE.QuantizeCast(%SLICE) {dstElemType = !qElemType} : tensor<1x9x200x200x!qElemTypeAdd, {order = #NHWC}> -> tensor<1x9x200x200x!qElemType, {order = #NHWC}>
     return %QUANTCAST : tensor<1x9x200x200x!qElemType, {order = #NHWC}>
 
-    // CHECK:   [[EXPAND_WEIGHTS:%.+]] = const.Declare tensor<256x48x1x1xf16, {order = #NHWC}>
-
     // CHECK:   [[LINEAR_RESHAPE_INPUT:%.+]] = IE.AffineReshape([[ARG0]]) {
     // CHECK-SAME:      dim_mapping = [
     // CHECK-SAME:          [0], [1], [2], [3]
@@ -722,6 +725,8 @@ func.func @ConvertExpandSkipSliceQuantizeOnHWPadded(%arg0: tensor<1x3x299x299xf1
     // CHECK-SAME:      ],
     // CHECK-SAME:      shape_value = [1, 48, 299, 19]
     // CHECK-SAME:  } : tensor<1x1x272688x1xf16, {order = #NHWC}> -> tensor<1x48x299x19xf16, {order = #NHWC}>
+
+    // CHECK:   [[EXPAND_WEIGHTS:%.+]] = const.Declare tensor<256x48x1x1xf16, {order = #NHWC}>
 
     // CHECK:   [[CONV:%.+]] = IE.Convolution([[RESHAPE_INPUT]], [[EXPAND_WEIGHTS]]) {
     // CHECK-SAME:      dilations = [1, 1],
@@ -777,7 +782,6 @@ func.func @ConvertExpandQuantizeNoSlicePadded(%arg0: tensor<1x3x299x299xf16, {or
     %QUANTCAST = IE.QuantizeCast(%ADD) {dstElemType = !qElemType} : tensor<1x16x299x299x!qElemTypeAdd, {order = #NHWC}> -> tensor<1x16x299x299x!qElemType, {order = #NHWC}>
     return %QUANTCAST : tensor<1x16x299x299x!qElemType, {order = #NHWC}>
 
-    // CHECK:   [[EXPAND_WEIGHTS:%.+]] = const.Declare tensor<256x48x1x1xf16, {order = #NHWC}>
 
     // CHECK:   [[LINEAR_RESHAPE_INPUT:%.+]] = IE.AffineReshape([[ARG0]]) {
     // CHECK-SAME:      dim_mapping = [
@@ -797,6 +801,8 @@ func.func @ConvertExpandQuantizeNoSlicePadded(%arg0: tensor<1x3x299x299xf16, {or
     // CHECK-SAME:      ],
     // CHECK-SAME:      shape_value = [1, 48, 299, 19]
     // CHECK-SAME:  } : tensor<1x1x272688x1xf16, {order = #NHWC}> -> tensor<1x48x299x19xf16, {order = #NHWC}>
+
+    // CHECK:   [[EXPAND_WEIGHTS:%.+]] = const.Declare tensor<256x48x1x1xf16, {order = #NHWC}>
 
     // CHECK:   [[CONV:%.+]] = IE.Convolution([[RESHAPE_INPUT]], [[EXPAND_WEIGHTS]]) {
     // CHECK-SAME:      dilations = [1, 1],
@@ -973,12 +979,6 @@ func.func @ConvertQuantizedExpand(%arg0: tensor<1x3x64x224x!qElemType, {order = 
 
     // CHECK-NOT:   IE.Expand
 
-    // CHECK:   [[EXPAND_WEIGHTS:%.*]] = const.Declare tensor<256x48x1x1x[[Q_WEIGHTS]], {order = #NHWC}> = dense<"0x
-    // CHECK-SAME:      003C00000000{{([0]{180})}}
-    // CHECK-SAME:      0000003C0000{{([0]{180})}}
-    // CHECK-SAME:      00000000003C{{([0]{180})}}
-    // CHECK-SAME:      000000000000{{([0]{180})}}
-
     // CHECK:   [[RESHAPE_INPUT:%.*]] = IE.AffineReshape(%arg0) {
     // CHECK-SAME:      dim_mapping = [
     // CHECK-SAME:          [0], [1], [2], [3]
@@ -986,6 +986,12 @@ func.func @ConvertQuantizedExpand(%arg0: tensor<1x3x64x224x!qElemType, {order = 
     // CHECK-SAME:      shape_value = [1, 48, 64, 14]
     // CHECK-SAME:  } : tensor<1x3x64x224x[[Q_ACT]], {order = #NHWC}>
     // CHECK-SAME:      -> tensor<1x48x64x14x[[Q_ACT]], {order = #NHWC}>
+
+    // CHECK:   [[EXPAND_WEIGHTS:%.*]] = const.Declare tensor<256x48x1x1x[[Q_WEIGHTS]], {order = #NHWC}> = dense<"0x
+    // CHECK-SAME:      003C00000000{{([0]{180})}}
+    // CHECK-SAME:      0000003C0000{{([0]{180})}}
+    // CHECK-SAME:      00000000003C{{([0]{180})}}
+    // CHECK-SAME:      000000000000{{([0]{180})}}
 
     // CHECK:   [[CONV:%.*]] = IE.Convolution([[RESHAPE_INPUT]], [[EXPAND_WEIGHTS]]) {
     // CHECK-SAME:      dilations = [1, 1],
@@ -1022,7 +1028,6 @@ func.func @ConvertLargeExpand(%arg0: tensor<1x3x512x896xf16, {order = #NHWC}>)
     return %EXPAND : tensor<1x16x512x896xf16, {order = #NHWC}>
 
     // CHECK-NOT:   IE.Expand
-    // CHECK:   [[EXPAND_WEIGHTS:%.*]] = const.Declare tensor<256x48x1x1xf16, {order = #NHWC}>
     // CHECK:   [[RESHAPE_INPUT:%.*]] = IE.AffineReshape(%arg0) {
     // CHECK-SAME:      dim_mapping = [
     // CHECK-SAME:          [0], [1], [2], [3]
@@ -1030,6 +1035,7 @@ func.func @ConvertLargeExpand(%arg0: tensor<1x3x512x896xf16, {order = #NHWC}>)
     // CHECK-SAME:      shape_value = [1, 48, 512, 56]
     // CHECK-SAME:  } : tensor<1x3x512x896xf16, {order = #NHWC}>
     // CHECK-SAME:      -> tensor<1x48x512x56xf16, {order = #NHWC}>
+    // CHECK:   [[EXPAND_WEIGHTS:%.*]] = const.Declare tensor<256x48x1x1xf16, {order = #NHWC}>
 
     // CHECK:   [[CONV:%.*]] = IE.Convolution([[RESHAPE_INPUT]], [[EXPAND_WEIGHTS]]) {
     // CHECK-SAME:      dilations = [1, 1],
@@ -1088,8 +1094,6 @@ func.func @FuseQuantizeProducer(%arg0: tensor<1x1x19x80xf16, {order = #NHWC}>)
 
     return %EXPAND : tensor<1x4x19x80x!qElemType1, {order = #NHWC}>
 
-    // CHECK:   [[EXPAND_WEIGHTS:%.*]] = const.Declare tensor<64x16x1x1xf16, {order = #NHWC}>
-
     // CHECK:   [[RESHAPE_INPUT:%.*]] = IE.AffineReshape(%arg0) {
     // CHECK-SAME:      dim_mapping = [
     // CHECK-SAME:          [0], [1], [2], [3]
@@ -1097,6 +1101,7 @@ func.func @FuseQuantizeProducer(%arg0: tensor<1x1x19x80xf16, {order = #NHWC}>)
     // CHECK-SAME:      shape_value = [1, 16, 19, 5]
     // CHECK-SAME:  } : tensor<1x1x19x80xf16, {order = #NHWC}>
     // CHECK-SAME:      -> tensor<1x16x19x5xf16, {order = #NHWC}>
+    // CHECK:   [[EXPAND_WEIGHTS:%.*]] = const.Declare tensor<64x16x1x1xf16, {order = #NHWC}>
 
     // CHECK:   [[CONV:%.*]] = IE.Convolution([[RESHAPE_INPUT]], [[EXPAND_WEIGHTS]]) {
     // CHECK-SAME:      dilations = [1, 1],
@@ -1114,8 +1119,9 @@ func.func @FuseQuantizeProducer(%arg0: tensor<1x1x19x80xf16, {order = #NHWC}>)
     // CHECK-SAME:      shape_value = [1, 4, 19, 80]
     // CHECK-SAME:  } : tensor<1x64x19x5x[[Q_TYPE]], {order = #NHWC}>
     // CHECK-SAME:      -> tensor<1x4x19x80x[[Q_TYPE]], {order = #NHWC}>
+    // CHECK:   [[IDENTITY_QCAST:%.+]] = IE.QuantizeCast([[RESHAPE_OUTPUT]]) {dstElemType = [[Q_TYPE]]} : tensor<1x4x19x80x[[Q_TYPE]], {order = #NHWC}> -> tensor<1x4x19x80x[[Q_TYPE]], {order = #NHWC}>
 
-    // CHECK:   return [[RESHAPE_OUTPUT]] : tensor<1x4x19x80x[[Q_TYPE]], {order = #NHWC}>
+    // CHECK:   return [[IDENTITY_QCAST]] : tensor<1x4x19x80x[[Q_TYPE]], {order = #NHWC}>
 }
 
 // -----
@@ -1147,8 +1153,6 @@ func.func @FuseQuantizeWithoutShapeCast(%arg0: tensor<1x1x19x80xf16, {order = #N
 
     return %EXPAND : tensor<1x4x19x80x!qElemType1, {order = #NHWC}>
 
-    // CHECK:   [[EXPAND_WEIGHTS:%.*]] = const.Declare tensor<64x16x1x1xf16, {order = #NHWC}>
-
     // CHECK:   [[RESHAPE_INPUT:%.*]] = IE.AffineReshape(%arg0) {
     // CHECK-SAME:      dim_mapping = [
     // CHECK-SAME:          [0], [1], [2], [3]
@@ -1156,6 +1160,7 @@ func.func @FuseQuantizeWithoutShapeCast(%arg0: tensor<1x1x19x80xf16, {order = #N
     // CHECK-SAME:      shape_value = [1, 16, 19, 5]
     // CHECK-SAME:  } : tensor<1x1x19x80xf16, {order = #NHWC}>
     // CHECK-SAME:      -> tensor<1x16x19x5xf16, {order = #NHWC}>
+    // CHECK:   [[EXPAND_WEIGHTS:%.*]] = const.Declare tensor<64x16x1x1xf16, {order = #NHWC}>
 
     // CHECK:   [[CONV:%.*]] = IE.Convolution([[RESHAPE_INPUT]], [[EXPAND_WEIGHTS]]) {
     // CHECK-SAME:      dilations = [1, 1],
@@ -1174,7 +1179,10 @@ func.func @FuseQuantizeWithoutShapeCast(%arg0: tensor<1x1x19x80xf16, {order = #N
     // CHECK-SAME:  } : tensor<1x64x19x5x[[Q_ACT_TYPE]], {order = #NHWC}>
     // CHECK-SAME:      -> tensor<1x4x19x80x[[Q_ACT_TYPE]], {order = #NHWC}>
 
-    // CHECK:   return [[RESHAPE_OUTPUT]] : tensor<1x4x19x80x[[Q_ACT_TYPE]], {order = #NHWC}>
+    // CHECK:   [[IDENTITY_QCAST:%.+]] = IE.QuantizeCast([[RESHAPE_OUTPUT]]) {dstElemType = [[Q_TYPE]]} : tensor<1x4x19x80x[[Q_TYPE]], {order = #NHWC}> -> tensor<1x4x19x80x[[Q_TYPE]], {order = #NHWC}>
+
+
+    // CHECK:   return [[IDENTITY_QCAST]] : tensor<1x4x19x80x[[Q_ACT_TYPE]], {order = #NHWC}>
 }
 
 
@@ -1200,8 +1208,6 @@ func.func @FuseQuantizeWithAvgPool(%arg0: tensor<1x1x19x80xf16, {order = #NHWC}>
 
     return %EXPAND : tensor<1x4x19x80x!qElemType, {order = #NHWC}>
 
-    // CHECK:   [[EXPAND_WEIGHTS:%.*]] = const.Declare tensor<64x16x1x1xf16, {order = #NHWC}>
-
     // CHECK:   [[RESHAPE_INPUT:%.*]] = IE.AffineReshape(%arg0) {
     // CHECK-SAME:      dim_mapping = [
     // CHECK-SAME:          [0], [1], [2], [3]
@@ -1209,6 +1215,7 @@ func.func @FuseQuantizeWithAvgPool(%arg0: tensor<1x1x19x80xf16, {order = #NHWC}>
     // CHECK-SAME:      shape_value = [1, 16, 19, 5]
     // CHECK-SAME:  } : tensor<1x1x19x80xf16, {order = #NHWC}>
     // CHECK-SAME:      -> tensor<1x16x19x5xf16, {order = #NHWC}>
+    // CHECK:   [[EXPAND_WEIGHTS:%.*]] = const.Declare tensor<64x16x1x1xf16, {order = #NHWC}>
 
     // CHECK:   [[CONV:%.*]] = IE.Convolution([[RESHAPE_INPUT]], [[EXPAND_WEIGHTS]]) {
     // CHECK-SAME:      dilations = [1, 1],
@@ -1262,8 +1269,6 @@ func.func @FuseQuantizeWithShapeCastAvgPool(%arg0: tensor<1x1x19x80xf16, {order 
 
     return %EXPAND : tensor<1x4x19x80x!qElemType, {order = #NHWC}>
 
-    // CHECK:   [[EXPAND_WEIGHTS:%.*]] = const.Declare tensor<64x16x1x1xf16, {order = #NHWC}>
-
     // CHECK:   [[RESHAPE_INPUT:%.*]] = IE.AffineReshape(%arg0) {
     // CHECK-SAME:      dim_mapping = [
     // CHECK-SAME:          [0], [1], [2], [3]
@@ -1271,6 +1276,8 @@ func.func @FuseQuantizeWithShapeCastAvgPool(%arg0: tensor<1x1x19x80xf16, {order 
     // CHECK-SAME:      shape_value = [1, 16, 19, 5]
     // CHECK-SAME:  } : tensor<1x1x19x80xf16, {order = #NHWC}>
     // CHECK-SAME:      -> tensor<1x16x19x5xf16, {order = #NHWC}>
+    // CHECK:   [[EXPAND_WEIGHTS:%.*]] = const.Declare tensor<64x16x1x1xf16, {order = #NHWC}>
+
 
     // CHECK:   [[CONV:%.*]] = IE.Convolution([[RESHAPE_INPUT]], [[EXPAND_WEIGHTS]]) {
     // CHECK-SAME:      dilations = [1, 1],
@@ -1322,8 +1329,6 @@ func.func @FuseQuantizeWithShapeCastAvgPoolDifferentShapes(%arg0: tensor<1x1x19x
 
     return %EXPAND : tensor<1x4x19x80x!qElemType, {order = #NHWC}>
 
-    // CHECK:   [[EXPAND_WEIGHTS:%.*]] = const.Declare tensor<32x16x1x1xf16, {order = #NHWC}>
-
     // CHECK:   [[RESHAPE_INPUT:%.*]] = IE.AffineReshape(%arg0) {
     // CHECK-SAME:      dim_mapping = [
     // CHECK-SAME:          [0], [1], [2], [3]
@@ -1331,6 +1336,7 @@ func.func @FuseQuantizeWithShapeCastAvgPoolDifferentShapes(%arg0: tensor<1x1x19x
     // CHECK-SAME:      shape_value = [1, 16, 19, 10]
     // CHECK-SAME:  } : tensor<1x1x19x160xf16, {order = #NHWC}>
     // CHECK-SAME:      -> tensor<1x16x19x10xf16, {order = #NHWC}>
+    // CHECK:   [[EXPAND_WEIGHTS:%.*]] = const.Declare tensor<32x16x1x1xf16, {order = #NHWC}>
 
     // CHECK:   [[CONV:%.*]] = IE.Convolution([[RESHAPE_INPUT]], [[EXPAND_WEIGHTS]]) {
     // CHECK-SAME:      dilations = [1, 1],
@@ -1420,7 +1426,6 @@ func.func @ConvertExpandToConvWithNon16MultipleWidth(%arg0: tensor<1x1x32x79741x
 
     return %CONV : tensor<1x80x32x15949xf16, {order = #NHWC}>
 
-    // CHECK:   [[EXPAND_WEIGHTS:%.+]] = const.Declare tensor<256x16x1x1xf16, {order = #NHWC}>
     // CHECK:   [[CST:%.+]] = const.Declare tensor<80x16x1x1xf16, {order = #NHWC}>
 
     // CHECK:   [[EXPAND:%.+]] = IE.Expand([[INPUT]]) {
@@ -1436,6 +1441,7 @@ func.func @ConvertExpandToConvWithNon16MultipleWidth(%arg0: tensor<1x1x32x79741x
     // CHECK-SAME:      shape_value = [1, 16, 32, 4984]
     // CHECK-SAME:  } : tensor<1x1x32x79744xf16, {order = #NHWC}> -> tensor<1x16x32x4984xf16, {order = #NHWC}>
 
+    // CHECK:   [[EXPAND_WEIGHTS:%.+]] = const.Declare tensor<256x16x1x1xf16, {order = #NHWC}>
     // CHECK:   [[CONV0:%.+]] = IE.Convolution([[RESHAPE_INPUT]], [[EXPAND_WEIGHTS]]) {
     // CHECK-SAME:      dilations = [1, 1],
     // CHECK-SAME:      pads_begin = [0, 0],
@@ -1479,9 +1485,9 @@ func.func @ConvertExpandToConvWithInputH2CReshapeWithN2(%arg0: tensor<2x7x262144
 
     return %EXPAND : tensor<2x16x262144x1xf16, {order = #NHWC}>
 
-    // CHECK-DAG: [[EXPAND_WEIGHTS:%.+]] = const.Declare tensor<256x112x1x1xf16, {order = #NHWC}>
     // CHECK:     [[RESHAPE_INPUT:%.+]] = IE.AffineReshape([[INPUT]])
     // CHECK-SAME(LITERAL):     {dim_mapping = [[0], [1], [2], [3]], shape_value = [1, 112, 32768, 1]} : tensor<2x7x262144x1xf16, {order = #NHWC}> -> tensor<1x112x32768x1xf16, {order = #NHWC}>
+    // CHECK: [[EXPAND_WEIGHTS:%.+]] = const.Declare tensor<256x112x1x1xf16, {order = #NHWC}>
 
     // CHECK:     [[CONV:%.+]] = IE.Convolution([[RESHAPE_INPUT]], [[EXPAND_WEIGHTS]]) {
     // CHECK-SAME:      dilations = [1, 1],
@@ -1513,10 +1519,10 @@ func.func @ConvertExpandToConvWithInputH2CReshape(%arg0: tensor<1x7x262144x1xf16
 
     return %EXPAND : tensor<1x16x262144x1xf16, {order = #NHWC}>
 
-    // CHECK:   [[EXPAND_WEIGHTS:%.+]] = const.Declare tensor<256x112x1x1xf16, {order = #NHWC}>
     // CHECK:   [[RESHAPE_INPUT:%.+]] = IE.AffineReshape([[INPUT]])
     // CHECK-SAME(LITERAL):     {dim_mapping = [[0], [1], [2], [3]], shape_value = [1, 112, 16384, 1]} : tensor<1x7x262144x1xf16, {order = #NHWC}> -> tensor<1x112x16384x1xf16, {order = #NHWC}>
 
+    // CHECK:   [[EXPAND_WEIGHTS:%.+]] = const.Declare tensor<256x112x1x1xf16, {order = #NHWC}>
     // CHECK:   [[CONV:%.+]] = IE.Convolution([[RESHAPE_INPUT]], [[EXPAND_WEIGHTS]]) {
     // CHECK-SAME:      dilations = [1, 1],
     // CHECK-SAME:      pads_begin = [0, 0],

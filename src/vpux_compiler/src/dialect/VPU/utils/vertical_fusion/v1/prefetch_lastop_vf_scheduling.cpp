@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/prefetch_lastop_vf_scheduling.hpp"
-#include "vpux/compiler/utils/VPU/tile_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 
 namespace vpux::VPU::VF::v1 {
 PrefetchingLastOpVFScheduling::PrefetchingLastOpVFScheduling(Logger log, bool prefetching)

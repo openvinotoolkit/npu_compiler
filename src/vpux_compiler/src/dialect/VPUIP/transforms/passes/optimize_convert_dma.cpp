@@ -188,7 +188,7 @@ private:
 };
 
 mlir::LogicalResult CopyConvertDMA::matchAndRewrite(VPUIP::CopyOp copy, mlir::PatternRewriter& rewriter) const {
-    _log.trace("[{0}] Copy at {0}", getDebugName(), copy->getLoc());
+    _log.trace("[{0}] Copy at {1}", getDebugName(), copy->getLoc());
     auto nestedLogger = _log.nest();
 
     auto copyOp = getCopyOp(copy);
@@ -374,7 +374,7 @@ void OptimizeConvertDMAPass::safeRunOnFunc() {
     patterns.add<ConvertDMAViewLikeCopy>(&ctx, _log);
     patterns.add<CopyConvertDMA>(&ctx, _log);
     patterns.add<ConvertDMASubViewCopy>(&ctx, _log);
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

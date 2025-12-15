@@ -21,7 +21,7 @@
 #include "vpux/compiler/utils/attributes.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 
 #include <vpu/layer.h>
 #include <vpu_layer_strategy.h>
@@ -166,6 +166,8 @@ VPUNN::VPUDevice vpux::VPU::getVPUDeviceType(config::ArchKind archKind) {
         return VPUNN::VPUDevice::VPU_2_7;
     case config::ArchKind::NPU40XX:
         return VPUNN::VPUDevice::VPU_4_0;
+    case config::ArchKind::NPU50XX:
+        return VPUNN::VPUDevice::NPU_5_0;
     default:
         VPUX_THROW("Unsupported VPU arch type: '{0}'", archKind);
     }

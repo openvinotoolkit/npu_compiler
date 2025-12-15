@@ -12,8 +12,9 @@
 #include "vpux/utils/core/func_ref.hpp"
 
 #include <llvm/ADT/Hashing.h>
-#include <mlir/Dialect/Quant/QuantOps.h>
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/Quant.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
+
 #include <mlir/IR/Attributes.h>
 #include <mlir/Parser/Parser.h>
 
@@ -79,7 +80,7 @@ static void BM_StableHash_F32(benchmark::State& state) {
 
 static void BM_StableHash_QuantPerAxis_StringSerialization(benchmark::State& state) {
     mlir::MLIRContext ctx;
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
     auto type = getSomeQuantPerAxisType(&ctx);
 
     for (auto _ : state) {
@@ -91,7 +92,7 @@ static void BM_StableHash_QuantPerAxis_StringSerialization(benchmark::State& sta
 
 static void BM_StableHash_QuantPerAxis(benchmark::State& state) {
     mlir::MLIRContext ctx;
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
     auto type = getSomeQuantPerAxisType(&ctx);
 
     for (auto _ : state) {
@@ -103,7 +104,7 @@ static void BM_StableHash_QuantPerAxis(benchmark::State& state) {
 
 static void BM_StableHash_QuantilePerAxis_StringSerialization(benchmark::State& state) {
     mlir::MLIRContext ctx;
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
     auto type = getSomeQuantilePerAxisType(&ctx);
 
     for (auto _ : state) {
@@ -115,7 +116,7 @@ static void BM_StableHash_QuantilePerAxis_StringSerialization(benchmark::State& 
 
 static void BM_StableHash_QuantilePerAxis(benchmark::State& state) {
     mlir::MLIRContext ctx;
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
     auto type = getSomeQuantilePerAxisType(&ctx);
 
     for (auto _ : state) {
@@ -149,7 +150,7 @@ using CreateAttrFunc = vpux::FuncRef<vpux::Const::TransformAttrInterface(mlir::M
 static void BM_StableHash_IndividualAttr(benchmark::State& state, CreateAttrFunc create) {
     mlir::MLIRContext ctx;
     ctx.loadDialect<vpux::Const::ConstDialect>();
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
     const auto attr = create(&ctx);
 
     for (auto _ : state) {

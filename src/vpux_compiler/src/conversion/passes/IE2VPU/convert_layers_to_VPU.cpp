@@ -147,7 +147,7 @@ mlir::LogicalResult ProposalRewrite::matchAndRewrite(IE::ProposalOp origOp, mlir
     _log.trace("Found Proposal Operation '{0}'", origOp->getLoc());
 
     rewriter.replaceOpWithNewOp<VPU::ProposalOp>(origOp, origOp.getClassProbs(), origOp.getBboxDeltas(),
-                                                 origOp.getImageShape(), nullptr, origOp.getProposalAttrsAttr());
+                                                 origOp.getImageShape(), origOp.getProposalAttrsAttr());
     _log.trace("Replaced with 'VPU.ProposalOp'");
 
     return mlir::success();
@@ -183,8 +183,8 @@ mlir::LogicalResult NonMaxSuppressionRewrite::matchAndRewrite(IE::NonMaxSuppress
     _log.trace("Found NonMaxSuppression Operation '{0}'", origOp->getLoc());
 
     rewriter.replaceOpWithNewOp<VPU::NonMaxSuppressionOp>(
-            origOp, origOp.getInBoxCoords(), origOp.getInBoxScores(), nullptr, origOp.getBoxEncoding(),
-            origOp.getSortResultDescending(), origOp.getMaxOutputBoxesPerClassValueAttr(),
+            origOp, origOp.getInBoxCoords(), origOp.getInBoxScores(), origOp.getBoxEncodingAttr(),
+            origOp.getSortResultDescendingAttr(), origOp.getMaxOutputBoxesPerClassValueAttr(),
             origOp.getIouThresholdValueAttr(), origOp.getScoreThresholdValueAttr(), origOp.getSoftNmsSigmaValueAttr());
 
     _log.trace("Replaced with 'VPU.NonMaxSuppressionOp'");
@@ -200,8 +200,8 @@ mlir::LogicalResult ExperimentalDetectronROIFeatureExtractorRewrite::matchAndRew
         IE::ExperimentalDetectronROIFeatureExtractorOp origOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("Found ExperimentalDetectronROIFeatureExtractor Operation '{0}'", origOp->getLoc());
 
-    rewriter.replaceOpWithNewOp<VPU::ExperimentalDetectronROIFeatureExtractorOp>(
-            origOp, origOp.getInputs(), nullptr, nullptr, nullptr, nullptr, origOp.getAttrAttr());
+    rewriter.replaceOpWithNewOp<VPU::ExperimentalDetectronROIFeatureExtractorOp>(origOp, origOp.getInputs(),
+                                                                                 origOp.getAttrAttr());
 
     _log.trace("Replaced with 'VPU.ExperimentalDetectronROIFeatureExtractorOp'");
 
@@ -288,9 +288,32 @@ mlir::LogicalResult InterpolateRewrite::matchAndRewrite(IE::InterpolateOp origOp
 mlir::LogicalResult TopKRewrite::matchAndRewrite(IE::TopKOp origOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("Found TopK Operation '{0}'", origOp->getLoc());
 
-    rewriter.replaceOpWithNewOp<VPU::TopKOp>(origOp, origOp.getInput(), origOp.getK(), nullptr, origOp.getKValueAttr(),
-                                             origOp.getAxis(), origOp.getMode(), origOp.getSort(),
-                                             origOp.getElementType(), /*multiClusterStrategy=*/nullptr);
+    rewriter.replaceOpWithNewOp<VPU::TopKOp>(origOp, origOp.getInput(), origOp.getK(), origOp.getKValueAttr(),
+                                             origOp.getAxisAttr(), origOp.getModeAttr(), origOp.getSortAttr(),
+                                             origOp.getElementTypeAttr(), /*multiClusterStrategy=*/nullptr);
+
+    return mlir::success();
+}
+
+//
+// MaxPool8Rewrite
+//
+
+mlir::LogicalResult MaxPool8Rewrite::matchAndRewrite(IE::MaxPool8Op origOp, mlir::PatternRewriter& rewriter) const {
+    _log.trace("Found MaxPool8 Operation '{0}'", origOp->getLoc());
+
+    auto* ctx = origOp->getContext();
+    auto iShape = getShape(origOp.getInput());
+    auto oShape = getShape(origOp.getOutput());
+    auto initialInputDimsAttr = getIntArrayAttr(ctx, SmallVector<int64_t>(iShape.begin(), iShape.end()));
+    auto initialOutputDimsAttr = getIntArrayAttr(ctx, SmallVector<int64_t>(oShape.begin(), oShape.end()));
+
+    rewriter.replaceOpWithNewOp<VPU::MaxPool8Op>(
+            origOp, origOp.getInput(), origOp.getKernelSizeAttr(), origOp.getStridesAttr(), origOp.getDilationsAttr(),
+            origOp.getPadsBeginAttr(), origOp.getPadsEndAttr(), origOp.getRoundingTypeAttr(),
+            origOp.getIndexElementTypeAttr(), origOp.getAxisAttr(), initialInputDimsAttr, initialOutputDimsAttr,
+            /*initial_input_offset_attr=*/nullptr, /*initial_output_offset_attr=*/nullptr,
+            /*multiClusterStrategy=*/nullptr);
 
     return mlir::success();
 }
@@ -322,15 +345,8 @@ mlir::LogicalResult NormalizeL2Rewrite::matchAndRewrite(IE::NormalizeL2Op origOp
                                                         mlir::PatternRewriter& rewriter) const {
     _log.trace("Found NormalizeL2 Operation '{0}'", origOp->getLoc());
 
-    const float minEpsilonForFP16 = 0.000000001f;
-    auto epsilonAttr = origOp.getEpsAttr();
-    auto epsilon = origOp.getEps().convertToDouble();
-    if (epsilon < minEpsilonForFP16) {
-        epsilonAttr = getFPAttr(origOp->getContext(), minEpsilonForFP16);
-    }
-
-    rewriter.replaceOpWithNewOp<VPU::NormalizeL2Op>(origOp, origOp.getData(), origOp.getAxesValueAttr(), epsilonAttr,
-                                                    origOp.getEpsModeAttr(),
+    rewriter.replaceOpWithNewOp<VPU::NormalizeL2Op>(origOp, origOp.getData(), origOp.getAxesValueAttr(),
+                                                    origOp.getEpsAttr(), origOp.getEpsModeAttr(),
                                                     /*multiClusterStrategy=*/nullptr);
 
     return mlir::success();
@@ -579,24 +595,11 @@ mlir::LogicalResult ExternalKernelRewrite::matchAndRewrite(IE::ExternalKernelOp 
 
 namespace {
 
-// Helper template to print unsupported type in the static_assert
-template <class>
-[[maybe_unused]] inline constexpr bool UNSUPPORTED_TYPE = false;
-
-template <typename T>
-Const::DeclareOp createDenseConstant(mlir::Location loc, mlir::PatternRewriter& rewriter, ShapeRef shape, T value) {
-    auto floatType = mlir::FloatType();
-    if constexpr (std::is_same_v<T, float>) {
-        floatType = rewriter.getF32Type();
-    } else if constexpr (std::is_same_v<T, type::float16>) {
-        floatType = rewriter.getF16Type();
-    } else {
-        static_assert(UNSUPPORTED_TYPE<T>, "Unsupported float data type");
-    }
-
-    const auto runningMaxType = mlir::RankedTensorType::get(shape.raw(), floatType);
-    const auto values = SmallVector<T>(shape.totalSize(), value);
-    auto content = Const::ContentAttr::get(Const::createConstContent(runningMaxType, ArrayRef<T>(values)));
+Const::DeclareOp createDenseFp16Constant(mlir::Location loc, mlir::PatternRewriter& rewriter, ShapeRef shape,
+                                         float value) {
+    const auto type = mlir::RankedTensorType::get(shape.raw(), rewriter.getF16Type());
+    const auto values = SmallVector<type::float16>(shape.totalSize(), value);
+    auto content = Const::ContentAttr::get(Const::createConstContent(type, ArrayRef<type::float16>(values)));
 
     return rewriter.create<Const::DeclareOp>(loc, content.getType(), content);
 }
@@ -604,7 +607,7 @@ Const::DeclareOp createDenseConstant(mlir::Location loc, mlir::PatternRewriter& 
 }  // namespace
 
 mlir::LogicalResult FlashSDPARewrite::matchAndRewrite(IE::FlashSDPAOp origOp, mlir::PatternRewriter& rewriter) const {
-    _log.trace("Found FlashSDPA Operation '{0}'", origOp->getLoc());
+    _log.trace("Found '{0}' Operation at '{1}'", origOp->getName(), origOp->getLoc());
 
     const auto outputShape = getShape(origOp.getOutput());
 
@@ -617,14 +620,14 @@ mlir::LogicalResult FlashSDPARewrite::matchAndRewrite(IE::FlashSDPAOp origOp, ml
 
     auto loc = origOp->getLoc();
     const auto minusInf = -std::numeric_limits<float>::infinity();
-    auto initialRunningOutput =
-            createDenseConstant<type::float16>(appendLoc(loc, "running_output"), rewriter, outputShape, 0.0f);
-    auto initialRunningMax = createDenseConstant<float>(appendLoc(loc, "running_max"), rewriter, bufferShape, minusInf);
-    auto initialRunningSum = createDenseConstant<float>(appendLoc(loc, "running_sum"), rewriter, bufferShape, 0.0f);
+    auto initialRunningOutput = createDenseFp16Constant(appendLoc(loc, "running_output"), rewriter, outputShape, 0.0f);
+    auto initialRunningMax = createDenseFp16Constant(appendLoc(loc, "running_max"), rewriter, bufferShape, minusInf);
+    auto initialRunningSum = createDenseFp16Constant(appendLoc(loc, "running_sum"), rewriter, bufferShape, 0.0f);
 
     auto newOp = rewriter.create<VPU::FlashSDPAOp>(origOp->getLoc(), origOp.getQuery(), origOp.getKey(),
                                                    origOp.getValue(), initialRunningOutput, initialRunningMax,
-                                                   initialRunningSum, origOp.getAttentionMask(), origOp.getScale());
+                                                   initialRunningSum, origOp.getAttentionMask(), origOp.getScale(),
+                                                   origOp.getSourceSeqLenPadSizeAttr());
 
     rewriter.replaceOp(origOp, newOp.getResultRunningOutput());
 
@@ -673,6 +676,7 @@ void ConvertLayers2VPUPass::safeRunOnFunc() {
     patterns.add<GRUCellRewrite>(&ctx, _log);
     patterns.add<ExperimentalDetectronROIFeatureExtractorRewrite>(&ctx, _log);
     patterns.add<TopKRewrite>(&ctx, _log);
+    patterns.add<MaxPool8Rewrite>(&ctx, _log);
     patterns.add<TransposedConvRewrite>(&ctx, _log);
     patterns.add<NormalizeL2Rewrite>(&ctx, _log);
     patterns.add<LSTMCellRewrite>(&ctx, _log);

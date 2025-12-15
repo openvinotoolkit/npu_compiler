@@ -1351,3 +1351,30 @@ func.func @DontConvertAddToNCEIfMultiBatch(%arg0: tensor<2x64x28x28xf16, {order 
     // CHECK-NOT: VPU.NCE.Eltwise
     // CHECK: IE.Add
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!qElemType = !quant.uniform<u8:f16, 0.0078431372549019607:0>
+
+// CHECK-LABEL: @ConvertPermuteQuantizeWithQuantU8Input
+// CHECK-SAME:     ([[INPUT:%.+]]: tensor<1x3x224x224x!qElemType>)
+func.func @ConvertPermuteQuantizeWithQuantU8Input(%arg0: tensor<1x3x224x224x!qElemType>) -> tensor<1x4x224x224x!qElemType, {order = #NHWC}> {
+    %0 = IE.PermuteQuantize(%arg0) {
+        dstElemType = !qElemType,
+        dst_order = #NHWC,
+        mem_perm = #NHWC,
+        pads_begin = [0, 0, 0, 0],
+        pads_end = [0, 1, 0, 0]
+    } : tensor<1x3x224x224x!qElemType> -> tensor<1x4x224x224x!qElemType, {order = #NHWC}>
+
+    return %0 : tensor<1x4x224x224x!qElemType, {order = #NHWC}>
+
+    // CHECK-NOT:   IE.PermuteQuantize
+
+    // CHECK:       [[NCE_PERMUTE:%.+]] = VPU.NCE.Permute([[INPUT]]) {dstElemType = !qElemType, dstOrder = #NHWC, expandedChannels = 4 : i64, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = 0 : i64, clamp_high = 255 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>} -> tensor<1x4x224x224x!qElemType, {order = #NHWC}>
+
+    // CHECK:       return [[NCE_PERMUTE]] : tensor<1x4x224x224x!qElemType, {order = #NHWC}>
+}
+

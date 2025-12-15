@@ -20,7 +20,10 @@ namespace VPUIPDPU {
 //
 // Passes
 //
-std::unique_ptr<mlir::Pass> createExpandDPUConfigPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createExpandDPUConfigPass(
+        Logger log = Logger::global(),
+        vpux::VPURegMapped::NPU5PPEBackwardsCompatibilityMode npu5PPEBackwardsCompatibilityMode =
+                vpux::VPURegMapped::NPU5PPEBackwardsCompatibilityMode::DISABLED);
 //
 // Registration
 //

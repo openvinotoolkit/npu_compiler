@@ -838,7 +838,7 @@ func.func @TileWithSOK(
   // CHECK-SAME:         rawFilterShape = [768, 32, 7, 7], strides = [1, 1]}
   // CHECK-SAME:         -> tensor<1x768x15x30xf16, {order = #NHWC}>
   // CHECK:       [[CONCAT:%.+]] = VPU.Concat([[OUTPUT0]], [[OUTPUT1]])
-  // CHECK-LITERAL:       {static_offsets = [[0, 0, 0, 0], [0, 0, 15, 0]]} : tensor<1x768x15x30xf16, {order = #NHWC}>, tensor<1x768x15x30xf16, {order = #NHWC}> -> tensor<1x768x30x30xf16, {order = #NHWC}>
+  // CHECK{LITERAL}:       {static_offsets = [[0, 0, 0, 0], [0, 0, 15, 0]]} : tensor<1x768x15x30xf16, {order = #NHWC}>, tensor<1x768x15x30xf16, {order = #NHWC}> -> tensor<1x768x30x30xf16, {order = #NHWC}>
   // CHECK:       return [[CONCAT]] : tensor<1x768x30x30xf16, {order = #NHWC}>
 }
 
@@ -2013,18 +2013,20 @@ func.func @SplitGeluActivationSw(%arg0: tensor<1x8x80x960xf16>) -> tensor<1x8x80
 // -----
 
 func.func @SplitTopK(%arg0: tensor<1x5x512x384xf16>) -> (tensor<1x1x512x384xf32>, tensor<1x1x512x384xsi32>) {
-    %output_values, %target_shape = VPU.TopK(%arg0) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 0, 0>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x5x512x384xf16> -> tensor<1x1x512x384xf16>, tensor<1x1x512x384xsi32>
+    %aux = const.Declare tensor<1x1x1x80xui8> = dense<0> : tensor<1x1x1x80xui8>
+    %output_values, %target_shape = VPU.TopK(%arg0, %aux) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x5x512x384xf16>, tensor<1x1x1x80xui8> -> tensor<1x1x512x384xf16>, tensor<1x1x512x384xsi32>
     %0 = VPU.Convert(%output_values) {dstElemType = f32} : tensor<1x1x512x384xf16> -> tensor<1x1x512x384xf32>
     return %0, %target_shape : tensor<1x1x512x384xf32>, tensor<1x1x512x384xsi32>
 
     // CHECK-LABEL: @SplitTopK
     // CHECK-SAME:      [[INPUT_0:%arg[0-9]]]: tensor<1x5x512x384xf16>) -> (tensor<1x1x512x384xf32>, tensor<1x1x512x384xsi32>) {
+    // CHECK: [[AUX:%.+]] = const.Declare tensor<1x1x1x80xui8> = dense<0> : tensor<1x1x1x80xui8>
     // CHECK: [[INPUT_TILE0:%.+]] = VPU.Slice [[INPUT_0]] [0, 0, 0, 0] [1, 5, 171, 384] : tensor<1x5x512x384xf16> to tensor<1x5x171x384xf16>
-    // CHECK: [[OUTPUT_TILE0:%.+]], [[TARGET_TILE0:%.+]] = VPU.TopK([[INPUT_TILE0]]) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 0, 0>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x5x171x384xf16> -> tensor<1x1x171x384xf16>, tensor<1x1x171x384xsi32>
+    // CHECK: [[OUTPUT_TILE0:%.+]], [[TARGET_TILE0:%.+]] = VPU.TopK([[INPUT_TILE0]], [[AUX]]) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x5x171x384xf16>, tensor<1x1x1x80xui8> -> tensor<1x1x171x384xf16>, tensor<1x1x171x384xsi32>
     // CHECK: [[INPUT_TILE1:%.+]] = VPU.Slice [[INPUT_0]] [0, 0, 171, 0] [1, 5, 171, 384] : tensor<1x5x512x384xf16> to tensor<1x5x171x384xf16>
-    // CHECK: [[OUTPUT_TILE1:%.+]], [[TARGET_TILE1:%.+]] = VPU.TopK([[INPUT_TILE1]]) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 0, 0>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x5x171x384xf16> -> tensor<1x1x171x384xf16>, tensor<1x1x171x384xsi32>
+    // CHECK: [[OUTPUT_TILE1:%.+]], [[TARGET_TILE1:%.+]] = VPU.TopK([[INPUT_TILE1]], [[AUX]]) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x5x171x384xf16>, tensor<1x1x1x80xui8> -> tensor<1x1x171x384xf16>, tensor<1x1x171x384xsi32>
     // CHECK: [[INPUT_TILE2:%.+]] = VPU.Slice [[INPUT_0]] [0, 0, 342, 0] [1, 5, 170, 384] : tensor<1x5x512x384xf16> to tensor<1x5x170x384xf16>
-    // CHECK: [[OUTPUT_TILE2:%.+]], [[TARGET_TILE2:%.+]] = VPU.TopK([[INPUT_TILE2]]) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 0, 0>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x5x170x384xf16> -> tensor<1x1x170x384xf16>, tensor<1x1x170x384xsi32>
+    // CHECK: [[OUTPUT_TILE2:%.+]], [[TARGET_TILE2:%.+]] = VPU.TopK([[INPUT_TILE2]], [[AUX]]) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x5x170x384xf16>, tensor<1x1x1x80xui8> -> tensor<1x1x170x384xf16>, tensor<1x1x170x384xsi32>
     // CHECK: [[OUTPUT_VALUE:%.+]] = VPU.Concat([[OUTPUT_TILE0]], [[OUTPUT_TILE1]], [[OUTPUT_TILE2]]) {static_offsets =
     // CHECK: [[TARGET_SHAPE:%.+]] = VPU.Concat([[TARGET_TILE0]], [[TARGET_TILE1]], [[TARGET_TILE2]]) {static_offsets =
     // CHECK: [[OUTPUT_VALUE_CONV:%.+]] = VPU.Convert([[OUTPUT_VALUE]]) {dstElemType = f32} : tensor<1x1x512x384xf16> -> tensor<1x1x512x384xf32>

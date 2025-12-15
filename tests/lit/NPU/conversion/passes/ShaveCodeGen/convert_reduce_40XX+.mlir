@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-eltwise-layers-to-math %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 // IE.ReduceMax
 
@@ -466,5 +466,163 @@ module @KeepDimsReduceL2F16 {
 // CHECK-NEXT:      } -> tensor<2x1x1x5xf16>
 // CHECK-NEXT:      IE.CGCYield [[POST]] : tensor<2x1x1x5xf16>
 // CHECK-NEXT:    } -> tensor<2x1x1x5xf16>
+  }
+}
+
+// -----
+
+// CHECK: [[NCHW:#.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+// CHECK: [[map:#.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d3)>
+
+// CHECK: module @KeepDimsReduceL1F16
+module @KeepDimsReduceL1F16 {
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+    DataInfo "input0" : tensor<2x3x4x5xf16>
+  } outputsInfo : {
+    DataInfo "output" : tensor<2x1x1x5xf16>
+  }
+
+  func.func @main(%arg0: tensor<2x3x4x5xf16>) -> tensor<2x1x1x5xf16> {
+    %0 = IE.CodeGenCapsule inputs(%arg0 as %arg1: tensor<2x3x4x5xf16>) {
+      %1 = IE.ReduceL1(%arg1) {axes_value = [1, 2], keep_dims} : tensor<2x3x4x5xf16> -> tensor<2x1x1x5xf16>
+      IE.CGCYield %1 : tensor<2x1x1x5xf16>
+    } -> tensor<2x1x1x5xf16>
+    return %0 : tensor<2x1x1x5xf16>
+
+// CHECK:    IE.CodeGenCapsule inputs({{.*}} as [[ARG1:%.+]]: tensor<2x3x4x5xf16>) {
+// CHECK-NEXT:     [[EMPT:%.+]] = tensor.empty() : tensor<2x5xf32>
+// CHECK-NEXT:     [[ZERO:%.+]] = arith.constant 0.000000e+00 : f32
+// CHECK-NEXT:     [[REDUCE_OUT_INIT:%.+]] = linalg.fill ins([[ZERO]] : f32) outs([[EMPT]] : tensor<2x5xf32>) -> tensor<2x5xf32>
+// CHECK-NEXT:     [[REDUCE:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[map]]], iterator_types = ["parallel", "reduction", "reduction", "parallel"]} ins([[ARG1]] : tensor<2x3x4x5xf16>) outs([[REDUCE_OUT_INIT]] : tensor<2x5xf32>) {
+// CHECK-NEXT:     ^bb0([[IN:%.+]]: f16, [[OUT:%.+]]: f32):
+// CHECK-NEXT:       [[ABS:%.+]] = math.absf [[IN]] : f16
+// CHECK-NEXT:       [[EXT:%.+]] = arith.extf [[ABS]] : f16 to f32
+// CHECK-NEXT:       [[ADD:%.+]] = arith.addf [[OUT]], [[EXT]] fastmath<reassoc> : f32
+// CHECK-NEXT:       linalg.yield [[ADD]] : f32
+// CHECK-NEXT:     } -> tensor<2x5xf32>
+// CHECK-NEXT:     [[OUT_EMPT:%.+]] = tensor.empty() : tensor<2x1x1x5xf16>
+// CHECK-NEXT:     [[TRUNC_OP:%.+]] = linalg.generic {indexing_maps = [[[map]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[REDUCE]] : tensor<2x5xf32>) outs([[OUT_EMPT]] : tensor<2x1x1x5xf16>) {
+// CHECK-NEXT:     ^bb0([[IN:%.+]]: f32, {{.*}}: f16):
+// CHECK-NEXT:       [[TRUNC:%.+]] = arith.truncf [[IN]] : f32 to f16
+// CHECK-NEXT:       linalg.yield [[TRUNC]] : f16
+// CHECK-NEXT:     } -> tensor<2x1x1x5xf16>
+// CHECK-NEXT:     IE.CGCYield [[TRUNC_OP]] : tensor<2x1x1x5xf16>
+  }
+}
+
+// -----
+
+// CHECK: [[NCHW:#.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+// CHECK: [[map:#.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d3)>
+
+// CHECK: module @KeepDimsReduceSumF16
+module @KeepDimsReduceSumF16 {
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+    DataInfo "input0" : tensor<2x3x4x5xf16>
+  } outputsInfo : {
+    DataInfo "output" : tensor<2x1x1x5xf16>
+  }
+
+  func.func @main(%arg0: tensor<2x3x4x5xf16>) -> tensor<2x1x1x5xf16> {
+    %0 = IE.CodeGenCapsule inputs(%arg0 as %arg1: tensor<2x3x4x5xf16>) {
+      %1 = IE.ReduceSum(%arg1) {axes_value = [1, 2], keep_dims} : tensor<2x3x4x5xf16> -> tensor<2x1x1x5xf16>
+      IE.CGCYield %1 : tensor<2x1x1x5xf16>
+    } -> tensor<2x1x1x5xf16>
+    return %0 : tensor<2x1x1x5xf16>
+
+// CHECK:    IE.CodeGenCapsule inputs({{.*}} as [[ARG1:%.+]]: tensor<2x3x4x5xf16>) {
+// CHECK-NEXT:     [[EMPT:%.+]] = tensor.empty() : tensor<2x5xf32>
+// CHECK-NEXT:     [[ZERO:%.+]] = arith.constant 0.000000e+00 : f32
+// CHECK-NEXT:     [[REDUCE_OUT_INIT:%.+]] = linalg.fill ins([[ZERO]] : f32) outs([[EMPT]] : tensor<2x5xf32>) -> tensor<2x5xf32>
+// CHECK-NEXT:     [[REDUCE]] = linalg.generic {indexing_maps = [[[NCHW]], [[map]]], iterator_types = ["parallel", "reduction", "reduction", "parallel"]} ins([[ARG1]] : tensor<2x3x4x5xf16>) outs([[REDUCE_OUT_INIT]] : tensor<2x5xf32>) {
+// CHECK-NEXT:     ^bb0([[IN:%.+]]: f16, [[OUT:%.+]]: f32):
+// CHECK-NEXT:       [[EXT:%.+]] = arith.extf [[IN]] : f16 to f32
+// CHECK-NEXT:       [[ADD:%.+]] = arith.addf [[OUT]], [[EXT]] fastmath<reassoc> : f32
+// CHECK-NEXT:       linalg.yield [[ADD]] : f32
+// CHECK-NEXT:     } -> tensor<2x5xf32>
+// CHECK-NEXT:     [[TRUNC_OUT:%.+]] = tensor.empty() : tensor<2x1x1x5xf16>
+// CHECK-NEXT:     [[TRUNC_OP:%.+]] = linalg.generic {indexing_maps = [[[map]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[REDUCE]] : tensor<2x5xf32>) outs([[TRUNC_OUT]] : tensor<2x1x1x5xf16>) {
+// CHECK-NEXT:     ^bb0([[IN:%.+]]: f32, {{.*}}: f16):
+// CHECK-NEXT:       [[TRUNC:%.+]] = arith.truncf [[IN]] : f32 to f16
+// CHECK-NEXT:       linalg.yield [[TRUNC]] : f16
+// CHECK-NEXT:     } -> tensor<2x1x1x5xf16>
+// CHECK-NEXT:     IE.CGCYield [[TRUNC_OP]] : tensor<2x1x1x5xf16>
+  }
+}
+
+// -----
+
+// CHECK: [[NCHW:#.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+// CHECK: [[map:#.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d3)>
+
+// CHECK: module @KeepDimsReduceL1F32
+module @KeepDimsReduceL1F32 {
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+    DataInfo "input0" : tensor<2x3x4x5xf32>
+  } outputsInfo : {
+    DataInfo "output" : tensor<2x1x1x5xf32>
+  }
+
+  func.func @main(%arg0: tensor<2x3x4x5xf32>) -> tensor<2x1x1x5xf32> {
+    %0 = IE.CodeGenCapsule inputs(%arg0 as %arg1: tensor<2x3x4x5xf32>) {
+      %1 = IE.ReduceL1(%arg1) {axes_value = [1, 2], keep_dims} : tensor<2x3x4x5xf32> -> tensor<2x1x1x5xf32>
+      IE.CGCYield %1 : tensor<2x1x1x5xf32>
+    } -> tensor<2x1x1x5xf32>
+    return %0 : tensor<2x1x1x5xf32>
+
+// CHECK:    IE.CodeGenCapsule inputs({{.*}} as [[ARG1:%.+]]: tensor<2x3x4x5xf32>) {
+// CHECK-NEXT:     [[EMPT:%.+]] = tensor.empty() : tensor<2x5xf32>
+// CHECK-NEXT:     [[ZERO:%.+]] = arith.constant 0.000000e+00 : f32
+// CHECK-NEXT:     [[REDUCE_OUT_INIT:%.+]] = linalg.fill ins([[ZERO]] : f32) outs([[EMPT]] : tensor<2x5xf32>) -> tensor<2x5xf32>
+// CHECK-NEXT:     [[REDUCE:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[map]]], iterator_types = ["parallel", "reduction", "reduction", "parallel"]} ins([[ARG1]] : tensor<2x3x4x5xf32>) outs([[REDUCE_OUT_INIT]] : tensor<2x5xf32>) {
+// CHECK-NEXT:     ^bb0([[IN:%.+]]: f32, [[OUT:%.+]]: f32):
+// CHECK-NEXT:       [[ABS:%.+]] = math.absf [[IN]] : f32
+// CHECK-NEXT:       [[ADD:%.+]] = arith.addf [[OUT]], [[ABS]] fastmath<reassoc> : f32
+// CHECK-NEXT:       linalg.yield [[ADD]] : f32
+// CHECK-NEXT:     } -> tensor<2x5xf32>
+// CHECK-NEXT:     [[RESHAPE_EMPT:%.+]] = tensor.empty() : tensor<2x1x1x5xf32>
+// CHECK-NEXT:     [[RESHAPE:%.+]] = linalg.generic {indexing_maps = [[[map]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[REDUCE]] : tensor<2x5xf32>) outs([[RESHAPE_EMPT]] : tensor<2x1x1x5xf32>) {
+// CHECK-NEXT:     ^bb0([[IN:%.+]]: f32, {{.*}}: f32):
+// CHECK-NEXT:       linalg.yield [[IN]] : f32
+// CHECK-NEXT:     } -> tensor<2x1x1x5xf32>
+// CHECK-NEXT:     IE.CGCYield [[RESHAPE]] : tensor<2x1x1x5xf32>
+  }
+}
+
+// -----
+
+// CHECK: [[NCHW:#.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+// CHECK: [[map:#.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d3)>
+
+// CHECK: module @KeepDimsReduceSumF32
+module @KeepDimsReduceSumF32 {
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+    DataInfo "input0" : tensor<2x3x4x5xf32>
+  } outputsInfo : {
+    DataInfo "output" : tensor<2x1x1x5xf32>
+  }
+
+  func.func @main(%arg0: tensor<2x3x4x5xf32>) -> tensor<2x1x1x5xf32> {
+    %0 = IE.CodeGenCapsule inputs(%arg0 as %arg1: tensor<2x3x4x5xf32>) {
+      %1 = IE.ReduceSum(%arg1) {axes_value = [1, 2], keep_dims} : tensor<2x3x4x5xf32> -> tensor<2x1x1x5xf32>
+      IE.CGCYield %1 : tensor<2x1x1x5xf32>
+    } -> tensor<2x1x1x5xf32>
+    return %0 : tensor<2x1x1x5xf32>
+
+// CHECK: IE.CodeGenCapsule inputs({{.*}} as [[ARG1:%.+]]: tensor<2x3x4x5xf32>) {
+// CHECK-NEXT:     [[EMPT:%.+]] = tensor.empty() : tensor<2x5xf32>
+// CHECK-NEXT:     [[ZERO:%.+]] = arith.constant 0.000000e+00 : f32
+// CHECK-NEXT:     [[REDUCE_OUT_INIT:%.+]] = linalg.fill ins([[ZERO]] : f32) outs([[EMPT]] : tensor<2x5xf32>) -> tensor<2x5xf32>
+// CHECK-NEXT:     [[REDUCE:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[map]]], iterator_types = ["parallel", "reduction", "reduction", "parallel"]} ins([[ARG1]] : tensor<2x3x4x5xf32>) outs([[REDUCE_OUT_INIT]] : tensor<2x5xf32>) {
+// CHECK-NEXT:     ^bb0([[IN:%.+]]: f32, [[OUT:%.+]]: f32):
+// CHECK-NEXT:       [[ADD:%.+]] = arith.addf [[OUT]], [[IN]] fastmath<reassoc> : f32
+// CHECK-NEXT:       linalg.yield [[ADD]] : f32
+// CHECK-NEXT:     } -> tensor<2x5xf32>
+// CHECK-NEXT:     [[RESHAPE_EMPT:%.+]] = tensor.empty() : tensor<2x1x1x5xf32>
+// CHECK-NEXT:     [[RESHAPE:%.+]] = linalg.generic {indexing_maps = [[[map]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[REDUCE]] : tensor<2x5xf32>) outs([[RESHAPE_EMPT]] : tensor<2x1x1x5xf32>) {
+// CHECK-NEXT:     ^bb0([[IN:%.+]]: f32, {{.*}}: f32):
+// CHECK-NEXT:       linalg.yield [[IN]] : f32
+// CHECK-NEXT:     } -> tensor<2x1x1x5xf32>
+// CHECK-NEXT:     IE.CGCYield [[RESHAPE]] : tensor<2x1x1x5xf32>
   }
 }

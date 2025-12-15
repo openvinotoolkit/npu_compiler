@@ -179,7 +179,7 @@ void UngroupSparseBuffers::safeRunOnFunc() {
     auto& ctx = getContext();
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<RemoveGroupUngroupRewriter>(&ctx);
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

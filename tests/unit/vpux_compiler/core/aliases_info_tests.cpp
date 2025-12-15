@@ -13,6 +13,7 @@
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 
 #include <mlir/Dialect/Async/IR/Async.h>
+#include <mlir/Dialect/Bufferization/IR/Bufferization.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/MLIRContext.h>
@@ -96,6 +97,7 @@ TEST(MLIR_AliasesInfo, OpWithNoUsers) {
     registry.insert<AlisesInfoTest::TestDialect>();
 
     mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<mlir::bufferization::BufferizationDialect>();
 
     constexpr StringLiteral inputIR = R"(
         module @test {
@@ -141,6 +143,7 @@ TEST(MLIR_AliasesInfo, TestMultiViewOp) {
     registry.insert<AlisesInfoTest::TestDialect>();
 
     mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<mlir::bufferization::BufferizationDialect>();
 
     constexpr StringLiteral inputIR = R"(
         module @test {
@@ -246,6 +249,7 @@ TEST(MLIR_AliasesInfo, TestGroupedViewOp) {
     registry.insert<AlisesInfoTest::TestDialect>();
 
     mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<mlir::bufferization::BufferizationDialect>();
 
     constexpr StringLiteral inputIR = R"(
         module @test {
@@ -331,6 +335,7 @@ TEST(MLIR_AliasesInfo, AsyncRegions) {
     registry.insert<mlir::func::FuncDialect>();
 
     mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<mlir::bufferization::BufferizationDialect>();
 
     constexpr StringLiteral inputIR = R"(
         module @test {
@@ -379,6 +384,7 @@ TEST(MLIR_AliasesInfo, RemoveAlias) {
     registry.insert<AlisesInfoTest::TestDialect>();
 
     mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<mlir::bufferization::BufferizationDialect>();
 
     constexpr StringLiteral inputIR = R"(
         module @test {
@@ -435,6 +441,7 @@ TEST(MLIR_AliasesInfo, RemoveAllAlias) {
     registry.insert<AlisesInfoTest::TestDialect>();
 
     mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<mlir::bufferization::BufferizationDialect>();
 
     constexpr StringLiteral inputIR = R"(
         module @test {
@@ -547,6 +554,7 @@ TEST(MLIR_AliasesInfo, CallOp) {
     VPUIP::VPUIPDialect::setupExtraInterfaces(registry);
 
     mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<mlir::bufferization::BufferizationDialect>();
 
     constexpr StringLiteral inputIR = R"(
         module @TwoFunctions {

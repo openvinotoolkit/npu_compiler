@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% enable-weights-dynamic-dequantization=true" --consolidate-weights-dequantize --mlir-print-elementsattrs-with-hex-if-larger -1 %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK: !qElemType = !quant.uniform<u8:f32, 5.000000e-01>
 

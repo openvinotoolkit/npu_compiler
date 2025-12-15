@@ -16,7 +16,7 @@
 #include "vpux/compiler/utils/quantization.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <numeric>
 
 using namespace vpux;

@@ -19,7 +19,7 @@
 #include "vpux/utils/core/error.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/IR/BuiltinTypes.h>
 
 #include <numeric>
@@ -518,7 +518,8 @@ bool vpux::isSubByteType(mlir::Type elemType) {
 }
 
 bool vpux::isBufferType(mlir::Type type) {
-    // Note: BaseMemRefType covers MemRefType, UnrankedMemRefType,
-    // VPUIP::DistributedBufferType, VPUIP::SparseBufferType and VPUIP::BoundedBufferType
-    return mlir::isa<mlir::BaseMemRefType>(type);
+    // Note: BufferLike covers MemRefType, UnrankedMemRefType,
+    // VPUIP::DistributedBufferType, VPUIP::SparseBufferType and
+    // VPUIP::BoundedBufferType
+    return mlir::isa<mlir::bufferization::BufferLikeType>(type);
 }

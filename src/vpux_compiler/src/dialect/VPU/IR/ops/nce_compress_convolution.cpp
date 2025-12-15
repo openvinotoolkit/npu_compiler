@@ -6,7 +6,7 @@
 //
 
 #include "vpux/compiler/core/layers.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
@@ -60,11 +60,23 @@ bool vpux::VPU::NCECompressConvolutionOp::fitIntoCMX(vpux::NDTypeInterface input
 }
 
 //
+// isDeprecated
+//
+
+bool vpux::VPU::NCECompressConvolutionOp::isDeprecated([[maybe_unused]] mlir::Operation* op) {
+    return false;
+}
+
+//
 // isSupported
 //
 
 bool vpux::VPU::NCECompressConvolutionOp::isSupported(IE::ConvolutionOp op, LogCb logCb, bool checkLayout,
                                                       bool checkChannelAlignment) {
+    if (isDeprecated(op)) {
+        return false;
+    }
+
     auto inputType = mlir::cast<NDTypeInterface>(op.getInput().getType());
     auto canUseIDUAutopad =
             VPU::inputCompatibleWithAutoPad(inputType) && config::hasAutoPaddingIDU(getModuleOp(op.getOperation()));

@@ -204,8 +204,7 @@ void InferenceExecutionAnalysisPass::safeRunOnFunc() {
         if (tileOp != nullptr) {
             auto numTiles = tileOp.getCount();
             auto activityFactor = getActivityFactor(dpuTotalEnergy + shaveTotalEnergy, totalCycles, numTiles, arch);
-            auto activityFactorAttr =
-                    mlir::FloatAttr::get(mlir::FloatType::getF64(funcOp.getContext()), activityFactor);
+            auto activityFactorAttr = mlir::FloatAttr::get(mlir::Float64Type::get(funcOp.getContext()), activityFactor);
             tileOp.setActivityFactorAttr(activityFactorAttr);
             _log.info("[Energy] compiled Activity Factor - {0}", activityFactor);
         }

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --insert-identity-pool-before-op %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @SkipLReluWithNCEProducer
 func.func @SkipLReluWithNCEProducer(%arg0: tensor<1x128x2x32xf16>) -> tensor<1x128x2x32xf16> {

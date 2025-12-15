@@ -654,7 +654,7 @@ bool canEliminateSliceExpand(IE::ShapeCastOp shapeCastOp, IE::ExpandOp expandOp,
 
     const auto getDimShapeNotOne = [&](ShapeRef shape) {
         const auto shapeIt = llvm::find_if(shape, shapeNotOne);
-        VPUX_THROW_WHEN(shapeIt == shape.end(), "ilegal shape {0}", shape);
+        VPUX_THROW_WHEN(shapeIt == shape.end(), "illegal shape {0}", shape);
         return std::distance(shape.begin(), shapeIt);
     };
 
@@ -824,7 +824,7 @@ mlir::LogicalResult IE::OptimizeSliceOpsExpand::matchAndRewrite(IE::ExpandOp exp
     }
 
     if (ops.size() <= 1) {
-        _log.trace("Only one or no operations between slice and expand.", expandOp->getLoc());
+        _log.trace("Only one or no operations between slice and expand {0}", expandOp->getLoc());
         return mlir::failure();
     }
 
@@ -837,7 +837,7 @@ mlir::LogicalResult IE::OptimizeSliceOpsExpand::matchAndRewrite(IE::ExpandOp exp
     // Check if all the middle ops are feasible to be optimized.
     for (auto op : ops) {
         if (!isMiddleOpLegal(sliceOp, op, expandOp)) {
-            _log.trace("Ilegal Middle operation at '{0}'.", op->getLoc());
+            _log.trace("Illegal Middle operation at '{0}'.", op->getLoc());
             return mlir::failure();
         }
     }
@@ -984,7 +984,7 @@ void OptimizeSliceExpandPass::safeRunOnFunc() {
     auto greedyRewriteConfig = getDefaultGreedyRewriteConfig();
     greedyRewriteConfig.maxIterations = 60;
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), greedyRewriteConfig))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), greedyRewriteConfig))) {
         signalPassFailure();
         return;
     }

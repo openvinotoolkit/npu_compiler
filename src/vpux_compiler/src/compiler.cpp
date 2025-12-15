@@ -13,6 +13,8 @@
 #include "vpux/compiler/NPU40XX/backend_pipeline_strategy.hpp"
 #include "vpux/compiler/NPU40XX/dialect/ELF/export.hpp"
 #include "vpux/compiler/NPU40XX/dialect_pipeline_strategy.hpp"
+#include "vpux/compiler/NPU50XX/backend_pipeline_strategy.hpp"
+#include "vpux/compiler/NPU50XX/dialect_pipeline_strategy.hpp"
 #include "vpux/compiler/compilation_options.hpp"
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/export.hpp"
@@ -27,6 +29,7 @@
 #include "vpux/compiler/dialect/VPUMI37XX/network_description.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/constraints_initializer.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/constant_transformations_control.hpp"
 #include "vpux/compiler/dialect/const/utils/constant_folding_in_background.hpp"
@@ -90,7 +93,8 @@ constexpr std::string_view UNSUPPORTED_PLATFORM_ERROR_MESSAGE =
         "supported platform explicitly.";
 
 void checkPlatformSupportedForCompilation(const std::string_view platform) {
-    const std::unordered_set supportedPlatforms{ov::intel_npu::Platform::NPU3720, ov::intel_npu::Platform::NPU4000};
+    const std::unordered_set supportedPlatforms{ov::intel_npu::Platform::NPU3720, ov::intel_npu::Platform::NPU5000,
+                                                ov::intel_npu::Platform::NPU5010, ov::intel_npu::Platform::NPU4000};
 
     if (!supportedPlatforms.count(ov::intel_npu::Platform::standardize(platform))) {
         VPUX_THROW(UNSUPPORTED_PLATFORM_ERROR_MESSAGE.data(), platform, intel_npu::PLATFORM::key());
@@ -112,6 +116,10 @@ StrategyFactoryFn createDialectPipelineStrategyFn(const intel_npu::Config& confi
     case config::ArchKind::NPU40XX:
         return [&](config::CompilationMode compilationMode) {
             return createDialectPipelineStrategy40XX(compilationMode, config);
+        };
+    case config::ArchKind::NPU50XX:
+        return [&](config::CompilationMode compilationMode) {
+            return createDialectPipelineStrategy50XX(compilationMode, config);
         };
     default:
         VPUX_THROW("Unsupported arch kind: {0}", arch);
@@ -140,6 +148,8 @@ std::unique_ptr<IBackendPipelineStrategy> createBackendPipelineStrategy(config::
         return std::make_unique<BackendPipelineStrategy37XX>();
     case config::ArchKind::NPU40XX:
         return std::make_unique<BackendPipelineStrategy40XX>();
+    case config::ArchKind::NPU50XX:
+        return std::make_unique<BackendPipelineStrategy50XX>();
     default:
         VPUX_THROW("Unsupported arch kind: {0}", arch);
     }
@@ -164,13 +174,15 @@ ov::SupportedOpsMap vpux::CompilerImpl::query(const std::shared_ptr<const ov::Mo
     mlir::DefaultTimingManager tm;
     devConf.setup(tm);
     auto rootTiming = tm.getRootScope();
+    // query is executed with the default values of the config
+    IE::ImportNetworkConfig importCfg;
 
     log.trace("Get supported nodes.");
     auto supportedNodes = ov::get_supported_nodes(
             model,
             [&](const std::shared_ptr<ov::Model>& model) {
                 log.trace("Run common nGraph passes.");
-                IE::NGraphPasses::runNGraphPasses(model, rootTiming);
+                IE::NGraphPasses::runNGraphPasses(model, rootTiming, importCfg);
             },
             [&](const std::shared_ptr<ov::Node>& op) {
                 log.trace("Get supported operations list.");
@@ -203,6 +215,7 @@ auto importNetwork(mlir::MLIRContext* ctx, const std::shared_ptr<ov::Model>& mod
     importCfg.stubLayers = getDummyOpReplacement(config).value_or(DummyOpMode::DISABLED);
     importCfg.dynamicShapeToStatic = config.get<intel_npu::DYNAMIC_SHAPE_TO_STATIC>();
     importCfg.enableWeightsSeparationPath = enableWeightsSeparationPath;
+    importCfg.enableDecomposeSDPA = getEnableDecomposeSDPA(config).value_or(false);
 
     return IE::importNetwork(ctx, model, originalParameters, originalResults, importTiming, importCfg, log.nest());
 }
@@ -497,12 +510,26 @@ bool isTypeSupportedNPU40xx(ov::element::Type_t elemType) {
     }
 }
 
+// Supported NPU50xx types: dynamic, boolean, bf16, f16, f32, f64, i4, i8, i16, i32, i64, u2, u4, u8, u16, u32, u64,
+//                          nf4, f8e4m3, f8e5m2
+bool isTypeSupportedNPU50xx(ov::element::Type_t elemType) {
+    switch (elemType) {
+    case ov::element::Type_t::f8e4m3:
+    case ov::element::Type_t::f8e5m2:
+        return true;
+    default:
+        return isTypeSupportedNPU40xx(elemType);
+    }
+}
+
 bool isTypeSupported(config::ArchKind arch, ov::element::Type_t elemType) {
     switch (arch) {
     case config::ArchKind::NPU37XX:
         return isTypeSupportedNPU37xx(elemType);
     case config::ArchKind::NPU40XX:
         return isTypeSupportedNPU40xx(elemType);
+    case config::ArchKind::NPU50XX:
+        return isTypeSupportedNPU50xx(elemType);
     default:
         VPUX_THROW("Unsupported arch kind: {0}", arch);
     }
@@ -639,6 +666,7 @@ std::unique_ptr<CompilerSetup> CompilerSetup::create(const intel_npu::Config& co
 
 CompilerSetup::CompilerSetup(const intel_npu::Config& config) {
     registry = createDialectRegistry(getDummyOpReplacement(config).value_or(DummyOpMode::DISABLED));
+    config::registerConstraints(registry, getArchKind(config));
     ctx = createContext(registry, config);
     if ((threadPool = createThreadpool(config))) {
         ctx->setThreadPool(*threadPool);

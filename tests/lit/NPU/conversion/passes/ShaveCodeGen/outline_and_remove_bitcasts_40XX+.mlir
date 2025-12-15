@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // RUN: vpux-opt %s --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize --outline-codegen-capsules | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #map = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, 0)>

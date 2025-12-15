@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --initial-low-precision-transformations %s | FileCheck %s --strict-whitespace
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @ScalarArgumentsWeightsDequantizeToFakeQuantize
 func.func @ScalarArgumentsWeightsDequantizeToFakeQuantize(%arg0: tensor<1x16x32x32xf32>) -> tensor<1x16x32x32xf32> {

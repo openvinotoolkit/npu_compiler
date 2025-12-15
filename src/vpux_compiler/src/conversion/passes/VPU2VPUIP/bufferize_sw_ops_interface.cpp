@@ -7,7 +7,20 @@
 #include "vpux/compiler/NPU40XX/utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/activation.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/arithmetic.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/bitwise.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/comparison.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/control_flow.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/convolution.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/image.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/logical.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/normalization.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/pooling.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/recurrent.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
@@ -77,134 +90,6 @@ bool vpux::canBeBufferizedToCast(VPU::PermuteCastOp op) {
 namespace {
 
 //
-// getOptimalCMXPlacement
-//
-
-std::pair<mlir::DenseSet<size_t>, mlir::DenseSet<size_t>> getOptimalCMXPlacement(ArrayRef<mlir::Value> inputs,
-                                                                                 ArrayRef<mlir::Value> outputs,
-                                                                                 Byte reservedMem,
-                                                                                 mlir::ModuleOp module,
-                                                                                 const Logger& log) {
-    VPUX_THROW_WHEN(inputs.empty() && outputs.empty(), "Received empty input and output arrays!");
-    auto nestedLog2 = log.nest(2);
-    auto nestedLog3 = log.nest(3);
-    // Create an array of all the inputs and outputs and index them
-    SmallVector<mlir::Value> mergedVals;
-    mergedVals.reserve(inputs.size() + outputs.size());
-    mergedVals.insert(mergedVals.end(), inputs.begin(), inputs.end());
-    mergedVals.insert(mergedVals.end(), outputs.begin(), outputs.end());
-    SmallVector<size_t> idxVec(inputs.size() + outputs.size(), 0);
-    std::iota(idxVec.begin(), idxVec.end(), 0);
-
-    mlir::DenseSet<size_t> inputsForCMX;
-    mlir::DenseSet<size_t> outputsForCMX;
-
-    SmallVector<Byte> ioCmxSizes;
-    for (const auto& val : mergedVals) {
-        ioCmxSizes.push_back(mlir::cast<vpux::NDTypeInterface>(val.getType()).getTotalAllocSize());
-    }
-
-    auto totalAvailableCMXSize = reservedMem.count() == 0 ? VPU::getTotalCMXSize(module).count()
-                                                          : VPU::getTotalCMXFragmentationAwareSize(module).count();
-
-    nestedLog2.trace("Total available CMX size: {0} bytes", totalAvailableCMXSize);
-
-    Byte defaultCMXOffsetAlignment = Byte(vpux::DEFAULT_CMX_ALIGNMENT);
-    Byte defaultCMXSizeAlignment = Byte(1);
-
-    auto requiredSizeForAllIO = vpux::calculateAlignedBuffersMemoryRequirement(ioCmxSizes, defaultCMXOffsetAlignment,
-                                                                               defaultCMXSizeAlignment)
-                                        .count();
-    // If all inputs and outputs already fit in NNCMX, this is already optimal
-    if (requiredSizeForAllIO + reservedMem.count() <= totalAvailableCMXSize) {
-        nestedLog2.trace("All the inputs and outputs will fit in CMX. Total size: {0} bytes", requiredSizeForAllIO);
-        auto inputsSize = inputs.size();
-        for (size_t i = 0; i < inputsSize; ++i) {
-            inputsForCMX.insert(i);
-        }
-        auto outputsSize = outputs.size();
-        for (size_t i = 0; i < outputsSize; ++i) {
-            outputsForCMX.insert(i);
-        }
-        return {inputsForCMX, outputsForCMX};
-    }
-
-    // Not all inputs and outputs fit in the available NNCMX space. Find the maximal subset that fits,
-    // such that we use NNCMX as much as possible.
-    SmallVector<std::pair<SmallVector<size_t>, int64_t>> subsets;
-    SmallVector<size_t> aux;
-
-    auto genSubsets = [](const auto& idxVec, auto& subsets, auto& aux, size_t currentIdx,
-                         auto& genSubsetsFunc) -> void {
-        subsets.push_back({aux, 0});
-        for (size_t i = currentIdx; i < idxVec.size(); ++i) {
-            aux.push_back(idxVec[i]);
-            genSubsetsFunc(idxVec, subsets, aux, i + 1, genSubsetsFunc);
-            aux.pop_back();
-        }
-    };
-
-    // Generate all subsets
-    genSubsets(idxVec, subsets, aux, 0, genSubsets);
-
-    // For each subset, compute the total necesssary NNCMX size
-    for (auto& p : subsets) {
-        const auto& idxVec = p.first;
-        SmallVector<Byte> bufferSizes;
-        bufferSizes.reserve(idxVec.size());
-        for (const auto& idx : idxVec) {
-            bufferSizes.push_back(mlir::cast<vpux::NDTypeInterface>(mergedVals[idx].getType()).getTotalAllocSize());
-        }
-        p.second = vpux::calculateAlignedBuffersMemoryRequirement(bufferSizes, defaultCMXOffsetAlignment,
-                                                                  defaultCMXSizeAlignment)
-                           .count() +
-                   reservedMem.count();
-    }
-
-    std::sort(subsets.begin(), subsets.end(), [](const auto& lhs, const auto& rhs) {
-        return lhs.second < rhs.second;
-    });
-
-    // Find the subset that uses the most NNCMX without going over the limit
-    std::optional<size_t> subsetIdx;
-    for (size_t idx = 0; idx < subsets.size(); ++idx) {
-        if (subsets[idx].second > totalAvailableCMXSize) {
-            if (idx > 0) {
-                subsetIdx = idx - 1;
-            }
-            break;
-        }
-    }
-    if (!subsetIdx.has_value()) {
-        return {inputsForCMX, outputsForCMX};
-    }
-
-    const auto maxValidCmxUsageSubsetIdx = std::min(subsetIdx.value(), subsets.size() - 1);
-
-    for (const auto& idx : subsets[maxValidCmxUsageSubsetIdx].first) {
-        if (idx < inputs.size()) {
-            inputsForCMX.insert(idx);
-        } else {
-            outputsForCMX.insert(idx - inputs.size());
-        }
-    }
-
-    nestedLog2.trace("Following inputs and outputs will be mapped to CMX:");
-
-    nestedLog2.trace("Inputs:");
-    for (const auto& i : inputsForCMX) {
-        nestedLog3.trace("'{0}'", i);
-    }
-
-    nestedLog2.trace("Outputs:");
-    for (const auto& o : outputsForCMX) {
-        nestedLog3.trace("'{0}'", o);
-    }
-
-    return {inputsForCMX, outputsForCMX};
-}
-
-//
 // isDMAConvertibleSwOp
 //
 
@@ -227,36 +112,11 @@ mlir::LogicalResult vpux::bufferizeSWLayerOp(mlir::RewriterBase& rewriter, mlir:
     // src/vpux_compiler/src/dialect/VPUIP/IR/ops.cpp
     auto swLayerOp = mlir::cast<VPUIP::SoftwareLayerOpInterface>(op);
 
-    const auto memSpaceCMX = vpux::IndexedSymbolAttr::get(ctx, stringifyEnum(VPU::MemoryKind::CMX_NN), 0);
-
-    SmallVector<mlir::Value> opResults(op->getResults().begin(), op->getResults().end());
-    auto idxForCMX = getOptimalCMXPlacement(newOperands, opResults, Byte(0), module, log);
-
-    SmallVector<mlir::Value> swKernelOperands;
-    for (size_t i = 0; i < newOperands.size(); ++i) {
-        if (idxForCMX.first.count(i) == 0) {
-            // Operand should remain in DDR according to mapping
-            swKernelOperands.push_back(newOperands[i]);
-        } else {
-            log.trace("Create CMX buffer and copy operation for input: {0}", newOperands[i].getLoc());
-            const auto outputBuffer =
-                    allocateBuffer(log, newOperands[i].getLoc(), rewriter, newOperands[i], memSpaceCMX);
-            auto copyOp = rewriter.create<VPUIP::CopyOp>(op->getLoc(), newOperands[i], outputBuffer);
-            swKernelOperands.push_back(copyOp.getOutput());
-        }
-    }
-
     SmallVector<mlir::Value> swKernelResults;
-    for (size_t i = 0; i < op->getResults().size(); ++i) {
-        if (idxForCMX.second.count(i) == 0) {
-            log.trace("Create DDR buffer for output: {0}", op->getResults()[i].getLoc());
-            const auto outputBuffer = allocateBuffer(log, op->getLoc(), rewriter, op->getResults()[i], nullptr);
-            swKernelResults.push_back(outputBuffer);
-        } else {
-            log.trace("Create CMX buffer for output: {0}", op->getResults()[i].getLoc());
-            const auto outputBuffer = allocateBuffer(log, op->getLoc(), rewriter, op->getResults()[i], memSpaceCMX);
-            swKernelResults.push_back(outputBuffer);
-        }
+    for (auto result : op->getResults()) {
+        const auto memSpace = mlir::cast<NDTypeInterface>(result.getType()).getMemSpace();
+        const auto outputBuffer = allocateBuffer(log, op->getLoc(), rewriter, result, memSpace);
+        swKernelResults.push_back(outputBuffer);
     }
 
     VPUIP::createRuntimeKernelDefinition(module, log.nest(), config::getArch(op));
@@ -266,50 +126,37 @@ mlir::LogicalResult vpux::bufferizeSWLayerOp(mlir::RewriterBase& rewriter, mlir:
     auto genericSwLayerOp = mlir::dyn_cast<VPU::GenericSwLayerOp>(op);
     auto builtInFunction = genericSwLayerOp
                                    ? genericSwLayerOp.getCallee()
-                                   : VPUIP::createBuiltInFunction(module, layerOp, swKernelOperands, swKernelResults,
+                                   : VPUIP::createBuiltInFunction(module, layerOp, newOperands, swKernelResults,
                                                                   swLayerOp.getKernelInfo(), log.nest());
 
-    auto swKernelOp = rewriter.create<VPUIP::SwKernelOp>(op->getLoc(), swKernelOperands, swKernelResults,
-                                                         builtInFunction, getIntAttr(ctx, tileIndex));
+    auto swKernelOp = rewriter.create<VPUIP::SwKernelOp>(op->getLoc(), newOperands, swKernelResults, builtInFunction,
+                                                         getIntAttr(ctx, tileIndex));
 
-    vpux::VPUIP::initSwKernel(swKernelOp, swKernelOperands, swKernelResults, swLayerOp.getKernelInfo().args, log.nest(),
+    vpux::VPUIP::initSwKernel(swKernelOp, newOperands, swKernelResults, swLayerOp.getKernelInfo().args, log.nest(),
                               /*swKernelRunOp=*/nullptr);
 
+    const auto memSpaceCMX = vpux::IndexedSymbolAttr::get(ctx, stringifyEnum(VPU::MemoryKind::CMX_NN), 0);
     const auto moveSwOpToCMX = [&]() {
-        // Go through all inputs and outputs that were mapped to DDR and map them to NNCMX
-        if (idxForCMX.first.size() == swKernelOp.getInputs().size() &&
-            idxForCMX.second.size() == swKernelOp.getResults().size()) {
-            return;
-        }
-
         SmallVector<mlir::Value> cmxOperands;
-        cmxOperands.reserve(swKernelOperands.size());
-        if (idxForCMX.first.size() != swKernelOp.getInputs().size()) {
-            for (const auto& operand : swKernelOperands) {
-                if (mlir::cast<vpux::NDTypeInterface>(operand.getType()).getMemSpace() == memSpaceCMX) {
-                    cmxOperands.push_back(operand);
-                } else {
-                    const auto outputBuffer = allocateBuffer(log, operand.getLoc(), rewriter, operand, memSpaceCMX);
-                    auto copyOp = rewriter.create<VPUIP::CopyOp>(op->getLoc(), operand, outputBuffer);
-                    cmxOperands.push_back(copyOp.getOutput());
-                }
+        cmxOperands.reserve(newOperands.size());
+        for (const auto& operand : newOperands) {
+            if (mlir::cast<vpux::NDTypeInterface>(operand.getType()).getMemSpace() == memSpaceCMX) {
+                cmxOperands.push_back(operand);
+            } else {
+                const auto outputBuffer = allocateBuffer(log, operand.getLoc(), rewriter, operand, memSpaceCMX);
+                auto copyOp = rewriter.create<VPUIP::CopyOp>(op->getLoc(), operand, outputBuffer);
+                cmxOperands.push_back(copyOp.getOutput());
             }
-        } else {
-            cmxOperands.append(swKernelOperands.begin(), swKernelOperands.end());
         }
 
         SmallVector<mlir::Value> cmxResults;
         cmxResults.reserve(swKernelResults.size());
-        if (idxForCMX.second.size() != swKernelOp.getResults().size()) {
-            for (const auto& result : swKernelResults) {
-                cmxResults.push_back(result);
-                if (mlir::cast<vpux::NDTypeInterface>(result.getType()).getMemSpace() != memSpaceCMX) {
-                    cmxResults.back().setType(
-                            mlir::cast<vpux::NDTypeInterface>(result.getType()).changeMemSpace(memSpaceCMX));
-                }
+        for (const auto& result : swKernelResults) {
+            cmxResults.push_back(result);
+            if (mlir::cast<vpux::NDTypeInterface>(result.getType()).getMemSpace() != memSpaceCMX) {
+                cmxResults.back().setType(
+                        mlir::cast<vpux::NDTypeInterface>(result.getType()).changeMemSpace(memSpaceCMX));
             }
-        } else {
-            cmxResults.append(swKernelResults.begin(), swKernelResults.end());
         }
 
         auto parentModule = swKernelOp->getParentOfType<mlir::ModuleOp>();
@@ -331,31 +178,32 @@ mlir::LogicalResult vpux::bufferizeSWLayerOp(mlir::RewriterBase& rewriter, mlir:
 
         vpux::VPUIP::initSwKernel(swKernelOp, cmxOperands, cmxResults, swLayerOp.getKernelInfo().args, log.nest(),
                                   /*swKernelRunOp=*/nullptr);
+
+        SmallVector<mlir::Value> newResults;
+        for (auto&& result : swKernelOp.getResults()) {
+            const auto origResultType = mlir::cast<NDTypeInterface>(op->getResult(result.getResultNumber()).getType());
+            const auto newResultType = mlir::cast<NDTypeInterface>(result.getType());
+            if (origResultType.getMemSpace() != memSpaceCMX && newResultType.getMemSpace() == memSpaceCMX &&
+                !op->getResult(result.getResultNumber()).use_empty()) {
+                // Copy outputs that were mapped to CMX back to DDR
+                log.trace("Create DDR buffer for output: {0}", result.getLoc());
+                const auto outputBuffer = allocateBuffer(log, op->getLoc(), rewriter, result, nullptr);
+                auto copyOp = rewriter.create<VPUIP::CopyOp>(op->getLoc(), result, outputBuffer);
+                newResults.push_back(copyOp.getOutput());
+            } else {
+                newResults.push_back(result);
+            }
+        }
+        return newResults;
     };
 
+    auto finalResults = SmallVector<mlir::Value>(swKernelOp->getResults());
     if (isDMAConvertibleSwOp(mlir::dyn_cast<vpux::VPUIP::SoftwareLayerOpInterface>(op)) &&
         vpux::VPUIP::isLegalAndBeneficialConvertToDMA(swKernelOp, log)) {
         log.trace("SW Kernel will be converted to DMA Operation: {0}", swKernelOp);
-        moveSwOpToCMX();
+        finalResults = moveSwOpToCMX();
     }
 
-    log.trace("Added kernel operation: {0}", swKernelOp);
-
-    SmallVector<mlir::Value> finalResults;
-    for (auto&& result : swKernelOp.getResults()) {
-        if (mlir::cast<vpux::NDTypeInterface>(result.getType()).getMemSpace() == memSpaceCMX &&
-            !op->getResult(result.getResultNumber()).use_empty()) {
-            // Copy outputs that were mapped to CMX back to DDR
-            log.trace("Create DDR buffer for output: {0}", result.getLoc());
-            const auto outputBuffer = allocateBuffer(log, op->getLoc(), rewriter, result, nullptr);
-            auto copyOp = rewriter.create<VPUIP::CopyOp>(op->getLoc(), result, outputBuffer);
-            finalResults.push_back(copyOp.getOutput());
-        } else {
-            finalResults.push_back(result);
-        }
-    }
-
-    log.trace("Replace origin op {0} with new outputs from SW Kernel {1}", op->getLoc(), finalResults);
     mlir::bufferization::replaceOpWithBufferizedValues(rewriter, op, finalResults);
     return mlir::success();
 }
@@ -395,7 +243,7 @@ class ConcatOpBufferizeModel : public BufferizableOpInterfaceExternalModelBase<C
 public:
     mlir::LogicalResult bufferizeImpl(VPU::ConcatOp origOp, mlir::RewriterBase& rewriter,
                                       const mlir::bufferization::BufferizationOptions& options,
-                                      VPU::ConcatOp::Adaptor adaptor) const {
+                                      VPU::ConcatOp::Adaptor& adaptor) const {
         if (canBeBufferizedToCopies(origOp)) {
             return vpux::bufferizeOp(origOp->getContext(), origOp, adaptor, rewriter);
         }
@@ -409,7 +257,7 @@ class StridedSliceOpBufferizeModel :
 public:
     mlir::LogicalResult bufferizeImpl(VPU::StridedSliceOp origOp, mlir::RewriterBase& rewriter,
                                       const mlir::bufferization::BufferizationOptions& options,
-                                      VPU::StridedSliceOp::Adaptor adaptor) const {
+                                      VPU::StridedSliceOp::Adaptor& adaptor) const {
         if (canBeBufferizedToCopies(origOp)) {
             return vpux::bufferizeOp(origOp->getContext(), origOp, adaptor, rewriter);
         }
@@ -424,7 +272,7 @@ class PermuteCastOpBufferizeModel :
 public:
     mlir::LogicalResult bufferizeImpl(VPU::PermuteCastOp origOp, mlir::RewriterBase& rewriter,
                                       const mlir::bufferization::BufferizationOptions& options,
-                                      VPU::PermuteCastOp::Adaptor adaptor) const {
+                                      VPU::PermuteCastOp::Adaptor& adaptor) const {
         if (canBeBufferizedToCast(origOp)) {
             return vpux::bufferizeOp(origOp->getContext(), origOp, adaptor, rewriter);
         }
@@ -439,7 +287,7 @@ class ConvertOpBufferizeModel :
 public:
     mlir::LogicalResult bufferizeImpl(VPU::ConvertOp origOp, mlir::RewriterBase& rewriter,
                                       const mlir::bufferization::BufferizationOptions& options,
-                                      VPU::ConvertOp::Adaptor adaptor) const {
+                                      VPU::ConvertOp::Adaptor& adaptor) const {
         // If conversion can be done on DMA, bufferize it to DMA operation.
         if (isConvertSupportedOnDMA<VPU::ConvertOp>(origOp)) {
             return vpux::bufferizeOp(origOp->getContext(), origOp, adaptor, rewriter);
@@ -455,12 +303,12 @@ class FlashSDPAModel : public BufferizableOpInterfaceExternalModelBase<FlashSDPA
 public:
     mlir::LogicalResult bufferizeImpl(VPU::FlashSDPAOp origOp, mlir::RewriterBase& rewriter,
                                       const mlir::bufferization::BufferizationOptions& options,
-                                      VPU::FlashSDPAOp::Adaptor adaptor) const;
+                                      VPU::FlashSDPAOp::Adaptor& adaptor) const;
 };
 
 mlir::LogicalResult FlashSDPAModel::bufferizeImpl(VPU::FlashSDPAOp flashSdpaOp, mlir::RewriterBase& rewriter,
                                                   const mlir::bufferization::BufferizationOptions&,
-                                                  VPU::FlashSDPAOp::Adaptor) const {
+                                                  VPU::FlashSDPAOp::Adaptor&) const {
     auto log = Logger::global().nest("one-shot-bufferize-FlashSDPAOp", 0);
     log.trace("Got {0} at {1}", flashSdpaOp->getName(), flashSdpaOp->getLoc());
 
@@ -629,6 +477,7 @@ void vpux::registerSoftwareLayerBufferizableOpInterfaces(mlir::DialectRegistry& 
         VPU::ReduceLogicalOrOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::ReduceLogicalOrOp>>(*ctx);
         VPU::ReduceL2Op::attachInterface<SoftwareLayerOpBufferizeModel<VPU::ReduceL2Op>>(*ctx);
         VPU::ReduceProdOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::ReduceProdOp>>(*ctx);
+        VPU::ReduceMeanSquareOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::ReduceMeanSquareOp>>(*ctx);
         VPU::NegativeOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::NegativeOp>>(*ctx);
         VPU::NonMaxSuppressionOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::NonMaxSuppressionOp>>(*ctx);
         VPU::ROIAlignOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::ROIAlignOp>>(*ctx);
@@ -692,7 +541,6 @@ void vpux::registerSoftwareLayerBufferizableOpInterfaces(mlir::DialectRegistry& 
         VPU::SDPAExtendedOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::SDPAExtendedOp>>(*ctx);
         VPU::DynamicDataMaskOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::DynamicDataMaskOp>>(*ctx);
         VPU::FlashSDPAOp::attachInterface<FlashSDPAModel>(*ctx);
-        VPU::ReduceMeanSquareOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::ReduceMeanSquareOp>>(*ctx);
     });
     mlir::linalg::registerBufferizableOpInterfaceExternalModels(registry);
     mlir::tensor::registerBufferizableOpInterfaceExternalModels(registry);

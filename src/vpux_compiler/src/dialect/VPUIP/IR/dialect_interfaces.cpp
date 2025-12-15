@@ -434,7 +434,7 @@ CallOPPreInliner::ResourceDescriptor CallOPPreInliner::ResourceDescriptor::creat
             }
         }
     } catch (const std::exception& ex) {
-        log.debug("Cannot calculate DDR allocation due to exception: {1}", ex.what());
+        log.debug("Cannot calculate DDR allocation due to exception: {0}", ex.what());
         allocationsOffsetSize.clear();
     }
     if (allocationsOffsetSize.empty()) {
@@ -731,7 +731,7 @@ bool CallOPPreInliner::Dispatcher::CMXModifierForSWKernelOp::apply(mlir::Operati
     }
 
     auto swKernelRuns = swKernelTaskOp.getBody().getOps<VPUIP::SwKernelRun>();
-    _log.trace("{0} has SwKernelRun: {0}", swKernelTaskOp->getName(), !swKernelRuns.empty());
+    _log.trace("{0} has SwKernelRun: {1}", swKernelTaskOp->getName(), !swKernelRuns.empty());
     for (auto&& kernelRun : swKernelRuns) {
         auto operands = kernelRun->getOperands();
         _log.trace("operands: {0}", operands.size());

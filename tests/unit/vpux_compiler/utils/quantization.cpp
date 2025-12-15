@@ -10,7 +10,7 @@
 #include "vpux/compiler/core/attributes/shape.hpp"
 
 #include <gtest/gtest.h>
-#include <mlir/Dialect/Quant/QuantOps.h>
+#include <mlir/Dialect/Quant/IR/Quant.h>
 
 using namespace vpux;
 
@@ -29,7 +29,7 @@ void checkScalesAndZps(mlir::Type tiledType, ArrayRef<double> expectedScales, Ar
 
 TEST_F(MLIR_QuantizationUtilsTest, TileScalesAndZp) {
     mlir::MLIRContext ctx(registry);
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     constexpr int64_t axisSize = 32;
     SmallVector<double> scales(axisSize, 0.01);

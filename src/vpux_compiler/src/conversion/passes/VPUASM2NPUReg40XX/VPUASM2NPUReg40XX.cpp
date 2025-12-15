@@ -8,7 +8,6 @@
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg40XX/act_shave_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg40XX/barrier_configure_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg40XX/dma_rewriter.hpp"
-#include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg40XX/m2i_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg40XX/managed_barrier_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg40XX/managed_mapped_inference_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg40XX/mapped_inference_rewriter.hpp"
@@ -75,7 +74,6 @@ void ConvertVPUASM2NPUReg40XXPass::safeRunOnModule() {
 
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<BarrierRewriter>(&ctx, _log);
-    patterns.add<M2IRewriter>(&ctx, _log, symRefMap);
     patterns.add<ActShaveRtRewriter>(&ctx, _log);
     patterns.add<ActKernelInvocationRewriter>(&ctx, _log, symRefMap);
     patterns.add<ActKernelRangeRewriter>(&ctx, _log, symRefMap);
@@ -89,7 +87,6 @@ void ConvertVPUASM2NPUReg40XXPass::safeRunOnModule() {
     target.addIllegalOp<VPUASM::WorkItemOp>();
     target.addIllegalOp<VPUASM::MappedInferenceOp>();
     target.addIllegalOp<VPUASM::ConfigureBarrierOp>();
-    target.addIllegalOp<VPUASM::M2IOp>();
     target.addIllegalOp<VPUASM::ActShaveRtOp>();
     target.addIllegalOp<VPUASM::ActKernelInvocationOp>();
     target.addIllegalOp<VPUASM::ActKernelRangeOp>();

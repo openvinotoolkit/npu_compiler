@@ -5,7 +5,7 @@
 
 // RUN: vpux-opt %s --split-input-file --init-compiler="vpu-arch=%arch%" \
 // RUN:     --convert-eltwise-layers-to-math | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 module @BroadcastMax {
   net.NetworkInfo entryPoint : @main inputsInfo : {

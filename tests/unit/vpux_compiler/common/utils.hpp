@@ -7,6 +7,7 @@
 
 #include "vpux/compiler/NPU37XX/dialect/NPUReg37XX/ops.hpp"
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/dialect.hpp"
+#include "vpux/compiler/NPU50XX/dialect/NPUReg50XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/utils.hpp"
 #include "vpux/compiler/init.hpp"
@@ -99,6 +100,14 @@ class MLIR_RegMappedNPUReg40XXUnitBase : public MLIR_RegMappedUnitBase<HW_REG_TY
 public:
     MLIR_RegMappedNPUReg40XXUnitBase() {
         this->ctx->template loadDialect<vpux::NPUReg40XX::NPUReg40XXDialect>();
+        this->builder = std::make_unique<mlir::OpBuilder>(this->ctx.get());
+    }
+};
+template <typename HW_REG_TYPE, typename REG_MAPPED_TYPE>
+class MLIR_RegMappedNPUReg50XXUnitBase : public MLIR_RegMappedUnitBase<HW_REG_TYPE, REG_MAPPED_TYPE> {
+public:
+    MLIR_RegMappedNPUReg50XXUnitBase() {
+        this->ctx->template loadDialect<vpux::NPUReg50XX::NPUReg50XXDialect>();
         this->builder = std::make_unique<mlir::OpBuilder>(this->ctx.get());
     }
 };

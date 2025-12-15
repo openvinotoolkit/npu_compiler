@@ -26,6 +26,17 @@ def ExpandDPUConfig : PassBase<"expand-dpu-config", "vpux::FunctionPass"> {
         "vpux::VPUIPDPU::VPUIPDPUDialect",
         "vpux::ELF::ELFDialect"
     ];
+    let options = [
+        Option<
+            "npu5PPEBackwardsCompatibilityModeOpt", "npu5-ppe-backwards-compatibility-mode",
+            "vpux::VPURegMapped::NPU5PPEBackwardsCompatibilityMode", "",
+            "Flag which controls NPU5 PPE Backwards compatibility mode",
+            [{::llvm::cl::values(
+            clEnumValN(vpux::VPURegMapped::NPU5PPEBackwardsCompatibilityMode::DISABLED, "DISABLED", "NPU5 PPE Backwards Compatibility Mode DISABLED"),
+            clEnumValN(vpux::VPURegMapped::NPU5PPEBackwardsCompatibilityMode::ENABLED, "ENABLED", "NPU5 PPE Backwards Compatibility Mode ENABLED")
+          )}]
+        >
+    ];
 }
 
 #endif

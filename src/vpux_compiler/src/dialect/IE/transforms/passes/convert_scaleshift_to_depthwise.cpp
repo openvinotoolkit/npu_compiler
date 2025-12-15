@@ -14,6 +14,7 @@
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 
 namespace vpux::IE {
 #define GEN_PASS_DECL_CONVERTSCALESHIFTTODW
@@ -102,8 +103,7 @@ mlir::LogicalResult ConvertScaleShiftToDWPass::ScaleShiftOpConverter::matchAndRe
     if (origOp.getWeights() != nullptr) {
         const auto multiply = origOp.getWeights();
         const auto weightShapeAttr = getIntArrayAttr(origOp.getContext(), weightShape);
-        auto dwConvFilter = rewriter.create<IE::ReshapeOp>(origOp->getLoc(), multiply, nullptr, false, weightShapeAttr);
-        weights = dwConvFilter.getOutput();
+        weights = rewriter.createOrFold<IE::ReshapeOp>(origOp->getLoc(), multiply, nullptr, false, weightShapeAttr);
     } else {
         weights = createConstOp(weightShape, 1.0f);
         auto inputFq = origOp.getInput().getDefiningOp<IE::FakeQuantizeOp>();
@@ -150,9 +150,7 @@ void ConvertScaleShiftToDWPass::safeRunOnFunc() {
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<ScaleShiftOpConverter>(&ctx, _log);
 
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
-    }
+    collectOpsAndApplyPatterns(func, std::move(patterns));
 }
 
 }  // namespace

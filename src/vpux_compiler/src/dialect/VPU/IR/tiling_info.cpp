@@ -177,18 +177,20 @@ OutputTiling FlashSDPAOpOutputTiling(const vpux::TileInfo& firstOutputTile, int6
 }
 
 InputTiling FlashSDPAOpInputTiling(const vpux::TileInfo& firstOutputTile, ShapeRef keyShape,
-                                   std::optional<ShapeRef> attentionMaskShape, std::optional<ShapeRef> scaleShape) {
+                                   std::optional<ShapeRef> attentionMaskShape, std::optional<ShapeRef> scaleShape,
+                                   ShapeRef dpuDescriptorBufferShape, ShapeRef weightsTable0Shape,
+                                   ShapeRef weightsTable1Shape) {
     const auto targetSeqLen = firstOutputTile.shape[Dims4D::Act::H];
     const auto vEmbedding = firstOutputTile.shape[Dims4D::Act::W];
     const auto sourceSeqLen = keyShape[Dims4D::Act::H];
     const auto qkEmbedding = keyShape[Dims4D::Act::W];
-    const auto batch = keyShape[Dims4D::Act::C];
+    const auto heads = keyShape[Dims4D::Act::C];
 
-    const auto queryShape = Shape{1, batch, targetSeqLen, qkEmbedding};
-    const auto valueShape = Shape{1, batch, sourceSeqLen, vEmbedding};
-    const auto auxBufferShape = Shape{1, batch, targetSeqLen, sourceSeqLen};
-    const auto runningOutShape = Shape{1, batch, targetSeqLen, vEmbedding};
-    const auto runningMaxShape = Shape{1, batch, targetSeqLen, 1};
+    const auto queryShape = Shape{1, heads, targetSeqLen, qkEmbedding};
+    const auto valueShape = Shape{1, heads, vEmbedding, sourceSeqLen};
+    const auto auxBufferShape = Shape{1, heads, targetSeqLen, sourceSeqLen};
+    const auto runningOutShape = Shape{1, heads, targetSeqLen, vEmbedding};
+    const auto runningMaxShape = Shape{1, heads, targetSeqLen, 1};
     const auto& runningSumShape = runningMaxShape;
 
     auto syncTilesDim = [](const auto& tensorFrom, auto dimFrom, auto& tensorTo, auto dimTo) {
@@ -201,9 +203,11 @@ InputTiling FlashSDPAOpInputTiling(const vpux::TileInfo& firstOutputTile, ShapeR
     auto keyTile = TileInfo(keyShape);
     auto valueTile = TileInfo(valueShape);
 
-    // Might want to optimize the aux buffer to an output of the layer to avoid the tiling
-    // We just want to have a space to put things into, no need to treat it as an actual input with data
     auto auxBufferTile = TileInfo(auxBufferShape);
+
+    auto dpuDescriptorBufferTile = TileInfo(dpuDescriptorBufferShape);
+    auto weightsTable0Tile = TileInfo(weightsTable0Shape);
+    auto weightsTable1Tile = TileInfo(weightsTable1Shape);
 
     auto runningOutTile = TileInfo(runningOutShape);
     auto runningMaxTile = TileInfo(runningMaxShape);
@@ -228,9 +232,16 @@ InputTiling FlashSDPAOpInputTiling(const vpux::TileInfo& firstOutputTile, ShapeR
     syncTilesDim(firstOutputTile, Dims4D::Act::C, runningSumTile, Dims4D::Act::C);
     syncTilesDim(firstOutputTile, Dims4D::Act::H, runningSumTile, Dims4D::Act::H);
 
-    auto inputsTiles = SmallVector<TileInfo>{
-            std::move(queryTile),      std::move(keyTile),        std::move(valueTile),     std::move(auxBufferTile),
-            std::move(runningOutTile), std::move(runningMaxTile), std::move(runningSumTile)};
+    auto inputsTiles = SmallVector<TileInfo>{std::move(queryTile),
+                                             std::move(keyTile),
+                                             std::move(valueTile),
+                                             std::move(auxBufferTile),
+                                             std::move(dpuDescriptorBufferTile),
+                                             std::move(weightsTable0Tile),
+                                             std::move(weightsTable1Tile),
+                                             std::move(runningOutTile),
+                                             std::move(runningMaxTile),
+                                             std::move(runningSumTile)};
 
     if (attentionMaskShape.has_value()) {
         auto attentionMaskTile = TileInfo(attentionMaskShape.value());

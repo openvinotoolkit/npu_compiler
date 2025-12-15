@@ -5,6 +5,7 @@
 
 #include <vpux/compiler/dialect/config/IR/dialect.hpp>
 #include <vpux/compiler/dialect/config/IR/ops.hpp>
+#include <vpux/compiler/dialect/config/constraints.hpp>
 #include <vpux/compiler/dialect/core/IR/dialect.hpp>
 
 using namespace vpux;
@@ -16,6 +17,7 @@ void vpux::config::ConfigDialect::initialize() {
             >();
 
     registerAttributes();
+    addInterfaces<ConfigCache>();
 }
 
 //

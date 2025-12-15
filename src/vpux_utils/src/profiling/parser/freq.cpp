@@ -5,7 +5,8 @@
 
 //
 
-#include "vpux/utils/profiling/parser/freq.hpp"
+#include "vpux/compiler/NPU37XX/dialect/config/constraints.hpp"
+#include "vpux/compiler/NPU40XX/dialect/config/constraints.hpp"
 #include "vpux/utils/profiling/parser/parser.hpp"
 
 #include "vpux/utils/core/error.hpp"
@@ -35,7 +36,7 @@ FrequenciesSetup get37XXSetup(uint16_t pllMult, FreqStatus freqStatus, vpux::Log
     const double base = 50.0 * pllMult;
     const double vpuFreq = base / 2.0;
     const double dpuFreq = base / 1.5;
-    return getFreqSetup37XXHelper(vpuFreq, dpuFreq, ProfClk37XX::PROF_CLK_DEFAULT_VALUE_MHZ, freqStatus);
+    return getFreqSetup37XXHelper(vpuFreq, dpuFreq, vpux::arch37xx::PERF_CLK_DEFAULT_VALUE_MHZ, freqStatus);
 }
 
 FrequenciesSetup get40XXSetup(uint16_t pllMult, FreqStatus freqStatus, bool highFreqPerfClk, vpux::Logger& log) {
@@ -49,7 +50,7 @@ FrequenciesSetup get40XXSetup(uint16_t pllMult, FreqStatus freqStatus, bool high
     const double dpuFreq = base / 2.0;
     return getFreqSetup40XXHelper(
             vpuFreq, dpuFreq,
-            highFreqPerfClk ? ProfClk40XX::PROF_CLK_HIGHFREQ_VALUE_MHZ : ProfClk40XX::PROF_CLK_DEFAULT_VALUE_MHZ,
+            highFreqPerfClk ? vpux::arch40xx::PERF_CLK_HIGHFREQ_VALUE_MHZ : vpux::arch40xx::PERF_CLK_DEFAULT_VALUE_MHZ,
             freqStatus);
 }
 

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --vpu-arch=%arch% --convert-VPUMI40XX-to-VPUASM %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 module @Test attributes {config.arch = #config.arch_kind<NPU40XX>} {
   config.ExecutorResource 1 of @DMA_NN

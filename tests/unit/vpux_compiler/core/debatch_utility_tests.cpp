@@ -59,6 +59,35 @@ TEST_F(DebatchCoeffDescriptionTest, ApplyShapeSuccess) {
     }
 }
 
+TEST_F(DebatchCoeffDescriptionTest, ApplyDynamicShapeSuccess) {
+    std::string str = "[0-3]";
+    Shape shape{{mlir::ShapedType::kDynamic, mlir::ShapedType::kDynamic, mlir::ShapedType::kDynamic}};
+    for (size_t i = 0; i < shape.size(); i++) {
+        str[1] = std::to_string(i)[0];
+        auto v = DebatchCoeffDescription::createFromString(str);
+        Shape resultShape = v.apply(shape);
+        ASSERT_EQ(resultShape[Dim{i}], v.desiredBatchValue);
+        for (size_t j = 0; j < shape.size(); j++) {
+            if (i != j) {
+                ASSERT_EQ(resultShape[Dim{j}], shape[Dim{j}]);
+            }
+        }
+    }
+
+    DebatchCoeffDescription dynCoeff;
+    dynCoeff.desiredBatchValue = mlir::ShapedType::kDynamic;
+    for (size_t i = 0; i < shape.size(); i++) {
+        dynCoeff.batchPositionIndex = Dim{i};
+        Shape resultShape = dynCoeff.apply(shape);
+        ASSERT_EQ(resultShape[Dim{i}], mlir::ShapedType::kDynamic);
+        for (size_t j = 0; j < shape.size(); j++) {
+            if (i != j) {
+                ASSERT_EQ(resultShape[Dim{j}], shape[Dim{j}]);
+            }
+        }
+    }
+}
+
 TEST_F(DebatchCoeffDescriptionTest, ApplyShapeFail) {
     std::string str = "[0-3]";
     Shape shape{{4, 4, 4}};
@@ -74,6 +103,148 @@ TEST_F(DebatchCoeffDescriptionTest, ApplyShapeFail) {
     ASSERT_THROW(v.apply(shape), std::exception);
 }
 
+TEST_F(DebatchCoeffDescriptionTest, applyProportionFromShapeDowncastSuccess) {
+    std::string str = "[0-2]";
+    Shape fromShape{{4, 4, 4}};
+    Shape toShape{{6, 6, 6}};
+    for (size_t i = 0; i < fromShape.size(); i++) {
+        str[1] = std::to_string(i)[0];
+        auto v = DebatchCoeffDescription::createFromString(str);
+        Shape resultShape = v.applyProportionFromShape(fromShape, toShape);
+        ASSERT_EQ(resultShape[Dim{i}], 3);
+        for (size_t j = 0; j < fromShape.size(); j++) {
+            if (i != j) {
+                ASSERT_EQ(resultShape[Dim{j}], toShape[Dim{j}]);
+            }
+        }
+    }
+}
+TEST_F(DebatchCoeffDescriptionTest, applyProportionFromDynamicShapeDowncastSuccess) {
+    std::string str = "[0-1]";
+    Shape fromShape{{mlir::ShapedType::kDynamic, mlir::ShapedType::kDynamic, mlir::ShapedType::kDynamic}};
+    Shape toShape{{3, 1, 2}};
+    for (size_t i = 0; i < fromShape.size(); i++) {
+        str[1] = std::to_string(i)[0];
+        auto v = DebatchCoeffDescription::createFromString(str);
+        Shape resultShape = v.applyProportionFromShape(fromShape, toShape);
+        ASSERT_EQ(resultShape[Dim{i}], 1);
+        for (size_t j = 0; j < fromShape.size(); j++) {
+            if (i != j) {
+                ASSERT_EQ(resultShape[Dim{j}], toShape[Dim{j}]);
+            }
+        }
+    }
+}
+
+TEST_F(DebatchCoeffDescriptionTest, applyProportionFromShapeUpcastSuccess) {
+    std::string str = "[0-9]";
+    Shape fromShape{{3, 3, 3}};
+    Shape toShape{{6, 6, 6}};
+    for (size_t i = 0; i < fromShape.size(); i++) {
+        str[1] = std::to_string(i)[0];
+        auto v = DebatchCoeffDescription::createFromString(str);
+        Shape resultShape = v.applyProportionFromShape(fromShape, toShape);
+        ASSERT_EQ(resultShape[Dim{i}], 18);
+        for (size_t j = 0; j < fromShape.size(); j++) {
+            if (i != j) {
+                ASSERT_EQ(resultShape[Dim{j}], toShape[Dim{j}]);
+            }
+        }
+    }
+}
+
+TEST_F(DebatchCoeffDescriptionTest, applyProportionFromShapeAvoidNullInResult) {
+    std::string str = "[0-2]";
+    Shape fromShape{{6, 6, 6}};
+    Shape toShape{{2, 2, 2}};
+    for (size_t i = 0; i < fromShape.size(); i++) {
+        str[1] = std::to_string(i)[0];
+        auto v = DebatchCoeffDescription::createFromString(str);
+        Shape resultShape = v.applyProportionFromShape(fromShape, toShape);
+        ASSERT_EQ(resultShape[Dim{i}], 2);
+        for (size_t j = 0; j < fromShape.size(); j++) {
+            if (i != j) {
+                ASSERT_EQ(resultShape[Dim{j}], toShape[Dim{j}]);
+            }
+        }
+    }
+}
+
+TEST_F(DebatchCoeffDescriptionTest, applyProportionFromDynamicShapeSuccess) {
+    std::string str = "[0-3]";
+    Shape fromShape{{mlir::ShapedType::kDynamic, mlir::ShapedType::kDynamic, mlir::ShapedType::kDynamic}};
+    Shape toShape{{6, 6, 6}};
+    for (size_t i = 0; i < fromShape.size(); i++) {
+        str[1] = std::to_string(i)[0];
+        auto v = DebatchCoeffDescription::createFromString(str);
+        Shape resultShape = v.applyProportionFromShape(fromShape, toShape);
+        ASSERT_EQ(resultShape[Dim{i}], v.desiredBatchValue);
+        for (size_t j = 0; j < fromShape.size(); j++) {
+            if (i != j) {
+                ASSERT_EQ(resultShape[Dim{j}], 6);
+            }
+        }
+    }
+}
+
+TEST_F(DebatchCoeffDescriptionTest, applyProportionFromShapeDowncastFail) {
+    std::string str = "[0-3]";
+    Shape fromShapeIndivisible{{4, 4, 4}};
+    Shape toShape{{4, 4, 4}};
+    auto v = DebatchCoeffDescription::createFromString(str);
+    ASSERT_THROW(v.applyProportionFromShape(fromShapeIndivisible, toShape), std::exception);
+
+    Shape fromShapeDivisible{{6, 6, 6}};
+    Shape toShapeUndivisible{{3, 3, 3}};
+    v = DebatchCoeffDescription::createFromString(str);
+    ASSERT_THROW(v.applyProportionFromShape(fromShapeDivisible, toShapeUndivisible), std::exception);
+}
+
+TEST_F(DebatchCoeffDescriptionTest, applyProportionFromShapeUpcastFail) {
+    std::string str = "[0-5]";
+    Shape fromShape{{4, 4, 4}};
+    Shape toShape{{4, 4, 4}};
+    auto v = DebatchCoeffDescription::createFromString(str);
+    ASSERT_THROW(v.applyProportionFromShape(fromShape, toShape), std::exception);
+}
+
+TEST_F(DebatchCoeffDescriptionTest, createFromShapesSuccess) {
+    Shape fromShape{{4, 4, 4}};
+    for (size_t i = 0; i < fromShape.size(); i++) {
+        Shape toShape(fromShape);
+        toShape[Dim{i}] = 1;
+        auto v = DebatchCoeffDescription::createFromShapes(fromShape, toShape);
+        Shape resultShape = v.apply(fromShape);
+        ASSERT_EQ(resultShape, toShape);
+
+        toShape[Dim{i}] = 8;
+        v = DebatchCoeffDescription::createFromShapes(fromShape, toShape);
+        resultShape = v.apply(fromShape);
+        ASSERT_EQ(resultShape, toShape);
+    }
+}
+
+TEST_F(DebatchCoeffDescriptionTest, createFromShapesFail) {
+    Shape fromShape{{4, 4, 4}};
+    Shape toSmallShape{{4, 1}};
+    ASSERT_THROW(DebatchCoeffDescription::createFromShapes(fromShape, toSmallShape), std::exception);
+
+    Shape toBigShape{{4, 6, 6, 7, 8, 9}};
+    ASSERT_THROW(DebatchCoeffDescription::createFromShapes(fromShape, toBigShape), std::exception);
+
+    Shape toImpossibleShape{{3, 4, 4}};
+    ASSERT_THROW(DebatchCoeffDescription::createFromShapes(fromShape, toImpossibleShape), std::exception);
+}
+
+TEST_F(DebatchCoeffDescriptionTest, createFromShapesBatchNotFound) {
+    Shape fromShape{{4, 4, 4}};
+    Shape toShape{{4, 4, 4}};
+    auto coeff = DebatchCoeffDescription::createFromShapes(fromShape, toShape);
+    auto expectedCoeff = DebatchCoeffDescription{Dim{0}, toShape[Dim{0}]};
+    ASSERT_EQ(coeff.batchPositionIndex, expectedCoeff.batchPositionIndex);
+    ASSERT_EQ(coeff.desiredBatchValue, expectedCoeff.desiredBatchValue);
+}
+
 using DebatchCoefficientsTest = MLIR_UnitBase;
 TEST_F(DebatchCoefficientsTest, ParamsWellFormed) {
     std::string str = "";
@@ -84,16 +255,19 @@ TEST_F(DebatchCoefficientsTest, ParamsWellFormed) {
     str = "1:[1-1],2:[2-2],3:[3-3]";
     ASSERT_NO_THROW(c = DebatchCoefficients::create(str));
     ASSERT_EQ(c->size(), 3);
+    ASSERT_EQ(c->to_string(true), str);
 
     str = "[1-1],[2-2],[3-3]";
     ASSERT_NO_THROW(c = DebatchCoefficients::create(str));
     ASSERT_EQ(c->size(), 3);
+    ASSERT_EQ(c->to_string(), str);
 
     str = "[0-1],[0-1],[0-1],[0-1],[0-1],[0-1],[0-1],[0-1],[0-1],[0-4097],[0-4096],[0-4096],[0-4096],[0-1],[0-11008],["
           "0-11008],[0-11008],[0-11008],[0-4096],[0-4096],[0-1],[0-4096],[0-4096],[0-4096],[0-4096],[0-1],[0-1],[0-1],["
           "0-1],[0-1],[0-1],";
     ASSERT_NO_THROW(c = DebatchCoefficients::create(str));
     ASSERT_EQ(c->size(), 31);
+    ASSERT_EQ(c->to_string(), str.substr(0, str.size() - 1 /*exclude the last comma*/));
 }
 
 TEST_F(DebatchCoefficientsTest, ParamsWellNamedUnnamedMalformed) {

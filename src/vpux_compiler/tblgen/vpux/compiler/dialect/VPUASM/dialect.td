@@ -30,7 +30,7 @@ def VPUASM_Dialect : Dialect {
         "vpux::VPUIP::VPUIPDialect",
         "vpux::VPUMI40XX::VPUMI40XXDialect",
         "mlir::func::FuncDialect",
-        "mlir::quant::QuantizationDialect"
+        "mlir::quant::QuantDialect"
     ];
 
     let extraClassDeclaration = [{

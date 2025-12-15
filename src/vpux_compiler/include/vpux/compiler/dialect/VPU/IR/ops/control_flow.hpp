@@ -7,6 +7,7 @@
 
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/Interfaces/InferTypeOpInterface.h>
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
 
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 

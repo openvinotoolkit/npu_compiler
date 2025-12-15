@@ -20,6 +20,10 @@ TEST_P(SpaceToBatchLayerTestCommon, NPU4000_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU4000);
 }
+TEST_P(SpaceToBatchLayerTestCommon, NPU5010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
 }  // namespace test
 }  // namespace ov
 

@@ -5,7 +5,8 @@
 
 #include "vpux/compiler/dialect/VPU/utils/eltwise_utils.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
@@ -17,6 +18,11 @@ bool vpux::VPU::isNCEEltwiseSupported(mlir::Operation* op, vpux::NDTypeInterface
                                       vpux::NDTypeInterface input2Type, vpux::NDTypeInterface outputType,
                                       bool allowDifferentScales, bool allowDifferentZp, bool checkLayout,
                                       bool checkChannelAlignment, LogCb logCb) {
+    if (config::getCompilationMode(op) == config::CompilationMode::ReferenceSW) {
+        // We are in reference SW compilation mode
+        return false;
+    }
+
     if (input1Type.getRank() != 4 || input2Type.getRank() != 4 || outputType.getRank() != 4) {
         logCb(formatv("Only 4D tensors are supported"));
         return false;

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --fuse-softmax --canonicalize %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @FuseSoftmax_DecomposedSoftmaxPattern
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<64x199x63xf32>)

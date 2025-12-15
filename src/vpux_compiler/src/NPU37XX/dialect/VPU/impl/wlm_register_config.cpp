@@ -20,3 +20,7 @@ llvm::SmallVector<uint32_t> RegisterConfig::getDPURegisterAddrs() {
 uint32_t RegisterConfig::getNCEBarrierFifoAddr() {
     return 0;
 }
+
+uint32_t RegisterConfig::getNCEBarrierFifoDepth() {
+    return 0;
+}

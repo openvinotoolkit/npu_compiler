@@ -111,6 +111,7 @@
                 "CMAKE_EXPORT_COMPILE_COMMANDS" : true,
 
                 "ENABLE_DEVELOPER_BUILD": true,
+                "LIT_TESTS_USE_LINKS": true,
 
                 "ENABLE_VPUX_DOCS": false,
                 "ENABLE_NPU_MICRO_BENCHMARKS": true
@@ -137,6 +138,7 @@
                 "CMAKE_EXPORT_COMPILE_COMMANDS" : true,
 
                 "ENABLE_DEVELOPER_BUILD": true,
+                "LIT_TESTS_USE_LINKS": true,
 
                 "ENABLE_VPUX_DOCS": false,
                 "ENABLE_NPU_MICRO_BENCHMARKS": true
@@ -393,20 +395,9 @@
             }
         },
         {
-            "name": "NPU3720/Simulator",
+            "name": "Silicon",
             "hidden": true,
-            "inherits": [
-                "NPU3720",
-                "Simulator"
-            ],
-            "configurePreset": "vpuxDeveloper",
-            "output": {
-                "verbosity": "verbose"
-            },
-            "filter": {
-                "include": {
-                    "name": "^(npuFuncTests-parallel|SingleImageTests)$"
-                }
+            "environment": {
             }
         },
         {
@@ -423,23 +414,6 @@
             "filter": {
                 "include": {
                     "name": "^(npuFuncTests|SingleImageTests)$"
-                }
-            }
-        },
-        {
-            "name": "NPU4000/Simulator",
-            "hidden": true,
-            "inherits": [
-                "NPU4000",
-                "Simulator"
-            ],
-            "configurePreset": "vpuxDeveloper",
-            "output": {
-                "verbosity": "verbose"
-            },
-            "filter": {
-                "include": {
-                    "name": "^(npuFuncTests-parallel|SingleImageTests)$"
                 }
             }
         },

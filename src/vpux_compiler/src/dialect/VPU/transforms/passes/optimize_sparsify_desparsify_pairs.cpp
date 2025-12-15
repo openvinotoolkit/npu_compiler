@@ -4,11 +4,13 @@
 //
 
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 
 namespace vpux::VPU {
 #define GEN_PASS_DECL_OPTIMIZESPARSIFYDESPARSIFYPAIRS
@@ -249,11 +251,8 @@ void OptimizeSparsifyDesparsifyPairsPass::safeRunOnFunc() {
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<EliminateDesparsifySparsifyPairs>(&ctx, _log, _sparsityProfile);
     patterns.add<RemoveConcatWrappers>(&ctx, _log, _sparsityProfile);
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
-    }
+    collectOpsAndApplyPatterns(func, std::move(patterns));
 }
-
 }  // namespace
 
 //

@@ -4,6 +4,9 @@
 //
 
 #include "vpux/compiler/dialect/IE/IR/ops/arithmetic.hpp"
+#include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
+#include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 using namespace vpux;
 
@@ -18,8 +21,12 @@ mlir::LogicalResult vpux::IE::LogOp::inferReturnTypeComponents(
         return mlir::failure();
     }
 
-    const auto inType = mlir::cast<mlir::ShapedType>(log.getInput().getType());
-    inferredReturnShapes.emplace_back(inType.getShape(), inType.getElementType());
+    const auto inType = mlir::cast<vpux::NDTypeInterface>(log.getInput().getType());
+    const auto inShapeInfo = ShapeInfo::fromNDType(inType);
+
+    const auto outDesc =
+            vpux::getTensorAttr(ctx, inType.getDimsOrder(), /*memSpace=*/nullptr, BoundsRef(inShapeInfo.bounds));
+    inferredReturnShapes.emplace_back(inShapeInfo.shape, inType.getElementType(), outDesc);
 
     return mlir::success();
 }

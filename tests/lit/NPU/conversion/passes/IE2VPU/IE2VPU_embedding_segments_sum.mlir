@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --convert-layers-to-VPU %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @EmbeddingSegmentsSumWithWeights
 func.func @EmbeddingSegmentsSumWithWeights(%arg0: tensor<5x6x4xui8>) -> tensor<7x6x4xui8> {

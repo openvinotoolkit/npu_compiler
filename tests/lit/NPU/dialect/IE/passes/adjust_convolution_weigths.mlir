@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --adjust-convolution-weights %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @AdjustConvWeightsCase1
 func.func @AdjustConvWeightsCase1(%arg0: tensor<1x16x40x40xf16>) -> tensor<1x32x40x40xf16> {

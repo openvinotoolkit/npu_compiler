@@ -53,7 +53,7 @@ include(flatbuffers.cmake)
 
 if (ENABLE_NPU_MONO)
     if (NOT TARGET npu_elf)
-        message(FATAL_ERROR "elf/vpux_elf target must exist since ENABLE_NPU_MONO is ON")
+        message(FATAL_ERROR "elf target must exist since ENABLE_NPU_MONO is ON")
     endif()
     # TODO remove:
     # `src/vpux_compiler/include/vpux/compiler/dialect/NPUReg37XX/api`
@@ -61,12 +61,8 @@ if (ENABLE_NPU_MONO)
     # after integration finishes
 else()
     # Legacy no-monorepo scenario
-    add_subdirectory(elf/vpux_elf EXCLUDE_FROM_ALL)
+    add_subdirectory(elf EXCLUDE_FROM_ALL)
     target_include_directories(npu_elf PRIVATE
-        "${PROJECT_SOURCE_DIR}/src/vpux_compiler/include/vpux/compiler/NPU37XX/dialect/NPUReg37XX/firmware_headers/details"
-        "${PROJECT_SOURCE_DIR}/src/vpux_compiler/include/vpux/compiler/NPU40XX/dialect/NPUReg40XX/firmware_headers/details")
-
-    target_include_directories(vpux_elf PRIVATE
         "${PROJECT_SOURCE_DIR}/src/vpux_compiler/include/vpux/compiler/NPU37XX/dialect/NPUReg37XX/firmware_headers/details"
         "${PROJECT_SOURCE_DIR}/src/vpux_compiler/include/vpux/compiler/NPU40XX/dialect/NPUReg40XX/firmware_headers/details")
 endif()

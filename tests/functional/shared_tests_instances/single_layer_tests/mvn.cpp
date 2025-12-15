@@ -111,6 +111,11 @@ TEST_P(Mvn1LayerTest_SW, NPU4000_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU4000);
 }
+TEST_P(Mvn1LayerTest_SW, NPU5010_SW) {
+    abs_threshold = 0.03;
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
 TEST_P(Mvn1ZeroInputLayerTest_NPU3720_HW, HW) {
     abs_threshold = 0.003;
     setDefaultHardwareMode();
@@ -142,6 +147,10 @@ TEST_P(Mvn6LayerTestCommon, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
+TEST_P(Mvn6LayerTestCommon, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
 // -------------- MVN6 F32 tests
 
 TEST_P(Mvn6LayerTestCommonFP32, NPU3720_SW) {
@@ -152,6 +161,10 @@ TEST_P(Mvn6LayerTestCommonFP32, NPU3720_SW) {
 TEST_P(Mvn6LayerTestCommonFP32, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
+}
+TEST_P(Mvn6LayerTestCommonFP32, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
 }
 }  // namespace test
 }  // namespace ov

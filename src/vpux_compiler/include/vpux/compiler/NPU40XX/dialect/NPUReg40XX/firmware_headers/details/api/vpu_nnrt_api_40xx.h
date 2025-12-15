@@ -67,7 +67,7 @@
  *     to allow runtime to efficiently fill barrier FIFOs.
  */
 #define VPU_NNRT_40XX_API_VER_MAJOR 11
-#define VPU_NNRT_40XX_API_VER_MINOR 10
+#define VPU_NNRT_40XX_API_VER_MINOR 13
 #define VPU_NNRT_40XX_API_VER_PATCH 3
 #define VPU_NNRT_40XX_API_VER ((VPU_NNRT_40XX_API_VER_MAJOR << 16) | VPU_NNRT_40XX_API_VER_MINOR)
 
@@ -328,12 +328,32 @@ static_assert(offsetof(VpuMappedInference, shv_rt_configs) % 8 == 0, "Alignment 
 static_assert(offsetof(VpuMappedInference, hwp_workpoint_cfg_addr) % 8 == 0, "Alignment error");
 static_assert(offsetof(VpuMappedInference, managed_inference) % 8 == 0, "Alignment error");
 
+
+/**
+ * @brief The struct passed to the firmware to run the inference.
+ */
 struct VPU_ALIGNED_STRUCT(32) VpuHostParsedInference {
     uint64_t reserved_;
     VpuResourceRequirements resource_requirements_;
-    uint8_t pad_[4];
+
+    /**
+     * @brief Determines whether the access to the VpuManagedMappedInference is direct or indirect.
+     */
+    enum VpuMmiAccessMode : uint8_t {
+        INDIRECT = 0, /**< The managed inference is accessed indirectly, through the managed_inference member of the
+                         VpuMappedInference struct. */
+        DIRECT,       /**< The managed inference is accessed directly from the managed_inference_ member of the
+                         VpuHostParsedInference  struct. */
+        UNKNOWN = 255
+    };
+
+    VpuMmiAccessMode mmi_access_;
+    uint8_t pad_[3];
     struct VpuPerformanceMetrics performance_metrics_;
-    VpuTaskReference<VpuMappedInference> mapped_;
+    union VPU_ALIGNED_STRUCT(8) {
+        VpuTaskReference<VpuMappedInference> mapped_;
+        VpuTaskReference<VpuManagedMappedInference> managed_inference_;
+    };
 };
 
 static_assert(sizeof(VpuHostParsedInference) == 384, "VpuHostParsedInference size != 384");

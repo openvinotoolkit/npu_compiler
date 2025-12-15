@@ -13,7 +13,7 @@
 #include "vpux/utils/core/func_ref.hpp"
 
 #include <llvm/ADT/Hashing.h>
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 
 using namespace vpux;
 

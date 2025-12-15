@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/IE/transforms/factories/convert_to_mixed_precision_getter.hpp"
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/convert_to_mixed_precision_strategy.hpp"
+#include "vpux/compiler/NPU50XX/dialect/IE/impl/convert_to_mixed_precision_strategy.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 
 namespace vpux::IE {
@@ -16,6 +17,8 @@ std::unique_ptr<IConvertToMixedPrecisionStrategy> createConvertToMixedPrecisionS
     case config::ArchKind::NPU37XX:
     case config::ArchKind::NPU40XX:
         return std::make_unique<arch37xx::ConvertToMixedPrecisionStrategy>(enableFloatInQuantWeightsMixedMode);
+    case config::ArchKind::NPU50XX:
+        return std::make_unique<arch50xx::ConvertToMixedPrecisionStrategy>(enableFloatInQuantWeightsMixedMode);
     default:
         VPUX_THROW("Unsupported arch kind: {0}", arch);
     }

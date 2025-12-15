@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt  --split-input-file --init-compiler="vpu-arch=%arch%" --split-dma-to-balance-load  %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 !DummyT = memref<1x3x224x224xf16, @DDR>
 

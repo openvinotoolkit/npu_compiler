@@ -486,6 +486,10 @@ TEST_P(CompilationTestModel, NPU4000) {
     SetPlatform("VPU4000");
     Run();
 }
+TEST_P(CompilationTestModel, NPU5000) {
+    SetPlatform("VPU5000");
+    Run();
+}
 INSTANTIATE_TEST_SUITE_P(single_thread, CompilationTestModel,
                          ::testing::Combine(::testing::Values(std::vector<std::string>{"A"}),
                                             ::testing::ValuesIn(std::vector<size_t>{1}),  // num threads per model

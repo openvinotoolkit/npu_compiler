@@ -22,12 +22,12 @@ class GatherDMAOpBufferizeModel :
 public:
     mlir::LogicalResult bufferizeImpl(VPU::GatherDMAOp origOp, mlir::RewriterBase& rewriter,
                                       const mlir::bufferization::BufferizationOptions& options,
-                                      VPU::GatherDMAOp::Adaptor adaptor) const;
+                                      VPU::GatherDMAOp::Adaptor& adaptor) const;
 };
 
 mlir::LogicalResult GatherDMAOpBufferizeModel::bufferizeImpl(VPU::GatherDMAOp origOp, mlir::RewriterBase& rewriter,
                                                              const mlir::bufferization::BufferizationOptions&,
-                                                             VPU::GatherDMAOp::Adaptor adaptor) const {
+                                                             VPU::GatherDMAOp::Adaptor& adaptor) const {
     return vpux::bufferizeOp(origOp->getContext(), origOp, adaptor, rewriter);
 }
 

@@ -193,7 +193,7 @@ TEST_F(MLIR_ControlEdgeGenerator, TestMemOverlapEdgesWithSubViewTest4) {
 TEST_F(MLIR_ControlEdgeGenerator, TestMemOverlapEdgesWithSubViewTest5) {
     // auto registry = createDialectRegistry();
     // mlir::MLIRContext ctx(registry);
-    // ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    // ctx.loadDialect<mlir::quant::QuantDialect>();
     // ctx.loadDialect<Const::ConstDialect>();
 
     // mlir::OpBuilder builder(&ctx);

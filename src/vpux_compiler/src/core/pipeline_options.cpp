@@ -8,64 +8,6 @@
 
 namespace vpux {
 
-namespace detail {
-std::optional<BatchCompilerOptionsAdapterView::Occurence> extractSubOption(StrOption& subOption,
-                                                                           mlir::detail::PassOptions& passOptions,
-                                                                           std::string_view strOptions) {
-    auto namePos = strOptions.find(subOption.getArgStr());
-    if (namePos == std::string::npos) {
-        return {};
-    }
-
-    static const std::string unexpectedOptionValue{"unexpected-option-value"};
-    auto strOptionsBeginIt = strOptions.begin();
-    std::advance(strOptionsBeginIt, namePos);
-    subOption = unexpectedOptionValue;
-    auto statusCode = passOptions.parseFromString(
-            std::string_view(&(*strOptionsBeginIt), static_cast<size_t>(strOptions.end() - strOptionsBeginIt)));
-    (void)statusCode;
-    if (subOption == unexpectedOptionValue) {
-        return {};
-    }
-    if (subOption.empty()) {
-        return std::make_optional<BatchCompilerOptionsAdapterView::Occurence>(
-                BatchCompilerOptionsAdapterView::Occurence{namePos, subOption.getArgStr().size() + 1});
-    }
-
-    auto valuePos = strOptions.find(subOption, namePos);
-    if (valuePos == std::string::npos) {
-        return {};
-    }
-
-    // Include leading '{' and trailing '}' if it exists
-    auto subOptionSize = subOption.size();
-    if (valuePos > 0 && strOptions[valuePos - 1] == '{') {
-        valuePos--;
-        subOptionSize++;
-    }
-    if ((valuePos + subOptionSize) < strOptions.size() && strOptions[valuePos + subOptionSize] == '}') {
-        subOptionSize++;
-    }
-
-    return std::make_optional<BatchCompilerOptionsAdapterView::Occurence>(
-            BatchCompilerOptionsAdapterView::Occurence{namePos, valuePos + subOptionSize - namePos});
-}
-
-std::string cutOccurenceOutOfString(const std::optional<BatchCompilerOptionsAdapterView::Occurence>& occurence,
-                                    const std::string& originalStrOptions) {
-    if (!occurence.has_value()) {
-        return originalStrOptions;
-    }
-    std::string ret = originalStrOptions.substr(0, occurence->pos);
-    VPUX_THROW_WHEN(occurence->pos + occurence->length > originalStrOptions.size(),
-                    "in cutOccurenceOutOfString cannot cut string from pos: {0}, which is bigger than an entire string "
-                    "length: {1}",
-                    occurence->pos, originalStrOptions.size());
-    ret += originalStrOptions.substr(occurence->pos + occurence->length);
-    return ret;
-}
-}  // namespace detail
-
 BatchCompileOptionsAdapter::BatchCompileOptionsAdapter(mlir::detail::PassOptions& parent)
         : batchCompileMethod(parent, "batch-compile-method",
                              llvm::cl::desc("Preferred method for compilation of batched networks. Supported methods: "
@@ -94,72 +36,42 @@ std::optional<BatchCompilerOptionsAdapterView> BatchCompilerOptionsAdapterView::
         return {};
     }
 
-    // Do not use mlir::detail::PipelineOptions::createFromString() as it will return error,
-    // when faces unrecognizable params in original string
     auto passOptions = std::make_unique<mlir::detail::PassOptions>();
     auto extractedOptions = std::make_unique<BatchCompileOptionsAdapter>(*passOptions);
-
-    BatchCompilerOptionsAdapterView view;
-    extractedOptions->batchCompileMethod = "";  // clear an option value including default
-    view.optionDataMemberViews.emplace_back(
-            detail::extractSubOption(extractedOptions->batchCompileMethod, *passOptions, strOptions));
-    view.optionDataMemberViews.emplace_back(
-            detail::extractSubOption(extractedOptions->debatchCompileMethodSettings, *passOptions, strOptions));
-    view.optionDataMemberViews.emplace_back(
-            detail::extractSubOption(extractedOptions->batchUnrollCompileMethodSettings, *passOptions, strOptions));
-
-    bool noneOptionExtracted =
-            std::none_of(view.optionDataMemberViews.begin(), view.optionDataMemberViews.end(), [](const auto& opt) {
-                return opt.has_value();
-            });
-    if (noneOptionExtracted) {
+    if (mlir::failed(passOptions->parseFromString(strOptions))) {
         return {};
     }
+
+    BatchCompilerOptionsAdapterView view;
     view.guard = std::move(passOptions);
     view.optionDataPtr = std::move(extractedOptions);
     return view;
 }
 
-std::string BatchCompilerOptionsAdapterView::inject(const std::string& originalStrOptions) const {
-    auto oldParams = BatchCompilerOptionsAdapterView::tryExtractFromString(originalStrOptions);
-    std::string ret;
-    if (!oldParams.has_value()) {
-        ret = originalStrOptions + print();
-    } else {
-        // The idea is to cut out all suboptions  belonged to the `oldParams` from the initial string,
-        // so that all other suboptions/option which are not related to BatchCompilerOptions will survice
-        // After that we add `this` options print-result
-        // It does make sense as the order of options used by through PipelineOptions is irrelevant,
-        // so that instead of cutting and insetting updated values into related positions inside the original string
-        // we could just cut old suboptions and add new one at the tail of the string
-        auto greaterPos = std::not_fn(std::less<Occurence>());
-        std::set<Occurence, decltype(greaterPos)> sortedDataMemberView(greaterPos);
-        for (const auto& v : oldParams->optionDataMemberViews) {
-            if (v.has_value()) {
-                sortedDataMemberView.insert(v.value());
-            }
-        }
-        // cut out relevant pipeline options starting from the end of the string
-        ret = originalStrOptions;
-        for (const auto& v : sortedDataMemberView) {
-            ret = detail::cutOccurenceOutOfString(v, ret);
-        }
+std::string BatchCompilerOptionsAdapterView::injectInto(const std::string& originalStrOptions) const {
+    auto originalParams = BatchCompilerOptionsAdapterView::tryExtractFromString(originalStrOptions);
 
-        // append new values to the end of the string as an order is not important here
-        // use space as a separator
-        if (!ret.empty()) {
-            ret += ' ';
-        }
-        ret += print();
+    if (!originalParams.has_value()) {
+        return originalStrOptions + print();
     }
-    return ret;
+
+    const auto injectIfNeeded = [](const StrOption& src, StrOption& dst) {
+        if (src.hasValue()) {
+            dst = src;
+        }
+    };
+
+    injectIfNeeded(optionDataPtr->batchCompileMethod, originalParams->optionDataPtr->batchCompileMethod);
+    injectIfNeeded(optionDataPtr->debatchCompileMethodSettings,
+                   originalParams->optionDataPtr->debatchCompileMethodSettings);
+    injectIfNeeded(optionDataPtr->batchUnrollCompileMethodSettings,
+                   originalParams->optionDataPtr->batchUnrollCompileMethodSettings);
+
+    return originalParams->print();
 }
 
 std::string BatchCompilerOptionsAdapterView::print() const {
     VPUX_THROW_UNLESS(optionDataPtr != nullptr, "BatchCompilerOptionsAdapterView::print() must have an object");
-    VPUX_THROW_UNLESS(optionDataMemberViews.size() == 3,
-                      "BatchCompilerOptionsAdapterView::print() view field count: {0} are not expected: {1}",
-                      optionDataMemberViews.size(), 3);
     std::string ret;
     llvm::raw_string_ostream optionsPrinter(ret);
     guard->print(optionsPrinter);
@@ -178,8 +90,8 @@ const BatchCompileOptionsAdapter& BatchCompilerOptionsAdapterView::get() const {
 
 DebatcherOptions::DebatcherOptions()
         : debatcherInliningMethod(*this, "debatching-inlining-method",
-                                  llvm::cl::desc("Method for inlinging of debatching-function. Supported methods: "
-                                                 "\"naive\", \"reordering\". Default is \"naive\""),
+                                  llvm::cl::desc("Method for inlining of debatching-function. Supported methods: "
+                                                 "\"naive\", \"host_pipeline\", \"reordering\". Default is \"naive\""),
                                   llvm::cl::init("naive")),
           debatcherIntputCoeffPartitions(
                   *this, "debatcher-input-coefficients-partitions",
@@ -238,6 +150,10 @@ bool DebatcherOptions::isAvailable(const BatchCompileOptionsAdapter& options) {
     return options.batchCompileMethod == "debatch";
 }
 
+bool DebatcherOptions::isExplicitlySpecified(const BatchCompileOptionsAdapter& options) {
+    return options.batchCompileMethod.hasValue() && DebatcherOptions::isAvailable(options);
+}
+
 std::string DebatcherOptions::getDefaultOptions() {
     std::string ret;
     llvm::raw_string_ostream optionsPrinter(ret);
@@ -281,6 +197,10 @@ std::string DebatcherOptions::to_string() const {
 
 bool BatchUnrollOptions::isAvailable(const BatchCompileOptionsAdapter& options) {
     return options.batchCompileMethod == "unroll";
+}
+
+bool BatchUnrollOptions::isExplicitlySpecified(const BatchCompileOptionsAdapter& options) {
+    return options.batchCompileMethod.hasValue() && BatchUnrollOptions::isAvailable(options);
 }
 
 std::string BatchUnrollOptions::getDefaultOptions() {

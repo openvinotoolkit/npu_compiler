@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values=true" --align-scales %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @AlignConcatScales
 func.func @AlignConcatScales(%arg0: tensor<16x8x8xf16>, %arg1: tensor<16x1x8xf16>) -> tensor<1x16x5x8xf16> {

@@ -7,7 +7,7 @@
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/weights_separation.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
-#include "vpux/compiler/utils/net/network_info_utils.hpp"
+#include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <llvm/ADT/Hashing.h>

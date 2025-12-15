@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/ELFNPU37XX/import.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/constraints_initializer.hpp"
 #include "vpux/compiler/frontend/IE.hpp"
 #include "vpux/compiler/init.hpp"
 #include "vpux/compiler/interfaces_registry.hpp"
@@ -87,6 +88,10 @@ llvm::cl::opt<bool> enableShaveCodeGen{
         llvm::cl::desc("Enable Shave Code Generation pipeline. The kernels will be compile at runtime"),
         llvm::cl::init(false)};
 
+llvm::cl::opt<bool> enableDecomposeSDPA{"enable-decompose-sdpa",
+                                        llvm::cl::desc("Enable Attention operators decomposition during IE import"),
+                                        llvm::cl::init(true)};
+
 enum class NetworkIOType { INPUT, OUTPUT };
 
 //
@@ -159,6 +164,7 @@ mlir::OwningOpRef<mlir::ModuleOp> importIE(llvm::SourceMgr& sourceMgr, mlir::MLI
         importCfg.stubLayers = enableDummyOpReplacement;
         importCfg.dynamicShapeToStatic = dynamicShapeToStatic;
         importCfg.enableWeightsSeparationPath = enableWeightsSeparationPath;
+        importCfg.enableDecomposeSDPA = enableDecomposeSDPA;
 
         module = IE::importNetwork(ctx, model, IE::buildOVParams(model), IE::buildOVResults(model), rootTiming,
                                    importCfg);
@@ -283,6 +289,8 @@ int main(int argc, char* argv[]) {
 
             auto interfacesRegistry = vpux::createInterfacesRegistry(arch);
             interfacesRegistry->registerInterfaces(registry);
+
+            vpux::config::registerConstraints(registry, arch);
         };
         mlir::TranslateToMLIRRegistration("import-IE", "Translate OV IR to IE dialect", importIE, dialectRegistration);
         mlir::TranslateToMLIRRegistration("import-ELF", "Translate blob to ELF dialect", importELF,

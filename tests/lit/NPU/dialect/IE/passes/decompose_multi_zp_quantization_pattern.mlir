@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --decompose-multi-zp-quantization-pattern %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @DecomposeWACKVcachedPatternWithPostFP32MatMul
 // CHECK-SAME:  ([[ACT:%.+]]: tensor<1x1x4xf32>)

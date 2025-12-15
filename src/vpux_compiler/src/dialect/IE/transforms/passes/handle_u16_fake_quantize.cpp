@@ -17,7 +17,7 @@
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
-#include <mlir/Dialect/Quant/QuantOps.h>
+#include <mlir/Dialect/Quant/IR/Quant.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
@@ -441,12 +441,79 @@ mlir::LogicalResult LowerFakeQuantizeRewriter<ConcreteOp>::matchAndRewrite(Concr
                                                                                              : mlir::failure();
 }
 
+class U16FQConvertToQuantizeRewriter final : public mlir::OpRewritePattern<IE::ConvertOp> {
+public:
+    U16FQConvertToQuantizeRewriter(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::ConvertOp>(ctx), _log(log) {
+        this->setDebugName("U16FQConvertToQuantizeRewriter");
+    }
+
+private:
+    mlir::LogicalResult matchAndRewrite(IE::ConvertOp op, mlir::PatternRewriter& rewriter) const final {
+        const auto dstElemType = op.getDstElemType();
+        if (!dstElemType.isInteger(16)) {
+            return mlir::failure();
+        }
+        auto fqOp = mlir::dyn_cast_or_null<IE::FakeQuantizeOp>(op.getInput().getDefiningOp());
+        if (fqOp == nullptr) {
+            return mlir::failure();
+        }
+        const auto levels = fqOp.getLevels();
+        if (!levels.has_value() || *levels <= QuantizationLevels::QUANT_LEVELS_8BIT) {
+            return mlir::failure();
+        }
+        auto [scale, bias] =
+                getWeightsAndBiases(fqOp.getInputLow(), fqOp.getInputHigh(), fqOp.getOutputLow(), fqOp.getOutputHigh());
+        if (scale.size() != 1 || bias.size() != 1) {
+            return mlir::failure();
+        }
+        const auto [storageMin, storageMax, storageType] = getStorageParams(dstElemType);
+        const auto convertInputElemType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType()).getElementType();
+        auto quantType = mlir::quant::UniformQuantizedType::get(
+                dstElemType.isUnsignedInteger() ? 0 : mlir::quant::QuantizationFlags::Signed, storageType,
+                convertInputElemType, 1.0 / scale.front(), bias.front(), storageMin, storageMax);
+        auto quantizeOp = rewriter.create<IE::QuantizeOp>(takeOpLoc(op, "quant"), fqOp.getInput(), quantType);
+        auto quantizeCast =
+                rewriter.create<IE::QuantizeCastOp>(takeOpLoc(op, "quant_cast"), quantizeOp.getResult(), dstElemType);
+        rewriter.replaceOp(op, quantizeCast.getResult());
+        return mlir::success();
+    }
+
+private:
+    Logger _log;
+};
+
 void HandleU16FakeQuantizePass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
     auto module = getModuleOp(func);
 
     auto failedToPatternMatch = false;
+
+    // Handle the FakeQuantize(levels = 65536) -> Convert(u16) pattern which represents a Quantize(u16) operation. It is
+    // needed to explicitly execute this pattern as a U16 Quantize software kernel in order to prevent accuracy
+    // degradation that could occur if FakeQuantize is converted to Multiply->Add->Convert(u16) (which in the end will
+    // be a GroupConvolution). The explanation for accuracy degradation is that when Quantize(u16) gets coverted to FP16
+    // GroupConv->Convert(u16) the computation quantization formula:
+    // x_quant = round(x * fp32_scale) - u16_zp is
+    // executed as:
+    // fp16_x_gConv = fp16(fp32(x * fp16_scale) - fp32_bias) - GroupConv with fp16_scale weight and fp32_bias on PPE
+    // x_quant = u16(fp16_x_gConv) - the convert from Fp16 to u16
+    // In this computation there are multiple sources of approximation errors: x * fp16_scale is a done on fp16
+    // data type and it is known that for large numbers have signifigant difference compared to fp32, can hit also
+    // infinity because u16 Quantize can produce values from 0 to 65535 while fp16 range is -65504:+65504, there is also
+    // the convert from fp32 to fp16 done by ppe which does some roundings and the final convert to u16. The advantage
+    // of explicitly executing it via sofware kernels is that the inside computation is done in fp32 precision
+    {
+        // NOTE: U16FQConvertToQuantizeRewriter must take priority over RemoveU16FakeQuantizeRewriter and
+        // LowerFakeQuantizeRewriter
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.add<U16FQConvertToQuantizeRewriter>(&ctx, _log);
+        if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+            failedToPatternMatch = true;
+        }
+    }
+
     auto enableU16ToU8Lowering = config::hasEnableQDQOptimizationAggressive(module);
     if (enableU16ToU8Lowering) {
         // NOTE: LowerFakeQuantizeRewriter must take priority over RemoveU16FakeQuantizeRewriter
@@ -455,14 +522,15 @@ void HandleU16FakeQuantizePass::safeRunOnFunc() {
         patterns.add<LowerFakeQuantizeRewriter<IE::FullyConnectedOp>>(&ctx, _log);
         patterns.add<LowerFakeQuantizeRewriter<IE::ConvolutionOp>>(&ctx, _log);
         patterns.add<LowerFakeQuantizeRewriter<IE::GroupConvolutionOp>>(&ctx, _log);
-        if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+        if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
             failedToPatternMatch = true;
         }
     }
 
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<RemoveU16FakeQuantizeRewriter>(&ctx, _log);
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+
+    if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         failedToPatternMatch = true;
     }
 

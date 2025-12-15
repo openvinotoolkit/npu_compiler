@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --set-memory-space="memory-space=DDR" %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 module @VPU.SW {
     func.func private @builtin_softmax(%input : memref<*xf16>, %output : memref<*xf16>, %axis : i64) attributes {

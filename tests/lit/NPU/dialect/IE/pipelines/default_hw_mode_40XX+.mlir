@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --mlir-elide-elementsattrs-if-larger 8 --default-hw-mode-ie %s | FileCheck %s --strict-whitespace
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -278,48 +278,6 @@ module @ConvertAddToScaleShift {
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-// CHECK-LABEL: @ConvertReduceMinWithLargeTensorToPooling
-module @ConvertReduceMinWithLargeTensorToPooling {
-    net.NetworkInfo entryPoint : @main
-    inputsInfo : {
-        DataInfo "input" : tensor<1x128x512x16xf16, {order = #NHWC}>
-    } outputsInfo : {
-        DataInfo "output" : tensor<1xf16>
-    }
-
-    // CHECK: func.func @main([[INPUT:%.+]]: tensor<1x128x512x16xf16>) -> tensor<1xf16> {
-    func.func @main(%arg0: tensor<1x128x512x16xf16>) -> tensor<1xf16> {
-        %0 = IE.ReduceMin(%arg0) {axes_value = [0, 1, 2, 3]} : tensor<1x128x512x16xf16> -> tensor<1xf16>
-        return %0 : tensor<1xf16>
-
-        // CHECK:       [[NEGATIVE_IN_1:%.+]] = IE.Negative([[INPUT]]) : tensor<1x128x512x16xf16> -> tensor<1x128x512x16xf16>
-        // CHECK:       [[PERMUTE_QUANTIZE:%.+]] = IE.PermuteQuantize([[NEGATIVE_IN_1]]) {dstElemType = f16, dst_order = #NHWC, mem_perm = #NHWC, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0]} : tensor<1x128x512x16xf16> -> tensor<1x128x512x16xf16, {order = #NHWC}>
-        // CHECK:       [[MAXPOOL_1:%.+]] = IE.MaxPool([[PERMUTE_QUANTIZE]]) {kernel_size = [8, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [8, 1]} : tensor<1x128x512x16xf16, {order = #NHWC}> -> tensor<1x128x64x16xf16, {order = #NHWC}>
-        // CHECK:       [[MAXPOOL_2:%.+]] = IE.MaxPool([[MAXPOOL_1]]) {kernel_size = [8, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [8, 1]} : tensor<1x128x64x16xf16, {order = #NHWC}> -> tensor<1x128x8x16xf16, {order = #NHWC}>
-        // CHECK:       [[MAXPOOL_3:%.+]] = IE.MaxPool([[MAXPOOL_2]]) {kernel_size = [8, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x128x8x16xf16, {order = #NHWC}> -> tensor<1x128x1x16xf16>
-
-        // CHECK:       [[AFFINE_RESHAPE_1:%.+]] = IE.AffineReshape([[MAXPOOL_3]])
-        // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [2], [3]], shape_value = [1, 1, 128, 16]} : tensor<1x128x1x16xf16> -> tensor<1x1x128x16xf16>
-        // CHECK:       [[MAXPOOL_5:%.+]] = IE.MaxPool([[ALIGNED_NEGATIVE_IN_2:%.+]]) {kernel_size = [8, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [8, 1]} : tensor<1x16x128x16xf16, {order = #NHWC}> -> tensor<1x16x16x16xf16, {order = #NHWC}>
-        // CHECK:       [[MAXPOOL_6:%.+]] = IE.MaxPool([[MAXPOOL_5]]) {kernel_size = [8, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [8, 1]} : tensor<1x16x16x16xf16, {order = #NHWC}> -> tensor<1x16x2x16xf16, {order = #NHWC}>
-        // CHECK:       [[MAXPOOL_7:%.+]] = IE.MaxPool([[MAXPOOL_6]]) {kernel_size = [2, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x2x16xf16, {order = #NHWC}> -> tensor<1x16x1x16xf16, {order = #NHWC}>
-
-        // CHECK:       [[SHAPECAST:%.+]] = IE.ShapeCast {shape = [1, 16, 4, 4]} inputs([[MAXPOOL_7]] : tensor<1x16x1x16xf16, {order = #NHWC}>) -> tensor<1x16x4x4xf16, {order = #NHWC}>
-        // CHECK:       [[MAXPOOL_8:%.+]] = IE.MaxPool([[SHAPECAST:%.+]]) {kernel_size = [4, 4], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x4x4xf16, {order = #NHWC}> -> tensor<1x16x1x1xf16, {order = #NHWC}>
-        // CHECK:       [[SLICE_2:%.+]] = IE.Slice [[MAXPOOL_8]] [0, 0, 0, 0] [1, 1, 1, 1] : tensor<1x16x1x1xf16, {order = #NHWC}> to tensor<1x1x1x1xf16, {order = #NHWC}>
-        // CHECK:       [[NEGATIVE_OUT_3:%.+]] = IE.Negative([[SLICE_2]]) : tensor<1x1x1x1xf16, {order = #NHWC}> -> tensor<1x1x1x1xf16, {order = #NHWC}>
-
-        // CHECK:       [[PERMUTE_CAST_4:%.+]] = IE.PermuteCast([[NEGATIVE_OUT_3]]) {dst_order = #NCHW, mem_perm = #NWCH} : tensor<1x1x1x1xf16, {order = #NHWC}> -> tensor<1x1x1x1xf16>
-        // CHECK:       [[AFFINE_RESHAPE_5:%.+]] = IE.AffineReshape([[PERMUTE_CAST_4]])
-        // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [0], [0], [0]], shape_value = [1]} : tensor<1x1x1x1xf16> -> tensor<1xf16>
-        // CHECK:       return [[AFFINE_RESHAPE_5]] : tensor<1xf16>
-    }
-}
-
-// -----
-
-#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-
 // This test indicates there is a dependency between ConvertStridedSlice2Conv and AdjustConvolutionShape
 // for converting a StridedSlice to Convolution
 // CHECK-LABEL: @StridedSlice
@@ -458,7 +416,7 @@ module @RMSProcessingWith2DRMS {
 
         %weight = const.Declare tensor<1x768xf32> = dense<1.0> : tensor<1x768xf32>
         %cst = IE.Reshape(%weight) {shape_value = [768]} : tensor<1x768xf32> -> tensor<768xf32>
-        %out = IE.RMS(%arg0, %cst) {epsilon = 1.0013580322265625E-5 : f64} : tensor<1x768xf32>, tensor<768xf32> -> tensor<1x768xf32>
+        %out = IE.RMS(%arg0, %cst) {eps = 1.0013580322265625E-5 : f64} : tensor<1x768xf32>, tensor<768xf32> -> tensor<1x768xf32>
 
         return %out : tensor<1x768xf32>
 
@@ -466,7 +424,7 @@ module @RMSProcessingWith2DRMS {
         // CHECK:       [[AFFINE_RESHAPE_0:%.+]] = IE.AffineReshape(%arg0)
         // CHECK{LITERAL}:   {dim_mapping = [[0, 1, 2], [3]], shape_value = [1, 1, 1, 768]} : tensor<1x768xf32> -> tensor<1x1x1x768xf32>
         // CHECK:       [[CONVERT_0:%.+]] = IE.Convert([[AFFINE_RESHAPE_0]]) {dstElemType = f16} : tensor<1x1x1x768xf32> -> tensor<1x1x1x768xf16>
-        // CHECK:       [[RMS:%.+]] = IE.RMS([[CONVERT_0]], [[CST]]) {epsilon = 1.0013580322265625E-5 : f64} : tensor<1x1x1x768xf16>, tensor<1x1x1x768xf16> -> tensor<1x1x1x768xf16>
+        // CHECK:       [[RMS:%.+]] = IE.RMS([[CONVERT_0]], [[CST]]) {eps = 1.0013580322265625E-5 : f64} : tensor<1x1x1x768xf16>, tensor<1x1x1x768xf16> -> tensor<1x1x1x768xf16>
         // CHECK:       [[CONVERT_1:%.+]] = IE.Convert([[RMS]]) {dstElemType = f32} : tensor<1x1x1x768xf16> -> tensor<1x1x1x768xf32>
         // CHECK:       [[AFFINE_RESHAPE_1:%.+]] = IE.AffineReshape([[CONVERT_1]])
         // CHECK{LITERAL}:   {dim_mapping = [[0], [0], [0], [1]], shape_value = [1, 768]} : tensor<1x1x1x768xf32> -> tensor<1x768xf32>
@@ -498,4 +456,48 @@ module @UnrollBatchedMatMulSoftMax {
         // CHECK:       [[SOFTMAX:%.+]] = IE.SoftMax([[CONV]]) {axisInd = 1 : i64} : tensor<1x4096x1024x4xf16, {order = #NHWC}> -> tensor<1x4096x1024x4xf16, {order = #NHWC}>
         // CHECK:       [[CONCAT:%.+]] = IE.Concat([[SOFTMAX]],
     }
+}
+
+// -----
+
+#map = affine_map<(d0, d1, d2, d3) -> (d2, d1, d0, d3)>
+
+// CHECK-LABEL: @PropagateAsymmetricAffineReshapeAndTransposeThroughAdd
+module @PropagateAsymmetricAffineReshapeAndTransposeThroughAdd {
+    net.NetworkInfo entryPoint : @main
+    inputsInfo : {
+        DataInfo "input1" : tensor<1x1024x1024x1xf16>
+        DataInfo "input2" : tensor<1x1x1024x1024xf32>
+    } outputsInfo : {
+        DataInfo "output" : tensor<1x1x1024x1024xf16>
+    }
+
+    // CHECK:   func.func @main([[ARG0:%.+]]: tensor<1x1024x1024x1xf16>, [[ARG1:%.+]]: tensor<1x1x1024x1024xf32>) -> tensor<1x1x1024x1024xf16> {
+    func.func @main(%arg0: tensor<1x1024x1024x1xf16>, %arg1: tensor<1x1x1024x1024xf32>) -> tensor<1x1x1024x1024xf16> {
+        %0 = IE.Transpose(%arg0) {order_value = #map} : tensor<1x1024x1024x1xf16> -> tensor<1024x1024x1x1xf16>
+        %1 = IE.AffineReshape(%0) {dim_mapping = [[0, 1, 2], [3], [3], [3]], shape_value = [1, 1, 1024, 1024]} : tensor<1024x1024x1x1xf16> -> tensor<1x1x1024x1024xf16>
+
+        %2 = IE.Convert(%arg1) {dstElemType = f16} : tensor<1x1x1024x1024xf32> -> tensor<1x1x1024x1024xf16>
+
+        %3 = IE.Add(%1, %2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1024x1024xf16>, tensor<1x1x1024x1024xf16> -> tensor<1x1x1024x1024xf16>
+
+        %4 = IE.SoftMax(%3) {axisInd = 3 : i64} : tensor<1x1x1024x1024xf16> -> tensor<1x1x1024x1024xf16>
+
+        return %4 : tensor<1x1x1024x1024xf16>
+    }
+
+    // CHECK:       [[CONVERT:%.+]] = IE.Convert([[ARG1]]) {dstElemType = f16} : tensor<1x1x1024x1024xf32> -> tensor<1x1x1024x1024xf16>
+    // CHECK:       [[AFFINERESHAPE1:%.+]] = IE.AffineReshape([[CONVERT]])
+    // CHECK-SAME{LITERAL}:     {dim_mapping = [[0], [0], [0], [1, 2, 3]], shape_value = [1024, 1024, 1, 1]} : tensor<1x1x1024x1024xf16> -> tensor<1024x1024x1x1xf16>
+    // CHECK:       [[SHAPECAST1:%.+]] = IE.ShapeCast {shape = [1, 1024, 64, 16]} inputs([[ARG0]] : tensor<1x1024x1024x1xf16>) -> tensor<1x1024x64x16xf16>
+    // CHECK:       [[PERMUTEQUANTIZE:%.+]] = IE.PermuteQuantize([[SHAPECAST1]]) {dstElemType = f16, dst_order = #NHWC, mem_perm = #NHWC, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0]} : tensor<1x1024x64x16xf16> -> tensor<1x1024x64x16xf16, {order = #NHWC}>
+    // CHECK:       [[SHAPECAST2:%.+]] = IE.ShapeCast {shape = [1, 1024, 1024, 1]} inputs([[PERMUTEQUANTIZE]] : tensor<1x1024x64x16xf16, {order = #NHWC}>) -> tensor<1x1024x1024x1xf16, {order = #NHWC}>
+    // CHECK:       [[PERMUTECAST1:%.+]] = IE.PermuteCast([[AFFINERESHAPE1]]) {dst_order = #NHWC, mem_perm = #map} : tensor<1024x1024x1x1xf16> -> tensor<1x1024x1024x1xf16, {order = #NHWC}>
+    // CHECK:       [[ADD:%.+]] = IE.Add([[SHAPECAST2]], [[PERMUTECAST1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1024x1024x1xf16, {order = #NHWC}>, tensor<1x1024x1024x1xf16, {order = #NHWC}> -> tensor<1x1024x1024x1xf16, {order = #NHWC}>
+    // CHECK:       [[SOFTMAX:%.+]] = IE.SoftMax([[ADD]]) {axisInd = 1 : i64} : tensor<1x1024x1024x1xf16, {order = #NHWC}> -> tensor<1x1024x1024x1xf16, {order = #NHWC}>
+    // CHECK:       [[PERMUTECAST2:%.+]] = IE.PermuteCast([[SOFTMAX]]) {dst_order = #NCHW, mem_perm = #map1} : tensor<1x1024x1024x1xf16, {order = #NHWC}> -> tensor<1024x1024x1x1xf16>
+    // CHECK:       [[RESHAPE_OUT:%.+]] = IE.AffineReshape([[PERMUTECAST2]])
+    // CHECK-SAME{LITERAL}:     {dim_mapping = [[0, 1, 2], [3], [3], [3]], shape_value = [1, 1, 1024, 1024]} : tensor<1024x1024x1x1xf16> -> tensor<1x1x1024x1024xf16>
+
+    // CHECK:       return [[RESHAPE_OUT:%.+]] : tensor<1x1x1024x1024xf16>
 }

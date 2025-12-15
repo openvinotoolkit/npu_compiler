@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/pooling.hpp"
+#include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 
 using namespace vpux;
 
@@ -26,7 +26,7 @@ mlir::LogicalResult vpux::VPU::AdaptiveAvgPoolOp::inferReturnTypes(
         return errorAt(loc, "Input shape should be 3D, 4D or 5D. Got {0}D", inputShape.size());
     }
 
-    auto spatialDimData = IE::constInputToData(loc, adaptiveAvgPool.getPooledSpatialShape());
+    auto spatialDimData = VPU::extractConstData(loc, adaptiveAvgPool.getPooledSpatialShape());
     if (mlir::failed(spatialDimData)) {
         return mlir::failure();
     }

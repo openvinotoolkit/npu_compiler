@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
 
 using namespace vpux;
 
@@ -20,16 +20,6 @@ mlir::LogicalResult vpux::VPU::FloorModOp::inferReturnTypes(mlir::MLIRContext* c
         return mlir::failure();
     }
 
-    const auto in1Type = mlir::cast<vpux::NDTypeInterface>(floorMod.getInput1().getType());
-    const auto in2Type = mlir::cast<vpux::NDTypeInterface>(floorMod.getInput2().getType());
-
-    const auto outShapeRes = IE::broadcastEltwiseShape(in1Type.getShape().raw(), in2Type.getShape().raw(),
-                                                       floorMod.getAutoBroadcast(), loc);
-
-    if (mlir::succeeded(outShapeRes)) {
-        const auto outType = in1Type.changeShape(ShapeRef(outShapeRes.value()));
-        inferredReturnTypes.push_back(outType);
-    }
-
-    return mlir::success();
+    return inferEltwiseReturnTypes(inferredReturnTypes, loc, floorMod.getInput1(), floorMod.getInput2(),
+                                   floorMod.getAutoBroadcast());
 }

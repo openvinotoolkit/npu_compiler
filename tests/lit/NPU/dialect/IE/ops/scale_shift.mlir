@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @FuseScaleAndBias
 // CHECK-SAME:     ([[ARG0:%.+]]: tensor<1x3x300x300xf32>)
@@ -150,4 +150,42 @@ func.func @FuseScaleShiftsWithMultipleConstTransformations(%arg0: tensor<1x64x1x
     // CHECK-DAG:   [[BIAS:%.+]] = const.Declare tensor<1x64x1x1xf16> = dense<4.000000e+01> : tensor<1x64x1x1xf32>, [#const.CastElemType<f16>]
     // CHECK:       [[SCALE_SHIFT:%.+]] = IE.ScaleShift([[ARG0]], [[SCALE]], [[BIAS]]) {operandSegmentSizes = array<i32: 1, 1, 1>} : tensor<1x64x1x9216xf16>, tensor<1x64x1x1xf16>, tensor<1x64x1x1xf16> -> tensor<1x64x1x9216xf16>
     // CHECK:       return [[SCALE_SHIFT]]
+}
+
+// -----
+
+// CHECK-LABEL: @FoldIdentity
+// CHECK-SAME:     ([[ARG0:%.+]]: tensor<1x3x300x300xf32>)
+func.func @FoldIdentity(%arg0: tensor<1x3x300x300xf32>) -> tensor<1x3x300x300xf32> {
+    %add = IE.Add(%arg0, %arg0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x3x300x300xf32>, tensor<1x3x300x300xf32> -> tensor<1x3x300x300xf32>
+    %weights = const.Declare tensor<1x3x1x1xf32> = dense<1.0> : tensor<1x3x1x1xf32>
+    %bias = const.Declare tensor<1x3x1x1xf32> = dense<0.0> : tensor<1x3x1x1xf32>
+    %scale_shift = IE.ScaleShift(%add, %weights, %bias)
+        {operandSegmentSizes = array<i32: 1, 1, 1>} :
+        tensor<1x3x300x300xf32>, tensor<1x3x1x1xf32>, tensor<1x3x1x1xf32> -> tensor<1x3x300x300xf32>
+
+    return %scale_shift : tensor<1x3x300x300xf32>
+
+    // CHECK: [[ADD:%.+]] = IE.Add([[ARG0]], [[ARG0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x3x300x300xf32>, tensor<1x3x300x300xf32> -> tensor<1x3x300x300xf32>
+    // CHECK: return [[ADD]]
+}
+
+// -----
+
+// CHECK-LABEL: @FuseAndFoldIdentity
+// CHECK-SAME:     ([[ARG0:%.+]]: tensor<1x1x64x3072xf16>)
+func.func @FuseAndFoldIdentity(%arg0: tensor<1x1x64x3072xf16>) -> tensor<1x1x64x3072xf16> {
+    %wights1_cst = const.Declare tensor<1x1x1x1xf16> = dense<1.83503522E-4> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
+    %bias1_cst = const.Declare tensor<1x1x1x1xf16> = dense<-6.07873774> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
+    %wights0_cst = const.Declare tensor<1x1x1x1xf16> = dense<5449.48633> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
+    %bias0_cst = const.Declare tensor<1x1x1x1xf16> = dense<33125.9961> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>] loc(unknown)
+    %add = IE.Add(%arg0, %arg0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x64x3072xf16>, tensor<1x1x64x3072xf16> -> tensor<1x1x64x3072xf16>
+    %sf0 = IE.ScaleShift(%add, %wights0_cst) {operandSegmentSizes = array<i32: 1, 1, 0>} : tensor<1x1x64x3072xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x64x3072xf16>
+    %sf1 = IE.ScaleShift(%sf0, %bias0_cst) {operandSegmentSizes = array<i32: 1, 0, 1>} : tensor<1x1x64x3072xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x64x3072xf16>
+    %sf2 = IE.ScaleShift(%sf1, %wights1_cst) {operandSegmentSizes = array<i32: 1, 1, 0>} : tensor<1x1x64x3072xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x64x3072xf16>
+    %sf3 = IE.ScaleShift(%sf2, %bias1_cst) {operandSegmentSizes = array<i32: 1, 0, 1>} : tensor<1x1x64x3072xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x64x3072xf16>
+    return %sf3 : tensor<1x1x64x3072xf16>
+
+    // CHECK: [[ADD:%.+]] = IE.Add([[ARG0]], [[ARG0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x64x3072xf16>, tensor<1x1x64x3072xf16> -> tensor<1x1x64x3072xf16>
+    // CHECK: return [[ADD]]
 }

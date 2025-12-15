@@ -6,8 +6,10 @@
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"  // for vpux::getBufferType()
 
 #include <llvm/ADT/TypeSwitch.h>
+#include <mlir/Support/LLVM.h>
 
 using namespace vpux;
 
@@ -58,22 +60,46 @@ Const::OpaqueI64ElementsAttr VPU::DistributedTensorType::getDynamicDimsMask() co
     return getImpl()->dynamicDimsMask;
 }
 
-VPU::DistributedTensorType VPU::DistributedTensorType::cloneWith(std::optional<mlir::ArrayRef<int64_t>> shape,
-                                                                 mlir::Type elementType) const {
+mlir::ShapedType VPU::DistributedTensorType::cloneWith(std::optional<mlir::ArrayRef<int64_t>> shape,
+                                                       mlir::Type elementType) const {
     if (!shape.has_value()) {
         return mlir::cast<vpux::VPU::DistributedTensorType>(changeElemType(elementType));
     }
     return mlir::cast<vpux::VPU::DistributedTensorType>(changeShapeElemType(ShapeRef(shape.value()), elementType));
 }
 
+mlir::FailureOr<::mlir::bufferization::BufferLikeType> VPU::DistributedTensorType::getBufferType(
+        const mlir::bufferization::BufferizationOptions&, llvm::function_ref<mlir::InFlightDiagnostic()>) const {
+    return mlir::cast<mlir::bufferization::BufferLikeType>(vpux::getBufferType(*this));
+}
+
+mlir::LogicalResult VPU::DistributedTensorType::verifyCompatibleBufferType(
+        mlir::bufferization::BufferLikeType bufferType, llvm::function_ref<mlir::InFlightDiagnostic()>) const {
+    // Note: in theory, this can be done differently, without needing to convert
+    // buffer to tensor
+    return mlir::success(*this == reconstructTensorType(bufferType));
+}
+
 //
 // VPU::SparseTensorType accessors
 //
 
-VPU::SparseTensorType VPU::SparseTensorType::cloneWith(std::optional<mlir::ArrayRef<int64_t>> shape,
-                                                       mlir::Type elementType) const {
+mlir::ShapedType VPU::SparseTensorType::cloneWith(std::optional<mlir::ArrayRef<int64_t>> shape,
+                                                  mlir::Type elementType) const {
     if (!shape.has_value()) {
         return mlir::cast<vpux::VPU::SparseTensorType>(changeElemType(elementType));
     }
     return mlir::cast<vpux::VPU::SparseTensorType>(changeShapeElemType(ShapeRef(shape.value()), elementType));
+}
+
+mlir::FailureOr<::mlir::bufferization::BufferLikeType> VPU::SparseTensorType::getBufferType(
+        const mlir::bufferization::BufferizationOptions&, llvm::function_ref<mlir::InFlightDiagnostic()>) const {
+    return mlir::cast<mlir::bufferization::BufferLikeType>(vpux::getBufferType(*this));
+}
+
+mlir::LogicalResult VPU::SparseTensorType::verifyCompatibleBufferType(
+        mlir::bufferization::BufferLikeType bufferType, llvm::function_ref<mlir::InFlightDiagnostic()>) const {
+    // Note: in theory, this can be done differently, without needing to convert
+    // buffer to tensor
+    return mlir::success(*this == reconstructTensorType(bufferType));
 }

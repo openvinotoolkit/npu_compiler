@@ -7,7 +7,7 @@
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/MLIRContext.h>
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+
 #include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 
@@ -110,7 +110,7 @@ bool traverseNestedForLoops(mlir::scf::ForOp forOp, VPU::PermuteCastOp permuteCa
     }
 
     if (movedPermute) {
-        log.trace("Permute got moved, adapt return type for scf.for at ", forOp->getLoc());
+        log.trace("Permute got moved, adapt return type for scf.for at {0}", forOp->getLoc());
         auto iterArg = forOp.getInitArgsMutable().begin()->get();
         iterArg.setType(permuteCastOutType);
         forOp.getResult(0).setType(permuteCastOutType);

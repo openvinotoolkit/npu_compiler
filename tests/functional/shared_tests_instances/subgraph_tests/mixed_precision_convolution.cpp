@@ -26,6 +26,16 @@ TEST_P(MixedPrecisionConvSubGraphTestNF4, NPU4000_HW) {
     run(Platform::NPU4000);
 }
 
+TEST_P(MixedPrecisionConvSubGraphTestCommon, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(MixedPrecisionConvSubGraphTestNF4, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
 }  // namespace test
 }  // namespace ov
 

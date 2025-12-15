@@ -31,11 +31,99 @@ public:
 
 private:
     void safeRunOnFunc() final;
+    void processEnqueueDmaOps(mlir::func::FuncOp netFunc);
 
     void processEnqueueOps(mlir::func::FuncOp netFunc);
 
     WorkloadManagementMode _workloadManagementMode;
 };
+
+// Identify enqueue DMAs ops and process all tasks. If multiple tasks of the same type are enqueued
+// by the same enqueue DMA and those tasks support task linking then enable the link. Later pass when
+// updating enqueue DMA will only enqueue the head of the linked list of tasks.
+void LinkEnqueueTargetsPass::processEnqueueDmaOps(mlir::func::FuncOp netFunc) {
+    auto mpi = VPUMI40XX::getMPI(netFunc);
+
+    auto dmaTile0List0Head = mpi.getListHead(VPURegMapped::TaskType::DMA, 0, 0);
+    if (!dmaTile0List0Head) {
+        return;
+    }
+
+    auto parentModule = netFunc.getOperation()->getParentOfType<mlir::ModuleOp>();
+    const auto tilesCount = config::getTileExecutor(parentModule).getCount();
+    const auto shavesCountPerTile = config::getAvailableExecutor(parentModule, VPU::ExecutorKind::SHAVE_ACT).getCount();
+
+    auto firstDmaTile0List0Op = dmaTile0List0Head.getDefiningOp<VPUMI40XX::NNDMAOp>();
+    auto enqueueDmasPerHwQueue = VPUMI40XX::getEnqueueDmaData(firstDmaTile0List0Op, _log);
+
+    if (enqueueDmasPerHwQueue.empty()) {
+        _log.trace("No Enqueue DMAs available for task linking");
+        return;
+    }
+
+    const mlir::DenseSet<std::pair<VPURegMapped::TaskType, uint32_t>> taskTypesWithListCountPerTile = {
+            {{VPURegMapped::TaskType::DPUVariant, 1},
+             {VPURegMapped::TaskType::ActKernelInvocation, shavesCountPerTile}}};
+
+    // Iterate over DPU/SHV tasks on each tile and list and check if multiple tasks are enqueued by the
+    // same enqueue DMA. If yes, check if those tasks support task linking and if so, link them.
+    for (uint32_t tileIdx = 0; tileIdx < tilesCount; tileIdx++) {
+        for (const auto& [taskType, listCount] : taskTypesWithListCountPerTile) {
+            for (uint32_t listIdx = 0; listIdx < listCount; listIdx++) {
+                auto listHead = mpi.getListHead(taskType, tileIdx, listIdx);
+                if (!listHead) {
+                    continue;
+                }
+
+                _log.trace("Check task type {0} on tile {1}, list {2} if task linking is possible", taskType, tileIdx,
+                           listIdx);
+                auto taskOp = mlir::cast<VPURegMapped::TaskOpInterface>(listHead.getDefiningOp());
+
+                auto hwQueue = VPUMI40XX::HwQueueType{taskType, tileIdx, listIdx};
+
+                VPUX_THROW_WHEN(enqueueDmasPerHwQueue.find(hwQueue) == enqueueDmasPerHwQueue.end(),
+                                "No Enqueue DMAs available for task type {0} on tile {1}, list {2}", taskType, tileIdx,
+                                listIdx);
+                // Initial tasks must be enqueued by first enqueue DMA for given HW queue type
+                size_t curEnqueueIndex = 0;
+                // Get start and end task range enqueued by enqueue DMA to understand what range of tasks
+                // are processed by a single enqueue DMA
+                auto [enqueueDmaStartIdx, enqueueDmaEndIdx, _] = enqueueDmasPerHwQueue[hwQueue][curEnqueueIndex];
+                _log.trace("Enqueue DMA task range: {0} - {1}", enqueueDmaStartIdx, enqueueDmaEndIdx);
+
+                // Iterate over tasks in the list and check if enabling link to previous is possible
+                do {
+                    auto taskInd = mlir::cast<VPURegMapped::IndexType>(taskOp.getResult().getType()).getValue();
+
+                    // If current task index is greater than end index of current enqueue DMA it means that
+                    // this task is enqueued by next enqueue DMA -> switch to next enqueue DMA
+                    if (taskInd > enqueueDmaEndIdx) {
+                        _log.trace("Task {0} is after end task {1} of current enqueue DMA. Move to next enqueue DMA op",
+                                   taskInd, enqueueDmaEndIdx);
+                        // Move to next enqueue DMA and get start and end indexes
+                        curEnqueueIndex++;
+                        VPUX_THROW_UNLESS(
+                                curEnqueueIndex < enqueueDmasPerHwQueue[hwQueue].size(),
+                                "No enqueue DMAs available for task type {0} on tile {1}, list {2} at index {3}",
+                                taskType, tileIdx, listIdx, curEnqueueIndex);
+                        enqueueDmaStartIdx = enqueueDmasPerHwQueue[hwQueue][curEnqueueIndex].startTaskIdx;
+                        enqueueDmaEndIdx = enqueueDmasPerHwQueue[hwQueue][curEnqueueIndex].endTaskIdx;
+
+                        _log.trace("Enqueue DMA task range: {0} - {1}", enqueueDmaStartIdx, enqueueDmaEndIdx);
+                    }
+
+                    // If task index is larger than first task enqueued by a DMA than link it to previous task
+                    if (taskInd > enqueueDmaStartIdx) {
+                        _log.trace("Link task {0} to previous", taskInd);
+                        taskOp.linkToPreviousTask();
+                    }
+
+                    taskOp = taskOp.getNextTask();
+                } while (taskOp);
+            }
+        }
+    }
+}
 
 // Iterate over all enqueue ops. For each op that enqueues a range of tasks of the given type
 // if the tasks support linking, enable task linking and update the op to enqueue only the head
@@ -110,6 +198,10 @@ void LinkEnqueueTargetsPass::safeRunOnFunc() {
 
     if (workloadManagementModeOpt.hasValue()) {
         _workloadManagementMode = workloadManagementModeOpt.getValue();
+    }
+
+    if (_workloadManagementMode == WorkloadManagementMode::FWLM_V1_PAGES) {
+        processEnqueueDmaOps(netFunc);
     }
 
     processEnqueueOps(netFunc);

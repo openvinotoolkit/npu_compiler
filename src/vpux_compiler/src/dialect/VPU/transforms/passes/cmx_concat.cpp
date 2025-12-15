@@ -3,12 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/IR/Operation.h>
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
@@ -494,7 +495,7 @@ bool InputConcatPattern::concatFitsInCMX(size_t cmxSize) {
     // from all users find the one with the largest size
     for (auto concatPart : _inputParts) {
         currUserSize = 0;
-        // consts (weights table and activation window) already exists
+        // consts for weights table already exists
         auto nceOp = concatPart.getNceOp();
         if (nceOp != nullptr) {
             llvm::DenseSet<mlir::Value> operands(nceOp->getOperands().begin(), nceOp->getOperands().end());
@@ -940,7 +941,7 @@ bool OutputConcatPattern::childOpsFitInCMX(size_t cmxSize) {
     for (auto& concatPart : _outputParts) {
         size_t consumerInputSize = 0;
         size_t consumerOutputSize = 0;
-        // consts (weights table and activation window) already exists
+        // consts for weights table already exists
         auto nceOp = concatPart.getNceOp();
         auto copyOp = concatPart.getCopyOp();
         auto sliceOp = copyOp->getOperand(0).getDefiningOp<VPU::SliceOp>();

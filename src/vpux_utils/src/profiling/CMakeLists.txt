@@ -54,6 +54,8 @@ replace_noerror(${TARGET_NAME})
 target_include_directories(${TARGET_NAME}
     PUBLIC
         ${VPUX_UTILS_CURRENT_SOURCE_DIR}/include
+    PRIVATE
+        "${PROJECT_SOURCE_DIR}/src/vpux_compiler/include"
 )
 
 ov_link_system_libraries(${TARGET_NAME}

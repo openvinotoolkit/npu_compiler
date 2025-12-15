@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/image.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -26,7 +27,7 @@ mlir::LogicalResult vpux::IE::YuvToRgbOp::inferReturnTypeComponents(
         return mlir::failure();
     }
 
-    const auto inType = mlir::cast<mlir::ShapedType>(colorConv.getInput1().getType());
+    const auto inType = mlir::cast<mlir::RankedTensorType>(colorConv.getInput1().getType());
     const auto shape = inType.getShape();
     if (shape[3] != 1) {
         return errorAt(loc, "Incorrect input shape format: '{0}'", shape);
@@ -39,8 +40,8 @@ mlir::LogicalResult vpux::IE::YuvToRgbOp::inferReturnTypeComponents(
         VPUX_THROW_UNLESS(((outShape[1] * 2) % 3) == 0, "Invalid height");
         outShape[1] = outShape[1] * 2 / 3;
     }
-
-    inferredReturnShapes.emplace_back(outShape, inType.getElementType());
+    const auto outDesc = vpux::getTensorAttr(inType);
+    inferredReturnShapes.emplace_back(outShape, inType.getElementType(), outDesc);
 
     return mlir::success();
 }
@@ -62,28 +63,6 @@ public:
 mlir::LogicalResult ConvertToMultiInputs::matchAndRewrite(IE::YuvToRgbOp yuvToRgbOp,
                                                           mlir::PatternRewriter& rewriter) const {
     if (yuvToRgbOp.getInput2() == nullptr) {
-        const auto cmxAvailableBytes = vpux::VPU::getTotalCMXSize(yuvToRgbOp).to<Byte>().count();
-
-        const auto outputByteSize = mlir::cast<vpux::NDTypeInterface>(yuvToRgbOp.getOutput().getType())
-                                            .getElemTypeSize()
-                                            .to<Byte>()
-                                            .count();
-        const auto outputSizeBytes =
-                mlir::cast<vpux::NDTypeInterface>(yuvToRgbOp.getOutput().getType()).getShape().totalSize() *
-                outputByteSize;
-
-        const auto inputByteSize = mlir::cast<vpux::NDTypeInterface>(yuvToRgbOp.getInput1().getType())
-                                           .getElemTypeSize()
-                                           .to<Byte>()
-                                           .count();
-        const auto inputSizeBytes =
-                mlir::cast<vpux::NDTypeInterface>(yuvToRgbOp.getInput1().getType()).getShape().totalSize() *
-                inputByteSize;
-        auto requiredCMX = outputSizeBytes + inputSizeBytes;
-        if (requiredCMX < cmxAvailableBytes) {
-            return mlir::success();
-        }
-
         auto inputShape = mlir::cast<vpux::NDTypeInterface>(yuvToRgbOp.getInput1().getType()).getShape();
         const auto inShapeType = mlir::cast<mlir::ShapedType>(yuvToRgbOp.getInput1().getType()).getShape();
         const auto sliceOpLoc = yuvToRgbOp.getLoc();

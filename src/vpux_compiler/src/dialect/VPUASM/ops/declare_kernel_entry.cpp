@@ -7,7 +7,7 @@
 #include <vpux_elf/accessor.hpp>
 #include <vpux_elf/reader.hpp>
 #include "vpux/compiler/act_kernels/shave_binary_resources.h"
-#include "vpux/compiler/utils/ELF/utils.hpp"
+#include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 

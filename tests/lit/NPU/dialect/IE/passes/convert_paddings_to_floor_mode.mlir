@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-paddings-to-floor-mode %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @MaxPool
 func.func @MaxPool(%arg0: tensor<1x512x38x38xf32>) -> tensor<1x512x19x19xf32> {
@@ -136,4 +136,35 @@ func.func @AvgPool16ExcludePadEnabled(%arg0: tensor<1x3x300x30xf16>) -> tensor<1
     // CHECK-SAME:   } :
     // CHECK:        tensor<1x3x300x30xf16> -> tensor<1x3x149x26xf16>
     // CHECK:        return [[AVG_POOL]]  : tensor<1x3x149x26xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @MaxPool8
+// CHECK-SAME:     ([[ARG0:%.+]]: tensor<1x3x30x30xf16>)
+func.func @MaxPool8(%arg0: tensor<1x3x30x30xf16>) -> tensor<1x3x14x26xf16> {
+    %output, %output_index = IE.MaxPool8(%arg0) {
+        axis = 2 : i64,
+        dilations = [2, 2],
+        index_element_type = si32,
+        kernel_size = [3, 5],
+        pads_begin = [0, 2],
+        pads_end = [0, 2],
+        rounding_type = #IE.rounding_type<CEIL>,
+        strides = [2, 1]
+    } : tensor<1x3x30x30xf16> -> tensor<1x3x14x26xf16>, tensor<1x3x14x26xsi32>
+    return %output : tensor<1x3x14x26xf16>
+
+    // CHECK:        [[MAX_POOL_8:%.+]], [[MAX_POOL_8_INDEX:%.+]] = IE.MaxPool8([[ARG0]]) {
+    // CHECK-SAME:       axis = 2 : i64,
+    // CHECK-SAME:       dilations = [2, 2],
+    // CHECK-SAME:       index_element_type = si32,
+    // CHECK-SAME:       kernel_size = [3, 5],
+    // CHECK-SAME:       pads_begin = [0, 2],
+    // CHECK-SAME:       pads_end = [1, 2],
+    // CHECK-SAME:       rounding_type = #IE.rounding_type<FLOOR>,
+    // CHECK-SAME:       strides = [2, 1]
+    // CHECK-SAME:   } :
+    // CHECK:        tensor<1x3x30x30xf16> -> tensor<1x3x14x26xf16>, tensor<1x3x14x26xsi32>
+    // CHECK:        return [[MAX_POOL_8]]  : tensor<1x3x14x26xf16>
 }

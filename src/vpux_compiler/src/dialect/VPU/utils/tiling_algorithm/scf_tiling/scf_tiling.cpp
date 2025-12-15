@@ -151,39 +151,37 @@ mlir::LogicalResult vpux::VPU::applySCFTiling(mlir::Operation* operation, mlir::
     tilingOptions.setTileSizeComputationFunction(tileSizeComputationFnc);
 
     auto tilingResult = mlir::scf::tileUsingSCF(builder, mlir::cast<mlir::TilingInterface>(operation), tilingOptions);
-    if (mlir::failed(tilingResult) || tilingResult->replacements.empty() ||
-        tilingResult->replacements.size() != operation->getNumResults() || tilingResult->loops.empty()) {
+    if (mlir::failed(tilingResult) || tilingResult->loops.empty()) {
         return mlir::failure();
     }
 
-    for (auto [result, loopOutput] : llvm::zip(operation->getResults(), tilingResult->replacements)) {
-        loopOutput.setType(result.getType());
-    }
-
     // E-162999 rewrite to update order attribute for output types more elegantly
+    // tileUsingSCF drops the output order in the ForOp and terminator. This adds it back.
+    auto outputType = operation->getResult(0).getType();
     llvm::for_each(tilingResult->loops, [&](mlir::LoopLikeOpInterface loop) {
         auto forOp = mlir::cast<mlir::scf::ForOp>(loop.getOperation());
+        forOp.getResult(0).setType(outputType);
 
         auto* terminator = forOp.getBody()->getTerminator();
         if (terminator != nullptr) {
             llvm::for_each(terminator->getOperands(), [&](mlir::Value operand) {
-                operand.setType(forOp.getResult(0).getType());
+                operand.setType(outputType);
 
                 if (auto insertSlice = mlir::dyn_cast_or_null<mlir::tensor::InsertSliceOp>(operand.getDefiningOp())) {
-                    insertSlice.getDestMutable().get().setType(forOp.getResult(0).getType());
+                    insertSlice.getDestMutable().get().setType(outputType);
                     if (auto blockArg = mlir::dyn_cast_or_null<mlir::BlockArgument>(insertSlice.getDest())) {
                         auto argIndex = blockArg.getArgNumber() - forOp.getNumInductionVars();
-                        forOp.getInitArgs()[argIndex].setType(operand.getType());
+                        forOp.getInitArgs()[argIndex].setType(outputType);
                     }
                 } else {
                     // outer loop has no insertSlice op, modify init args by setting order to the last one
-                    forOp.getInitArgs().back().setType(operand.getType());
+                    forOp.getInitArgs().back().setType(outputType);
                 }
             });
         }
     });
 
-    builder.replaceOp(operation, tilingResult->replacements);
+    builder.replaceOp(operation, tilingResult->mergeResult.replacements);
 
     return mlir::success();
 }
@@ -233,8 +231,11 @@ mlir::FailureOr<mlir::scf::SCFTileAndFuseResult> tileConsumerAndFuseProducers(
     auto& loops = tilingResult->loops;
     if (loops.empty()) {
         DenseMap<mlir::Value, mlir::Value> replacements;
-        for (auto [origVal, replacement] : llvm::zip_equal(consumer->getResults(), tilingResult->replacements)) {
-            replacements[origVal] = replacement;
+        if (!tilingResult->tiledOps.empty()) {
+            for (auto [origVal, newResult] :
+                 llvm::zip_equal(consumer->getResults(), tilingResult->tiledOps.front()->getResults())) {
+                replacements[origVal] = newResult;
+            }
         }
         return mlir::scf::SCFTileAndFuseResult{std::move(fusedProducers), std::move(tiledAndFusedOps), loops,
                                                replacements};
@@ -276,9 +277,8 @@ mlir::FailureOr<mlir::scf::SCFTileAndFuseResult> tileConsumerAndFuseProducers(
             continue;
         }
 
-        auto [fuseSlice, yieldReplacement] =
-                options.fusionControlFn(candidateSliceOp, fusableProducer, destinationInitArg.has_value());
-        if (!fuseSlice) {
+        auto fuseSlice = options.fusionControlFn(candidateSliceOp, fusableProducer, destinationInitArg.has_value());
+        if (!fuseSlice.has_value()) {
             continue;
         }
 
@@ -495,8 +495,9 @@ mlir::FailureOr<SmallVector<mlir::Operation*>> vpux::VPU::applySCFVerticalFusion
     // check if VF has loop to substitute slice with existing operation
     bool hasVFLoop = false;
 
-    mlir::scf::SCFTileAndFuseOptions::ControlFnTy controlFn = [&](mlir::tensor::ExtractSliceOp sliceOp,
-                                                                  mlir::OpResult originalProducer, bool) {
+    mlir::scf::SCFTileAndFuseOptions::ControlFnTy controlFn =
+            [&](mlir::tensor::ExtractSliceOp sliceOp, mlir::OpResult originalProducer,
+                bool) -> std::optional<mlir::scf::SCFTileAndFuseOptions::ControlFnResult> {
         auto isFusable = allOpsToFuse.contains(originalProducer.getOwner());
         if (isFusable) {
             if (tiledOpsLink.count(originalProducer.getOwner()) > 0) {
@@ -508,11 +509,15 @@ mlir::FailureOr<SmallVector<mlir::Operation*>> vpux::VPU::applySCFVerticalFusion
                 builder.eraseOp(sliceOp);
                 hasVFLoop = true;
 
-                return std::make_tuple(false, false);
+                // Return an empty optional to signal "do not fuse".
+                return std::nullopt;
             }
             originalProducer.getOwner()->setAttr(tilingStrategy, bestVFCase.getTiling());
+            // Return a result to signal "fuse this op".
+            return mlir::scf::SCFTileAndFuseOptions::ControlFnResult{};
         }
-        return std::make_tuple(isFusable, false);
+        // Return an empty optional to signal "do not fuse".
+        return std::nullopt;
     };
     tilingAndFuseOptions.setFusionControlFn(std::move(controlFn));
 

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --constant-folding --mlir-print-elementsattrs-with-hex-if-larger=-1 %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 !qElemType = !quant.uniform<u8:f16, 0.0039215686274509803>
 #YXOI = affine_map<(d0, d1, d2, d3) -> (d2, d3, d0, d1)>

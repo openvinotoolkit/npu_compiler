@@ -208,7 +208,7 @@ bool processSim(VirtualDependencyTracker& vdt_, const std::vector<BarrierCountCo
 }
 
 void simulateBarriers(const std::vector<BarrierCountConfig>& barriersConfigs, unsigned char nn_barriers_,
-                      std::vector<TaskVector>& dmas, TaskVector& dpus, TaskVector& acts, TaskVector& m2is,
+                      std::vector<TaskVector>& dmas, TaskVector& dpus, TaskVector& acts,
                       VirtualDependencyTracker& vdt_) {
     auto counts = barriersConfigs;
     std::vector<int64_t> to_virtual(nn_barriers_, -1);
@@ -221,7 +221,6 @@ void simulateBarriers(const std::vector<BarrierCountConfig>& barriersConfigs, un
     }
     auto dpuCurr = dpus.begin();
     auto actCurr = acts.begin();
-    auto m2iCurr = m2is.begin();
 
     bool progressed = false;
 
@@ -255,8 +254,8 @@ void simulateBarriers(const std::vector<BarrierCountConfig>& barriersConfigs, un
         return false;
     };
 
-    for (unsigned int bar = 0; bar < counts.size() || checkDMAStatus() || dpuCurr != dpus.end() ||
-                               actCurr != acts.end() || m2iCurr != m2is.end();
+    for (unsigned int bar = 0;
+         bar < counts.size() || checkDMAStatus() || dpuCurr != dpus.end() || actCurr != acts.end();
          progressed = false) {
         // Static vs dynamic barriers need a different loop exit condition
         auto cond = [&]() {
@@ -278,7 +277,6 @@ void simulateBarriers(const std::vector<BarrierCountConfig>& barriersConfigs, un
         }
         processNextTask(dpuCurr, dpus.end());
         processNextTask(actCurr, acts.end());
-        processNextTask(m2iCurr, m2is.end());
 
         if (!progressed) {
             VPUX_THROW("Did not progress");
@@ -310,7 +308,6 @@ void simulateBarriers(const std::vector<BarrierCountConfig>& barriersConfigs, un
     }
     updateCleanAfterField(dpus);
     updateCleanAfterField(acts);
-    updateCleanAfterField(m2is);
 }
 
 class BarrierComputationPass final : public VPUMI40XX::impl::BarrierComputationBase<BarrierComputationPass> {
@@ -391,7 +388,6 @@ private:
 
         auto dpus = buildTaskVector<VPUMI40XX::DPUInvariantOp>(funcOp, vdt_);
         auto acts = buildTaskVector<VPUMI40XX::ActKernelInvocationOp>(funcOp, vdt_);
-        auto m2is = buildTaskVector<VPUMI40XX::M2IOp>(funcOp, vdt_);
 
         std::vector<BarrierCountConfig> barriersConfigs;
         unsigned char nn_barriers_ = 0;
@@ -401,7 +397,7 @@ private:
             nn_barriers_ = std::max<unsigned char>(nn_barriers_, op.getId() + 1);
         }
 
-        simulateBarriers(barriersConfigs, nn_barriers_, dmas, dpus, acts, m2is, vdt_);
+        simulateBarriers(barriersConfigs, nn_barriers_, dmas, dpus, acts, vdt_);
 
         for (auto& dma : dmas) {
             setBarrierAttributes(dma, ctx);
@@ -409,7 +405,6 @@ private:
         // do not change clean_after attributes for DPU and SHV tasks, as these were set by BarrierSimulation pass
         setBarrierAttributes(dpus, ctx, true, false);
         setBarrierAttributes(acts, ctx, true, false);
-        setBarrierAttributes(m2is, ctx);
     }
 };
 

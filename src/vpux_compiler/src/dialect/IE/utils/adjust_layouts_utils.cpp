@@ -5,16 +5,13 @@
 
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/adjust_layout_utils.hpp"
 #include "vpux/compiler/utils/factors.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/numeric.hpp"
-
-#include <llvm/ADT/SmallPtrSet.h>
-#include <mlir/IR/Builders.h>
-#include <mlir/IR/PatternMatch.h>
 
 using namespace vpux;
 
@@ -255,6 +252,18 @@ mlir::FailureOr<vpux::AdjustConvShapeParams> getAdjustConvShapeParameters(IE::Co
 
         newOutputShape[Dims4D::Act::W] /= borrowFactor;
     }
+
+    const auto logCb = [&](const formatv_object_base& msg) {
+        _log.trace("{0}", msg.str());
+    };
+    // Do not adjust input channel for compress conv, for it may cause compress conv could not run on HW
+    if (VPU::NCECompressConvolutionOp::isSupported(convOp, logCb, /*checkLayout=*/true,
+                                                   /*checkChannelAlignment=*/true)) {
+        if (newInputShape[Dims4D::Act::C] != inputShape[Dims4D::Act::C]) {
+            return mlir::failure();
+        }
+    }
+
     newOutputShape[Dims4D::Act::C] = newFilterShape[Dims4D::Filter::OC];
     auto newFilterSize = newFilterShape.totalSize();
     _log.trace("The new shape {0}, new filter shape {1}, filter size {2}", newInputShape, newFilterShape,

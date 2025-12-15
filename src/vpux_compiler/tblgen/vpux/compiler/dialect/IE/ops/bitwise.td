@@ -11,7 +11,7 @@ include "vpux/compiler/dialect/IE/ops_interfaces.td"
 include "vpux/compiler/dialect/IE/attributes.td"
 include "vpux/compiler/dialect/core/ops_interfaces.td"
 
-include "mlir/Dialect/Quant/QuantOpsBase.td"
+include "mlir/Dialect/Quant/IR/QuantBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 
 def IE_BitwiseAndOp :

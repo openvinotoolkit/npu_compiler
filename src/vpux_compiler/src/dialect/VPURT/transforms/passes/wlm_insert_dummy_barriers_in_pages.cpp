@@ -46,7 +46,7 @@ void WlmInsertDummyBarriersInPagesPass::safeRunOnFunc() {
             numBarriersOpt.hasValue() ? numBarriersOpt.getValue() : VPUIP::getNumAvailableBarriers(func);
 
     auto& barrierInfo = getAnalysis<BarrierInfo>();
-    VPURT::BarrierPagesSplitHandler barrierPagesSplitHandler(barrierInfo, numBarriers, _log);
+    VPURT::BarrierPagesSplitHandler barrierPagesSplitHandler(func, barrierInfo, numBarriers, _log);
     barrierPagesSplitHandler.initializeForLegalization();
     auto dummyBarriersInsertionDataVec = barrierPagesSplitHandler.getDummyBarriersInsertionData();
 

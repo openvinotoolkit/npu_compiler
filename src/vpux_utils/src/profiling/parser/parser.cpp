@@ -272,6 +272,9 @@ RawProfilingRecords parseDPUTaskProfiling(
                     if (device == TargetDevice::TargetDevice_VPUX40XX) {
                         record = std::make_shared<RawProfilingDPUHW40Record>(dpuTimings, taskMeta, variantId,
                                                                              currentPos, inClusterIndex);
+                    } else if (device >= TargetDevice::TargetDevice_VPUX50XX) {
+                        record = std::make_shared<RawProfilingDPUHW50Record>(dpuTimings, taskMeta, variantId,
+                                                                             currentPos, inClusterIndex);
                     }
                 } else if (device == TargetDevice::TargetDevice_VPUX37XX) {
                     const HwpDpu27Mode0Data_t dpuTimings =

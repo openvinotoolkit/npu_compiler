@@ -14,7 +14,7 @@
 #include "vpux/utils/core/error.hpp"
 #include "vpux/utils/core/small_vector.hpp"
 
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 
 #include <algorithm>
 

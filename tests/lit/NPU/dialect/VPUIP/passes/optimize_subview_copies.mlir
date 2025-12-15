@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --optimize-subview-copies %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
@@ -30,17 +30,6 @@
     memory_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]]
 }>
 
-!WTableDistributed = !VPUIP.DistributedBuffer<
-    256x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "SEGMENTED",
-    num_tiles = [2, 1, 1, 1],
-    num_clusters = 2,
-    compute_shapes = [[128, 1, 1, 4], [128, 1, 1, 4]],
-    compute_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]],
-    memory_shapes = [[128, 1, 1, 4], [128, 1, 1, 4]],
-    memory_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]]
-}>
-
 !OutputDistributed = !VPUIP.DistributedBuffer<
     1x256x1x1xf16, #NHWC, @CMX_NN, {
     mode = "SEGMENTED",
@@ -56,8 +45,7 @@
 // CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, #NHWC, @DDR>
 func.func @OptimizeSubviewCopyConvPattern(
         %input: memref<1x3072x1x1xf16, #NHWC, @DDR>,
-        %weights: !WeightsDistributed,
-        %wtable: !WTableDistributed)
+        %weights: !WeightsDistributed)
          -> (!OutputDistributed){
 
     %subview = VPUIP.SubView %input [0, 1536, 0, 0] [1, 1536, 1, 1]
@@ -75,7 +63,6 @@ func.func @OptimizeSubviewCopyConvPattern(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy : !InputDistributed)
         parent_output(%allocConv : !OutputDistributed)
         outputs(%allocConv : !OutputDistributed)
@@ -138,17 +125,6 @@ func.func @OptimizeSubviewCopyConvPattern(
     memory_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]]
 }>
 
-!WTableDistributed = !VPUIP.DistributedBuffer<
-    256x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "SEGMENTED",
-    num_tiles = [2, 1, 1, 1],
-    num_clusters = 2,
-    compute_shapes = [[128, 1, 1, 4], [128, 1, 1, 4]],
-    compute_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]],
-    memory_shapes = [[128, 1, 1, 4], [128, 1, 1, 4]],
-    memory_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]]
-}>
-
 !OutputDistributed0 = !VPUIP.DistributedBuffer<
     1x256x1x1xf16, #NHWC, @CMX_NN, {
     mode = "SEGMENTED",
@@ -175,8 +151,7 @@ func.func @OptimizeSubviewCopyConvPattern(
 // CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, #NHWC, @DDR>
 func.func @OptimizeSubviewCopy2ConvPattern(
         %input: memref<1x3072x1x1xf16, #NHWC, @DDR>,
-        %weights: !WeightsDistributed,
-        %wtable: !WTableDistributed)
+        %weights: !WeightsDistributed)
          -> (!OutputDistributed0, !OutputDistributed1){
 
     %subview = VPUIP.SubView %input [0, 1536, 0, 0] [1, 1536, 1, 1]
@@ -193,7 +168,6 @@ func.func @OptimizeSubviewCopy2ConvPattern(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy : !InputDistributed)
         parent_output(%allocConv0 : !OutputDistributed0)
         outputs(%allocConv0 : !OutputDistributed0)
@@ -211,7 +185,6 @@ func.func @OptimizeSubviewCopy2ConvPattern(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy : !InputDistributed)
         parent_output(%allocConv1 : !OutputDistributed1)
         outputs(%allocConv1 : !OutputDistributed1)
@@ -283,17 +256,6 @@ func.func @OptimizeSubviewCopy2ConvPattern(
     memory_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]]
 }>
 
-!WTableDistributed = !VPUIP.DistributedBuffer<
-    256x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "SEGMENTED",
-    num_tiles = [2, 1, 1, 1],
-    num_clusters = 2,
-    compute_shapes = [[128, 1, 1, 4], [128, 1, 1, 4]],
-    compute_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]],
-    memory_shapes = [[128, 1, 1, 4], [128, 1, 1, 4]],
-    memory_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]]
-}>
-
 !OutputDistributed0 = !VPUIP.DistributedBuffer<
     1x256x1x1xf16, #NHWC, @CMX_NN, {
     mode = "SEGMENTED",
@@ -320,8 +282,7 @@ func.func @OptimizeSubviewCopy2ConvPattern(
 // CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, #NHWC, @DDR>
 func.func @Optimize2SubviewCopyConvPattern(
         %input: memref<1x3072x1x1xf16, #NHWC, @DDR>,
-        %weights: !WeightsDistributed,
-        %wtable: !WTableDistributed)
+        %weights: !WeightsDistributed)
          -> (!OutputDistributed0, !OutputDistributed1){
 
     %subview0 = VPUIP.SubView %input [0, 0, 0, 0] [1, 1536, 1, 1]
@@ -345,7 +306,6 @@ func.func @Optimize2SubviewCopyConvPattern(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy0 : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy0 : !InputDistributed)
         parent_output(%allocConv0 : !OutputDistributed0)
         outputs(%allocConv0 : !OutputDistributed0)
@@ -363,7 +323,6 @@ func.func @Optimize2SubviewCopyConvPattern(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy1 : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy1 : !InputDistributed)
         parent_output(%allocConv1 : !OutputDistributed1)
         outputs(%allocConv1 : !OutputDistributed1)
@@ -456,17 +415,6 @@ func.func @Optimize2SubviewCopyConvPattern(
     memory_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]]
 }>
 
-!WTableDistributed = !VPUIP.DistributedBuffer<
-    256x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "SEGMENTED",
-    num_tiles = [2, 1, 1, 1],
-    num_clusters = 2,
-    compute_shapes = [[128, 1, 1, 4], [128, 1, 1, 4]],
-    compute_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]],
-    memory_shapes = [[128, 1, 1, 4], [128, 1, 1, 4]],
-    memory_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]]
-}>
-
 !OutputDistributed0 = !VPUIP.DistributedBuffer<
     1x256x1x1xf16, #NHWC, @CMX_NN, {
     mode = "SEGMENTED",
@@ -493,8 +441,7 @@ func.func @Optimize2SubviewCopyConvPattern(
 // CHECK-SAME: ([[ARG0:%.+]]: !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN
 func.func @Optimize2SubviewCopyConvPatternWithOptimizableCopyIn(
         %input: !RootInputDistributed,
-        %weights: !WeightsDistributed,
-        %wtable: !WTableDistributed)
+        %weights: !WeightsDistributed)
          -> (!OutputDistributed0, !OutputDistributed1){
 
     %ddrAlloc = memref.alloc() : memref<1x3072x1x1xf16, #NHWC, @DDR>
@@ -523,7 +470,6 @@ func.func @Optimize2SubviewCopyConvPatternWithOptimizableCopyIn(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy0 : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy0 : !InputDistributed)
         parent_output(%allocConv0 : !OutputDistributed0)
         outputs(%allocConv0 : !OutputDistributed0)
@@ -541,7 +487,6 @@ func.func @Optimize2SubviewCopyConvPatternWithOptimizableCopyIn(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy1 : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy1 : !InputDistributed)
         parent_output(%allocConv1 : !OutputDistributed1)
         outputs(%allocConv1 : !OutputDistributed1)
@@ -630,17 +575,6 @@ func.func @Optimize2SubviewCopyConvPatternWithOptimizableCopyIn(
     memory_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]]
 }>
 
-!WTableDistributed = !VPUIP.DistributedBuffer<
-    256x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "SEGMENTED",
-    num_tiles = [2, 1, 1, 1],
-    num_clusters = 2,
-    compute_shapes = [[128, 1, 1, 4], [128, 1, 1, 4]],
-    compute_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]],
-    memory_shapes = [[128, 1, 1, 4], [128, 1, 1, 4]],
-    memory_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]]
-}>
-
 !OutputDistributed0 = !VPUIP.DistributedBuffer<
     1x256x1x1xf16, #NHWC, @CMX_NN, {
     mode = "SEGMENTED",
@@ -667,8 +601,7 @@ func.func @Optimize2SubviewCopyConvPatternWithOptimizableCopyIn(
 // CHECK-SAME: ([[ARG0:%.+]]: !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN
 func.func @Optimize2SubviewCopyConvPatternKeepCopyInWithOtherUsers(
         %input: !RootInputDistributed,
-        %weights: !WeightsDistributed,
-        %wtable: !WTableDistributed)
+        %weights: !WeightsDistributed)
          -> (!OutputDistributed0, !OutputDistributed1, memref<1x3072x1x1xf16, #NHWC, @DDR>){
 
     %ddrAlloc = memref.alloc() : memref<1x3072x1x1xf16, #NHWC, @DDR>
@@ -697,7 +630,6 @@ func.func @Optimize2SubviewCopyConvPatternKeepCopyInWithOtherUsers(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy0 : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy0 : !InputDistributed)
         parent_output(%allocConv0 : !OutputDistributed0)
         outputs(%allocConv0 : !OutputDistributed0)
@@ -715,7 +647,6 @@ func.func @Optimize2SubviewCopyConvPatternKeepCopyInWithOtherUsers(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy1 : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy1 : !InputDistributed)
         parent_output(%allocConv1 : !OutputDistributed1)
         outputs(%allocConv1 : !OutputDistributed1)
@@ -798,17 +729,6 @@ func.func @Optimize2SubviewCopyConvPatternKeepCopyInWithOtherUsers(
     memory_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]]
 }>
 
-!WTableDistributed = !VPUIP.DistributedBuffer<
-    256x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "SEGMENTED",
-    num_tiles = [2, 1, 1, 1],
-    num_clusters = 2,
-    compute_shapes = [[128, 1, 1, 4], [128, 1, 1, 4]],
-    compute_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]],
-    memory_shapes = [[128, 1, 1, 4], [128, 1, 1, 4]],
-    memory_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]]
-}>
-
 !OutputDistributed0 = !VPUIP.DistributedBuffer<
     1x256x1x1xf16, #NHWC, @CMX_NN, {
     mode = "SEGMENTED",
@@ -835,8 +755,7 @@ func.func @Optimize2SubviewCopyConvPatternKeepCopyInWithOtherUsers(
 // CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16,  {order = #NHWC, strides = [6144, 1, 6144, 6144]}, @DDR>
 func.func @Optimize2SubviewCopyConvPatternKeepCopyInNotCMX2DDR(
         %input: memref<1x3072x1x1xf16,  {order = #NHWC, strides = [6144, 1, 6144, 6144]}, @DDR>,
-        %weights: !WeightsDistributed,
-        %wtable: !WTableDistributed)
+        %weights: !WeightsDistributed)
          -> (!OutputDistributed0, !OutputDistributed1){
 
     %ddrAlloc = memref.alloc() : memref<1x3072x1x1xf16, #NHWC, @DDR>
@@ -865,7 +784,6 @@ func.func @Optimize2SubviewCopyConvPatternKeepCopyInNotCMX2DDR(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy0 : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy0 : !InputDistributed)
         parent_output(%allocConv0 : !OutputDistributed0)
         outputs(%allocConv0 : !OutputDistributed0)
@@ -883,7 +801,6 @@ func.func @Optimize2SubviewCopyConvPatternKeepCopyInNotCMX2DDR(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy1 : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy1 : !InputDistributed)
         parent_output(%allocConv1 : !OutputDistributed1)
         outputs(%allocConv1 : !OutputDistributed1)
@@ -964,17 +881,6 @@ func.func @Optimize2SubviewCopyConvPatternKeepCopyInNotCMX2DDR(
     memory_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]]
 }>
 
-!WTableDistributed = !VPUIP.DistributedBuffer<
-    256x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "SEGMENTED",
-    num_tiles = [2, 1, 1, 1],
-    num_clusters = 2,
-    compute_shapes = [[128, 1, 1, 4], [128, 1, 1, 4]],
-    compute_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]],
-    memory_shapes = [[128, 1, 1, 4], [128, 1, 1, 4]],
-    memory_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]]
-}>
-
 !OutputDistributed0 = !VPUIP.DistributedBuffer<
     1x256x1x1xf16, #NHWC, @CMX_NN, {
     mode = "SEGMENTED",
@@ -1001,8 +907,7 @@ func.func @Optimize2SubviewCopyConvPatternKeepCopyInNotCMX2DDR(
 // CHECK-SAME: ([[ARG0:%.+]]: !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN
 func.func @Optimize2SubviewCopyConvPatternKeepCopyInNotDuplicatedLike(
         %input: !RootInputDistributed,
-        %weights: !WeightsDistributed,
-        %wtable: !WTableDistributed)
+        %weights: !WeightsDistributed)
          -> (!OutputDistributed0, !OutputDistributed1){
 
     %ddrAlloc = memref.alloc() : memref<1x3072x1x1xf16, #NHWC, @DDR>
@@ -1031,7 +936,6 @@ func.func @Optimize2SubviewCopyConvPatternKeepCopyInNotDuplicatedLike(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy0 : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy0 : !InputDistributed)
         parent_output(%allocConv0 : !OutputDistributed0)
         outputs(%allocConv0 : !OutputDistributed0)
@@ -1049,7 +953,6 @@ func.func @Optimize2SubviewCopyConvPatternKeepCopyInNotDuplicatedLike(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy1 : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy1 : !InputDistributed)
         parent_output(%allocConv1 : !OutputDistributed1)
         outputs(%allocConv1 : !OutputDistributed1)
@@ -1124,17 +1027,6 @@ func.func @Optimize2SubviewCopyConvPatternKeepCopyInNotDuplicatedLike(
     memory_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]]
 }>
 
-!WTableDistributed = !VPUIP.DistributedBuffer<
-    256x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "SEGMENTED",
-    num_tiles = [2, 1, 1, 1],
-    num_clusters = 2,
-    compute_shapes = [[128, 1, 1, 4], [128, 1, 1, 4]],
-    compute_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]],
-    memory_shapes = [[128, 1, 1, 4], [128, 1, 1, 4]],
-    memory_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]]
-}>
-
 !OutputDistributed0 = !VPUIP.DistributedBuffer<
     1x256x1x1xf16, #NHWC, @CMX_NN, {
     mode = "SEGMENTED",
@@ -1161,8 +1053,7 @@ func.func @Optimize2SubviewCopyConvPatternKeepCopyInNotDuplicatedLike(
 // CHECK-SAME: ([[ARG0:%.+]]: !VPUIP.DistributedBuffer<1x3072x1x1xf16, {order = #NHWC, strides = [50000000, 1, 50000000, 50000000]}, @CMX_NN
 func.func @Optimize2SubviewCopyConvPatternWithKeepCopyInNotFitInCMX(
         %input: !RootInputDistributed,
-        %weights: !WeightsDistributed,
-        %wtable: !WTableDistributed)
+        %weights: !WeightsDistributed)
          -> (!OutputDistributed0, !OutputDistributed1){
 
     %ddrAlloc = memref.alloc() : memref<1x3072x1x1xf16, #NHWC, @DDR>
@@ -1191,7 +1082,6 @@ func.func @Optimize2SubviewCopyConvPatternWithKeepCopyInNotFitInCMX(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy0 : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy0 : !InputDistributed)
         parent_output(%allocConv0 : !OutputDistributed0)
         outputs(%allocConv0 : !OutputDistributed0)
@@ -1209,7 +1099,6 @@ func.func @Optimize2SubviewCopyConvPatternWithKeepCopyInNotFitInCMX(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy1 : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy1 : !InputDistributed)
         parent_output(%allocConv1 : !OutputDistributed1)
         outputs(%allocConv1 : !OutputDistributed1)
@@ -1286,17 +1175,6 @@ func.func @Optimize2SubviewCopyConvPatternWithKeepCopyInNotFitInCMX(
     memory_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]]
 }>
 
-!WTableDistributed = !VPUIP.DistributedBuffer<
-    256x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "SEGMENTED",
-    num_tiles = [2, 1, 1, 1],
-    num_clusters = 2,
-    compute_shapes = [[128, 1, 1, 4], [128, 1, 1, 4]],
-    compute_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]],
-    memory_shapes = [[128, 1, 1, 4], [128, 1, 1, 4]],
-    memory_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]]
-}>
-
 !OutputDistributed0 = !VPUIP.DistributedBuffer<
     1x256x1x1xf16, #NHWC, @CMX_NN, {
     mode = "SEGMENTED",
@@ -1323,8 +1201,7 @@ func.func @Optimize2SubviewCopyConvPatternWithKeepCopyInNotFitInCMX(
 // CHECK-SAME: ([[ARG0:%.+]]: !VPUIP.DistributedBuffer<1x3072x1x1xf16, {order = #NHWC, strides = [6144, 1, 6144, 6144]}, @CMX_NN
 func.func @Optimize2SubviewCopyConvPatternWithOptimizeCopyInWithStrides(
         %input: !RootInputDistributed,
-        %weights: !WeightsDistributed,
-        %wtable: !WTableDistributed)
+        %weights: !WeightsDistributed)
          -> (!OutputDistributed0, !OutputDistributed1){
 
     %ddrAlloc = memref.alloc() : memref<1x3072x1x1xf16, #NHWC, @DDR>
@@ -1353,7 +1230,6 @@ func.func @Optimize2SubviewCopyConvPatternWithOptimizeCopyInWithStrides(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy0 : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy0 : !InputDistributed)
         parent_output(%allocConv0 : !OutputDistributed0)
         outputs(%allocConv0 : !OutputDistributed0)
@@ -1371,7 +1247,6 @@ func.func @Optimize2SubviewCopyConvPatternWithOptimizeCopyInWithStrides(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy1 : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy1 : !InputDistributed)
         parent_output(%allocConv1 : !OutputDistributed1)
         outputs(%allocConv1 : !OutputDistributed1)
@@ -1421,14 +1296,6 @@ func.func @Optimize2SubviewCopyConvPatternWithOptimizeCopyInWithStrides(
     alignment = [16, 1, 1, 1]
 }>
 
-!WTableDistributed = !VPUIP.DistributedBuffer<
-    256x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "SEGMENTED",
-    num_tiles = [2, 1, 1, 1],
-    num_clusters = 2,
-    alignment = [16, 1, 1, 1]
-}>
-
 !OutputDistributed0 = !VPUIP.DistributedBuffer<
     1x256x1x1xf16, #NHWC, @CMX_NN, {
     mode = "SEGMENTED",
@@ -1449,8 +1316,7 @@ func.func @Optimize2SubviewCopyConvPatternWithOptimizeCopyInWithStrides(
 // CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, #NHWC, @DDR>
 func.func @OptimizeSubview2CopyConvPattern(
         %input: memref<1x3072x1x1xf16, #NHWC, @DDR>,
-        %weights: !WeightsDistributed,
-        %wtable: !WTableDistributed)
+        %weights: !WeightsDistributed)
          -> (!OutputDistributed0, !OutputDistributed1){
 
     %subview = VPUIP.SubView %input [0, 1536, 0, 0] [1, 1536, 1, 1]
@@ -1467,7 +1333,6 @@ func.func @OptimizeSubview2CopyConvPattern(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy0 : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy0 : !InputDistributed)
         parent_output(%allocConv0 : !OutputDistributed0)
         outputs(%allocConv0 : !OutputDistributed0)
@@ -1490,7 +1355,6 @@ func.func @OptimizeSubview2CopyConvPattern(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy1 : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy1 : !InputDistributed)
         parent_output(%allocConv1 : !OutputDistributed1)
         outputs(%allocConv1 : !OutputDistributed1)
@@ -1539,15 +1403,13 @@ func.func @OptimizeSubview2CopyConvPattern(
 
 !InputCMXType = memref<1x1536x1x1xf16, #NHWC, @CMX_NN>
 !WeightsCMXType = memref<256x1536x1x1xf16, #NHWC, @CMX_NN>
-!WTableCMXType = memref<256x1x1x4xsi32, #NCHW, @CMX_NN>
 !OutputCMXType = memref<1x256x1x1xf16, #NHWC, @CMX_NN>
 
 // CHECK: @NonDistributedOptimizeSubviewCopyConvPattern
 // CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, #NHWC, @DDR>
 func.func @NonDistributedOptimizeSubviewCopyConvPattern(
         %input: memref<1x3072x1x1xf16, #NHWC, @DDR>,
-        %weights: !WeightsCMXType,
-        %wtable: !WTableCMXType)
+        %weights: !WeightsCMXType)
          -> (!OutputCMXType, !OutputCMXType){
     %subview0 = VPUIP.SubView %input [0, 0, 0, 0] [1, 1536, 1, 1]
         : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
@@ -1572,7 +1434,6 @@ func.func @NonDistributedOptimizeSubviewCopyConvPattern(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%copy0 : !InputCMXType)
         weights(%weights : !WeightsCMXType)
-        weight_table(%wtable : !WTableCMXType)
         parent_input(%copy0 : !InputCMXType)
         parent_output(%allocConv0 : !OutputCMXType)
         outputs(%allocConv0 : !OutputCMXType)
@@ -1590,7 +1451,6 @@ func.func @NonDistributedOptimizeSubviewCopyConvPattern(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%copy1 : !InputCMXType)
         weights(%weights : !WeightsCMXType)
-        weight_table(%wtable : !WTableCMXType)
         parent_input(%copy1 : !InputCMXType)
         parent_output(%allocConv1 : !OutputCMXType)
         outputs(%allocConv1 : !OutputCMXType)
@@ -1634,15 +1494,13 @@ func.func @NonDistributedOptimizeSubviewCopyConvPattern(
 !RootInputCMXType = memref<1x3072x1x1xf16, {order = #NHWC, strides = [6144, 1, 6144, 6144]}, @CMX_NN>
 !InputCMXType = memref<1x1536x1x1xf16, #NHWC, @CMX_NN>
 !WeightsCMXType = memref<256x1536x1x1xf16, #NHWC, @CMX_NN>
-!WTableCMXType = memref<256x1x1x4xsi32, #NCHW, @CMX_NN>
 !OutputCMXType = memref<1x256x1x1xf16, #NHWC, @CMX_NN>
 
 // CHECK: @NonDistributedOptimizeSubviewCopyConvPatternWithOptimizedCopyIn
 // CHECK-SAME: ([[ARG0:%.+]]:  memref<1x3072x1x1xf16, {order = #NHWC, strides = [6144, 1, 6144, 6144]}, @CMX_NN>
 func.func @NonDistributedOptimizeSubviewCopyConvPatternWithOptimizedCopyIn(
         %input: !RootInputCMXType,
-        %weights: !WeightsCMXType,
-        %wtable: !WTableCMXType)
+        %weights: !WeightsCMXType)
          -> (!OutputCMXType, !OutputCMXType){
 
     %alloc_ddr = memref.alloc(): memref<1x3072x1x1xf16, #NHWC, @DDR>
@@ -1673,7 +1531,6 @@ func.func @NonDistributedOptimizeSubviewCopyConvPatternWithOptimizedCopyIn(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%copy0 : !InputCMXType)
         weights(%weights : !WeightsCMXType)
-        weight_table(%wtable : !WTableCMXType)
         parent_input(%copy0 : !InputCMXType)
         parent_output(%allocConv0 : !OutputCMXType)
         outputs(%allocConv0 : !OutputCMXType)
@@ -1691,7 +1548,6 @@ func.func @NonDistributedOptimizeSubviewCopyConvPatternWithOptimizedCopyIn(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%copy1 : !InputCMXType)
         weights(%weights : !WeightsCMXType)
-        weight_table(%wtable : !WTableCMXType)
         parent_input(%copy1 : !InputCMXType)
         parent_output(%allocConv1 : !OutputCMXType)
         outputs(%allocConv1 : !OutputCMXType)
@@ -1741,14 +1597,6 @@ func.func @NonDistributedOptimizeSubviewCopyConvPatternWithOptimizedCopyIn(
     alignment = [16, 1, 1, 1]
 }>
 
-!WTableDistributed = !VPUIP.DistributedBuffer<
-    256x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "SEGMENTED",
-    num_tiles = [2, 1, 1, 1],
-    num_clusters = 2,
-    alignment = [16, 1, 1, 1]
-}>
-
 !OutputDistributed = !VPUIP.DistributedBuffer<
     1x256x1x1xf16, #NHWC, @CMX_NN, {
     mode = "SEGMENTED",
@@ -1761,8 +1609,7 @@ func.func @NonDistributedOptimizeSubviewCopyConvPatternWithOptimizedCopyIn(
 // CHECK-SAME: ([[ARG0:%.+]]: memref<1x8208x1x1xf16, #NHWC, @DDR>
 func.func @NotOptimizeSubviewCopyCDimTooBig(
         %input: memref<1x8208x1x1xf16, #NHWC, @DDR>,
-        %weights: !WeightsDistributed,
-        %wtable: !WTableDistributed)
+        %weights: !WeightsDistributed)
          -> (!OutputDistributed){
 
     %subview = VPUIP.SubView %input [0, 0, 0, 0] [1, 1536, 1, 1]
@@ -1779,7 +1626,6 @@ func.func @NotOptimizeSubviewCopyCDimTooBig(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy : !InputDistributed)
         parent_output(%allocConv : !OutputDistributed)
         outputs(%allocConv : !OutputDistributed)
@@ -1821,14 +1667,6 @@ func.func @NotOptimizeSubviewCopyCDimTooBig(
     alignment = [16, 1, 1, 1]
 }>
 
-!WTableDistributed = !VPUIP.DistributedBuffer<
-    256x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "SEGMENTED",
-    num_tiles = [2, 1, 1, 1],
-    num_clusters = 2,
-    alignment = [16, 1, 1, 1]
-}>
-
 !OutputDistributed = !VPUIP.DistributedBuffer<
     1x256x1x1xf16, #NHWC, @CMX_NN, {
     mode = "SEGMENTED",
@@ -1841,8 +1679,7 @@ func.func @NotOptimizeSubviewCopyCDimTooBig(
 // CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, #NHWC, @DDR>
 func.func @NotOptimizeSubviewWithNonCopyConsumer(
         %input: memref<1x3072x1x1xf16, #NHWC, @DDR>,
-        %weights: !WeightsDistributed,
-        %wtable: !WTableDistributed)
+        %weights: !WeightsDistributed)
          -> (!OutputDistributed, memref<1x1530x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>){
 
     %subview = VPUIP.SubView %input [0, 0, 0, 0] [1, 1536, 1, 1]
@@ -1864,7 +1701,6 @@ func.func @NotOptimizeSubviewWithNonCopyConsumer(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy : !InputDistributed)
         parent_output(%allocConv : !OutputDistributed)
         outputs(%allocConv : !OutputDistributed)
@@ -1906,14 +1742,6 @@ func.func @NotOptimizeSubviewWithNonCopyConsumer(
     alignment = [16, 1, 1, 1]
 }>
 
-!WTableDistributed = !VPUIP.DistributedBuffer<
-    256x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "SEGMENTED",
-    num_tiles = [2, 1, 1, 1],
-    num_clusters = 2,
-    alignment = [16, 1, 1, 1]
-}>
-
 !OutputDistributed = !VPUIP.DistributedBuffer<
     1x256x1x1xf16, #NHWC, @CMX_NN, {
     mode = "SEGMENTED",
@@ -1926,8 +1754,7 @@ func.func @NotOptimizeSubviewWithNonCopyConsumer(
 // CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, #NHWC, @DDR>
 func.func @NotOptimizeSubviewWithCopyConsumerNotToCMX(
         %input: memref<1x3072x1x1xf16, #NHWC, @DDR>,
-        %weights: !WeightsDistributed,
-        %wtable: !WTableDistributed)
+        %weights: !WeightsDistributed)
          -> (!OutputDistributed, memref<1x1536x1x1xf16, #NHWC, @DDR>){
 
     %subview = VPUIP.SubView %input [0, 0, 0, 0] [1, 1536, 1, 1]
@@ -1950,7 +1777,6 @@ func.func @NotOptimizeSubviewWithCopyConsumerNotToCMX(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy : !InputDistributed)
         parent_output(%allocConv : !OutputDistributed)
         outputs(%allocConv : !OutputDistributed)
@@ -1996,14 +1822,6 @@ func.func @NotOptimizeSubviewWithCopyConsumerNotToCMX(
     alignment = [16, 1, 1, 1]
 }>
 
-!WTableDistributed = !VPUIP.DistributedBuffer<
-    256x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "SEGMENTED",
-    num_tiles = [2, 1, 1, 1],
-    num_clusters = 2,
-    alignment = [16, 1, 1, 1]
-}>
-
 !OutputDistributed = !VPUIP.DistributedBuffer<
     1x256x1x1xf16, #NHWC, @CMX_NN, {
     mode = "SEGMENTED",
@@ -2016,8 +1834,7 @@ func.func @NotOptimizeSubviewWithCopyConsumerNotToCMX(
 // CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, #NHWC, @DDR>
 func.func @NotOptimizeSubviewWithDistributedAndNonDistributedCopies(
         %input: memref<1x3072x1x1xf16, #NHWC, @DDR>,
-        %weights: !WeightsDistributed,
-        %wtable: !WTableDistributed)
+        %weights: !WeightsDistributed)
          -> (!OutputDistributed, memref<1x1536x1x1xf16, #NHWC, [@CMX_NN, 0]>){
 
     %subview = VPUIP.SubView %input [0, 0, 0, 0] [1, 1536, 1, 1]
@@ -2040,7 +1857,6 @@ func.func @NotOptimizeSubviewWithDistributedAndNonDistributedCopies(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy : !InputDistributed)
         parent_output(%allocConv : !OutputDistributed)
         outputs(%allocConv : !OutputDistributed)
@@ -2086,14 +1902,6 @@ func.func @NotOptimizeSubviewWithDistributedAndNonDistributedCopies(
     alignment = [16, 1, 1, 1]
 }>
 
-!WTableDistributed = !VPUIP.DistributedBuffer<
-    256x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "SEGMENTED",
-    num_tiles = [2, 1, 1, 1],
-    num_clusters = 2,
-    alignment = [16, 1, 1, 1]
-}>
-
 !OutputDistributed = !VPUIP.DistributedBuffer<
     1x256x2x1xf16, #NHWC, @CMX_NN, {
     mode = "SEGMENTED",
@@ -2106,8 +1914,7 @@ func.func @NotOptimizeSubviewWithDistributedAndNonDistributedCopies(
 // CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x2x1xf16, #NHWC, @DDR>
 func.func @NotOptimizeSubviewWithNon1x1SpatialSize(
         %input: memref<1x3072x2x1xf16, #NHWC, @DDR>,
-        %weights: !WeightsDistributed,
-        %wtable: !WTableDistributed)
+        %weights: !WeightsDistributed)
          -> (!OutputDistributed){
 
     %subview = VPUIP.SubView %input [0, 0, 0, 0] [1, 1536, 2, 1]
@@ -2125,7 +1932,6 @@ func.func @NotOptimizeSubviewWithNon1x1SpatialSize(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy : !InputDistributed)
         parent_output(%allocConv : !OutputDistributed)
         outputs(%allocConv : !OutputDistributed)
@@ -2168,14 +1974,6 @@ func.func @NotOptimizeSubviewWithNon1x1SpatialSize(
     alignment = [16, 1, 1, 1]
 }>
 
-!WTableDistributed = !VPUIP.DistributedBuffer<
-    256x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "SEGMENTED",
-    num_tiles = [2, 1, 1, 1],
-    num_clusters = 2,
-    alignment = [16, 1, 1, 1]
-}>
-
 !PoolWTableDistributed = !VPUIP.DistributedBuffer<
     1536x1x1x4xsi32, #NCHW, @CMX_NN, {
     mode = "SEGMENTED",
@@ -2205,7 +2003,6 @@ func.func @NotOptimizeSubviewWithNon1x1SpatialSize(
 func.func @NotOptimizeSubviewWithNonConvEndConsumer(
         %input: memref<1x3072x1x1xf16, #NHWC, @DDR>,
         %weights: !WeightsDistributed,
-        %wtable: !WTableDistributed,
         %wtablePool: !PoolWTableDistributed)
          -> (!OutputDistributed, !PoolOutputDistributed){
 
@@ -2224,7 +2021,6 @@ func.func @NotOptimizeSubviewWithNonConvEndConsumer(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy : !InputDistributed)
         parent_output(%allocConv : !OutputDistributed)
         outputs(%allocConv : !OutputDistributed)
@@ -2284,14 +2080,6 @@ func.func @NotOptimizeSubviewWithNonConvEndConsumer(
     alignment = [16, 1, 1, 1]
 }>
 
-!WTableDistributed = !VPUIP.DistributedBuffer<
-    256x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "SEGMENTED",
-    num_tiles = [2, 1, 1, 1],
-    num_clusters = 2,
-    alignment = [16, 1, 1, 1]
-}>
-
 !OutputDistributed = !VPUIP.DistributedBuffer<
     1x256x1x1xf16, #NHWC, @CMX_NN, {
     mode = "SEGMENTED",
@@ -2306,8 +2094,7 @@ func.func @NotOptimizeSubviewWithNonConvEndConsumer(
 func.func @NotOptimizeSubviewWithRMS(
         %input1: memref<1x1x3072xf16, @DDR>,
         %input2: memref<3072xf16, @DDR>,
-        %weights: !WeightsDistributed,
-        %wtable: !WTableDistributed)
+        %weights: !WeightsDistributed)
          -> (!OutputDistributed){
 
     %allocRMSInput1 = memref.alloc() : memref<1x1x3072xf16, [@CMX_NN, 0]>
@@ -2338,7 +2125,6 @@ func.func @NotOptimizeSubviewWithRMS(
             task_type = #VPUIP.nce_task_type<CONV>}
         input(%nceTilingCopy : !InputDistributed)
         weights(%weights : !WeightsDistributed)
-        weight_table(%wtable : !WTableDistributed)
         parent_input(%nceTilingCopy : !InputDistributed)
         parent_output(%allocConv : !OutputDistributed)
         outputs(%allocConv : !OutputDistributed)

@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/IE/utils/pad_extract.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/pooling.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 

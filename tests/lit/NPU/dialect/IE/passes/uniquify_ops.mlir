@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --uniquify-ops %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -337,8 +337,8 @@ func.func @UniquifyAffineReshape(%arg0: tensor<15x2xf16>) -> (tensor<30xf16>, te
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-// CHECK-LABEL:   @UniquifyMemPermute
-func.func @UniquifyMemPermute(%arg0: tensor<1x16x2x3xf16>) ->
+// CHECK-LABEL:   @UniquifyPermuteQuantize
+func.func @UniquifyPermuteQuantize(%arg0: tensor<1x16x2x3xf16>) ->
         (tensor<1x16x2x3xf16, {order = #NHWC}>, tensor<1x16x2x3xf16, {order = #NHWC}>) {
     %0 = IE.PermuteQuantize(%arg0) {dstElemType = f16, dst_order = #NHWC, mem_perm = #NHWC, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0]} :
          tensor<1x16x2x3xf16> -> tensor<1x16x2x3xf16, {order = #NHWC}>
@@ -374,11 +374,11 @@ func.func @UniquifyMemPermuteForTheSameMergedPermutation(%arg0: tensor<1x1x512x1
     // CHECK-SAME:  {dst_order = #NCHW, mem_perm = #NWHC} :
     // CHECK-SAME:  tensor<1x1x512x1500xf16, {order = #NHWC}> -> tensor<1x1x1500x512xf16>
 
-    // CHECK:   [[LAYOUTCAST:%.+]] = IE.LayoutCast([[PERMUTE]])
-    // CHECK-SAME:  {dst_order = #NHWC} :
+    // CHECK:   [[PERMUTECAST:%.+]] = IE.PermuteCast([[PERMUTE]])
+    // CHECK-SAME:  {dst_order = #NHWC, mem_perm = #NHWC} :
     // CHECK-SAME:  tensor<1x1x1500x512xf16> -> tensor<1x1x1500x512xf16, {order = #NHWC}>
 
-    // CHECK:     return [[PERMUTE]], [[LAYOUTCAST]] : tensor<1x1x1500x512xf16>, tensor<1x1x1500x512xf16, {order = #NHWC}>
+    // CHECK:     return [[PERMUTE]], [[PERMUTECAST]] : tensor<1x1x1500x512xf16>, tensor<1x1x1500x512xf16, {order = #NHWC}>
 }
 
 // -----
@@ -405,15 +405,11 @@ func.func @UniquifyMemPermuteForTheSame3DMergedPermutation(%arg0: tensor<1x2x3x4
     // CHECK-SAME:  {dst_order = #NCDHW, mem_perm = #map} :
     // CHECK-SAME:  tensor<1x2x3x4x1xf16, {order = #NCDHW}> -> tensor<1x2x4x3x1xf16>
 
-    // CHECK:   [[LAYOUTCAST:%.+]] = IE.LayoutCast([[PERMUTE]])
-    // CHECK-SAME:  {dst_order = #NDHWC} :
-    // CHECK-SAME:  tensor<1x2x4x3x1xf16> -> tensor<1x2x4x3x1xf16, {order = #NDHWC}>
+    // CHECK:   [[PERMUTECAST:%.+]] = IE.PermuteCast([[PERMUTE]])
+    // CHECK-SAME:  {dst_order = #NDHWC, mem_perm = #map1} :
+    // CHECK-SAME:  tensor<1x2x4x3x1xf16> -> tensor<1x3x2x4x1xf16, {order = #NDHWC}>
 
-    // CHECK:   [[SHAPECAST:%.+]] = IE.ShapeCast
-    // CHECK-SAME:  {shape = [1, 3, 2, 4, 1]}
-    // CHECK-SAME:  inputs([[LAYOUTCAST]] : tensor<1x2x4x3x1xf16, {order = #NDHWC}>) -> tensor<1x3x2x4x1xf16, {order = #NDHWC}>
-
-    // CHECK:     return [[PERMUTE]], [[SHAPECAST]] : tensor<1x2x4x3x1xf16>, tensor<1x3x2x4x1xf16, {order = #NDHWC}>
+    // CHECK:     return [[PERMUTE]], [[PERMUTECAST]] : tensor<1x2x4x3x1xf16>, tensor<1x3x2x4x1xf16, {order = #NDHWC}>
 }
 
 // -----

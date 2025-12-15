@@ -59,10 +59,6 @@ struct TaskQueueType {
     }
 };
 
-SmallVector<int64_t> getDMATaskPorts(TaskOp task);
-
-std::optional<SmallVector<TaskQueueType>> getDMATaskQueueType(TaskOp task);
-
 TaskQueueType getTaskQueueType(TaskOp task, bool ignoreIndexForNce = true);
 
 std::map<TaskQueueType, std::pair<TaskOp, TaskOp>> getTaskQueuesFirstAndLastOp(mlir::func::FuncOp funcOp);

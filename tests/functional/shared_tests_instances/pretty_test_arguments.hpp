@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <magic_enum.hpp>
 #include "shared_test_classes/base/ov_subgraph.hpp"
 #include "vpux/utils/core/error.hpp"
 #include "vpux/utils/core/range.hpp"
@@ -52,7 +53,10 @@ struct HasValueType<T, std::void_t<typename T::value_type>> : std::true_type {};
         name(std::initializer_list<U> init): val_(init.begin(), init.end()) {                                      \
         }                                                                                                          \
                                                                                                                    \
-        operator const paramType&() const {                                                                        \
+        paramType value() {                                                                                        \
+            return val_;                                                                                           \
+        }                                                                                                          \
+        const paramType& value() const {                                                                           \
             return val_;                                                                                           \
         }                                                                                                          \
                                                                                                                    \
@@ -60,7 +64,13 @@ struct HasValueType<T, std::void_t<typename T::value_type>> : std::true_type {};
         paramType val_{};                                                                                          \
     };                                                                                                             \
     static inline void PrintTo(const name& param, ::std::ostream* os) { /*NOLINT use anonymous namespace*/         \
-        *os << #name ": " << ::testing::PrintToString((name::paramType)(param));                                   \
+        using T = typename name::paramType;                                                                        \
+        *os << #name << ": ";                                                                                      \
+        if constexpr (std::is_enum_v<T>) {                                                                         \
+            PrettyEnum::printFieldName(param.value(), *os);                                                        \
+        } else {                                                                                                   \
+            *os << ::testing::PrintToString(param.value());                                                        \
+        }                                                                                                          \
     }
 
 //

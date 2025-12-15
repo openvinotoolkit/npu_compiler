@@ -24,6 +24,7 @@ std::unique_ptr<D2SToTransposedConvVerifierBase> createD2SToTransposedConvVerifi
     case config::ArchKind::NPU37XX:
         return std::make_unique<IE::arch37xx::D2SToTransposedConvVerifier>();
     case config::ArchKind::NPU40XX:
+    case config::ArchKind::NPU50XX:
         return std::make_unique<IE::arch40xx::D2SToTransposedConvVerifier>();
     default: {
         return std::make_unique<D2SToTransposedConvVerifierBase>();

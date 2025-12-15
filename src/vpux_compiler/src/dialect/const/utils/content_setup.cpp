@@ -35,7 +35,7 @@ mlir::MLIRContext* ContentSetupBase::getContext() const {
     return _baseType.getContext();
 }
 
-ArrayRef<TransformAttrInterface> ContentSetupBase::getTransformations() const {
+ArrayRef<TransformAttrInterface> ContentSetupBase::getTransformations() const& {
     checkInvalidated();
     return _transformations;
 }

@@ -18,6 +18,7 @@ int64_t vpux::getSizeAlignmentForSwizzling(config::ArchKind arch) {
     case config::ArchKind::NPU40XX:
         return SWIZZLING_SIZE_ALIGNMENT_VPUX40XX;
     default: {
+        return SWIZZLING_SIZE_ALIGNMENT_VPUX50XX;
     }
     }
     VPUX_THROW("Architecture {0} does not support swizzling", arch);

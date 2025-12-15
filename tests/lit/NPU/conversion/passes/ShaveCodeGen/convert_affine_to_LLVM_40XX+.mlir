@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-Affine-to-LLVM --canonicalize %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 // Since we don't have callers of generated_0 we can safely append llvm.noalias attributes.
 module @SingleCosLayer {

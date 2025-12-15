@@ -7,6 +7,7 @@
 
 #include "vpux/compiler/NPU37XX/dialect/VPUIPDPU/ops.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPUIPDPU/ops.hpp"
+#include "vpux/compiler/NPU50XX/dialect/VPUIPDPU/ops.hpp"
 #include "vpux/compiler/dialect/VPUIPDPU/ops.hpp"
 
 using namespace vpux;
@@ -28,6 +29,10 @@ void vpux::VPUIPDPU::VPUIPDPUDialect::initialize() {
     addOperations<
 #define GET_OP_LIST
 #include <vpux/compiler/NPU40XX/dialect/VPUIPDPU/ops.cpp.inc>
+            >();
+    addOperations<
+#define GET_OP_LIST
+#include <vpux/compiler/NPU50XX/dialect/VPUIPDPU/ops.cpp.inc>
             >();
 }
 

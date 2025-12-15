@@ -101,6 +101,7 @@ public:
 
         SmallVector<mlir::Operation*> results;
         SmallVector<mlir::Value> resultValues;
+        SmallVector<mlir::Operation*> generatedSlices;
         results.reserve(resultOffsets.size());
         resultValues.reserve(resultOffsets.size());
         SmallVector<mlir::OpFoldResult> axis(resultOffsets.size(), builder.getIndexAttr(1));
@@ -140,7 +141,7 @@ public:
                 }
 
                 auto inputTileInfo = tiling.tiles[inputIdx];
-                auto tiledInput = generateTile(operation->getLoc(), builder, origInput, inputTileInfo);
+                auto tiledInput = generateTile(operation->getLoc(), builder, origInput, inputTileInfo, generatedSlices);
                 sliceMatch[origInput] = tiledInput;
 
                 tiledOperands.emplace_back(tiledInput);
@@ -161,7 +162,7 @@ public:
         results.emplace_back(resultOp);
         resultValues.emplace_back(resultOp->getResult(0));
 
-        return mlir::TilingResult{std::move(results), std::move(resultValues)};
+        return mlir::TilingResult{std::move(results), std::move(resultValues), std::move(generatedSlices)};
     }
 
     mlir::FailureOr<mlir::TilingResult> generateResultTileValue(mlir::Operation* operation, mlir::OpBuilder& builder,
@@ -322,18 +323,21 @@ public:
         return mlir::success();
     }
 
+    Shape getRawFilterShape(mlir::Operation* operation) const {
+        return Shape(parseIntArrayAttr<int64_t>(mlir::cast<ConcreteOp>(operation).getRawFilterShape()));
+    }
+
 protected:
     SCFTilingInfo backInferConvInputTile(mlir::Location loc, mlir::OpBuilder& builder, const SCFTileInfo& outputTile,
                                          SCFShapeRef origInputShape, SCFShapeRef origOutputShape,
-                                         const std::array<int64_t, 4> kernelSize, mlir::ArrayAttr strides,
-                                         const PadInfo& origPadding) const {
+                                         ArrayRef<int64_t> kernelSize, mlir::ArrayAttr strides,
+                                         ShapeRef boundedInputShape, const PadInfo& origPadding) const {
         SCFTileInfo inputTile(origInputShape, builder);
         inputTile.shape[Dims4D::Act::N.ind()] = outputTile.shape[Dims4D::Act::N.ind()];
         inputTile.offsets[Dims4D::Act::N.ind()] = outputTile.offsets[Dims4D::Act::N.ind()];
 
         if (!outputTile.bounds.raw().empty()) {
-            inputTile.bounds = outputTile.bounds;
-            inputTile.bounds[Dims4D::Act::C] = kernelSize[Dims4D::Filter::IC.ind()];
+            inputTile.bounds = Bounds(boundedInputShape.raw());
         }
 
         auto padMap = origPadding.toPadByDims();
@@ -367,24 +371,22 @@ public:
     SCFTilingInfo backInferSCFTileInfo(mlir::Operation* operation, mlir::OpBuilder& builder,
                                        const SCFTileInfo& outputTile) const {
         auto convOperation = mlir::cast<ConcreteOp>(operation);
-        const auto origInputShape =
-                mlir::getAsIndexOpFoldResult(builder.getContext(), getBoundedShape(convOperation.getInput()).raw());
+        auto boundedInputShape = getBoundedShape(convOperation.getInput());
+        const auto origInputShape = mlir::getAsIndexOpFoldResult(builder.getContext(), boundedInputShape.raw());
         const auto origOutputShape =
                 mlir::getAsIndexOpFoldResult(builder.getContext(), getBoundedShape(convOperation.getOutput()).raw());
-        const auto origFilterShape = getShape(convOperation.getFilter());
+        const auto origFilterShape = getRawFilterShape(convOperation);
         const auto origPadding = toPadInfo(convOperation.getPad());
 
-        const std::array<int64_t, 4> kernelSize = {
-                origFilterShape[Dims4D::Filter::OC], origFilterShape[Dims4D::Filter::IC],
-                origFilterShape[Dims4D::Filter::KX], origFilterShape[Dims4D::Filter::KY]};
+        SmallVector<int64_t> kernelSize(origFilterShape.begin(), origFilterShape.end());
         SCFTilingInfo tilingInfo =
                 backInferConvInputTile(operation->getLoc(), builder, outputTile, origInputShape, origOutputShape,
-                                       kernelSize, convOperation.getStrides(), origPadding);
+                                       kernelSize, convOperation.getStrides(), boundedInputShape, origPadding);
 
         const auto tileOverChannels = !mlir::isConstantIntValue(outputTile.axis[Dims4D::Act::C.ind()], 1);
 
         if (tileOverChannels) {
-            SCFTileInfo filterTile(origFilterShape, builder);
+            SCFTileInfo filterTile(kernelSize, builder);
 
             filterTile.shape[Dims4D::Filter::OC.ind()] = outputTile.shape[Dims4D::Act::C.ind()];
             filterTile.offsets[Dims4D::Filter::OC.ind()] = outputTile.offsets[Dims4D::Act::C.ind()];
@@ -418,7 +420,7 @@ public:
         if (!mlir::isConstantIntValue(outputTile.axis[Dims4D::Act::C.ind()], 1) && newChannelValue.has_value()) {
             generator = [&]() -> mlir::Operation* {
                 auto newOperation = mlir::cast<ConcreteOp>(opGenerator());
-                auto newRawFilterShape = Shape(parseIntArrayAttr<int64_t>(newOperation.getRawFilterShape()));
+                auto newRawFilterShape = getRawFilterShape(newOperation);
                 newRawFilterShape[Dims4D::Filter::OC] = newChannelValue.value();
                 newOperation.setRawFilterShapeAttr(getIntArrayAttr(newOperation->getContext(), newRawFilterShape));
                 vpux::inferReturnTypes(newOperation, vpux::InferShapedTypeMode::SHAPE);
@@ -445,7 +447,7 @@ public:
 
         if (tileOverChannels) {
             auto depthOperation = mlir::cast<VPU::NCEDepthConvolutionOp>(operation);
-            const auto origFilterShape = Shape(parseIntArrayAttr<int64_t>(depthOperation.getRawFilterShape()));
+            const auto origFilterShape = getRawFilterShape(depthOperation);
             const auto origInputShape = getShape(depthOperation.getInput());
             auto& inputTiles = inputConvTiling.tiles[0];
 

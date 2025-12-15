@@ -18,7 +18,7 @@
 #include "vpux/compiler/dialect/IE/utils/permute_quantize_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
@@ -1560,7 +1560,7 @@ void AdjustInputShapePass::safeRunOnFunc() {
     // TODO: E#126695 Refactor to avoid specific maxIterations
     auto greedyRewriteConfig = getDefaultGreedyRewriteConfig();
     greedyRewriteConfig.maxIterations *= 20;
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), greedyRewriteConfig))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), greedyRewriteConfig))) {
         signalPassFailure();
         return;
     }

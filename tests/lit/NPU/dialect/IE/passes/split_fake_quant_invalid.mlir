@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --split-fake-quant --verify-diagnostics %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @BroadcastDiffDims
 func.func @BroadcastDiffDims(%arg0: tensor<1x3x30x30xf32>) -> tensor<1x3x30x30xf32> {

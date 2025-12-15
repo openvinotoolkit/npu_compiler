@@ -1690,34 +1690,42 @@ func.func @AssignSOHForLayerWithLargeActivation(%arg0: tensor<1x64x250x250xf16, 
 // -----
 
 // CHECK-LABEL: @AssignSOHForLayerWithTopK
-func.func @AssignSOHForLayerWithTopK(%arg0: tensor<1x151x513x513xf16>) -> tensor<1x1x513x513xsi32> {
-    %output_values, %target_shape = VPU.TopK(%arg0)
-        {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 0, 0>, sort = #IE.topk_sort_type<SORT_INDICES>}
-            : tensor<1x151x513x513xf16> -> tensor<1x1x513x513xf16>, tensor<1x1x513x513xsi32>
+// CHECK-SAME:  ([[INPUT:%.+]]: tensor<1x151x513x513xf16>)
+func.func @AssignSOHForLayerWithTopK(%input: tensor<1x151x513x513xf16>) -> tensor<1x1x513x513xsi32> {
+    %aux = const.Declare tensor<1x1x1x2416xui8> = dense<0> : tensor<1x1x1x2416xui8>
+    %output_values, %target_shape = VPU.TopK(%input, %aux)
+        {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>}
+            : tensor<1x151x513x513xf16>, tensor<1x1x1x2416xui8> -> tensor<1x1x513x513xf16>, tensor<1x1x513x513xsi32>
     return %target_shape : tensor<1x1x513x513xsi32>
 
-    //CHECK:        [[OUTPUT_VALUES:%.+]], [[TARGET_SHAPE:%.+]] = VPU.TopK(%arg0)
+    //CHECK:        [[AUX:%.+]] = const.Declare tensor<1x1x1x2416xui8> = dense<0> : tensor<1x1x1x2416xui8>
+    //CHECK:        [[OUTPUT_VALUES:%.+]], [[TARGET_SHAPE:%.+]] = VPU.TopK([[INPUT]], [[AUX]])
     //CHECK-SAME:        axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>,
-    //CHECK-SAME:        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, operandSegmentSizes = array<i32: 1, 0, 0>, sort = #IE.topk_sort_type<SORT_INDICES>}
-    //CHECK-SAME:        : tensor<1x151x513x513xf16> -> tensor<1x1x513x513xf16>, tensor<1x1x513x513xsi32>
+    //CHECK-SAME:        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, sort = #IE.topk_sort_type<SORT_INDICES>}
+    //CHECK-SAME:        : tensor<1x151x513x513xf16>, tensor<1x1x1x2416xui8> -> tensor<1x1x513x513xf16>, tensor<1x1x513x513xsi32>
     //CHECK:        return [[TARGET_SHAPE]] : tensor<1x1x513x513xsi32>
 }
 
 // -----
 
 // CHECK-LABEL: @AssignSOKForLayerWithTopK
-func.func @AssignSOKForLayerWithTopK(%arg0: tensor<1x151x1x513xf16>) -> tensor<1x151x1x1xsi32> {
-    %output_values, %target_shape = VPU.TopK(%arg0)
-        {axis = 3 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 0, 0>, sort = #IE.topk_sort_type<SORT_INDICES>}
-            : tensor<1x151x1x513xf16> -> tensor<1x151x1x1xf16>, tensor<1x151x1x1xsi32>
+// CHECK-SAME:  ([[INPUT:%.+]]: tensor<1x151x1x513xf16>)
+func.func @AssignSOKForLayerWithTopK(%input: tensor<1x151x1x513xf16>) -> tensor<1x151x1x1xsi32> {
+    %aux = const.Declare tensor<1x1x1x8208xui8> = dense<0> : tensor<1x1x1x8208xui8>
+    %output_values, %target_shape = VPU.TopK(%input, %aux)
+        {axis = 3 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>}
+            : tensor<1x151x1x513xf16>, tensor<1x1x1x8208xui8> -> tensor<1x151x1x1xf16>, tensor<1x151x1x1xsi32>
     return %target_shape : tensor<1x151x1x1xsi32>
 
-    //CHECK:        [[OUTPUT_VALUES:%.+]], [[TARGET_SHAPE:%.+]] = VPU.TopK(%arg0)
+    //CHECK:        [[AUX:%.+]] = const.Declare tensor<1x1x1x8208xui8> = dense<0> : tensor<1x1x1x8208xui8>
+    //CHECK:        [[OUTPUT_VALUES:%.+]], [[TARGET_SHAPE:%.+]] = VPU.TopK([[INPUT]], [[AUX]])
     //CHECK-SAME:        axis = 3 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>,
-    //CHECK-SAME:        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, operandSegmentSizes = array<i32: 1, 0, 0>, sort = #IE.topk_sort_type<SORT_INDICES>}
-    //CHECK-SAME:        : tensor<1x151x1x513xf16> -> tensor<1x151x1x1xf16>, tensor<1x151x1x1xsi32>
+    //CHECK-SAME:        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, sort = #IE.topk_sort_type<SORT_INDICES>}
+    //CHECK-SAME:        : tensor<1x151x1x513xf16>, tensor<1x1x1x8208xui8> -> tensor<1x151x1x1xf16>, tensor<1x151x1x1xsi32>
     //CHECK:        return [[TARGET_SHAPE]] : tensor<1x151x1x1xsi32>
 }
+
+// -----
 
 // CHECK-LABEL: @AssignClusteringForLayerWithNormalizeL2
 func.func @AssignClusteringForLayerWithNormalizeL2(%arg0: tensor<1x151x513x513xf16>) -> tensor<1x151x513x513xf16> {
@@ -1731,6 +1739,8 @@ func.func @AssignClusteringForLayerWithNormalizeL2(%arg0: tensor<1x151x513x513xf
     //CHECK:        return [[OUTPUT_VALUES]] : tensor<1x151x513x513xf16>
 }
 
+// -----
+
 // CHECK-LABEL: @AssignClustering2ForLayerWithNormalizeL2
 func.func @AssignClustering2ForLayerWithNormalizeL2(%arg0: tensor<1x1x513x513xf16>) -> tensor<1x1x513x513xf16> {
     %output_values = VPU.NormalizeL2(%arg0) {axes_value = [2,3], eps = 9.9999999392252903E-9 : f64, eps_mode = #IE.eps_mode<ADD>} : tensor<1x1x513x513xf16> -> tensor<1x1x513x513xf16>
@@ -1742,6 +1752,8 @@ func.func @AssignClustering2ForLayerWithNormalizeL2(%arg0: tensor<1x1x513x513xf1
     //CHECK-SAME:        : tensor<1x1x513x513xf16> -> tensor<1x1x513x513xf16>
     //CHECK:        return [[OUTPUT_VALUES]] : tensor<1x1x513x513xf16>
 }
+
+// -----
 
 // CHECK-LABEL: @AssignSOHForLayerWithNormalizeL2
 func.func @AssignSOHForLayerWithNormalizeL2(%arg0: tensor<1x1x513x513xf16>) -> tensor<1x1x513x513xf16> {

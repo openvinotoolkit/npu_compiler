@@ -468,7 +468,7 @@ bool isBeneficialToConvertMultiplyToScaleShift(ShapeRef activationShape, ShapeRe
     // E-171794 will introduce a comprehensive solution for choosing between different executors
     constexpr double DPU_BENEFIT_FACTOR = 2;
     const bool isBenefitOnDPU =
-            dimCShape < static_cast<int64_t>(VPU::NCEInvariant::VPU_DIMENSION_LIMIT * DPU_BENEFIT_FACTOR);
+            dimCShape <= static_cast<int64_t>(VPU::NCEInvariant::VPU_DIMENSION_LIMIT * DPU_BENEFIT_FACTOR);
     // Operations that do not need to be broadcasted can be decided to execute on DPU(NCEEltwise) or
     // SHAVE(VPU.Multiply) in later passes
     const bool needBroadcast = activationShape != weightsShape;
@@ -662,7 +662,7 @@ void ConvertToScaleShiftPass::safeRunOnFunc() {
     patterns.add<ConvertMultiplyToScaleShift>(&ctx, benefitLevels[1], _log);
 
     auto func = getOperation();
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

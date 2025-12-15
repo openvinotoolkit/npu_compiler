@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --ensure-nce-ops-size-requirements="enable-dequant-weight-ensurance-before-strategy=true" --canonicalize %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 !qElemType = !quant.uniform<u8:f16, 0.0014466386799718818:108>
 

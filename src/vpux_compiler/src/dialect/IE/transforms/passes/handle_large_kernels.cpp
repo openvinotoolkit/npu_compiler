@@ -192,7 +192,7 @@ void rewriteSubGraph(IE::ConvolutionOp origOp, ArrayRef<mlir::Value> slicedFilte
             Shape offsets(inputShape.size());
             offsets[Dims4D::Act::W] = startW;
             offsets[Dims4D::Act::H] = startH;
-            log.trace("Activation slice shape {1}, slice offsets {2}", sliceShape, offsets);
+            log.trace("Activation slice shape {0}, slice offsets {1}", sliceShape, offsets);
 
             convInput = rewriter.create<IE::SliceOp>(takeOpLoc(origOp, StringLiteral("slice_in_{0}_{1}"), j, i),
                                                      extendedActivation, getIntArrayAttr(ctx, offsets.raw()),
@@ -221,7 +221,7 @@ void rewriteSubGraph(IE::ConvolutionOp origOp, ArrayRef<mlir::Value> slicedFilte
         }
     }
 
-    log.trace("Successufuly replace large convolution at {1}", origOp->getLoc());
+    log.trace("Successfully replace large convolution at {0}", origOp->getLoc());
 
     rewriter.replaceOp(origOp, accumulativeOutputTensors.back());
 }
@@ -453,7 +453,7 @@ mlir::LogicalResult GeneralPoolingBaseRewriter<ConcreteOp>::matchAndRewrite(Conc
              (inShape[Dims4D::Act::W] + padsBegin[Dims4D::PadsBegin::Left.ind()] +
               padsEnd[Dims4D::PadsEnd::Right.ind()]) != origKernel[Dims4D::Kernel::X.ind()])) {
             rewriter.eraseOp(firstOpOutput.getDefiningOp());
-            _log.trace("Cannot handle padding of '{1}' layer at '{2}'", origOp.getOperationName(), origOp->getLoc());
+            _log.trace("Cannot handle padding of '{0}' layer at '{1}'", origOp.getOperationName(), origOp->getLoc());
             return mlir::failure();
         }
 
@@ -1813,8 +1813,7 @@ void HandleLargeKernelsPass::safeRunOnFunc() {
     convPatterns.add<ReshapeLargeConvWithGCDRewriter>(&ctx, benefitLevels[3], _log);
     convPatterns.add<SliceLargeConvRewriter>(&ctx, benefitLevels[3], _log);
 
-    if (mlir::failed(
-                mlir::applyPatternsAndFoldGreedily(func, std::move(convPatterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(convPatterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 
@@ -1828,8 +1827,7 @@ void HandleLargeKernelsPass::safeRunOnFunc() {
     poolingPatterns.add<GeneralMaxPoolRewriter>(&ctx, _log);
     poolingPatterns.add<OverlappedMaxPoolRewriter>(&ctx, _log);
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(poolingPatterns),
-                                                        getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(poolingPatterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

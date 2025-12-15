@@ -11,12 +11,15 @@ include "vpux/compiler/dialect/IE/ops_interfaces.td"
 include "vpux/compiler/dialect/IE/attributes.td"
 include "vpux/compiler/dialect/core/ops_interfaces.td"
 
-include "mlir/Dialect/Quant/QuantOpsBase.td"
+include "mlir/Dialect/Quant/IR/QuantBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 
 def IE_ReduceL1Op :
         IE_LayerOp<
-            "ReduceL1"
+            "ReduceL1",
+            [
+                DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>
+            ]
         > {
     let summary = "InferenceEngine ReduceL1 layer";
 
@@ -222,7 +225,10 @@ def IE_ReduceProdOp :
 
 def IE_ReduceSumOp :
         IE_LayerOp<
-            "ReduceSum"
+            "ReduceSum",
+            [
+                DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>
+            ]
         > {
     let summary = "InferenceEngine ReduceSum layer";
 

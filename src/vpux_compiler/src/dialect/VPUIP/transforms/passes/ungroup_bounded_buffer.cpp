@@ -385,8 +385,8 @@ void UngroupBoundedBuffers::safeRunOnFunc() {
     removalPatterns.add<RemoveGroupUngroupRewriter>(&ctx, vpux::benefitHigh);
     removalPatterns.add<RemoveExtraShapeCopiesRewriter>(&ctx, _log, vpux::benefitLow);
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(getOperation(), std::move(removalPatterns),
-                                                        getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(getOperation(), std::move(removalPatterns),
+                                                 getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

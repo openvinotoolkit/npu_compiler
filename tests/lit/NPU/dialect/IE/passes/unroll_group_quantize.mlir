@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --unroll-group-quantize %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @UnrollHighValues
 func.func @UnrollHighValues(%arg0: tensor<1x2x16x32xf16>) -> tensor<1x2x16x32xf16> {

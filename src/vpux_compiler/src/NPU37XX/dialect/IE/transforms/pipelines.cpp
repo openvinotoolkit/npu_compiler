@@ -310,7 +310,9 @@ void vpux::IE::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
 
     if (options.enableExpandActivationChannels) {
         pm.addPass(IE::createExpandActivationWidthPass(log));
-        pm.addPass(IE::createAdjustInputShapePass(log));
+        if (options.enableAdjustInputShapePass) {
+            pm.addPass(IE::createAdjustInputShapePass(log));
+        }
         pm.addPass(mlir::createCanonicalizerPass(grc));
         pm.addPass(IE::createPropagateAffineReshapePass(log));
         if (options.enableOptimizeSliceExpand) {

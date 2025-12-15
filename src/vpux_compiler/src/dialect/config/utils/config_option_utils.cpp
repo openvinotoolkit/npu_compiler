@@ -14,7 +14,7 @@
 // *
 
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
-#include "vpux/compiler/utils/VPU/function_outlining_splitter.hpp"
+#include "vpux/compiler/dialect/VPU/utils/function_outlining_splitter.hpp"
 
 using namespace vpux;
 
@@ -174,4 +174,9 @@ bool config::hasSupportForFifoPerShaveEngine(config::ArchKind arch, bool enableW
 
     // Enable support for separate FIFO per each SHAVE engine by default.
     return true;
+}
+
+// SPRLUT Configurations
+bool config::isSprLUTEnabled(mlir::Operation* op) {
+    return config::getConstraint<bool>(op, SPRLUT_ENABLED);
 }

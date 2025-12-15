@@ -88,3 +88,11 @@ jobs:
           export PATH=$PATH:${PROF_PARSER_PATH}:${LSP_SERVER_PATH}:${VPUX_OPT_PATH}:${VPUX_TRANSLATE_PATH}
           cd ${OPENVINO_INSTALL_DIR}/tests/lit-tests
           python3 ./lit-tool/lit.py -v --param arch=NPU40XX NPU/NPU
+
+      - name: Run NPU50XX LIT tests
+        if: ${{ inputs.run-lit-tests }}
+        run: |
+          source ${OPENVINO_INSTALL_DIR}/setupvars.sh
+          export PATH=$PATH:${PROF_PARSER_PATH}:${LSP_SERVER_PATH}:${VPUX_OPT_PATH}:${VPUX_TRANSLATE_PATH}
+          cd ${OPENVINO_INSTALL_DIR}/tests/lit-tests
+          python3 ./lit-tool/lit.py -v --param arch=NPU50XX NPU/NPU

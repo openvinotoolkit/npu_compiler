@@ -10,7 +10,6 @@
 #include "vpux/utils/core/small_string.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 

@@ -18,6 +18,7 @@
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/types.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
 #include <mlir/IR/Location.h>
@@ -67,8 +68,7 @@ IE::ShapeCastOp reshapeConvOutput(IE::SliceOp origOp, mlir::Value convOutput, ml
 
 class SliceOpConverter final : public mlir::OpRewritePattern<IE::SliceOp> {
 public:
-    SliceOpConverter(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
-            : mlir::OpRewritePattern<IE::SliceOp>(ctx, benefit), _log(log) {
+    SliceOpConverter(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::SliceOp>(ctx), _log(log) {
     }
 
 public:
@@ -105,7 +105,7 @@ bool isBeneficialToConvertSliceToConv(NDTypeInterface sliceInType, NDTypeInterfa
     // Only slice on the lowest dim(channel, NHWC layout) will be converted
     for (auto i : irange(inputShape.size())) {
         if (inputShape[i] != outputShape[i] && i != checked_cast<uint32_t>(Dims4D::Act::C.ind())) {
-            log.trace("Slice at {1} is not slice on channel", loc);
+            log.trace("Slice at {0} is not slice on channel", loc);
             return false;
         }
     }
@@ -308,8 +308,7 @@ mlir::LogicalResult SliceOpConverter::matchAndRewrite(IE::SliceOp origOp, mlir::
 
 class SliceConcatRewriter final : public mlir::OpRewritePattern<IE::ConcatOp> {
 public:
-    SliceConcatRewriter(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
-            : mlir::OpRewritePattern<IE::ConcatOp>(ctx, benefit), _log(log) {
+    SliceConcatRewriter(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::ConcatOp>(ctx), _log(log) {
         setDebugName("SliceConcatRewriter");
     }
 
@@ -531,8 +530,7 @@ mlir::LogicalResult SliceConcatRewriter::matchAndRewrite(IE::ConcatOp concatOp, 
 //
 class FuseSliceWithConvRewriter final : public mlir::OpRewritePattern<IE::SliceOp> {
 public:
-    FuseSliceWithConvRewriter(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
-            : mlir::OpRewritePattern<IE::SliceOp>(ctx, benefit), _log(log) {
+    FuseSliceWithConvRewriter(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::SliceOp>(ctx), _log(log) {
         setDebugName("FuseSliceWithConvRewriter");
     }
     mlir::LogicalResult matchAndRewrite(IE::SliceOp sliceOp, mlir::PatternRewriter& rewriter) const final;
@@ -643,8 +641,8 @@ mlir::LogicalResult FuseSliceWithConvRewriter::matchAndRewrite(IE::SliceOp slice
 
 class SliceOpWithLayoutConverter final : public mlir::OpRewritePattern<IE::SliceOp> {
 public:
-    SliceOpWithLayoutConverter(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
-            : mlir::OpRewritePattern<IE::SliceOp>(ctx, benefit), _log(log) {
+    SliceOpWithLayoutConverter(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::SliceOp>(ctx), _log(log) {
     }
 
 public:
@@ -794,17 +792,26 @@ private:
 
 void OptimizeSliceWithStridePass::safeRunOnFunc() {
     auto& ctx = getContext();
-
-    mlir::RewritePatternSet patterns(&ctx);
-    patterns.add<SliceConcatRewriter>(&ctx, benefitLevels[0], _log);
-    patterns.add<FuseSliceWithConvRewriter>(&ctx, benefitLevels[0], _log);
-    patterns.add<SliceOpWithLayoutConverter>(&ctx, benefitLevels[1], _log);
-    patterns.add<SliceOpConverter>(&ctx, benefitLevels[2], _log);
-
     auto func = getOperation();
 
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
+    {
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.add<SliceConcatRewriter>(&ctx, _log);
+        patterns.add<FuseSliceWithConvRewriter>(&ctx, _log);
+        collectOpsAndApplyPatterns(func, std::move(patterns));
+    }
+
+    {
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.add<SliceOpWithLayoutConverter>(&ctx, _log);
+        collectOpsAndApplyPatterns(func, std::move(patterns));
+    }
+
+    {
+        // SliceOpConverter has dependency on layout as a result, needs to run after SliceOpWithLayoutConverter
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.add<SliceOpConverter>(&ctx, _log);
+        collectOpsAndApplyPatterns(func, std::move(patterns));
     }
 }
 }  // namespace

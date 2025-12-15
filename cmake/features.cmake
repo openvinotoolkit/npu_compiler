@@ -78,7 +78,10 @@ ov_option(ENABLE_SPLIT_DWARF "Use -gsplit-dwarf when compiling the project and -
 
 ov_option(LIT_TESTS_USE_LINKS "Create symlink to lit-tests in the binary directory instead of copying them" OFF)
 
-ov_option(ENABLE_NPU_MICRO_BENCHMARKS "NPU micro benchmarks" OFF)
+if(NOT DEFINED ENABLE_NPU_MICRO_BENCHMARKS)
+    set(ENABLE_NPU_MICRO_BENCHMARKS ${ENABLE_DEVELOPER_BUILD})
+endif()
+ov_option(ENABLE_NPU_MICRO_BENCHMARKS "NPU micro benchmarks" ${ENABLE_NPU_MICRO_BENCHMARKS})
 
 if(ENABLE_VPUX_DOCS)
     find_package(Doxygen)

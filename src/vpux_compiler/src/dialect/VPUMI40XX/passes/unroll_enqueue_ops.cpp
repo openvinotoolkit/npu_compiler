@@ -12,6 +12,7 @@
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 
 namespace vpux::VPUMI40XX {
 #define GEN_PASS_DECL_UNROLLENQUEUEOPS
@@ -100,10 +101,7 @@ void UnrollEnqueueOpsPass::safeRunOnFunc() {
     mlir::RewritePatternSet patterns(ctx);
     patterns.add<UnrollEnqueuePattern>(ctx, _log);
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(netFunc, std::move(patterns),
-                                                        vpux::getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
-    }
+    collectOpsAndApplyPatterns(netFunc, std::move(patterns));
 
     // pattern rewriter may have changed the firstEnqu
     firstEnqu = mpi.getWorkItemTasks();

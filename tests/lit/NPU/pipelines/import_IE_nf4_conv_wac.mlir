@@ -5,7 +5,7 @@
 
 // RUN: vpux-translate --vpu-arch=%arch% --import-IE ./IR/mixed_precision_conv_nf4_wac.xml -o %t
 // RUN: FileCheck %s --input-file %t
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 // Verifying that QuantileFloat const.Declare dense_resource is actually stored as u4 raw data
 

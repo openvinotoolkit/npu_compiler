@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --dpu-profiling %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -13,7 +13,6 @@
 !Input_CMX = memref<1x16x62x62xf16, #NHWC, @CMX_NN>
 !Output_CMX = memref<1x48x60x60xf16, #NHWC, @CMX_NN>
 !Weights_CMX = memref<48x16x3x3xf16, #NHWC, @CMX_NN>
-!WeightsTable_CMX = memref<48x1x1x4xsi32, #NHWC, @CMX_NN>
 
 // CHECK-LABEL: @DpuProfiling
 module @DpuProfiling  {
@@ -21,13 +20,12 @@ module @DpuProfiling  {
   net.NetworkInfo entryPoint : @main inputsInfo :  {
     DataInfo "input" : tensor<1x16x62x62xf16>
     DataInfo "weights" : tensor<48x16x3x3xf16>
-    DataInfo "weightsTable" : tensor<48x1x1x4xsi32>
   } outputsInfo :  {
     DataInfo "output" : tensor<1x48x60x60xf16>
   } profilingOutputsInfo :  {
   }
 
-  func.func @main(%arg0: !Input_CMX, %arg1: !Weights_CMX, %arg2: !WeightsTable_CMX, %arg3: !Output_DDR) -> !Output_DDR {
+  func.func @main(%arg0: !Input_CMX, %arg1: !Weights_CMX, %arg3: !Output_DDR) -> !Output_DDR {
 
     %0 = memref.alloc() : !Output_CMX
     %1 = VPUIP.NCEClusterTask {
@@ -37,7 +35,6 @@ module @DpuProfiling  {
             task_type = #VPUIP.nce_task_type<CONV>
         }  input(%arg0 : !Input_CMX)
             weights(%arg1 : !Weights_CMX)
-            weight_table(%arg2 : !WeightsTable_CMX)
             parent_input(%arg0 : !Input_CMX)
             parent_output(%0 : !Output_CMX)
             outputs(%0 : !Output_CMX)
@@ -77,7 +74,6 @@ module @DpuProfiling  {
 !Input_CMX = memref<1x16x62x62xf16, #NHWC, @CMX_NN>
 !Output_CMX = memref<1x48x60x60xf16, #NHWC, @CMX_NN>
 !Weights_CMX = memref<48x16x3x3xf16, #NHWC, @CMX_NN>
-!WeightsTable_CMX = memref<48x1x1x4xsi32, #NHWC, @CMX_NN>
 
 // CHECK-LABEL: @DpuProfilingWithMulticlustering
 module @DpuProfilingWithMulticlustering  {
@@ -85,13 +81,12 @@ module @DpuProfilingWithMulticlustering  {
   net.NetworkInfo entryPoint : @main inputsInfo :  {
     DataInfo "input" : tensor<1x16x62x62xf16>
     DataInfo "weights" : tensor<48x16x3x3xf16>
-    DataInfo "weightsTable" : tensor<48x1x1x4xsi32>
   } outputsInfo :  {
     DataInfo "output" : tensor<1x48x60x60xf16>
   } profilingOutputsInfo :  {
   }
 
-  func.func @main(%arg0: !Input_CMX, %arg1: !Weights_CMX, %arg2: !WeightsTable_CMX, %arg3: !Output_DDR) -> !Output_DDR {
+  func.func @main(%arg0: !Input_CMX, %arg1: !Weights_CMX, %arg3: !Output_DDR) -> !Output_DDR {
 
     %0 = VPURT.AllocDistributed -> !OutputDistributed
     %1 = VPUIP.NCEClusterTask {
@@ -101,7 +96,6 @@ module @DpuProfilingWithMulticlustering  {
           task_type = #VPUIP.nce_task_type<CONV>
       } input(%arg0 : !Input_CMX)
         weights(%arg1 : !Weights_CMX)
-        weight_table(%arg2 : !WeightsTable_CMX)
         parent_input(%arg0 : !Input_CMX)
         parent_output(%0 : !OutputDistributed)
         outputs(%0 : !OutputDistributed)
@@ -141,7 +135,6 @@ module @DpuProfilingWithMulticlustering  {
 !Input0_CMX = memref<1x16x56x56xf16, #NHWC, [@CMX_NN, 0]>
 !Output0_CMX = memref<1x48x55x55xf16, #NHWC, [@CMX_NN, 0]>
 !Weights0_CMX = memref<48x16x3x3xf16, #NHWC, [@CMX_NN, 0]>
-!WeightsTable0_CMX = memref<48x1x1x4xsi32, [@CMX_NN, 0]>
 
 !Weights1_CMX = memref<32x48x3x3xf16, #NHWC, [@CMX_NN, 0]>
 !WeightsTable1_CMX = memref<32x1x1x4xsi32, [@CMX_NN, 0]>
@@ -172,7 +165,6 @@ module @DpuProfilingMultipleOps {
     %0 = memref.alloc() : !Input0_CMX
     %1 = memref.alloc() : !Output0_CMX
     %2 = memref.alloc() : !Weights0_CMX
-    %3 = memref.alloc() : !WeightsTable0_CMX
     %4 = VPUIP.NCEClusterTask {
           kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
           kernel_size = [3, 3],
@@ -180,7 +172,6 @@ module @DpuProfilingMultipleOps {
           task_type = #VPUIP.nce_task_type<CONV>
         } input(%0 : !Input0_CMX)
           weights(%2 : !Weights0_CMX)
-          weight_table(%3 : !WeightsTable0_CMX)
           parent_input(%0 : !Input0_CMX)
           parent_output(%1 : !Output0_CMX)
           outputs(%1 : !Output0_CMX)

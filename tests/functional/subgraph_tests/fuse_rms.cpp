@@ -106,6 +106,11 @@ TEST_P(FuseRMSTestCommon, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
+TEST_P(FuseRMSTestCommon, NPU5010_HW) {
+    abs_threshold = 0.11f;
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
 namespace {
 const std::vector<ov::element::Type> input_precisions = {ov::element::f32};
 

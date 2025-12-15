@@ -21,4 +21,13 @@ std::unique_ptr<IUnrollDistributedOpsStrategy> createUnrollDistributedOpsStrateg
     }
 }
 
+// Before NPU4, input data could be read from other clusters. SE pointers could also address data
+// that is not placed in the local cluster of the DPU task, which means that a mechanism was necessary
+// to select which cluster to read from. The base pointer part of the SE pointers would do this.
+// Starting with NPU4, the base pointers no longer need to be configured differently for each cluster
+// as the DPU is only able to read from the local cluster, so they can be reset.
+bool resetBasePtrs(const vpux::config::ArchKind arch) {
+    return arch >= config::ArchKind::NPU40XX;
+}
+
 }  // namespace vpux::VPUIP

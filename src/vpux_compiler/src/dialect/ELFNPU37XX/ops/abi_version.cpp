@@ -28,7 +28,7 @@ void vpux::ELFNPU37XX::ABIVersionOp::serialize(elf::writer::BinaryDataSection<ui
     static_assert(sizeof(name) == nameSize);
     std::memcpy(abiVersionStruct.n_name, name, nameSize);
 
-    const uint32_t desc[4] = {elf::elf_note::ELF_NOTE_OS_LINUX, VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH};
+    const uint32_t desc[4] = {0, VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH};
     static_assert(sizeof(desc) == descSize);
     std::memcpy(abiVersionStruct.n_desc, desc, descSize);
 

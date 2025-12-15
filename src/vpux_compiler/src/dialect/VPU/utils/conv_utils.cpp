@@ -7,10 +7,14 @@
 #include "vpux/compiler/core/attributes/dims_order.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/convolution.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/nce_sparsity_converters.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/mpe_engine_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
@@ -26,6 +30,8 @@
 #include "vpux/utils/core/numeric.hpp"
 #include "vpux/utils/core/range.hpp"
 #include "vpux/utils/logger/logger.hpp"
+
+#include <mlir/IR/BuiltinTypes.h>
 
 using namespace vpux;
 using namespace VPU;
@@ -401,7 +407,8 @@ mlir::Value updateScaleTableForConvOps(mlir::PatternRewriter& rewriter, mlir::Va
     assert(origScaleTable != nullptr && "Scale table does not exist.");
 
     auto scaleTableConst = origScaleTable.getDefiningOp<Const::DeclareOp>();
-    assert(scaleTableConst != nullptr && "Scale table must be const");
+    VPUX_THROW_WHEN(scaleTableConst == nullptr, "Scale table must be const");
+
     auto scaleTableContent = scaleTableConst.getContent();
     auto scaleTableValues = scaleTableContent.getValues<T>();
 
@@ -491,6 +498,41 @@ mlir::Value updateDataPtrSpPtrAndBiasInConvWeightTable(mlir::PatternRewriter& re
     return VPU::createWeightsTableTensor(rewriter, loc, weightTableVec, wtShape);
 }
 
+SmallVector<int32_t> getScaleValuesTableForLegacyWTDepthwiseOp(VPU::NCESparsity::PPEConverterCb ppeConverter,
+                                                               ArrayRef<double> outQuantScales,
+                                                               mlir::Type scaleTableType, mlir::MLIRContext* ctx) {
+    auto getF32Scale = [&](double val) -> float {
+        if (mlir::isa<mlir::Float8E4M3FNType>(scaleTableType)) {
+            return std::get<vpux::type::float8_e4m3>(ppeConverter(0, 0, val, scaleTableType));
+        }
+
+        if (mlir::isa<mlir::Float8E5M2Type>(scaleTableType)) {
+            return std::get<vpux::type::float8_e5m2>(ppeConverter(0, 0, val, scaleTableType));
+        }
+
+        return std::get<float>(ppeConverter(0, 0, val, scaleTableType));
+    };
+
+    SmallVector<int32_t> dwScales;
+    dwScales.reserve(outQuantScales.size());
+    std::transform(outQuantScales.begin(), outQuantScales.end(), std::back_inserter(dwScales), [&](auto scale) {
+        // When the original Conv has new weight table format, the scale may be of several types: fp8(e52m/e4m3)/f32.
+        // However, if DW.Conv cannot use new weights format, then we must use pass a weights table in the old format,
+        // which does not support different scale types. As such, we convert the original scale values to fp32,
+        // then bit_cast to int32, in preparation to be added to the old weights table.
+        if (scaleTableType != nullptr) {
+            return llvm::bit_cast<int32_t>(getF32Scale(scale));
+        }
+
+        const QuantizationApproximation scaleApproximation(scale);
+        // Inputs of Dw.Conv will be f16
+        return std::get<int32_t>(ppeConverter(checked_cast<uint8_t>(scaleApproximation.shift()),
+                                              checked_cast<int16_t>(scaleApproximation.mult()), scale,
+                                              mlir::Float16Type::get(ctx)));
+    });
+    return dwScales;
+}
+
 template <typename T,
           typename = std::enable_if_t<std::is_same_v<vpux::type::float8_e4m3, T> ||
                                       std::is_same_v<vpux::type::float8_e5m2, T> || std::is_same_v<float, T>>>
@@ -558,7 +600,7 @@ mlir::Value vpux::VPU::splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, m
 
     // The outputs of ConvOps are used as intermediate data between ConvOps and AddOps.
     // Convert them to fp16 to make allowance for both precision and compatibility with Eltwise.
-    auto f16Type = mlir::FloatType::getF16(ctx);
+    auto f16Type = mlir::Float16Type::get(ctx);
     const auto f16TypeOutputs = origOutType.changeElemType(f16Type);
 
     const auto inputRescale = getNewScaleValues(inElemType, filterElemType, kernelN);
@@ -670,11 +712,11 @@ mlir::Value vpux::VPU::splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, m
                                      origInType.getElementType(), outQuantScales, kernelN, log.nest());
     } else if (scaleTable != nullptr) {
         auto scaleTableType = mlir::cast<NDTypeInterface>(scaleTable.getType()).getElementType();
-        if (scaleTableType.isFloat8E4M3FN()) {
+        if (mlir::isa<mlir::Float8E4M3FNType>(scaleTableType)) {
             convScaleTable = updateScaleTableForConvOps<vpux::type::float8_e4m3>(
                     rewriter, scaleTable, scaleTableType, inputRescale, ppeConverter, scaleRetrieveConverter,
                     outQuantScales, kernelN, origOp.getLoc(), log.nest());
-        } else if (scaleTableType.isFloat8E5M2()) {
+        } else if (mlir::isa<mlir::Float8E5M2Type>(scaleTableType)) {
             convScaleTable = updateScaleTableForConvOps<vpux::type::float8_e5m2>(
                     rewriter, scaleTable, scaleTableType, inputRescale, ppeConverter, scaleRetrieveConverter,
                     outQuantScales, kernelN, origOp.getLoc(), log.nest());
@@ -843,19 +885,26 @@ mlir::Value vpux::VPU::splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, m
         // Construct dummy weights for DW.Conv, all filled with 1s
         const auto weightsShape = Shape{kernelN, 1, 1, 1};
         auto dwWeights = vpux::buildDwWeights(appendLoc(origOp->getLoc(), "_dummy_weights"),
-                                              weightsShape[Dims4D::Filter::OC], mlir::Float16Type::get(ctx), rewriter);
+                                              weightsShape[Dims4D::Filter::OC], f16Type, rewriter);
         auto alignedWeights = VPU::alignDepthWiseWeightsTensor(rewriter, origOp.getLoc(), dwWeights);
 
         mlir::Value dwWeightTable = nullptr;
-        mlir::Value dwDataTable = nullptr;
         mlir::Value dwScaleTable = nullptr;
-        const auto alignedShapeOfWeights = getShape(alignedWeights);
-        const auto noOfBits = vpux::getElemTypeSize(filterElemType);
-        const auto weightSetNumElems = alignedShapeOfWeights[Dims4D::Filter::IC] *
-                                       alignedShapeOfWeights[Dims4D::Filter::KY] *
-                                       alignedShapeOfWeights[Dims4D::Filter::KX];
-        const auto weightSetSize = (weightSetNumElems * noOfBits).to<Byte>().count();
-        if (hasLegacyWT) {
+        mlir::Value dwBiasTable = nullptr;
+
+        const auto dwSupportsNewWeightTableFormat =
+                VPU::MPEEngineConfig::isNewWeightTableFormatSupportedWithDwOps(arch);
+        if (!dwSupportsNewWeightTableFormat) {
+            const auto alignedShapeOfWeights = getShape(alignedWeights);
+            const auto noOfBits = vpux::getElemTypeSize(dwWeights.getType());
+            const auto weightSetNumElems = alignedShapeOfWeights[Dims4D::Filter::IC] *
+                                           alignedShapeOfWeights[Dims4D::Filter::KY] *
+                                           alignedShapeOfWeights[Dims4D::Filter::KX];
+            const auto weightSetSize = (weightSetNumElems * noOfBits).to<Byte>().count();
+
+            const auto outputScaleVals = getScaleValuesTableForLegacyWTDepthwiseOp(
+                    ppeConverter, outQuantScales, scaleTable != nullptr ? scaleTable.getType() : nullptr, ctx);
+
             std::vector<int32_t> weightTableContent(
                     VPU::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC * alignedShapeOfWeights[Dims4D::Filter::OC], 0);
             const auto wtShape = VPU::NCESparsity::inferWeightsTableShape(alignedShapeOfWeights[Dims4D::Filter::OC]);
@@ -867,42 +916,35 @@ mlir::Value vpux::VPU::splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, m
                 auto index = VPU::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC * i;
 
                 weightTableContent[index + weightsOffset] = static_cast<int32_t>(i * weightSetSize);
-
-                const QuantizationApproximation scaleApproximation(outQuantScales[i]);
-                // Inputs of Dw.Conv will be f16
-                weightTableContent[index + scaleOffset] = std::get<int32_t>(ppeConverter(
-                        checked_cast<uint8_t>(scaleApproximation.shift()),
-                        checked_cast<int16_t>(scaleApproximation.mult()), outQuantScales[i], rewriter.getF16Type()));
+                weightTableContent[index + scaleOffset] = outputScaleVals[i];
             }
 
             dwWeightTable = VPU::createWeightsTableTensor(rewriter, origOp->getLoc(), weightTableContent, wtShape);
         } else {
             const auto tablesShape = VPU::NCESparsity::inferWeightsTableShape(kernelN, /*newFormat=*/true);
 
-            // Recompute weights data ptr for the new IC size
-            std::vector<int32_t> dataPtrVec;
-            std::iota(dataPtrVec.begin(), dataPtrVec.end(), 0);
-            std::transform(dataPtrVec.begin(), dataPtrVec.end(), dataPtrVec.begin(), [&weightSetSize](auto offset) {
-                return offset * weightSetSize;
-            });
-
-            dwDataTable = VPU::createNewWeightsTableTensor<int32_t>(rewriter, origOp->getLoc(), dataPtrVec, tablesShape,
-                                                                    getSInt32Type(ctx));
-
             auto scaleTableType = scaleTable != nullptr
                                           ? mlir::cast<NDTypeInterface>(scaleTable.getType()).getElementType()
                                           : rewriter.getF32Type();
 
-            if (scaleTableType.isFloat8E4M3FN()) {
+            if (mlir::isa<mlir::Float8E4M3FNType>(scaleTableType)) {
                 dwScaleTable = getScaleTableForDepthwiseOp<vpux::type::float8_e4m3>(
                         rewriter, ppeConverter, outQuantScales, scaleTableType, tablesShape, origOp->getLoc());
-            } else if (scaleTableType.isFloat8E5M2()) {
+            } else if (mlir::isa<mlir::Float8E5M2Type>(scaleTableType)) {
                 dwScaleTable = getScaleTableForDepthwiseOp<vpux::type::float8_e5m2>(
                         rewriter, ppeConverter, outQuantScales, scaleTableType, tablesShape, origOp->getLoc());
             } else {
                 dwScaleTable = getScaleTableForDepthwiseOp<float>(rewriter, ppeConverter, outQuantScales,
                                                                   scaleTableType, tablesShape, origOp->getLoc());
             }
+
+            if (zeroFilledBiasTable == nullptr) {
+                const auto zeroBias = std::vector<float>(tablesShape.totalSize(), 0.f);
+                zeroFilledBiasTable = VPU::createNewWeightsTableTensor<float>(rewriter, origOp->getLoc(), zeroBias,
+                                                                              tablesShape, rewriter.getF32Type());
+            }
+
+            dwBiasTable = zeroFilledBiasTable;
         }
 
         if (scaleAdapter != nullptr) {
@@ -915,9 +957,8 @@ mlir::Value vpux::VPU::splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, m
         auto padding = VPU::getPaddingAttr(ctx, PadInfo(0, 0, 0, 0));
         auto nceDepthConvolutionOp = rewriter.create<VPU::NCEDepthConvolutionOp>(
                 appendLoc(origOp->getLoc(), "_dw_conv_out_scale"), origOutType, addResult.getOutput(), alignedWeights,
-                dwWeightTable, dwDataTable, /*sparsity_ptr_table=*/nullptr, dwScaleTable, /*bias_table=*/nullptr,
-                origOp.getWeightZeroPoints(), strides, padding, finalPpeAttr,
-                getIntArrayAttr(rewriter, weightsShape.raw()),
+                dwWeightTable, /*data_ptr_table=*/nullptr, /*sparsity_ptr_table=*/nullptr, dwScaleTable, dwBiasTable,
+                /*zp_table=*/nullptr, strides, padding, finalPpeAttr, getIntArrayAttr(rewriter, weightsShape.raw()),
                 /*multiClusterStrategyAttr=*/nullptr, origOp.getOutputPaddingAttr(), nullptr);
 
         return nceDepthConvolutionOp.getOutput();

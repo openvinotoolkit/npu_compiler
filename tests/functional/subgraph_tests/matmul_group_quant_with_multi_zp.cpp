@@ -174,6 +174,10 @@ TEST_P(GroupQuantWithMultiZpTestCommon, NPU4000_DebugTestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
+TEST_P(GroupQuantWithMultiZpTestCommon, NPU5010_DebugTestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
 
 const std::vector<GroupQuantShapes> testShapes = {
         /*case1=*/{/*_lhsShape=*/{1, 16, 3072},

@@ -4,11 +4,10 @@
 //
 
 #include <vpux_elf/writer.hpp>
-#include "vpux/compiler/NPU40XX/dialect/VPU/utils/performance_metrics.hpp"
-#include "vpux/compiler/dialect/VPU/transforms/factories/frequency_table.hpp"
+#include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/performance_metrics.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
-#include "vpux/compiler/utils/ELF/utils.hpp"
+#include "vpux/compiler/dialect/config/constraints.hpp"
 
 #include <npu_40xx_nnrt.hpp>
 
@@ -20,10 +19,9 @@ void vpux::ELF::PerformanceMetricsOp::serialize(elf::writer::BinaryDataSection<u
     auto operation = getOperation();
     auto mainModule = operation->getParentOfType<mlir::ModuleOp>();
 
-    const auto arch = config::getArch(mainModule);
-    auto freqTable = VPU::getFrequencyTable(arch);
-    perf.freq_base = freqTable().base;
-    perf.freq_step = freqTable().step;
+    const auto& freqTable = config::getNPUConstraints(mainModule->getContext()).frequencyTable;
+    perf.freq_base = freqTable.base;
+    perf.freq_step = freqTable.step;
     perf.bw_base = VPU::getBWBase();
     perf.bw_step = VPU::getBWStep();
 

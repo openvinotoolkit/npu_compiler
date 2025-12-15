@@ -52,6 +52,7 @@ class FakeQuantizeLayerTest_SW_NPU3720 : public FakeQuantizeLayerTestCommon {
 class FakeQuantizeLayerTest_HW_NPU3720 : public FakeQuantizeLayerTestCommon {};
 
 class FakeQuantizeLayerTest_SW_NPU4000 : public FakeQuantizeLayerTest_SW_NPU3720 {};
+class FakeQuantizeLayerTest_SW_NPU5010 : public FakeQuantizeLayerTest_SW_NPU3720 {};
 
 TEST_P(FakeQuantizeLayerTest_SW_NPU3720, SW) {
     const auto tol = 1.6;                       // To cope with cpu/npu 'limits' diffs
@@ -72,6 +73,13 @@ TEST_P(FakeQuantizeLayerTest_SW_NPU4000, SW) {
     abs_threshold = rel_threshold;              // Rely on absolute value check
     setReferenceSoftwareMode();
     run(Platform::NPU4000);
+}
+TEST_P(FakeQuantizeLayerTest_SW_NPU5010, SW) {
+    const auto tol = 1.6;                       // To cope with cpu/npu 'limits' diffs
+    rel_threshold = fabs(rel_threshold) * tol;  // E#77437
+    abs_threshold = rel_threshold;              // Rely on absolute value check
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
 }
 }  // namespace test
 }  // namespace ov
@@ -122,6 +130,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_FakeQuantize_PerTensor, FakeQuantizeLayerTest_SW_
 
 INSTANTIATE_TEST_SUITE_P(smoke_FakeQuantize_PerTensor, FakeQuantizeLayerTest_SW_NPU4000, perTensorCfg,
                          FakeQuantizeLayerTest_SW_NPU4000::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_FakeQuantize_PerTensor, FakeQuantizeLayerTest_SW_NPU5010, perTensorCfg,
+                         FakeQuantizeLayerTest_SW_NPU5010::getTestCaseName);
 // NPU3720 Per-Tensor Tiling
 const auto fqParamsT =
         ::testing::Combine(::testing::ValuesIn(u8qLevels), ::testing::Values(constShapes[0]),

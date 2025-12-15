@@ -188,10 +188,21 @@ public:
     };
 };
 
+TEST_P(AvgPoolWithActivationQuantizedTest, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(AvgPoolWithSwishQuantizedTest, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
 const std::vector<Activation> activations = {{utils::Tanh, ErrorType::ABSOLUTE},
                                              {utils::Sigmoid, ErrorType::ABSOLUTE},
                                              {utils::Gelu, ErrorType::ABSOLUTE},
-                                             {utils::Exp, ErrorType::RELATIVE, 0.03f}};
+                                             {utils::Exp, ErrorType::RELATIVE, 0.03f},
+                                             {utils::HSwish, ErrorType::ABSOLUTE}};
 
 const std::vector<float> betas = {1.0f, 1.7f, 10.0f};
 

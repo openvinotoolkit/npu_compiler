@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
@@ -19,7 +20,6 @@
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/core/IR/memref_attr.hpp"
-#include "vpux/compiler/utils/VPU/tile_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/dma_limits.hpp"
 #include "vpux/compiler/utils/dma_transaction_utils.hpp"
@@ -40,6 +40,8 @@ uint32_t vpux::VPUIP::getDPUProfMaxBufferSize(config::ArchKind arch) {
     case config::ArchKind::NPU37XX:
     case config::ArchKind::NPU40XX:
         return HW_DPU_PROFILING_MAX_BUFFER_SIZE;  // Up to 64 DPU Tasks in single CMX DPU profiling buffer instance
+    case config::ArchKind::NPU50XX:
+        return HW_DPU_PROFILING_MAX_BUFFER_SIZE_50XX;
     default:
         VPUX_THROW("Unable to get DPUProfMaxBufferSize for arch {0}", arch);
     }
@@ -116,6 +118,8 @@ int64_t getMaxBarriersPerInference(config::ArchKind arch) {
         return 64;
     case config::ArchKind::NPU40XX:
         return 96;
+    case config::ArchKind::NPU50XX:
+        return 48;
     default:
         VPUX_THROW("Unable to get MaxBarriersPerInference for arch {0}", arch);
     }
@@ -187,8 +191,8 @@ int64_t vpux::VPUIP::getNumberOfIndependentDmaQueues(mlir::Operation* parentOp) 
     return dmaCount;
 }
 
-bool vpux::VPUIP::supportsPerVariantBarrierConfiguration(mlir::ModuleOp module) {
-    const auto arch = config::getArch(module);
+bool vpux::VPUIP::supportsPerVariantBarrierConfiguration(mlir::Operation* op) {
+    const auto arch = config::getArch(op);
     // If there are more than one DPU per tile, then all variants should consume/produce barriers. If there's only one
     // DPU per tile, then it is sufficient that only first variant of an invariant consumes a barrier and the last
     // variant of that invariant produces a barrier.

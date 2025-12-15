@@ -324,7 +324,7 @@ void SplitConvWithMultipleFQPass::safeRunOnFunc() {
     auto func = getOperation();
     auto config = getDefaultGreedyRewriteConfig();
     config.useTopDownTraversal = false;
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), config))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), config))) {
         signalPassFailure();
     }
 }

@@ -10,7 +10,7 @@
 #include "vpux/utils/core/format.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 
 #include <numeric>
 

@@ -8,7 +8,7 @@
 
 #include <llvm/ADT/Hashing.h>
 #include <llvm/ADT/TypeSwitch.h>
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 
 namespace {
 // Note: this is what UniformQuantizedPerAxisTypeStorage::getHashValue() does,

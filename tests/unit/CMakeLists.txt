@@ -71,6 +71,7 @@ ov_add_test_target(
     INCLUDES
         ${OPTIONAL_UNIT_TESTS_INCLUDES}
         ${CMAKE_CURRENT_SOURCE_DIR}/vpux_compiler
+        ${PROJECT_SOURCE_DIR}/src/vpux_compiler/include/vpux/compiler/NPU40XX/dialect/NPUReg40XX/firmware_headers/details
     LINK_LIBRARIES
         ${OPTIONAL_UNIT_TESTS_LIBS}
         ${MANDATORY_UNIT_TESTS_LIBS}

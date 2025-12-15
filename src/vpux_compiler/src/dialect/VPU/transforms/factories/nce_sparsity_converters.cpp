@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/VPU/transforms/factories/nce_sparsity_converters.hpp"
 #include "vpux/compiler/NPU37XX/dialect/VPU/impl/nce_sparsity_converters.hpp"
+#include "vpux/compiler/NPU50XX/dialect/VPU/impl/nce_sparsity_converters.hpp"
 
 #include "vpux/utils/core/error.hpp"
 
@@ -16,6 +17,9 @@ VPU::NCESparsity::PPEConverterCb VPU::NCESparsity::getPPEConverterCb(config::Arc
     case config::ArchKind::NPU37XX:
     case config::ArchKind::NPU40XX: {
         return VPU::arch37xx::getScale;
+    }
+    case config::ArchKind::NPU50XX: {
+        return VPU::arch50xx::getScale;
     }
     case config::ArchKind::UNKNOWN:
     default: {
@@ -30,6 +34,8 @@ VPU::NCESparsity::BiasConverterCb VPU::NCESparsity::getBiasConverterCb(config::A
     case config::ArchKind::NPU37XX:
     case config::ArchKind::NPU40XX:
         return VPU::arch37xx::getBias;
+    case config::ArchKind::NPU50XX:
+        return VPU::arch50xx::getBias;
     case config::ArchKind::UNKNOWN:
     default: {
         VPUX_THROW("Unexpected architecture {0}", arch);
@@ -43,6 +49,9 @@ VPU::NCESparsity::ScaleRetrieveCb VPU::NCESparsity::getScaleRetrieveCb(config::A
     case config::ArchKind::NPU37XX:
     case config::ArchKind::NPU40XX: {
         return VPU::arch37xx::retrieveScaleFromTable;
+    }
+    case config::ArchKind::NPU50XX: {
+        return VPU::arch50xx::retrieveScaleFromTable;
     }
     case config::ArchKind::UNKNOWN:
     default: {

@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 
 #include <llvm/ADT/SmallVector.h>
 
@@ -70,10 +71,9 @@ mlir::LogicalResult PermuteCastRewriter::matchAndRewrite(IE::PermuteCastOp origO
     if (!isSupportedDequantizeLayout(origOp, parentDequantOp)) {
         return mlir::failure();
     }
-    auto newPermuteCastOp = rewriter.create<IE::PermuteCastOp>(origOp.getLoc(), parentDequantOp.getInput(),
-                                                               origOp.getDstOrder(), origOp.getMemPerm());
-    rewriter.replaceOpWithNewOp<IE::DequantizeOp>(origOp, newPermuteCastOp.getResult(),
-                                                  parentDequantOp.getDstElemType());
+    auto newPermuteCastOp = rewriter.createOrFold<IE::PermuteCastOp>(origOp.getLoc(), parentDequantOp.getInput(),
+                                                                     origOp.getDstOrder(), origOp.getMemPerm());
+    rewriter.replaceOpWithNewOp<IE::DequantizeOp>(origOp, newPermuteCastOp, parentDequantOp.getDstElemType());
     return mlir::success();
 }
 
@@ -99,9 +99,7 @@ void PropagatePermuteCastThroughDequantizePass::safeRunOnFunc() {
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<PermuteCastRewriter>(&ctx, _log);
 
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
-    }
+    collectOpsAndApplyPatterns(func, std::move(patterns));
 }
 
 }  // namespace

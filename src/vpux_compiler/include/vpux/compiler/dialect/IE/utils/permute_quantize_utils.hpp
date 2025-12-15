@@ -10,6 +10,7 @@
 namespace vpux {
 namespace IE {
 
+bool isPurePermuteCompatiblePrecision(mlir::Type inElemType, mlir::Type outElemType);
 bool isLegalReorderAddPattern(IE::ReorderOp origOp);
 bool isLegalReorderAvgPoolPattern(IE::ReorderOp origOp);
 bool isBeneficialConvertToPermuteQuantize(ShapeRef shape);

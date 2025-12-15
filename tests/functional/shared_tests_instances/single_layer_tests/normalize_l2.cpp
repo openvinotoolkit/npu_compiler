@@ -39,6 +39,12 @@ TEST_P(NormalizeL2LayerTest_2DPU, NPU4000_HW) {
     configuration["NPU_TILES"] = "2";
     run(Platform::NPU4000);
 }
+TEST_P(NormalizeL2LayerTestCommon, NPU5010_HW) {
+    abs_threshold = 0.04;
+    rel_threshold = 0.04;
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
 }  // namespace test
 }  // namespace ov
 

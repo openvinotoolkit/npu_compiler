@@ -52,16 +52,16 @@ void WlmSplitGraphToPagesPass::safeRunOnFunc() {
     auto& barrierInfo = getAnalysis<BarrierInfo>();
     VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log, true);
 
-    VPURT::BarrierPagesSplitHandler barrierPagesSplitHandler(barrierInfo, numBarriers, _log);
+    VPURT::BarrierPagesSplitHandler barrierPagesSplitHandler(func, barrierInfo, numBarriers, _log);
     barrierPagesSplitHandler.initializeForAssignment(func);
     barrierPagesSplitHandler.assignPagesToBarriersInIr();
     barrierPagesSplitHandler.assignPagesToTasksInIr();
 
     // Identify pages which do not have any tasks
     // All subsequent passes expect at least 1 task in page
-    auto pagesWithNoTasksData = barrierPagesSplitHandler.getPagesWithNoTasksData();
-    if (!pagesWithNoTasksData.empty()) {
-        _log.trace("There are {0} pages with no tasks", pagesWithNoTasksData.size());
+    auto dummyDmaDataForPagesWithNoTasks = barrierPagesSplitHandler.getDummyDmaDataForPagesWithNoTasks();
+    if (!dummyDmaDataForPagesWithNoTasks.empty()) {
+        _log.trace("There are {0} pages with no tasks", dummyDmaDataForPagesWithNoTasks.size());
 
         mlir::OpBuilder builder(func);
         auto buffers = func.getOps<VPURT::DeclareBufferOp>();
@@ -74,17 +74,18 @@ void WlmSplitGraphToPagesPass::safeRunOnFunc() {
         const VPURT::TaskQueueType dummyDmaQueueType = {VPU::ExecutorKind::DMA_NN,
                                                         getDMAQueueIdEncoding(port, VPUIP::DmaChannelType::DDR)};
 
-        for (auto pageWithNoTasks : pagesWithNoTasksData) {
-            auto pageInd = pageWithNoTasks.pageInd;
-            auto waitBar = pageWithNoTasks.pageLastBar;
-            auto updateBar = pageWithNoTasks.nextPageFirstBar;
+        DenseMap<size_t, VPURT::TaskOp> newDummyDmaOpsPerPage;
+        for (auto dummyDmaDataForPageWithNoTasks : dummyDmaDataForPagesWithNoTasks) {
+            auto pageInd = dummyDmaDataForPageWithNoTasks.pageInd;
+            auto waitBar = dummyDmaDataForPageWithNoTasks.waitBar;
+            auto updateBar = dummyDmaDataForPageWithNoTasks.updateBar;
+            auto insertBefore = dummyDmaDataForPageWithNoTasks.insertBefore;
 
-            _log.trace("Page {0} has no tasks assigned. Create dummy task between barriers {1} and {2}", pageInd,
-                       waitBar, updateBar);
+            _log.trace("Page {0} has no tasks assigned. Create dummy task between barriers {1} and {2} before task {3}",
+                       pageInd, waitBar, updateBar, insertBefore);
 
-            auto insertAfter = barrierInfo.getBarrierLatestProducer(waitBar);
-            auto insertionPointOp = barrierInfo.getTaskOpAtIndex(insertAfter);
-            builder.setInsertionPointAfter(insertionPointOp);
+            auto insertionPointOp = barrierInfo.getTaskOpAtIndex(insertBefore);
+            builder.setInsertionPoint(insertionPointOp);
 
             auto dummyDmaOp =
                     VPUIP::createSyncDMA(builder, inBuffer, outBuffer, port, {}, {}, "dummy_dma_page_completing");
@@ -92,11 +93,22 @@ void WlmSplitGraphToPagesPass::safeRunOnFunc() {
 
             auto dummyDmaOpTaskInd = barrierInfo.addNewTaskOp(dummyDmaOp);
 
-            barrierInfo.addConsumer(pageWithNoTasks.pageLastBar, dummyDmaOpTaskInd);
-            barrierInfo.addProducer(pageWithNoTasks.nextPageFirstBar, dummyDmaOpTaskInd);
+            barrierInfo.addConsumer(dummyDmaDataForPageWithNoTasks.waitBar, dummyDmaOpTaskInd);
+            barrierInfo.addProducer(dummyDmaDataForPageWithNoTasks.updateBar, dummyDmaOpTaskInd);
 
-            barrierPagesSplitHandler.updateTaskPageAssignmentForQueue(insertAfter + 1, pageInd, dummyDmaQueueType,
-                                                                      dummyDmaOp);
+            newDummyDmaOpsPerPage[pageInd] = dummyDmaOp;
+        }
+
+        // After all the dummyDMAs in empty pages were inserted update task page assignment
+        // This is done as separate step to prevent cases where task which is used as insertion
+        // point by multiple dummyDMAs gets shifted after insertion of first one. Such case
+        // can happen when multiple consecutive pages are empty.
+        for (auto dummyDmaDataForPageWithNoTasks : dummyDmaDataForPagesWithNoTasks) {
+            auto pageInd = dummyDmaDataForPageWithNoTasks.pageInd;
+            auto insertBefore = dummyDmaDataForPageWithNoTasks.insertBefore;
+
+            barrierPagesSplitHandler.updateTaskPageAssignmentForQueue(insertBefore, pageInd, dummyDmaQueueType,
+                                                                      newDummyDmaOpsPerPage[pageInd]);
         }
 
         VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log, true);

@@ -220,7 +220,7 @@ void ProcessAsymmetricZeroPointsForConvolutionPass::safeRunOnFunc() {
     auto func = getOperation();
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<ZeroPointWithConvolution>(&ctx, _log);
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

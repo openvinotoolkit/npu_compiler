@@ -6,10 +6,12 @@
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
 
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/PatternMatch.h>
+#include <algorithm>
 
 namespace {
 struct MinDimension {
@@ -288,11 +290,61 @@ bool allowsChannelsReshape(mlir::Operation* origOp) {
     }
 
     auto outputLayout = mlir::cast<vpux::NDTypeInterface>(origOp->getResult(0).getType()).getDimsOrder();
-    if (outputLayout != DimsOrder::NHWC) {
-        return false;
+    return outputLayout == DimsOrder::NHWC;
+}
+
+vpux::DimsOrder returnBestDimOrder(const vpux::DimsOrder& initialDimOrder, SmallVector<Dim>& nonBatchOneDims,
+                                   const bool is32Bit) {
+    if (nonBatchOneDims.empty() ||
+        std::find(nonBatchOneDims.begin(), nonBatchOneDims.end(), Dims4D::Act::N) != nonBatchOneDims.end()) {
+        return initialDimOrder;
     }
 
-    return true;
+    auto inputCodeOrder = initialDimOrder.toPermutation();
+
+    if (inputCodeOrder.size() != 4) {
+        return initialDimOrder;
+    }
+
+    if (nonBatchOneDims.size() > 1) {
+        return DimsOrder::NHWC;
+    }
+
+    if (inputCodeOrder.back() == Dims4D::Act::C) {
+        return initialDimOrder;
+    }
+
+    if (inputCodeOrder.front() != Dims4D::Act::N) {
+        return initialDimOrder;
+    }
+
+    if (is32Bit && inputCodeOrder.back() != Dims4D::Act::W) {
+        return initialDimOrder;
+    }
+
+    const auto oneDim = *nonBatchOneDims.begin();
+
+    // This checks for NCWH and NHWC, for both we want to keep the the initialDimOrder.
+    // The performance will not improve changing to:
+    //      NCWH -> NWCH
+    //      NHWC -> NWHC
+    if (oneDim == Dims4D::Act::W && oneDim == inputCodeOrder[2]) {
+        return initialDimOrder;
+    }
+
+    inputCodeOrder.erase(std::find(inputCodeOrder.begin(), inputCodeOrder.end(), oneDim));
+
+    if (oneDim == Dims4D::Act::C) {
+        inputCodeOrder.push_back(oneDim);
+    } else if (oneDim == Dims4D::Act::W) {
+        inputCodeOrder.insert(inputCodeOrder.begin() + 1, oneDim);
+    } else if (inputCodeOrder[2] == Dims4D::Act::W) {
+        inputCodeOrder.push_back(oneDim);
+    } else {
+        inputCodeOrder.insert(inputCodeOrder.begin() + 1, oneDim);
+    }
+
+    return DimsOrder::fromPermutation(inputCodeOrder);
 }
 
 }  // namespace IE

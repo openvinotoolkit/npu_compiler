@@ -7,7 +7,8 @@
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -158,7 +159,7 @@ void CorrectStorageElementTableSeSizeForSEPDWConvPass::safeRunOnFunc() {
 
     mlir::RewritePatternSet greedyPatterns(&ctx);
     greedyPatterns.add<SeSizeRewriter>(&ctx, _log);
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(greedyPatterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(greedyPatterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

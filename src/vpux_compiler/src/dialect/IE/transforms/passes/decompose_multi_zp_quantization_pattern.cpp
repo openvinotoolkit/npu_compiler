@@ -281,7 +281,7 @@ void DecomposeMultiZPQuantizationPatternPass::safeRunOnFunc() {
     patterns.add<GroupWisePatternRewriter<IE::ConvertOp>>(&ctx, _log);
     patterns.add<GroupWisePatternRewriter<Const::DeclareOp>>(&ctx, _log);
 
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

@@ -124,6 +124,9 @@ IE::PostOpAttr vpux::IE::attributizePostOp(mlir::Operation* postOp) {
             .Case<IE::ExpOp>([](auto expOp) {
                 return IE::ExpAttr::get(expOp.getContext());
             })
+            .Case<IE::HSwishOp>([](auto hswishOp) {
+                return IE::HSwishAttr::get(hswishOp.getContext());
+            })
             .Default([](auto unknownOp) {
                 VPUX_THROW("Failed to attributize operation: {0}", unknownOp->getName());
                 return nullptr;

@@ -16,6 +16,7 @@ std::unique_ptr<FuseConvertToDPUCheckerBase> createFuseConvertToDPUChecker(confi
         return std::make_unique<IE::arch37xx::FuseConvertToDPUChecker>();
     }
     default: {
+        return std::make_unique<FuseConvertToDPUCheckerBase>();
     }
     }
     VPUX_THROW("Unable to create FuseConvertToDPUChecker for arch {0}", arch);

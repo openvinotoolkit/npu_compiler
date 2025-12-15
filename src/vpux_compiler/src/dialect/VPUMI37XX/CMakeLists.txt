@@ -17,6 +17,7 @@ add_npu_library(npu_compiler_dialect_vpumi37xx
         npu_37xx_firmware_headers
         npu_compiler_dialect_vpuip
         npu_compiler_dialect_vpuip_utils
+        npu_compiler_dialect_elf_utils
         npu_profiling_schema
     SYSTEM_INCLUDES
         $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/sw_runtime_kernels>)

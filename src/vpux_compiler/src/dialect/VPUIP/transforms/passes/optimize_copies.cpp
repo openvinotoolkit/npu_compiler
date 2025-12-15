@@ -2880,7 +2880,7 @@ void OptimizeCopiesPass::safeRunOnFunc() {
     patterns.add<FuseCopiesThroughReshape>(&ctx, benefitLevels[3], _log);
     patterns.add<SubViewWithCopy>(&ctx, benefitLevels[3], _log);
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 
@@ -2889,8 +2889,8 @@ void OptimizeCopiesPass::safeRunOnFunc() {
     mlir::RewritePatternSet patternsCopyOpSequenceWithSubview(&ctx);
     patternsCopyOpSequenceWithSubview.add<CopyOpSequenceWithSubview>(&ctx, benefitLevels[0], _workloadManagementMode,
                                                                      _log);
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patternsCopyOpSequenceWithSubview),
-                                                        getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patternsCopyOpSequenceWithSubview),
+                                                 getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

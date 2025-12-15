@@ -6,6 +6,9 @@
 #include "vpux/compiler/dialect/VPURT/utils/barrier_legalization_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
 #include "vpux/compiler/dialect/VPURT/interfaces/barrier_simulator.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
+#include "vpux/compiler/utils/dma.hpp"
+#include "vpux/compiler/utils/shave.hpp"
 
 using namespace vpux;
 
@@ -137,6 +140,17 @@ bool VPURT::verifyBarrierSlots(mlir::func::FuncOp func, Logger log) {
         return false;
     }
     return true;
+}
+
+size_t VPURT::countIndependentTaskExecutors(mlir::func::FuncOp func) {
+    const auto module = func->getParentOfType<mlir::ModuleOp>();
+    auto numTiles = config::getTileExecutor(module).getCount();
+    const auto dmaPortNum = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
+    auto dmaChannels = getDMAChannelsWithIndependentLinkAgents(config::getArch(module)).size();
+    auto tileOp = config::getTileExecutor(module);
+    auto numShaveExecutorsPerTile = static_cast<size_t>(tileOp.getSubExecutor(VPU::ExecutorKind::SHAVE_ACT).getCount());
+    auto numDpuExecutorsPerTile = tileOp.getSubExecutor(VPU::ExecutorKind::DPU).getCount();
+    return dmaPortNum * dmaChannels + numTiles * (numDpuExecutorsPerTile + numShaveExecutorsPerTile);
 }
 
 bool VPURT::verifyOneWaitBarrierPerTask(mlir::func::FuncOp funcOp, Logger log) {
@@ -385,7 +399,7 @@ bool VPURT::addFinalBarrierIfNotExists(mlir::func::FuncOp funcOp, Logger log) {
         mlir::OpBuilder builder(funcOp);
         builder.setInsertionPointAfter(insertPoint);
         auto loc = mlir::NameLoc::get(mlir::StringAttr::get(ctx, "finishing_barrier"));
-        auto barrierOp = builder.create<VPURT::DeclareVirtualBarrierOp>(loc, mlir::UnitAttr::get(ctx));
+        auto barrierOp = builder.create<VPURT::DeclareVirtualBarrierOp>(loc, /*isFinalBarrier=*/true);
         auto finalBarrier = barrierOp.getBarrier();
 
         for (auto taskQueueFirstAndLastOp : vpux::VPURT::getTaskQueuesFirstAndLastOp(funcOp)) {
@@ -421,7 +435,7 @@ bool VPURT::addFinalBarrierIfNotExists(mlir::func::FuncOp funcOp, Logger log) {
 }
 
 bool VPURT::isShareWaitAndUpdateBarriersNeeded(std::optional<WorkloadManagementMode> workloadManagementMode) {
-    // Disable share wait and update barriers for PWLM_V2_PAGE mode only for now
+    // Disable share wait and update barriers for PWLM_V2_PAGE and FWLM_V1_PAGES mode only for now
     // For PWLM_V0_LCA mode enable shared barriers in order to avoid performance regressions
     // For PWLM_V0_LCA/PWLM_V1_BARRIER_FIFO mode use shareWaitAndUpdateBarriers to avoid issues in case of
     // rollback to nonWLM and lack of legalization of DMA descriptor fetch and potential issues in enqueue

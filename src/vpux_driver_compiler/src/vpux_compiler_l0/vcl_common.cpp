@@ -15,14 +15,15 @@
 
 #include "intel_npu/config/options.hpp"
 #include "npu_driver_compiler.h"
-#include "openvino/op/group_query_attention.hpp"
-#include "ov_ops/rms.hpp"
-#include "ov_ops/rotary_positional_embeddings.hpp"
 #include "vcl_compiler.hpp"
+#include "vcl_deserializer.hpp"
 #include "vpux/utils/IE/private_properties.hpp"
 
 #include <openvino/core/rt_info/weightless_caching_attributes.hpp>
 #include <openvino/op/constant.hpp>
+#include <openvino/op/group_query_attention.hpp>
+#include <ov_ops/rms.hpp>
+#include <ov_ops/rotary_positional_embeddings.hpp>
 
 namespace {
 
@@ -406,6 +407,8 @@ vcl_result_t BuildInfo::prepareConfig(const std::string& descOptions) {
         const auto standardizedPlatform = ov::intel_npu::Platform::standardize(config[ov::intel_npu::platform.name()]);
         if (ov::intel_npu::Platform::NPU3720 != standardizedPlatform &&
             ov::intel_npu::Platform::NPU4000 != standardizedPlatform &&
+            ov::intel_npu::Platform::NPU5000 != standardizedPlatform &&
+            ov::intel_npu::Platform::NPU5010 != standardizedPlatform &&
             "AUTO_DETECT" != config[ov::intel_npu::platform.name()]) {
             logger->outputError("Unknown value for platform: " + config[ov::intel_npu::platform.name()]);
             return VCL_RESULT_ERROR_INVALID_ARGUMENT;
@@ -426,6 +429,10 @@ vcl_result_t BuildInfo::prepareConfig(const std::string& descOptions) {
         case 0x643E:  /// LunarLake (LNL)
             config[ov::intel_npu::platform.name()] = "4000";
             config[ov::device::id.name()] = "4000";
+            break;
+        case 0xB03E:  /// PantherLake Mobile (PTL-P)
+            config[ov::intel_npu::platform.name()] = "5010";
+            config[ov::device::id.name()] = "5010";
             break;
         default:
             logger->outputError(formatv("Unrecognized device ID! 0x{0:X}", deviceDesc.deviceID));
@@ -578,85 +585,23 @@ vcl_result_t BuildInfo::prepareModel(const uint8_t* modelIR, uint64_t modelIRSiz
         return VCL_RESULT_ERROR_INVALID_ARGUMENT;
     }
 
-    /// The API version of current compiler, adapter fill its version in modelIR, shall be same value
-    vcl_version_info_t currentAPIVersion = pvc->getCompilerProp().version;
-    uint32_t offset = 0;
-    vcl_version_info_t APIVersion;
-    memcpy(&APIVersion, modelIR, sizeof(APIVersion));
-    if (APIVersion.major != currentAPIVersion.major || APIVersion.minor != currentAPIVersion.minor) {
-        logger->outputError(formatv("Unsupported IR API version! Val: {0}.{1}", APIVersion.major, APIVersion.minor));
-        return VCL_RESULT_ERROR_INVALID_IR;
-    }
-    offset += sizeof(vcl_version_info_t);
-
-    /// The number of elements in buffer shall not exceed limitation
-    uint32_t numOfElements = 0;
-    memcpy(&numOfElements, modelIR + offset, sizeof(numOfElements));
-    if (numOfElements >= maxNumberOfElements) {
-        logger->outputError("Bad elements number in IR!");
-        return VCL_RESULT_ERROR_INVALID_IR;
-    }
-    offset += sizeof(numOfElements);
-
-    /// The size of model data
-    uint64_t bufferSize = 0;
-    memcpy(&bufferSize, modelIR + offset, sizeof(bufferSize));
-    if (bufferSize == 0 || bufferSize >= maxSizeOfXML) {
-        logger->outputError("Bad buffer size in IR!");
-        return VCL_RESULT_ERROR_INVALID_IR;
-    }
-    offset += sizeof(bufferSize);
-
-    /// The offset to model xml
-    uint64_t bufferOffset = offset;
-    offset += bufferSize;
-
-    /// The size of model weight
-    uint64_t weightsSize = 0;
-    memcpy(&weightsSize, modelIR + offset, sizeof(weightsSize));
-    if (weightsSize >= maxSizeOfWeights) {
-        logger->outputError("Bad weights size in IR!");
-        return VCL_RESULT_ERROR_INVALID_IR;
-    }
-    offset += sizeof(weightsSize);
-
-    /// The offset to model weight
-    uint64_t weightsOffset = offset;
-    if (offset + weightsSize > modelIRSize) {
-        logger->outputError("The IR content and size mismatch!");
-        return VCL_RESULT_ERROR_INVALID_IR;
-    }
-
-    /// The pointer to model xml
-    const uint8_t* buffer = modelIR + bufferOffset;
-    /// The pointer to model weight
-    const uint8_t* weights = modelIR + weightsOffset;
-    /// Deserialize the model
     try {
-        std::string modelData(buffer, buffer + bufferSize);
-
-        ov::Tensor weightsTensor;
-        if (weightsSize > 0) {
-            weightsTensor = ov::Tensor(ov::element::u8, {weightsSize}, const_cast<uint8_t*>(weights));
-        }
-        ov::Core core;
-        // core needs to add internal operators via extensions
-        // might need to refactor if extension list will have many elements
-        core.add_extension(std::vector<ov::Extension::Ptr>(
-                {std::make_shared<ov::OpExtension<ov::op::internal::RMS>>(),
-                 std::make_shared<ov::OpExtension<ov::op::internal::RoPE>>(),
-                 std::make_shared<ov::OpExtension<ov::op::internal::GroupQueryAttention>>()}));
-
         StopWatch stopWatch;
         if (enableProfiling) {
             stopWatch.start();
         }
 
-        model = core.read_model(modelData, weightsTensor);
+        const vcl_version_info_t currentAPIVersion = pvc->getCompilerProp().version;
+        const std::vector<ov::Extension::Ptr> extensionsVector{
+                std::make_shared<ov::OpExtension<ov::op::internal::RMS>>(),
+                std::make_shared<ov::OpExtension<ov::op::internal::RoPE>>(),
+                std::make_shared<ov::OpExtension<ov::op::internal::GroupQueryAttention>>()};
 
-        if (enableProfiling) {
-            stopWatch.stop();
-            logger->info("The time to convert data to model: {0} ms", stopWatch.delta_ms());
+        if (!parsedConfig.get<intel_npu::USE_BASE_MODEL_SERIALIZER>()) {
+            model = deserialize_ir_model_optimized(const_cast<uint8_t*>(modelIR), currentAPIVersion, extensionsVector);
+        } else {
+            model = deserialize_ir_model_base(const_cast<uint8_t*>(modelIR), modelIRSize, currentAPIVersion,
+                                              extensionsVector);
         }
 
 #ifdef VPUX_DEVELOPER_BUILD
@@ -664,6 +609,13 @@ vcl_result_t BuildInfo::prepareModel(const uint8_t* modelIR, uint64_t modelIRSiz
         restoreWeightsOffsets(model, logger);
 #endif  // VPUX_DEVELOPER_BUILD
 
+        if (enableProfiling) {
+            stopWatch.stop();
+            logger->info("The time to convert data to model: {0} ms", stopWatch.delta_ms());
+        }
+    } catch (const invalid_ir_error& error) {
+        logger->outputError(error.what());
+        return VCL_RESULT_ERROR_INVALID_IR;
     } catch (const std::exception& error) {
         logger->outputError(formatv("Failed to read/deserialize model. Used OpenVino version {0}.",
                                     pvc->getCompilerProp().supportedOpsets));

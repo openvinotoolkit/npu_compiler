@@ -33,11 +33,14 @@ void buildBarrierLegalizationPipeline(
 //
 
 std::unique_ptr<mlir::Pass> createCheckWlmPageSplitConstraintsPass(
-        WorkloadManagementMode workloadManagementMode = WorkloadManagementMode::PWLM_V2_PAGES,
+        WorkloadManagementMode workloadManagementMode = WorkloadManagementMode::FWLM_V1_PAGES,
         Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createFindWlmEnqueueDmasBarrierPass(Logger log = Logger::global());
 
 std::unique_ptr<mlir::Pass> createOptimizeBarriersSlotsUsagePass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createWlmInsertDummyBarriersInPagesPass(Logger log = Logger::global());
+
+std::unique_ptr<mlir::Pass> createWlmInsertDummyDmasInPagesPass(Logger log = Logger::global());
 
 std::unique_ptr<mlir::Pass> createWlmLegalizePagesForBarrierDmasPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createWlmLegalizeSplitGraphToPagesPass(Logger log = Logger::global());
@@ -67,7 +70,8 @@ std::unique_ptr<mlir::Pass> createAssignPhysicalBarriersPass(
         const bool barrierColorBinFlag = false,
         std::optional<WorkloadManagementMode> workloadManagementMode = std::nullopt,
         std::optional<int> virtualBarrierThresholdForWlm = std::nullopt, Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createBarrierSimulationPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createBarrierSimulationPass(const bool wlmRollbackFlag = false,
+                                                        Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createIntermediateBufferOutputPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createInferenceExecutionAnalysisPass(
         std::string compileSchedTraceFileName = "compileTimeScheduleTrace.json", bool dumpToJson = false,

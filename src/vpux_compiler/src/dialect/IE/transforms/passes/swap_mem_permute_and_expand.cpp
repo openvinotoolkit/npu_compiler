@@ -134,7 +134,7 @@ void SwapMemPermuteAndExpandPass::safeRunOnFunc() {
     mlir::RewritePatternSet greedyPatterns(&ctx);
     greedyPatterns.add<IE::ExpandWithLayer>(&ctx, isBeneficialToSwapExpandMemPermute, _log);
 
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(greedyPatterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(greedyPatterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

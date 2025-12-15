@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/weights_prefetch_vf_scheduling.hpp"
-#include "vpux/compiler/utils/VPU/tile_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 
 namespace vpux::VPU::VF::v1 {
 WeightsPrefetchingVFScheduling::WeightsPrefetchingVFScheduling(Logger log, bool prefetching)

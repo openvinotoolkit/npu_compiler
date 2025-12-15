@@ -16,7 +16,6 @@
 #include "vpux/compiler/utils/platform_resources.hpp"
 #include "vpux/utils/core/mem_size.hpp"
 #include "vpux/utils/core/numeric.hpp"
-#include "vpux/utils/profiling/parser/freq.hpp"
 
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/BuiltinTypes.h>
@@ -46,6 +45,8 @@ uint32_t vpux::VPU::getMaxArchDPUClusterNum(config::ArchKind arch) {
         return VPUX37XX_MAX_DPU_GROUPS;
     case config::ArchKind::NPU40XX:
         return VPUX40XX_MAX_DPU_GROUPS;
+    case config::ArchKind::NPU50XX:
+        return VPUX50XX_MAX_DPU_GROUPS;
     default:
         VPUX_THROW("Unsupported architecture '{0}'", arch);
     }
@@ -61,6 +62,8 @@ uint32_t vpux::VPU::getMaxDMAPorts(config::ArchKind arch) {
         return VPUX37XX_MAX_DMA_PORTS;
     case config::ArchKind::NPU40XX:
         return VPUX40XX_MAX_DMA_PORTS;
+    case config::ArchKind::NPU50XX:
+        return VPUX50XX_MAX_DMA_PORTS;
     default:
         VPUX_THROW("Unsupported architecture '{0}'", arch);
     }
@@ -94,23 +97,17 @@ unsigned int vpux::VPU::getDpuFrequency(vpux::config::ArchKind arch, vpux::confi
             return 1850;  // MHz; TODO: switch to the value from vpunn, once this frequency is implemented. E#127567
         }
         return VPUNN::get_dpu_fclk(VPUNN::VPUDevice::VPU_4_0);  // 1700 MHZ currently
+    case config::ArchKind::NPU50XX:
+        if (rev >= config::RevisionID::REVISION_B) {
+            return 2100;  // MHz;
+        }
+        return VPUNN::get_dpu_fclk(VPUNN::VPUDevice::NPU_5_0);  // 1950 MHZ currently
     default:
         Logger::global().warning("Use default NPU_4 DPU frequency for {0}", arch);
         return VPUNN::get_dpu_fclk(VPUNN::VPUDevice::VPU_4_0);
-    }
-}
-
-// Perf_clock is correct name in HAS
-// Prof_clock is the old name in compiler
-double vpux::VPU::getPerfClock(vpux::config::ArchKind arch) {
-    switch (arch) {
-    case config::ArchKind::NPU37XX:
-        return profiling::ProfClk37XX::PROF_CLK_DEFAULT_VALUE_MHZ;
-    case config::ArchKind::NPU40XX:
-        return profiling::ProfClk40XX::PROF_CLK_DEFAULT_VALUE_MHZ;
-    default:
-        Logger::global().warning("Use default NPU_4 perf clock for {0}", arch);
-        return profiling::ProfClk40XX::PROF_CLK_DEFAULT_VALUE_MHZ;
+        /* TODO: verify the correct value for NPU50XX+. Value set to the maximal
+         * dpu_clk value from NPU50XX+ HAS (See vpu4 #clocks section)
+         */
     }
 }
 
@@ -153,6 +150,9 @@ Byte vpux::VPU::getTotalCMXSize(mlir::ModuleOp module) {
                                                 : vpux::VPUIP::HW_DPU_PROFILING_MAX_BUFFER_SIZE) +
             vpux::VPUIP::HW_ACT_SHAVE_PROFILING_MAX_BUFFER_SIZE;
 
+    if (arch >= config::ArchKind::NPU50XX) {
+        dynamicProfilingBufferSize += vpux::VPUIP::HW_M2I_PROFILING_MAX_BUFFER_SIZE;
+    }
     auto cmxSpaceAttr = mlir::SymbolRefAttr::get(module.getContext(), stringifyEnum(VPU::MemoryKind::CMX_NN));
     auto cmxSize = config::getAvailableMemory(module, VPU::MemoryKind::CMX_NN).size();
     auto reservedCMXSize = config::getReservedMemorySize(module, cmxSpaceAttr);

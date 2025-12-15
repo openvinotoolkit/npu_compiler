@@ -164,5 +164,7 @@ bool isNullOrConstWithSingleValue(mlir::Value value);
  */
 Byte calculateAlignedBuffersMemoryRequirement(config::ArchKind arch, mlir::SmallVector<Byte>& bufferSizes);
 
+mlir::FailureOr<SmallVector<int64_t>> extractConstData(mlir::Location loc, mlir::Value value);
+
 }  // namespace VPU
 }  // namespace vpux

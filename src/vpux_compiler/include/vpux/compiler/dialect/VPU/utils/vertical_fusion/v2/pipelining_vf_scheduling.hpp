@@ -27,12 +27,18 @@ public:
                                       const TilingOperationStorage::UPtr& tilingInfo,
                                       const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction) const override;
 
+    SmallVector<TimelineInterval> getTimeIntervals(
+            VFConfig& config, int64_t tilesNumber, const TilingOperationStorage::UPtr& tilingInfo,
+            const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction) const override;
+
 protected:
     void addOutputSpill(VFConfig& config, mlir::Operation* operation, VFPipelineContainer& pipelinedStructure,
                         int64_t index, const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
                         const VPUNNCostParameters& costParameters) const;
 
     bool isSharedWeightsSupported(VFConfig& config) const override;
+
+    SmallVector<VPU::ExecutorKind> getExecutorForVFOps(ArrayRef<mlir::Operation*> ops) const;
 };
 
 }  // namespace vpux::VPU::VF::v2

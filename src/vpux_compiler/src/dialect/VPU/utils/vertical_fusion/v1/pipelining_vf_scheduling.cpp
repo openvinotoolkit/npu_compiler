@@ -4,8 +4,8 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/pipelining_vf_scheduling.hpp"
+#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_pipeline_container.hpp"
-#include "vpux/compiler/utils/VPU/tile_utils.hpp"
 
 static constexpr double PIPELINING_AVAILABLE_RATIO = 0.95;
 
@@ -75,14 +75,19 @@ void PipeliningVFScheduling::addOutputSpill(VFConfig& config, mlir::Operation* o
                                             VFPipelineContainer& pipelinedStructure, int64_t index,
                                             const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
                                             const VPUNNCostParameters& costParameters) const {
-    if (llvm::find(config.getOutputs(), operation) != config.getOutputs().end()) {
-        // add the cost of output dma
-        auto spillCost = costFunction->getSpillingTypeCost(
-                config.getOperationTypes(operation, costParameters._tiling[0], costParameters._operandsTiling[0])
-                        .back(),
-                costParameters._tiling[0].axis);
-        pipelinedStructure.addDMA(index, spillCost);
+    if (llvm::find(config.getOutputs(), operation) == config.getOutputs().end()) {
+        return;
     }
+
+    VPUX_THROW_WHEN(costParameters._tiling.empty() || costParameters._operandsTiling.empty(),
+                    "Empty tiling for operation {0} at {1}", operation->getName(), operation->getLoc());
+
+    auto opTypes = config.getOperationTypes(operation, costParameters._tiling[0], costParameters._operandsTiling[0]);
+    VPUX_THROW_WHEN(opTypes.empty(), "getOperationTypes returned empty for operation {0} at {1}", operation->getName(),
+                    operation->getLoc());
+
+    auto spillCost = costFunction->getSpillingTypeCost(opTypes.back(), costParameters._tiling[0].axis);
+    pipelinedStructure.addDMA(operation, index, spillCost);
 }
 
 VFPipelineContainer PipeliningVFScheduling::getPipelining(
@@ -143,7 +148,7 @@ VFPipelineContainer PipeliningVFScheduling::getPipelining(
                 operNumPipelined = 0;
             }
 
-            pipelinedStructure.addDMA(index, prefetchedCost);
+            pipelinedStructure.addDMA(operation, index, prefetchedCost);
             pipelinedStructure.addOperation(operation, index, isolatedCost);
 
             addOutputSpill(config, operation, pipelinedStructure, index, costFunction, costParameters);

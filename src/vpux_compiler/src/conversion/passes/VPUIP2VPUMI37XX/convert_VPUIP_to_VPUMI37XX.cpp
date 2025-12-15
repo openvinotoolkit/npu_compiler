@@ -822,8 +822,8 @@ public:
 
         auto trivialIndexType = VPURegMapped::IndexType::get(ctx, 0);
 
-        mlir::Value origOpResult = origOp.getBarrier();  // E#105629: barrier variable may have incorrect type, so only
-                                                         // access it through mlir::Value
+        // E#105629: barrier variable may have incorrect type, so access result directly to avoid unsafe casting
+        mlir::Value origOpResult = origOp->getResult(0);
 
         size_t producer_count = 0;
         size_t consumer_count = 0;

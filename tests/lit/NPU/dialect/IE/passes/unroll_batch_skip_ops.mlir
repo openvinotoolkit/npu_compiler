@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --unroll-batch="skip-unroll-batch=true" %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @SkipUnrollAveragePoolingBatch
 // CHECK-SAME:      [[IN1:%.+]]: tensor<2x128x32x64xf16>

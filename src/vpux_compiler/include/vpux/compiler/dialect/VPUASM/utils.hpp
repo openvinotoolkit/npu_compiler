@@ -26,5 +26,8 @@ SparsityMap getSparsityMapBuffTileMask(VPUASM::NNDMAOp dmaOp, ELF::SymbolReferen
 
 void setResourceRequirement(mlir::ModuleOp moduleOp, elf::NetworkMetadata& metadata);
 
+void insertBinaryDimsIntoVector(SmallVector<uint8_t>& dimsVector, vpux::NDTypeInterface ndType);
+void insertBinaryStridesIntoVector(SmallVector<uint8_t>& stridesVector, vpux::NDTypeInterface ndType);
+
 }  // namespace VPUASM
 }  // namespace vpux

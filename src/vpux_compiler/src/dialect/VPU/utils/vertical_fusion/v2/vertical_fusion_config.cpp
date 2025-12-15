@@ -4,9 +4,9 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_config.hpp"
+#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
-#include "vpux/compiler/utils/VPU/tile_utils.hpp"
 
 using namespace vpux;
 using namespace VPU;
@@ -44,12 +44,14 @@ bool VFConfig::isVFPipelinePattern() {
         return swOp.supportLoweringAsDMA();
     };
 
-    // E-146083 to support viewlike ops in pipelining
     auto checkedOperations = getOperationsForTiling();
-    auto hasViewLikeOp = checkedOperations.size() != getVFOperations().size();
+    VPUX_THROW_WHEN(llvm::any_of(checkedOperations,
+                                 [](mlir::Operation* op) {
+                                     return !mlir::isa<VPU::NCEOpInterface, VPU::SWOpInterface>(op);
+                                 }),
+                    "There are operations that are neither NCE nor SW in VF subgraph {0}", _subgraph);
     checkedOperations.erase(llvm::remove_if(checkedOperations, filterDMAOps), checkedOperations.end());
-    return !(hasViewLikeOp || llvm::all_of(checkedOperations, filterNCE) ||
-             llvm::all_of(checkedOperations, filterSWKernels));
+    return !(llvm::all_of(checkedOperations, filterNCE) || llvm::all_of(checkedOperations, filterSWKernels));
 }
 
 void VFConfig::validateConfig() {

@@ -75,7 +75,7 @@ def VPUMI40XX_Dialect : Dialect {
     let dependentDialects = [
         "vpux::Const::ConstDialect",
         "mlir::func::FuncDialect",
-        "mlir::quant::QuantizationDialect",
+        "mlir::quant::QuantDialect",
         "vpux::VPURegMapped::VPURegMappedDialect",
     ];
 

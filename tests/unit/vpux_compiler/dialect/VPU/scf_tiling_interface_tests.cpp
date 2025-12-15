@@ -8,7 +8,7 @@
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPU/interfaces/scf/scf_tiling_interfaces.hpp"
 #include "vpux/compiler/init.hpp"
@@ -379,7 +379,8 @@ TEST_F(MLIR_SCFTilingTest, ComputeInputTilesDWConv) {
 
         EXPECT_TRUE(filterShape.has_value() && filterOffset.has_value());
         SmallVector<int64_t> expectedFilterOffset = {16, 0, 0, 0};
-        SmallVector<int64_t> expectedFilterShape = {16, 16, 1, 1};
+        SmallVector<int64_t> expectedFilterShape = {16, 1, 1, 1};
+
         EXPECT_TRUE(llvm::equal(filterShape.value(), expectedFilterShape));
         EXPECT_TRUE(llvm::equal(filterOffset.value(), expectedFilterOffset));
 

@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/error.hpp"
@@ -160,6 +161,164 @@ mlir::LogicalResult ConvertConstToAttr::matchAndRewrite(IE::GatherOp gatherOp, m
 
 }  // namespace
 
+//
+// ConstantFoldGather
+//
+
+namespace {
+
+class ConstantFoldGather final : public mlir::OpRewritePattern<IE::GatherOp> {
+public:
+    using mlir::OpRewritePattern<IE::GatherOp>::OpRewritePattern;
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::GatherOp gatherOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    template <typename T>
+    mlir::LogicalResult foldGatherImpl(IE::GatherOp gatherOp, mlir::PatternRewriter& rewriter,
+                                       const Const::Content& inputContent, const Const::Content& indicesContent,
+                                       int64_t axis) const;
+};
+
+mlir::LogicalResult ConstantFoldGather::matchAndRewrite(IE::GatherOp gatherOp, mlir::PatternRewriter& rewriter) const {
+    // Check if input is constant
+    auto inputConst = gatherOp.getInput().getDefiningOp<Const::DeclareOp>();
+    if (inputConst == nullptr) {
+        return mlir::failure();
+    }
+
+    // Check if indices is constant
+    auto indicesConst = gatherOp.getIndices().getDefiningOp<Const::DeclareOp>();
+    if (indicesConst == nullptr) {
+        return mlir::failure();
+    }
+
+    const auto axis = extractAxis(gatherOp.getLoc(), IE::GatherOpAdaptor(gatherOp));
+    if (mlir::failed(axis)) {
+        return mlir::failure();
+    }
+
+    const auto inputContent = inputConst.getContent();
+    const auto indicesContent = indicesConst.getContent();
+    const auto inputType = mlir::cast<mlir::ShapedType>(gatherOp.getInput().getType());
+    const auto elementType = inputType.getElementType();
+
+    if (elementType.isF16()) {
+        return foldGatherImpl<vpux::type::float16>(gatherOp, rewriter, inputContent, indicesContent, axis.value());
+    } else if (elementType.isF32()) {
+        return foldGatherImpl<float>(gatherOp, rewriter, inputContent, indicesContent, axis.value());
+    } else if (mlir::isa<mlir::Float8E5M2Type>(elementType)) {
+        return foldGatherImpl<vpux::type::float8_e5m2>(gatherOp, rewriter, inputContent, indicesContent, axis.value());
+    } else if (mlir::isa<mlir::Float8E4M3FNType>(elementType)) {
+        return foldGatherImpl<vpux::type::float8_e4m3>(gatherOp, rewriter, inputContent, indicesContent, axis.value());
+    } else if (elementType.isSignedInteger(8)) {
+        return foldGatherImpl<int8_t>(gatherOp, rewriter, inputContent, indicesContent, axis.value());
+    } else if (elementType.isUnsignedInteger(8)) {
+        return foldGatherImpl<uint8_t>(gatherOp, rewriter, inputContent, indicesContent, axis.value());
+    }
+
+    return mlir::failure();
+}
+
+template <typename T>
+mlir::LogicalResult ConstantFoldGather::foldGatherImpl(IE::GatherOp gatherOp, mlir::PatternRewriter& rewriter,
+                                                       const Const::Content& inputContent,
+                                                       const Const::Content& indicesContent, int64_t axis) const {
+    const auto inputType = mlir::cast<mlir::ShapedType>(gatherOp.getInput().getType());
+    const auto indicesType = mlir::cast<mlir::ShapedType>(gatherOp.getIndices().getType());
+    const auto outputType = mlir::cast<mlir::ShapedType>(gatherOp.getOutput().getType());
+    const auto inputShape = inputType.getShape();
+    const auto indicesShape = indicesType.getShape();
+    const auto outputShape = outputType.getShape();
+    const auto batchDims = gatherOp.getBatchDims();
+    auto inputValues = inputContent.getValues<T>();
+    auto indicesValues = indicesContent.getValues<int64_t>();
+    const auto outputSize =
+            std::accumulate(outputShape.begin(), outputShape.end(), int64_t(1), std::multiplies<int64_t>());
+    SmallVector<T> outputValues(outputSize);
+
+    // Calculate linear index from multi-dimensional index
+    auto calculateLinearIndex = [](ArrayRef<int64_t> shape, ArrayRef<int64_t> indices) -> int64_t {
+        int64_t linearIndex = 0;
+        int64_t stride = 1;
+        for (int64_t i = shape.size() - 1; i >= 0; --i) {
+            linearIndex += indices[i] * stride;
+            stride *= shape[i];
+        }
+        return linearIndex;
+    };
+
+    // Convert linear index to multi-dimensional index
+    auto calculateMultiIndex = [](ArrayRef<int64_t> shape, int64_t linearIndex) -> SmallVector<int64_t> {
+        SmallVector<int64_t> indices(shape.size());
+        for (int64_t i = shape.size() - 1; i >= 0; --i) {
+            indices[i] = linearIndex % shape[i];
+            linearIndex /= shape[i];
+        }
+        return indices;
+    };
+
+    // Perform gather operation
+    for (int64_t outputIdx = 0; outputIdx < outputSize; ++outputIdx) {
+        auto outputMultiIdx = calculateMultiIndex(outputShape, outputIdx);
+
+        // Calculate corresponding input index
+        SmallVector<int64_t> inputMultiIdx(inputShape.size());
+
+        // Copy batch dimensions
+        for (int64_t i = 0; i < batchDims; ++i) {
+            inputMultiIdx[i] = outputMultiIdx[i];
+        }
+
+        // Copy dimensions before axis
+        for (int64_t i = batchDims; i < axis; ++i) {
+            inputMultiIdx[i] = outputMultiIdx[i];
+        }
+
+        // Get index from indices tensor
+        SmallVector<int64_t> indicesMultiIdx(indicesShape.size());
+        for (int64_t i = 0; i < batchDims; ++i) {
+            indicesMultiIdx[i] = outputMultiIdx[i];
+        }
+        for (int64_t i = batchDims; i < static_cast<int64_t>(indicesShape.size()); ++i) {
+            indicesMultiIdx[i] = outputMultiIdx[axis - batchDims + i];
+        }
+
+        // Get gather indice value
+        auto indicesLinearIdx = calculateLinearIndex(indicesShape, indicesMultiIdx);
+        auto gatheredIdx = indicesValues[indicesLinearIdx];
+        if (gatheredIdx < 0) {
+            gatheredIdx += inputShape[axis];
+        }
+        if (gatheredIdx < 0 || gatheredIdx >= inputShape[axis]) {
+            // Invalid index
+            return mlir::failure();
+        }
+        inputMultiIdx[axis] = gatheredIdx;
+
+        // Copy dimensions after axis
+        int64_t outputOffset = axis + static_cast<int64_t>(indicesShape.size()) - batchDims;
+        for (int64_t i = axis + 1; i < static_cast<int64_t>(inputShape.size()); ++i) {
+            inputMultiIdx[i] = outputMultiIdx[outputOffset + (i - axis - 1)];
+        }
+
+        // Get input value and set
+        auto inputLinearIdx = calculateLinearIndex(inputShape, inputMultiIdx);
+        outputValues[outputIdx] = inputValues[inputLinearIdx];
+    }
+
+    // Create constant output
+    const auto outputTensorType = mlir::RankedTensorType::get(outputShape, inputType.getElementType());
+    auto newConstOp = Const::createConst(rewriter, gatherOp.getLoc(), outputTensorType, ArrayRef<T>(outputValues));
+
+    rewriter.replaceOp(gatherOp, newConstOp);
+    return mlir::success();
+}
+
+}  // namespace
+
 void vpux::IE::GatherOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns, mlir::MLIRContext* context) {
     patterns.add<ConvertConstToAttr>(context);
+    patterns.add<ConstantFoldGather>(context);
 }

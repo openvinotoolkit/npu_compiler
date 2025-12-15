@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
 using namespace vpux;
 
 mlir::LogicalResult vpux::VPU::SparsifyOp::inferReturnTypes(mlir::MLIRContext* ctx,

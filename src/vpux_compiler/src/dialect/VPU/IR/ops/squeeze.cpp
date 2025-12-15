@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/VPU/utils/layout_utils.hpp"
 
 #include "vpux/compiler/dialect/const/ops.hpp"
@@ -32,7 +33,11 @@ mlir::FailureOr<SmallVector<int64_t>> getAxes(VPU::SqueezeOpAdaptor squeeze, mli
         return parseIntArrayAttr<int64_t>(squeeze.getAxesValue().value());
     }
 
-    auto axesConst = squeeze.getAxes().getDefiningOp<Const::DeclareOp>();
+    auto axesValue = squeeze.getAxes();
+    while (auto parentOp = axesValue.getDefiningOp<VPU::CopyOp>()) {
+        axesValue = parentOp->getOperand(0);
+    }
+    auto axesConst = axesValue.getDefiningOp<Const::DeclareOp>();
     if (axesConst == nullptr) {
         return errorAt(loc, "Only constant axes are supported");
     }

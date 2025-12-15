@@ -6,7 +6,7 @@
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
@@ -23,6 +23,7 @@
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 #include "vpux/utils/core/error.hpp"
 
 #include <llvm/ADT/SmallVector.h>
@@ -1808,22 +1809,26 @@ private:
 // TODO: #71565
 void WrapWithPermuteAsNNDMAPass::safeRunOnFunc() {
     auto& ctx = getContext();
-
-    mlir::RewritePatternSet patterns(&ctx);
-    patterns.add<FuseExpandAndPermuteWithCopy>(&ctx, _log);
-    patterns.add<FuseExpandWithCopy>(&ctx, _log);
-    patterns.add<FuseExpandWithUpsampling>(&ctx, _log);
-    patterns.add<FuseMemPermuteWithCopy>(&ctx, _log);
-    patterns.add<FuseDistributedCopyWithMemPermute>(&ctx, _log);
-    patterns.add<FuseDistributedMemPermuteWithViewLikeOps>(&ctx, _log);
-    patterns.add<FusePerAxisTileWithCopy>(&ctx, _log);
-    patterns.add<FuseSpaceToDepthAndPermute>(&ctx, _log);
-    patterns.add<FuseSpaceToDepthWithDistributedCopy>(&ctx, _log);
-    patterns.add<WrapDepthToSpaceAsDistributedNNDMA>(&ctx, _log);
-
     auto func = getOperation();
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
+
+    {
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.add<FuseExpandAndPermuteWithCopy>(&ctx, _log);
+        patterns.add<FuseExpandWithCopy>(&ctx, _log);
+        patterns.add<FuseExpandWithUpsampling>(&ctx, _log);
+        collectOpsAndApplyPatterns(func, std::move(patterns));
+    }
+
+    {
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.add<FuseMemPermuteWithCopy>(&ctx, _log);
+        patterns.add<FuseDistributedCopyWithMemPermute>(&ctx, _log);
+        patterns.add<FuseDistributedMemPermuteWithViewLikeOps>(&ctx, _log);
+        patterns.add<FusePerAxisTileWithCopy>(&ctx, _log);
+        patterns.add<FuseSpaceToDepthAndPermute>(&ctx, _log);
+        patterns.add<FuseSpaceToDepthWithDistributedCopy>(&ctx, _log);
+        patterns.add<WrapDepthToSpaceAsDistributedNNDMA>(&ctx, _log);
+        collectOpsAndApplyPatterns(func, std::move(patterns));
     }
 }
 

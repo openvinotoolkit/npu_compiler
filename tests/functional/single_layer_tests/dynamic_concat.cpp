@@ -27,7 +27,7 @@ protected:
 
         auto inputShapes = std::vector<ov::test::InputShape>();
         for (const auto& boundedShape : boundedShapes) {
-            inputShapes.push_back(boundedShape);
+            inputShapes.push_back(boundedShape.value());
         }
 
         init_input_shapes(inputShapes);
@@ -35,14 +35,14 @@ protected:
         auto params = ov::ParameterVector();
         auto paramNodes = ov::NodeVector();
         for (auto i = 0; i < static_cast<int>(inputDynamicShapes.size()); i++) {
-            const auto dataParam = std::make_shared<ov::opset13::Parameter>(inputType, inputDynamicShapes[i]);
+            const auto dataParam = std::make_shared<ov::opset13::Parameter>(inputType.value(), inputDynamicShapes[i]);
             const auto inputName = std::string("input_").append(std::to_string(i));
             dataParam->set_friendly_name(inputName);
             params.push_back(dataParam);
             paramNodes.push_back(dataParam);
         }
 
-        const auto concat = std::make_shared<ov::opset13::Concat>(paramNodes, axis);
+        const auto concat = std::make_shared<ov::opset13::Concat>(paramNodes, axis.value());
 
         function = std::make_shared<ov::Model>(concat->outputs(), params, "DynamicConcat");
     }
@@ -73,6 +73,12 @@ TEST_P(DynamicConcatLayerTest, NPU4000_HW) {
     abs_threshold = 0.0f;
     setDefaultHardwareMode();
     run(Platform::NPU4000);
+}
+
+TEST_P(DynamicConcatLayerTest, NPU5010_HW) {
+    abs_threshold = 0.0f;
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
 }
 
 const std::vector<std::vector<BoundedShape>> inShapes = {

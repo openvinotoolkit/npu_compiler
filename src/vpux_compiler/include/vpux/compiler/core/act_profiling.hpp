@@ -14,8 +14,6 @@
 #include <iterator>
 #include <string>
 
-// E#171862: merge NCETiledActShaveProfiler and UniformNonTiledActShaveProfiler
-
 namespace vpux {
 
 using SWTaskSignature = TaskSignature<VPUIP::SwKernelOp>;
@@ -29,8 +27,7 @@ unsigned countTasks(const SmallVector<std::pair<T, unsigned>>& vector) {
 
 mlir::IntegerType getActShaveProfilingElementType(mlir::MLIRContext* ctx);
 
-// Base pure virtual class for handling ActShave profiling
-class BaseActShaveProfiler {
+class ActShaveProfiler {
 public:
     using ProfilingResults = SmallVector<std::pair<mlir::Value, unsigned>>;
 
@@ -42,16 +39,34 @@ public:
 
 private:
     // Return number of SwKernelRun tasks within this SwKernelOp
+    VPUIP::DistributedBufferType getDistributedBufferType(unsigned totalElements);
     static unsigned getNumProfiledTasks(VPUIP::SwKernelOp swOp) {
         auto swKernelRunIt = swOp.getBody().getOps<VPUIP::SwKernelRun>();
         return checked_cast<unsigned int>(std::distance(swKernelRunIt.begin(), swKernelRunIt.end()));
     }
 
 public:
-    BaseActShaveProfiler(unsigned clustersNum, mlir::OpBuilder& builder, mlir::MLIRContext* ctx,
-                         vpux::IndexedSymbolAttr memKindAttr, mlir::func::FuncOp netFunc, vpux::Logger& log,
-                         std::shared_ptr<NameUniqifier> uniqifier);
-    virtual ~BaseActShaveProfiler() = default;
+    ActShaveProfiler(unsigned clustersNum, mlir::OpBuilder& builder, mlir::MLIRContext* ctx,
+                     vpux::IndexedSymbolAttr memKindAttr, mlir::func::FuncOp netFunc, vpux::Logger& log,
+                     std::shared_ptr<NameUniqifier> uniqifier);
+    ~ActShaveProfiler() = default;
+
+    // Create allocation operation representing profiling buffer instance in CMX. If such buffer is full
+    // new one needs to be allocated. Type of this alloc is a memref
+    mlir::Operation* createAllocationOp(unsigned totalSizeCMXElements, const std::string& location);
+
+    // Insert DMA that will copy profiling buffer instance to proper offset in profiling output once
+    // profiling buffer instance is full or there are no more tasks to profile
+    mlir::Value copyToDdr(const ProfilingResults& profilingResults, mlir::Operation* cmxMemOp, size_t& currentDDROffset,
+                          mlir::BlockArgument& profilingDdrResult);
+
+    // Get a SubView of profiling buffer instance so that given ActShave task is given required chunk of it
+    mlir::Value getViewToBuffer(mlir::Operation* currentProfilingBuffer, unsigned profilingSamplesInCMX,
+                                int64_t numTasks);
+
+    // Replace a Actshave task with new one that has profiling output set
+    mlir::Value replaceOpWithProfiledOp(VPUIP::SwKernelOp origSwTask, mlir::Value profilingBuffer, mlir::Location loc,
+                                        VPUIP::SwProfilingMetadataAttr profMeta);
 
     // Get amount of memory needed to store profiling data of all ActShave tasks in the model
     unsigned getRequiredDdrMemory() const;
@@ -65,29 +80,11 @@ public:
     // buffer is full it also inserts CMX2DDR DMA and allocates new profiling buffer
     void addProfilingOps(mlir::BlockArgument& profilingDdrResult, SmallVector<mlir::Value>& clusterResults);
 
-protected:
-    // Create allocation operation representing profiling buffer instance in CMX. If such buffer is full
-    // new one needs to be allocated
-    virtual mlir::Operation* createAllocationOp(unsigned totalSizeCMXElements, const std::string& location) = 0;
-
-    // Insert DMA that will copy profiling buffer instance to proper offset in profiling output once
-    // profiling buffer instance is full or there are no more tasks to profile
-    virtual mlir::Value copyToDdr(ProfilingResults profilingResults, mlir::Operation* cmxMemOp,
-                                  size_t& currentDDROffset, mlir::BlockArgument& profilingDdrResult) = 0;
-
-    // Get a SubView of profiling buffer instance so that given ActShave task is given required chunk of it
-    virtual mlir::Value getViewToBuffer(mlir::Operation* currentProfilingBuffer, unsigned profilingSamplesInCMX,
-                                        int64_t numTasks) = 0;
-
-    // Replace a Actshave task with new one that has profiling output set
-    virtual mlir::Value replaceOpWithProfiledOp(VPUIP::SwKernelOp origSwTask, mlir::Value profilingBuffer,
-                                                mlir::Location loc, VPUIP::SwProfilingMetadataAttr profMeta) = 0;
-
+private:
     SWTaskSignature getTaskSignature(VPUIP::SwKernelOp swOp) const;
 
     mlir::Type getTimestampType(int64_t tasksAmount);
 
-protected:
     unsigned _clustersNum;
     unsigned _profilingWorkloadSize;
     unsigned _profilingElementSize;
@@ -99,71 +96,7 @@ protected:
     vpux::IndexedSymbolAttr _memKindAttr;
     vpux::Logger& _log;
     std::shared_ptr<NameUniqifier> _uniqifier;
-
-private:
     static inline unsigned uniqBufferId = 0;
-};
-
-// Class for handling ActShave profiling if none of Actshave tasks in the model is multiclustered.
-// This way profiling buffer instance can be a simple memref
-class UniformNonTiledActShaveProfiler : public BaseActShaveProfiler {
-public:
-    virtual ~UniformNonTiledActShaveProfiler() = default;
-
-    UniformNonTiledActShaveProfiler(unsigned clustersNum, mlir::OpBuilder& builder, mlir::MLIRContext* ctx,
-                                    vpux::IndexedSymbolAttr memKindAttr, mlir::func::FuncOp netFunc, vpux::Logger& log,
-                                    std::shared_ptr<NameUniqifier> uniqifier);
-
-protected:
-    // Create allocation operation representing profiling buffer instance in CMX. If such buffer is full
-    // new one needs to be allocated. Type of this alloc is a memref
-    mlir::Operation* createAllocationOp(unsigned totalSizeCMXElements, const std::string& location) override;
-
-    // Insert DMA that will copy profiling buffer instance to proper offset in profiling output once
-    // profiling buffer instance is full or there are no more tasks to profile
-    mlir::Value copyToDdr(ProfilingResults profilingResults, mlir::Operation* cmxMemOp, size_t& currentDDROffset,
-                          mlir::BlockArgument& profilingDdrResult) override;
-
-    // Get a SubView of profiling buffer instance so that given ActShave task is given required chunk of it
-    mlir::Value getViewToBuffer(mlir::Operation* currentProfilingBuffer, unsigned profilingSamplesInCMX,
-                                int64_t numTasks) override;
-
-    // Replace a Actshave task with new one that has profiling output set
-    mlir::Value replaceOpWithProfiledOp(VPUIP::SwKernelOp origSwTask, mlir::Value profilingBuffer, mlir::Location loc,
-                                        VPUIP::SwProfilingMetadataAttr profMeta) override;
-};
-
-// Class for handling ActShave profiling if at least one of ActShave tasks in the model is multiclustered.
-// Profiling buffer will be represented as a DistributedBuffer
-class NCETiledActShaveProfiler : public BaseActShaveProfiler {
-private:
-    VPUIP::DistributedBufferType getDistributedBufferType(unsigned totalElements);
-
-public:
-    virtual ~NCETiledActShaveProfiler() = default;
-
-    NCETiledActShaveProfiler(unsigned clustersNum, mlir::OpBuilder& builder, mlir::MLIRContext* ctx,
-                             vpux::IndexedSymbolAttr memKindAttr, mlir::func::FuncOp netFunc, vpux::Logger& log,
-                             std::shared_ptr<NameUniqifier> uniqifier);
-
-protected:
-    // Create allocation operation representing profiling buffer instance in CMX. If such buffer is full
-    // new one needs to be allocated. Type of this alloc is a DistributedBufferType
-    mlir::Operation* createAllocationOp(unsigned totalSizeCMXElements, const std::string& location) override;
-
-    // Insert DMA that will copy profiling buffer instance to proper offset in profiling output once
-    // profiling buffer instance is full or there are no more tasks to profile
-    mlir::Value copyToDdr(ProfilingResults profilingResults, mlir::Operation* cmxMemOp, size_t& currentDDROffset,
-                          mlir::BlockArgument& profilingDdrResult) override;
-
-    // Get a SubView of profiling buffer instance so that given ActShave task is given required chunk of it
-    mlir::Value getViewToBuffer(mlir::Operation* currentProfilingBuffer, unsigned profilingSamplesInCMX,
-                                int64_t numTasks) override;
-
-    // Replace a Actshave task with new one that has profiling output set. If this task is not multiclustered
-    // then additional cast (ViewOp) is inserted for profiling slot to maintain type compatibility
-    mlir::Value replaceOpWithProfiledOp(VPUIP::SwKernelOp origSwTask, mlir::Value profilingBuffer, mlir::Location loc,
-                                        VPUIP::SwProfilingMetadataAttr profMeta) override;
 };
 
 }  // namespace vpux

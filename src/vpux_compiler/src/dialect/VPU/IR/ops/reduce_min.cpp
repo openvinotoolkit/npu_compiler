@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/core/tiling.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/reduce.hpp"
 
 #include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
 #include "vpux/compiler/utils/attributes.hpp"

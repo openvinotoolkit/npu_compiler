@@ -7,9 +7,13 @@
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/VPU/IR/native_attributes/distribution_info.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sibling_ops_analysis.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 
@@ -416,10 +420,17 @@ OverlapDistributionParams vpux::VPU::getOverlappedDistributionParameters(
 
         const bool opHasConsumerWithSETable = currentNceOpHasSETable && !origTensorHasSETable;
         // E#112803 support for SEP should be added
-        // E#173578 restricting to child op DepthConvolution, this will improve Geekbench models.
+        // E#173578 restricting to child op DepthConvolution.
         // For other ops, it is possible to cause WLM rollback, caused by scheduler.
-        if (opHasConsumerWithSETable &&
-            (nceOpCandidates.size() != 1 || !mlir::isa_and_nonnull<VPU::NCEDepthConvolutionOp>(nceOp))) {
+        auto isAffectingWLM = !mlir::isa_and_nonnull<VPU::NCEDepthConvolutionOp>(nceOp);
+
+        auto arch = config::getArch(nceOp.getOperation());
+        // E#173578 WLM rollback happens only for NPU4
+        if (arch >= config::ArchKind::NPU50XX) {
+            isAffectingWLM = false;
+        }
+
+        if (opHasConsumerWithSETable && (nceOpCandidates.size() != 1 || isAffectingWLM)) {
             continue;
         }
 

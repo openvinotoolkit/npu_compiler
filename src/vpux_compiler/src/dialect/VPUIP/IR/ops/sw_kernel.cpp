@@ -7,7 +7,25 @@
 #include "vpux/compiler/core/bounded_buffer.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/activation.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/arithmetic.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/bitwise.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/comparison.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/control_flow.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/convolution.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/image.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/logical.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/normalization.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/pooling.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/recurrent.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/reduce.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
@@ -657,6 +675,15 @@ std::pair<SmallString, SmallString> getKernelImpl(VPU::ConvertOp op) {
             // UI8/SI8/UI4/SI4/UI2/SI2 -> FP16
             return std::pair<SmallString, SmallString>{"convert_p01", "convert_p01.cpp"};
         }
+
+        if (arch != config::ArchKind::NPU40XX) {
+            auto isInputFp8 = mlir::isa<mlir::Float8E4M3FNType, Float8E5M2Type>(iType);
+            auto isOutputFp8 = mlir::isa<mlir::Float8E4M3FNType, Float8E5M2Type>(oType);
+            if ((isInputFp8 && oType.isF16()) || (isOutputFp8 && iType.isF16())) {
+                // BF8/HF8 <-> FP16
+                return std::pair<SmallString, SmallString>{"convert_p01", "convert_p01.cpp"};
+            }
+        }
     }
     return std::pair<SmallString, SmallString>{"convert", "convert.cpp"};
 }
@@ -678,6 +705,22 @@ std::pair<SmallString, SmallString> getKernelImpl(VPU::MVNOp op) {
         }
     }
     return std::pair<SmallString, SmallString>{"mvn1", "mvn1.cpp"};
+}
+
+std::pair<SmallString, SmallString> getKernelImpl(VPU::RMSOp op) {
+    const auto arch = config::getArch(op.getOperation());
+    if ((arch != config::ArchKind::NPU37XX) && (!vpux::IE::hasDynamicTensors(op))) {
+        const auto type = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType());
+        const auto isF16 = type.getElementType().isF16();
+        if (isF16 && (type.getDimsOrder() == DimsOrder::NCHW)) {
+            const auto shape = type.getShape();
+            const auto W = shape[Dims4D::Act::W];
+            if (W == 64) {
+                return std::pair<SmallString, SmallString>{"rms_norm_p00", "rms_norm_p00.cpp"};
+            }
+        }
+    }
+    return std::pair<SmallString, SmallString>{"rms_norm", "rms_norm.cpp"};
 }
 
 #define CASE_REDUCE(_OP_, _STR1_, _CTX_)                                                                       \
@@ -817,7 +860,10 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
             .Case<VPU::LogSoftmaxOp>([&](VPU::LogSoftmaxOp logSoftmax) {
                 const auto axisParam = computeReverseMemDim(logSoftmax.getInput(), logSoftmax.getAxisInd());
                 const auto axisParamAttr = getIntAttr(ctx, axisParam);
-                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{axisParamAttr}, {"log_softmax"}};
+                const int64_t padSize = 0;
+                auto padSizeAttr = getIntAttr(ctx, padSize);
+
+                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{axisParamAttr, padSizeAttr}, {"log_softmax"}};
             })
             .Case<VPU::LoopSelectOp>([&](VPU::LoopSelectOp loopSelect) {
                 return VPUIP::KernelInfo{
@@ -1977,6 +2023,7 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
             })
             .Case<VPU::MaxPool8Op>([&](VPU::MaxPool8Op op) {
                 constexpr size_t MAX_ATTR_SZ = 3;
+                constexpr size_t MAX_DIMS_SZ = 5;
                 auto kernelSize = parseIntArrayAttr<int64_t>(op.getKernelSizeAttr());
                 auto strides = parseIntArrayAttr<int64_t>(op.getStridesAttr());
                 auto dilations = parseIntArrayAttr<int64_t>(op.getDilationsAttr());
@@ -1990,14 +2037,43 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 padsBegin.insert(padsBegin.begin(), numToInsert, 0);
                 padsEnd.insert(padsEnd.begin(), numToInsert, 0);
 
+                auto getOrDefault = [](const std::optional<mlir::ArrayAttr>& attr,
+                                       const SmallVector<int64_t>& defaultValue) {
+                    return attr.has_value() ? parseIntArrayAttr<int64_t>(attr.value()) : defaultValue;
+                };
+                auto iShape = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType()).getShape();
+                auto oShape = mlir::cast<vpux::NDTypeInterface>(op.getOutput().getType()).getShape();
+                auto initialInputDims =
+                        getOrDefault(op.getInitialInputDimsAttr(), SmallVector<int64_t>(iShape.begin(), iShape.end()));
+                auto initialOutputDims =
+                        getOrDefault(op.getInitialOutputDimsAttr(), SmallVector<int64_t>(oShape.begin(), oShape.end()));
+                auto initialInputOffset =
+                        getOrDefault(op.getInitialInputOffsetAttr(), SmallVector<int64_t>(MAX_DIMS_SZ, 0));
+                auto initialOutputOffset =
+                        getOrDefault(op.getInitialOutputOffsetAttr(), SmallVector<int64_t>(MAX_DIMS_SZ, 0));
+
+                auto axis = op.getAxis() + MAX_DIMS_SZ - initialInputDims.size();
+                initialInputDims.insert(initialInputDims.begin(), MAX_DIMS_SZ - initialInputDims.size(), 1);
+                initialOutputDims.insert(initialOutputDims.begin(), MAX_DIMS_SZ - initialOutputDims.size(), 1);
+                initialInputOffset.insert(initialInputOffset.begin(), MAX_DIMS_SZ - initialInputOffset.size(), 0);
+                initialOutputOffset.insert(initialOutputOffset.begin(), MAX_DIMS_SZ - initialOutputOffset.size(), 0);
+
                 const auto kernelSizeAttr = getIntArrayAttr(ctx, kernelSize);
                 const auto stridesAttr = getIntArrayAttr(ctx, strides);
                 const auto dilationsAttr = getIntArrayAttr(ctx, dilations);
                 const auto padsBeginAttr = getIntArrayAttr(ctx, padsBegin);
                 const auto padsEndAttr = getIntArrayAttr(ctx, padsEnd);
-                const auto axisParamAttr = getIntAttr(ctx, op.getAxis());
+                const auto axisParamAttr = getIntAttr(ctx, axis);
+
+                const auto initialInputDimsAttr = getIntArrayAttr(ctx, initialInputDims);
+                const auto initialOutputDimsAttr = getIntArrayAttr(ctx, initialOutputDims);
+                const auto initialInputOffsetAttr = getIntArrayAttr(ctx, initialInputOffset);
+                const auto initialOutputOffsetAttr = getIntArrayAttr(ctx, initialOutputOffset);
+
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{kernelSizeAttr, stridesAttr, dilationsAttr,
-                                                                      padsBeginAttr, padsEndAttr, axisParamAttr},
+                                                                      padsBeginAttr, padsEndAttr, axisParamAttr,
+                                                                      initialInputDimsAttr, initialOutputDimsAttr,
+                                                                      initialInputOffsetAttr, initialOutputOffsetAttr},
                                          {"max_pool8"}};
             })
             .Case<VPU::AbsOp>([&](VPU::AbsOp) {
@@ -2137,8 +2213,12 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
             .Case<VPU::RMSOp>([&](VPU::RMSOp op) {
                 const auto iType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType());
                 VPUX_THROW_UNLESS(iType.getRank() <= 4, "Supporting only 3D and 4D input, got {0}", iType.getRank());
-                const auto epsilonAttr = op.getEpsilonAttr();
-                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{epsilonAttr}, {"rms_norm"}};
+                const auto epsilonAttr = op.getEpsAttr();
+                auto [kernelEntry, kernelSrc] = getKernelImpl(op);
+                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{epsilonAttr},
+                                         kernelEntry,
+                                         kernelSrc,
+                                         {"rms_norm"}};
             })
             .Case<VPU::InverseOp>([&](VPU::InverseOp inverse) {
                 const auto adjointAttr = getIntAttr(ctx, static_cast<int64_t>(inverse.getAdjoint()));
@@ -2202,7 +2282,9 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                                 ((1 << 2) * (op.getAttentionMask() != nullptr)) |  //
                                 ((1 << 3) * (op.getScale() != nullptr));           //
 
-                auto attrs = getIntArrayAttr(op->getContext(), SmallVector<int64_t>{INT64_MAX, flags});
+                int64_t sourceSeqLenPadSize = op.getSourceSeqLenPadSize();
+                auto attrs =
+                        getIntArrayAttr(op->getContext(), SmallVector<int64_t>{INT64_MAX, flags, sourceSeqLenPadSize});
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{attrs}, {"flash_sdpa"}, {"flash_sdpa.cpp"}};
             })
             .Case<VPU::SDPAExtendedOp>([&](VPU::SDPAExtendedOp op) {

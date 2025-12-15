@@ -115,7 +115,7 @@ void InsertIdentityPoolBeforeOpPass::safeRunOnFunc() {
     patterns.add<IE::InsertIdPoolRewriter<IE::ClampOp>>(&ctx, insertAvgPool, _log);
     patterns.add<IE::InsertIdPoolRewriter<IE::ReLUOp>>(&ctx, insertAvgPool, _log);
 
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

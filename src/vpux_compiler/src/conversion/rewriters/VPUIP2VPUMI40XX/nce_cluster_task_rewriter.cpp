@@ -125,7 +125,7 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
             cleanAfterAttr,               // cleanAfter
             nullptr,                      // enqueueBarrier
             origTaskOp.getWlmPageAttr(),  // wlmPageAttr
-            adaptor.getDynamicScaleConfigAttr(), adaptor.getLocalRegionAttr()
+            adaptor.getDynamicScaleConfigAttr(), adaptor.getLocalRegionAttr(), adaptor.getS2dConfigAttr()
 
     );
 

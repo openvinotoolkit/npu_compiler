@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPUIP/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
@@ -11,12 +12,12 @@
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
-#include "vpux/compiler/utils/VPU/tile_utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
+#include <mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/Support/LLVM.h>
 
@@ -35,7 +36,8 @@ namespace {
 ptrdiff_t getLastMemRefPosition(mlir::ValueRange vals) {
     return std::find_if(vals.begin(), vals.end(),
                         [](mlir::Value val) {
-                            return !mlir::isa<mlir::BaseMemRefType, vpux::VPUIP::ITIBufferType>(val.getType());
+                            return !mlir::isa<mlir::bufferization::BufferLikeType, vpux::VPUIP::ITIBufferType>(
+                                    val.getType());
                         }) -
            vals.begin();
 }

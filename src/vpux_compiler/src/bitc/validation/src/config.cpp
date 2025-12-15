@@ -25,6 +25,35 @@ void verify_line(std::string& line) {
 }
 
 void verify_labels(std::set<std::string>& labels, config_map& config) {
+    // Sparse verifying
+    std::string sparse_mode_enable{};
+    {
+        auto elem = config.find("sparse_mode_enable");
+        if (elem == config.end()) {
+            std::cerr << ANSI_RED << "sparse_mode_enable not specified\n" << ANSI_RESET;
+            throw std::logic_error{"Needed values not specified"};
+        }
+        sparse_mode_enable = std::get<std::string>(elem->second);
+    }
+
+    if (sparse_mode_enable != "true"s && sparse_mode_enable != "false"s) {
+        throw std::logic_error{"sparse_mode_enable expects 'true' or 'false', got '" + sparse_mode_enable + "'"};
+    }
+
+    if (sparse_mode_enable == "false"s) {
+        auto elem = labels.find("bitmap_data");
+        if (elem != end(labels)) {
+            labels.erase(elem);
+        }
+        elem = labels.find("bitmap_data_path");
+        if (elem != end(labels)) {
+            labels.erase(elem);
+        }
+        elem = labels.find("sparse_block_size");
+        if (elem != end(labels)) {
+            labels.erase(elem);
+        }
+    }
     // All labels specified
     if (labels.size() != 0) {
         std::cerr << ANSI_RED;
@@ -37,8 +66,8 @@ void verify_labels(std::set<std::string>& labels, config_map& config) {
 
     // Value validity
     std::string arch_type = std::get<std::string>(config["arch_type"]);
-    if (arch_type != "NPU27"s && arch_type != "NPU4"s) {
-        throw std::logic_error{"Expected NPU27/4 for arch type, got: " + arch_type};
+    if (arch_type != "NPU27"s && arch_type != "NPU4"s && arch_type != "NPU5"s) {
+        throw std::logic_error{"Expected NPU27/4/5 for arch type, got: " + arch_type};
     }
     std::string weight_compress_enable = std::get<std::string>(config["weight_compress_enable"]);
     if (weight_compress_enable != "true"s && weight_compress_enable != "false"s) {
@@ -57,11 +86,19 @@ void verify_labels(std::set<std::string>& labels, config_map& config) {
 
     // Combination validity
     if (arch_type == "NPU27"s) {
+        if (sparse_mode_enable == "true"s) {
+            throw std::logic_error{"NPU27 doesn't support sparse mode"};
+        }
         if (mode_fp16_enable == "true"s) {
             throw std::logic_error{"NPU27 doesn't support fp16 mode"};
         }
         if (weight_compress_enable == "false"s) {
             throw std::logic_error{"NPU27 doesn't support activation compression"};
+        }
+    }
+    if (arch_type == "NPU4"s) {
+        if (sparse_mode_enable == "true"s) {
+            throw std::logic_error{"NPU4 doesn't support sparse mode"};
         }
     }
 }
@@ -155,6 +192,7 @@ config_map parse_config(std::ifstream& config_file) {
     config_map config;
     std::string line;
     std::set<std::string> labels{"arch_type",
+                                 "sparse_mode_enable",
                                  "weight_compress_enable",
                                  "bypass_compression",
                                  "mode_fp16_enable",
@@ -190,7 +228,11 @@ config_map parse_config(std::ifstream& config_file) {
 void print_config(const config_map& config) {
     std::cout << "Configuration: "
               << "\n\t >> Arch type: " << std::get<std::string>(config.at("arch_type"))
+              << "\n\t >> Sparse mode enabled: " << std::get<std::string>(config.at("sparse_mode_enable"))
               << "\n\t >> Weight compress enabled: " << std::get<std::string>(config.at("weight_compress_enable"))
               << "\n\t >> Bypass compression: " << std::get<std::string>(config.at("bypass_compression"))
               << "\n\t >> FP16 Mode enabled: " << std::get<std::string>(config.at("mode_fp16_enable")) << "\n";
+    if (std::get<std::string>(config.at("sparse_mode_enable")) == "true"s) {
+        std::cout << "\t >> Sparse block size: " << std::get<std::string>(config.at("sparse_block_size")) << "\n";
+    }
 }

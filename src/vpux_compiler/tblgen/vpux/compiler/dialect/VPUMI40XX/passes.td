@@ -180,7 +180,8 @@ def LinkEnqueueTargets : PassBase<"link-enqueue-targets", "vpux::FunctionPass"> 
             [{::llvm::cl::values(
                 clEnumValN(vpux::WorkloadManagementMode::PWLM_V0_LCA, "PWLM_V0_LCA", "WLM enqueue barriers search algorithm at VPURT ENABLED"),
                 clEnumValN(vpux::WorkloadManagementMode::PWLM_V1_BARRIER_FIFO, "PWLM_V1_BARRIER_FIFO", "WLM enqueue barriers search algorithm at VPURT DISABLED"),
-                clEnumValN(vpux::WorkloadManagementMode::PWLM_V2_PAGES, "PWLM_V2_PAGES", "WLM with split into subgraphs(pages)")
+                clEnumValN(vpux::WorkloadManagementMode::PWLM_V2_PAGES, "PWLM_V2_PAGES", "WLM with split into subgraphs(pages)"),
+                clEnumValN(vpux::WorkloadManagementMode::FWLM_V1_PAGES, "FWLM_V1_PAGES", "Full WLM with split into pages")
             )}]
         >
     ];
@@ -265,7 +266,8 @@ def AddBootstrapWorkItems : PassBase<"add-bootstrap-work-items", "vpux::Function
             [{::llvm::cl::values(
                 clEnumValN(vpux::WorkloadManagementMode::PWLM_V0_LCA, "PWLM_V0_LCA", "WLM enqueue barriers search algorithm at VPURT ENABLED"),
                 clEnumValN(vpux::WorkloadManagementMode::PWLM_V1_BARRIER_FIFO, "PWLM_V1_BARRIER_FIFO", "WLM enqueue barriers search algorithm at VPURT DISABLED"),
-                clEnumValN(vpux::WorkloadManagementMode::PWLM_V2_PAGES, "PWLM_V2_PAGES", "WLM with split into subgraphs(pages)")
+                clEnumValN(vpux::WorkloadManagementMode::PWLM_V2_PAGES, "PWLM_V2_PAGES", "WLM with split into subgraphs(pages)"),
+                clEnumValN(vpux::WorkloadManagementMode::FWLM_V1_PAGES, "FWLM_V1_PAGES", "Full WLM with split into pages")
             )}]
         >
     ];
@@ -407,4 +409,28 @@ def AddMappedInferenceVersionOp : PassBase<"add-mapped-inference-version-op", "v
 
     let constructor = "vpux::VPUMI40XX::createAddMappedInferenceVersionOpPass()";
 }
+
+def UpdateEnqueueDMAInputAndOutput : PassBase<"update-enqueue-dma-input-and-output", "vpux::FunctionPass"> {
+    let summary = "Update input and output data for DMAOps that perform task enqueue";
+
+    let constructor = "vpux::VPUMI40XX::createUpdateEnqueueDMAInputAndOutput()";
+
+    let description = [{
+        For each DMA that perform task enqueue (has EnqueueDmaAttr) update its input with a constant that contains
+        the address of task descriptor in CMX metadata space and output with HW FIFO register for given task type
+    }];
+}
+
+def ConvertFetchDmasToFetchTaskOps : PassBase<"convert-fetch-dmas-to-fetch-task-ops", "vpux::FunctionPass"> {
+    let summary = [{ Insert Fetch operations using predefined placeholders }];
+
+    let description = [{
+        Insert FetchOps for DPU & Shv tasks
+        These tasks are responsible to copy descriptors for Variant,Invariant,ShaveInvocation and ShaveRange
+        to CMX Metadata space. Lower in the pipeline these tasks are lowered to NNDMAs
+    }];
+
+    let constructor = "vpux::VPUMI40XX::createConvertFetchDmasToFetchTaskOpsPass()";
+}
+
 #endif

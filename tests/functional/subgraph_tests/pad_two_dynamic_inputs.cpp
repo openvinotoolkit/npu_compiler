@@ -80,11 +80,11 @@ protected:
 
         ov::Shape input1ConstShape(Input1ConstSize.begin(), Input1ConstSize.end());
         std::vector<int64_t> randomInput1 = generateConst(input1ConstShape);
-        auto inputConst1 = ov::op::v0::Constant::create(type, input1ConstShape, randomInput1);
+        auto inputConst1 = ov::op::v0::Constant::create(type.value(), input1ConstShape, randomInput1);
 
         ov::Shape input2ConstShape(Input2ConstSize.begin(), Input2ConstSize.end());
         std::vector<int64_t> randomInput2 = generateConst(input2ConstShape);
-        auto inputConst2 = ov::op::v0::Constant::create(type, input2ConstShape, randomInput2);
+        auto inputConst2 = ov::op::v0::Constant::create(type.value(), input2ConstShape, randomInput2);
 
         auto axisParam = ov::op::v0::Constant::create(ov::element::i32, Shape{}, std::vector<int32_t>{0});
         const auto inferenceIndicesShapes = std::vector<ov::Shape>{{1, 32}};
@@ -108,6 +108,12 @@ TEST_P(DynamicGatherwithAddNPUTest, NPU4000_HW_TestKindSubgraph) {
     abs_threshold = 0.0f;
     setDefaultHardwareMode();
     run(Platform::NPU4000);
+}
+
+TEST_P(DynamicGatherwithAddNPUTest, NPU5010_HW_TestKindSubgraph) {
+    abs_threshold = 0.0f;
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
 }
 
 const std::vector<InputType> inputPrecision = {ov::element::f16};

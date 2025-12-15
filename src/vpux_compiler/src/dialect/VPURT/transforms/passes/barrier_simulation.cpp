@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/VPURT/interfaces/barrier_simulator.hpp"
 #include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/wlm_legalization_utils.hpp"
 
 namespace vpux::VPURT {
@@ -143,7 +144,7 @@ void setBarrierAttributes(mlir::MLIRContext* ctx, BarrierInfo& barrierInfo, cons
 
 class BarrierSimulationPass final : public VPURT::impl::BarrierSimulationBase<BarrierSimulationPass> {
 public:
-    explicit BarrierSimulationPass(Logger log) {
+    explicit BarrierSimulationPass(const bool wlmRollbackFlag, Logger log): _wlmRollbackFlag(wlmRollbackFlag) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
@@ -166,6 +167,10 @@ public:
 
 private:
     void safeRunOnFunc() final;
+
+    // Store information about WLM rollback so that together with WLM status is can be
+    // determined if nonWLM configurations needs to be applied
+    const bool _wlmRollbackFlag = false;
 };
 
 void BarrierSimulationPass::safeRunOnFunc() {
@@ -175,6 +180,14 @@ void BarrierSimulationPass::safeRunOnFunc() {
     // utilize nVariants barrier slots) and clean_after fields don't need to be set here. They will be set in
     // BarrierComputation pass.
     auto configureDescriptorFieldsForTaskFetch = !config::isArchVPUX3XXX(config::getArch(funcOp));
+
+    auto module = funcOp->getParentOfType<mlir::ModuleOp>();
+    auto wlmFlag = config::getWorkloadManagementStatus(module) == WorkloadManagementStatus::ENABLED;
+
+    if (wlmFlag && _wlmRollbackFlag == false) {
+        // No need to set clean_after fields as they are needed only in case of nonWLM config
+        configureDescriptorFieldsForTaskFetch = false;
+    }
 
     if (configureDescriptorFieldsForTaskFetch) {
         auto barrierInfo = vpux::BarrierInfo{funcOp};
@@ -245,6 +258,6 @@ void BarrierSimulationPass::safeRunOnFunc() {
 // createBarrierSimulationPass
 //
 
-std::unique_ptr<mlir::Pass> vpux::VPURT::createBarrierSimulationPass(Logger log) {
-    return std::make_unique<BarrierSimulationPass>(log);
+std::unique_ptr<mlir::Pass> vpux::VPURT::createBarrierSimulationPass(const bool wlmRollbackFlag, Logger log) {
+    return std::make_unique<BarrierSimulationPass>(wlmRollbackFlag, log);
 }

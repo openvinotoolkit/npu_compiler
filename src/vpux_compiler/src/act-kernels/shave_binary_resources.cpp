@@ -5,6 +5,9 @@
 
 #include "vpux/compiler/act_kernels/shave_binary_resources.h"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/core/IR/dialect.hpp"
+
+#include <mlir/IR/MLIRContext.h>
 
 #include <cstdint>
 #include <fstream>
@@ -15,19 +18,14 @@
 
 using namespace vpux;
 
-extern std::unordered_map<std::string, const std::pair<const uint8_t*, size_t>> shaveBinaryResourcesMap;
-
-ShaveBinaryResources& ShaveBinaryResources::getInstance() {
-    static ShaveBinaryResources instance;
-    return instance;
-}
-
 vpux::SmallString ShaveBinaryResources::getSwKernelArchString(config::ArchKind archKind) {
     switch (archKind) {
     case config::ArchKind::NPU37XX:
         return vpux::SmallString("3720xx");
     case config::ArchKind::NPU40XX:
         return vpux::SmallString("4000xx");
+    case config::ArchKind::NPU50XX:
+        return vpux::SmallString("5000xx");
     default:
         VPUX_THROW("unsupported archKind {0}", archKind);
         return vpux::SmallString("");
@@ -36,9 +34,9 @@ vpux::SmallString ShaveBinaryResources::getSwKernelArchString(config::ArchKind a
 
 llvm::ArrayRef<uint8_t> ShaveBinaryResources::getElf(llvm::StringRef kernelPath) const {
     auto symbolName = printToString("{0}_elf", kernelPath);
-    const auto it = shaveBinaryResourcesMap.find(symbolName);
+    const auto it = _shaveBinaryResourcesMap.find(symbolName);
 
-    VPUX_THROW_UNLESS(it != shaveBinaryResourcesMap.end(), "Can't find 'elf' for kernel symbol '{0}'", symbolName);
+    VPUX_THROW_UNLESS(it != _shaveBinaryResourcesMap.end(), "Can't find 'elf' for kernel symbol '{0}'", symbolName);
 
     const auto [symbolData, symbolSize] = it->second;
     return llvm::ArrayRef<uint8_t>(symbolData, symbolSize);
@@ -48,13 +46,13 @@ void ShaveBinaryResources::addCompiledElf(llvm::StringRef funcName, llvm::ArrayR
                                           config::ArchKind archKind, bool overwrite) {
     auto arch = getSwKernelArchString(archKind);
     auto symbolName = printToString("{0}_{1}_elf", funcName, arch);
-    auto data = shaveBinaryResourcesMap.find(symbolName);
+    auto data = _shaveBinaryResourcesMap.find(symbolName);
 
-    if (data != shaveBinaryResourcesMap.end()) {
+    if (data != _shaveBinaryResourcesMap.end()) {
         if (!overwrite) {
             return;
         }
-        shaveBinaryResourcesMap.erase(symbolName);
+        _shaveBinaryResourcesMap.erase(symbolName);
     }
 
     // Store data in unique_ptr for memory leak prevention
@@ -64,32 +62,32 @@ void ShaveBinaryResources::addCompiledElf(llvm::StringRef funcName, llvm::ArrayR
     auto& ref = _elfPermStorage.back();
 
     memcpy(ref.get(), binary.data(), binary.size());
-    shaveBinaryResourcesMap.insert(std::make_pair(symbolName, std::make_pair(ref.get(), binary.size())));
+    _shaveBinaryResourcesMap.insert(std::make_pair(symbolName, std::make_pair(ref.get(), binary.size())));
 }
 
 void ShaveBinaryResources::addCompiledElf(llvm::StringRef funcName, std::unique_ptr<uint8_t[]> binary, size_t size,
                                           config::ArchKind archKind, bool overwrite) {
     auto arch = getSwKernelArchString(archKind);
     auto symbolName = printToString("{0}_{1}_elf", funcName, arch);
-    auto data = shaveBinaryResourcesMap.find(symbolName);
+    auto data = _shaveBinaryResourcesMap.find(symbolName);
 
-    if (data != shaveBinaryResourcesMap.end()) {
+    if (data != _shaveBinaryResourcesMap.end()) {
         if (!overwrite) {
             return;
         }
-        shaveBinaryResourcesMap.erase(symbolName);
+        _shaveBinaryResourcesMap.erase(symbolName);
     }
     _elfPermStorage.push_back(std::move(binary));
     auto& ref = _elfPermStorage.back();
 
-    shaveBinaryResourcesMap.insert(std::make_pair(symbolName, std::make_pair(ref.get(), size)));
+    _shaveBinaryResourcesMap.insert(std::make_pair(symbolName, std::make_pair(ref.get(), size)));
 }
 
 void ShaveBinaryResources::loadElfData(mlir::ModuleOp module) {
 #if defined(_WIN32) || defined(_WIN64)
     return;
 #endif
-    ShaveBinaryResources& sbr = ShaveBinaryResources::getInstance();
+    ShaveBinaryResources& sbr = ShaveBinaryResourcesCache::getCache(module->getContext());
 
     std::string line;
 
@@ -124,4 +122,13 @@ void ShaveBinaryResources::loadElfData(mlir::ModuleOp module) {
     }
 
     ifileList.close();
+}
+
+ShaveBinaryResources& ShaveBinaryResourcesCache::getCache(mlir::MLIRContext* ctx) {
+    auto* dialect = ctx->getOrLoadDialect<vpux::Core::CoreDialect>();
+    assert(dialect != nullptr && "CoreDialect must be present in the context");
+
+    auto* iface = dialect->getRegisteredInterface<ShaveBinaryResourcesCache>();
+    assert(iface != nullptr && "The requested cache must be registered in the context");
+    return iface->_cache;
 }

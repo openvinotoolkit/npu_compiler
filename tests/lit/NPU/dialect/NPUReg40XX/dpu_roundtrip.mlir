@@ -5,7 +5,7 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" %s | FileCheck %s
 // RUN: vpux-opt --split-input-file --emit-bytecode --init-compiler="vpu-arch=%arch%" %s | vpux-opt --vpu-arch=%arch% | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: dev-build && arch-NPU40XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module @Test {

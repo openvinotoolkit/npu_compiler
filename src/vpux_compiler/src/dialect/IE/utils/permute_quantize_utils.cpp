@@ -12,6 +12,25 @@
 
 using namespace vpux;
 
+bool IE::isPurePermuteCompatiblePrecision(mlir::Type inElemType, mlir::Type outElemType) {
+    if (inElemType.isF16() && outElemType.isF16()) {
+        return true;
+    }
+
+    auto inQuantType = mlir::dyn_cast_or_null<mlir::quant::UniformQuantizedType>(inElemType);
+    auto outQuantType = mlir::dyn_cast_or_null<mlir::quant::UniformQuantizedType>(outElemType);
+    if (inQuantType && outQuantType) {
+        if (inQuantType != outQuantType) {
+            return false;
+        }
+
+        auto inStorageType = inQuantType.getStorageType();
+        auto inZp = inQuantType.getZeroPoint();
+        return inStorageType.isInteger(8) && inZp == 0;
+    }
+    return false;
+}
+
 bool IE::isLegalReorderAddPattern(IE::ReorderOp origOp) {
     if (origOp.getOutput().use_empty()) {
         return false;
@@ -90,24 +109,18 @@ bool IE::isLegalReorderLikeToPermuteQuantize(vpux::NDTypeInterface inType, vpux:
     }
 
     const auto inElemType = inType.getElementType();
-    if (!inElemType.isF16()) {
-        log.trace("Unsupported input element type. Expected: f16, got: '{0}'", inElemType);
-        return false;
-    }
-
     const auto outElemType = outType.getElementType();
-    if (!outElemType.isF16()) {
-        log.trace("Unsupported output element type. Expected: f16, got: '{0}'", outElemType);
+
+    if (!isPurePermuteCompatiblePrecision(inElemType, outElemType)) {
+        log.trace("Not a mem permute like PermuteQuantize, because the precision is not aligned");
         return false;
     }
-
     const auto inShape = getBoundedShape(inType);
     const auto inAlignment = VPU::NCEInvariant::getAlignment(inElemType);
     if (!IE::isODUPermuteEffectiveForShape(inShape, inAlignment)) {
         log.trace("ODU permute is not effective for input shape {0}", inShape);
         return false;
     }
-
     const auto outShape = getBoundedShape(outType);
     const auto outAlignment = VPU::NCEInvariant::getAlignment(outElemType);
     if (!IE::isODUPermuteEffectiveForShape(outShape, outAlignment)) {

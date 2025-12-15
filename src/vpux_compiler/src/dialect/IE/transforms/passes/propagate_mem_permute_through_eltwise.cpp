@@ -731,7 +731,7 @@ private:
 template <typename ConcreteOp>
 mlir::LogicalResult OptimizeIdentityPool<ConcreteOp>::matchAndRewrite(ConcreteOp origOp,
                                                                       mlir::PatternRewriter& rewriter) const {
-    _log.trace("Got '{1}' at '{2}'", origOp->getName(), origOp->getLoc());
+    _log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
     auto ctx = origOp.getContext();
 
@@ -986,7 +986,7 @@ void PropagateMemPermuteThroughEltwisePass::safeRunOnFunc() {
     patterns.add<OptimizeIdentityPool<IE::MaxPoolOp>>(&ctx, _log);
     IE::PermuteCastOp::getCanonicalizationPatterns(patterns, &ctx);
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

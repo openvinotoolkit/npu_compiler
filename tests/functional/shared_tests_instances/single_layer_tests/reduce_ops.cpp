@@ -109,6 +109,11 @@ class ReduceLayerTest_ChannelAxis_HW_FP16 : public ReduceLayerTestCommon {
                 "enable-is-reduce-supported=false enable-auto-padding-odu=false";
     }
 };
+// ChannelAxis Reduce test for DPU support
+TEST_P(ReduceLayerTest_ChannelAxis_HW_FP16, NPU5010) {
+    VpuOv2LayerTest::setDefaultHardwareMode();
+    VpuOv2LayerTest::run(Platform::NPU5010);
+}
 /// FP16 SW/HW
 TEST_P(ReduceLayerTest_HW_FP16, NPU3720) {
     VpuOv2LayerTest::setDefaultHardwareMode();
@@ -131,6 +136,16 @@ TEST_P(ShaveCodeGenReduceLayerTest_FP16, NPU4000) {
     VpuOv2LayerTest::run(Platform::NPU4000);
 }
 
+TEST_P(ReduceLayerTest_SW_FP16, NPU5010) {
+    VpuOv2LayerTest::setReferenceSoftwareMode();
+    VpuOv2LayerTest::run(Platform::NPU5010);
+}
+
+TEST_P(ShaveCodeGenReduceLayerTest_FP16, NPU5010) {
+    VpuOv2LayerTest::setMLIRCompilerType();
+    VpuOv2LayerTest::setReferenceSoftwareMode();
+    VpuOv2LayerTest::run(Platform::NPU5010);
+}
 /// FP32 HW
 TEST_P(ReduceLayerTest_FP32, NPU3720_HW) {
     VpuOv2LayerTest::setDefaultHardwareMode();
@@ -147,6 +162,16 @@ TEST_P(ShaveCodeGenReduceLayerTest_FP32, NPU4000) {
     VpuOv2LayerTest::setReferenceSoftwareMode();
     VpuOv2LayerTest::run(Platform::NPU4000);
 }
+TEST_P(ReduceLayerTest_FP32, NPU5010_HW) {
+    VpuOv2LayerTest::setDefaultHardwareMode();
+    VpuOv2LayerTest::run(Platform::NPU5010);
+}
+
+TEST_P(ShaveCodeGenReduceLayerTest_FP32, NPU5010) {
+    VpuOv2LayerTest::setMLIRCompilerType();
+    VpuOv2LayerTest::setReferenceSoftwareMode();
+    VpuOv2LayerTest::run(Platform::NPU5010);
+}
 /// FP32 SW
 TEST_P(ReduceLayerTest_FP32, NPU3720_SW) {
     VpuOv2LayerTest::setReferenceSoftwareMode();
@@ -156,6 +181,10 @@ TEST_P(ReduceLayerTest_FP32, NPU3720_SW) {
 TEST_P(ReduceLayerTest_FP32, NPU4000_SW) {
     VpuOv2LayerTest::setReferenceSoftwareMode();
     VpuOv2LayerTest::run(Platform::NPU4000);
+}
+TEST_P(ReduceLayerTest_FP32, NPU5010_SW) {
+    VpuOv2LayerTest::setReferenceSoftwareMode();
+    VpuOv2LayerTest::run(Platform::NPU5010);
 }
 }  // namespace test
 }  // namespace ov
@@ -181,7 +210,8 @@ const std::vector<ReductionType> reduceOperations = {
         // ReductionType::LogicalAnd,
         ReductionType::L1, ReductionType::L2, ReductionType::Prod};
 
-const std::vector<ReductionType> scgReduceOperations = {ReductionType::Max, ReductionType::Min, ReductionType::L2};
+const std::vector<ReductionType> scgReduceOperations = {ReductionType::Max, ReductionType::Min, ReductionType::Sum,
+                                                        ReductionType::L1, ReductionType::L2};
 
 //
 // FP16 SW

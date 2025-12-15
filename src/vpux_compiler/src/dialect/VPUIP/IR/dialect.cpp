@@ -21,8 +21,7 @@
 
 #include <llvm/ADT/TypeSwitch.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
-#include <mlir/Dialect/Quant/QuantOps.h>
-#include <mlir/Transforms/BufferizationUtils.h>
+#include <mlir/Dialect/Quant/IR/Quant.h>
 #include <mlir/Transforms/InliningUtils.h>
 
 using namespace vpux;
@@ -49,14 +48,6 @@ struct VPUIPInlinerInterface : public mlir::DialectInlinerInterface {
     }
 };
 
-struct VPUIPBufferizerInterface : mlir::DialectBufferizerInterface {
-    using mlir::DialectBufferizerInterface::DialectBufferizerInterface;
-
-    mlir::Type getTensorTypeFromMemRefType(mlir::Type type) const final {
-        return reconstructTensorType(type);
-    }
-};
-
 }  // namespace
 
 //
@@ -72,7 +63,7 @@ void vpux::VPUIP::VPUIPDialect::initialize() {
     registerAttributes();
     registerTypes();
 
-    addInterfaces<VPUIPInlinerInterface, VPUIPBufferizerInterface>();
+    addInterfaces<VPUIPInlinerInterface>();
 
     Core::registerDispatchedInlinerInterface<VPUIP::VPUIPInlinerDispatchAttr, VPUIP::FuncInlinerInterface>(
             getContext());

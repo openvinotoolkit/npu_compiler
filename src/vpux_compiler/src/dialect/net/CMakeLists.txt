@@ -8,5 +8,4 @@ add_npu_library(npu_compiler_dialect_net
     ${SRC_FILES}
     DIALECT_LIB
     LINK_LIBS PRIVATE
-        npu_llvm_utils
-        npu_ov_utils)
+        npu_llvm_utils)

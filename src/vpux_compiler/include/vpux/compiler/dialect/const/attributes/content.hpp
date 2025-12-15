@@ -10,7 +10,7 @@
 #include "vpux/compiler/dialect/const/utils/content.hpp"
 #include "vpux/utils/core/func_ref.hpp"
 
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/IR/Attributes.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinTypes.h>
@@ -38,7 +38,8 @@ public:
 
     // getters
     mlir::MLIRContext* getContext() const;
-    ArrayRef<TransformAttrInterface> getTransformations() const;
+    ArrayRef<TransformAttrInterface> getTransformations() const&;
+    ArrayRef<TransformAttrInterface> getTransformations() && = delete;
 
     // transformations
     void addTransformation(TransformAttrInterface newTransformation);

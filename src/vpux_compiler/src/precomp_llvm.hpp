@@ -43,7 +43,7 @@
 #include <mlir/Bytecode/BytecodeOpInterface.h>
 #include <mlir/Dialect/Bufferization/Transforms/Bufferize.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/IR/AffineMap.h>
 #include <mlir/IR/Attributes.h>
 #include <mlir/IR/Builders.h>

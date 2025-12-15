@@ -28,7 +28,7 @@ mlir::FailureOr<SmallVector<int64_t>> broadcastEltwiseShape(ArrayRef<int64_t> sh
 mlir::FailureOr<SmallVector<int64_t>> broadcastEltwiseShape(ArrayRef<ArrayRef<int64_t>> shapes,
                                                             AutoBroadcastType broadcastType, mlir::Location loc);
 
-mlir::FailureOr<SmallVector<int64_t>> constInputToData(mlir::Location loc, const mlir::Value& value);
+mlir::FailureOr<SmallVector<int64_t>> constInputToData(mlir::Location loc, mlir::Value value);
 
 mlir::FailureOr<Shape> getShapeCastExpandedShape(mlir::Operation* operation, ShapeRef expandedShape,
                                                  ShapeRef unExpandedShape, Logger log);

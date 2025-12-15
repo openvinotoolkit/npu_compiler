@@ -21,7 +21,7 @@ include "vpux/compiler/NPU40XX/dialect/ELF/ops_interfaces.td"
 
 include "vpux/compiler/dialect/VPUMI40XX/attributes.td"
 
-include "mlir/Dialect/Quant/QuantOpsBase.td"
+include "mlir/Dialect/Quant/IR/QuantBase.td"
 include "mlir/Interfaces/CopyOpInterface.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/ViewLikeInterface.td"
@@ -788,10 +788,17 @@ def VPUASM_KernelParamsOp :
         SymbolRefArrayAttr:$dynamicOutputShapes,
         StrAttr:$kernel_type,
         SmallVectorU8Prop:$kernel_params,
+
+        SmallVectorU8Prop:$inputDimsBinaryVector,
+        SmallVectorU8Prop:$inputStridesBinaryVector,
+        SmallVectorU8Prop:$outputDimsBinaryVector,
+        SmallVectorU8Prop:$outputStridesBinaryVector,
+
         UnitAttr:$is_output_broadcasted,
         UnitAttr:$isJitCompiled
     );
 
+    let skipDefaultBuilders = 1;
     let builders = [
         OpBuilder<(ins
             "mlir::StringAttr":$sym_name,
@@ -801,6 +808,12 @@ def VPUASM_KernelParamsOp :
             "mlir::ArrayAttr":$dynamicOutputShapes,
             "mlir::StringAttr":$kernel_type,
             "SmallVector<uint8_t>&&":$kernel_params,
+
+            "SmallVector<uint8_t>&&":$inputDimsBinaryVector,
+            "SmallVector<uint8_t>&&":$inputStridesBinaryVector,
+            "SmallVector<uint8_t>&&":$outputDimsBinaryVector,
+            "SmallVector<uint8_t>&&":$outputStridesBinaryVector,
+
             "mlir::UnitAttr":$is_output_broadcasted,
             "mlir::UnitAttr":$isJitCompiled
         )>
@@ -1059,6 +1072,7 @@ def VPUASM_DPUInvariantOp :
         UnitAttr:$is_small_kernel_optimized,
         OptionalAttr<VPUIP_DynamicScaleConfigAttr>:$dynamic_scale_config,
         OptionalAttr<VPUIP_LocalRegionAttr>:$local_region,
+        OptionalAttr<VPUIP_S2DConfigAttr>:$s2d_config,
 
         UI64Attr:$start_after,
         UI64Attr:$clean_after,
@@ -1320,68 +1334,6 @@ def VPUASM_ProfilingMetadataOp :
 
     let assemblyFormat = [{
         $sym_name
-        attr-dict
-    }];
-}
-
-//
-// M2IOp
-//
-
-def VPUASM_M2IOp :
-        VPUASM_Instruction<"M2I",
-            [
-                VPUASM_IndexedTaskInterface
-            ]
-        > {
-    let summary = "M2I task op";
-
-    let arguments = (ins
-        SymbolNameAttr:$sym_name,
-        VPUASM_IndexTypeAttr:$task_index,
-
-        OptionalAttr<SymbolRefAttr>:$taskLocation,
-        OptionalAttr<SymbolRefAttr>:$next_link,
-        SymbolRefAttr:$input,
-        SymbolRefAttr:$output_buff,
-        OptionalAttr<SymbolRefAttr>:$profiling_data,
-
-        UnitAttr:$do_csc,
-        UnitAttr:$do_norm,
-        VPU_M2iColorFmtAttr:$inFmt,
-        VPU_M2iColorFmtAttr:$outFmt,
-
-        UnitAttr:$chroma_in_reverse_channels,
-        UnitAttr:$chroma_out_reverse_channels,
-        UnitAttr:$luma_in_reverse_channels,
-        UnitAttr:$luma_out_reverse_channels,
-        UI32Attr:$scale_factor_x,
-        UI32Attr:$scale_factor_y,
-        OptionalAttr<F64ArrayAttr>:$norm,
-        OptionalAttr<UI32Attr>:$tile_offset_x,
-        OptionalAttr<UI32Attr>:$tile_offset_y,
-        DefaultValuedAttr<VPU_M2iInterpAttr, "vpux::VPU::M2iInterp::NEAREST">:$interp,
-
-        UI8ArrayAttr:$waitBarriers,
-        UI8ArrayAttr:$updateBarriers,
-        UI64Attr:$start_after,
-        UI64Attr:$clean_after
-    );
-
-    let extraClassDefinition = [{
-        static vpux::VPURegMapped::TaskType getTaskType() {
-            return vpux::VPURegMapped::TaskType::M2I;
-        }
-    }];
-
-    let assemblyFormat = [{
-         $sym_name
-        `idx` `(` $task_index `)`
-        (`taskLocation` `(` $taskLocation^ `)`)?
-        (`links` `(` $next_link^ `)`)?
-        `inputs` `(` $input `)`
-        `outputs` `(` $output_buff `)`
-        (`profiling_data` `(` $profiling_data^ `)`)?
         attr-dict
     }];
 }

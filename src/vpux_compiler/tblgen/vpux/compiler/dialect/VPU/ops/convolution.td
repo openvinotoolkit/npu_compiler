@@ -11,7 +11,7 @@ include "vpux/compiler/dialect/VPU/attributes.td"
 include "vpux/compiler/dialect/VPU/ops_interfaces.td"
 include "vpux/compiler/dialect/VPU/types.td"
 
-include "mlir/Dialect/Quant/QuantOpsBase.td"
+include "mlir/Dialect/Quant/IR/QuantBase.td"
 
 
 def VPU_ConvolutionOp :
@@ -103,6 +103,7 @@ def VPU_DeformableConvolutionOp :
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
     }] # baseExtraClassDeclaration;
 
+    let checkInferredMemSpace = 0;
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 }
 

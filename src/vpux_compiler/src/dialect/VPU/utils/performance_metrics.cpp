@@ -4,11 +4,12 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/performance_metrics.hpp"
-#include "vpux/compiler/dialect/VPU/transforms/factories/frequency_table.hpp"
 #include "vpux/compiler/dialect/config/IR/ops.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/constraints.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
-#include "vpux/utils/profiling/parser/freq.hpp"
+
+#include <cstdint>
 
 namespace vpux {
 namespace VPU {
@@ -63,24 +64,22 @@ SmallVector<SmallVector<uint64_t>> getBWTicks(mlir::ModuleOp module) {
                                        netInfo);
     }
 
-    const auto arch = config::getArch(module);
-    const auto perfClk = VPU::getPerfClock(arch);
-    auto freqTable = VPU::getFrequencyTable(arch);
-    auto freqBase = freqTable().base;
-    auto freqStep = freqTable().step;
+    const auto& constraints = config::getNPUConstraints(module->getContext());
+    const auto perfClk = constraints.perfClock.defaultFreq;
+    const auto& freqTable = constraints.frequencyTable;
     for (uint32_t i = 0; i < VPU::getNumEntries(); ++i) {
-        auto dpuFreq = freqBase + i * freqStep;
+        auto dpuFreq = freqTable.base + i * freqTable.step;
         auto duration = static_cast<double>(inferenceTimebyDPUCycle) / static_cast<double>(dpuFreq);
         auto ticksByDPUFreq = duration * perfClk;
         // TODO: Scale ticks by dma bandwidth
         // Currently ignore bandwidth scaling, put same ticks for all bw steps
         for (uint32_t j = 0; j < VPU::getNumEntries(); ++j) {
-            byBWTicks[j] = ticksByDPUFreq;
+            byBWTicks[j] = static_cast<uint64_t>(ticksByDPUFreq);
         }
         ret.push_back(byBWTicks);
     }
     Logger::global().debug("BWTicks table: {0}, total cycle {1}, freq base {2}, step {3}, perf clock {4}", ret,
-                           inferenceTimebyDPUCycle, freqBase, freqStep, perfClk);
+                           inferenceTimebyDPUCycle, freqTable.base, freqTable.step, perfClk);
     return ret;
 }
 
@@ -92,6 +91,7 @@ double getActivityFactor(VPU::ExecutorKind execKind, mlir::ModuleOp module, conf
         switch (arch) {
         case config::ArchKind::NPU37XX:
         case config::ArchKind::NPU40XX:
+        case config::ArchKind::NPU50XX:
             // Here we must get AF from NCE res (a ResourcesOp) as the AF attribute is attached to tile op
             if (execKind == VPU::ExecutorKind::NCE) {
                 auto NCERes = mlir::cast<config::ResourcesOp>(res.getOperation());

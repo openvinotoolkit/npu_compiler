@@ -9,6 +9,8 @@
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/utils/core/mem_size.hpp"
 
+#include <optional>
+
 //
 // Run-time resources
 //
@@ -21,12 +23,13 @@ llvm::StringLiteral getMemoryBandwidthAttrName();
 //
 // ArchKind
 //
-void setArch(mlir::ModuleOp module, config::ArchKind kind, int numOfDPUGroups,
+void setArch(mlir::ModuleOp module, std::optional<config::Platform> platform, config::ArchKind kind, int numOfDPUGroups,
              std::optional<int> numOfDMAPorts = std::nullopt,
              std::optional<vpux::Byte> availableCMXMemory = std::nullopt, bool allowCustomValues = false);
 
 config::ArchKind getArch(mlir::Operation* op);
 bool isArchVPUX3XXX(config::ArchKind arch);
+bool isArchVPUX5XXX(config::ArchKind arch);
 
 //
 // RevisionID

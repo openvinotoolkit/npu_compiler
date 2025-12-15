@@ -57,12 +57,6 @@ struct MetadataBufferSize<VPURegMapped::TaskType::DMA> {
                                                                        std::numeric_limits<size_t>::max()};
 };
 
-template <>
-struct MetadataBufferSize<VPURegMapped::TaskType::M2I> {
-    static constexpr size_t listCount = 1;
-    static constexpr std::array<size_t, listCount> defaultTaskCount = {4};
-};
-
 uint64_t computeMaskHi(mlir::ArrayAttr barriers);
 uint64_t computeMaskLo(mlir::ArrayAttr barriers);
 bool isConfigureBarrierOpType(const mlir::Operation::operand_range& barriers);
@@ -116,6 +110,8 @@ size_t reindexEnqueueList(VPURegMapped::EnqueueOp head);
 constexpr StringLiteral lastSecondaryTaskInExecutionGroup = "lastSecondaryTaskInExecutionGroup";
 
 uint32_t generateTileMask(mlir::ArrayRef<uint32_t> usedTileIndexes);
+
+void reindexTaskLinkAttrForDMA(VPURegMapped::TaskOpInterface head);
 
 //
 // Resolve Task Location utils

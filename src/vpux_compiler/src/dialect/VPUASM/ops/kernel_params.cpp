@@ -3,10 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/SymbolTable.h>
+#include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 #include "vpux/compiler/dialect/VPUASM/utils.hpp"
-#include "vpux/compiler/utils/ELF/utils.hpp"
 
 #include <kernels/inc/common_types.h>
 
@@ -18,34 +19,8 @@ using namespace vpux;
 // KernelParamsOp
 //
 
-vpux::NDTypeInterface getNdTypeFromBufferSymRef(ELF::SymbolReferenceMap& symRefMap, mlir::SymbolRefAttr symRef) {
-    auto buffOp = symRefMap.lookupSymbol(symRef);
-
-    if (mlir::isa<VPUASM::DeclareBufferOp>(buffOp)) {
-        auto buffer = mlir::cast<VPUASM::DeclareBufferOp>(buffOp);
-        return mlir::cast<vpux::NDTypeInterface>(buffer.getBufferType().getMemref());
-    } else if (mlir::isa<VPUASM::ConstBufferOp>(buffOp)) {
-        auto buffer = mlir::cast<VPUASM::ConstBufferOp>(buffOp);
-        return mlir::cast<vpux::NDTypeInterface>(buffer.getBufferType().getMemref());
-    }
-    VPUX_THROW("Could not find symbol name entry for input {0}", symRef);
-}
-
-vpux::NDTypeInterface getNdTypeFromBufferSymRef(mlir::Operation* op, mlir::SymbolRefAttr symRef) {
-    auto buffOp = mlir::SymbolTable::lookupNearestSymbolFrom(op, symRef);
-
-    if (mlir::isa<VPUASM::DeclareBufferOp>(buffOp)) {
-        auto buffer = mlir::cast<VPUASM::DeclareBufferOp>(buffOp);
-        return mlir::cast<vpux::NDTypeInterface>(buffer.getBufferType().getMemref());
-    } else if (mlir::isa<VPUASM::ConstBufferOp>(buffOp)) {
-        auto buffer = mlir::cast<VPUASM::ConstBufferOp>(buffOp);
-        return mlir::cast<vpux::NDTypeInterface>(buffer.getBufferType().getMemref());
-    }
-    VPUX_THROW("Could not find symbol name entry for input {0}", symRef);
-}
-
 void vpux::VPUASM::KernelParamsOp::serializeCached(elf::writer::BinaryDataSection<uint8_t>& binDataSection,
-                                                   ELF::SymbolReferenceMap& symRefMap) {
+                                                   ELF::SymbolReferenceMap&) {
     const auto& params = getProperties().kernel_params;
 
     // serialize pre-computed kernel params structs
@@ -53,97 +28,28 @@ void vpux::VPUASM::KernelParamsOp::serializeCached(elf::writer::BinaryDataSectio
     // or LLVM depictions of MemRef args for ShaveCodeGen
     binDataSection.appendData(params.data(), params.size());
 
-    // E#81501: this logic should be present either at VPUMI lowering or VPUASM lowering... doing it here temporarily
-    // for pre-compiled kernels, we need to also serialize dims & strides vectors as trailing data to the MemRefData
-    // structs
     if (!getIsJitCompiled()) {
-        std::vector<uint8_t> inputDimsVector, outputDimsVector;
-        std::vector<uint8_t> inputStridesVector, outputStridesVector;
-
-        auto inputBuffs = getInputs();
-        auto outputBuffs = getOutputs();
-
-        auto insertDimsIntoVector = [](std::vector<uint8_t>& dimsVector, vpux::NDTypeInterface ndType) {
-            auto shape = ndType.getShape();
-            const auto dimsOrder = ndType.getDimsOrder();
-            const auto memShape = dimsOrder.toMemoryOrder(shape);
-
-            for (auto& memDim : memShape | reversed) {
-                auto dim = checked_cast<int32_t>(memDim);
-                ArrayRef<uint8_t> valueAsArray(reinterpret_cast<const uint8_t*>(&dim), sizeof(dim));
-                dimsVector.insert(dimsVector.end(), valueAsArray.begin(), valueAsArray.end());
-            }
-        };
-
-        auto insertStridesIntoVector = [](std::vector<uint8_t>& stridesVector, vpux::NDTypeInterface ndType) {
-            auto strides = ndType.getMemStrides();
-            for (auto&& stride : strides | reversed) {
-                ArrayRef<uint8_t> valueAsArray(reinterpret_cast<const uint8_t*>(&stride), sizeof(stride));
-                stridesVector.insert(stridesVector.end(), valueAsArray.begin(), valueAsArray.end());
-            }
-        };
-
-        // input Dims & Strides
-        for (auto inputBuff : inputBuffs) {
-            auto inputSymRef = mlir::cast<mlir::SymbolRefAttr>(inputBuff);
-            auto inputNdType = getNdTypeFromBufferSymRef(symRefMap, inputSymRef);
-
-            insertDimsIntoVector(inputDimsVector, inputNdType);
-            insertStridesIntoVector(inputStridesVector, inputNdType);
-        }
-
-        // output Dims & Strides
-        for (const auto outputBuff : outputBuffs) {
-            auto outputSymRef = mlir::cast<mlir::SymbolRefAttr>(outputBuff);
-            auto outputNdType = getNdTypeFromBufferSymRef(symRefMap, outputSymRef);
-
-            insertDimsIntoVector(outputDimsVector, outputNdType);
-            insertStridesIntoVector(outputStridesVector, outputNdType);
-            if (getIsOutputBroadcasted()) {
-                break;
-            }
-        }
-
         // serialize IO dims/strides
-        binDataSection.appendData(inputDimsVector.data(), inputDimsVector.size());
-        binDataSection.appendData(inputStridesVector.data(), inputStridesVector.size());
-        binDataSection.appendData(outputDimsVector.data(), outputDimsVector.size());
-        binDataSection.appendData(outputStridesVector.data(), outputStridesVector.size());
+        binDataSection.appendData(getProperties().inputDimsBinaryVector.data(),
+                                  getProperties().inputDimsBinaryVector.size());
+        binDataSection.appendData(getProperties().inputStridesBinaryVector.data(),
+                                  getProperties().inputStridesBinaryVector.size());
+        binDataSection.appendData(getProperties().outputDimsBinaryVector.data(),
+                                  getProperties().outputDimsBinaryVector.size());
+        binDataSection.appendData(getProperties().outputStridesBinaryVector.data(),
+                                  getProperties().outputStridesBinaryVector.size());
     }
 }
 
-size_t vpux::VPUASM::KernelParamsOp::getBinarySizeCached(ELF::SymbolReferenceMap& symRefMap, config::ArchKind) {
+size_t vpux::VPUASM::KernelParamsOp::getBinarySizeCached(ELF::SymbolReferenceMap&, config::ArchKind) {
     auto actualParamsSize = getParamsStructSize();
     if (getIsJitCompiled()) {
         return actualParamsSize;
     }
 
-    auto inputBuffs = getInputs();
-    auto outputBuffs = getOutputs();
-
-    size_t inputDimsSize = 0;
-    size_t inputStridesSize = 0;
-
-    for (const auto inputBuff : inputBuffs) {
-        auto inputSymRef = mlir::cast<mlir::SymbolRefAttr>(inputBuff);
-        auto ndType = getNdTypeFromBufferSymRef(symRefMap, inputSymRef);
-
-        inputDimsSize += sizeof(int32_t) * ndType.getShape().size();
-        inputStridesSize += sizeof(int64_t) * ndType.getMemStrides().size();
-    }
-
-    size_t outputDimsSize = 0;
-    size_t outputStridesSize = 0;
-
-    for (const auto outputBuff : outputBuffs) {
-        auto outputSymRef = mlir::cast<mlir::SymbolRefAttr>(outputBuff);
-        auto ndType = getNdTypeFromBufferSymRef(symRefMap, outputSymRef);
-
-        outputDimsSize += sizeof(int32_t) * ndType.getShape().size();
-        outputStridesSize += sizeof(int64_t) * ndType.getMemStrides().size();
-    }
-
-    return actualParamsSize + inputDimsSize + outputDimsSize + inputStridesSize + outputStridesSize;
+    return actualParamsSize + getProperties().inputDimsBinaryVector.size() +
+           getProperties().inputStridesBinaryVector.size() + getProperties().outputDimsBinaryVector.size() +
+           getProperties().outputStridesBinaryVector.size();
 }
 
 size_t vpux::VPUASM::KernelParamsOp::getParamsStructSize() {
@@ -351,15 +257,22 @@ std::vector<ELF::RelocationInfo> vpux::VPUASM::KernelParamsOp::getRelocationInfo
     return relocs;
 }
 
-void vpux::VPUASM::KernelParamsOp::build(mlir::OpBuilder&, mlir::OperationState& state, mlir::StringAttr symName,
-                                         mlir::ArrayAttr inputs, mlir::ArrayAttr outputs,
-                                         mlir::ArrayAttr dynamicInputShapes, mlir::ArrayAttr dynamicOutputShapes,
-                                         mlir::StringAttr kernelType, SmallVector<uint8_t>&& kernelParams,
-                                         mlir::UnitAttr isOutputBroadcasted = nullptr,
-                                         mlir::UnitAttr isJitCompiled = nullptr) {
+void vpux::VPUASM::KernelParamsOp::build(
+        mlir::OpBuilder&, mlir::OperationState& state, mlir::StringAttr symName, mlir::ArrayAttr inputs,
+        mlir::ArrayAttr outputs, mlir::ArrayAttr dynamicInputShapes, mlir::ArrayAttr dynamicOutputShapes,
+        mlir::StringAttr kernelType, SmallVector<uint8_t>&& kernelParams, SmallVector<uint8_t>&& inputDimsBinaryVector,
+        SmallVector<uint8_t>&& inputStridesBinaryVector, SmallVector<uint8_t>&& outputDimsBinaryVector,
+        SmallVector<uint8_t>&& outputStridesBinaryVector, mlir::UnitAttr isOutputBroadcasted = nullptr,
+        mlir::UnitAttr isJitCompiled = nullptr) {
     auto& props = state.getOrAddProperties<Properties>();
     props.sym_name = symName;
     props.kernel_params = std::move(kernelParams);
+
+    props.inputDimsBinaryVector = std::move(inputDimsBinaryVector);
+    props.inputStridesBinaryVector = std::move(inputStridesBinaryVector);
+    props.outputDimsBinaryVector = std::move(outputDimsBinaryVector);
+    props.outputStridesBinaryVector = std::move(outputStridesBinaryVector);
+
     props.inputs = inputs;
     props.outputs = outputs;
     props.dynamicInputShapes = dynamicInputShapes;

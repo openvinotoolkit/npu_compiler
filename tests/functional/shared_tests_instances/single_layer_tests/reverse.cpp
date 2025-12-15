@@ -54,13 +54,21 @@ TEST_P(ReverseLayerTestCommon, NPU4000_SW) {
     VpuOv2LayerTest::run(Platform::NPU4000);
 }
 
+TEST_P(ReverseLayerTestCommon, NPU5010_SW) {
+    VpuOv2LayerTest::setReferenceSoftwareMode();
+    VpuOv2LayerTest::run(Platform::NPU5010);
+}
+
 TEST_P(ReverseLayerTestCommon, NPU4000_HW) {
     VpuOv2LayerTest::setDefaultHardwareMode();
     VpuOv2LayerTest::run(Platform::NPU4000);
 }
 
+TEST_P(ReverseLayerTestCommon, NPU5010_HW) {
+    VpuOv2LayerTest::setDefaultHardwareMode();
+    VpuOv2LayerTest::run(Platform::NPU5010);
+}
 }  // namespace test
-
 }  // namespace ov
 
 using namespace ov::test;

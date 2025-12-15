@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --verify-diagnostics --init-compiler="vpu-arch=%arch%" --convert-eltwise-to-in-place --canonicalize %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -116,7 +116,7 @@ func.func @InplaceEltwiseToEltwise(%in1: !qTypeDDR, %in2: !qTypeDDR, %in3: !qTyp
 
 // CHECK-LABEL: InPlaceEltwiseWithSiblingsOnBothInputs
 func.func @InPlaceEltwiseWithSiblingsOnBothInputs(
-    %weights0 : memref<32x32x1x1xf16, #NHWC, @CMX_NN>, %weightsTable0 : memref<32x1x1x4xsi32, @CMX_NN>)
+    %weights0 : memref<32x32x1x1xf16, #NHWC, @CMX_NN>)
       -> (!DistributedType1, !DistributedType2, !DistributedType1) {
     %in1 = memref.alloc() : !qTypeDDR
     %in2 = memref.alloc() : !qTypeDDR
@@ -154,7 +154,6 @@ func.func @InPlaceEltwiseWithSiblingsOnBothInputs(
     %conv0 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
         input(%conv0InCMX : !DistributedType1)
         weights(%weights0 : memref<32x32x1x1xf16, #NHWC, @CMX_NN>)
-        weight_table(%weightsTable0 : memref<32x1x1x4xsi32, @CMX_NN>)
         parent_input(%conv0InCMX : !DistributedType1)
         parent_output(%convOutBuff0 : !DistributedType2)
         outputs(%convOutBuff0 : !DistributedType2)
@@ -170,7 +169,6 @@ func.func @InPlaceEltwiseWithSiblingsOnBothInputs(
     %conv1 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
         input(%eltwiseIn2CMX : !DistributedType1)
         weights(%weights0 : memref<32x32x1x1xf16, #NHWC, @CMX_NN>)
-        weight_table(%weightsTable0 : memref<32x1x1x4xsi32, @CMX_NN>)
         parent_input(%eltwiseIn2CMX : !DistributedType1)
         parent_output(%convOutBuff0 : !DistributedType2)
         outputs(%convOutBuff0 : !DistributedType2)

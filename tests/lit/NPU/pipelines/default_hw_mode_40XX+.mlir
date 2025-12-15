@@ -12,7 +12,7 @@
 // Looks like this is "by design"
 // RUN: vpux-opt --init-compiler="vpu-arch=%arch% allow-custom-values=true" --lower-VPU-to-VPUIP --default-hw-mode-vpuip="vf-outlining=false" %t | FileCheck --check-prefix=CHECK-VPUIP %s
 
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 module @OutlineConcat {
     net.NetworkInfo entryPoint : @main

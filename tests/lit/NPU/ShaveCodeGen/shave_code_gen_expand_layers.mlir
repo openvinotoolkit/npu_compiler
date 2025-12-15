@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // RUN:  vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --expand-layers %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 // IE.Sin
 

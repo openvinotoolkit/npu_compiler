@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
@@ -102,7 +103,7 @@ mlir::FailureOr<SmallVector<int64_t>> vpux::IE::broadcastEltwiseShape(ArrayRef<A
     return outShape;
 }
 
-mlir::FailureOr<SmallVector<int64_t>> vpux::IE::constInputToData(mlir::Location loc, const mlir::Value& value) {
+mlir::FailureOr<SmallVector<int64_t>> vpux::IE::constInputToData(mlir::Location loc, mlir::Value value) {
     if (value == nullptr) {
         return errorAt(loc, "Target shape was not provided");
     }

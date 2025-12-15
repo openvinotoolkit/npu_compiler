@@ -32,17 +32,38 @@ struct DowncastedTypeDescription {
     Shape originalShape;
 };
 
-DowncastedTypeDescription getDowncastedTypeIfApplicable(mlir::Value operand, const Shape& desiredShape) {
+DowncastedTypeDescription getDowncastedTypeIfApplicable(mlir::Value operand,
+                                                        const DebatchCoeffDescription& downcastOp) {
     auto type = mlir::cast<vpux::NDTypeInterface>(operand.getType());
     auto originShape = type.getShape();
-    bool debatched = false;
-    if (desiredShape[Dims4D::Act::N] == 0 || originShape[Dims4D::Act::N] == 1 || originShape == desiredShape) {
-        return DowncastedTypeDescription{type, debatched, originShape.raw()};
+    auto batchDowncastedShape = downcastOp.apply(originShape);
+    if (originShape == batchDowncastedShape) {
+        return DowncastedTypeDescription{type, false, originShape.raw()};
     }
-    type = type.changeShape(desiredShape);
-    debatched = true;
+    type = type.changeShape(batchDowncastedShape);
 
-    return DowncastedTypeDescription{type, debatched, originShape.raw()};
+    // If we had encountered a dynamic batch before we downcasted it,
+    // it means that old dynamic properties as bounds and masks are still attached to it,
+    if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(type); boundedType != nullptr) {
+        auto shapeBounds = Shape{boundedType.getBounds()};
+        if (!shapeBounds.empty()) {
+            shapeBounds = downcastOp.apply(shapeBounds);
+            auto staticBatchBounds = Bounds{shapeBounds.begin(), shapeBounds.end()};
+            type = boundedType.changeBounds(staticBatchBounds);
+        }
+    }
+    if (auto dynamicType = mlir::dyn_cast<Core::DynamicDimsMaskTensorType>(type); dynamicType != nullptr) {
+        auto dynamicMask = Shape{dynamicType.getDynamicDimsMask()};
+        if (!dynamicMask.empty()) {
+            dynamicMask = downcastOp.apply(dynamicMask);
+            auto staticBatchMask = DynamicDimsMask{dynamicMask.begin(), dynamicMask.end()};
+            type = dynamicType.changeDynamicDimsMask(staticBatchMask);
+        }
+    }
+    if (type.getShape().isStatic()) {
+        type = vpux::getTensorType(type.getShape(), type.getElementType(), type.getDimsOrder(), type.getMemSpace());
+    }
+    return DowncastedTypeDescription{type, true, originShape.raw()};
 }
 
 std::list<mlir::Value> getOperandsToDebatch(mlir::Operation* op,
@@ -88,15 +109,42 @@ SmallVector<Integer> consumeArrayAttrAsIntegerArray(mlir::Operation* op, std::st
 
 struct ConversionDescription {
     Shape from;
-    Shape to;
+    DebatchCoeffDescription coeff;
 };
+
+void debatchOpAttribute(mlir::Operation* op, const StringRef attrName, const ConversionDescription& operandDescr,
+                        const Logger& log) {
+    log.trace("Additional processing required for an operation: {0} as it has a special attribute: \"{1}\"",
+              op->getName().getStringRef(), attrName);
+    auto currResultshapeValue = Shape(consumeArrayAttrAsIntegerArray<int64_t>(op, attrName));
+    log.trace("Attribute \"{0}\" value: {1}, original operand value: {2}, casted coeff {3}", attrName,
+              currResultshapeValue, operandDescr.from, operandDescr.coeff.to_string());
+    auto expectedResultshapeValue =
+            operandDescr.coeff.applyProportionFromShape(operandDescr.from, currResultshapeValue);
+
+    log.trace("Attribute \"{0}\" now has value: {1}", attrName, expectedResultshapeValue);
+    auto downcastedAttr = getIntArrayAttr(op->getContext(), expectedResultshapeValue);
+    VPUX_THROW_UNLESS(downcastedAttr != nullptr, "Cannot create downcasted attribute \"{0}\"", attrName);
+    op->setAttr(attrName, downcastedAttr);
+}
+
+bool hasOnlyBatchDynamicAttribute(mlir::Operation* op, const StringRef attrName, const DebatchCoeffDescription& coeff) {
+    auto currResultshapeValue = Shape(consumeArrayAttrAsIntegerArray<int64_t>(op, attrName));
+    for (size_t i = 0; i < currResultshapeValue.size(); i++) {
+        if (i != static_cast<size_t>(coeff.batchPositionIndex.ind()) &&
+            currResultshapeValue[Dim{i}] == mlir::ShapedType::kDynamic) {
+            return false;
+        }
+    }
+    return true;
+}
 
 struct OpConverter {
     virtual ~OpConverter() = default;
     virtual bool isApplicable(mlir::Operation* op) const = 0;
     virtual void apply(mlir::Operation* op, const std::vector<detail::ConversionDescription>& opArguments) const = 0;
     virtual void refineResults(mlir::Operation* op, const std::vector<ConversionDescription>& inOperands,
-                               DenseMap<mlir::OpResult, Shape>& inOutResults) const = 0;
+                               DenseMap<mlir::OpResult, DebatchCoeffDescription>& inOutResults) const = 0;
 };
 
 struct DefaultOpConverter : public OpConverter {
@@ -109,20 +157,15 @@ struct DefaultOpConverter : public OpConverter {
     void apply(mlir::Operation*, const std::vector<detail::ConversionDescription>&) const override {
     }
     void refineResults(mlir::Operation* op, const std::vector<ConversionDescription>& inOperands,
-                       DenseMap<mlir::OpResult, Shape>& inOutResults) const override {
+                       DenseMap<mlir::OpResult, DebatchCoeffDescription>& inOutResults) const override {
         VPUX_THROW_UNLESS(inOutResults.size() == 0, "DefaultOpConverter expected empty results to override, got: {0}",
                           inOutResults.size());
         auto opResults = op->getResults();
         for (auto result : opResults) {
-            int64_t batchDenominator = inOperands[0].from[Dims4D::Act::N] / inOperands[0].to[Dims4D::Act::N];
-            auto resultShape = Shape{vpux::getShape(result).raw()};
-            // Prevents dimension N from becoming 0 (fractional division by batchDenominator)
-            if (resultShape[Dims4D::Act::N] >= batchDenominator) {
-                VPUX_THROW_WHEN(resultShape[Dims4D::Act::N] % batchDenominator != 0,
-                                "Cannot divide N dimension by {0} for result: {1}", batchDenominator, result);
-                resultShape[Dims4D::Act::N] /= batchDenominator;
-            }
-            inOutResults[result] = std::move(resultShape);
+            auto resultShape = inOperands[0].coeff.applyProportionFromShape(inOperands[0].from, vpux::getShape(result));
+            auto correctionCoeff = DebatchCoeffDescription::createFromShapes(vpux::getShape(result), resultShape);
+            inOutResults[result] = correctionCoeff;
+            _log.debug("Update inOutResults for result: {0}, coeff: {1}", result, correctionCoeff.to_string());
         }
     }
 
@@ -143,26 +186,90 @@ struct ShapeValueAttrOpConverter : public OpConverter {
     }
 
     void apply(mlir::Operation* op, const std::vector<detail::ConversionDescription>& operands) const override {
-        _log.trace("Additional processing requires for an operation: {0} as it has a special attribute: \"{1}\"",
-                   op->getName().getStringRef(), getShapeValueAttrName());
-        auto expectedResultshapeValue = Shape(consumeArrayAttrAsIntegerArray<int64_t>(op, getShapeValueAttrName()));
-        _log.trace("Attribute \"{0}\" value: {1}, original operand value: {2}, casted operand value: {3}",
-                   getShapeValueAttrName(), expectedResultshapeValue, operands[0].from, operands[0].to);
-
-        // downcast attribute by a batch size in N dimension
-        expectedResultshapeValue[Dims4D::Act::N] /= (operands[0].from[Dims4D::Act::N] / operands[0].to[Dims4D::Act::N]);
-
-        auto downcastedAttr = getIntArrayAttr(op->getContext(), expectedResultshapeValue);
-        VPUX_THROW_UNLESS(downcastedAttr != nullptr, "Cannot create downcasted attribute \"{0}\"",
-                          getShapeValueAttrName());
-        op->setAttr(getShapeValueAttrName(), downcastedAttr);
+        debatchOpAttribute(op, getShapeValueAttrName(), operands[0], _log);
     }
 
     void refineResults(mlir::Operation*, const std::vector<ConversionDescription>&,
-                       DenseMap<mlir::OpResult, Shape>& results) const override {
+                       DenseMap<mlir::OpResult, DebatchCoeffDescription>& results) const override {
         VPUX_THROW_UNLESS(results.size() == 1,
                           "Operation attributed by \"{0}\" is supposed to produce only one result, got: {1}",
                           getShapeValueAttrName(), results.size());
+    }
+
+private:
+    Logger _log;
+};
+
+struct DynamicReshapeAttrOpConverter : public OpConverter {
+    DynamicReshapeAttrOpConverter(Logger& log): _log(log) {
+    }
+
+    static const StringRef getShapeValueAttrName() {
+        return "output_shape";
+    };
+
+    bool isApplicable(mlir::Operation* op) const override {
+        return op->hasAttr(getShapeValueAttrName());
+    }
+
+    void apply(mlir::Operation* op, const std::vector<detail::ConversionDescription>& operands) const override {
+        if (!hasOnlyBatchDynamicAttribute(op, getShapeValueAttrName(), operands[0].coeff)) {
+            debatchOpAttribute(op, getShapeValueAttrName(), operands[0], _log);
+            if (op->hasAttr("output_bounds")) {
+                debatchOpAttribute(op, "output_bounds", operands[0], _log);
+            }
+            return;
+        }
+
+        if (IE::DynamicReshapeOp dynamicReshapeOp = mlir::dyn_cast_or_null<IE::DynamicReshapeOp>(op);
+            dynamicReshapeOp != nullptr) {
+            mlir::OpBuilder builder(dynamicReshapeOp);
+
+            // Having only dynamic N debatched, we will get the operation with completely static shapes.
+            // Dynamic operation with static shapes will not pass verification
+            // Let's substitute DynamicReshapeOp with ReshapeOp and debatch the latter op
+            mlir::Location loc = appendLoc(op->getLoc(), "_dynReshape_substitution");
+            auto currResultshapeValue =
+                    Shape(consumeArrayAttrAsIntegerArray<int64_t>(dynamicReshapeOp, getShapeValueAttrName()));
+            mlir::Operation* reshapeSubstitutionOp =
+                    builder.create<IE::ReshapeOp>(loc, dynamicReshapeOp.getInput(), nullptr, false,
+                                                  getIntArrayAttr(builder.getContext(), currResultshapeValue));
+            ShapeValueAttrOpConverter{const_cast<Logger&>(_log)}.apply(reshapeSubstitutionOp, operands);
+            auto origType = mlir::cast<vpux::NDTypeInterface>(dynamicReshapeOp.getResult().getType());
+            auto originShape = origType.getShape();
+
+            auto substitutedType = mlir::cast<vpux::NDTypeInterface>(reshapeSubstitutionOp->getResults()[0].getType());
+            substitutedType = substitutedType.changeShape(originShape);
+            reshapeSubstitutionOp->getResults()[0].setType(substitutedType);
+
+            dynamicReshapeOp.replaceAllUsesWith(reshapeSubstitutionOp);
+        }
+    }
+
+    void refineResults(mlir::Operation* op, const std::vector<ConversionDescription>&,
+                       DenseMap<mlir::OpResult, DebatchCoeffDescription>& results) const override {
+        VPUX_THROW_UNLESS(results.size() == 1,
+                          "Operation attributed by \"{0}\" is supposed to produce only one result, got: {1}",
+                          getShapeValueAttrName(), results.size());
+        // Dynamic shape specific operation must be excluded from further debatching manipulations in the graph,
+        // only if it has been substituted by an non-dynamic analog.
+        // The current chain of graph terminates here, because the result of that operation
+        // is not used anymore due to the substitution.
+        // Although theoretically we don't have to do anything more here,
+        // the MLIR will call verification routine for each operation even though
+        // it is not used anymore, which means we must guarantee that the operation
+        // remains valid. In particular, this DynamicReshapeOp must has at least one dynamic tensor.
+        // As we changed operands already, let's keep the result dynamic:
+        // all we need it to return desiredBatchValue as kDynamic to bypass
+        // the type transformation in the graph.
+        // In this case the existing batch and the desired batch are the same and
+        // debatcher algo skips it
+        for (auto& [res, coeff] : results) {
+            if (res.getUses().empty()) {
+                coeff.desiredBatchValue = mlir::ShapedType::kDynamic;
+                _log.debug("An operation: {0} result: {1} is set to be excluded from debatching", op->getName(), res);
+            }
+        }
     }
 
 private:
@@ -182,7 +289,7 @@ struct SizesAttrOpConverter : public OpConverter {
     }
 
     void apply(mlir::Operation* op, const std::vector<detail::ConversionDescription>& operands) const override {
-        _log.trace("Additional processing requires for an operation: {0} as it has a special attribute: \"{1}\"",
+        _log.trace("Additional processing required for an operation: {0} as it has a special attribute: \"{1}\"",
                    op->getName().getStringRef(), getShapeValueAttrName());
         static constexpr std::string_view axesAttrName("axes_attr");
         VPUX_THROW_UNLESS(op->hasAttr(axesAttrName), "SizesAttrOpConverter requires additional \"{0}\" for processing",
@@ -191,7 +298,7 @@ struct SizesAttrOpConverter : public OpConverter {
         std::optional<Dim> batchAxisIndex;
         auto axisValues = consumeArrayAttrAsIntegerArray<int64_t>(op, axesAttrName);
         for (const auto& [dimIndex, axisValue] : axisValues | indexed) {
-            if (Dim(axisValue) == Dims4D::Act::N) {
+            if (Dim(axisValue) == operands[0].coeff.batchPositionIndex) {
                 batchAxisIndex = Dim(dimIndex);
             }
         }
@@ -201,11 +308,12 @@ struct SizesAttrOpConverter : public OpConverter {
         }
 
         // downcast attribute by a batch size in N dimensition
+        auto to = operands[0].coeff.apply(operands[0].from);
         auto expectedResultshapeValue = Shape(consumeArrayAttrAsIntegerArray<int64_t>(op, getShapeValueAttrName()));
         _log.trace("Attribute \"{0}\" value: {1}, original operand value: {2}, casted operand value: {3}",
-                   getShapeValueAttrName(), expectedResultshapeValue, operands[0].from, operands[0].to);
+                   getShapeValueAttrName(), expectedResultshapeValue, operands[0].from, to);
         expectedResultshapeValue[batchAxisIndex.value()] /=
-                (operands[0].from[Dims4D::Act::N] / operands[0].to[Dims4D::Act::N]);
+                (operands[0].from[operands[0].coeff.batchPositionIndex] / to[operands[0].coeff.batchPositionIndex]);
 
         auto downcastedAttr = getIntArrayAttr(op->getContext(), expectedResultshapeValue);
         VPUX_THROW_UNLESS(downcastedAttr != nullptr, "Cannot create downcasted attribute \"{0}\"",
@@ -214,7 +322,7 @@ struct SizesAttrOpConverter : public OpConverter {
     }
 
     void refineResults(mlir::Operation*, const std::vector<ConversionDescription>&,
-                       DenseMap<mlir::OpResult, Shape>& results) const override {
+                       DenseMap<mlir::OpResult, DebatchCoeffDescription>& results) const override {
         VPUX_THROW_UNLESS(results.size() == 1,
                           "Operation attributed by \"{0}\" is supposed to produce only one result, got: {1}",
                           getShapeValueAttrName(), results.size());
@@ -269,12 +377,17 @@ struct DimensionLimiterConverter : public OpConverter {
         //      Input scale value = [1, 2, 3, 4, 5, 6, 1, 2, 3]
         //      Spltting based on span size -> [1, 2, 3], [4, 5, 6], [1, 2, 3]
         //                                  -> 2nd batch is not consistent
+
         bool isConsistent = true;
-        size_t batchSize = operandChange.to[Dims4D::Act::N];
+        auto to = operandChange.coeff.apply(operandChange.from);
+        auto batchPositionIndex = operandChange.coeff.batchPositionIndex.ind();
+        auto batchSize = to[operandChange.coeff.batchPositionIndex];
         size_t spanSize = scaleValue.size() / batchSize;
-        for (size_t batchIndex = 1; batchIndex < batchSize; ++batchIndex) {
+        for (int64_t batchIndex = 0; batchIndex < batchSize; ++batchIndex) {
             // Compare the span of scaleValue for the current batch with the first batch
-            if (memcmp(scaleValue.data(), scaleValue.data() + batchIndex * spanSize, spanSize * sizeof(T)) != 0) {
+            if (batchIndex != batchPositionIndex &&
+                memcmp(scaleValue.data() + batchPositionIndex * spanSize, scaleValue.data() + batchIndex * spanSize,
+                       spanSize * sizeof(T)) != 0) {
                 isConsistent = false;
                 break;
             }
@@ -284,15 +397,15 @@ struct DimensionLimiterConverter : public OpConverter {
             // Handling scaleValue size not the same as result (arg.to) total size
             // Truncate scaleValue to match arg.to's total size (likely only affects operand 0 will have different shape
             // as arg.to) Else, change constant scale value to match arg.to's N dimension
-            if (scaleValue.size() != static_cast<size_t>(operandChange.to.totalSize())) {
-                scaleValue.resize(operandChange.to.totalSize());
+            if (scaleValue.size() != static_cast<size_t>(to.totalSize())) {
+                scaleValue.resize(to.totalSize());
                 _log.trace("[DimLimiter] - BroadcastOp | Truncated scale value to match arg.to's total size: {0}",
                            scaleValue.size());
-            } else if (operandChange.from.totalSize() != operandChange.to.totalSize()) {
+            } else if (operandChange.from.totalSize() != to.totalSize()) {
                 // Change constant scale value to match arg.to's N dimension
-                scaleValue[0] = operandChange.to[Dims4D::Act::N];
+                scaleValue[batchPositionIndex] = batchSize;
                 _log.trace("[DimLimiter] - BroadcastOp | Changing constant value to match arg.to's N dimension: {0}",
-                           scaleValue[0]);
+                           scaleValue[batchPositionIndex]);
             }
 
             // Create the constant
@@ -326,10 +439,11 @@ struct DimensionLimiterConverter : public OpConverter {
         // traversing up the IR.
         auto arg = inOperands[0];
         // Guard clause to ensure we only rewrite constant if BroadcastOp shape has changed through inOperands
-        if (arg.from == arg.to) {
+        auto to = arg.coeff.apply(arg.from);
+        if (arg.from == to) {
             return;
         }
-        _log.trace("[DimLimiter] - BroadcastOp | Result change From: {0} To: {1}", arg.from, arg.to);
+        _log.trace("[DimLimiter] - BroadcastOp | Result change From: {0} To: {1}", arg.from, to);
 
         // Get a list of Const operands
         std::list<int> constOperandIndices;
@@ -338,7 +452,7 @@ struct DimensionLimiterConverter : public OpConverter {
             if (auto constDeclareOp = operand.getDefiningOp<Const::DeclareOp>()) {
                 // For Operand 0, if the operand shape and the arg.to shape is the same, skip adding to the list
                 auto operandShape = getShape(operand);
-                if (operandIndex == 0 && operandShape == arg.to) {
+                if (operandIndex == 0 && operandShape == to) {
                     continue;
                 }
                 // Save the operand's index if its defining op is a Const::DeclareOp
@@ -356,9 +470,8 @@ struct DimensionLimiterConverter : public OpConverter {
                     mlir::cast<vpux::NDTypeInterface>(op->getOperand(constOperandIndex).getType()).getElementType();
 
             // 2. Set to debatched shape, 'arg.to', following data type of the original constant
-            const auto scaleShape =
-                    mlir::RankedTensorType::get(ArrayRef(arg.to.raw().data(), arg.to.raw().size()),  // Shape
-                                                constType);                                          // Data type
+            const auto scaleShape = mlir::RankedTensorType::get(ArrayRef(to.raw().data(), to.raw().size()),  // Shape
+                                                                constType);  // Data type
             _log.trace("[DimLimiter] - BroadcastOp | Const Type: {0}, Scale Shape: {1}", constType, scaleShape);
 
             // 3. Set the correct data
@@ -377,7 +490,7 @@ struct DimensionLimiterConverter : public OpConverter {
     }
 
     void refineResults(mlir::Operation*, const std::vector<ConversionDescription>&,
-                       DenseMap<mlir::OpResult, Shape>&) const override {
+                       DenseMap<mlir::OpResult, DebatchCoeffDescription>&) const override {
         // Does nothing
         return;
     }
@@ -398,7 +511,7 @@ struct AttributedConstOpConverter : public OpConverter {
     }
 
     void apply(mlir::Operation* op, const std::vector<detail::ConversionDescription>&) const override {
-        _log.trace("Additional processing requires for an operation: {0} as it has a special content attribute",
+        _log.trace("Additional processing required for an operation: {0} as it has a special content attribute",
                    op->getName().getStringRef());
         auto constDeclareOp = mlir::dyn_cast<vpux::Const::DeclareOp>(op);
         VPUX_THROW_UNLESS(constDeclareOp != nullptr, "Expected vpux::Const::DeclareOp, got: {0}",
@@ -450,7 +563,7 @@ struct AttributedConstOpConverter : public OpConverter {
     }
 
     void refineResults(mlir::Operation*, const std::vector<ConversionDescription>&,
-                       DenseMap<mlir::OpResult, Shape>&) const override {
+                       DenseMap<mlir::OpResult, DebatchCoeffDescription>&) const override {
         // Does nothing
         return;
     }
@@ -463,6 +576,7 @@ struct OpCastVisitor {
     OpCastVisitor(Logger& log): _log(log.nest()) {
         converters.push_back(std::make_unique<DefaultOpConverter>(log));
         converters.push_back(std::make_unique<ShapeValueAttrOpConverter>(log));
+        converters.push_back(std::make_unique<DynamicReshapeAttrOpConverter>(log));
         converters.push_back(std::make_unique<SizesAttrOpConverter>(log));
         converters.push_back(std::make_unique<DimensionLimiterConverter>(log));
         converters.push_back(std::make_unique<AttributedConstOpConverter>(log));
@@ -500,9 +614,9 @@ struct OpCastVisitor {
         converters.push_back(std::make_unique<Converter>(_log, std::forward<Args>(args)...));
     }
 
-    DenseMap<mlir::OpResult, Shape> runConverters(mlir::Operation* op,
-                                                  std::vector<detail::ConversionDescription> operationArguments) {
-        DenseMap<mlir::OpResult, Shape> deductedResultShapes;
+    DenseMap<mlir::OpResult, DebatchCoeffDescription> runConverters(
+            mlir::Operation* op, std::vector<detail::ConversionDescription> operationArguments) {
+        DenseMap<mlir::OpResult, DebatchCoeffDescription> deductedResultShapes;
         bool conversions_applied = false;
         stat.ops_total_count++;
         for (const auto& c : converters) {
@@ -516,10 +630,11 @@ struct OpCastVisitor {
         if (conversions_applied) {
             stat.ops_debatched_count++;
         }
+        _log.debug("deductedResultShapes: {0}", deductedResultShapes.size());
         return deductedResultShapes;
     }
 
-    DenseMap<mlir::OpResult, Shape> visit(
+    DenseMap<mlir::OpResult, DebatchCoeffDescription> visit(
             mlir::Operation* op, const std::list<mlir::Value>& operands,
             DenseMap<mlir::Value, detail::ConversionDescription>& operandsConversionDescription) {
         // NOTE: operands = operandsToDebatch
@@ -535,7 +650,7 @@ struct OpCastVisitor {
             operationArguments.push_back(operandsConversionDescription.at(operand));
         }
 
-        DenseMap<mlir::OpResult, Shape> deductedResultShapes;
+        DenseMap<mlir::OpResult, DebatchCoeffDescription> deductedResultShapes;
         SmallVector<mlir::Type> predictedResultTypes;
         if (mlir::isa<vpux::IE::ReshapeOp, vpux::IE::AffineReshapeOp>(op)) {
             // If operation is AffineReshape, get predicted shape first
@@ -554,10 +669,14 @@ struct OpCastVisitor {
         // Lambda function to check if we can debatch the operand
         // Checking is based on operandsConversionDescription
         auto needDowncast =
-                [&](const mlir::Value& operand,
-                    const llvm::DenseMap<mlir::Value, ConversionDescription>& operandsConversionDescription) -> bool {
-            if (auto it = operandsConversionDescription.find(operand);
-                it == operandsConversionDescription.end() || it->second.from == it->second.to) {
+                [](const mlir::Value& operand,
+                   const llvm::DenseMap<mlir::Value, ConversionDescription>& operandsConversionDescription) -> bool {
+            auto it = operandsConversionDescription.find(operand);
+            if (it == operandsConversionDescription.end()) {
+                return true;
+            }
+            auto to = it->second.coeff.apply(it->second.from);
+            if (it->second.from == to) {
                 // Operand is not in the list, or 'from' and 'to' are the same, we can safely debatch it
                 return true;
             }
@@ -566,9 +685,8 @@ struct OpCastVisitor {
 
         if (!predictedResultTypes.empty()) {
             for (auto resultPair : zip(deductedResultShapes, predictedResultTypes)) {
-                auto [opResult, calculatedShape] = std::get<0>(resultPair);
+                auto [opResult, debachCoeff] = std::get<0>(resultPair);
                 auto predictedResultType = mlir::dyn_cast<vpux::NDTypeInterface>(std::get<1>(resultPair));
-                (void)opResult;
                 VPUX_THROW_UNLESS(predictedResultType != nullptr,
                                   "predictedResultType has non vpux::NDTypeInterface type '{0}'",
                                   std::get<1>(resultPair));
@@ -576,6 +694,7 @@ struct OpCastVisitor {
                 unsigned numOperands = op->getNumOperands();
                 unsigned operandIndex = 0;
 
+                auto calculatedShape = debachCoeff.apply(vpux::getShape(opResult));
                 // Continuously modify the IR tree until the calculated shape is equal to the predicted shape
                 while (predictedResultType.getShape() != calculatedShape && operandIndex < numOperands) {
                     // Initialize as empty (as input on next visit call), to be filled with operands that needs to be
@@ -587,23 +706,16 @@ struct OpCastVisitor {
 
                     if (needDowncast(oneOperand, operandsConversionDescription)) {
                         // If we need to debatch the operand, add it to nonDebatchedOperands
-                        auto currentOperandShape = Shape{vpux::getShape(oneOperand).raw()};
-                        auto correctOperandShape = currentOperandShape;
-                        int64_t batchDenominator =
-                                predictedResultType.getShape()[Dims4D::Act::N] / calculatedShape[Dims4D::Act::N];
-                        if (correctOperandShape[Dims4D::Act::N] >= batchDenominator) {
-                            VPUX_THROW_WHEN(correctOperandShape[Dims4D::Act::N] % batchDenominator != 0,
-                                            "Cannot divide N dimension by {0} for operand: {1}", batchDenominator,
-                                            oneOperand);
-                            correctOperandShape[Dims4D::Act::N] /= batchDenominator;
-                        }
+                        auto correctOperandShape = debachCoeff.applyProportionFromShape(predictedResultType.getShape(),
+                                                                                        vpux::getShape(oneOperand));
+                        auto correctionCoeff = DebatchCoeffDescription::createFromShapes(vpux::getShape(oneOperand),
+                                                                                         correctOperandShape);
 
-                        auto downcastedType = getDowncastedTypeIfApplicable(oneOperand, correctOperandShape);
-                        _log.trace("Current Shape: {0}, Correct Shape: {1}, Downcasted Type: {2}", currentOperandShape,
-                                   correctOperandShape, downcastedType.downcastedType);
+                        auto downcastedType = getDowncastedTypeIfApplicable(oneOperand, correctionCoeff);
+                        _log.trace("Current Shape: {0}, Correct Shape: {1}, Downcasted Type: {2}, coeff: {3}",
+                                   downcastedType.originalShape, correctOperandShape, downcastedType.downcastedType,
+                                   correctionCoeff.to_string());
                         if (downcastedType.isDowncasted) {
-                            auto downcastedOperandShape =
-                                    mlir::cast<vpux::NDTypeInterface>(downcastedType.downcastedType).getShape();
                             // Set the downcast type as new operand shape
                             oneOperand.setType(downcastedType.downcastedType);
 
@@ -615,8 +727,8 @@ struct OpCastVisitor {
 
                             // Add the debatched operand into operandsConversionDescription (to be used in next visit
                             // call)
-                            operandsConversionDescription[oneOperand] = detail::ConversionDescription{
-                                    downcastedType.originalShape, Shape(downcastedOperandShape)};
+                            operandsConversionDescription[oneOperand] =
+                                    detail::ConversionDescription{downcastedType.originalShape, correctionCoeff};
 
                             // Visit the operandDefiningOp of the operand that we just downcasted
                             this->visit(operandDefiningOp, definingOpOperandsToDebatch, operandsConversionDescription);
@@ -694,8 +806,8 @@ void DebatcherPass::safeRunOnFunc() {
     // We will gather such operations gradually during our main-function traversing.
     // This approach gives us an opportunity to make decision whether or not a particular operation
     // should be debatched by the following rule: we must not debatch operands of an operation
-    // which producers are constant operations or simple declarations, consequently
-    // we must debatch only operands which ascend to argumens of the main-function,
+    // which producers are constant operations or simple declarations (without strong needs),
+    // consequently we must debatch only operands which ascend to arguments of the main-function,
     // hence if an operand of the current operation is produced by
     // a parent operation which is an activation operation then the operand must be debatched.
     // Having this cache determined, we leverage an optimization here: every time once an operation
@@ -711,8 +823,33 @@ void DebatcherPass::safeRunOnFunc() {
         });
     });
 
+    // Storage for all operands which have been downcasted during graph traversing.
+    // This prevents an operand being downcasted second time, as operands of
+    // a typical operation are also can be represented by results of a previous operation,
+    // debatched on a previous step.
+    // An operation is considered "debatched" when the conditions have met:
+    //  1. is has all operands debatched
+    //  2. it has all its results debatched either.
     DenseMap<mlir::Value, detail::ConversionDescription> debatchedOperandStorage;
-    DenseMap<mlir::Value, Shape> opResultsToDebatch;
+
+    // This is a storage for debatched results of a previously debatched operation,
+    // which might as well be appeared as operands of a current operation to debatch.
+    // If an operand exists in this storage, but not in `debatchedOperandStorage`,
+    // then the operation must be debatched and its result must be remembered
+    // in `debatchedOperandStorage` as well, to avoid double downcasting when it
+    // being appeared as another operand of another operation
+    DenseMap<mlir::Value, DebatchCoeffDescription> opResultsToDebatch;
+
+    // The operation is considered "debatched" only when it has its operands in
+    // `debatchedOperandStorage` and all its results in `opResultsToDebatch`
+    // During this graph traversing, the algorithm does the following:
+    //  1. applies individual per operands downcasting rules, described in DebatchCoefficients,
+    // when these operands are not in `debatchedOperandStorage`;
+    //  2. deducts what a rule for an operation result will be after downcasting,
+    // taking into account those operand downcasting rules in DebatchCoefficients;
+    //  3. remembers the result rule as DebatchCoefficient per the result in `opResultsToDebatch`;
+    //  4. pumps these rules from `opResultsToDebatch` into `debatchedOperandStorage` when done
+    // to avoid them being downcasted further at 1 step
     _log.debug("Use an option value \"{0}\": {1}", debatcherIntputCoeffPartitions.getArgStr(),
                debatcherIntputCoeffPartitions.getValue());
     auto debatchingCoefficients = DebatchCoefficients::create(debatcherIntputCoeffPartitions.getValue());
@@ -726,21 +863,26 @@ void DebatcherPass::safeRunOnFunc() {
     }
     size_t argIndex = 0;
     for (const auto& arg : main.getArguments()) {
+        DebatchCoeffDescription debatchCoeffForArg;
+        if (debatchingCoefficients.has_value()) {
+            auto coeffCandidate = debatchingCoefficients->getCoefficient(argIndex);
+            if (coeffCandidate.has_value()) {
+                debatchCoeffForArg = coeffCandidate.value();
+            }
+        }
+        // Put args of main in `debatchedOperandStorage` as if they have already been debatched,
+        // which prevents the following algorithm from downcasting all these arguments
+        // as it will have done for other operands of a typical function during the graph traversing.
+        // We need to employ such an exception for args of main, as these arguments
+        // must be downcasted by `unrealized cast` instead of usual type conversion.
+        // Thus from the graph traversing perspective these arguments, once they
+        // have unrealize-cast'ed, must be put into `opResultsToDebatch` and `debatchedOperandStorage`
+        // Let's remember them right now, as we are already gathering coefficients for them
         auto originalShape = Shape{vpux::getShape(arg)};
-        Shape desiredShape = debatchingCoefficients.has_value() ? debatchingCoefficients->apply(originalShape, argIndex)
-                                                                : DebatchCoefficients::applyDefault(originalShape);
-        // Put args of main in debatchedOperandStorage as they have already been debatched.
-        // It's not true yet, though they will be "unrealized_cast'ed" later.
-        // Given that assumption stated, we will leverage a generic algorithm for traversing through
-        // operations and debatching operands from opResultsToDebatch collection only.
-        // The reason why we had added args on main debatchedOperandStorage is tricky:
-        // we shall not debatch operands of a first operation in the body of `main`
-        // which operands ascent to main args. Otherwise, we will change types on main
-        // inadvertently which we must not.
-        debatchedOperandStorage[arg] = detail::ConversionDescription{originalShape, desiredShape};
-        opResultsToDebatch[arg] = desiredShape;
-        _log.trace("Func arg num: {0}, original shape: {1}, desired shape: {2}", argIndex, originalShape,
-                   opResultsToDebatch[arg]);
+        debatchedOperandStorage[arg] = detail::ConversionDescription{originalShape, debatchCoeffForArg};
+        opResultsToDebatch[arg] = debatchedOperandStorage[arg].coeff;
+        _log.trace("Func arg num: {0}, original shape: {1}, desired transformation: {2}", argIndex, originalShape,
+                   opResultsToDebatch[arg].to_string());
         argIndex++;
     }
 
@@ -784,6 +926,9 @@ void DebatcherPass::safeRunOnFunc() {
     main.walk([this, &activationOperations, &debatchedOperandStorage, &opResultsToDebatch,
                &transformation](mlir::Operation* op) {
         // Do not debatch non-activation operations
+        // They might be debatched as a part of a particular operation consolidation,
+        // as a backward graph traversing routine. Basically, this can happen if a "batch"
+        // is "hardcoded" as a constanct inside a model
         if (mlir::isa<vpux::Const::DeclareOp, mlir::func::ReturnOp, mlir::UnrealizedConversionCastOp>(op)) {
             mlir::OperationName name = op->getName();
             _log.trace("skip op by name: {0}, Identifier: {1} ", name.getStringRef(), name.getIdentifier());
@@ -802,25 +947,44 @@ void DebatcherPass::safeRunOnFunc() {
                 if (debatchedOperandStorage.contains(operand)) {
                     _log.nest().trace(
                             "Skip operand conversion from: {0}, to: {1} - which was debatched already as an opResult",
-                            debatchedOperandStorage[operand].from, debatchedOperandStorage[operand].to);
+                            debatchedOperandStorage[operand].from, debatchedOperandStorage[operand].coeff.to_string());
                     continue;
                 }
-                _log.nest().trace("Operand: {0} for debatching found, desired shape: {1}", operand,
-                                  opResultsToDebatch[operand]);
+                _log.nest().trace("Operand: {0} for debatching found, desired transformation: {1}", operand,
+                                  opResultsToDebatch[operand].to_string());
                 auto descr = detail::getDowncastedTypeIfApplicable(operand, opResultsToDebatch[operand]);
                 operand.setType(descr.downcastedType);
                 debatchedOperandStorage[operand] = {descr.originalShape, opResultsToDebatch[operand]};
                 _log.nest().trace("operand debatched from: {0}, to: {1}", debatchedOperandStorage[operand].from,
-                                  debatchedOperandStorage[operand].to);
+                                  debatchedOperandStorage[operand].coeff.to_string());
             }
 
-            // apply args cast on operation and remember deducted result shapes in todo-queue
-            DenseMap<mlir::OpResult, Shape> possibleResultShapes =
+            // Having types of operands of the operation downcasted,
+            // try to approach the operation consolidation phase: where we
+            // debatch the operation, which includes its attributes correction
+            // as well as deducting correct operation results types.
+            // This consolidation routine determines which batch values these results
+            // must have got, providing that DebatchCoefficients have applied to the operation
+            // input operands. Some operation may change N of input tensors and produce
+            // batched result even it the initial tensors were non-batched. To settle this down,
+            // the consolidation routine traverse the graph in the backward direction starting from the
+            // the unsettled operation to find out a source of this discrepancy,
+            // which might be a constant having a hardcoded value of N.
+            // A typical example is a `Broadcast(tensor, N)` which makes initially
+            // non-batched tensor batched by N. If that found, then the such constant will be debatched
+            // accordingly
+            DenseMap<mlir::OpResult, DebatchCoeffDescription> possibleResultShapes =
                     transformation.visit(op, operandsToDebatch, debatchedOperandStorage);
+            // Remember debatching coefficients for these results, deducted
+            // individually for every operation. These debatched coefficients will be used
+            // later as downcasting ratio for next operations which consumes those results
+            // as operands for these operations
             for (auto val : possibleResultShapes) {
                 opResultsToDebatch[val.first] = val.second;
             }
 
+            // Change type of downcasted results and pump coefficients over `debatchedOperandStorage`
+            // to avoid double downcasting them on next step
             auto opResults = op->getResults();
             _log.trace("Operation: {0} - has OpResults count: {1}", op->getName().getStringRef(), opResults.size());
             llvm::for_each(opResults, [&debatchedOperandStorage, &opResultsToDebatch, this, op](mlir::OpResult r) {
@@ -829,7 +993,7 @@ void DebatcherPass::safeRunOnFunc() {
                 if (!debatchedOperandStorage.contains(r)) {
                     debatchedOperandStorage[r] = {descr.originalShape, opResultsToDebatch[r]};
                     _log.nest().trace("remember debatched result from: {1}, to: {2}", op->getName().getStringRef(),
-                                      debatchedOperandStorage[r].from, debatchedOperandStorage[r].to);
+                                      debatchedOperandStorage[r].from, debatchedOperandStorage[r].coeff.to_string());
                 }
             });
         }

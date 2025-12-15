@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
@@ -30,10 +30,13 @@ mlir::LogicalResult vpux::VPU::PReluOp::verify() {
                                slopeShape[Dims4D::Act::C.ind()] == inShape[Dims4D::Act::C.ind()] &&
                                slopeShape[Dims4D::Act::H.ind()] == 1 && slopeShape[Dims4D::Act::W.ind()] == 1);
 
-    if (!isSlopeIdentical && !isPerChannel) {
+    const auto slopeShapeArr = vpux::ArrayRef<int64_t>(slopeShape);
+    const bool isSlopeOneParameterInput = vpux::checkAllElementsIfEqualTo(slopeShapeArr, static_cast<int64_t>(1));
+
+    if (!isSlopeIdentical && !isPerChannel && !isSlopeOneParameterInput) {
         return errorAt(*this,
-                       "Channel slope should be equal to the channel input dim, as broadcast with numpy values is not "
-                       "supported, or have the slope and input identical. Got input {0} and slope {1}",
+                       "Unsupported slope shape for PRelu: only fully identical to input, per-channel (C matches "
+                       "input, others 1), or all-ones (scalar) are supported. Got input {0} and slope {1}",
                        inShape, slopeShape);
     }
 
@@ -66,7 +69,11 @@ vpux::InputTiling vpux::VPU::PReluOp::backInferTileInfo(const vpux::TileInfo& ou
     TileInfo slopeTile(getShape(getNegativeSlope()));
 
     inputTile = outputTile;
-    if (outputTile.shape[Dims4D::Act::C] != slopeTile.shape[Dims4D::Act::C]) {
+
+    const auto slopeShapeArr = vpux::ArrayRef<int64_t>(getShape(getNegativeSlope()).raw());
+    const bool isSlopeOneParameterInput = vpux::checkAllElementsIfEqualTo(slopeShapeArr, static_cast<int64_t>(1));
+
+    if (!isSlopeOneParameterInput && (outputTile.shape[Dims4D::Act::C] != slopeTile.shape[Dims4D::Act::C])) {
         // Tile slope by channel, align the offsets and axis to outputTile
         slopeTile.shape[Dims4D::Act::C] = outputTile.shape[Dims4D::Act::C];
         slopeTile.offsets[Dims4D::Act::C] = outputTile.offsets[Dims4D::Act::C];

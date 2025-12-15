@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW allow-custom-values=true" --merge-vertical-fusion-subgraphs %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -486,26 +486,50 @@ func.func @BuildMultiplySoftmaxSubgraph(%arg0: tensor<1x4x160x160xf16, {order = 
 // -----
 
 // CHECK-LABEL: @BuildSWAddSoftmaxSubgraph
-// CHECK-SAME:      [[INPUT0:%.+]]: tensor<1x32x16x16xf16>, [[INPUT1:%.+]]: tensor<1x1x16x16xf16>
-func.func @BuildSWAddSoftmaxSubgraph(%arg0: tensor<1x32x16x16xf16>, %arg1: tensor<1x1x16x16xf16>) -> tensor<1x32x16x16xf16> {
+// CHECK-SAME:      [[INPUT0:%.+]]: tensor<1x640x16x16xf16>, [[INPUT1:%.+]]: tensor<1x1x16x16xf16>
+func.func @BuildSWAddSoftmaxSubgraph(%arg0: tensor<1x640x16x16xf16>, %arg1: tensor<1x1x16x16xf16>) -> tensor<1x640x16x16xf16> {
 
-    %0 = VPU.VerticalFusion (%arg0 as %arg22: tensor<1x32x16x16xf16>, %arg1 as %arg23: tensor<1x1x16x16xf16>) attributes {tilingStrategy = [1, 1, 4, 1]} -> tensor<1x32x16x16xf16> {
-      %570 = VPU.Add(%arg22, %arg23) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x32x16x16xf16>, tensor<1x1x16x16xf16> -> tensor<1x32x16x16xf16>
+    %0 = VPU.VerticalFusion (%arg0 as %arg22: tensor<1x640x16x16xf16>, %arg1 as %arg23: tensor<1x1x16x16xf16>) attributes {tilingStrategy = [1, 1, 4, 1]} -> tensor<1x640x16x16xf16> {
+      %570 = VPU.Add(%arg22, %arg23) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x640x16x16xf16>, tensor<1x1x16x16xf16> -> tensor<1x640x16x16xf16>
       VPU.Yield %570
     }
-    %1 = VPU.VerticalFusion (%0 as %arg22: tensor<1x32x16x16xf16>) attributes {tilingStrategy = [1, 1, 3, 1]} -> tensor<1x32x16x16xf16> {
-      %570 = VPU.SoftMax(%arg22) {axisInd = 3 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x32x16x16xf16> -> tensor<1x32x16x16xf16>
+    %1 = VPU.VerticalFusion (%0 as %arg22: tensor<1x640x16x16xf16>) attributes {tilingStrategy = [1, 1, 3, 1]} -> tensor<1x640x16x16xf16> {
+      %570 = VPU.SoftMax(%arg22) {axisInd = 3 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x640x16x16xf16> -> tensor<1x640x16x16xf16>
       VPU.Yield %570
     }
 
-    return %1: tensor<1x32x16x16xf16>
-
-    // CHECK: [[VERTICAL_FUSION:%.+]] = VPU.VerticalFusion ([[INPUT0]] as [[INNER_ARG0:[^:]+]]: tensor<1x32x16x16xf16>, [[INPUT1]] as [[INNER_ARG1:[^:]+]]: tensor<1x1x16x16xf16>) attributes {scenario = #VPU.vf_scenario<FULL_PREFETCHING>, tilingStrategy = [1, 1, 4, 1]} -> tensor<1x32x16x16xf16> {
-    // CHECK: [[ADD:%.+]] = VPU.Add([[INNER_ARG0]], [[INNER_ARG1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x32x16x16xf16>, tensor<1x1x16x16xf16> -> tensor<1x32x16x16xf16>
-    // CHECK: [[SOFTMAX:%.+]] = VPU.SoftMax([[ADD]]) {axisInd = 3 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x32x16x16xf16> -> tensor<1x32x16x16xf16>
+    return %1: tensor<1x640x16x16xf16>
+     // CHECK: [[VERTICAL_FUSION:%.+]] = VPU.VerticalFusion ([[INPUT0]] as [[INNER_ARG0:[^:]+]]: tensor<1x640x16x16xf16>, [[INPUT1]] as [[INNER_ARG1:[^:]+]]: tensor<1x1x16x16xf16>) attributes {scenario = #VPU.vf_scenario<FULL_PREFETCHING>, tilingStrategy = [1, 1, 4, 1]} -> tensor<1x640x16x16xf16> {
+    // CHECK: [[ADD:%.+]] = VPU.Add([[INNER_ARG0]], [[INNER_ARG1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x640x16x16xf16>, tensor<1x1x16x16xf16> -> tensor<1x640x16x16xf16>
+    // CHECK: [[SOFTMAX:%.+]] = VPU.SoftMax([[ADD]]) {axisInd = 3 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x640x16x16xf16> -> tensor<1x640x16x16xf16>
     // CHECK:  VPU.Yield [[SOFTMAX]]
 
     // CHECK: return [[VERTICAL_FUSION]]
+}
+
+// -----
+
+// CHECK-LABEL: @NotMergeDueToLargeCostForSmallSoftMax
+func.func @NotMergeDueToLargeCostForSmallSoftMax(%arg0: tensor<1x32x8x8xf16>, %arg1: tensor<1x1x8x8xf16>) -> tensor<1x32x8x8xf16> {
+
+    %0 = VPU.VerticalFusion (%arg0 as %arg22: tensor<1x32x8x8xf16>, %arg1 as %arg23: tensor<1x1x8x8xf16>) attributes {tilingStrategy = [1, 1, 4, 1]} -> tensor<1x32x8x8xf16> {
+      %570 = VPU.Add(%arg22, %arg23) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x32x8x8xf16>, tensor<1x1x8x8xf16> -> tensor<1x32x8x8xf16>
+      VPU.Yield %570
+    }
+    %1 = VPU.VerticalFusion (%0 as %arg22: tensor<1x32x8x8xf16>) attributes {tilingStrategy = [1, 1, 3, 1]} -> tensor<1x32x8x8xf16> {
+      %570 = VPU.SoftMax(%arg22) {axisInd = 3 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x32x8x8xf16> -> tensor<1x32x8x8xf16>
+      VPU.Yield %570
+    }
+
+    return %1: tensor<1x32x8x8xf16>
+
+    // CHECK: [[VERTICAL_FUSION0:%.+]] = VPU.VerticalFusion
+    // CHECK: [[ADD:%.+]] = VPU.Add
+    // CHECK:  VPU.Yield [[ADD]]
+    // CHECK: [[VERTICAL_FUSION1:%.+]] = VPU.VerticalFusion
+    // CHECK: [[SOFTMAX:%.+]] = VPU.SoftMax
+    // CHECK:  VPU.Yield [[SOFTMAX]]
+    // CHECK: return [[VERTICAL_FUSION1]]
 }
 
 // -----

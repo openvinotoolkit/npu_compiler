@@ -869,7 +869,7 @@ func.func @TileWithSOK(
     // CHECK:         [[CONV3:%.+]] = VPU.NCE.Convolution([[SLICE3]], [[CONST]], [[CONST0]]) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, pad = #VPU.Padding<left = 3 : i64, right = 3 : i64, top = 0 : i64, bottom = 3 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [768, 32, 7, 7], strides = [1, 1]}
     // CHECK-SAME:         -> tensor<1x768x7x30xf16, {order = #NHWC}>
     // CHECK:         [[CONCAT:%.+]] = VPU.Concat([[CONV0]], [[CONV1]], [[CONV2]], [[CONV3]])
-    // CHECK-LITERAL:     {static_offsets = [[0, 0, 0, 0], [0, 0, 8, 0], [0, 0, 16, 0], [0, 0, 23, 0]]} :
+    // CHECK{LITERAL}:     {static_offsets = [[0, 0, 0, 0], [0, 0, 8, 0], [0, 0, 16, 0], [0, 0, 23, 0]]} :
     // CHECK-SAME:        tensor<1x768x8x30xf16, {order = #NHWC}>, tensor<1x768x8x30xf16, {order = #NHWC}>, tensor<1x768x7x30xf16, {order = #NHWC}>, tensor<1x768x7x30xf16, {order = #NHWC}> -> tensor<1x768x30x30xf16, {order = #NHWC}>
     // CHECK:         return [[CONCAT]] : tensor<1x768x30x30xf16, {order = #NHWC}>
 }
@@ -2548,18 +2548,20 @@ func.func @DontSplitNormalizeL2AllAxes(%arg0: tensor<1x24x128x128xf16>) -> tenso
 // -----
 
 func.func @SplitTopK(%arg0: tensor<1x5x512x512xf16>) -> (tensor<1x1x512x512xf32>, tensor<1x1x512x512xsi32>) {
-    %output_values, %target_shape = VPU.TopK(%arg0) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 0, 0>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x5x512x512xf16> -> tensor<1x1x512x512xf16>, tensor<1x1x512x512xsi32>
+    %aux = const.Declare tensor<1x1x1x80xui8> = dense<0> : tensor<1x1x1x80xui8>
+    %output_values, %target_shape = VPU.TopK(%arg0, %aux) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x5x512x512xf16>, tensor<1x1x1x80xui8> -> tensor<1x1x512x512xf16>, tensor<1x1x512x512xsi32>
     %0 = VPU.Convert(%output_values) {dstElemType = f32} : tensor<1x1x512x512xf16> -> tensor<1x1x512x512xf32>
     return %0, %target_shape : tensor<1x1x512x512xf32>, tensor<1x1x512x512xsi32>
 
     // CHECK-LABEL: @SplitTopK
     // CHECK-SAME:      [[INPUT_0:%arg[0-9]]]: tensor<1x5x512x512xf16>) -> (tensor<1x1x512x512xf32>, tensor<1x1x512x512xsi32>) {
+    // CHECK: [[AUX:%.+]] = const.Declare tensor<1x1x1x80xui8> = dense<0> : tensor<1x1x1x80xui8>
     // CHECK: [[INPUT_TILE0:%.+]] = VPU.Slice [[INPUT_0]] [0, 0, 0, 0] [1, 5, 171, 512] : tensor<1x5x512x512xf16> to tensor<1x5x171x512xf16>
-    // CHECK: [[OUTPUT_TILE0:%.+]], [[TARGET_TILE0:%.+]] = VPU.TopK([[INPUT_TILE0]]) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 0, 0>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x5x171x512xf16> -> tensor<1x1x171x512xf16>, tensor<1x1x171x512xsi32>
+    // CHECK: [[OUTPUT_TILE0:%.+]], [[TARGET_TILE0:%.+]] = VPU.TopK([[INPUT_TILE0]], [[AUX]]) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x5x171x512xf16>, tensor<1x1x1x80xui8> -> tensor<1x1x171x512xf16>, tensor<1x1x171x512xsi32>
     // CHECK: [[INPUT_TILE1:%.+]] = VPU.Slice [[INPUT_0]] [0, 0, 171, 0] [1, 5, 171, 512] : tensor<1x5x512x512xf16> to tensor<1x5x171x512xf16>
-    // CHECK: [[OUTPUT_TILE1:%.+]], [[TARGET_TILE1:%.+]] = VPU.TopK([[INPUT_TILE1]]) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 0, 0>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x5x171x512xf16> -> tensor<1x1x171x512xf16>, tensor<1x1x171x512xsi32>
+    // CHECK: [[OUTPUT_TILE1:%.+]], [[TARGET_TILE1:%.+]] = VPU.TopK([[INPUT_TILE1]], [[AUX]]) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x5x171x512xf16>, tensor<1x1x1x80xui8> -> tensor<1x1x171x512xf16>, tensor<1x1x171x512xsi32>
     // CHECK: [[INPUT_TILE2:%.+]] = VPU.Slice [[INPUT_0]] [0, 0, 342, 0] [1, 5, 170, 512] : tensor<1x5x512x512xf16> to tensor<1x5x170x512xf16>
-    // CHECK: [[OUTPUT_TILE2:%.+]], [[TARGET_TILE2:%.+]] = VPU.TopK([[INPUT_TILE2]]) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 0, 0>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x5x170x512xf16> -> tensor<1x1x170x512xf16>, tensor<1x1x170x512xsi32>
+    // CHECK: [[OUTPUT_TILE2:%.+]], [[TARGET_TILE2:%.+]] = VPU.TopK([[INPUT_TILE2]], [[AUX]]) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x5x170x512xf16>, tensor<1x1x1x80xui8> -> tensor<1x1x170x512xf16>, tensor<1x1x170x512xsi32>
     // CHECK: [[OUTPUT_VALUE:%.+]] = VPU.Concat([[OUTPUT_TILE0]], [[OUTPUT_TILE1]], [[OUTPUT_TILE2]]) {static_offsets =
     // CHECK: [[TARGET_SHAPE:%.+]] = VPU.Concat([[TARGET_TILE0]], [[TARGET_TILE1]], [[TARGET_TILE2]]) {static_offsets =
     // CHECK: [[OUTPUT_VALUE_CONV:%.+]] = VPU.Convert([[OUTPUT_VALUE]]) {dstElemType = f32} : tensor<1x1x512x512xf16> -> tensor<1x1x512x512xf32>
@@ -2881,21 +2883,21 @@ func.func @ReLUSplitOverC(%arg0: tensor<1x80x80x80xf16>) -> tensor<1x80x80x80xf1
   %0 = VPU.ReLU(%arg0) : tensor<1x80x80x80xf16> -> tensor<1x80x80x80xf16>
   return %0 : tensor<1x80x80x80xf16>
 
-// CHECK:       [[INPUT_TILE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 40, 80, 80]
-// CHECK-SAME:  : tensor<1x80x80x80xf16> to tensor<1x40x80x80xf16>
+// CHECK:       [[INPUT_TILE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 48, 80, 80]
+// CHECK-SAME:  : tensor<1x80x80x80xf16> to tensor<1x48x80x80xf16>
 
 // CHECK:       [[OUTPUT_TILE0:%.+]] = VPU.ReLU([[INPUT_TILE0]])
-// CHECK-SAME:  : tensor<1x40x80x80xf16> -> tensor<1x40x80x80xf16>
+// CHECK-SAME:  : tensor<1x48x80x80xf16> -> tensor<1x48x80x80xf16>
 
-// CHECK:       [[INPUT_TILE1:%.+]] = VPU.Slice [[INPUT]] [0, 40, 0, 0] [1, 40, 80, 80]
-// CHECK-SAME:  : tensor<1x80x80x80xf16> to tensor<1x40x80x80xf16>
+// CHECK:       [[INPUT_TILE1:%.+]] = VPU.Slice [[INPUT]] [0, 48, 0, 0] [1, 32, 80, 80]
+// CHECK-SAME:  : tensor<1x80x80x80xf16> to tensor<1x32x80x80xf16>
 
 // CHECK:       [[OUTPUT_TILE1:%.+]] = VPU.ReLU([[INPUT_TILE1]])
-// CHECK-SAME:  : tensor<1x40x80x80xf16> -> tensor<1x40x80x80xf16>
+// CHECK-SAME:  : tensor<1x32x80x80xf16> -> tensor<1x32x80x80xf16>
 
 // CHECK:       [[OUTPUT:%.+]] = VPU.Concat([[OUTPUT_TILE0]], [[OUTPUT_TILE1]])
-// CHECK-SAME:  [0, 0, 0, 0], [0, 40, 0, 0]
-// CHECK-SAME:  : tensor<1x40x80x80xf16>, tensor<1x40x80x80xf16> -> tensor<1x80x80x80xf16>
+// CHECK-SAME:  [0, 0, 0, 0], [0, 48, 0, 0]
+// CHECK-SAME:  : tensor<1x48x80x80xf16>, tensor<1x32x80x80xf16> -> tensor<1x80x80x80xf16>
 
 // CHECK:       return [[OUTPUT]] : tensor<1x80x80x80xf16>
 

@@ -4,7 +4,7 @@
 //
 // RUN: vpux-opt %s --split-input-file --init-compiler="vpu-arch=%arch%" \
 // RUN:     --lower-math-to-shave-intrinsics | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 module @Foo {
   module @VPU.SW {

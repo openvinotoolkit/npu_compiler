@@ -11,7 +11,7 @@
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/IR/BuiltinTypes.h>
 
 namespace vpux {

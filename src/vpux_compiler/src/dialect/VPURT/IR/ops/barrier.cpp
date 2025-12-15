@@ -138,14 +138,6 @@ mlir::LogicalResult vpux::VPURT::ConfigureBarrierOp::verify() {
     return mlir::success();
 }
 
-std::optional<int64_t> vpux::VPURT::ConfigureBarrierOp::getBarrierIndex() {
-    return getProperties().getBarrierIndex();
-}
-
-void vpux::VPURT::ConfigureBarrierOp::setBarrierIndex(std::optional<int64_t> value) {
-    getProperties().setBarrierIndex(value);
-}
-
 void VPURT::ConfigureBarrierOp::printProperties(mlir::MLIRContext* ctx, mlir::OpAsmPrinter& printer,
                                                 const Properties& properties,
                                                 mlir::ArrayRef<llvm::StringRef> elidedProps) {
@@ -159,14 +151,6 @@ mlir::ParseResult VPURT::ConfigureBarrierOp::parseProperties(mlir::OpAsmParser& 
 //
 // DeclareVirtualBarrierOp
 //
-
-std::optional<int64_t> vpux::VPURT::DeclareVirtualBarrierOp::getBarrierIndex() {
-    return getProperties().getBarrierIndex();
-}
-
-void vpux::VPURT::DeclareVirtualBarrierOp::setBarrierIndex(std::optional<int64_t> value) {
-    getProperties().setBarrierIndex(value);
-}
 
 void VPURT::DeclareVirtualBarrierOp::printProperties(mlir::MLIRContext* ctx, mlir::OpAsmPrinter& printer,
                                                      const Properties& properties,

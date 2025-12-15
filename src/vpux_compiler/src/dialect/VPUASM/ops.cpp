@@ -12,7 +12,7 @@
 #include "vpux/compiler/dialect/VPUMI40XX/dialect.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
 
-#include <mlir/Dialect/Quant/QuantOps.h>
+#include <mlir/Dialect/Quant/IR/Quant.h>
 
 using namespace vpux;
 

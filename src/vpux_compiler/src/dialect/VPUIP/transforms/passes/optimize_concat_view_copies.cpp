@@ -13,7 +13,7 @@
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
@@ -2495,10 +2495,6 @@ public:
 private:
     // Suffix of child rewriter
     virtual StringRef getRewriterSuffix() const = 0;
-    // Check compatibility of concat in CMX. Since consumers are segmented, we must ensure that we can do split.
-    // If view/concat axis is the same with tiling axis, we can't do concatenation in same buffer.
-    // To avoid it we must do concat in temporary buffer and then distribute
-    virtual bool isSplitSupported(Dim newConcatDim, int64_t tilingDim) const = 0;
 
     // Input of the right side and copy operation
     virtual std::pair<mlir::Value, SmallVector<mlir::Operation*>> getRightBranchInput(
@@ -2515,15 +2511,66 @@ private:
                                 VPUIP::SubViewOp subViewOp, VPUIP::CopyOp distributedCopy, mlir::Value newLeftBranch,
                                 mlir::Value newRightBranch, const PatternParamsInfo& params, size_t index) const = 0;
 
-    virtual bool isValidSegment(SmallVector<VPUIP::SubViewOp>& views, SmallVector<VPUIP::CopyOp>& distributedCopies,
-                                Dim newConcatDim, int64_t leftConcatInputSize, int64_t rightConcatInputSize) const = 0;
-    virtual bool isValidSubview(SmallVector<VPUIP::SubViewOp>& views, Dim newConcatDim, int64_t leftConcatInputSize,
-                                int64_t rightConcatInputSize) const = 0;
-
     virtual VPUIP::DistributedBufferType updateDistributedType(mlir::Value dst, mlir::Value dstView,
                                                                ShapeRef copyShape) const = 0;
 
+    // Check compatibility of concat in CMX. Since consumers are segmented, we must ensure that we can do split.
+    // If view/concat axis is the same with tiling axis, we can't do concatenation in same buffer.
+    // To avoid it we must do concat in temporary buffer and then distribute
+    virtual bool isSplitSupported(Dim newConcatDim, int64_t tilingDim) const {
+        return newConcatDim.ind() == tilingDim;
+    }
+
+    virtual bool isValidSegment(SmallVector<VPUIP::SubViewOp>& views, SmallVector<VPUIP::CopyOp>& distributedCopies,
+                                Dim newConcatDim, int64_t leftConcatInputSize, int64_t rightConcatInputSize) const {
+        VPUX_UNUSED(views);
+        VPUX_UNUSED(distributedCopies);
+        VPUX_UNUSED(newConcatDim);
+        VPUX_UNUSED(leftConcatInputSize);
+        VPUX_UNUSED(rightConcatInputSize);
+        return true;
+    }
+
+    virtual bool isValidSubview(SmallVector<VPUIP::SubViewOp>& subviews, Dim newConcatDim, int64_t leftConcatInputSize,
+                                int64_t rightConcatInputSize) const {
+        return checkSubview(subviews, newConcatDim, leftConcatInputSize, rightConcatInputSize);
+    }
+
 protected:
+    bool checkSubview(SmallVector<VPUIP::SubViewOp>& subviews, Dim newConcatDim, int64_t leftConcatInputSize,
+                      int64_t rightConcatInputSize) const {
+        auto totalSize = leftConcatInputSize + rightConcatInputSize;
+        for (auto subview : subviews) {
+            auto outShape = getShape(subview.getResult());
+            auto offset = Shape(parseIntArrayAttr<int64_t>(subview.getStaticOffsets()));
+            // We could support the following case:
+            //    0 -- 8319      1
+            //          \      /
+            //        Concat(0 -- 8320)
+            //         |            |
+            //     Subview         Subview
+            //         |            |
+            //     0 -- 4160     4160 - 8320
+
+            // But if subview from 4160 to 8321, which actually need to concat
+            // left(4160 -- 8319) + right(8320) + left(8320 -- 8321), the case is too complex,
+            // we can not support it now
+            auto block = offset[newConcatDim] / totalSize;
+            if ((offset[newConcatDim] + outShape[newConcatDim] - 1) / totalSize != block) {
+                return false;
+            }
+
+            if (offset[newConcatDim] % totalSize >= leftConcatInputSize) {
+                // Only support 2 cases for now:
+                // 1. subview on the left branch
+                // 2. subview crosses the left and right branch
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     // Propagate reshape and cast through concat to split large DDR->DDR DMAs on sequence of small DDR->CMX, which can
     // be interleaved with NCE tasks
     mlir::Value propagateReshapeCast(mlir::PatternRewriter& rewriter, mlir::Value branchInput,
@@ -2580,13 +2627,26 @@ protected:
             afterReshapeType = inputType.changeShape(newShape);
         }
 
-        auto newReshapeOp = rewriter.createOrFold<VPUIP::GenericReshapeOp>(appendLoc(loc, "greshape_{0}", locSuffix),
+        // Check if branchInput has non-compact strides (e.g., from SubView)
+        // If so, use ShapeCast to both fix strides and change shape; otherwise use GenericReshapeOp
+        mlir::Value reshapeOutput = branchInput;
+        const auto inReqs = StrideReqs::compact(inputType.getRank());
+        if (!inReqs.checkStrides(inputType)) {
+            // Use ShapeCast for non-compact strides
+            auto ctx = rewriter.getContext();
+            auto shapeAttr = getIntArrayAttr(ctx, afterReshapeType.getShape());
+            reshapeOutput = rewriter.create<VPUIP::ShapeCastOp>(appendLoc(loc, "shapecast_{0}", locSuffix), branchInput,
+                                                                shapeAttr);
+        } else {
+            reshapeOutput = rewriter.createOrFold<VPUIP::GenericReshapeOp>(appendLoc(loc, "greshape_{0}", locSuffix),
                                                                            afterReshapeType, branchInput);
+        }
 
+        // Create PermuteCastOp on top of the reshape operation
         auto permCastDimsOrder = mlir::cast<vpux::NDTypeInterface>(permuteCastOp->getResultTypes()[0]).getDimsOrder();
         auto afterPermCastType = afterReshapeType.changeDimsOrder(permCastDimsOrder);
         return rewriter.create<VPUIP::PermuteCastOp>(appendLoc(loc, "permcast_{0}", locSuffix), afterPermCastType,
-                                                     newReshapeOp, permuteCastOp.getDstOrderAttr(),
+                                                     reshapeOutput, permuteCastOp.getDstOrderAttr(),
                                                      permuteCastOp.getMemPermAttr());
     }
 
@@ -3014,6 +3074,7 @@ public:
 
         mlir::Value newLeftBranch =
                 prepareLeftBranch(rewriter, leftBranchInput, genReshapeOp, permuteCastOp, concatOp->getLoc());
+
         mlir::Value newRightBranch;
         if (rightBranchTilingAndSubviewOnSameAxis) {
             auto newDDRType =
@@ -3050,6 +3111,8 @@ public:
             rewriter.eraseOp(genReshapeOp);
         }
 
+        nestedLog.trace("Successfully split unbalanced DDR Concat. {0}", concatOp->getLoc());
+
         rewriter.eraseOp(concatOp);
         for (auto copy : copiesToRemove) {
             if (copy == nullptr) {
@@ -3060,7 +3123,6 @@ public:
             }
         }
 
-        nestedLog.trace("Successfully splitted unbalanced DDR Concat.");
         _log.unnest();
         return mlir::success();
     }
@@ -3087,32 +3149,6 @@ private:
 
     bool isSplitSupported(Dim newConcatDim, int64_t tilingDim) const override {
         return newConcatDim.ind() != tilingDim;
-    }
-
-    bool isValidSegment(SmallVector<VPUIP::SubViewOp>&, SmallVector<VPUIP::CopyOp>&, Dim, int64_t,
-                        int64_t) const override {
-        return true;
-    }
-
-    bool isValidSubview(SmallVector<VPUIP::SubViewOp>& subviews, Dim newConcatDim, int64_t leftConcatInputSize,
-                        int64_t rightConcatInputSize) const override {
-        auto totalSize = leftConcatInputSize + rightConcatInputSize;
-        for (auto subview : subviews) {
-            auto outShape = getShape(subview.getResult());
-            auto offset = Shape(parseIntArrayAttr<int64_t>(subview.getStaticOffsets()));
-            auto block = offset[newConcatDim] / totalSize;
-            if ((offset[newConcatDim] + outShape[newConcatDim] - 1) / totalSize != block) {
-                return false;
-            }
-
-            if (offset[newConcatDim] % totalSize >= leftConcatInputSize) {
-                // Only support 2 cases for now:
-                // 1. subview on the left branch
-                // 2. subview crosses the left and right branch
-                return false;
-            }
-        }
-        return true;
     }
 
     VPUIP::DistributedBufferType updateDistributedType(mlir::Value, mlir::Value, ShapeRef) const override {
@@ -3250,12 +3286,12 @@ public:
     using SplitUnbalancedDDRConcatBase::SplitUnbalancedDDRConcatBase;
 
 private:
+    // Stores the slice dimension for right branch when it comes from a block argument
+    // When set, indicates that the right branch should use SubView instead of ExtractFlatSlice
+    mutable std::optional<Dim> _rightBranchBlockArgSliceDim = std::nullopt;
+
     StringRef getRewriterSuffix() const override {
         return "OnSameAxis";
-    }
-
-    bool isSplitSupported(Dim newConcatDim, int64_t tilingDim) const override {
-        return newConcatDim.ind() == tilingDim;
     }
 
     bool isValidSegment(SmallVector<VPUIP::SubViewOp>& views, SmallVector<VPUIP::CopyOp>& distributedCopies,
@@ -3315,40 +3351,6 @@ private:
                         }
                     }
                 }
-            }
-        }
-
-        return true;
-    }
-
-    bool isValidSubview(SmallVector<VPUIP::SubViewOp>& subviews, Dim newConcatDim, int64_t leftConcatInputSize,
-                        int64_t rightConcatInputSize) const override {
-        auto totalSize = leftConcatInputSize + rightConcatInputSize;
-        for (auto subview : subviews) {
-            auto outShape = getShape(subview.getResult());
-            auto offset = Shape(parseIntArrayAttr<int64_t>(subview.getStaticOffsets()));
-            // We could support the following case:
-            //    0 -- 8319      1
-            //          \      /
-            //        Concat(0 -- 8320)
-            //         |            |
-            //     Subview         Subview
-            //         |            |
-            //     0 -- 4160     4160 - 8320
-
-            // But if subview from 4160 to 8321, which actually need to concat
-            // left(4160 -- 8319) + right(8320) + left(8320 -- 8321), the case is too complex,
-            // we can not support it now
-            auto block = offset[newConcatDim] / totalSize;
-            if ((offset[newConcatDim] + outShape[newConcatDim] - 1) / totalSize != block) {
-                return false;
-            }
-
-            if (offset[newConcatDim] % totalSize >= leftConcatInputSize) {
-                // Only support 2 cases for now:
-                // 1. subview on the left branch
-                // 2. subview crosses the left and right branch
-                return false;
             }
         }
 
@@ -3425,12 +3427,21 @@ private:
         // in rewriter Longest possible chain is NCECompute -> f32->f16 Copy, CMX->DDR, DDR->Strided DDR
         int depth = 3;
         SmallVector<mlir::Operation*> copies;
+        mlir::Value blockArgumentInput = nullptr;
+
         while (patternInput != nullptr && !mlir::isa<vpux::VPUIP::DistributedBufferType>(patternInput.getType()) &&
                depth > 0) {
-            if (mlir::isa<mlir::BlockArgument>(patternInput) || patternInput.getDefiningOp() == nullptr) {
+            if (mlir::isa<mlir::BlockArgument>(patternInput)) {
+                // Found BlockArgument input - store it and break
+                blockArgumentInput = patternInput;
+                break;
+            }
+
+            if (patternInput.getDefiningOp() == nullptr) {
                 patternInput = nullptr;
                 break;
             }
+
             mlir::Value nextInput = nullptr;
             auto producerOp = patternInput.getDefiningOp();
             if (mlir::isa<VPUIP::CopyOp, VPUIP::ConvertDMAOp>(producerOp)) {
@@ -3457,8 +3468,49 @@ private:
 
             return mode != nullptr && mode.getValue() == VPU::DistributionMode::SEGMENTED;
         };
+
         if (isSegmentedAndNotNull(patternInput)) {
             return {patternInput, copies};
+        }
+
+        // Support BlockArgument -> Copy pattern
+        // In this case, we'll need to create a subview copy pair from DDR to CMX later
+        if (blockArgumentInput != nullptr && !copies.empty()) {
+            auto inputType = mlir::cast<NDTypeInterface>(blockArgumentInput.getType());
+            if (inputType.getMemoryKind() == VPU::MemoryKind::DDR) {
+                // Check concat dimension to determine the slice dimension
+                const auto concatAxes = vpux::IE::getDiffInOutSizeDims(getShape(concatOp.getOperands()[0]),
+                                                                       getShape(concatOp.getResult()));
+                if (concatAxes.size() != 1) {
+                    return {nullptr, {}};
+                }
+                auto origConcatDim = concatAxes.front();
+
+                // Check that there's exactly one non-1 dimension above concat dim in memory layout
+                // This ensures we can uniquely determine the slice dimension
+                auto rightBranchShape = inputType.getShape();
+                std::optional<Dim> sliceDim = std::nullopt;
+                int64_t nonOneDimCount = 0;
+
+                auto dimsOrder = inputType.getDimsOrder();
+                auto concatMemDim = dimsOrder.toMemDim(origConcatDim);
+                for (int64_t i = 0; i < concatMemDim.ind(); ++i) {
+                    auto memDim = MemDim(i);
+                    auto dim = dimsOrder.toDim(memDim);
+                    if (rightBranchShape[dim] != 1) {
+                        sliceDim = dim;
+                        ++nonOneDimCount;
+                    }
+                }
+
+                // Only support case where there's exactly one non-1 dimension above concat dim
+                if (nonOneDimCount != 1 || !sliceDim.has_value()) {
+                    return {nullptr, {}};
+                }
+
+                _rightBranchBlockArgSliceDim = sliceDim;
+                return {blockArgumentInput, copies};
+            }
         }
 
         return {nullptr, {}};
@@ -3491,22 +3543,45 @@ private:
     }
 
     mlir::Value rewriterRightSubViewBranch(mlir::PatternRewriter& rewriter, const PatternParamsInfo& params,
-                                           size_t viewMultiplier, VPUIP::SubViewOp subViewOp,
-                                           mlir::Value newRightBranch, mlir::Value dstBuffer, mlir::Location baseLoc,
-                                           size_t index, int64_t leftInputSize) const {
-        auto previewShape = getShape(newRightBranch).toValues();
-        previewShape[Dim(1)] = params.rightInputSize;
-        auto singleAxisView = rewriter.createOrFold<VPUIP::ExtractFlatSliceOp>(
-                appendLoc(baseLoc, "pseudo_dst_view_{0}", index), newRightBranch, viewMultiplier);
-        auto normalizedShape = propagateReshapeCast(rewriter, singleAxisView, params.castOp, baseLoc,
+                                           size_t viewMultiplier, VPUIP::SubViewOp, mlir::Value newRightBranch,
+                                           mlir::Value dstBuffer, mlir::Location baseLoc, size_t index,
+                                           int64_t leftInputSize) const {
+        // Extract the right branch slice based on input type
+        mlir::Value rightBranchSlice;
+        if (_rightBranchBlockArgSliceDim.has_value()) {
+            // Optimized path: Create SubView on DDR BlockArgument directly
+            auto rightBranchType = mlir::cast<NDTypeInterface>(newRightBranch.getType());
+            auto rightBranchShape = rightBranchType.getShape();
+
+            // Use the slice dimension determined during getRightBranchInput
+            // This dimension is validated to be the only non-1 dimension above concat dim
+            auto sliceDim = _rightBranchBlockArgSliceDim.value();
+
+            // Create SubView on the DDR BlockArgument to extract the needed slice
+            Shape srcOffset(SmallVector<int64_t>(rightBranchShape.size(), 0));
+            srcOffset[sliceDim] = static_cast<int64_t>(viewMultiplier) * params.rightInputSize;
+
+            Shape srcShape = rightBranchShape.toValues();
+            srcShape[sliceDim] = params.rightInputSize;
+
+            rightBranchSlice =
+                    rewriter.createOrFold<VPUIP::SubViewOp>(appendLoc(baseLoc, "right_ddr_subview_{0}", index),
+                                                            newRightBranch, srcOffset.raw(), srcShape.raw());
+        } else {
+            // Original path for distributed buffer input: use ExtractFlatSliceOp
+            rightBranchSlice = rewriter.createOrFold<VPUIP::ExtractFlatSliceOp>(
+                    appendLoc(baseLoc, "pseudo_dst_view_{0}", index), newRightBranch, viewMultiplier);
+        }
+
+        // Apply reshape and permute cast to match the concat buffer layout
+        auto normalizedShape = propagateReshapeCast(rewriter, rightBranchSlice, params.castOp, baseLoc,
                                                     printToString("right_{0}", index));
 
+        // Create ExtractFlatSliceOp on the CMX concat buffer
         auto dstView = rewriter.createOrFold<VPUIP::ExtractFlatSliceOp>(
                 appendLoc(baseLoc, "right_dst_view_{0}", index), dstBuffer, leftInputSize, params.rightInputSize);
 
-        auto copyShape = getShape(subViewOp->getResult(0)).toValues();
-        copyShape[params.newConcatDim] = params.rightInputSize;
-
+        // Create DDR→CMX copy
         return rewriter.create<VPUIP::CopyOp>(appendLoc(baseLoc, "right_copy_{0}", index), normalizedShape, dstView);
     }
 
@@ -3569,15 +3644,6 @@ private:
         return "OnSameAxisDDR";
     }
 
-    bool isSplitSupported(Dim newConcatDim, int64_t tilingDim) const override {
-        return newConcatDim.ind() == tilingDim;
-    }
-
-    bool isValidSegment(SmallVector<VPUIP::SubViewOp>&, SmallVector<VPUIP::CopyOp>&, Dim, int64_t,
-                        int64_t) const override {
-        return true;
-    }
-
     bool isValidSubview(SmallVector<VPUIP::SubViewOp>& subviews, Dim newConcatDim, int64_t leftConcatInputSize,
                         int64_t rightConcatInputSize) const override {
         for (auto subview : subviews) {
@@ -3586,12 +3652,9 @@ private:
             if (axis.size() != 1) {
                 return false;
             }
-            auto outShape = getShape(subview.getResult());
-            if (leftConcatInputSize + rightConcatInputSize != outShape[newConcatDim]) {
-                return false;
-            }
         }
-        return true;
+
+        return checkSubview(subviews, newConcatDim, leftConcatInputSize, rightConcatInputSize);
     }
 
     VPUIP::DistributedBufferType updateDistributedType(mlir::Value, mlir::Value, ShapeRef) const override {
@@ -3634,36 +3697,60 @@ private:
         auto dstBuffer = createNewConcatBuffer(rewriter, subViewOp, distributedCopy,
                                                takeOpLoc(origConcatOp, llvm::StringLiteral("buf_{0}"), index));
 
-        auto newConcatDim = params.newConcatDim;
-        // Concat on same axis, so must do manual strided access
-        auto srcOffset = Shape(parseIntArrayAttr<int64_t>(subViewOp.getStaticOffsets()));
-        auto origConcatDimSize = getShape(origConcatOp->getResult(0))[params.origConcatDim];
-        auto viewMultiplier = srcOffset[newConcatDim] / origConcatDimSize;
-        auto createViewBranch = [&](mlir::Value src, int64_t origDimSize, int64_t concatDimSize, int64_t dstOffsetVal,
-                                    int64_t srcBaseOffset, StringRef locSuffix) -> mlir::Value {
-            auto copyShape = getShape(subViewOp->getResult(0)).toValues();
-            copyShape[newConcatDim] = concatDimSize;
+        const auto newConcatDim = params.newConcatDim;
+        const auto srcOffset = Shape(parseIntArrayAttr<int64_t>(subViewOp.getStaticOffsets()));
+        const auto srcShape = Shape(parseIntArrayAttr<int64_t>(subViewOp.getStaticSizes()));
+        const auto origConcatDimSize = getShape(origConcatOp->getResult(0))[params.origConcatDim];
 
-            Shape srcOffset(SmallVector<int64_t>(copyShape.size(), 0));
-            srcOffset[newConcatDim] = origDimSize * viewMultiplier + srcBaseOffset;
+        auto createViewBranch = [&](mlir::Value src, int64_t origDimSize, int64_t dstOffsetVal, int64_t srcOffsetVal,
+                                    StringRef locSuffix, bool hasCopy = true) -> mlir::Value {
+            auto copyShape = getShape(subViewOp->getResult(0)).toValues();
+            copyShape[newConcatDim] = origDimSize;
+
+            Shape newSrcOffset(srcOffset);
+            newSrcOffset[newConcatDim] = srcOffsetVal;
 
             Shape dstOffset(SmallVector<int64_t>(copyShape.size(), 0));
             dstOffset[newConcatDim] = dstOffsetVal;
 
-            return createNewCopyBranch(rewriter, src, dstBuffer, copyShape, srcOffset, dstOffset,
-                                       origConcatOp->getLoc(), locSuffix, index);
+            if (hasCopy) {
+                return createNewCopyBranch(rewriter, src, dstBuffer, copyShape, newSrcOffset, dstOffset,
+                                           origConcatOp->getLoc(), locSuffix, index);
+            } else {
+                return rewriter.createOrFold<VPUIP::SubViewOp>(
+                        appendLoc(origConcatOp->getLoc(), "{0}_src_view_{1}", locSuffix, index), src, newSrcOffset,
+                        copyShape);
+            }
         };
 
-        auto newLeftViewBranch = createViewBranch(newLeftBranch, params.leftInputSize, params.leftConcatInputSize,
-                                                  /*dstOffsetVal=*/0, params.leftViewOffset, "left");
-        auto newRightViewBranch = createViewBranch(newRightBranch, params.rightInputSize, params.rightInputSize,
-                                                   params.leftConcatInputSize, /*srcOffset=*/0, "right");
+        const auto viewMultiplier = srcOffset[newConcatDim] / origConcatDimSize;
+        const auto viewRemainder = srcOffset[newConcatDim] % origConcatDimSize;
+        const auto leftBranchOffset = srcOffset[newConcatDim] - viewMultiplier * params.rightInputSize +
+                                      params.leftViewOffset + viewMultiplier * params.leftViewOffset;
+        const auto rightBranchOffset = viewMultiplier * params.rightInputSize;
+        const auto newLeftSize = srcShape[newConcatDim] - params.rightInputSize;
 
-        SmallVector<mlir::Value> concatInputs{newLeftViewBranch, newRightViewBranch};
-        auto newConcatOp = rewriter.create<VPUIP::ConcatViewOp>(
-                takeOpLoc(origConcatOp, llvm::StringLiteral("concat_{0}"), index), concatInputs, dstBuffer);
-        rewriter.replaceAllUsesWith(subViewOp->getResult(0), newConcatOp);
-        rewriter.eraseOp(subViewOp);
+        // see checkSubview
+        VPUX_THROW_UNLESS(viewRemainder < params.leftConcatInputSize,
+                          "Not supported case: Single SubView branch must be on the left branch");
+
+        if (viewRemainder + srcShape[newConcatDim] > params.leftConcatInputSize) {
+            // SubView crosses left branch and right branch
+            auto newLeftViewBranch = createViewBranch(newLeftBranch, newLeftSize,
+                                                      /*dstOffsetVal=*/0, leftBranchOffset, "left");
+            auto newRightViewBranch =
+                    createViewBranch(newRightBranch, params.rightInputSize, newLeftSize, rightBranchOffset, "right");
+
+            SmallVector<mlir::Value> concatInputs{newLeftViewBranch, newRightViewBranch};
+            auto newConcatOp = rewriter.create<VPUIP::ConcatViewOp>(
+                    takeOpLoc(origConcatOp, StringLiteral("concat_{0}"), index), concatInputs, dstBuffer);
+            rewriter.replaceOp(subViewOp, newConcatOp);
+        } else {
+            // SubView on the left branch
+            auto newLeftViewBranch = createViewBranch(newLeftBranch, srcShape[newConcatDim], /*dstOffsetVal=*/0,
+                                                      leftBranchOffset, "left", false);
+            rewriter.replaceOp(subViewOp, newLeftViewBranch);
+        }
     }
 };
 
@@ -3701,7 +3788,7 @@ void OptimizeConcatViewCopiesPass::safeRunOnFunc() {
     patterns.add<SplitUnbalancedDDRConcatOnSameAxisDDR>(&ctx, _log);
     patterns.add<ReuseConcatViewAsInput>(&ctx, _log);
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

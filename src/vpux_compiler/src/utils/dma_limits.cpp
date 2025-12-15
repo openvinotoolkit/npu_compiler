@@ -61,12 +61,42 @@ const EngineLimits NPU40XX_ENGINE_LIMITS_DEFAULT = {
                 DimLimits(SizeLimits(1, 0x10000), StrideLimits(0, 0xFFFFFFFF), {}),
                 /**/
         })};
+// Default limits for NPU50XX (no acceleration mode)
+const EngineLimits NPU50XX_ENGINE_LIMITS_DEFAULT = {
+        // Actual maximum transfer limit is 0xFFFFFFFF00000000
+        // Transfer limit based on individual dim limits would exceed 64-bit representation, but since all strides are
+        // 32-bit, the actual transfer limit is the one above.
+        // Limit to a "reasonable" value of 128 GB
+        TransferLimits(Byte(0), GB(128).to<Byte>() - Byte(1)),
+        // Minimum amount of dims is normally always 1.
+        // More often than not, size 0 transfers are acceptable, but even in this case, the transfer makes use of 1 dim.
+        DimCountLimits(1, 6),
+        // Limit max stride level at 2 until DMA lowering refactoring is completed (E#-149226)
+        StrideCountLimits(0, 2),
+        mlir::SmallVector({
+                /* 0 */
+                // First dim does not benefit from +1 to the actual value configured for the HW
+                DimLimits(SizeLimits(0, 0xFFFFFFFF), {}, {}),
+                /* 1 */
+                DimLimits(SizeLimits(1, 0x100000000), StrideLimits(0, 0xFFFFFFFF), {}),
+                /* 2 */
+                DimLimits(SizeLimits(1, 0x100000000), StrideLimits(0, 0xFFFFFFFF), {}),
+                /* 3 */
+                DimLimits(SizeLimits(1, 0x10000), StrideLimits(0, 0xFFFFFFFF), {}),
+                /* 4 */
+                DimLimits(SizeLimits(1, 0x10000), StrideLimits(0, 0xFFFFFFFF), {}),
+                /* 5 */
+                DimLimits(SizeLimits(1, 0x10000), StrideLimits(0, 0xFFFFFFFF), {}),
+                /**/
+        })};
 const EngineLimits& getEngineLimits(config::ArchKind arch) {
     switch (arch) {
     case config::ArchKind::NPU37XX:
         return NPU37XX_ENGINE_LIMITS_DEFAULT;
     case config::ArchKind::NPU40XX:
         return NPU40XX_ENGINE_LIMITS_DEFAULT;
+    case config::ArchKind::NPU50XX:
+        return NPU50XX_ENGINE_LIMITS_DEFAULT;
     default:
         return DEFAULT_ENGINE_LIMITS_DEFAULT;
     }

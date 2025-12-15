@@ -165,7 +165,9 @@ sw_params::DataType getDataTypeFromMlirType(mlir::Type type) {
         auto bitWidth = qType.getStorageTypeIntegralWidth();
         auto isQuantileType =
                 mlir::isa<mlir::quant::QuantileQuantizedType, mlir::quant::QuantileQuantizedPerAxisType>(qType);
-        auto isFloatStorage = mlir::isa<mlir::FloatType>(qType.getStorageType());
+        auto storageType = qType.getStorageType();
+        auto isFloatStorage = mlir::isa<mlir::FloatType>(storageType);
+
         switch (bitWidth) {
         case 16:
             if (!isQuantileType && !isFloatStorage) {
@@ -175,6 +177,13 @@ sw_params::DataType getDataTypeFromMlirType(mlir::Type type) {
         case 8:
             if (!isQuantileType && !isFloatStorage) {
                 return isSigned ? sw_params::DataType::NN_I8 : sw_params::DataType::NN_U8;
+            }
+            if (!isQuantileType && isFloatStorage) {
+                if (mlir::isa<mlir::Float8E4M3FNType>(storageType)) {
+                    return sw_params::DataType::NN_HF8;
+                } else if (mlir::isa<mlir::Float8E5M2Type>(storageType)) {
+                    return sw_params::DataType::NN_BF8;
+                }
             }
             break;
         case 4:

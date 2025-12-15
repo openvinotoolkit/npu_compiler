@@ -145,6 +145,9 @@ struct DefaultHWOptionsBase : mlir::PassPipelineOptions<DefaultHWOptionsBase>, p
     BoolOption enableVerticalFusionOutlining{*this, "vf-outlining", llvm::cl::desc("Enable vertical fusion outlining"),
                                              llvm::cl::init(true)};
 
+    BoolOption enableVFScheduleTrace{*this, "enable-vf-schedule-trace",
+                                     llvm::cl::desc("Enable vertical fusion scheduling trace"), llvm::cl::init(false)};
+
     BoolOption enableSCFTiling{*this, "scf-tiling", llvm::cl::desc("Enable tiling using SCF dialect"),
                                llvm::cl::init(false)};
 
@@ -273,6 +276,10 @@ struct DefaultHWOptionsBase : mlir::PassPipelineOptions<DefaultHWOptionsBase>, p
     BoolOption enableAdjustMemPermuteAroundOp{*this, "enable-adjust-mem-permute-around-op",
                                               llvm::cl::desc("Enable adjustment of MemPermute around operations."),
                                               llvm::cl::init(true)};
+
+    StrOption loopUnrollFactor{*this, "loop-unroll-factor",
+                               llvm::cl::desc("List of unroll factors for SCF loops to unroll by."),
+                               llvm::cl::init("1,1,1,1")};
 };
 
 //
@@ -308,6 +315,9 @@ struct MCAndTilingOptionsBase : mlir::PassPipelineOptions<MCAndTilingOptionsBase
 
     BoolOption enableVerticalFusionOutlining{*this, "vf-outlining", llvm::cl::desc("Enable vertical fusion outlining"),
                                              llvm::cl::init(false)};
+
+    BoolOption enableVFScheduleTrace{*this, "enable-vf-schedule-trace",
+                                     llvm::cl::desc("Enable vertical fusion scheduling trace"), llvm::cl::init(false)};
 
     BoolOption enableProfiling{*this, "profiling", llvm::cl::desc("Enable profiling"), llvm::cl::init(false)};
 
@@ -372,6 +382,10 @@ struct MCAndTilingOptionsBase : mlir::PassPipelineOptions<MCAndTilingOptionsBase
                                           "WLM enqueue barriers search algorithm at VPURT DISABLED. Use LCA based "
                                           "enqueue algorithm at VPUMI"))};
 
+    StrOption loopUnrollFactor{*this, "loop-unroll-factor",
+                               llvm::cl::desc("List of unroll factors for SCF loops to unroll by."),
+                               llvm::cl::init("1,1,1,1")};
+
     MCAndTilingOptionsBase() = default;
 
     template <class OtherOptions>
@@ -385,6 +399,7 @@ struct MCAndTilingOptionsBase : mlir::PassPipelineOptions<MCAndTilingOptionsBase
         vfOutliningInstanceThreshold = options.vfOutliningInstanceThreshold;
         vfOutliningTileThreshold = options.vfOutliningTileThreshold;
         enableVerticalFusionOutlining = options.enableVerticalFusionOutlining;
+        enableVFScheduleTrace = options.enableVFScheduleTrace;
         enableProfiling = options.enableProfiling;
         enableProfilingWithOutlining = options.enableProfilingWithOutlining;
         enableOutputPipelining = options.enableOutputPipelining;
@@ -397,6 +412,7 @@ struct MCAndTilingOptionsBase : mlir::PassPipelineOptions<MCAndTilingOptionsBase
         workloadManagementMode = options.workloadManagementMode;
         enableSCFTiling = options.enableSCFTiling;
         enableScfComputeOpsOutlining = options.enableSCFTiling;
+        loopUnrollFactor = options.loopUnrollFactor;
     }
 };
 
@@ -420,6 +436,8 @@ struct BackendCompilationOptionsBase : mlir::PassPipelineOptions<T> {
                              "experiments."),
             ::llvm::cl::init(WorkloadManagementMode::PWLM_V0_LCA),
             ::llvm::cl::values(
+                    clEnumValN(WorkloadManagementMode::FWLM_V1_PAGES, "FWLM_V1_PAGES",
+                               "Full WLM with split into pages"),
                     clEnumValN(WorkloadManagementMode::PWLM_V2_PAGES, "PWLM_V2_PAGES",
                                "Partial WLM with split into pages"),
                     clEnumValN(WorkloadManagementMode::PWLM_V1_BARRIER_FIFO, "PWLM_V1_BARRIER_FIFO",
@@ -493,25 +511,15 @@ struct BatchCompileOptionsAdapter {
 
 struct BatchCompilerOptionsAdapterView {
     static std::optional<BatchCompilerOptionsAdapterView> tryExtractFromString(std::string_view strOptions);
-    std::string inject(const std::string& originalStrOptions) const;
+    std::string injectInto(const std::string& originalStrOptions) const;
     const BatchCompileOptionsAdapter& get() const;
     std::string print() const;
-    struct Occurence {
-        std::string::size_type pos;
-        std::string::size_type length;
-
-        friend bool operator<(const Occurence& l, const Occurence& r) {
-            // sort by pos only
-            return l.pos < r.pos;
-        }
-    };
 
 private:
     BatchCompilerOptionsAdapterView() = default;
     using ScopeGuard = mlir::detail::PassOptions;
     std::unique_ptr<ScopeGuard> guard;
     std::unique_ptr<BatchCompileOptionsAdapter> optionDataPtr;
-    std::vector<std::optional<Occurence>> optionDataMemberViews;
 };
 
 struct DebatcherOptions : mlir::PassPipelineOptions<DebatcherOptions> {
@@ -523,6 +531,7 @@ struct DebatcherOptions : mlir::PassPipelineOptions<DebatcherOptions> {
 
     static std::unique_ptr<DebatcherOptions> create(const BatchCompileOptionsAdapter& options);
     static bool isAvailable(const BatchCompileOptionsAdapter& options);
+    static bool isExplicitlySpecified(const BatchCompileOptionsAdapter& options);
     static std::string getDefaultOptions();
     static std::string getDefaultDebatchInputCoeffPartitionsValue();
     std::string to_string() const;
@@ -536,6 +545,7 @@ struct BatchUnrollOptions : mlir::PassPipelineOptions<BatchUnrollOptions> {
     static std::unique_ptr<BatchUnrollOptions> create(const BatchCompileOptionsAdapter& options,
                                                       Logger log = Logger::global());
     static bool isAvailable(const BatchCompileOptionsAdapter& options);
+    static bool isExplicitlySpecified(const BatchCompileOptionsAdapter& options);
     static std::string getDefaultOptions();
 };
 

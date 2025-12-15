@@ -11,6 +11,7 @@
 #include "vpux/compiler/act_kernels/shave_binary_resources.h"
 #include "vpux/compiler/dialect/ELFNPU37XX/utils.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/ops.hpp"
+#include "vpux/compiler/dialect/VPURegMapped/types.hpp"
 #include "vpux/utils/core/scope_exit.hpp"
 
 using namespace vpux;
@@ -22,7 +23,7 @@ using namespace vpux;
 void vpux::VPUMI37XX::DeclareKernelTextOp::serialize(elf::writer::BinaryDataSection<uint8_t>& binDataSection) {
     auto kernel = getKernelPath();
 
-    const auto& kernelInfo = ShaveBinaryResources::getInstance();
+    const auto& kernelInfo = ShaveBinaryResourcesCache::getCache(getContext());
     const auto elfBlob = kernelInfo.getElf(kernel);
 
     auto secDataSizePair = vpux::ELFNPU37XX::getDataAndSizeOfElfSection(elfBlob, {".text"});
@@ -33,7 +34,7 @@ void vpux::VPUMI37XX::DeclareKernelTextOp::serialize(elf::writer::BinaryDataSect
 size_t vpux::VPUMI37XX::DeclareKernelTextOp::getBinarySize() {
     auto kernel = getKernelPath();
 
-    const auto& kernelInfo = ShaveBinaryResources::getInstance();
+    const auto& kernelInfo = ShaveBinaryResourcesCache::getCache(getContext());
     const auto elfBlob = kernelInfo.getElf(kernel);
 
     auto secDataSizePair = vpux::ELFNPU37XX::getDataAndSizeOfElfSection(elfBlob, {".text"});

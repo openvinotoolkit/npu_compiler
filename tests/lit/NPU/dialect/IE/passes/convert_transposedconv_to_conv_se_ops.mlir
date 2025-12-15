@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-transposed-conv-to-conv="enable-sep-transposed-conv=true" %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: func.func @DoNotConvertTransposedConvToConv
 // CHECK-SAME:    ([[INPUT:%.+]]: tensor<1x32x23x30xf16>)

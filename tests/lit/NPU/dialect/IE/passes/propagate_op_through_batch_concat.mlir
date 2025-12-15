@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --propagate-op-through-batch-concat %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @PropagateSoftmaxThroughBatchUnrolledMatmul
 func.func @PropagateSoftmaxThroughBatchUnrolledMatmul(%arg0: tensor<16x2xf32>, %arg1: tensor<16x2xf32>) -> tensor<2x16x2xf32> {
@@ -425,8 +425,8 @@ func.func @PropagateMultiply(%arg0: tensor<1x16x1x128xf16>, %arg1: tensor<1x16x1
     %gamma2 = const.Declare tensor<128xf16> = dense<2.000000e+00> : tensor<128xf16>
     %cst_mul = const.Declare tensor<f16> = dense<2.000000e+00> : tensor<f16>
 
-    %0 = IE.RMS(%arg0, %gamma1) {epsilon = 9.9999999747524271E-7 : f64} : tensor<1x16x1x128xf16>, tensor<128xf16> -> tensor<1x16x1x128xf16>
-    %1 = IE.RMS(%arg1, %gamma2) {epsilon = 9.9999999747524271E-7 : f64} : tensor<1x16x1x128xf16>, tensor<128xf16> -> tensor<1x16x1x128xf16>
+    %0 = IE.RMS(%arg0, %gamma1) {eps = 9.9999999747524271E-7 : f64} : tensor<1x16x1x128xf16>, tensor<128xf16> -> tensor<1x16x1x128xf16>
+    %1 = IE.RMS(%arg1, %gamma2) {eps = 9.9999999747524271E-7 : f64} : tensor<1x16x1x128xf16>, tensor<128xf16> -> tensor<1x16x1x128xf16>
     %2 = IE.Concat(%0, %1) {per_axis = #IE.Concat<axis = 0>} : tensor<1x16x1x128xf16>, tensor<1x16x1x128xf16> -> tensor<2x16x1x128xf16>
     %3 = IE.Multiply(%2, %cst_mul) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<2x16x1x128xf16>, tensor<f16> -> tensor<2x16x1x128xf16>
 
@@ -435,8 +435,8 @@ func.func @PropagateMultiply(%arg0: tensor<1x16x1x128xf16>, %arg1: tensor<1x16x1
     // CHECK-DAG:   [[GAMMA1:%.+]] = const.Declare tensor<128xf16> = dense<1.000000e+00>
     // CHECK-DAG:   [[GAMMA2:%.+]] = const.Declare tensor<128xf16> = dense<2.000000e+00>
     // CHECK-DAG:   [[CST_MUL:%.+]] = const.Declare tensor<f16> = dense<2.000000e+00>
-    // CHECK:       [[RMS0:%.+]] = IE.RMS([[INPUT_0]], [[GAMMA1]]) {epsilon = 9.9999999747524271E-7 : f64} : tensor<1x16x1x128xf16>, tensor<128xf16> -> tensor<1x16x1x128xf16>
-    // CHECK:       [[RMS1:%.+]] = IE.RMS([[INPUT_1]], [[GAMMA2]]) {epsilon = 9.9999999747524271E-7 : f64} : tensor<1x16x1x128xf16>, tensor<128xf16> -> tensor<1x16x1x128xf16>
+    // CHECK:       [[RMS0:%.+]] = IE.RMS([[INPUT_0]], [[GAMMA1]]) {eps = 9.9999999747524271E-7 : f64} : tensor<1x16x1x128xf16>, tensor<128xf16> -> tensor<1x16x1x128xf16>
+    // CHECK:       [[RMS1:%.+]] = IE.RMS([[INPUT_1]], [[GAMMA2]]) {eps = 9.9999999747524271E-7 : f64} : tensor<1x16x1x128xf16>, tensor<128xf16> -> tensor<1x16x1x128xf16>
     // CHECK:       [[MUL0:%.+]] = IE.Multiply([[RMS0]], [[CST_MUL]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x1x128xf16>, tensor<f16> -> tensor<1x16x1x128xf16>
     // CHECK:       [[MUL1:%.+]] = IE.Multiply([[RMS1]], [[CST_MUL]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x1x128xf16>, tensor<f16> -> tensor<1x16x1x128xf16>
     // CHECK:       [[CONCAT:%.+]] = IE.Concat([[MUL0]], [[MUL1]]) {per_axis = #IE.Concat<axis = 0 : i64>} : tensor<1x16x1x128xf16>, tensor<1x16x1x128xf16> -> tensor<2x16x1x128xf16>
@@ -451,8 +451,8 @@ func.func @NotPropagateMultiply(%arg0: tensor<1x16x1x128xf16>, %arg1: tensor<1x1
     %gamma1 = const.Declare tensor<128xf16> = dense<1.000000e+00> : tensor<128xf16>
     %cst_mul = const.Declare tensor<f16> = dense<2.000000e+00> : tensor<f16>
 
-    %0 = IE.RMS(%arg0, %gamma1) {epsilon = 9.9999999747524271E-7 : f64} : tensor<1x16x1x128xf16>, tensor<128xf16> -> tensor<1x16x1x128xf16>
-    %1 = IE.RMS(%arg1, %arg2) {epsilon = 9.9999999747524271E-7 : f64} : tensor<1x16x1x128xf16>, tensor<128xf16> -> tensor<1x16x1x128xf16>
+    %0 = IE.RMS(%arg0, %gamma1) {eps = 9.9999999747524271E-7 : f64} : tensor<1x16x1x128xf16>, tensor<128xf16> -> tensor<1x16x1x128xf16>
+    %1 = IE.RMS(%arg1, %arg2) {eps = 9.9999999747524271E-7 : f64} : tensor<1x16x1x128xf16>, tensor<128xf16> -> tensor<1x16x1x128xf16>
     %2 = IE.Concat(%0, %1) {per_axis = #IE.Concat<axis = 0>} : tensor<1x16x1x128xf16>, tensor<1x16x1x128xf16> -> tensor<2x16x1x128xf16>
     %3 = IE.Multiply(%2, %cst_mul) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<2x16x1x128xf16>, tensor<f16> -> tensor<2x16x1x128xf16>
 
@@ -460,8 +460,8 @@ func.func @NotPropagateMultiply(%arg0: tensor<1x16x1x128xf16>, %arg1: tensor<1x1
 
     // CHECK-DAG:   [[GAMMA1:%.+]] = const.Declare tensor<128xf16> = dense<1.000000e+00>
     // CHECK-DAG:   [[CST_MUL:%.+]] = const.Declare tensor<f16> = dense<2.000000e+00>
-    // CHECK:       [[RMS0:%.+]] = IE.RMS([[INPUT_0]], [[GAMMA1]]) {epsilon = 9.9999999747524271E-7 : f64} : tensor<1x16x1x128xf16>, tensor<128xf16> -> tensor<1x16x1x128xf16>
-    // CHECK:       [[RMS1:%.+]] = IE.RMS([[INPUT_1]], [[INPUT_2]]) {epsilon = 9.9999999747524271E-7 : f64} : tensor<1x16x1x128xf16>, tensor<128xf16> -> tensor<1x16x1x128xf16>
+    // CHECK:       [[RMS0:%.+]] = IE.RMS([[INPUT_0]], [[GAMMA1]]) {eps = 9.9999999747524271E-7 : f64} : tensor<1x16x1x128xf16>, tensor<128xf16> -> tensor<1x16x1x128xf16>
+    // CHECK:       [[RMS1:%.+]] = IE.RMS([[INPUT_1]], [[INPUT_2]]) {eps = 9.9999999747524271E-7 : f64} : tensor<1x16x1x128xf16>, tensor<128xf16> -> tensor<1x16x1x128xf16>
     // CHECK:       [[CONCAT:%.+]] = IE.Concat([[RMS0]], [[RMS1]]) {per_axis = #IE.Concat<axis = 0 : i64>} : tensor<1x16x1x128xf16>, tensor<1x16x1x128xf16> -> tensor<2x16x1x128xf16>
     // CHECK:       [[MUL:%.+]] = IE.Multiply([[CONCAT]], [[CST_MUL]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<2x16x1x128xf16>, tensor<f16> -> tensor<2x16x1x128xf16>
 

@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/recurrent.hpp"
 #include "vpux/compiler/dialect/VPU/IR/tiling_info.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 
 #include <mlir/IR/IRMapping.h>
 

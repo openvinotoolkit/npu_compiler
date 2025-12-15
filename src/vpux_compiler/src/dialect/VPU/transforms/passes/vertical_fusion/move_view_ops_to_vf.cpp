@@ -63,8 +63,8 @@ void MoveViewOpsToVFPass::safeRunOnFunc() {
         patterns.add<VPU::VF::v2::MoveViewOpsRewriter>(&ctx, _log);
     }
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(getOperation(), std::move(patterns),
-                                                        getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(
+                mlir::applyPatternsGreedily(getOperation(), std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

@@ -681,7 +681,8 @@ void OptimizeCopiesPass::safeRunOnFunc() {
     patterns.add<CopyToBlockArgument>(&ctx, aliasInfo, _log);
 
     auto func = getOperation();
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(
+            func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }
@@ -767,7 +768,8 @@ void MyTopDownPass::safeRunOnFunc() {
     auto func = getOperation();
     auto config = getDefaultGreedyRewriteConfig();
     config.useTopDownTraversal = true;
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), config))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(
+            func, std::move(patterns), config))) {
         signalPassFailure();
     }
 }
@@ -813,6 +815,40 @@ struct MyTopDownRewriter : mlir::OpRewritePattern<VPUIP::NCEClusterTaskOp> {
 For a more sophisticated example and reasoning of why this is important,
 consider reading through [MLIR's good practices about
 rewriters](./guides/mlir_good_practices.md#running-multiple-rewriters-within-one-pass).
+
+### Rewriter types
+
+There are multiple ways to apply pattern matching and rewriting (fastest to slowest): 
+- Walk Based Pattern Rewriting (Default choice)
+    - `collectOpsAndApplyPatterns` 
+- MLIR built in methods:
+    - `applyPatternsAndFoldGreedily`
+    - `applyPartialConversion`
+    - `applyFullConversion`
+
+Default choice should be walk based pattern rewriting and if it does not suit your case then other methods should be considered.  
+
+- `collectOpsAndApplyPatterns` Performs one IR walk, collecting (snapshotting) all operations whose types/interfaces match root of the patterns; ops created or modified later in the pass are not reconsidered. This API mimics pattern-based IR modification (uses `mlir::PatternRewriter`) but internally calls `mlir::Operation::walk()` which makes it faster than some of the MLIR's alternatives.
+
+- Limitations of `collectOpsAndApplyPatterns`:  
+    - It does not work when rewriters depend on each other or have ordering requirements.  
+    If pattern2 is applicable to ops created/modified by pattern1, pattern2 won't see new ops as ops won't be recollected after pattern application.
+    
+    - Not greedy. Does not work for repeatedly applicable patterns.
+    - No folding is applied.
+
+`collectOpsAndApplyPatterns` is best suited for passes with single rewriter or multiple rewriters with mutually exclusive patterns.  
+
+When ordering of the rewriters are important or updated view of graph is required `collectOpsAndApplyPatterns` can be called multiple times to enforce ordering of rewriters and to taking updated snapshot of the graph
+
+
+Only when walk based methods are not sufficient then `applyPatternsAndFoldGreedily` should be considered. 
+- [MLIR operation folding](https://mlir.llvm.org/docs/Canonicalization/#canonicalizing-with-the-fold-method) is required.
+- Patterns are dependent on each other and repeatedly applicable.
+
+More details can be found at [MLIR Pattern Driver Documentation](https://mlir.llvm.org/docs/PatternRewriter/#common-pattern-drivers)
+
+When patterns require heavy type conversion & require type converter and type propagation through the IR then `applyPartialConversion` and `applyFullConversion` can be used. [MLIR Dialect Conversion Documentation](https://mlir.llvm.org/docs/DialectConversion/) includes more details.
 
 ### Pass integration
 - Passes must be integrated as a part of a pipeline. Exceptions to this flow must be covered in comment and ticket

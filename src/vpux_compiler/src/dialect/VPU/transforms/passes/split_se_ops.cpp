@@ -7,7 +7,8 @@
 #include "vpux/compiler/dialect/IE/utils/roll_utils.hpp"
 
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/image.hpp"
 #include "vpux/compiler/dialect/VPU/IR/se_attributes.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/sparsity_constraint.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
@@ -19,6 +20,7 @@
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
@@ -320,14 +322,14 @@ void SplitSEOpsPass::safeRunOnFunc() {
     auto func = getOperation();
 
     mlir::RewritePatternSet patterns(&ctx);
-    if (_seOpsEnabled) {
-        patterns.add<SplitInterpolate>(&ctx, _log);
-        patterns.add<SplitRoll>(&ctx, _log);
+    if (!_seOpsEnabled) {
+        return;
     }
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
-    }
+    patterns.add<SplitInterpolate>(&ctx, _log);
+    patterns.add<SplitRoll>(&ctx, _log);
+
+    collectOpsAndApplyPatterns(func, std::move(patterns));
 }
 
 }  // namespace

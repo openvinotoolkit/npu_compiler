@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/VPUMI37XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/passes.hpp"
+#include "vpux/compiler/dialect/VPURegMapped/types.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 #include "vpux/utils/core/format.hpp"

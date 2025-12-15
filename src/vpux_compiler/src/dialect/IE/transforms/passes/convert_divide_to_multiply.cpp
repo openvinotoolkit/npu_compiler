@@ -290,6 +290,11 @@ mlir::LogicalResult NonConstDivisorRewriter::matchAndRewrite(IE::DivideOp origOp
         return mlir::failure();
     }
 
+    const auto outputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
+    if (!outputType.getShape().isStatic()) {
+        return mlir::failure();
+    }
+
     // InverseOp only support float type
     const auto divisorElemType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput2().getType()).getElementType();
     if (!mlir::isa<mlir::FloatType>(divisorElemType)) {
@@ -507,7 +512,7 @@ void ConvertDivideToMultiplyPass::safeRunOnFunc() {
     patterns.add<DequantizeDivideRewriter>(&ctx, _log);
     patterns.add<NonConstDivisorRewriter>(&ctx, _log, std::move(nonConstBenefitStrategy));
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

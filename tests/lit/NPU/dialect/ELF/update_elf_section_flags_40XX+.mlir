@@ -5,7 +5,7 @@
 
 
 // RUN: vpux-opt --vpu-arch=%arch% --update-ELF-section-flags %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 module @mainModule attributes {config.arch = #config.arch_kind<NPU40XX>} {
 
@@ -62,8 +62,8 @@ func.func @main() {
     // CHECK:   ELF.CreateSection @shave.params aligned(1024)
     // CHECK-SAME:    secFlags("SHF_ALLOC|VPU_SHF_PROC_SHAVE")
     ELF.CreateSection @shave.params aligned(1024) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
-      VPUASM.KernelParams @KernelParams_0_0 inputs([@io.NetworkInput0::@DeclareBuffer1, @buffer.Constant.0.constant::@Declare0]) outputs([@io.NetworkOutput0::@DeclareBuffer3]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("eltwise_min") < {kernel_params = []}>
-      VPUASM.KernelParams @KernelParams_0_1 inputs([]) outputs([]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("cache_op_flush_invalidate") < {kernel_params = [255]}>
+      VPUASM.KernelParams @KernelParams_0_0 inputs([@io.NetworkInput0::@DeclareBuffer1, @buffer.Constant.0.constant::@Declare0]) outputs([@io.NetworkOutput0::@DeclareBuffer3]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("eltwise_min") < { inputDimsBinaryVector = [], inputStridesBinaryVector = [], kernel_params = [], outputDimsBinaryVector = [], outputStridesBinaryVector = []}>
+      VPUASM.KernelParams @KernelParams_0_1 inputs([]) outputs([]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("cache_op_flush_invalidate") < { inputDimsBinaryVector = [], inputStridesBinaryVector = [], kernel_params = [255], outputDimsBinaryVector = [], outputStridesBinaryVector = []}>
     }
     // CHECK:   ELF.CreateSection @program.barrier
     // CHECK-SAME:    secFlags("SHF_ALLOC|SHF_EXECINSTR")

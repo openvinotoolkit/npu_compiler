@@ -3,10 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/ShaveCodeGen/passes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
+#include "vpux/compiler/dialect/core/transforms/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+#include <mlir/Dialect/Linalg/Passes.h>
 #include <mlir/Dialect/MemRef/Transforms/Passes.h>
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Transforms/Passes.h>
@@ -68,11 +71,11 @@ std::optional<double> getWeightsSparsityThreshold(const DoubleOption& weightsSpa
 void vpux::VPU::buildInitCompilerPipeline(mlir::OpPassManager& pm, const VPU::InitCompilerOptions& options,
                                           Logger log) {
     log.info("InitCompilerOptions:\n arch = {0}\n DPU groups = {1}\n DMA ports = {2}\n"
-             " compilation mode = {3}\n WLM rollback = {4}\n PPE version = {5}\n adaptive stripping = {6}\n aggressive "
-             "QDQ = {7}\n weights dynamic dequantization {8}\n",
+             " compilation mode = {3}\n PPE version = {4}\n adaptive stripping = {5}\n aggressive "
+             "QDQ = {6}\n weights dynamic dequantization {7}\n",
              options.arch, options.numberOfDPUGroups, options.numberOfDMAPorts, options.compilationMode,
-             options.wlmRollback, options.ppeVersion, options.enableAdaptiveStripping,
-             options.enableQDQOptimizationAggressive, options.enableWeightsDynamicDequantization);
+             options.ppeVersion, options.enableAdaptiveStripping, options.enableQDQOptimizationAggressive,
+             options.enableWeightsDynamicDequantization);
 
     pm.addPass(VPU::createInitResourcesPass(options, log));
     pm.addPass(VPU::createSetupPipelineOptionsPass(options, log));
@@ -146,6 +149,10 @@ void VPU::registerVPUPipelines() {
                                                        [](mlir::OpPassManager& pm, const VPU::TilingOptions& options) {
                                                            VPU::buildVFPipeline(pm, options);
                                                        });
+
+    mlir::PassPipelineRegistration<>("shavecodegen-vpu", "Shavecodegen specific passes", [](mlir::OpPassManager& pm) {
+        VPU::buildShaveCodeGenPipeline(pm);
+    });
 }
 
 void vpux::VPU::buildTilingPipeline(mlir::OpPassManager& pm, const VPU::TilingOptions& options, Logger log) {
@@ -207,13 +214,29 @@ void vpux::VPU::buildTilingPipeline(mlir::OpPassManager& pm, const VPU::TilingOp
 // Scf Compute Ops outlining Pipeline
 //
 
-void vpux::VPU::buildScfComputeOpsOutliningPipeline(mlir::OpPassManager& pm, Logger log) {
+void vpux::VPU::buildScfComputeOpsOutliningPipeline(mlir::OpPassManager& pm, const vpux::StrOption& loopUnrollFactor,
+                                                    Logger log) {
+    const auto grc = getDefaultGreedyRewriteConfig();
+
     pm.addPass(VPU::createSCFFuseLastViewLikeOpPass(log));
     pm.addPass(VPU::createConvertVPUOpsToUpstreamOpsPass(log));
     pm.addPass(VPU::createRestorePadAttrAfterSCFTilingPass(log));
+    pm.addPass(mlir::createCanonicalizerPass(grc));
+
     pm.addPass(VPU::createScfComputeOpsOutliningPass(log));
     pm.addPass(VPU::createAdjustBlockSizeForScfTilingPass(log));
     pm.addPass(VPU::createConvertDynamicToStaticKernelsPass(log));
+
+    if (loopUnrollFactor.hasValue() && !loopUnrollFactor.getValue().empty()) {
+        pm.addPass(VPU::createUnrollSCFLoopPass(loopUnrollFactor.getValue(), log));
+        pm.addPass(mlir::createCanonicalizerPass(grc));
+        pm.addPass(mlir::createCSEPass());
+    }
+
+    pm.addPass(Core::createPackNestedModulesPass(log));
+    pm.addNestedPass<mlir::ModuleOp>(Core::createAddNetInfoToModulePass(log, true));
+    pm.addPass(VPU::createCloneReservedResourcesFromTopModulePass(log));
+    pm.addPass(VPU::createFinalizeComputeFunctionBoundariesPass(log));
 }
 
 //
@@ -239,7 +262,8 @@ void vpux::VPU::buildVFPipeline(mlir::OpPassManager& pm, const VPU::TilingOption
         const auto grc = getDefaultGreedyRewriteConfig();
         pm.addPass(mlir::createCanonicalizerPass(grc));
     }
-    pm.addPass(VPU::createVfTilingPass(options.enableVerticalFusionPipelining, options.workloadManagementMode, log));
+    pm.addPass(VPU::createVfTilingPass(options.enableVerticalFusionPipelining, options.enableVFScheduleTrace,
+                                       options.workloadManagementMode, log));
 }
 
 void vpux::VPU::buildSMPipeline(mlir::OpPassManager& pm, const vpux::MCAndTilingOptionsBase& options, Logger log) {
@@ -270,4 +294,14 @@ void vpux::VPU::buildSMPipeline(mlir::OpPassManager& pm, const vpux::MCAndTiling
     pm.addPass(VPU::createEnsureNCEOpsSizeRequirementsPass(/*enableOutputEnsurance=*/true,
                                                            /*enableDequantWeightEnsuranceBeforeStrategy=*/false,
                                                            /*skipNonConvOC=*/false, log));
+}
+
+//
+// ShaveCodeGen
+//
+
+void vpux::VPU::buildShaveCodeGenPipeline(mlir::OpPassManager& pm) {
+    pm.addPass(ShaveCodeGen::createFlattenEltwiseKernelPass());
+    pm.addPass(ShaveCodeGen::createLinalgTileAndFuseSwLayersPass());
+    pm.addPass(mlir::createLinalgGeneralizeNamedOpsPass());
 }

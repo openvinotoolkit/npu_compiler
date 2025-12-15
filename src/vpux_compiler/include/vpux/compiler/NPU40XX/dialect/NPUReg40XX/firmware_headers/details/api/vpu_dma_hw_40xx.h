@@ -299,7 +299,7 @@ typedef struct {
     uint64_t axi_user_bits_cfg : 2;                 // Configuration for AXI User Bits
     uint64_t hwp_id_en : 1;                         // Enable use of SW provided ID for HW profiling
     uint64_t hwp_id : 12;                           // ID for HW profiling (if feature is set)
-    uint64_t reserved : 1;
+    uint64_t hwp_skip : 1;                          // skip hw log generation of given descriptor (VPU5+ only)
     uint64_t dynamic_task_en : 1;                   // Enable Dynamic tasks
     uint64_t ptr_wr_en : 1;                         // Enable Descriptor Pointer Write
 } DmaConfigFields;

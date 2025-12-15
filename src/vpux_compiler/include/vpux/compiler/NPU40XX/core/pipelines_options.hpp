@@ -29,8 +29,6 @@ struct DefaultHWOptionsDeviceBase : public virtual vpux::DefaultHWOptionsBase, p
                                                llvm::cl::desc("Enable conversion of certain types to palletized LUT"),
                                                llvm::cl::init(true)};
 
-    BoolOption enableM2I{*this, "enable-m2i", llvm::cl::desc("Enable M2I passes"), llvm::cl::init(false)};
-
     BoolOption enableExplicitDistributionInfoAttr{
             *this, "enable-explicit-distributed-attr",
             llvm::cl::desc("Enable DistributionInfoAttr with explicit per cluster memory/compute shapes & offsets"),

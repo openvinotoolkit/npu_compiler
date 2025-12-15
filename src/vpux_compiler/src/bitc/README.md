@@ -23,7 +23,9 @@ cd to validation/build/
 - ```./bitc [config_file_path]```
 - **[config_file_path]** - a file with the configuration for the test. Contains the following
     - **arch_type** - architecture type - can be NPU27, NPU4
+      - or NPU5
     - **data_type** - data type of data (either u8 or fp16)
+    - **sparse_mode_enable** - can be true or false (supported from NPU5)
     - **weight_compress_enable** - can be true or false, false for activation compression (supported from NPU4)
     - **bypass_compression** - can be true or false
     - **mode_fp16_enable** - can be true or false (supported from NPU4)
@@ -34,9 +36,12 @@ cd to validation/build/
     - **compressed_data** - list with the compressed dataset
         - This can contain ranges like: file[1-10].bin which resolves to file1.bin file2.bin ... file10.bin
     - **bitmap_data_path** - path to bitmap dataset 
+      - required when sparse_mode_enabled = true
     - **bitmap_data** - list with the bitmap dataset
       - This can contain ranges like: file[1-10].bin which resolves to file1.bin file2.bin ... file10.bin
+      - required when sparse_mode_enabled = true
     - **sparse_block_size** - a number divisible by 16 
+      - required when sparse_mode_enabled = true
 
 ## Ref-data
 

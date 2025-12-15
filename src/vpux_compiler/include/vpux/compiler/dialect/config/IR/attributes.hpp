@@ -9,6 +9,8 @@
 #include <mlir/IR/Attributes.h>
 #include <mlir/IR/BuiltinOps.h>
 
+#include <optional>
+
 //
 // Generated
 //
@@ -20,6 +22,9 @@
 
 namespace vpux {
 namespace config {
+
+std::optional<config::Platform> getPlatform(mlir::Operation* op);
+config::ArchKind getArch(config::Platform platform);
 
 //
 // Resource kind value getter

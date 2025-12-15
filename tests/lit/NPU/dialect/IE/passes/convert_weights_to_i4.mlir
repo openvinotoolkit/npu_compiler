@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-weights-to-i4 --canonicalize %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 !qElemType = !quant.uniform<i4<-8:7>:f16:0, {0.010680671751968504,0.0081200787401574797,0.010596087598425197}>
 !qElemType1 = !quant.uniform<u4<0:15>:f16:0, {0.010680671751968504:8,0.0081200787401574797:8,0.010596087598425197:8}>

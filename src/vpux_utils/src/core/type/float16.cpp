@@ -143,13 +143,46 @@ vpux::type::float16::operator float() const {
     return f_val;
 }
 
+bool vpux::type::float16::operator==(const vpux::type::float16& other) const {
+    // float16 sign
+    constexpr uint16_t smask_16 = 0x8000;
+    // float16 exp
+    constexpr uint16_t emask_16 = 0x7C00;
+    // float16 fraction
+    constexpr uint16_t fmask_16 = 0x03FF;
+    // float16 exp all 1
+    constexpr uint16_t exp_all_1s = 0x7C00;
+
+    // Return true if the values are zero, irrespective of their sign
+    if (vpux::type::iszero(*this) && vpux::type::iszero(other)) {
+        return true;
+    }
+
+    // check for NaNs and Infs
+    const bool this_exp_all_1s = (this->to_bits() & emask_16) == exp_all_1s;
+    const bool other_exp_all_1s = (other.to_bits() & emask_16) == exp_all_1s;
+    if (this_exp_all_1s && other_exp_all_1s) {
+        const auto frac_sum = (this->to_bits() & fmask_16) + (other.to_bits() & fmask_16);
+        // when frac_sum is 0, both this && other are Infs -> compare by sign
+        // otherwise: definitely 'false'
+        return (frac_sum == 0) ? (this->to_bits() & smask_16) == (other.to_bits() & smask_16) : false;
+    }
+
+    return this->to_bits() == other.to_bits();
+}
+
+bool vpux::type::iszero(float16 x) {
+    // Sign doesn't matter, fraction and exp are zero
+    return (x.to_bits() & 0x7FFF) == 0x0000;
+}
+
 bool std::isnan(vpux::type::float16 x) {
-    // Sign doesn't matter, frac not zero (infinity)
+    // Sign doesn't matter, fraction is not zero (NaN)
     return (x.to_bits() & 0x7FFF) > 0x7c00;
 }
 
 bool std::isinf(vpux::type::float16 x) {
-    // Sign doesn't matter, frac not zero (infinity)
+    // Sign doesn't matter, fraction is zero (infinity)
     return (x.to_bits() & 0x7FFF) == 0x7c00;
 }
 

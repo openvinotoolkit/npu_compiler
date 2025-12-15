@@ -67,6 +67,91 @@ std::optional<mlir::Type> vpux::Const::inferElemTypeAffineReshape(ShapeRef input
             perAxisQType.getStorageTypeMin(), perAxisQType.getStorageTypeMax());
 }
 
+std::optional<mlir::Type> vpux::Const::backInferElemTypeAffineReshape(
+        ShapeRef inShape, mlir::Type outputElemType, const SmallVector<SmallVector<int64_t>>& dimMapping,
+        ArrayRef<int64_t> shapeValue) {
+    auto perAxisType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(outputElemType);
+    if (perAxisType == nullptr) {
+        return outputElemType;
+    }
+
+    const auto outAxis = static_cast<int64_t>(perAxisType.getQuantizedDimension());
+    if (shapeValue[outAxis] == 1) {
+        // Corner case: if output quantization axis has 1 value, the quantization is actually
+        // per tensor; don't propagate, special handling might be needed.
+        return std::nullopt;
+    }
+
+    // Find input indices that contain the output quantization axis.
+    // There are 2 possible scenarios:
+    //    1. in_axis = out_quant_axis * other_dim_val0 * other_dim_val1 * ...
+    //    2. out_quant_axis = in_dim_val0 * in_dim_val1 * ...
+    // For propagation to occur, we must find input axis in_quant_axis, such that:
+    //    in_shape[in_quant_axis] = out_shape[out_quant_axis]
+    // Therefore, in the 2 scenarios above we need:
+    //    1. other_dim_val0 * other_dim_val1 * ... = 1
+    //    2. only one of in_dim_val0, in_dim_val1 * ... can be != 1
+    SmallVector<int64_t> inNonOneIndices;
+    for (auto inIdx : irange(inShape.size())) {
+        const auto inDimVal = inShape[Dim(inIdx)];
+        // Skip 1 values for input, they will not be the input quantization axis
+        if (inDimVal == 1) {
+            continue;
+        }
+
+        if (llvm::find(dimMapping[inIdx], outAxis) != dimMapping[inIdx].end()) {
+            // Collect all output dims that make up the input dim with out_quant_axis in the mapping
+            // Equivalent to collecting other_dim_val0, other_dim_val1 ...
+            SmallVector<int64_t> mappedShape;
+            std::transform(dimMapping[inIdx].begin(), dimMapping[inIdx].end(), std::back_inserter(mappedShape),
+                           [&shapeValue](auto oIdx) {
+                               return shapeValue[oIdx];
+                           });
+
+            // Ensures that the output sub-shape has the same number of elements as in_shape[in_quant_axis] in
+            // total. This ensures that we don't fuse the q dimension with other dimensions that are >1.
+            if (std::accumulate(mappedShape.begin(), mappedShape.end(), 1, std::multiplies{}) != inDimVal) {
+                return std::nullopt;
+            }
+
+            // We know the product of the mapped shape is in_shape[in_quant_axis] and then try to find the single
+            // dimension that is in_shape[in_quant_axis]. If we can find it, we automatically know that all other
+            // output dimensions are 1.
+            if (llvm::find(mappedShape, inDimVal) == mappedShape.end()) {
+                return std::nullopt;
+            }
+
+            // Collect all input indices that contain the outAxis in their mapping and are != 1
+            // Equivalent to collecting in_dim_val0, in_dim_val1 ...
+            inNonOneIndices.push_back(static_cast<int64_t>(inIdx));
+        }
+    }
+
+    // If there is more than one non-one input index:
+    //    1. Cannot have more than 1 input index, as we are "merging" output dims into one input dim.
+    //    2. There are more than one input dims != 1.
+    //  We cannot propagate the quant axis up.
+    if (inNonOneIndices.size() != 1) {
+        return std::nullopt;
+    }
+
+    const auto qInAxis = inNonOneIndices.front();
+    if (const auto perAxisQuantileQType =
+                mlir::dyn_cast_or_null<mlir::quant::QuantileQuantizedPerAxisType>(outputElemType)) {
+        return mlir::quant::QuantileQuantizedPerAxisType::get(
+                perAxisQuantileQType.getFlags(), perAxisQuantileQType.getStorageType(),
+                perAxisQuantileQType.getQuantileType(), perAxisQuantileQType.getExpressedType(),
+                perAxisQuantileQType.getQuantiles(), perAxisQuantileQType.getScales(),
+                perAxisQuantileQType.getZeroPoints(), static_cast<int32_t>(qInAxis),
+                perAxisQuantileQType.getStorageTypeMin(), perAxisQuantileQType.getStorageTypeMax());
+    }
+
+    return mlir::quant::UniformQuantizedPerAxisType::get(
+            perAxisType.getFlags(), perAxisType.getStorageType(), perAxisType.getExpressedType(),
+            perAxisType.getScales(), perAxisType.getZeroPoints(), static_cast<int32_t>(qInAxis),
+            perAxisType.getStorageTypeMin(), perAxisType.getStorageTypeMax());
+}
+
 std::optional<vpux::DimsOrder> vpux::Const::inferAffineReshapeOutputLayout(const DimArr& inPerm,
                                                                            mlir::ArrayAttr dimMapAttr) {
     VPUX_THROW_UNLESS(dimMapAttr != nullptr, "dimMapAttr is nullptr");

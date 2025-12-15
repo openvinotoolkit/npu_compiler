@@ -157,8 +157,13 @@ mlir::LogicalResult insertInvBlockArgs(VPUASM::DPUInvariantOp op, const Logger& 
 
 namespace vpux {
 namespace VPUIPDPU {
-DPUInvariantRewriter::DPUInvariantRewriter(mlir::MLIRContext* ctx, Logger log, ELF::SymbolReferenceMap& symRefMap)
-        : mlir::OpRewritePattern<VPUASM::DPUInvariantOp>(ctx), _log(log), _symRefMap(symRefMap) {
+DPUInvariantRewriter::DPUInvariantRewriter(
+        mlir::MLIRContext* ctx, Logger log, ELF::SymbolReferenceMap& symRefMap,
+        VPURegMapped::NPU5PPEBackwardsCompatibilityMode npu5PPEBackwardsCompatibilityMode)
+        : mlir::OpRewritePattern<VPUASM::DPUInvariantOp>(ctx),
+          _log(log),
+          _symRefMap(symRefMap),
+          _npu5PPEBackwardsCompatibilityMode(npu5PPEBackwardsCompatibilityMode) {
     setDebugName("DPUInvariant_VPUIPDPURewriter");
 }
 mlir::LogicalResult DPUInvariantRewriter::matchAndRewrite(VPUASM::DPUInvariantOp op,
@@ -170,7 +175,7 @@ mlir::LogicalResult DPUInvariantRewriter::matchAndRewrite(VPUASM::DPUInvariantOp
             op.getWeightTableScaleAttr(), op.getSprLookupTableAttr(), op.getPalletLookupTableAttr(), op.getOutputAttr(),
             op.getOutputSparsityMapAttr(), op.getProfilingDataAttr(), op.getIsZeroOffsetWeightsTableAttr(),
             op.getMaxPerXyAttr(), op.getMinPerXyAttr(), op.getMinMaxPerTensorAttr(), op.getDynamicSequenceLengthAttr(),
-            op.getDynamicScaleConfigAttr(), op.getNceTaskTypeAttr(), op.getIsContinuedAttr());
+            op.getNceTaskTypeAttr(), op.getIsContinuedAttr());
 
     auto& invRegion = inv.getRegion();
     auto invBlock = rewriter.createBlock(&invRegion);
@@ -197,7 +202,10 @@ mlir::LogicalResult DPUInvariantRewriter::matchAndRewrite(VPUASM::DPUInvariantOp
         if (insertEntryBlock<VPUIPDPU::IDUCfgOp>(rewriter, invBlock, op.getLoc(), _log).failed()) {
             return mlir::failure();
         }
-        if (dpuInvariantExpandIface.expandIDUConfig(rewriter, _log, invBlock, invBlockArgsPos, _symRefMap).failed()) {
+        if (dpuInvariantExpandIface
+                    .expandIDUConfig(rewriter, _log, invBlock, invBlockArgsPos, _symRefMap,
+                                     _npu5PPEBackwardsCompatibilityMode)
+                    .failed()) {
             return mlir::failure();
         }
         if (insertEntryBlock<VPUIPDPU::MPECfgOp>(rewriter, invBlock, op.getLoc(), _log).failed()) {
@@ -210,7 +218,10 @@ mlir::LogicalResult DPUInvariantRewriter::matchAndRewrite(VPUASM::DPUInvariantOp
         if (insertEntryBlock<VPUIPDPU::PPECfgOp>(rewriter, invBlock, op.getLoc(), _log).failed()) {
             return mlir::failure();
         }
-        if (dpuInvariantExpandIface.expandPPEConfig(rewriter, _log, invBlock, invBlockArgsPos, _symRefMap).failed()) {
+        if (dpuInvariantExpandIface
+                    .expandPPEConfig(rewriter, _log, invBlock, invBlockArgsPos, _symRefMap,
+                                     _npu5PPEBackwardsCompatibilityMode)
+                    .failed()) {
             return mlir::failure();
         }
         if (insertEntryBlock<VPUIPDPU::ODUCfgOp>(rewriter, invBlock, op.getLoc(), _log).failed()) {

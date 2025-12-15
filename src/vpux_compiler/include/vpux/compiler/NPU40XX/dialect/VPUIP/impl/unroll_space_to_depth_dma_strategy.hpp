@@ -9,13 +9,13 @@
 
 namespace vpux::VPUIP::arch40xx {
 
-class UnrollSpaceToDepthDMAStrategy : public IGreedilyPassStrategy {
+class UnrollSpaceToDepthDMAStrategy : public IIterativeWalkPassStrategy {
 public:
-    UnrollSpaceToDepthDMAStrategy(int64_t dmaPortCount);
-
-    void addPatterns(mlir::RewritePatternSet& patterns, Logger& log) const final;
+    UnrollSpaceToDepthDMAStrategy(mlir::MLIRContext* ctx, int64_t dmaPortCount);
+    void addPatterns(SmallVector<mlir::RewritePatternSet>& patterns, Logger& log) const final;
 
 private:
+    mlir::MLIRContext* _ctx;
     int64_t _dmaPortCount;
 };
 

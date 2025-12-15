@@ -4,7 +4,9 @@
 //
 
 #include "vpux/compiler/utils/dilated_utils.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/core/layers.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 
 using namespace vpux;

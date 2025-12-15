@@ -5,7 +5,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --move-convert-around-viewlike-ops %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -99,6 +99,7 @@ func.func @NotMoveConvertAfterPermuteCastForNonDMAConvert(%arg0: tensor<1x16x2x3
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @MoveConvertAfterShapeCastMultipleUsers
+// CHECK-SAME:     ([[INPUT:%.+]]: tensor<1x32x8x8xf32, {order = #NHWC}>)
 func.func @MoveConvertAfterShapeCastMultipleUsers(%arg0: tensor<1x32x8x8xf32, {order = #NHWC}>) -> (tensor<1x32x8x8xf16, {order = #NHWC}>, tensor<1x32x8x8xf16, {order = #NHWC}>) {
     %0 = VPU.Convert(%arg0) {dstElemType = f16} : tensor<1x32x8x8xf32, {order = #NHWC}> -> tensor<1x32x8x8xf16, {order = #NHWC}>
     %1 = VPU.ShapeCast {shape = [1, 32, 8, 8]} inputs(%0 : tensor<1x32x8x8xf16, {order = #NHWC}>) -> tensor<1x32x8x8xf16, {order = #NHWC}>
@@ -121,9 +122,10 @@ func.func @MoveConvertAfterShapeCastMultipleUsers(%arg0: tensor<1x32x8x8xf32, {o
 
     return %2, %3 : tensor<1x32x8x8xf16, {order = #NHWC}>, tensor<1x32x8x8xf16, {order = #NHWC}>
 
+    //CHECK: [[SHAPECAST:%.*]] = VPU.ShapeCast {shape = [1, 32, 8, 8]} inputs([[INPUT]] : tensor<1x32x8x8xf32, {order = #NHWC}>) -> tensor<1x32x8x8xf32, {order = #NHWC}>
+    //CHECK: [[CONVERT:%.*]] = VPU.Convert([[SHAPECAST]]) {dstElemType = f16}
     //CHECK: [[WEIGHT_TABLE:%.*]] = const.Declare tensor<32x1x1x4xsi32>
 
-    //CHECK: [[CONVERT:%.*]] = VPU.Convert(%arg0) {dstElemType = f16}
     //CHECK: [[MP1:%.*]] = VPU.NCE.MaxPool([[CONVERT]], [[WEIGHT_TABLE]] )
     //CHECK: [[MP2:%.*]] = VPU.NCE.MaxPool([[CONVERT]], [[WEIGHT_TABLE]] )
 }

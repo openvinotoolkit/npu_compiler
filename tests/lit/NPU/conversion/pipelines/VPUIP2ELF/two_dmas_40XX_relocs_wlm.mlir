@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values=true" --lower-VPUIP-to-ELF %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: dev-build && arch-NPU40XX
 
 module @OneDMAWithoutAttributes {
     net.NetworkInfo entryPoint : @main inputsInfo : {

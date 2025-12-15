@@ -8,7 +8,6 @@
 
 using namespace ov::test::utils;
 namespace ov {
-
 namespace test {
 class ExperimentalDetectronROIFeatureExtractorLayerTestCommon :
         public ExperimentalDetectronROIFeatureExtractorLayerTest,
@@ -50,8 +49,18 @@ TEST_P(ExperimentalDetectronROIFeatureExtractorLayerTestCommon, NPU4000_SW) {
     run(Platform::NPU4000);
 }
 
-}  // namespace test
+// [E#154893] Tests are not functional on L0.
+TEST_P(ExperimentalDetectronROIFeatureExtractorLayerTestCommon, DISABLED_NPU5010_SW) {
+    const auto type = std::get<5>(GetParam());
 
+    // adjusted for differences when rounding to fp16
+    if (type == ov::element::f16) {
+        abs_threshold = 0.05f;
+    }
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
+}  // namespace test
 }  // namespace ov
 
 using namespace ov::test;

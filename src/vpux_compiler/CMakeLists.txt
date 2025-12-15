@@ -57,7 +57,7 @@ add_subdirectory(tblgen)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 include_directories(SYSTEM ${CMAKE_CURRENT_BINARY_DIR}/include)
-# ELF schema is used in tblgen and therefore in entire compiler
+# ELF is used in tblgen and therefore in entire compiler
 include_directories(
     ${PROJECT_BINARY_DIR}/${gen_base_dst_include_dir}/dialect/VPUIP/generated
     $<TARGET_PROPERTY:flatbuffers,INTERFACE_INCLUDE_DIRECTORIES>

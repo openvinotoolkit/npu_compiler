@@ -19,8 +19,10 @@
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 
 #include <mlir/Support/LogicalResult.h>
+#include <mlir/Transforms/WalkPatternRewriteDriver.h>
 
 using namespace vpux;
 
@@ -43,8 +45,8 @@ SmallVector<mlir::PatternBenefit> benefitLevels = getBenefitLevels(levelCount);
 
 class FoldConvStrideKernel final : public mlir::OpRewritePattern<IE::ConvolutionOp> {
 public:
-    FoldConvStrideKernel(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
-            : mlir::OpRewritePattern<IE::ConvolutionOp>(ctx, benefit), _log(log) {
+    FoldConvStrideKernel(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::ConvolutionOp>(ctx), _log(log) {
     }
 
 public:
@@ -132,8 +134,7 @@ mlir::LogicalResult FoldConvStrideKernel::matchAndRewrite(IE::ConvolutionOp conv
 
 class AdjustConvShape final : public mlir::OpRewritePattern<IE::ConvolutionOp> {
 public:
-    AdjustConvShape(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
-            : mlir::OpRewritePattern<IE::ConvolutionOp>(ctx, benefit), _log(log) {
+    AdjustConvShape(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::ConvolutionOp>(ctx), _log(log) {
     }
 
 public:
@@ -468,8 +469,8 @@ std::pair<int64_t, int64_t> getAdjustHeightWidth(int64_t height, int64_t width, 
 
 class AdjustDWConvShape final : public mlir::OpRewritePattern<IE::GroupConvolutionOp> {
 public:
-    AdjustDWConvShape(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
-            : mlir::OpRewritePattern<IE::GroupConvolutionOp>(ctx, benefit), _log(log) {
+    AdjustDWConvShape(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::GroupConvolutionOp>(ctx), _log(log) {
     }
 
 public:
@@ -572,14 +573,25 @@ private:
 void AdjustConvolutionShapePass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
+    {
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.add<FoldConvStrideKernel>(&ctx, _log);
+
+        collectOpsAndApplyPatterns(func, std::move(patterns));
+    }
+
+    {
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.add<AdjustConvShape>(&ctx, _log);
+        patterns.add<AdjustDWConvShape>(&ctx, _log);
+
+        collectOpsAndApplyPatterns(func, std::move(patterns));
+    }
 
     mlir::RewritePatternSet patterns(&ctx);
-    patterns.add<FoldConvStrideKernel>(&ctx, benefitLevels[0], _log);
-    patterns.add<AdjustConvShape>(&ctx, benefitLevels[1], _log);
-    patterns.add<AdjustDWConvShape>(&ctx, benefitLevels[1], _log);
     IE::ConcatOp::getCanonicalizationPatterns(patterns, &ctx);
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

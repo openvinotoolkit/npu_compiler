@@ -3,10 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 
 using namespace vpux;
@@ -23,20 +23,8 @@ mlir::LogicalResult vpux::VPU::SubtractOp::inferReturnTypes(mlir::MLIRContext* c
         return mlir::failure();
     }
 
-    const auto in1Type = mlir::cast<vpux::NDTypeInterface>(subtract.getInput1().getType());
-    const auto in2Type = mlir::cast<vpux::NDTypeInterface>(subtract.getInput2().getType());
-
-    const auto outShapeRes = IE::broadcastEltwiseShape(in1Type.getShape().raw(), in2Type.getShape().raw(),
-                                                       subtract.getAutoBroadcast(), loc);
-    if (mlir::failed(outShapeRes)) {
-        return mlir::failure();
-    }
-    auto outputType = mlir::RankedTensorType::get(outShapeRes.value(), in1Type.getElementType(),
-                                                  createTensorAttrFromType(in1Type));
-
-    inferredReturnTypes.push_back(outputType);
-
-    return mlir::success();
+    return inferEltwiseReturnTypes(inferredReturnTypes, loc, subtract.getInput1(), subtract.getInput2(),
+                                   subtract.getAutoBroadcast());
 }
 
 //

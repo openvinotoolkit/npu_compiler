@@ -12,6 +12,7 @@
 #include "vpux/compiler/act_kernels/shave_binary_resources.h"
 #include "vpux/compiler/dialect/ELFNPU37XX/utils.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/ops.hpp"
+#include "vpux/compiler/dialect/VPURegMapped/types.hpp"
 #include "vpux/utils/core/scope_exit.hpp"
 
 using namespace vpux;
@@ -23,7 +24,7 @@ using namespace vpux;
 uint32_t vpux::VPUMI37XX::DeclareKernelEntryOp::getKernelEntry() {
     auto kernel = getKernelPath();
 
-    const auto& kernelInfo = ShaveBinaryResources::getInstance();
+    const auto& kernelInfo = ShaveBinaryResourcesCache::getCache(getContext());
     const auto elfBlob = kernelInfo.getElf(kernel);
 
     auto accessor = elf::DDRAccessManager<elf::DDRAlwaysEmplace>(elfBlob.data(), elfBlob.size());

@@ -97,7 +97,7 @@ mlir::LogicalResult configureDataReuse(const Logger& log, ODUConfig::DataReuse& 
         config.activationReuse = ODUActivationReuseMode::NTHW_16;
         break;
     default:
-        log.error("ODU NTHW mode not supported for MPE mode {}", mpeFrequentMode);
+        log.error("ODU NTHW mode not supported for MPE mode {0}", mpeFrequentMode);
         return mlir::failure();
     }
 

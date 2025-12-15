@@ -41,6 +41,12 @@ struct DefaultHWOptions :
 
     BoolOption enableActivationSwizzling{*this, "enable-activation-swizzling",
                                          ::llvm::cl::desc("Enable activation swizzling"), ::llvm::cl::init(true)};
+
+    // Should only be enabled when accurate VPUNN cost is supported
+    BoolOption enableMultiScheduleHeuristic{
+            *this, "enable-multi-schedule-heuristic",
+            ::llvm::cl::desc("Enables compiler to schedule with different heuristic logics and compare costs"),
+            ::llvm::cl::init(false)};
 };
 
 void buildDefaultHWPipeline(mlir::OpPassManager& pm, const DefaultHWOptions& options, Logger log = Logger::global());

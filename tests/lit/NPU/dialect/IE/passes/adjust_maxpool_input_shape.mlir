@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --adjust-maxpool-input-shape %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @ReshapeInputForMaxPool
 func.func @ReshapeInputForMaxPool(%arg0 : tensor<1x512x512x1xf16>) -> (tensor<1x512x1x1xf16>) {

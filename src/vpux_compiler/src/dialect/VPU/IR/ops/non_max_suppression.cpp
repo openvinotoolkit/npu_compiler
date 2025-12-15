@@ -3,9 +3,53 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
+#include "vpux/compiler/dialect/VPU/utils/auxiliary_buffers.hpp"
 
 using namespace vpux;
+
+mlir::Type getAuxiliaryBufferType(mlir::Value inBoxCoords, mlir::FloatAttr softNmsSigmaValueAttr) {
+    const auto inBoxCoordsType = mlir::cast<vpux::NDTypeInterface>(inBoxCoords.getType());
+    auto elemType = inBoxCoordsType.getElementType();
+    size_t elemTypeSize = Byte(vpux::getElemTypeSize(elemType)).count();
+    const auto inputShape = inBoxCoordsType.getShape();
+    const auto numBoxes = inputShape[Dim(1)];
+    const auto softNmsSigma = softNmsSigmaValueAttr != nullptr ? softNmsSigmaValueAttr.getValueAsDouble() : 0.0;
+
+    size_t offset = 0;
+
+    // boxesPtrCMXBuffer should be allocated only if softNmsSigma is 0.0f
+    size_t boxesPtrCMXBufferSize = 0;
+    if (softNmsSigma == 0.0) {
+        boxesPtrCMXBufferSize = 4 * numBoxes * elemTypeSize;
+        offset += boxesPtrCMXBufferSize;
+    }
+
+    // scoresPtrCMX buffer
+    size_t scoresPtrCMXbufferSize = numBoxes * elemTypeSize;
+    offset += scoresPtrCMXbufferSize;
+    offset = (offset + 3) & ~3;  // Align offset for boxIdxPtrCMX (int32_t)
+
+    // boxIdxPtrCMX buffer
+    size_t boxIdxPtrCMX = numBoxes * sizeof(int32_t);
+    offset += boxIdxPtrCMX;
+
+    const auto dataBufferSize = static_cast<int64_t>(offset);
+    const auto auxBuffType =
+            mlir::RankedTensorType::get({1, 1, 1, dataBufferSize}, getUInt8Type(inBoxCoords.getContext()));
+    return auxBuffType;
+}
+
+void VPU::NonMaxSuppressionOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState,
+                                     mlir::Value inBoxCoords, mlir::Value inBoxScores,
+                                     IE::BoxEncodingTypeAttr boxEncoding, mlir::UnitAttr sortResultDescending,
+                                     mlir::IntegerAttr maxOutputBoxesPerClassValue, mlir::FloatAttr iouThresholdValue,
+                                     mlir::FloatAttr scoreThresholdValue, mlir::FloatAttr softNmsSigmaValue) {
+    const auto auxBuffType = getAuxiliaryBufferType(inBoxCoords, softNmsSigmaValue);
+    auto auxBuffer = VPU::createAuxiliaryBuffer(odsBuilder, odsState.location, auxBuffType);
+    build(odsBuilder, odsState, inBoxCoords, inBoxScores, auxBuffer, boxEncoding, sortResultDescending,
+          maxOutputBoxesPerClassValue, iouThresholdValue, scoreThresholdValue, softNmsSigmaValue);
+}
 
 mlir::LogicalResult VPU::NonMaxSuppressionOp::inferReturnTypes(mlir::MLIRContext* ctx,
                                                                std::optional<mlir::Location> optLoc,
@@ -41,46 +85,13 @@ mlir::LogicalResult VPU::NonMaxSuppressionOp::inferReturnTypes(mlir::MLIRContext
     return mlir::success();
 }
 
+llvm::LogicalResult VPU::NonMaxSuppressionOp::verify() {
+    auto auxBufferType = mlir::cast<NDTypeInterface>(getDataBuffer().getType());
+    auto expectedType =
+            mlir::cast<NDTypeInterface>(getAuxiliaryBufferType(getInBoxCoords(), getSoftNmsSigmaValueAttr()));
+    return VPU::compareTypes(getOperation()->getLoc(), auxBufferType, expectedType);
+}
+
 SmallVector<mlir::Value> VPU::NonMaxSuppressionOp::getAuxiliaryBuffers() {
     return {getDataBuffer()};
-}
-
-mlir::LogicalResult VPU::NonMaxSuppressionOp::setAuxiliaryBuffers(ArrayRef<mlir::Value> buffers) {
-    if (buffers.size() != 1 || buffers.front() == nullptr) {
-        return mlir::failure();
-    }
-    getDataBufferMutable().assign(buffers.front());
-    return mlir::success();
-}
-
-SmallVector<mlir::Type> VPU::NonMaxSuppressionOp::getBufferTypes() {
-    const auto inBoxCoordsType = mlir::cast<vpux::NDTypeInterface>(getInBoxCoords().getType());
-    auto elemType = inBoxCoordsType.getElementType();
-    size_t elemTypeSize = Byte(vpux::getElemTypeSize(elemType)).count();
-    const auto inputShape = inBoxCoordsType.getShape();
-    const auto numBoxes = inputShape[Dim(1)];
-    auto softNmsSigmaAttr = getSoftNmsSigmaValueAttr();
-    const auto softNmsSigma = softNmsSigmaAttr != nullptr ? softNmsSigmaAttr.getValueAsDouble() : 0.0;
-
-    size_t offset = 0;
-
-    // boxesPtrCMXBuffer should be allocated only if softNmsSigma is 0.0f
-    size_t boxesPtrCMXBufferSize = 0;
-    if (softNmsSigma == 0.0) {
-        boxesPtrCMXBufferSize = 4 * numBoxes * elemTypeSize;
-        offset += boxesPtrCMXBufferSize;
-    }
-
-    // scoresPtrCMX buffer
-    size_t scoresPtrCMXbufferSize = numBoxes * elemTypeSize;
-    offset += scoresPtrCMXbufferSize;
-    offset = (offset + 3) & ~3;  // Align offset for boxIdxPtrCMX (int32_t)
-
-    // boxIdxPtrCMX buffer
-    size_t boxIdxPtrCMX = numBoxes * sizeof(int32_t);
-    offset += boxIdxPtrCMX;
-
-    const auto dataBufferSize = static_cast<int64_t>(offset);
-    const auto auxBuffType = mlir::RankedTensorType::get({1, 1, 1, dataBufferSize}, getUInt8Type(getContext()));
-    return {auxBuffType};
 }

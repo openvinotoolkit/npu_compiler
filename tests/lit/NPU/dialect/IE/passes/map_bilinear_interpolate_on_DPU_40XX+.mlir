@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --mlir-print-elementsattrs-with-hex-if-larger 8192 --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --map-bilinear-interpolate-on-dpu %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 
 // CHECK-LABEL: @DoNotMapBilinearPytorchHalfPixelInterpolateOnDPU

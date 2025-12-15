@@ -4,10 +4,9 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --optimize-parallel-copies %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-!Weights_table_CMX = memref<128x1x1x4xsi32, @CMX_NN>
 
 func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256xf16, @DDR>, %arg1: memref<1x1024x256xf16, @DDR>) {
     %cst_0 = const.Declare memref<128x256x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<1536x256x1x1xf16, {order = #NHWC}>, [#const.SubView<[0, 0, 0, 0], [128, 256, 1, 1]>, #const.Sparsify<false>]
@@ -23,7 +22,6 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     %cst_10 = const.Declare memref<128x256x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<1536x256x1x1xf16, {order = #NHWC}>, [#const.SubView<[1280, 0, 0, 0], [128, 256, 1, 1]>, #const.Sparsify<false>]
     %cst_11 = const.Declare memref<128x256x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<1536x256x1x1xf16, {order = #NHWC}>, [#const.SubView<[1408, 0, 0, 0], [128, 256, 1, 1]>, #const.Sparsify<false>]
 
-    %table = memref.alloc() : !Weights_table_CMX
     %0 = VPUIP.GenericReshape inputs(%arg0 : memref<1x1024x256xf16, @DDR>) -> memref<1024x256x1x1xf16, @DDR>
     %1 = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = affine_map<(d0, d1, d2, d3) -> (d2, d0, d3, d1)>} inputs(%0 : memref<1024x256x1x1xf16, @DDR>) -> memref<1x256x1024x1xf16, #NHWC, @DDR>
     %2 = VPUIP.GenericReshape inputs(%1 : memref<1x256x1024x1xf16, #NHWC, @DDR>) -> memref<1x256x256x4xf16, #NHWC, @DDR>
@@ -60,7 +58,7 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     %5 = VPUIP.Copy inputs(%3 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloc_1 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %alloc_2 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %6 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
-    input(%5 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%4 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%5 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloc_2 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloc_2 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    input(%5 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%4 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%5 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloc_2 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloc_2 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
       DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
     }
@@ -72,7 +70,7 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     %9 = VPUIP.Copy inputs(%7 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloc_4 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %alloc_5 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %10 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
-    input(%9 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%8 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%9 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloc_5 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloc_5 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    input(%9 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%8 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%9 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloc_5 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloc_5 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
       DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
     }
@@ -84,7 +82,7 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     %13 = VPUIP.Copy inputs(%11 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloc_7 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %alloc_8 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %14 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
-    input(%13 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%12 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%13 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloc_8 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloc_8 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    input(%13 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%12 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%13 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloc_8 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloc_8 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
       DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
     }
@@ -96,7 +94,7 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     %17 = VPUIP.Copy inputs(%15 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloc_10 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %alloc_11 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %18 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
-    input(%17 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%16 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%17 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloc_11 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloc_11 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    input(%17 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%16 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%17 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloc_11 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloc_11 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
       DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
     }
@@ -108,7 +106,7 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     %21 = VPUIP.Copy inputs(%19 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloc_13 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %alloc_14 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %22 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
-    input(%21 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%20 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%21 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloc_14 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloc_14 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    input(%21 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%20 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%21 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloc_14 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloc_14 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
       DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
     }
@@ -120,7 +118,7 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     %25 = VPUIP.Copy inputs(%23 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloc_16 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %alloc_17 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %26 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
-    input(%25 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%24 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%25 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloc_17 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloc_17 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    input(%25 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%24 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%25 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloc_17 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloc_17 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
       DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
     }
@@ -134,7 +132,7 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     %29 = VPUIP.Copy inputs(%27 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloca_19 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %alloca_20 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %30 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
-    input(%29 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%28 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%29 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_20 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_20 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    input(%29 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%28 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%29 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_20 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_20 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
     DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
     }
@@ -147,7 +145,7 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     %33 = VPUIP.Copy inputs(%31 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloca_22 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %alloca_23 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %34 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
-    input(%33 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%32 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%33 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_23 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_23 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    input(%33 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%32 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%33 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_23 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_23 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
     DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
     }
@@ -160,7 +158,7 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     %37 = VPUIP.Copy inputs(%35 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloca_25 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %alloca_26 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %38 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
-    input(%37 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%36 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%37 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_26 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_26 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    input(%37 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%36 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%37 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_26 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_26 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
     DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
     }
@@ -173,7 +171,7 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     %41 = VPUIP.Copy inputs(%39 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloca_28 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %alloca_29 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %42 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
-    input(%41 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%40 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%41 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_29 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_29 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    input(%41 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%40 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%41 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_29 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_29 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
     DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
     }
@@ -186,7 +184,7 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     %45 = VPUIP.Copy inputs(%43 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloca_31 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %alloca_32 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %46 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
-    input(%45 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%44 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%45 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_32 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_32 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    input(%45 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%44 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%45 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_32 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_32 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
     DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
     }
@@ -199,7 +197,7 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     %49 = VPUIP.Copy inputs(%47 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloca_34 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %alloca_35 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %50 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
-    input(%49 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%48 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%49 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_35 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_35 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    input(%49 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%48 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%49 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_35 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_35 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
     DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
     }
@@ -213,7 +211,7 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     %53 = VPUIP.Copy inputs(%51 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloca_37 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %alloca_38 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %54 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
-    input(%53 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%52 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%53 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_38 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_38 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    input(%53 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%52 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%53 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_38 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_38 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
     DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
     }
@@ -225,7 +223,7 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     %57 = VPUIP.Copy inputs(%55 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloca_40 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %alloca_41 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %58 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
-    input(%57 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%56 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%57 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_41 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_41 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    input(%57 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%56 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%57 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_41 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_41 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
     DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
     }
@@ -237,7 +235,7 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     %61 = VPUIP.Copy inputs(%59 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloca_43 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %alloca_44 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %62 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
-    input(%61 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%60 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%61 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_44 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_44 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    input(%61 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%60 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%61 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_44 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_44 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
     DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
     }
@@ -249,7 +247,7 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     %65 = VPUIP.Copy inputs(%63 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloca_46 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %alloca_47 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %66 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
-    input(%65 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%64 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%65 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_47 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_47 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    input(%65 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%64 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%65 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_47 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_47 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
     DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
     }
@@ -261,7 +259,7 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     %69 = VPUIP.Copy inputs(%67 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloca_49 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %alloca_50 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %70 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
-    input(%69 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%68 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%69 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_50 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_50 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    input(%69 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%68 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%69 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_50 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_50 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
     DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
     }
@@ -273,7 +271,7 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     %73 = VPUIP.Copy inputs(%71 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloca_52 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %alloca_53 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %74 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
-    input(%73 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%72 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%73 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_53 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_53 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    input(%73 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%72 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%73 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_53 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_53 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
     DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
     }
@@ -288,7 +286,7 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     %77 = VPUIP.Copy inputs(%75 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloca_55 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %alloca_56 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %78 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
-    input(%77 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%76 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%77 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_56 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_56 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    input(%77 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%76 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%77 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_56 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_56 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
     DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
     }
@@ -301,7 +299,7 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     %81 = VPUIP.Copy inputs(%79 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloca_58 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %alloca_59 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %82 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
-    input(%81 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%80 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%81 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_59 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_59 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    input(%81 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%80 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%81 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_59 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_59 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
         DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
     }
@@ -314,7 +312,7 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     %85 = VPUIP.Copy inputs(%83 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloca_61 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %alloca_62 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %86 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
-    input(%85 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%84 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%85 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_62 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_62 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    input(%85 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%84 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%85 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_62 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_62 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
     DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
     }
@@ -327,7 +325,7 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     %89 = VPUIP.Copy inputs(%87 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloca_64 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %alloca_65 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %90 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
-    input(%89 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%88 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%89 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_65 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_65 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    input(%89 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%88 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%89 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_65 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_65 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
     DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
     }
@@ -340,7 +338,7 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     %93 = VPUIP.Copy inputs(%91 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloca_67 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %alloca_68 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %94 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
-    input(%93 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%92 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%93 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_68 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_68 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    input(%93 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%92 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%93 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_68 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_68 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
     DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
     }
@@ -353,7 +351,7 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     %97 = VPUIP.Copy inputs(%95 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloca_70 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %alloca_71 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
     %98 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
-    input(%97 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%96 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%97 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_71 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_71 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    input(%97 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%96 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%97 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloca_71 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloca_71 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
     DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
     }

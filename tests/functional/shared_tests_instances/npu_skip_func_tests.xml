@@ -167,6 +167,7 @@ Example:
         <message>Tests enabled only for L0 NPU3720 and NPU4000</message>
         <enable_rules>
             <backend>LEVEL0</backend>
+            <device>5010</device>
         </enable_rules>
         <filters>
             <filter>.*InferRequestCheckTensorPrecision.*</filter>
@@ -456,15 +457,6 @@ Example:
         <message>Dynamic output issue in sync infer request where keepDims is off</message>
         <filters>
             <filter>.*smoke_ReduceAllAxis/ReduceLayerTest_SW_FP16.*KeepDims=0.*</filter>
-        </filters>
-    </skip_config>
-
-    <!-- E#166289 -->
-    <skip_config>
-        <message>M2I tests failing with device hung</message>
-        <filters>
-            <filter>.*InterpolateM2ILayerTest.*</filter>
-            <filter>.*PreProcessTest_M2I.*</filter>
         </filters>
     </skip_config>
 
@@ -877,6 +869,7 @@ Example:
     <skip_config>
         <message>Tests enabled only for public platforms, NPU3720 and NPU4000. Related to new getDevice logic from OV PR#30586.</message>
         <enable_rules>
+            <device>5010</device>
         </enable_rules>
         <filters>
             <filter>.*ClassExecutableNetworkInvalidDeviceIDTestSuite.InvalidNPUdeviceIDTest.*DEVICE_ID=NPU.1.*</filter>
@@ -937,6 +930,18 @@ Example:
         </filters>
     </skip_config>
 
+    <!-- E#182933 -->
+    <skip_config>
+        <message>Data type FP8 not supported by NPU3720/NPU4000 Shave.</message>
+        <enable_rules>
+            <device>3720</device>
+            <device>4000</device>
+        </enable_rules>
+        <filters>
+            <filter>.*ConversionLayerTestCommon.*f8.*</filter>
+        </filters>
+    </skip_config>
+
     <!-- E#187909 -->
     <skip_config>
         <message>Data type u1 not supported by NPU4000.</message>
@@ -953,6 +958,7 @@ Example:
     <skip_config>
         <message>MLIR test cases enabled only for public platforms, NPU3720 and NPU4000.</message>
         <enable_rules>
+            <device>5010</device>
         </enable_rules>
         <filters>
             <filter>.*smoke_BehaviorTestMLIR/DynamicBatchedTensorsRunTests.*</filter>
@@ -962,14 +968,17 @@ Example:
 
     <!-- E#184993-->
     <!-- E#185104-->
+    <!-- E#189841-->
     <skip_config>
-        <message>Skip dynamic convolution tests till E#184993 and E#185104 are resolved</message>
+        <message>Skip dynamic convolution tests till E#184993, E#185104 and E#189841 are resolved</message>
         <enable_rules>
+            <device>5010</device>
             <device>4000</device>
         </enable_rules>
         <filters>
             <filter>.*ConvolutionLayerTest_HostCompile.*1.3.1..1280.1280.*</filter>
             <filter>.*ConvolutionLayerTest_HostCompile.*1..1280.1..1280.*</filter>
+            <filter>.*ConvolutionLayerTest_SCF_Unroll.*</filter>
         </filters>
     </skip_config>
 
@@ -977,6 +986,7 @@ Example:
     <skip_config>
         <message>Skip dynamic tests till "dynamicSizes size doesn't match dynamic sizes count in memref shape" fixed.</message>
         <enable_rules>
+            <device>5010</device>
             <device>4000</device>
         </enable_rules>
         <filters>
@@ -985,18 +995,52 @@ Example:
         </filters>
     </skip_config>
 
-    <!-- E#187022-->
-    <skip_config>
-        <message>OutlineEntireMainContentPass failed with assertion argument of incompatible type!</message>
-        <enable_rules>
-            <device>4000</device>
-        </enable_rules>
-        <filters>
-            <filter>.*EltwiseAddLayerTest_HostCompile.*1.3.1280.1280.*</filter>
-        </filters>
-    </skip_config>
-
     <!-- E#181313 -->
     <!-- E#186100 -->
     <!-- E#188029 -->
+    <!-- E#189262 -->
+    <skip_config>
+        <message>Some ZeroGraphTest run only on NPU 3720</message>
+        <enable_rules>
+            <device>!3720</device>
+        </enable_rules>
+        <filters>
+            <filter>.*smoke_BehaviorTest/ZeroGraphTest.GetGraphInitBlob.*</filter>
+            <filter>.*smoke_BehaviorTest/ZeroGraphTest.GetGraphBinary.*</filter>
+            <filter>.*smoke_BehaviorTest/ZeroGraphTest.GetInitSetArgsDestroyGraphAlignedMemoryMallocBlob.*</filter>
+            <filter>.*smoke_BehaviorTest/ZeroGraphTest.GetInitSetArgsDestroyGraphNotAlignedMemoryMallocBlob.*</filter>
+        </filters>
+    </skip_config>
+
+    <!-- E#188471 -->
+    <skip_config>
+        <message>Fails after OV commit update. To be investigated with E#188471</message>
+        <filters>
+            <filter>.*smoke_DynamicConcatOptimized/DynamicConcatLayerTest.*BoundedShape=\{1_1_1_128\}_\{\{1_1_1_128\}\}.*</filter>
+        </filters>
+    </skip_config>
+
+    <!-- E#189841-->
+    <skip_config>
+        <message>Skip dynamic Eltwise tests till E#189841 is resolved</message>
+        <enable_rules>
+            <device>5010</device>
+            <device>4000</device>
+        </enable_rules>
+        <filters>
+            <filter>.*EltwiseLayerTestDynamicSCFUnroll.*</filter>
+        </filters>
+    </skip_config>
+
+    <!-- E#190990-->
+    <skip_config>
+        <message>Skip test-cases failing with Win Drv.9368 </message>
+        <enable_rules>
+            <operating_system>windows</operating_system>
+        </enable_rules>
+        <filters>
+            <filter>.*NpuDeviceAllocMemSizeSameAfterDestroyInferRequestGetTensor.*</filter>
+        </filters>
+    </skip_config>
+
 </skip_configs>

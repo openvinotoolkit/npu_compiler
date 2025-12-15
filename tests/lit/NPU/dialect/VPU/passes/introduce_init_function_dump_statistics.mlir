@@ -4,7 +4,7 @@
 //
 
 // RUN: env OV_NPU_LOG_LEVEL=LOG_INFO vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --introduce-init-function="ws-extraction-mode=gen-init" -o /dev/null %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 
 {-#

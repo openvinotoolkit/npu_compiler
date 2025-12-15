@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 #include "vpux/compiler/dialect/VPUIPDPU/rewriters/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 
 namespace {
 
@@ -167,8 +168,20 @@ mlir::LogicalResult configureIntPPE(const Logger& log, PPEConfig::IntPPE& config
         // bias&scale
         if (dpuTaskType == VPUIP::NCETaskType::ELTWISE || dpuTaskType == VPUIP::NCETaskType::AVEPOOL) {
             config.biasAdd.biasStatic = 0;
-            config.scaleMult.scaleStatic = !quantMult.empty() ? quantMult[0] : 1;
-            config.scaleShift.shiftStatic = !quantShift.empty() ? quantShift[0] : 0;
+            // An ELTWISE with non neutral fpScaleData suggests that it represents a PermuteQuantize. PermuteQuantize
+            // has the constraint that both input and output must have the same type, which applies also for quantized
+            // types, details in IE::isPurePermuteCompatiblePrecision. In this case the non neutral value of fpScaleData
+            // must be placed inside scaleStatic and shiftStatic and the output quantized type must be ignored in the
+            // same manner the input quantized type is
+            // TODO(E#193194): Refine this workaround by properly populating PPE earlier
+            if (dpuTaskType == VPUIP::NCETaskType::ELTWISE && ppeTask.fpScaleData != 1.0) {
+                const auto scaleApproximation = QuantizationApproximation(ppeTask.fpScaleData);
+                config.scaleMult.scaleStatic = scaleApproximation.mult();
+                config.scaleShift.shiftStatic = scaleApproximation.shift();
+            } else {
+                config.scaleMult.scaleStatic = !quantMult.empty() ? quantMult[0] : 1;
+                config.scaleShift.shiftStatic = !quantShift.empty() ? quantShift[0] : 0;
+            }
         } else if (dpuTaskType == VPUIP::NCETaskType::MAXPOOL) {
             config.biasAdd.biasStatic = 0;
             if (outDataType.isF16()) {

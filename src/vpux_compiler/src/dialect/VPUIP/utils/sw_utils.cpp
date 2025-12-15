@@ -5,13 +5,14 @@
 
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/IR/tiling_info.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/logging.hpp"
+#include "vpux/utils/core/error.hpp"
 #include "vpux/utils/core/range.hpp"
 
 #include <llvm/ADT/StringRef.h>
@@ -19,6 +20,7 @@
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/Support/LLVM.h>
 
+#include <iterator>
 #include <optional>
 
 namespace vpux {
@@ -26,6 +28,7 @@ namespace VPUIP {
 
 constexpr int64_t NPU40XX_SW_KERNEL_ADDRESS_ALIGNMENT = 32;
 constexpr size_t MIN_FREE_CYCLES_FOR_PREFETCH_280K = 280000;
+constexpr size_t MIN_FREE_CYCLES_FOR_PREFETCH_250K = 250000;
 
 SmallVector<mlir::Attribute> kernelArgsRange(VPUIP::SwKernelOp swKernelOp) {
     SmallVector<mlir::Attribute> attrStorage;
@@ -206,6 +209,8 @@ void createRuntimeKernelDefinition(mlir::ModuleOp module, const Logger& log, vpu
     auto maxShaves = tilesUsed * nShavePerTile;
     if (arch == vpux::config::ArchKind::NPU40XX) {
         maxShaves = std::min(maxShaves, static_cast<int64_t>(12));
+    } else if (arch == vpux::config::ArchKind::NPU50XX) {
+        maxShaves = std::min(maxShaves, static_cast<int64_t>(6));
     }
     SmallVector<int64_t> stacksArray(maxShaves, defaultStackSize);
 
@@ -1753,7 +1758,7 @@ InputTiling backInferFlashSDPASwKernelInputTile(VPUIP::SwKernelOp swKernelOp, co
 
     auto attentionMaskShape = std::optional<ShapeRef>{};
     auto scaleShape = std::optional<ShapeRef>{};
-    const auto attentionMaskIndex = 7;
+    const auto attentionMaskIndex = 10;
 
     if (hasAttentionMask) {
         attentionMaskShape = getShape(swKernelOp->getOperand(attentionMaskIndex));
@@ -1764,7 +1769,27 @@ InputTiling backInferFlashSDPASwKernelInputTile(VPUIP::SwKernelOp swKernelOp, co
         scaleShape = getShape(swKernelOp->getOperand(scaleIndex));
     }
 
-    return vpux::VPU::FlashSDPAOpInputTiling(outputTile, keyShape, attentionMaskShape, scaleShape);
+    auto dpuDescriptorBufferShape = getShape(swKernelOp.getOperand(4));
+    auto weightsTable0Shape = getShape(swKernelOp.getOperand(5));
+    auto weightsTable1Shape = getShape(swKernelOp.getOperand(6));
+
+    auto inputTiling =
+            vpux::VPU::FlashSDPAOpInputTiling(outputTile, keyShape, attentionMaskShape, scaleShape,
+                                              dpuDescriptorBufferShape, weightsTable0Shape, weightsTable1Shape);
+
+    auto& dpuDescriptorsBufferTile = inputTiling.tiles[4];
+    VPUX_THROW_UNLESS(
+            dpuDescriptorsBufferTile.shape[Dims4D::Act::H] % 2 == 0,
+            "Can't tile DpuDescriptorsBuffer on SHAVEs. Shape '{0}' is not divisible on 2 on Height dimension at {1}",
+            dpuDescriptorsBufferTile.shape, swKernelOp->getLoc());
+
+    dpuDescriptorsBufferTile.shape[Dims4D::Act::H] /= 2;
+
+    if (outputTile.offsets != Shape{0, 0, 0, 0}) {
+        dpuDescriptorsBufferTile.offsets[Dims4D::Act::H] = dpuDescriptorsBufferTile.shape[Dims4D::Act::H];
+    }
+
+    return inputTiling;
 }
 
 InputTiling backInferYUVToRGBSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const vpux::TileInfo& outputTile, Logger) {
@@ -2116,14 +2141,14 @@ bool isCacheOpTaskType(mlir::SymbolRefAttr kernelTaskType, bool includePrefetch)
     }
     auto taskTypeVal = VPU::symbolizeActShaveTaskType(kernelTaskType.getLeafReference().strref());
     VPUX_THROW_UNLESS(taskTypeVal.has_value(), "VPU::ActShaveTaskType has no value.");
-    std::unordered_set<VPU::ActShaveTaskType> actShaveCacheOpTypes = {VPU::ActShaveTaskType::CACHE_FLUSH_INVALIDATE,
-                                                                      VPU::ActShaveTaskType::CACHE_FLUSH,
-                                                                      VPU::ActShaveTaskType::CACHE_INVALIDATE};
-    if (includePrefetch) {
-        actShaveCacheOpTypes.insert(VPU::ActShaveTaskType::CACHE_PREFETCH);
+    if (taskTypeVal.value() == VPU::ActShaveTaskType::COMPUTE) {
+        return false;
     }
 
-    return actShaveCacheOpTypes.count(taskTypeVal.value()) > 0;
+    if (!includePrefetch && taskTypeVal.value() == VPU::ActShaveTaskType::CACHE_PREFETCH) {
+        return false;
+    }
+    return true;
 }
 
 bool isCacheOpTaskType(std::optional<::mlir::SymbolRefAttr> kernelTaskType, bool includePrefetch) {
@@ -2183,6 +2208,8 @@ std::pair<bool, size_t> getSwKernelInstructionPrefetchConfig(config::ArchKind ar
     switch (arch) {
     case config::ArchKind::NPU40XX:
         return std::make_pair(true, MIN_FREE_CYCLES_FOR_PREFETCH_280K);
+    case config::ArchKind::NPU50XX:
+        return std::make_pair(false, MIN_FREE_CYCLES_FOR_PREFETCH_250K);
     default:
         VPUX_THROW("Unsupported Arch {0} to do Shave Instruction Prefetch", arch);
     }

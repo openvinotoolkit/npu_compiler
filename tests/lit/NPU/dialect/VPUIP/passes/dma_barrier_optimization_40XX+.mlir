@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --dma-barrier-optimization %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% enable-sw-kernel-fifo-per-shave-engine=true" --dma-barrier-optimization %s | FileCheck %s
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -313,10 +313,6 @@ func.func @removeRedundantWaitAndUpdateBarriers(%arg0: memref<1x3x224x224xf16, @
     %16 = VPURT.DeclareBuffer <CMX_NN> [1] <75840> -> !VPUIP.ITIBuffer<1x224x4x61x!qElemType2, {order = #NWCH}, [@CMX_NN, 1], inwardHaloRegions = [#VPUIP.HaloRegionAttr<shape = [1, 224, 3, 3], offset = [0, 0, 0, 0], cluster_id = 1 : i64>, #VPUIP.HaloRegionAttr<shape = [1, 224, 3, 2], offset = [0, 0, 0, 59], cluster_id = 1 : i64>], outwardHaloRegions = [#VPUIP.OutwardHaloRegionAttr<shape = [1, 224, 3, 2], offset = [0, 0, 0, 3], cluster_id = 1 : i64, inwardHaloRegions = [#VPUIP.HaloRegionAttr<shape = [1, 224, 3, 2], offset = [0, 0, 0, 56], cluster_id = 0 : i64>]>, #VPUIP.OutwardHaloRegionAttr<shape = [1, 224, 3, 3], offset = [0, 0, 0, 56], cluster_id = 1 : i64, inwardHaloRegions = [#VPUIP.HaloRegionAttr<shape = [1, 224, 3, 3], offset = [0, 0, 0, 0], cluster_id = 2 : i64>]>]>
     %17 = VPURT.DeclareBuffer <CMX_NN> [2] <75840> -> !VPUIP.ITIBuffer<1x224x4x61x!qElemType2, {order = #NWCH}, [@CMX_NN, 2], inwardHaloRegions = [#VPUIP.HaloRegionAttr<shape = [1, 224, 3, 3], offset = [0, 0, 0, 0], cluster_id = 2 : i64>, #VPUIP.HaloRegionAttr<shape = [1, 224, 3, 2], offset = [0, 0, 0, 59], cluster_id = 2 : i64>], outwardHaloRegions = [#VPUIP.OutwardHaloRegionAttr<shape = [1, 224, 3, 2], offset = [0, 0, 0, 3], cluster_id = 2 : i64, inwardHaloRegions = [#VPUIP.HaloRegionAttr<shape = [1, 224, 3, 2], offset = [0, 0, 0, 59], cluster_id = 1 : i64>]>, #VPUIP.OutwardHaloRegionAttr<shape = [1, 224, 3, 3], offset = [0, 0, 0, 56], cluster_id = 2 : i64, inwardHaloRegions = [#VPUIP.HaloRegionAttr<shape = [1, 224, 3, 3], offset = [0, 0, 0, 0], cluster_id = 3 : i64>]>]>
     %18 = VPURT.DeclareBuffer <CMX_NN> [3] <75840> -> !VPUIP.ITIBuffer<1x224x4x59x!qElemType2, {order = #NWCH}, [@CMX_NN, 3], inwardHaloRegions = [#VPUIP.HaloRegionAttr<shape = [1, 224, 3, 3], offset = [0, 0, 0, 0], cluster_id = 3 : i64>], outwardHaloRegions = [#VPUIP.OutwardHaloRegionAttr<shape = [1, 224, 3, 2], offset = [0, 0, 0, 3], cluster_id = 3 : i64, inwardHaloRegions = [#VPUIP.HaloRegionAttr<shape = [1, 224, 3, 2], offset = [0, 0, 0, 59], cluster_id = 2 : i64>]>]>
-    %20 = VPURT.DeclareBuffer <CMX_NN> [0] <140736> -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
-    %21 = VPURT.DeclareBuffer <CMX_NN> [1] <140736> -> memref<64x1x1x4xsi32, [@CMX_NN, 1]>
-    %22 = VPURT.DeclareBuffer <CMX_NN> [2] <140736> -> memref<64x1x1x4xsi32, [@CMX_NN, 2]>
-    %23 = VPURT.DeclareBuffer <CMX_NN> [3] <140736> -> memref<64x1x1x4xsi32, [@CMX_NN, 3]>
     %25 = VPURT.DeclareBuffer <CMX_NN> [0] <141760> -> memref<1x64x28x112xf16, [@CMX_NN, 0]>
     %29 = VPURT.DeclareBuffer <CMX_NN> [0] <141760> -> memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 0]>
     %30 = VPURT.DeclareBuffer <CMX_NN> [1] <141760> -> memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 1]>
@@ -394,7 +390,7 @@ func.func @removeRedundantWaitAndUpdateBarriers(%arg0: memref<1x3x224x224xf16, @
     }
     // DPU4
     VPURT.Task waits(%bar0, %bar2 : !VPURT.Barrier, !VPURT.Barrier) updates(%bar1: !VPURT.Barrier) {
-      %49 = VPUIP.NCEClusterTask {cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>} input(%45 : memref<1x16x58x224x!qElemType3, #NHWC, [@CMX_NN, 0]>) weights(%41 : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>) weight_table(%20 : memref<64x1x1x4xsi32, [@CMX_NN, 0]>) parent_input(%45 : memref<1x16x58x224x!qElemType3, #NHWC, [@CMX_NN, 0]>) parent_output(%29 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 0]>) outputs(%29 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 0]> variants : {
+      %49 = VPUIP.NCEClusterTask {cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>} input(%45 : memref<1x16x58x224x!qElemType3, #NHWC, [@CMX_NN, 0]>) weights(%41 : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>) parent_input(%45 : memref<1x16x58x224x!qElemType3, #NHWC, [@CMX_NN, 0]>) parent_output(%29 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 0]>) outputs(%29 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 0]> variants : {
         DPUTask {cluster_id = 0 : i64, inEnd = [223, 57, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 27, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>}
       } PPE : {
         PPETask {ppe = #VPU.PPEStub<>}
@@ -402,7 +398,7 @@ func.func @removeRedundantWaitAndUpdateBarriers(%arg0: memref<1x3x224x224xf16, @
     }
     // DPU5
     VPURT.Task waits(%bar0, %bar3 : !VPURT.Barrier, !VPURT.Barrier) updates(%bar1: !VPURT.Barrier) {
-      %49 = VPUIP.NCEClusterTask {cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>} input(%46 : memref<1x16x61x224x!qElemType3, #NHWC, [@CMX_NN, 1]>) weights(%42 : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 1]>) weight_table(%21 : memref<64x1x1x4xsi32, [@CMX_NN, 1]>) parent_input(%46 : memref<1x16x61x224x!qElemType3, #NHWC, [@CMX_NN, 1]>) parent_output(%30 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 1]>) outputs(%30 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 1]>) -> memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 1]> variants : {
+      %49 = VPUIP.NCEClusterTask {cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>} input(%46 : memref<1x16x61x224x!qElemType3, #NHWC, [@CMX_NN, 1]>) weights(%42 : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 1]>) parent_input(%46 : memref<1x16x61x224x!qElemType3, #NHWC, [@CMX_NN, 1]>) parent_output(%30 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 1]>) outputs(%30 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 1]>) -> memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 1]> variants : {
         DPUTask {cluster_id = 1 : i64, inEnd = [223, 60, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 27, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 0 : i64, bottom = 0 : i64>}
       } PPE : {
         PPETask {ppe = #VPU.PPEStub<>}
@@ -410,7 +406,7 @@ func.func @removeRedundantWaitAndUpdateBarriers(%arg0: memref<1x3x224x224xf16, @
     }
     // DPU6
     VPURT.Task waits(%bar0, %bar4 : !VPURT.Barrier, !VPURT.Barrier) updates(%bar1: !VPURT.Barrier) {
-      %49 = VPUIP.NCEClusterTask {cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>} input(%47 : memref<1x16x61x224x!qElemType3, #NHWC, [@CMX_NN, 2]>) weights(%43 : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 2]>) weight_table(%22 : memref<64x1x1x4xsi32, [@CMX_NN, 2]>) parent_input(%47 : memref<1x16x61x224x!qElemType3, #NHWC, [@CMX_NN, 2]>) parent_output(%31 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 2]>) outputs(%31 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 2]>) -> memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 2]> variants : {
+      %49 = VPUIP.NCEClusterTask {cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>} input(%47 : memref<1x16x61x224x!qElemType3, #NHWC, [@CMX_NN, 2]>) weights(%43 : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 2]>) parent_input(%47 : memref<1x16x61x224x!qElemType3, #NHWC, [@CMX_NN, 2]>) parent_output(%31 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 2]>) outputs(%31 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 2]>) -> memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 2]> variants : {
         DPUTask {cluster_id = 2 : i64, inEnd = [223, 60, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 27, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 0 : i64, bottom = 0 : i64>}
       } PPE : {
         PPETask {ppe = #VPU.PPEStub<>}
@@ -418,7 +414,7 @@ func.func @removeRedundantWaitAndUpdateBarriers(%arg0: memref<1x3x224x224xf16, @
     }
     // DPU7
     VPURT.Task waits(%bar0, %bar5 : !VPURT.Barrier, !VPURT.Barrier) updates(%bar1: !VPURT.Barrier) {
-      %49 = VPUIP.NCEClusterTask {cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 0 : i64, bottom = 2 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>} input(%48 : memref<1x16x59x224x!qElemType3, #NHWC, [@CMX_NN, 3]>) weights(%44 : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 3]>) weight_table(%23 : memref<64x1x1x4xsi32, [@CMX_NN, 3]>) parent_input(%48 : memref<1x16x59x224x!qElemType3, #NHWC, [@CMX_NN, 3]>) parent_output(%32 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 3]>) outputs(%32 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 3]>) -> memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 3]> variants : {
+      %49 = VPUIP.NCEClusterTask {cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 0 : i64, bottom = 2 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>} input(%48 : memref<1x16x59x224x!qElemType3, #NHWC, [@CMX_NN, 3]>) weights(%44 : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 3]>) parent_input(%48 : memref<1x16x59x224x!qElemType3, #NHWC, [@CMX_NN, 3]>) parent_output(%32 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 3]>) outputs(%32 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 3]>) -> memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 3]> variants : {
         DPUTask {cluster_id = 3 : i64, inEnd = [223, 58, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 27, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 0 : i64, bottom = 2 : i64>}
       } PPE : {
         PPETask {ppe = #VPU.PPEStub<>}
@@ -520,10 +516,6 @@ func.func @removeRedundantWaitAndUpdateBarriersSharedCase(%arg0: memref<1x3x224x
     %16 = VPURT.DeclareBuffer <CMX_NN> [1] <75840> -> !VPUIP.ITIBuffer<1x224x4x61x!qElemType2, {order = #NWCH}, [@CMX_NN, 1], inwardHaloRegions = [#VPUIP.HaloRegionAttr<shape = [1, 224, 3, 3], offset = [0, 0, 0, 0], cluster_id = 1 : i64>, #VPUIP.HaloRegionAttr<shape = [1, 224, 3, 2], offset = [0, 0, 0, 59], cluster_id = 1 : i64>], outwardHaloRegions = [#VPUIP.OutwardHaloRegionAttr<shape = [1, 224, 3, 2], offset = [0, 0, 0, 3], cluster_id = 1 : i64, inwardHaloRegions = [#VPUIP.HaloRegionAttr<shape = [1, 224, 3, 2], offset = [0, 0, 0, 56], cluster_id = 0 : i64>]>, #VPUIP.OutwardHaloRegionAttr<shape = [1, 224, 3, 3], offset = [0, 0, 0, 56], cluster_id = 1 : i64, inwardHaloRegions = [#VPUIP.HaloRegionAttr<shape = [1, 224, 3, 3], offset = [0, 0, 0, 0], cluster_id = 2 : i64>]>]>
     %17 = VPURT.DeclareBuffer <CMX_NN> [2] <75840> -> !VPUIP.ITIBuffer<1x224x4x61x!qElemType2, {order = #NWCH}, [@CMX_NN, 2], inwardHaloRegions = [#VPUIP.HaloRegionAttr<shape = [1, 224, 3, 3], offset = [0, 0, 0, 0], cluster_id = 2 : i64>, #VPUIP.HaloRegionAttr<shape = [1, 224, 3, 2], offset = [0, 0, 0, 59], cluster_id = 2 : i64>], outwardHaloRegions = [#VPUIP.OutwardHaloRegionAttr<shape = [1, 224, 3, 2], offset = [0, 0, 0, 3], cluster_id = 2 : i64, inwardHaloRegions = [#VPUIP.HaloRegionAttr<shape = [1, 224, 3, 2], offset = [0, 0, 0, 59], cluster_id = 1 : i64>]>, #VPUIP.OutwardHaloRegionAttr<shape = [1, 224, 3, 3], offset = [0, 0, 0, 56], cluster_id = 2 : i64, inwardHaloRegions = [#VPUIP.HaloRegionAttr<shape = [1, 224, 3, 3], offset = [0, 0, 0, 0], cluster_id = 3 : i64>]>]>
     %18 = VPURT.DeclareBuffer <CMX_NN> [3] <75840> -> !VPUIP.ITIBuffer<1x224x4x59x!qElemType2, {order = #NWCH}, [@CMX_NN, 3], inwardHaloRegions = [#VPUIP.HaloRegionAttr<shape = [1, 224, 3, 3], offset = [0, 0, 0, 0], cluster_id = 3 : i64>], outwardHaloRegions = [#VPUIP.OutwardHaloRegionAttr<shape = [1, 224, 3, 2], offset = [0, 0, 0, 3], cluster_id = 3 : i64, inwardHaloRegions = [#VPUIP.HaloRegionAttr<shape = [1, 224, 3, 2], offset = [0, 0, 0, 59], cluster_id = 2 : i64>]>]>
-    %20 = VPURT.DeclareBuffer <CMX_NN> [0] <140736> -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
-    %21 = VPURT.DeclareBuffer <CMX_NN> [1] <140736> -> memref<64x1x1x4xsi32, [@CMX_NN, 1]>
-    %22 = VPURT.DeclareBuffer <CMX_NN> [2] <140736> -> memref<64x1x1x4xsi32, [@CMX_NN, 2]>
-    %23 = VPURT.DeclareBuffer <CMX_NN> [3] <140736> -> memref<64x1x1x4xsi32, [@CMX_NN, 3]>
     %25 = VPURT.DeclareBuffer <CMX_NN> [0] <141760> -> memref<1x64x28x112xf16, [@CMX_NN, 0]>
     %29 = VPURT.DeclareBuffer <CMX_NN> [0] <141760> -> memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 0]>
     %30 = VPURT.DeclareBuffer <CMX_NN> [1] <141760> -> memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 1]>
@@ -551,13 +543,13 @@ func.func @removeRedundantWaitAndUpdateBarriersSharedCase(%arg0: memref<1x3x224x
     //                                DMA
     //                                 |
     //                                 b0
-    //     /          /      /      /      \     \            \
-    //   DPU0(0)     |    DPU1(1)   |      |   DPU2(2)        DPU3(3)
-    //    |    |     |     |   |    |      |    |   |         |    |
-    //    |   b2     |     |  b2    |      |    b2  |        b2    |
-    //    |    |    /      |   |    /      \    |   |         |    |
-    //    |   DPU4(0)      |  DPU5(1)      DPU6(2)  |    DPU7(3)   |
-    //     \        \      \       \         /      /    /         /
+    //     /          /      /      /      \     \
+    //   DPU0(0)     |    DPU1(1)   |      |   DPU2(2)
+    //    |    |     |     |   |    |      |    |   |
+    //    |   b2     |     |  b2    |      |    b2  |
+    //    |    |    /      |   |    /      \    |   |
+    //    |   DPU3(0)      |  DPU4(1)      DPU5(2)  |
+    //     \        \      \       \         /      /
     //                                b1
     //                                |
     //                               DMA
@@ -592,41 +584,25 @@ func.func @removeRedundantWaitAndUpdateBarriersSharedCase(%arg0: memref<1x3x224x
       }
     }
     // DPU3
-    VPURT.Task waits(%bar0 : !VPURT.Barrier) updates(%bar1, %bar2: !VPURT.Barrier, !VPURT.Barrier) {
-      %49 = VPUIP.NCEClusterTask {is_superdense, task_type = #VPUIP.nce_task_type<ELTWISE>} input(%40 : memref<1x224x3x56xf16, #NHWC, [@CMX_NN, 3]>) weights(%36 : memref<1x224x3x56xf16, #NHWC, [@CMX_NN, 3]>) parent_input(%40 : memref<1x224x3x56xf16, #NHWC, [@CMX_NN, 3]>) parent_output(%18 : !VPUIP.ITIBuffer<1x224x4x59x!qElemType2, {order = #NWCH}, [@CMX_NN, 3], inwardHaloRegions = [#VPUIP.HaloRegionAttr<shape = [1, 224, 3, 3], offset = [0, 0, 0, 0], cluster_id = 3 : i64>], outwardHaloRegions = [#VPUIP.OutwardHaloRegionAttr<shape = [1, 224, 3, 2], offset = [0, 0, 0, 3], cluster_id = 3 : i64, inwardHaloRegions = [#VPUIP.HaloRegionAttr<shape = [1, 224, 3, 2], offset = [0, 0, 0, 59], cluster_id = 2 : i64>]>]>) output_ITI_buff(%17 : !VPUIP.ITIBuffer<1x224x4x61x!qElemType2, {order = #NWCH}, [@CMX_NN, 2], inwardHaloRegions = [#VPUIP.HaloRegionAttr<shape = [1, 224, 3, 3], offset = [0, 0, 0, 0], cluster_id = 2 : i64>, #VPUIP.HaloRegionAttr<shape = [1, 224, 3, 2], offset = [0, 0, 0, 59], cluster_id = 2 : i64>], outwardHaloRegions = [#VPUIP.OutwardHaloRegionAttr<shape = [1, 224, 3, 2], offset = [0, 0, 0, 3], cluster_id = 2 : i64, inwardHaloRegions = [#VPUIP.HaloRegionAttr<shape = [1, 224, 3, 2], offset = [0, 0, 0, 59], cluster_id = 1 : i64>]>, #VPUIP.OutwardHaloRegionAttr<shape = [1, 224, 3, 3], offset = [0, 0, 0, 56], cluster_id = 2 : i64, inwardHaloRegions = [#VPUIP.HaloRegionAttr<shape = [1, 224, 3, 3], offset = [0, 0, 0, 0], cluster_id = 3 : i64>]>]>) outputs(%18 : !VPUIP.ITIBuffer<1x224x4x59x!qElemType2, {order = #NWCH}, [@CMX_NN, 3], inwardHaloRegions = [#VPUIP.HaloRegionAttr<shape = [1, 224, 3, 3], offset = [0, 0, 0, 0], cluster_id = 3 : i64>], outwardHaloRegions = [#VPUIP.OutwardHaloRegionAttr<shape = [1, 224, 3, 2], offset = [0, 0, 0, 3], cluster_id = 3 : i64, inwardHaloRegions = [#VPUIP.HaloRegionAttr<shape = [1, 224, 3, 2], offset = [0, 0, 0, 59], cluster_id = 2 : i64>]>]>) -> !VPUIP.ITIBuffer<1x224x4x59x!qElemType2, {order = #NWCH}, [@CMX_NN, 3], inwardHaloRegions = [#VPUIP.HaloRegionAttr<shape = [1, 224, 3, 3], offset = [0, 0, 0, 0], cluster_id = 3 : i64>], outwardHaloRegions = [#VPUIP.OutwardHaloRegionAttr<shape = [1, 224, 3, 2], offset = [0, 0, 0, 3], cluster_id = 3 : i64, inwardHaloRegions = [#VPUIP.HaloRegionAttr<shape = [1, 224, 3, 2], offset = [0, 0, 0, 59], cluster_id = 2 : i64>]>]> variants : {
-        DPUTask {cluster_id = 3 : i64, haloRegions = [#VPUIP.DPUHaloRegionAttr<xStart = 0 : i64, xEnd = 223 : i64, yStart = 3 : i64, yEnd = 4 : i64, zStart = 0 : i64, zEnd = 2 : i64, targetOffset = 50176 : i64, targetClusters = [2], targetWidth = 224 : i64>], inEnd = [55, 2, 223], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [58, 2, 223], outStart = [3, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+    VPURT.Task waits(%bar0, %bar2 : !VPURT.Barrier, !VPURT.Barrier) updates(%bar1: !VPURT.Barrier) {
+      %49 = VPUIP.NCEClusterTask {cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>} input(%45 : memref<1x16x58x224x!qElemType3, #NHWC, [@CMX_NN, 0]>) weights(%41 : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>) parent_input(%45 : memref<1x16x58x224x!qElemType3, #NHWC, [@CMX_NN, 0]>) parent_output(%29 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 0]>) outputs(%29 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 0]> variants : {
+        DPUTask {cluster_id = 0 : i64, inEnd = [223, 57, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 27, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>}
       } PPE : {
         PPETask {ppe = #VPU.PPEStub<>}
       }
     }
     // DPU4
     VPURT.Task waits(%bar0, %bar2 : !VPURT.Barrier, !VPURT.Barrier) updates(%bar1: !VPURT.Barrier) {
-      %49 = VPUIP.NCEClusterTask {cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>} input(%45 : memref<1x16x58x224x!qElemType3, #NHWC, [@CMX_NN, 0]>) weights(%41 : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>) weight_table(%20 : memref<64x1x1x4xsi32, [@CMX_NN, 0]>) parent_input(%45 : memref<1x16x58x224x!qElemType3, #NHWC, [@CMX_NN, 0]>) parent_output(%29 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 0]>) outputs(%29 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 0]> variants : {
-        DPUTask {cluster_id = 0 : i64, inEnd = [223, 57, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 27, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>}
+      %49 = VPUIP.NCEClusterTask {cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>} input(%46 : memref<1x16x61x224x!qElemType3, #NHWC, [@CMX_NN, 1]>) weights(%42 : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 1]>) parent_input(%46 : memref<1x16x61x224x!qElemType3, #NHWC, [@CMX_NN, 1]>) parent_output(%30 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 1]>) outputs(%30 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 1]>) -> memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 1]> variants : {
+        DPUTask {cluster_id = 1 : i64, inEnd = [223, 60, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 27, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 0 : i64, bottom = 0 : i64>}
       } PPE : {
         PPETask {ppe = #VPU.PPEStub<>}
       }
     }
     // DPU5
     VPURT.Task waits(%bar0, %bar2 : !VPURT.Barrier, !VPURT.Barrier) updates(%bar1: !VPURT.Barrier) {
-      %49 = VPUIP.NCEClusterTask {cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>} input(%46 : memref<1x16x61x224x!qElemType3, #NHWC, [@CMX_NN, 1]>) weights(%42 : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 1]>) weight_table(%21 : memref<64x1x1x4xsi32, [@CMX_NN, 1]>) parent_input(%46 : memref<1x16x61x224x!qElemType3, #NHWC, [@CMX_NN, 1]>) parent_output(%30 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 1]>) outputs(%30 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 1]>) -> memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 1]> variants : {
-        DPUTask {cluster_id = 1 : i64, inEnd = [223, 60, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 27, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 0 : i64, bottom = 0 : i64>}
-      } PPE : {
-        PPETask {ppe = #VPU.PPEStub<>}
-      }
-    }
-    // DPU6
-    VPURT.Task waits(%bar0, %bar2 : !VPURT.Barrier, !VPURT.Barrier) updates(%bar1: !VPURT.Barrier) {
-      %49 = VPUIP.NCEClusterTask {cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>} input(%47 : memref<1x16x61x224x!qElemType3, #NHWC, [@CMX_NN, 2]>) weights(%43 : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 2]>) weight_table(%22 : memref<64x1x1x4xsi32, [@CMX_NN, 2]>) parent_input(%47 : memref<1x16x61x224x!qElemType3, #NHWC, [@CMX_NN, 2]>) parent_output(%31 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 2]>) outputs(%31 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 2]>) -> memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 2]> variants : {
+      %49 = VPUIP.NCEClusterTask {cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>} input(%47 : memref<1x16x61x224x!qElemType3, #NHWC, [@CMX_NN, 2]>) weights(%43 : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 2]>) parent_input(%47 : memref<1x16x61x224x!qElemType3, #NHWC, [@CMX_NN, 2]>) parent_output(%31 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 2]>) outputs(%31 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 2]>) -> memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 2]> variants : {
         DPUTask {cluster_id = 2 : i64, inEnd = [223, 60, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 27, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 0 : i64, bottom = 0 : i64>}
-      } PPE : {
-        PPETask {ppe = #VPU.PPEStub<>}
-      }
-    }
-    // DPU7
-    VPURT.Task waits(%bar0, %bar2 : !VPURT.Barrier, !VPURT.Barrier) updates(%bar1: !VPURT.Barrier) {
-      %49 = VPUIP.NCEClusterTask {cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 0 : i64, bottom = 2 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>} input(%48 : memref<1x16x59x224x!qElemType3, #NHWC, [@CMX_NN, 3]>) weights(%44 : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 3]>) weight_table(%23 : memref<64x1x1x4xsi32, [@CMX_NN, 3]>) parent_input(%48 : memref<1x16x59x224x!qElemType3, #NHWC, [@CMX_NN, 3]>) parent_output(%32 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 3]>) outputs(%32 : memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 3]>) -> memref<1x64x28x112xf16, #NHWC, [@CMX_NN, 3]> variants : {
-        DPUTask {cluster_id = 3 : i64, inEnd = [223, 58, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 27, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 0 : i64, bottom = 2 : i64>}
       } PPE : {
         PPETask {ppe = #VPU.PPEStub<>}
       }
@@ -641,13 +617,13 @@ func.func @removeRedundantWaitAndUpdateBarriersSharedCase(%arg0: memref<1x3x224x
     //             DMA
     //              |
     //              b0
-    //     /     /      \      \
-    // DPU0(0) DPU1(1) DPU2(2) DPU3(3)
-    //     \     \      /      /
+    //     /     /      \
+    // DPU0(0) DPU1(1) DPU2(2)
+    //     \     \      /
     //              b1
-    //     /     /      \      \
-    // DPU4(0) DPU5(1) DPU6(2) DPU7(3)
-    //     \     \      /      /
+    //     /     /      \
+    // DPU4(0) DPU5(1) DPU6(2)
+    //     \     \      /
     //              b2
     //              |
     //             DMA
@@ -668,20 +644,14 @@ func.func @removeRedundantWaitAndUpdateBarriersSharedCase(%arg0: memref<1x3x224x
     // DPU2
     // CHECK:       VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
     // CHECK:         DPUTask
-    // DPU3
-    // CHECK:       VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
-    // CHECK:         DPUTask
 
+    // DPU3
+    // CHECK:       VPURT.Task waits([[BAR1]] : !VPURT.Barrier) updates([[BAR2]] : !VPURT.Barrier)
+    // CHECK:         DPUTask
     // DPU4
     // CHECK:       VPURT.Task waits([[BAR1]] : !VPURT.Barrier) updates([[BAR2]] : !VPURT.Barrier)
     // CHECK:         DPUTask
     // DPU5
-    // CHECK:       VPURT.Task waits([[BAR1]] : !VPURT.Barrier) updates([[BAR2]] : !VPURT.Barrier)
-    // CHECK:         DPUTask
-    // DPU6
-    // CHECK:       VPURT.Task waits([[BAR1]] : !VPURT.Barrier) updates([[BAR2]] : !VPURT.Barrier)
-    // CHECK:         DPUTask
-    // DPU7
     // CHECK:       VPURT.Task waits([[BAR1]] : !VPURT.Barrier) updates([[BAR2]] : !VPURT.Barrier)
     // CHECK:         DPUTask
 

@@ -1,0 +1,63 @@
+//
+// Copyright (C) 2023-2025 Intel Corporation.
+// SPDX-License-Identifier: Apache-2.0
+//
+
+#include "vpux/compiler/NPU50XX/dialect/NPUReg50XX/ops.hpp"
+#include "vpux/compiler/dialect/ELF/utils/utils.hpp"
+
+#include <npu_40xx_nnrt.hpp>
+using namespace npu40xx;
+
+using namespace vpux;
+
+void vpux::NPUReg50XX::WorkItemOp::serialize(elf::writer::BinaryDataSection<uint8_t>& binDataSection) {
+    auto workItemDesc = getProperties().getDescriptor();
+
+    VPUX_THROW_UNLESS(sizeof(nn_public::VpuWorkItem) == workItemDesc.size(),
+                      "HW VpuWorkItem size {0} != regMapped representation size {1}.", sizeof(nn_public::VpuWorkItem),
+                      workItemDesc.size());
+
+    auto serializedDescriptor = workItemDesc.getStorage();
+    binDataSection.appendData(serializedDescriptor.data(), getBinarySize(config::ArchKind::NPU50XX));
+}
+
+size_t vpux::NPUReg50XX::WorkItemOp::getBinarySize(config::ArchKind) {
+    return sizeof(nn_public::VpuWorkItem);
+}
+
+size_t vpux::NPUReg50XX::WorkItemOp::getAlignmentRequirements(config::ArchKind) {
+    return alignof(nn_public::VpuWorkItem);
+}
+
+std::vector<ELF::RelocationInfo> vpux::NPUReg50XX::WorkItemOp::getRelocationInfo(ELF::SymbolReferenceMap& symRefMap) {
+    std::vector<ELF::RelocationInfo> relocs;
+
+    ELF::ElfSectionInterface targetSection = mlir::dyn_cast<ELF::ElfSectionInterface>(getOperation()->getParentOp());
+    VPUX_THROW_UNLESS(targetSection, "The relocation info can be retrieved only if the op is included into a section");
+
+    auto firstTaskOffset = offsetof(nn_public::VpuWorkItem, wi_desc_ptr);
+    if (auto firstTask = getFirstTask()) {
+        if (getTaskType() == VPURegMapped::TaskType::DMA) {
+            relocs.emplace_back(firstTask, targetSection, firstTaskOffset, ELF::RelocationType::R_VPU_64,
+                                ELF::getOffsetOfSymRef(symRefMap, firstTask), "First task (DMA) in work item reloc");
+        } else {
+            relocs.emplace_back(firstTask, targetSection, firstTaskOffset,
+                                ELF::RelocationType::R_VPU_64_BIT_OR_B21_B26_UNSET,
+                                ELF::getOffsetOfSymRef(symRefMap, firstTask), "First task in work item reloc");
+        }
+    }
+
+    return relocs;
+}
+
+void vpux::NPUReg50XX::WorkItemOp::build(mlir::OpBuilder&, mlir::OperationState& state, mlir::StringAttr symName,
+                                         VPURegMapped::TaskTypeAttr taskType, mlir::SymbolRefAttr firstTask,
+                                         vpux::NPUReg50XX::Descriptors::WorkItem&& descriptor) {
+    auto& props = state.getOrAddProperties<Properties>();
+
+    props.sym_name = symName;
+    props.task_type = taskType;
+    props.first_task = firstTask;
+    props.descriptor = std::move(descriptor);
+}

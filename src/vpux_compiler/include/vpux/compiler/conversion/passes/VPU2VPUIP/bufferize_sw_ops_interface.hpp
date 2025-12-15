@@ -47,26 +47,19 @@ public:
             return errorAt(origOp->getLoc(), "Operation {0} has no parent Module Op", origOp->getName());
         }
 
-        auto valueRange = adaptor.getOperands();
-        auto valueRangeBegin = valueRange.begin().getBase().template get<const mlir::Value*>();
-        auto bufferizedOperands = mlir::ArrayRef<mlir::Value>(valueRangeBegin, valueRange.size());
+        const SmallVector<mlir::Value> bufferizedOperands(adaptor.getOperands().begin(), adaptor.getOperands().end());
 
-        SmallVector<mlir::Type> mergedOperands;
-        mergedOperands.reserve(origOp->getOperands().size() + origOp->getResults().size());
-        mergedOperands.insert(mergedOperands.end(), origOp->getOperands().getTypes().begin(),
-                              origOp->getOperands().getTypes().end());
-        mergedOperands.insert(mergedOperands.end(), origOp->getResults().getTypes().begin(),
-                              origOp->getResults().getTypes().end());
-        auto hasDistributedOperand = llvm::any_of(mergedOperands, [](mlir::Type t) {
-            if (auto checkDistributed = mlir::dyn_cast<vpux::VPU::DistributedTypeInterface>(t)) {
-                return checkDistributed.containsDistributedTypes();
+        auto hasDistributedType = [](mlir::Value value) {
+            if (auto distributedIf = mlir::dyn_cast<vpux::VPU::DistributedTypeInterface>(value.getType())) {
+                return distributedIf.containsDistributedTypes();
             }
             return false;
-        });
-        if (!hasDistributedOperand) {
-            return bufferizeSWLayerOp(rewriter, module, origOp, bufferizedOperands, log);
-        } else {
+        };
+        if (llvm::any_of(origOp->getOperands(), hasDistributedType) ||
+            llvm::any_of(origOp->getResults(), hasDistributedType)) {
             return bufferizeDistributedSWLayerOp(rewriter, module, origOp, bufferizedOperands, log);
+        } else {
+            return bufferizeSWLayerOp(rewriter, module, origOp, bufferizedOperands, log);
         }
     }
 };

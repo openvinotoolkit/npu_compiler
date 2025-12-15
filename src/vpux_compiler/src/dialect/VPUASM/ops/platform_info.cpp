@@ -5,9 +5,9 @@
 
 #include <cstring>
 #include <vpux_elf/writer.hpp>
+#include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
-#include "vpux/compiler/utils/ELF/utils.hpp"
 #include "vpux_headers/platform.hpp"
 
 using namespace vpux;
@@ -15,7 +15,7 @@ using namespace vpux;
 void vpux::VPUASM::PlatformInfoOp::serialize(elf::writer::BinaryDataSection<uint8_t>& binDataSection) {
     elf::platform::PlatformInfo platformInfo;
 
-    platformInfo.mArchKind = ELF::mapVpuArchKindToElfArchKind(config::getArch(getOperation()));
+    platformInfo.mArchKind = ELF::getElfArchKind(getOperation());
 
     auto serializedPlatformInfo = elf::platform::PlatformInfoSerialization::serialize(platformInfo);
     binDataSection.appendData(&serializedPlatformInfo[0], serializedPlatformInfo.size());
@@ -27,7 +27,7 @@ size_t vpux::VPUASM::PlatformInfoOp::getBinarySize(config::ArchKind) {
     // also for non-POD types (e.g. have vector as member) account for all data to be serialized
     // (data owned by vector, instead of just pointer)
     elf::platform::PlatformInfo platformInfo;
-    platformInfo.mArchKind = ELF::mapVpuArchKindToElfArchKind(config::getArch(getOperation()));
+    platformInfo.mArchKind = ELF::getElfArchKind(getOperation());
     return elf::platform::PlatformInfoSerialization::serialize(platformInfo).size();
 }
 

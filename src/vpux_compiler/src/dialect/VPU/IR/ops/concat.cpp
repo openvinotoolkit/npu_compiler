@@ -4,7 +4,8 @@
 //
 
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
@@ -525,6 +526,11 @@ SmallVector<mlir::Value> getAllInputOp(VPU::ConcatOp origOp, const std::unordere
 }
 
 mlir::LogicalResult FuseConcat::matchAndRewrite(VPU::ConcatOp origOp, mlir::PatternRewriter& rewriter) const {
+    // Dynamic concats will be lowered to SHAVE, which can only support two buffers being concatenated
+    if (mlir::isa<Core::DynamicDimsMaskTensorType>(origOp.getOutput().getType())) {
+        return mlir::failure();
+    }
+
     if (origOp.getPerAxisAttr()) {
         return mlir::failure();
     }
@@ -667,6 +673,11 @@ SmallVector<SmallVector<int64_t>> FuseConcatsWithDifferentAxes::recalculateOffse
 
 mlir::LogicalResult FuseConcatsWithDifferentAxes::matchAndRewrite(VPU::ConcatOp origOp,
                                                                   mlir::PatternRewriter& rewriter) const {
+    // Dynamic concats will be lowered to SHAVE, which can only support two buffers being concatenated
+    if (mlir::isa<Core::DynamicDimsMaskTensorType>(origOp.getOutput().getType())) {
+        return mlir::failure();
+    }
+
     if (origOp.getStaticOffsetsAttr() == nullptr || !origOp.getStaticOffsets().has_value()) {
         return mlir::failure();
     }

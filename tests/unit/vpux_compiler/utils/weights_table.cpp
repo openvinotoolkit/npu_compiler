@@ -11,7 +11,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-#include <mlir/Dialect/Quant/QuantOps.h>
+#include <mlir/Dialect/Quant/IR/Quant.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/MLIRContext.h>
 #include <cstdint>
@@ -51,8 +51,10 @@ void compareScaleRoundtrip(mlir::MLIRContext* ctx, double scale, config::ArchKin
 
 TEST_F(MLIR_RetrieveScaleFromWeightTableUnitTest, retrieveScaleFromTable) {
     mlir::MLIRContext ctx(registry);
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     compareScaleRoundtrip(&ctx, 2.5, config::ArchKind::NPU37XX, false);
     compareScaleRoundtrip(&ctx, -0.000625, config::ArchKind::NPU40XX, false);
+
+    compareScaleRoundtrip(&ctx, 1.025, config::ArchKind::NPU50XX, false);
 }

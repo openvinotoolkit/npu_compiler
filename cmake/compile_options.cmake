@@ -75,13 +75,19 @@ function(enable_warnings_as_errors TARGET_NAME)
         )
 
         if(WARNIGS_WIN_STRICT)
-            # Use W3 instead of Wall, since W4 introduces some hard-to-fix warnings
-            target_compile_options(${TARGET_NAME}
-                PRIVATE
-                    /WX /W3 /wd4244 /wd4267 /wd4293
-                    # TODO(E#86977): check and fix warnings to avoid error c2220
-            )
-
+            if(BUILD_COMPILER_FOR_DRIVER)
+                target_compile_options(${TARGET_NAME}
+                    PRIVATE
+                        /W3
+                )
+            else()
+                # Use W3 instead of Wall, since W4 introduces some hard-to-fix warnings
+                target_compile_options(${TARGET_NAME}
+                    PRIVATE
+                        /WX /W3 /wd4244 /wd4267
+                        # TODO(E#86977): check and fix warnings to avoid error c2220
+                )
+            endif()
             # Disable 3rd-party components warnings
             target_compile_options(${TARGET_NAME}
                 PRIVATE

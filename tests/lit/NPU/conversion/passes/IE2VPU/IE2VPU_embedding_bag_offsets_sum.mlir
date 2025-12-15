@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --convert-layers-to-VPU %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @EmbeddingBagOffsetsSumWithWeights
 func.func @EmbeddingBagOffsetsSumWithWeights(%arg0: tensor<5x6xf16>) -> tensor<2x6xf16> {

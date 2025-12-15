@@ -247,6 +247,7 @@ VPUXCompilerL0::VPUXCompilerL0(vcl_compiler_desc_t* compilerDesc, vcl_device_des
     _options->add<intel_npu::QDQ_OPTIMIZATION_AGGRESSIVE>();
     _options->add<intel_npu::QDQ_OPTIMIZATION>();
     _options->add<intel_npu::TURBO>();
+    _options->add<intel_npu::USE_BASE_MODEL_SERIALIZER>();
 
 #ifdef VPUX_DEVELOPER_BUILD
     // E#103359: WS is only available in developer builds

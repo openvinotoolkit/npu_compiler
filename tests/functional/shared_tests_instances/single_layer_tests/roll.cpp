@@ -19,6 +19,10 @@ TEST_P(RollLayerTestCommon, NPU4000) {
     setReferenceSoftwareMode();
     run(Platform::NPU4000);
 }
+TEST_P(RollLayerTestCommon, NPU5010) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
 }  // namespace test
 }  // namespace ov
 

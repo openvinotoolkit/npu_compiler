@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --split-fake-quant %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK: !qElemType = !quant.uniform<u8:f32, 1.000000e+00>
 // CHECK-LABEL: @SingleQuantParams
@@ -758,7 +758,7 @@ func.func @NegativeScalesSplitFakeQuant(%arg0: tensor<1x3xf16>) -> tensor<1x3xf1
     return %1 : tensor<1x3xf16>
 
     // CHECK: [[WT:%.+]] = const.Declare tensor<3x3x!qElemType>
-    // CHECK-SAME-LITERAL: dense<[[64, 63, 112], [-8, 62, -8], [8, 63, 16]]> : tensor<3x3xsi8>, [#const.CastElemType<f16>, #const.CastElemType<!qElemType>]
+    // CHECK-SAME{LITERAL}: dense<[[64, 63, 112], [-8, 62, -8], [8, 63, 16]]> : tensor<3x3xsi8>, [#const.CastElemType<f16>, #const.CastElemType<!qElemType>]
     // CHECK: [[DQ_WT:%.+]] = IE.Dequantize([[WT]]) {dstElemType = f16} : tensor<3x3x!qElemType> -> tensor<3x3xf16>
     // CHECK: [[FC:%.+]] = IE.FullyConnected([[INPUT]], [[DQ_WT]]) : tensor<1x3xf16>, tensor<3x3xf16> -> tensor<1x3xf16>
     // CHECK: return [[FC]] : tensor<1x3xf16>
@@ -781,7 +781,7 @@ func.func @VerySmallScalesSplitFakeQuant(%arg0: tensor<1x3xf16>) -> tensor<1x3xf
     return %1 : tensor<1x3xf16>
 
     // CHECK: [[WT:%.+]] = const.Declare tensor<3x3x!qElemType>
-    // CHECK-SAME-LITERAL: dense<[[64, 63, 112], [-8, 62, -8], [8, 63, 16]]> : tensor<3x3xsi8>, [#const.CastElemType<!qElemType>]
+    // CHECK-SAME{LITERAL}: dense<[[64, 63, 112], [-8, 62, -8], [8, 63, 16]]> : tensor<3x3xsi8>, [#const.CastElemType<f16>, #const.CastElemType<!qElemType>]
     // CHECK: [[DQ_WT:%.+]] = IE.Dequantize([[WT]]) {dstElemType = f16} : tensor<3x3x!qElemType> -> tensor<3x3xf16>
     // CHECK: [[FC:%.+]] = IE.FullyConnected([[INPUT]], [[DQ_WT]]) : tensor<1x3xf16>, tensor<3x3xf16> -> tensor<1x3xf16>
     // CHECK: return [[FC]] : tensor<1x3xf16>

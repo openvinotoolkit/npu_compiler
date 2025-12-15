@@ -76,7 +76,7 @@ void FlattenEltwiseKernelPass::flattenKernel(mlir::func::FuncOp func) {
     mlir::RewritePatternSet patterns(&ctx);
     mlir::linalg::ControlDropUnitDims options;
     mlir::linalg::populateFoldUnitExtentDimsPatterns(patterns, options);
-    if (failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         return signalPassFailure();
     }
 

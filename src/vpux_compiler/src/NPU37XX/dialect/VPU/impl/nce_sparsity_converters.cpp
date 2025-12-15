@@ -34,7 +34,8 @@ double VPU::arch37xx::retrieveScaleFromTable(VPU::NCESparsity::IntOrFloatType va
     // VPUX37XX expects scale in IEEE754 format in NCE_DPU_PPE_FP_SCALE register in case input has FP16/BF16 type
     const auto realVal = std::get<int32_t>(val);
     auto inStorageType = mlir::quant::QuantizedType::castToStorageType(inputType);
-    if (mlir::isa<mlir::FloatType>(inputType) || inStorageType.isFloat8E5M2() || inStorageType.isFloat8E4M3FN()) {
+    if (mlir::isa<mlir::FloatType>(inputType) ||
+        mlir::isa<mlir::Float8E5M2Type, mlir::Float8E4M3FNType>(inStorageType)) {
         return static_cast<double>(llvm::bit_cast<float>(realVal));
     }
 

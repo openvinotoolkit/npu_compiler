@@ -111,7 +111,7 @@ bool ReshapeMVNPattern::isSupportedGroupConv() {
         return val != 0;
     };
     // Pattern matching in this pass is quite complex and slow, should be refactored to use
-    // better options than applyPatternsAndFoldGreedily -> E#148655
+    // better options than applyPatternsGreedily -> E#148655
     if (auto inFilter = _groupConvOp.getFilter(); !mlir::dyn_cast<Const::DeclareOp>(inFilter.getDefiningOp())) {
         _log.trace("GroupConvolution filter input not constant");
         // Filter may not be constant, it can be runtime dequantized and reordered
@@ -499,7 +499,7 @@ void FuseReshapeMvnPass::safeRunOnFunc() {
     patterns.add<FuseReshapeMvn>(&ctx, _log);
 
     auto func = getOperation();
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

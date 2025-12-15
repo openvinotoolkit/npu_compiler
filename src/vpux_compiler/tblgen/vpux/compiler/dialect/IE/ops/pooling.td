@@ -11,7 +11,7 @@ include "vpux/compiler/dialect/IE/ops_interfaces.td"
 include "vpux/compiler/dialect/IE/attributes.td"
 include "vpux/compiler/dialect/core/ops_interfaces.td"
 
-include "mlir/Dialect/Quant/QuantOpsBase.td"
+include "mlir/Dialect/Quant/IR/QuantBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 
 def IE_AdaptiveAvgPoolOp :
@@ -164,6 +164,9 @@ def IE_MaxPool8Op :
         RankedTensorOf<[F16, F32, F64, quant_QuantizedType, SI32, SI64, SI8, UI8]>:$output,
         RankedTensorOf<[SI32, SI64]>:$output_index
     );
+
+    let hasVerifier = 1;
+    let hasCanonicalizer = 1;
 
 }
 

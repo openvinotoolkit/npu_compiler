@@ -4,19 +4,18 @@
 //
 
 // RUN: vpux-opt --init-compiler="vpu-arch=%arch%" --constant-dpu-prof-hwp-base %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 !InputType = memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>
 !WeightType = memref<64x16x7x7xf16, #NHWC, [@CMX_NN, 0]>
-!WeightTableType = memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>
 !OutputType = memref<1x64x32x32xf16, #NHWC, [@CMX_NN, 0]>
 !ProfType = memref<4xui64, [@CMX_NN, 0]>
 !ProfOutputType = memref<4xui64>
 
 
-func.func @main(%input: !InputType, %weights: !WeightType, %weightsTable: !WeightTableType) -> (!OutputType, !ProfOutputType) {
+func.func @main(%input: !InputType, %weights: !WeightType) -> (!OutputType, !ProfOutputType) {
 
   %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
@@ -29,7 +28,6 @@ func.func @main(%input: !InputType, %weights: !WeightType, %weightsTable: !Weigh
     %0:2 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], minimumHardwareExecutionCost = 1 : i64, task_type = #VPUIP.nce_task_type<CONV>}
     input(%input : !InputType)
     weights(%weights : !WeightType)
-    weight_table(%weightsTable : !WeightTableType )
     parent_input(%input : !InputType)
     parent_output(%output : !OutputType)
     outputs(%output: !OutputType)

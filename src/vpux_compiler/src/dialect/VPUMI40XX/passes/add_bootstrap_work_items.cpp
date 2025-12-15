@@ -127,6 +127,28 @@ void AddBootstrapWorkItemsPass::safeRunOnFunc() {
     // Check if there are any Enqueue DMAs present in the schedule
     mlir::DenseMap<VPUMI40XX::HwQueueType, int64_t> firstEnqueueDmaPerHwQueue;
 
+    if (_workloadManagementMode == WorkloadManagementMode::FWLM_V1_PAGES) {
+        auto dmaTile0List0Task = mpi.getListHead(VPURegMapped::TaskType::DMA, 0, 0).getDefiningOp<VPUMI40XX::NNDMAOp>();
+        do {
+            auto enqueueDmaAttr = dmaTile0List0Task.getEnqueueDmaAttr();
+            if (enqueueDmaAttr.has_value()) {
+                auto taskType = VPUMI40XX::convertExecutorKindToExecutableTaskType(
+                        enqueueDmaAttr.value().getTargetExecutorKindAttr().getValue());
+                auto tileIdx = static_cast<uint32_t>(enqueueDmaAttr.value().getTileIdx().getValue().getSExtValue());
+                auto listIdx = static_cast<uint32_t>(enqueueDmaAttr.value().getListIdx().getValue().getSExtValue());
+                auto hwQueue = VPUMI40XX::HwQueueType{taskType, tileIdx, listIdx};
+
+                if (firstEnqueueDmaPerHwQueue.find(hwQueue) == firstEnqueueDmaPerHwQueue.end()) {
+                    auto firstTaskIdx = enqueueDmaAttr.value().getStartTaskIdx().getValue().getSExtValue();
+                    firstEnqueueDmaPerHwQueue[hwQueue] = firstTaskIdx;
+                    _log.trace("Found Enqueue DMA for task type {0} on tile {1}, list {2} with first task index {3}",
+                               taskType, tileIdx, listIdx, firstTaskIdx);
+                }
+            }
+            dmaTile0List0Task = VPUMI40XX::getNextOp(dmaTile0List0Task);
+        } while (dmaTile0List0Task);
+    }
+
     VPURegMapped::EnqueueOp firstEnqueue = nullptr;
     if (mpi.getWorkItemTasks()) {
         firstEnqueue = mlir::cast<VPURegMapped::EnqueueOp>(mpi.getWorkItemTasks().getDefiningOp());
@@ -171,6 +193,13 @@ void AddBootstrapWorkItemsPass::safeRunOnFunc() {
                 auto curHead = mpi.getListHead(taskType, dmaExecutorOrTileIdx, listIdx);
 
                 std::optional<int64_t> firstTaskIdxWithEnqueueDma;
+                auto hwQueue = VPUMI40XX::HwQueueType{taskType, dmaExecutorOrTileIdx, listIdx};
+                if (_workloadManagementMode == WorkloadManagementMode::FWLM_V1_PAGES) {
+                    auto firstTaskIdxWithEnqueueDmaIt = firstEnqueueDmaPerHwQueue.find(hwQueue);
+                    if (firstTaskIdxWithEnqueueDmaIt != firstEnqueueDmaPerHwQueue.end()) {
+                        firstTaskIdxWithEnqueueDma = firstTaskIdxWithEnqueueDmaIt->second;
+                    }
+                }
 
                 auto bootstrapWorkItems =
                         addEnqueueForOp(ctx, netFunc, curHead, taskType, firstEnqueue, firstTaskIdxWithEnqueueDma);

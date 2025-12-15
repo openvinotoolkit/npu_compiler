@@ -220,16 +220,12 @@ mlir::LogicalResult VPUIP::BoundedBufferType::verify(llvm::function_ref<::mlir::
     return mlir::success();
 }
 
-vpux::VPUIP::BoundedBufferType vpux::VPUIP::BoundedBufferType::cloneWith(std::optional<mlir::ArrayRef<int64_t>> shape,
-                                                                         mlir::Type elementType) const {
+mlir::ShapedType vpux::VPUIP::BoundedBufferType::cloneWith(std::optional<mlir::ArrayRef<int64_t>> shape,
+                                                           mlir::Type elementType) const {
     if (!shape.has_value()) {
         return mlir::cast<vpux::VPUIP::BoundedBufferType>(changeElemType(elementType));
     }
     return mlir::cast<vpux::VPUIP::BoundedBufferType>(changeShapeElemType(ShapeRef(shape.value()), elementType));
-}
-
-mlir::Attribute vpux::VPUIP::BoundedBufferType::getMemorySpace() const {
-    return getMemSpace();
 }
 
 //

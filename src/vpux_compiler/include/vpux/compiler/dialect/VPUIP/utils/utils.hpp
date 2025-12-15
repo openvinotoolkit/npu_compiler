@@ -42,6 +42,7 @@ constexpr uint16_t HW_DPU_PROFILING_SIZE_BYTES_37XX = 16;
 constexpr uint16_t HW_DPU_PROFILING_SIZE_BYTES_40XX = 32;
 constexpr uint32_t HW_DPU_PROFILING_MAX_BUFFER_SIZE =
         1024;  // Up to 64 DPU Tasks in single CMX DPU profiling buffer instance
+constexpr uint32_t HW_DPU_PROFILING_MAX_BUFFER_SIZE_50XX = 2048;
 // ActShave Profiling buffer: 64bit start timestamp + 32bit duration + 4 32bit counters + 32 bit reserved
 constexpr uint16_t HW_ACT_SHAVE_PROFILING_SIZE_BYTES = 32;
 // ActShave Profiling buffer size in bytes
@@ -69,6 +70,7 @@ constexpr uint16_t HW_PLL_WORKPOINT_SIZE = 4;
 const EnumMap<config::ArchKind, size_t> firmwareVariantCount = {
         {config::ArchKind::NPU37XX, 256},
         {config::ArchKind::NPU40XX, 128},
+        {config::ArchKind::NPU50XX, 128},
 };
 
 uint32_t getDPUProfMaxBufferSize(config::ArchKind arch);
@@ -105,11 +107,11 @@ int64_t getNumberOfIndependentDmaQueues(mlir::Operation* parentOp);
 /**
  * @brief checks if barriers will be configured per variant
  *
- * @param module - mlir::ModuleOp
+ * @param op - mlir::Operation*
  * @return true - only first/last variant within given invariant will have wait/update barriers configured
  * @return false - all variants within given invariant will have same wait/update barriers
  */
-bool supportsPerVariantBarrierConfiguration(mlir::ModuleOp module);
+bool supportsPerVariantBarrierConfiguration(mlir::Operation* op);
 
 //
 // DW Convolution utility

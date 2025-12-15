@@ -6,7 +6,6 @@
 #pragma once
 
 #include "vpux/compiler/conversion/passes/VPUMI37XX2VPUASM/symbolization_type_converter.hpp"
-#include "vpux/compiler/dialect/VPUMI37XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/ops.hpp"
 #include "vpux/compiler/utils/symbolization.hpp"
 

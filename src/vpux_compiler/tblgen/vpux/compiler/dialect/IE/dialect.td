@@ -7,7 +7,7 @@
 #define VPUX_COMPILER_DIALECT_IE
 
 include "mlir/IR/OpBase.td"
-include "mlir/Dialect/Quant/QuantOpsBase.td"
+include "mlir/Dialect/Quant/IR/QuantBase.td"
 
 def IE_Dialect : Dialect {
     let summary = "InferenceEngine IR Dialect";
@@ -67,7 +67,7 @@ net.NetworkInfo
         "vpux::net::NetDialect",
         "mlir::func::FuncDialect",
         "mlir::tensor::TensorDialect",
-        "mlir::quant::QuantizationDialect"
+        "mlir::quant::QuantDialect"
     ];
 
     let extraClassDeclaration = [{

@@ -112,6 +112,21 @@ constexpr auto EXP_POS_SAT_VALUE = std::numeric_limits<ov::float16>::max();
 constexpr auto EXP_ERROR = 0.003f;
 
 //
+// HSwish
+//
+
+// Converges to 0 if x -> -inf
+constexpr auto HSWISH_NEG_SAT_LOW = -1 * std::numeric_limits<float>::infinity();
+constexpr auto HSWISH_NEG_SAT_HIGH = -3;
+constexpr auto HSWISH_NEG_SAT_VALUE = 0.f;
+
+// Completely linear past value 3
+constexpr auto HSWISH_POS_BYPASS_LOW = 3;
+constexpr auto HSWISH_POS_BYPASS_HIGH = std::numeric_limits<float>::infinity();
+
+constexpr auto HSWISH_ERROR = 0.0002f;
+
+//
 // Lut config
 //
 

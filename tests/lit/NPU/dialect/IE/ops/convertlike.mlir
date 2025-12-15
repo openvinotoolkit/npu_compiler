@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 //  CHECK-LABEL: @ConvertConvertLikeToConvertF16ToF32
 func.func @ConvertConvertLikeToConvertF16ToF32(%arg0: tensor<2x2xf16>) -> tensor<2x2xf32> {

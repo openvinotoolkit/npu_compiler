@@ -7,10 +7,10 @@
 
 #include "vpux/utils/logger/logger.hpp"
 
+#include "vpux/compiler/ShaveCodeGen/utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
-#include "vpux/compiler/utils/ShaveCodeGen/utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Dialect/Func/IR/FuncOps.h>
@@ -215,8 +215,7 @@ void LowerMathToShaveIntrinsicsPass::safeRunOnModule() {
     patterns.add<TanhOpLowering>(&ctx, bCache);
     patterns.add<AtanOpLowering>(&ctx, bCache);
 
-    if (mlir::failed(
-                mlir::applyPatternsAndFoldGreedily(_swModule, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(_swModule, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
         return;
     }

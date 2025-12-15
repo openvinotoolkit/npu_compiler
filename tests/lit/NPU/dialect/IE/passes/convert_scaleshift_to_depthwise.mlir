@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-scale-shift-depthwise %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @ConvertScaleShiftToDepthwise
 func.func @ConvertScaleShiftToDepthwise(%arg0: tensor<1x3x224x224xf16>) -> tensor<1x3x224x224xf16> {
@@ -15,9 +15,9 @@ func.func @ConvertScaleShiftToDepthwise(%arg0: tensor<1x3x224x224xf16>) -> tenso
     return %0 : tensor<1x3x224x224xf16>
 
     // CHECK-NOT:   IE.ScaleShift
-    // CHECK-DAG:       %[[WEIGHTS:.*]] = const.Declare tensor<3x1x1x1xf16> = dense<-1.000000e+00> : tensor<1x3x1x1xf16>, [#const.Reshape<[3, 1, 1, 1]>]
-    // CHECK-DAG:       %[[BIAS:.*]] = const.Declare tensor<1x3x1x1xf16> = dense<7.843020e-03> : tensor<1x3x1x1xf16>
-    // CHECK:       %[[GROUPCONV:.*]] = IE.GroupConvolution(%arg0, %[[WEIGHTS]], %[[BIAS]])
+    // CHECK-DAG:       [[WEIGHTS:%.+]] = const.Declare tensor<3x1x1x1xf16> = dense<-1.000000e+00> : tensor<1x3x1x1xf16>, [#const.Reshape<[3, 1, 1, 1]>]
+    // CHECK-DAG:       [[BIAS:%.+]] = const.Declare tensor<1x3x1x1xf16> = dense<7.843020e-03> : tensor<1x3x1x1xf16>
+    // CHECK:       %[[GROUPCONV:.*]] = IE.GroupConvolution(%arg0, [[WEIGHTS]], [[BIAS]])
     // CHECK-SAME:      dilations = [1, 1]
     // CHECK-SAME:      groups = 3 : i64
     // CHECK-SAME:      pads_begin = [0, 0]

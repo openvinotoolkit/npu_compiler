@@ -399,6 +399,11 @@ TEST_P(LSTMSubgraphNPUTest, NPU4000_HW_TestKindSubgraph) {
     run(Platform::NPU4000);
 }
 
+TEST_P(LSTMSubgraphNPUTest, NPU5010_HW_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
 //                    *------------------------*
 //                    |     Input parameter    |
 //                    |       (dynamic)        |
@@ -436,6 +441,11 @@ TEST_P(LSTMSubgraphNPUTest, NPU4000_HW_TestKindSubgraph) {
 TEST_P(LSTMSubgraphNPUTest2LSTMSeq, NPU4000_HW_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
+}
+
+TEST_P(LSTMSubgraphNPUTest2LSTMSeq, NPU5010_HW_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
 }
 
 //                                      .. same ..
@@ -476,6 +486,17 @@ TEST_P(LSTMSubgraphNPUTest2LSTMSeq_extended, NPU4000_HW_TestKindSubgraph_1Tile) 
     setDefaultHardwareMode();
     configuration["NPU_TILES"] = "1";
     run(Platform::NPU4000);
+}
+
+TEST_P(LSTMSubgraphNPUTest2LSTMSeq_extended, NPU5010_HW_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(LSTMSubgraphNPUTest2LSTMSeq_extended, NPU5010_HW_TestKindSubgraph_1Tile) {
+    setDefaultHardwareMode();
+    configuration["NPU_TILES"] = "1";
+    run(Platform::NPU5010);
 }
 
 const std::vector<ov::element::Type> inputType = {ov::element::f32};

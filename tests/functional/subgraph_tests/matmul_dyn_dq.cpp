@@ -89,6 +89,10 @@ TEST_P(MatMulWithDynDQTestCommon, NPU4000_DebugTestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
+TEST_P(MatMulWithDynDQTestCommon, NPU5010_DebugTestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
 
 const std::vector<DynDQShapes> testShapes = {
         /*case1=*/{/*_input=*/{1, 1, 4096},

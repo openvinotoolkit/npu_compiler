@@ -33,6 +33,14 @@ TEST_P(DeformableConvolutionLayerTestTiling, NPU4000_HW) {
     run(Platform::NPU4000);
 }
 
+TEST_P(DeformableConvolutionLayerTestCommon, NPU5010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
+TEST_P(DeformableConvolutionLayerTestTiling, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
 }  // namespace test
 }  // namespace ov
 

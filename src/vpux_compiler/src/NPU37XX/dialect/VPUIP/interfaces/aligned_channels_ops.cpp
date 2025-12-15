@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/image.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPUIP/interfaces/nce_invariant.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
@@ -117,5 +118,6 @@ void vpux::VPUIP::arch37xx::registerAlignedChannelsOpInterfaces(mlir::DialectReg
         IE::MatMulOp::attachInterface<AlignedChannelsOpModel<IE::MatMulOp>>(*ctx);
         IE::SoftMaxOp::attachInterface<AlignedChannelsOpModel<IE::SoftMaxOp>>(*ctx);
         IE::SDPAExtendedOp::attachInterface<AlignedChannelsOpModel<IE::SDPAExtendedOp>>(*ctx);
+        IE::FlashSDPAOp::attachInterface<AlignedChannelsOpModel<IE::FlashSDPAOp>>(*ctx);
     });
 }

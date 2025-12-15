@@ -10,6 +10,7 @@
 #include "vpux/compiler/utils/func_dialect.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+#include <mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.h>
 #include <mlir/Dialect/Bufferization/Transforms/FuncBufferizableOpInterfaceImpl.h>
 #include <mlir/Dialect/Func/Transforms/FuncConversions.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
@@ -94,7 +95,7 @@ class ReturnOpBufferizeModel :
 public:
     mlir::LogicalResult bufferizeImpl(mlir::func::ReturnOp, mlir::RewriterBase&,
                                       const mlir::bufferization::BufferizationOptions&,
-                                      mlir::func::ReturnOp::Adaptor) const {
+                                      mlir::func::ReturnOp::Adaptor&) const {
         return mlir::success();
     }
 };
@@ -132,14 +133,14 @@ public:
 
     mlir::LogicalResult bufferizeImpl(mlir::func::FuncOp op, mlir::RewriterBase& rewriter,
                                       const mlir::bufferization::BufferizationOptions& options,
-                                      mlir::func::FuncOp::Adaptor) const;
+                                      mlir::func::FuncOp::Adaptor&) const;
 
     bool hasTensorSemantics(mlir::Operation* op) const {
         // defaultHasTensorSemantics() does not return true for FuncOps who return tensors but have
         // zero arguments. We need to implement this behaviour ourselves.
 
         auto isaTensor = [](mlir::Type t) {
-            return llvm::isa<mlir::TensorType>(t);
+            return llvm::isa<mlir::bufferization::TensorLikeType>(t);
         };
 
         auto funcOp = llvm::dyn_cast<mlir::FunctionOpInterface>(op);
@@ -154,7 +155,7 @@ public:
 
 mlir::LogicalResult FuncOpBufferizeModel::bufferizeImpl(mlir::func::FuncOp funcOp, mlir::RewriterBase& rewriter,
                                                         const mlir::bufferization::BufferizationOptions&,
-                                                        mlir::func::FuncOp::Adaptor) const {
+                                                        mlir::func::FuncOp::Adaptor&) const {
     auto log = Logger::global().nest("one-shot-bufferize-FuncOp", 0);
     log.trace("Got '{0}' at '{1}'", funcOp->getName(), funcOp->getLoc());
 
@@ -171,7 +172,7 @@ mlir::LogicalResult FuncOpBufferizeModel::bufferizeImpl(mlir::func::FuncOp funcO
 
     // 1. Rewrite the bbArgs. Turn every tensor bbArg into a memref bbArg.
     for (auto& bbArg : frontBlock.getArguments()) {
-        auto tensorType = mlir::dyn_cast<mlir::TensorType>(bbArg.getType());
+        auto tensorType = mlir::dyn_cast<mlir::bufferization::TensorLikeType>(bbArg.getType());
         // Non-tensor types stay the same.
         if (!tensorType) {
             continue;
@@ -202,7 +203,7 @@ mlir::LogicalResult FuncOpBufferizeModel::bufferizeImpl(mlir::func::FuncOp funcO
     SmallVector<mlir::Value> returnValues;
     for (auto& returnOperand : returnOp->getOpOperands()) {
         auto returnVal = returnOperand.get();
-        auto tensorType = mlir::dyn_cast<mlir::TensorType>(returnVal.getType());
+        auto tensorType = mlir::dyn_cast<mlir::bufferization::TensorLikeType>(returnVal.getType());
 
         // If not a tensor type just forward it.
         if (!tensorType) {
@@ -212,7 +213,7 @@ mlir::LogicalResult FuncOpBufferizeModel::bufferizeImpl(mlir::func::FuncOp funcO
 
         rewriter.setInsertionPoint(returnOp);
         auto resultType = vpux::getBufferType(returnVal);
-        auto toMemrefVal = rewriter.create<mlir::bufferization::ToMemrefOp>(loc, resultType, returnVal).getResult();
+        auto toMemrefVal = rewriter.create<mlir::bufferization::ToBufferOp>(loc, resultType, returnVal).getResult();
         returnValues.push_back(toMemrefVal);
     }
 

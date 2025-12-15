@@ -120,6 +120,21 @@ TEST_P(ShaveCodeGenComparisonLayerTestCommon, NPU4000) {
     setMLIRCompilerType();
     run(Platform::NPU4000);
 }
+TEST_P(ComparisonLayerTestCommon, NPU5010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(ComparisonLayerTestDynamic, NPU5010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(ShaveCodeGenComparisonLayerTestCommon, NPU5010) {
+    setReferenceSoftwareMode();
+    setMLIRCompilerType();
+    run(Platform::NPU5010);
+}
 }  // namespace test
 }  // namespace ov
 

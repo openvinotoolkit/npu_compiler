@@ -26,7 +26,7 @@ void vpux::NPUReg40XX::MappedInferenceVersionOp::serialize(elf::writer::BinaryDa
     constexpr uint8_t name[nameSize] = {0x4d, 0x49, 0x56, 0};  // 'M'(apped) 'I'(nference) 'V'(ersion) '\0'
     static_assert(sizeof(name) == 4);
     std::memcpy(MIVersionStruct.n_name, name, nameSize);
-    uint32_t desc[descSize] = {elf::elf_note::ELF_NOTE_OS_LINUX, getMajor(), getMinor(), getPatch()};
+    uint32_t desc[descSize] = {0, getMajor(), getMinor(), getPatch()};
     static_assert(sizeof(desc) == 64);
     std::memcpy(MIVersionStruct.n_desc, desc, descSize);
 

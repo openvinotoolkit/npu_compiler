@@ -11,7 +11,7 @@ include "vpux/compiler/dialect/IE/ops_interfaces.td"
 include "vpux/compiler/dialect/IE/attributes.td"
 include "vpux/compiler/dialect/core/ops_interfaces.td"
 
-include "mlir/Dialect/Quant/QuantOpsBase.td"
+include "mlir/Dialect/Quant/IR/QuantBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 
 def IE_BatchNormInferenceOp :
@@ -157,13 +157,6 @@ def IE_MVNOp :
             "::mlir::BoolAttr":$normalize_variance,
             "::mlir::FloatAttr":$eps
         )>,
-        OpBuilder<(ins
-            "::mlir::Value":$input,
-            "::mlir::BoolAttr":$across_channels,
-            "::mlir::BoolAttr":$normalize_variance,
-            "::mlir::FloatAttr":$eps,
-            "::mlir::ArrayAttr":$internal_reshape
-        )>,
     ];
 
     let hasCanonicalizer = 1;
@@ -246,11 +239,10 @@ def IE_RMSOp :
         > {
     let summary = "InferenceEngine RMS layer";
 
-
     let arguments = (ins
         RankedTensorOf<[F16, F32, F64]>:$input,
         RankedTensorOf<[F16, F32, F64]>:$gamma,
-        F64Attr:$epsilon
+        F64Attr:$eps
      );
    let results = (outs
         RankedTensorOf<[F16, F32, F64]>:$output

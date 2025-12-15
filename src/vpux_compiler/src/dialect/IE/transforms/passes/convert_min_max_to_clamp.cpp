@@ -105,7 +105,7 @@ void ConvertMinMaxToClampPass::safeRunOnFunc() {
     patterns.add<MinMaxConverter<IE::MinimumOp>>(&ctx, _log);
     patterns.add<MinMaxConverter<IE::MaximumOp>>(&ctx, _log);
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         _log.debug("Failed to replace Min or Max operation with Clamp");
         signalPassFailure();
     }

@@ -4,9 +4,11 @@
 //
 
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 namespace vpux::IE {
@@ -35,9 +37,25 @@ private:
 mlir::LogicalResult SDPARewrite::matchAndRewrite(IE::SDPAOp origOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp->getLoc());
 
-    auto flashSdpa = rewriter.create<IE::FlashSDPAOp>(appendLoc(origOp->getLoc(), "FlashAttention"), origOp.getInputQ(),
-                                                      origOp.getInputK(), origOp.getInputV(), origOp.getInputMask(),
-                                                      origOp.getInputScale());
+    auto valueRank = origOp.getInputV().getType().getRank();
+    if (valueRank < 2) {
+        return errorAt(origOp, "Invalid Value tensor rank '{0}'", valueRank);
+    }
+
+    // Transpose Value tensor to match required tensor shape for the second DPU MatMul and get this configuration:
+    // Attention scores [1, Heads, TargetSeqLen, SourceSeqLen]
+    // Value            [1, Heads, VEmbedding,   SourceSeqLen]
+    SmallVector<unsigned> perm(valueRank, 0);
+    std::iota(perm.begin(), perm.end(), 0);
+    std::iter_swap(perm.end() - 1, perm.end() - 2);
+    auto orderAttr = mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(perm, getContext()));
+
+    auto transposedValue = rewriter.create<IE::TransposeOp>(appendLoc(origOp->getLoc(), "transposed"),
+                                                            origOp.getInputV(), nullptr, orderAttr);
+
+    auto flashSdpa = rewriter.create<IE::FlashSDPAOp>(
+            appendLoc(origOp->getLoc(), "FlashAttention"), origOp.getInputQ(), origOp.getInputK(),
+            transposedValue.getOutput(), origOp.getInputMask(), origOp.getInputScale(), getIntAttr(rewriter, 0));
 
     rewriter.replaceOp(origOp, flashSdpa.getOutput());
 
@@ -75,6 +93,7 @@ void ConvertSDPAToFlashSDPA::safeRunOnFunc() {
 
     target.addDynamicallyLegalOp<IE::SDPAOp>(isLegal);
     target.addLegalOp<IE::FlashSDPAOp>();
+    target.addLegalOp<IE::TransposeOp>();
     target.addLegalOp<Const::DeclareOp>();
 
     mlir::RewritePatternSet patterns(&ctx);

@@ -7,6 +7,7 @@
 
 #include "vpux/compiler/NPU37XX/interfaces_registry.hpp"
 #include "vpux/compiler/NPU40XX/interfaces_registry.hpp"
+#include "vpux/compiler/NPU50XX/interfaces_registry.hpp"
 
 #include <memory>
 
@@ -25,6 +26,8 @@ std::unique_ptr<IInterfaceRegistry> createInterfacesRegistry(config::ArchKind ar
         return std::make_unique<InterfacesRegistry37XX>();
     case config::ArchKind::NPU40XX:
         return std::make_unique<InterfacesRegistry40XX>();
+    case config::ArchKind::NPU50XX:
+        return std::make_unique<InterfacesRegistry50XX>();
     default:
         VPUX_THROW("Unsupported arch kind: {0}", arch);
     }

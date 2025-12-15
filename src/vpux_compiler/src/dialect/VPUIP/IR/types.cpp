@@ -36,32 +36,24 @@ void vpux::VPUIP::VPUIPDialect::registerTypes() {
 // SparseBufferType::Accessors
 //
 
-// Note: getMemorySpace and clonewith are defined for compliance with BaseMemRefTypeInterface.
+// Note: clonewith are defined for compliance with ShapedTypeInterface.
 
-vpux::VPUIP::SparseBufferType vpux::VPUIP::SparseBufferType::cloneWith(std::optional<mlir::ArrayRef<int64_t>> shape,
-                                                                       mlir::Type elementType) const {
+mlir::ShapedType vpux::VPUIP::SparseBufferType::cloneWith(std::optional<mlir::ArrayRef<int64_t>> shape,
+                                                          mlir::Type elementType) const {
     if (!shape.has_value()) {
         return mlir::cast<vpux::VPUIP::SparseBufferType>(changeElemType(elementType));
     }
     return mlir::cast<vpux::VPUIP::SparseBufferType>(changeShapeElemType(ShapeRef(shape.value()), elementType));
 }
 
-mlir::Attribute vpux::VPUIP::SparseBufferType::getMemorySpace() const {
-    return getMemSpace();
-}
-
 //
 // DistributedBufferType::Accessors
 //
 
-// Note: getMemorySpace and clonewith are defined for compliance with BaseMemRefTypeInterface.
+// Note: clonewith are defined for compliance with ShapedTypeInterface.
 
-mlir::Attribute vpux::VPUIP::DistributedBufferType::getMemorySpace() const {
-    return getMemSpace();
-}
-
-vpux::VPUIP::DistributedBufferType vpux::VPUIP::DistributedBufferType::cloneWith(
-        std::optional<mlir::ArrayRef<int64_t>> shape, mlir::Type elementType) const {
+mlir::ShapedType vpux::VPUIP::DistributedBufferType::cloneWith(std::optional<mlir::ArrayRef<int64_t>> shape,
+                                                               mlir::Type elementType) const {
     if (!shape.has_value()) {
         return mlir::cast<vpux::VPUIP::DistributedBufferType>(changeElemType(elementType));
     }

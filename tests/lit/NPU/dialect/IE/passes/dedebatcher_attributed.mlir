@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --de-debatcher="debatching-inlining-method=reordering" %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 func.func private @SingleInputSingleOutputNonBatched_Batch1(%arg0: tensor<1x3x62x62xf32>) -> tensor<1x48x60x60xf32> {
     %cst = const.Declare tensor<48x3x3x3xf32> = dense<1.000000e+00> : tensor<48x3x3x3xf32>

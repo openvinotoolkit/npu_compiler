@@ -236,7 +236,7 @@ private:
 
 mlir::LogicalResult GRUSequenceToCellRewriter::matchAndRewrite(IE::GRUSequenceOp origOp,
                                                                mlir::PatternRewriter& rewriter) const {
-    _log.trace("Got '{1}' at '{2}'", origOp->getName(), origOp->getLoc());
+    _log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
     auto getNewReshapeOut = [&](mlir::Value input) -> mlir::Value {
         const auto shape = getShape(input).raw();

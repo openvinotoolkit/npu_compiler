@@ -860,7 +860,7 @@ void UniquifyBranches::safeRunOnFunc() {
     patterns.add<MoveReorderBeforeSplit>(&ctx, _log);
     patterns.add<MoveReorderBeforeEltwiseOp>(&ctx, _log);
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

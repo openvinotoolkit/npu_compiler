@@ -6,8 +6,8 @@
 #pragma once
 
 #include "vpux/compiler/NPU40XX/dialect/ELF/ops.hpp"
+#include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
-#include "vpux/compiler/utils/ELF/utils.hpp"
 #include "vpux/utils/core/range.hpp"
 
 #include <mlir/Transforms/DialectConversion.h>
@@ -49,7 +49,7 @@ template <typename SourceOp>
 class SymbolizationPattern : public mlir::OpConversionPattern<SourceOp> {
 public:
     using BaseOpT = SourceOp;
-    using OpAdaptor = typename mlir::OpConversionPattern<SourceOp>::OpAdaptor;
+    using OneToNOpAdaptor = typename mlir::OpConversionPattern<SourceOp>::OneToNOpAdaptor;
     using SymbolMapper = typename llvm::DenseMap<mlir::Value, mlir::SymbolRefAttr>;
     using SectionMapper = typename std::unordered_map<ELF::SectionSignature, ELF::ElfSectionInterface>;
     SymbolizationPattern(mlir::func::FuncOp parentFunc, mlir::TypeConverter& typeConverter, SymbolMapper& mapper,
@@ -127,7 +127,7 @@ protected:
     mlir::SymbolRefAttr findSym(mlir::Value val) const;
 
 private:
-    mlir::LogicalResult matchAndRewrite(SourceOp op, OpAdaptor newArgs,
+    mlir::LogicalResult matchAndRewrite(SourceOp op, OneToNOpAdaptor newArgs,
                                         mlir::ConversionPatternRewriter& rewriter) const final;
 
 protected:
@@ -182,7 +182,7 @@ std::pair<mlir::ArrayAttr, mlir::ArrayAttr> SymbolizationPattern<SourceOp>::proc
 }
 
 template <typename SourceOp>
-mlir::LogicalResult SymbolizationPattern<SourceOp>::matchAndRewrite(SourceOp op, OpAdaptor,
+mlir::LogicalResult SymbolizationPattern<SourceOp>::matchAndRewrite(SourceOp op, OneToNOpAdaptor,
                                                                     mlir::ConversionPatternRewriter& rewriter) const {
     auto sym = symbolize(op, *_mapper, rewriter);
     if (mlir::failed(sym)) {

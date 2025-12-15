@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --deduce-dynamic-mi %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: dev-build && arch-NPU40XX
 
 
 module @setDynMi {

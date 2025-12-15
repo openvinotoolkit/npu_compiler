@@ -57,7 +57,6 @@ void WlmLegalizePagesForBarrierDmasPass::safeRunOnFunc() {
     auto func = getOperation();
     auto module = func->getParentOfType<mlir::ModuleOp>();
     auto nPhysBarrs = VPUIP::getNumAvailableBarriers(func);
-
     if (config::getWorkloadManagementStatus(module) != WorkloadManagementStatus::ENABLED) {
         // WLM is not supported, no need to run this pass
         return;
@@ -65,7 +64,7 @@ void WlmLegalizePagesForBarrierDmasPass::safeRunOnFunc() {
     const auto numBarriers = numBarriersOpt.hasValue() ? numBarriersOpt.getValue() : nPhysBarrs;
 
     auto& barrierInfo = getAnalysis<BarrierInfo>();
-    VPURT::BarrierPagesSplitHandler barrierPagesSplitHandler(barrierInfo, numBarriers, _log);
+    VPURT::BarrierPagesSplitHandler barrierPagesSplitHandler(func, barrierInfo, numBarriers, _log);
     if (barrierFifoDepthOpt.hasValue()) {
         // In case pass option has barrier FIFO depth set, use it. Otherwise module
         // will use default FIFO depth (4)
@@ -162,7 +161,8 @@ void WlmLegalizePagesForBarrierDmasPass::safeRunOnFunc() {
     VPURT::postProcessBarrierOps(func);
 
     barrierInfo = vpux::BarrierInfo{func};
-    barrierPagesSplitHandler = VPURT::BarrierPagesSplitHandler{barrierInfo, static_cast<size_t>(numBarriers), _log};
+    barrierPagesSplitHandler =
+            VPURT::BarrierPagesSplitHandler{func, barrierInfo, static_cast<size_t>(numBarriers), _log};
     barrierPagesSplitHandler.initializeForLegalization();
 
     // In case during previous legalization there are now some last tasks on FIFO in page without update
@@ -175,7 +175,8 @@ void WlmLegalizePagesForBarrierDmasPass::safeRunOnFunc() {
         // date state
         barrierInfo = barrierPagesSplitHandler.getUpdatedBarrierInfo();
         VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log, true);
-        barrierPagesSplitHandler = VPURT::BarrierPagesSplitHandler{barrierInfo, static_cast<size_t>(numBarriers), _log};
+        barrierPagesSplitHandler =
+                VPURT::BarrierPagesSplitHandler{func, barrierInfo, static_cast<size_t>(numBarriers), _log};
         barrierPagesSplitHandler.initializeForLegalization();
     }
 

@@ -13,7 +13,6 @@
 using namespace ov::test::utils;
 
 namespace ov {
-
 namespace test {
 
 using roiPoolingParamsTupleAddLayout = std::tuple<std::vector<InputShape>,  // Input, coords shapes
@@ -155,6 +154,11 @@ TEST_P(ROIPoolingLayerTestCommon, NPU4000_HW) {
     abs_threshold = 0.25;
     setDefaultHardwareMode();
     run(Platform::NPU4000);
+}
+TEST_P(ROIPoolingLayerTestCommon, NPU5010_SW) {
+    abs_threshold = 0.25;
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
 }
 }  // namespace test
 }  // namespace ov

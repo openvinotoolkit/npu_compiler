@@ -1,0 +1,600 @@
+{
+  "models": [
+    {
+      "name": "resnet50-onnx_FP32_LATENCY_DRIVER",
+      "repository": "Qdrant/resnet50-onnx",
+      "repository_type": "huggingface",
+      "repository_path": "model.onnx",
+      "framework": "onnx",
+      "category": "DRIVER/VPU5010/SILICON",
+      "extra_config": {
+        "NPU_COMPILER_TYPE": "DRIVER",
+        "NPU_PLATFORM": "VPU5010",
+        "DEVICE_ID": "5010",
+        "PERFORMANCE_HINT": "LATENCY"
+      },
+      "Compile": {
+        "input_precision": "FP16",
+        "output_precision": "FP16",
+        "input_layout": "NCHW",
+        "output_layout": "NC",
+        "model_input_layout": "NCHW",
+        "model_output_layout": "NC",
+        "shape": "input[1,3,224,224]"
+      }
+    },
+    {
+      "name": "resnet50-onnx_FP32_THROUGHPUT_DRIVER",
+      "repository": "Qdrant/resnet50-onnx",
+      "repository_type": "huggingface",
+      "repository_path": "model.onnx",
+      "framework": "onnx",
+      "category": "DRIVER/VPU5010/SILICON",
+      "extra_config": {
+        "NPU_COMPILER_TYPE": "DRIVER",
+        "NPU_PLATFORM": "VPU5010",
+        "DEVICE_ID": "5010",
+        "PERFORMANCE_HINT": "THROUGHPUT"
+      },
+      "Compile": {
+        "input_precision": "FP16",
+        "output_precision": "FP16",
+        "input_layout": "NCHW",
+        "output_layout": "NC",
+        "model_input_layout": "NCHW",
+        "model_output_layout": "NC",
+        "shape": "input[1,3,224,224]"
+      }
+    },
+    {
+      "name": "resnet50-v1-12_FP32_LATENCY_DRIVER",
+      "repository": "onnx/models",
+      "repository_type": "github",
+      "repository_branch": "main",
+      "repository_path": "validated/vision/classification/resnet/model/resnet50-v1-12.onnx",
+      "framework": "onnx",
+      "category": "DRIVER/VPU5010/SILICON",
+      "extra_config": {
+        "NPU_COMPILER_TYPE": "DRIVER",
+        "NPU_PLATFORM": "VPU5010",
+        "DEVICE_ID": "5010",
+        "PERFORMANCE_HINT": "LATENCY"
+      },
+      "Compile": {
+        "input_precision": "FP16",
+        "output_precision": "FP16",
+        "input_layout": "NCHW",
+        "output_layout": "NC",
+        "model_input_layout": "NCHW",
+        "model_output_layout": "NC"
+      }
+    },
+    {
+      "name": "resnet50-v1-12-qdq_FP32-INT8_LATENCY_DRIVER",
+      "repository": "onnx/models",
+      "repository_type": "github",
+      "repository_branch": "main",
+      "repository_path": "validated/vision/classification/resnet/model/resnet50-v1-12-qdq.onnx",
+      "framework": "onnx",
+      "category": "DRIVER/VPU5010/SILICON",
+      "extra_config": {
+        "NPU_COMPILER_TYPE": "DRIVER",
+        "NPU_PLATFORM": "VPU5010",
+        "DEVICE_ID": "5010",
+        "PERFORMANCE_HINT": "LATENCY"
+      },
+      "Compile": {
+        "input_precision": "FP16",
+        "output_precision": "FP16",
+        "input_layout": "NCHW",
+        "output_layout": "NC",
+        "model_input_layout": "NCHW",
+        "model_output_layout": "NC"
+      }
+    },
+    {
+      "name": "resnet-50-pytorch_FP32-INT8_LATENCY_DRIVER",
+      "repository": "microsoft/resnet-50",
+      "repository_type": "huggingface",
+      "repository_path": "pytorch_model.bin",
+      "framework": "pytorch",
+      "model_type": "resnet",
+      "category": "DRIVER/VPU5010/SILICON",
+      "extra_config": {
+          "NPU_COMPILER_TYPE": "DRIVER",
+          "NPU_PLATFORM": "VPU5010",
+          "DEVICE_ID": "5010",
+          "PERFORMANCE_HINT": "LATENCY"
+      },
+      "Convert": {
+          "image_url": "http://images.cocodataset.org/val2017/000000039769.jpg",
+          "input_names": ["pixel_values"],
+          "output_names": ["logits"],
+          "dynamic_axes": {
+              "pixel_values": {"0": "batch_size"},
+              "logits": {"0": "batch_size"}
+          }
+      },
+      "Quantize": {
+          "quant_type": "QInt8"
+      },
+      "Compile": {
+          "input_precision": "U8",
+          "output_precision": "FP32",
+          "shape": "pixel_values[1,3,224,224]"
+      }
+    },
+    {
+      "name": "mobilenet_v2_1.0_224_FP32_LATENCY_DRIVER",
+      "repository": "onnx-community/mobilenet_v2_1.0_224",
+      "repository_type": "huggingface",
+      "repository_path": "onnx/model.onnx",
+      "framework": "onnx",
+      "category": "DRIVER/VPU5010/SILICON",
+      "extra_config": {
+        "NPU_COMPILER_TYPE": "DRIVER",
+        "NPU_PLATFORM": "VPU5010",
+        "DEVICE_ID": "5010",
+        "PERFORMANCE_HINT": "LATENCY"
+      },
+      "Compile": {
+        "input_precision": "FP16",
+        "output_precision": "FP16",
+        "input_layout": "NCHW",
+        "output_layout": "NC",
+        "model_input_layout": "NCHW",
+        "model_output_layout": "NC"
+      }
+    },
+    {
+      "name": "mobilenet_v2_1.0_224_FP16_LATENCY_DRIVER",
+      "repository": "onnx-community/mobilenet_v2_1.0_224",
+      "repository_type": "huggingface",
+      "repository_path": "onnx/model_fp16.onnx",
+      "framework": "onnx",
+      "category": "DRIVER/VPU5010/SILICON",
+      "extra_config": {
+        "NPU_COMPILER_TYPE": "DRIVER",
+        "NPU_PLATFORM": "VPU5010",
+        "DEVICE_ID": "5010",
+        "PERFORMANCE_HINT": "LATENCY"
+      },
+      "Compile": {
+        "input_precision": "FP16",
+        "output_precision": "FP16",
+        "input_layout": "NCHW",
+        "output_layout": "NC",
+        "model_input_layout": "NCHW",
+        "model_output_layout": "NC"
+      }
+    },
+    {
+      "name": "mobilenet_v2_1.0_224_FP32-INT8_LATENCY_DRIVER",
+      "repository": "onnx-community/mobilenet_v2_1.0_224",
+      "repository_type": "huggingface",
+      "repository_path": "onnx/model_quantized.onnx",
+      "framework": "onnx",
+      "category": "DRIVER/VPU5010/SILICON",
+      "extra_config": {
+        "NPU_COMPILER_TYPE": "DRIVER",
+        "NPU_PLATFORM": "VPU5010",
+        "DEVICE_ID": "5010",
+        "PERFORMANCE_HINT": "LATENCY"
+      },
+      "Compile": {
+        "input_precision": "FP16",
+        "output_precision": "FP16",
+        "input_layout": "NCHW",
+        "output_layout": "NC",
+        "model_input_layout": "NCHW",
+        "model_output_layout": "NC"
+      }
+    },
+    {
+      "name": "mobilenetv2_140_Opset18_timm_FP32_LATENCY_DRIVER",
+      "repository": "onnx/models",
+      "repository_type": "github",
+      "repository_branch": "main",
+      "repository_path": "Computer_Vision/mobilenetv2_140_Opset18_timm/mobilenetv2_140_Opset18.onnx",
+      "framework": "onnx",
+      "category": "DRIVER/VPU5010/SILICON",
+      "extra_config": {
+        "NPU_COMPILER_TYPE": "DRIVER",
+        "NPU_PLATFORM": "VPU5010",
+        "DEVICE_ID": "5010",
+        "PERFORMANCE_HINT": "LATENCY"
+      },
+      "Compile": {
+        "input_precision": "FP16",
+        "output_precision": "FP16",
+        "input_layout": "NCHW",
+        "output_layout": "NC",
+        "model_input_layout": "NCHW",
+        "model_output_layout": "NC"
+      }
+    },
+    {
+      "name": "mobilenetv2-12-qdq_FP32-INT8_LATENCY_DRIVER",
+      "repository": "onnx/models",
+      "repository_type": "github",
+      "repository_branch": "main",
+      "repository_path": "validated/vision/classification/mobilenet/model/mobilenetv2-12-qdq.onnx",
+      "framework": "onnx",
+      "category": "DRIVER/VPU5010/SILICON",
+      "extra_config": {
+        "NPU_COMPILER_TYPE": "DRIVER",
+        "NPU_PLATFORM": "VPU5010",
+        "DEVICE_ID": "5010",
+        "PERFORMANCE_HINT": "LATENCY"
+      },
+      "Compile": {
+        "input_precision": "FP16",
+        "output_precision": "FP16",
+        "input_layout": "NCHW",
+        "output_layout": "NC",
+        "model_input_layout": "NCHW",
+        "model_output_layout": "NC"
+      }
+    },
+    {
+      "name": "yolov4_FP32_LATENCY_DRIVER",
+      "repository": "onnx/models",
+      "repository_type": "github",
+      "repository_branch": "main",
+      "repository_path": "validated/vision/object_detection_segmentation/yolov4/model/yolov4.onnx",
+      "framework": "onnx",
+      "category": "DRIVER/VPU5010/SILICON",
+      "extra_config": {
+        "NPU_COMPILER_TYPE": "DRIVER",
+        "NPU_PLATFORM": "VPU5010",
+        "DEVICE_ID": "5010",
+        "PERFORMANCE_HINT": "LATENCY"
+      },
+      "Compile": {
+        "input_precision": "FP16",
+        "output_precision": "FP16",
+        "input_layout": "NHWC",
+        "model_input_layout": "NHWC"
+      }
+    },
+    {
+      "name": "yolov4_FP32-INT8_LATENCY_DRIVER",
+      "repository": "onnx/models",
+      "repository_type": "github",
+      "repository_branch": "main",
+      "repository_path": "validated/vision/object_detection_segmentation/yolov4/model/yolov4.onnx",
+      "framework": "onnx",
+      "category": "DRIVER/VPU5010/SILICON",
+      "extra_config": {
+        "NPU_COMPILER_TYPE": "DRIVER",
+        "NPU_PLATFORM": "VPU5010",
+        "DEVICE_ID": "5010",
+        "PERFORMANCE_HINT": "LATENCY"
+      },
+      "Quantize": {
+          "quant_type": "QInt8"
+      },
+      "Compile": {
+        "input_precision": "FP16",
+        "output_precision": "FP16",
+        "input_layout": "NHWC",
+        "model_input_layout": "NHWC"
+      }
+    },
+    {
+      "name": "bert-base-uncased_FP32_LATENCY_DRIVER",
+      "repository": "google-bert/bert-base-uncased",
+      "repository_type": "huggingface",
+      "repository_path": "model.onnx",
+      "framework": "onnx",
+      "category": "DRIVER/VPU5010/SILICON",
+      "extra_config": {
+        "NPU_COMPILER_TYPE": "DRIVER",
+        "NPU_PLATFORM": "VPU5010",
+        "DEVICE_ID": "5010",
+        "PERFORMANCE_HINT": "LATENCY"
+      },
+      "Compile": {
+        "input_precision": "I32",
+        "output_precision": "FP32",
+        "shape": "input_ids[1,128],attention_mask[1,128],token_type_ids[1,128]"
+      }
+    },
+    {
+      "name": "bert-base-multilingual-cased_FP32_LATENCY_DRIVER",
+      "repository": "google-bert/bert-base-multilingual-cased",
+      "repository_type": "huggingface",
+      "repository_path": "pytorch_model.bin",
+      "framework": "pytorch",
+      "model_type": "transformer",
+      "category": "DRIVER/VPU5010/SILICON",
+      "extra_config": {
+        "NPU_COMPILER_TYPE": "DRIVER",
+        "NPU_PLATFORM": "VPU5010",
+        "DEVICE_ID": "5010",
+        "PERFORMANCE_HINT": "LATENCY"
+      },
+      "Convert": {
+        "text1": "What is the meaning of your existence?",
+        "input_names": ["input_ids", "attention_mask"],
+        "output_names": ["last_hidden_state", "pooler_output"],
+        "dynamic_axes": {
+            "input_ids": {"0": "batch_size", "1": "sequence_length"},
+            "attention_mask": {"0": "batch_size", "1": "sequence_length"},
+            "last_hidden_state": {"0": "batch_size", "1": "sequence_length"},
+            "pooler_output": {"0": "batch_size"}
+        }
+      },
+      "Compile": {
+        "input_precision": "I32",
+        "output_precision": "FP32",
+        "shape": "input_ids[1,128],attention_mask[1,128]"
+      }
+    },
+    {
+      "name": "bert-base-uncased-mrpc_FP32_LATENCY_DRIVER",
+      "repository": "Intel/bert-base-uncased-mrpc",
+      "repository_type": "huggingface",
+      "repository_path": "pytorch_model.bin",
+      "framework": "pytorch",
+      "model_type": "transformer",
+      "category": "DRIVER/VPU5010/SILICON",
+      "extra_config": {
+          "NPU_COMPILER_TYPE": "DRIVER",
+          "NPU_PLATFORM": "VPU5010",
+          "DEVICE_ID": "5010",
+          "PERFORMANCE_HINT": "LATENCY"
+      },
+      "Convert": {
+          "text1": "What is the meaning of your existence?",
+          "text2": "Hello world!",
+          "input_names": ["input_ids", "attention_mask","token_type_ids"],
+          "output_names": ["logits"],
+          "dynamic_axes": {
+              "input_ids": {"0": "batch_size", "1": "sequence_length"},
+              "attention_mask": {"0": "batch_size", "1": "sequence_length"},
+              "token_type_ids": {"0": "batch_size", "1": "sequence_length"},
+              "logits": {"0": "batch_size"}
+          }
+      },
+      "Compile": {
+          "input_precision": "I32",
+          "output_precision": "FP32",
+          "shape": "input_ids[1,128],attention_mask[1,128],token_type_ids[1,128]"
+      }
+    },
+    {
+      "name": "clip-vit-base-patch16_FP32_LATENCY_DRIVER",
+      "repository": "openai/clip-vit-base-patch16",
+      "repository_type": "huggingface",
+      "repository_path": "pytorch_model.bin",
+      "framework": "pytorch",
+      "model_type": "clip",
+      "category": "DRIVER/VPU5010/SILICON",
+      "extra_config": {
+          "NPU_COMPILER_TYPE": "DRIVER",
+          "NPU_PLATFORM": "VPU5010",
+          "DEVICE_ID": "5010",
+          "PERFORMANCE_HINT": "LATENCY"
+      },
+      "Convert": {
+          "text1": "a photo of a cat",
+          "image_url": "http://images.cocodataset.org/val2017/000000039769.jpg",
+          "input_names": ["input_ids", "attention_mask", "pixel_values"],
+          "output_names": ["logits_per_image", "logits_per_text", "text_embeds", "image_embeds"],
+          "dynamic_axes": {
+              "input_ids": {"0": "batch_size", "1": "seq_len"},
+              "attention_mask": {"0": "batch_size", "1": "seq_len"},
+              "pixel_values": {"0": "batch_size"},
+              "logits_per_image": {"0": "batch_size", "1": "batch_size"},
+              "logits_per_text": {"0": "batch_size", "1": "batch_size"},
+              "text_embeds": {"0": "batch_size"},
+              "image_embeds": {"0": "batch_size"}
+          }
+      },
+      "Compile": {
+          "input_precision": "I32",
+          "output_precision": "FP32",
+          "shape": "input_ids[1,77],attention_mask[1,77],pixel_values[1,3,224,224]"
+      }
+    },
+    {
+      "name": "clip-vit-base-patch32_FP32_LATENCY_DRIVER",
+      "repository": "openai/clip-vit-base-patch32",
+      "repository_type": "huggingface",
+      "repository_path": "pytorch_model.bin",
+      "framework": "pytorch",
+      "model_type": "clip",
+      "category": "DRIVER/VPU5010/SILICON",
+      "extra_config": {
+          "NPU_COMPILER_TYPE": "DRIVER",
+          "NPU_PLATFORM": "VPU5010",
+          "DEVICE_ID": "5010",
+          "PERFORMANCE_HINT": "LATENCY"
+      },
+      "Convert": {
+          "text1": "a photo of a cat",
+          "image_url": "http://images.cocodataset.org/val2017/000000039769.jpg",
+          "input_names": ["input_ids", "attention_mask", "pixel_values"],
+          "output_names": ["logits_per_image", "logits_per_text", "text_embeds", "image_embeds"],
+          "dynamic_axes": {
+              "input_ids": {"0": "batch_size", "1": "seq_len"},
+              "attention_mask": {"0": "batch_size", "1": "seq_len"},
+              "pixel_values": {"0": "batch_size"},
+              "logits_per_image": {"0": "batch_size", "1": "batch_size"},
+              "logits_per_text": {"0": "batch_size", "1": "batch_size"},
+              "text_embeds": {"0": "batch_size"},
+              "image_embeds": {"0": "batch_size"}
+          }
+      },
+      "Compile": {
+          "input_precision": "I32",
+          "output_precision": "FP32",
+          "shape": "input_ids[1,77],attention_mask[1,77],pixel_values[1,3,224,224]"
+      }
+    },
+    {
+      "name": "CLIP-ViT-B-32-laion2B-s34B-b79K_FP32_LATENCY_DRIVER",
+      "repository": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
+      "repository_type": "huggingface",
+      "repository_path": "pytorch_model.bin",
+      "framework": "pytorch",
+      "model_type": "clip",
+      "category": "DRIVER/VPU5010/SILICON",
+      "extra_config": {
+          "NPU_COMPILER_TYPE": "DRIVER",
+          "NPU_PLATFORM": "VPU5010",
+          "DEVICE_ID": "5010",
+          "PERFORMANCE_HINT": "LATENCY"
+      },
+      "Convert": {
+          "text1": "a photo of a cat",
+          "image_url": "http://images.cocodataset.org/val2017/000000039769.jpg",
+          "input_names": ["input_ids", "attention_mask", "pixel_values"],
+          "output_names": ["logits_per_image", "logits_per_text", "text_embeds", "image_embeds"],
+          "dynamic_axes": {
+              "input_ids": {"0": "batch_size", "1": "seq_len"},
+              "attention_mask": {"0": "batch_size", "1": "seq_len"},
+              "pixel_values": {"0": "batch_size"},
+              "logits_per_image": {"0": "batch_size", "1": "batch_size"},
+              "logits_per_text": {"0": "batch_size", "1": "batch_size"},
+              "text_embeds": {"0": "batch_size"},
+              "image_embeds": {"0": "batch_size"}
+          }
+      },
+      "Compile": {
+          "input_precision": "I32",
+          "output_precision": "FP32",
+          "shape": "input_ids[1,77],attention_mask[1,77],pixel_values[1,3,224,224]"
+      }
+    },
+    {
+      "name": "sam-vit-base_image_encoder_FP32_LATENCY_DRIVER",
+      "disabled": true,
+      "repository": "facebook/sam-vit-base",
+      "repository_type": "huggingface",
+      "repository_path": "pytorch_model.bin",
+      "framework": "pytorch",
+      "model_type": "sam_image_encoder",
+      "category": "DRIVER/VPU5010/SILICON",
+      "extra_config": {
+          "NPU_COMPILER_TYPE": "DRIVER",
+          "NPU_PLATFORM": "VPU5010",
+          "DEVICE_ID": "5010",
+          "PERFORMANCE_HINT": "LATENCY"
+      },
+      "Convert": {
+          "image_url": "https://huggingface.co/ybelkada/segment-anything/resolve/main/assets/car.png",
+          "input_names": ["pixel_values"],
+          "output_names": ["image_embeddings"],
+          "dynamic_axes": {
+              "pixel_values": {"0": "batch"},
+              "image_embeddings": {"0": "batch"}
+          }
+      },
+      "Compile": {
+          "input_precision": "U8",
+          "output_precision": "FP32",
+          "shape": "pixel_values[1,3,1024,1024]"
+      }
+    },
+    {
+      "name": "sam-vit-base_prompt_encoder_FP32_LATENCY_DRIVER",
+      "repository": "facebook/sam-vit-base",
+      "repository_type": "huggingface",
+      "repository_path": "pytorch_model.bin",
+      "framework": "pytorch",
+      "model_type": "sam_prompt_encoder",
+      "category": "DRIVER/VPU5010/SILICON",
+      "extra_config": {
+          "NPU_COMPILER_TYPE": "DRIVER",
+          "NPU_PLATFORM": "VPU5010",
+          "DEVICE_ID": "5010",
+          "PERFORMANCE_HINT": "LATENCY"
+      },
+      "Convert": {
+          "point_coords": [512.0,512.0],
+          "point_labels": [1],
+          "mask_input": [1,1,256,256],
+          "input_names": ["point_coords", "point_labels", "mask_input"],
+          "output_names": ["sparse_embeddings", "dense_embeddings"],
+          "dynamic_axes": {
+              "point_coords": {"0": "batch", "1": "num_points"},
+              "point_labels": {"0": "batch", "1": "num_points"},
+              "mask_input": {"0": "batch"},
+              "sparse_embeddings": {"0": "batch", "1": "num_points"},
+              "dense_embeddings": {"0": "batch"}
+          }
+      },
+      "Compile": {
+          "input_precision": "FP32",
+          "output_precision": "FP32",
+          "shape": "point_coords[1,1,1,2],point_labels[1,1,1],mask_input[1,1,256,256]"
+      }
+    },
+    {
+      "name": "sam-vit-base_mask_decoder_FP32_LATENCY_DRIVER",
+      "repository": "facebook/sam-vit-base",
+      "repository_type": "huggingface",
+      "repository_path": "pytorch_model.bin",
+      "framework": "pytorch",
+      "model_type": "sam_mask_decoder",
+      "category": "DRIVER/VPU5010/SILICON",
+      "extra_config": {
+          "NPU_COMPILER_TYPE": "DRIVER",
+          "NPU_PLATFORM": "VPU5010",
+          "DEVICE_ID": "5010",
+          "PERFORMANCE_HINT": "LATENCY"
+      },
+      "Convert": {
+          "image_embeddings_shape": [1,256,64,64],
+          "sparse_embeddings_shape": [1,1,2,256],
+          "dense_embeddings_shape": [1,256,64,64],
+          "input_names": ["image_embeddings", "sparse_embeddings", "dense_embeddings", "multimask_output"],
+          "output_names": ["low_res_masks", "iou_predictions"],
+          "dynamic_axes": {
+              "image_embeddings": {"0": "batch"},
+              "sparse_embeddings": {"0": "batch", "1": "num_points"},
+              "dense_embeddings": {"0": "batch"},
+              "multimask_output": {"0": "batch"},
+              "low_res_masks": {"0": "batch"},
+              "iou_predictions": {"0": "batch"}
+          }
+      },
+      "Compile": {
+          "input_precision": "FP32",
+          "output_precision": "FP32",
+          "shape": "image_embeddings[1,256,64,64],sparse_embeddings[1,1,2,256],dense_embeddings[1,256,64,64]"
+      }
+    },
+    {
+      "name": "vit-base-patch16-224_FP32_LATENCY_DRIVER",
+      "repository": "google/vit-base-patch16-224",
+      "repository_type": "huggingface",
+      "repository_path": "pytorch_model.bin",
+      "framework": "pytorch",
+      "model_type": "vision_transformer",
+      "category": "DRIVER/VPU5010/SILICON",
+      "extra_config": {
+          "NPU_COMPILER_TYPE": "DRIVER",
+          "NPU_PLATFORM": "VPU5010",
+          "DEVICE_ID": "5010",
+          "PERFORMANCE_HINT": "LATENCY"
+      },
+      "Convert": {
+          "image_url": "http://images.cocodataset.org/val2017/000000039769.jpg",
+          "input_names": ["pixel_values"],
+          "output_names": ["logits"],
+          "dynamic_axes": {
+              "pixel_values": {"0": "batch_size"},
+              "logits": {"0": "batch_size"}
+          }
+      },
+      "Compile": {
+          "input_precision": "U8",
+          "output_precision": "FP32",
+          "shape": "pixel_values[1,3,224,224]"
+      }
+    }
+  ]
+}

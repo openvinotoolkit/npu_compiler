@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --init-compiler="vpu-arch=%arch%" --set-cmx-symbol="cmx-workspace-addr=1075937280 cmx-workspace-size=1474560 cmx-metadata-addr=1075854336 cmx-metadata-size=82944" %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: dev-build && (arch-NPU40XX || arch-NPU50XX)
 
 module @setCMXSymbols {
   net.NetworkInfo entryPoint : @main inputsInfo : {

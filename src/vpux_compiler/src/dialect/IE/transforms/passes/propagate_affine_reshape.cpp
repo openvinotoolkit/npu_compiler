@@ -568,7 +568,7 @@ mlir::LogicalResult MoveThroughConcat::matchAndRewrite(IE::ConcatOp origConcatOp
             getConcatOffsetsParameters(origConcatOp.getStaticOffsetsAttr(), dimsMapping, inputs, newInputs);
 
     if (newOffsetsAttr == nullptr) {
-        _log.trace("[{0}]: Concat parameters couldn't be calculated", getDebugName(), origConcatOp.getLoc());
+        _log.trace("[{0}]: Concat parameters couldn't be calculated, {1}", getDebugName(), origConcatOp.getLoc());
         return mlir::failure();
     }
 
@@ -800,10 +800,14 @@ mlir::LogicalResult MoveThroughMultiply::matchAndRewrite(IE::MultiplyOp origOp, 
         return mlir::failure();
     }
 
-    auto newMultiply = rewriter.create<IE::MultiplyOp>(
-            origOp.getLoc(), inputAffineReshape1.getInput().getType(), inputAffineReshape1.getInput(),
-            inputAffineReshape2.getInput(), origOp.getAutoBroadcastAttr(), origOp.getPostOpAttr(),
-            origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+    auto inputShape = getShape(inputAffineReshape1.getInput());
+    auto origOutputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
+    auto newOutputType = origOutputType.changeShape(inputShape);
+
+    auto newMultiply = rewriter.create<IE::MultiplyOp>(origOp.getLoc(), newOutputType, inputAffineReshape1.getInput(),
+                                                       inputAffineReshape2.getInput(), origOp.getAutoBroadcastAttr(),
+                                                       origOp.getPostOpAttr(), origOp.getClampAttr(),
+                                                       origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
     rewriter.replaceOpWithNewOp<IE::AffineReshapeOp>(origOp, newMultiply.getOutput(),
                                                      inputAffineReshape1.getDimMappingAttr(),
                                                      inputAffineReshape1.getShapeValueAttr());
@@ -1428,7 +1432,7 @@ void PropagateAffineReshape::safeRunOnFunc() {
     IE::AffineReshapeOp::getCanonicalizationPatterns(patterns, &ctx);
     IE::ShapeCastOp::getCanonicalizationPatterns(patterns, &ctx);
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 
@@ -1437,8 +1441,7 @@ void PropagateAffineReshape::safeRunOnFunc() {
     // ConcatReshapeConcat and MoveThroughConcat
     mlir::RewritePatternSet patternsBackward(&ctx);
     patternsBackward.add<ConcatReshapeConcat>(&ctx, _log);
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patternsBackward),
-                                                        getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patternsBackward), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

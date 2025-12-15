@@ -23,6 +23,7 @@ constexpr uint64_t SWIZZLING_KEY_5 = 5;
 
 // Swizzled buffers need to have space in CMX of size aligned to 512/1024 based on arch, because this
 // it the smallest unit of CMX RAM cut
+constexpr int64_t SWIZZLING_SIZE_ALIGNMENT_VPUX50XX = 1024;
 constexpr int64_t SWIZZLING_SIZE_ALIGNMENT_VPUX40XX = 1024;
 constexpr int64_t SWIZZLING_SIZE_ALIGNMENT_VPUX37XX = 512;
 

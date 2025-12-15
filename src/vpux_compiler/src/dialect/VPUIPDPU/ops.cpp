@@ -9,7 +9,7 @@
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/traits_utils.hpp"
 
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinDialect.h>
 

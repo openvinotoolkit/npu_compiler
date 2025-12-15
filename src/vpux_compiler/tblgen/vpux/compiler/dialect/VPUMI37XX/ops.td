@@ -25,7 +25,7 @@ include "vpux/compiler/dialect/VPURegMapped/types.td"
 include "vpux/compiler/dialect/VPURegMapped/attributes.td"
 include "vpux/compiler/dialect/VPURegMapped/ops_interfaces.td"
 
-include "mlir/Dialect/Quant/QuantOpsBase.td"
+include "mlir/Dialect/Quant/IR/QuantBase.td"
 include "mlir/Interfaces/CopyOpInterface.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/ViewLikeInterface.td"

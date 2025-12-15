@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
@@ -25,11 +25,10 @@ mlir::LogicalResult vpux::VPU::AccumulateOp::inferReturnTypes(mlir::MLIRContext*
 
     const auto in1Type = mlir::cast<vpux::NDTypeInterface>(accumulate.getLhs().getType());
     const auto in2Type = mlir::cast<vpux::NDTypeInterface>(accumulate.getRhs().getType());
-    VPUX_THROW_UNLESS(in1Type == in2Type, "Types of operands of VPU.Accumulate don't match: {0} vs {1}", in1Type,
-                      in2Type);
-    const auto outType = in1Type;
-    inferredReturnTypes.push_back(outType);
-
+    if (in1Type != in2Type) {
+        return errorAt(loc, "Types of operands of VPU.Accumulate don't match: {0} vs {1}", in1Type, in2Type);
+    }
+    inferredReturnTypes.push_back(in1Type);
     return mlir::success();
 }
 

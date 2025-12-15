@@ -14,7 +14,7 @@
 #include "vpux/utils/core/mem_size.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/Value.h>

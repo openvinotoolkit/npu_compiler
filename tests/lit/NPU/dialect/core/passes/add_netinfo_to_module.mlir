@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --vpu-arch=%arch% --split-input-file --mlir-elide-elementsattrs-if-larger 8 --pass-pipeline="builtin.module(builtin.module(add-netinfo-to-module))" --verify-diagnostics  %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 
 //CHECK-LABEL:   module @CopyInputOutput {

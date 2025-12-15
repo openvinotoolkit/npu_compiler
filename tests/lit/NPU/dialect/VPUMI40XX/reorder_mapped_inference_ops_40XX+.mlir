@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values=true" --reorder-mapped-inference-ops %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 module @test attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
   config.Resources {activity_factor = 0.092296911622323521 : f64} 4 of @NCE at 1.700000e+03 MHz {

@@ -5,12 +5,12 @@
 
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 
+#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
-#include "vpux/compiler/utils/VPU/tile_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/numeric.hpp"
 #include "vpux/utils/core/range.hpp"
@@ -50,14 +50,18 @@ std::optional<int64_t> estimateRequiredKvNumBlocks(VPU::FlashSDPAOp origOp, Arra
         return 1;
     }
 
-    auto keyShape = getShape(origOp.getKey());
-    auto sourceSeqLen = keyShape[Dims4D::Act::H];
+    const auto keyShape = getShape(origOp.getKey());
+    const auto sourceSeqLen = keyShape[Dims4D::Act::H];
+
+    const auto keyType = mlir::cast<NDTypeInterface>(origOp.getKey().getType());
+    const auto elemType = keyType.getElementType();
+    const auto alignment = vpux::VPU::NCEInvariant::getAlignment(elemType);
 
     auto kvNumBlocks = int64_t{1};
     auto dimSize = sourceSeqLen;
-    while (dimSize > 1) {
-        kvNumBlocks = divUp(sourceSeqLen, dimSize - 1);
-        dimSize = divUp(sourceSeqLen, kvNumBlocks);
+    while (dimSize > alignment) {
+        kvNumBlocks = divUp(sourceSeqLen, dimSize - alignment);
+        dimSize = alignValUp(divUp(sourceSeqLen, kvNumBlocks), alignment);
 
         if (origOp.fitIntoCMXAfterKeyValueTiling(tiledTensors, Byte(0), kvNumBlocks)) {
             return kvNumBlocks;

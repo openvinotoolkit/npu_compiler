@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --canonicalize --split-input-file --init-compiler="vpu-arch=%arch%" %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @FuseClamps1
 func.func @FuseClamps1(%arg0: tensor<1x30x30x30xf16>) -> tensor<1x30x30x30xf16> {

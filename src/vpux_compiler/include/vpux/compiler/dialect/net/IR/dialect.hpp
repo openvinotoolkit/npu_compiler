@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <mlir/Dialect/Bufferization/IR/Bufferization.h>
 #include <mlir/IR/Dialect.h>
 #include <mlir/IR/DialectImplementation.h>
 

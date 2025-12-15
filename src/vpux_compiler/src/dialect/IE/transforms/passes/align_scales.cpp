@@ -351,7 +351,7 @@ mlir::LogicalResult AlignConcatScalesRewriter::matchAndRewrite(IE::ConcatOp orig
     mlir::MLIRContext* ctx = origOp->getContext();
 
     // Align FQ ranges and insert Clamp to restore ranges from FQ input
-    _log.trace("Got '{1}' at '{2}'", origOp->getName(), origOp->getLoc());
+    _log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
     SmallVector<IE::FakeQuantizeOp> fqOpsToAlign;
     SmallVector<mlir::Operation*> visitedFQAgnosticOps;
@@ -425,7 +425,7 @@ private:
 
 mlir::LogicalResult AlignSliceRewriter::matchAndRewrite(IE::FakeQuantizeOp fqOp,
                                                         mlir::PatternRewriter& rewriter) const {
-    _log.trace("Got '{1}' at '{2}'", fqOp->getName(), fqOp->getLoc());
+    _log.trace("Got '{0}' at '{1}'", fqOp->getName(), fqOp->getLoc());
     mlir::MLIRContext* ctx = fqOp->getContext();
 
     if (!fqOp.getLevels().has_value() || !IE::hasStaticLowAndHighValues(fqOp)) {
@@ -558,14 +558,14 @@ void AlignScalesPass::safeRunOnFunc() {
     mlir::RewritePatternSet concatPatterns(&ctx);
     concatPatterns.add<AlignConcatScalesRewriter>(&ctx, _log, _seOpsEnabled);
 
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(concatPatterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(concatPatterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 
     mlir::RewritePatternSet slicePatterns(&ctx);
     slicePatterns.add<AlignSliceRewriter>(&ctx, _log);
 
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(slicePatterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(slicePatterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

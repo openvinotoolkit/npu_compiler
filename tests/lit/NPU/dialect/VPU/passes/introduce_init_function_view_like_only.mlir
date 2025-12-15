@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --introduce-init-function="ws-extraction-mode=gen-main" %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // This test file focuses on testing view-like-only constant transformations
 
@@ -274,6 +274,6 @@ module @AffineReshape {
 
     // CHECK:           func.func @main() -> tensor<1x1x3x3xf32, {order = #NCWH}>
     // CHECK:               [[CST:%.+]] = const.Declare {{.*}} dense_resource<vpux_ow_1>
-    // CHECK-LITERAL:           [#const.AffineReshape<[[0], [1], [3], [2]], [1, 1, 3, 3]>]
+    // CHECK{LITERAL}:           [#const.AffineReshape<[[0], [1], [3], [2]], [1, 1, 3, 3]>]
     // CHECK:           return [[CST]]
 }

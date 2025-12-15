@@ -23,9 +23,13 @@ module @SoftMax {
 
         // CHECK:               [[RESHAPE:%.+]] = VPU.AffineReshape([[ARG0]])
         // CHECK-SAME{LITERAL}:     {dim_mapping = [[0, 1, 2], [3]], shape_value = [1, 1, 1, 1000]} : tensor<1x1000xf16> -> tensor<1x1x1x1000xf16>
-        // CHECK: [[SOFTMAX:%.+]] = VPU.SoftMax([[RESHAPE]]) {axisInd = 3 : i64} : tensor<1x1x1x1000xf16> -> tensor<1x1x1x1000xf16>
-
-        // CHECK:               [[OUT:%.+]] = VPU.AffineReshape([[SOFTMAX]])
+        // CHECK:               [[COPY_CMX:%.+]] = VPU.Copy([[RESHAPE]]) {out_mem_space = [@CMX_NN, 0]}
+        // CHECK-SAME:            : tensor<1x1x1x1000xf16> -> tensor<1x1x1x1000xf16, {mem_space = [@CMX_NN, 0], order = #NCHW}>
+        // CHECK:               [[SOFTMAX:%.+]] = VPU.SoftMax([[COPY_CMX]]) {axisInd = 3 : i64}
+        // CHECK-SAME:            : tensor<1x1x1x1000xf16, {mem_space = [@CMX_NN, 0], order = #NCHW}> -> tensor<1x1x1x1000xf16, {mem_space = [@CMX_NN, 0], order = #NCHW}>
+        // CHECK:               [[COPY_DDR:%.+]] = VPU.Copy([[SOFTMAX]])
+        // CHECK-SAME:            : tensor<1x1x1x1000xf16, {mem_space = [@CMX_NN, 0], order = #NCHW}> -> tensor<1x1x1x1000xf16>
+        // CHECK:               [[OUT:%.+]] = VPU.AffineReshape([[COPY_DDR]])
         // CHECK-SAME{LITERAL}:     {dim_mapping = [[0], [0], [0], [1]], shape_value = [1, 1000]} : tensor<1x1x1x1000xf16> -> tensor<1x1000xf16>
     }
 }

@@ -166,14 +166,14 @@ uint16_t SprLUTGenerator::calculateNumOfMantissaMSBs(uint16_t sign, uint16_t exp
     for (uint16_t mantissa = 0; mantissa < FP16_MANTISSA_COUNT; ++mantissa) {
         float curError = 0;
         while ((curError = getError(sign, exponent, mantissa, numOfMantissaMSBs)) > _error) {
-            _log.nest().debug("Got error {0:f6} that is higher than maximum absolute error {1:f6}, retrying with "
-                              "higher number of "
-                              "segments",
-                              curError, _error);
+            _log.nest().debug("Got {0} error {1:f6} that is higher than {0} error {2:f6}, retrying with higher number "
+                              "of segments",
+                              (_error.isRelative()) ? "relative" : "absolute", curError, _error);
             const auto value = getValue(sign, exponent, mantissa);
             const auto [segmentBegin, segmentEnd] = getSegmentBeginEnd(
                     sign, exponent, numOfMantissaMSBs, extractMantissaMSBs(mantissa, numOfMantissaMSBs));
-            _log.nest(2).debug("Value: {0:f6}, segment: [{1:f6}, {2:f6}]", value, segmentBegin, segmentEnd);
+            _log.nest(2).debug("Value: {0:f6}, Reference: {1:f6}, segment: [{2:f6}, {3:f6}]", value,
+                               _refFunction(value), segmentBegin, segmentEnd);
             numOfMantissaMSBs++;
             VPUX_THROW_WHEN(numOfMantissaMSBs > FP16_MANTISSA_SIZE,
                             "Number of mantissa MSBs exceeded maximum size of FP16 mantissa");
@@ -190,8 +190,8 @@ void SprLUTGenerator::addLinesToTable(uint16_t sign, uint16_t exponent, uint16_t
     for (uint16_t segment = 0; segment < numSegments; ++segment) {
         auto [segmentBegin, segmentEnd] = getSegmentBeginEnd(sign, exponent, numOfMantissaMSBs, segment);
         const auto line = generateLine(segmentBegin, segmentEnd);
-        _log.nest(1).debug("Generated line for segment {0}, slope={1:f6}, intercept={2:f6}", segment, line.slope,
-                           line.intercept);
+        _log.nest(1).debug("Generated line for segment {0}, slope={1:f6}, intercept={2:f6}, range=[{3:f6}, {4:f6}]",
+                           segment, line.slope, line.intercept, segmentBegin, segmentEnd);
         _lines.push_back(line);
     }
     VPUX_THROW_WHEN(_lines.size() > NUM_LUT_LINE_ENTRIES, "Actual number of lines ({0}) exceeds the maximum ({1})",

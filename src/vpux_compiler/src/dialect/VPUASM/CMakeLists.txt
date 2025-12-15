@@ -13,6 +13,7 @@ add_npu_library(npu_compiler_dialect_vpuasm
         npu_ov_utils
         flatbuffers
         npu_elf
+        npu_compiler_dialect_elf_utils
         # E#98178: remove dependency on firmware headers
         npu_40xx_firmware_headers
     SYSTEM_INCLUDES

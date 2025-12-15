@@ -6,8 +6,11 @@
 #include "vpux/compiler/core/barrier_info.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/utils/barrier_legalization_utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
+#include "vpux/compiler/utils/shave.hpp"
 
 #include <llvm/ADT/SetOperations.h>
 
@@ -19,91 +22,6 @@ namespace vpux::VPUIP {
 
 using namespace vpux;
 namespace {
-
-// Remove explicit barrier dependency between DMAs
-// 1) if a barrier only has DMAs using single port as its producer,
-//    remove all DMAs using the same port from its consumers. DMA[{FIFO}]
-/*
-    DMA[0] DMA[0]       DMA[0] DMA[0]
-       \   /               \   /
-        Bar         =>      Bar
-       /   \                 |
-    DMA[0] DMA[1]          DMA[1]
-*/
-// 2) if a barrier only has DMAs using single port as its consumer,
-//    remove all DMAs using the same port from its producers. DMA[{FIFO}]
-/*
-    DMA[0] DMA[1]          DMA[1]
-       \   /                 |
-        Bar         =>      Bar
-       /   \               /   \
-    DMA[0] DMA[0]       DMA[0] DMA[0]
-*/
-
-void removeExplicitDependencies(BarrierInfo& barrierInfo) {
-    const auto findExplicitDependencies = [&](const BarrierInfo::TaskSet& dependencies,
-                                              const VPURT::TaskQueueType& type) {
-        BarrierInfo::TaskSet dependenciesToRemove;
-        for (auto& taskInd : dependencies) {
-            if (barrierInfo.isSyncPoint(taskInd)) {
-                continue;
-            }
-            if (type == VPURT::getTaskQueueType(barrierInfo.getTaskOpAtIndex(taskInd), false)) {
-                dependenciesToRemove.insert(taskInd);
-            }
-        }
-        return dependenciesToRemove;
-    };
-
-    // Perform optimization in tasks blocks matching the distribution of synchronization points.
-    for (size_t taskBlockIndex = 0; taskBlockIndex < barrierInfo.getControlGraphBlockCount(); ++taskBlockIndex) {
-        // get update barriers range for current block
-        auto blockUpdateBarriers =
-                barrierInfo.getBarriersForTaskBlock(taskBlockIndex, /* blockStartSyncPoint */ true,
-                                                    /* blockEndSyncPoint */ false, /* updateBarriers */ true);
-
-        for (auto barrierIdx : blockUpdateBarriers) {
-            // try to optimize consumers (1)
-            const auto& barrierProducers = barrierInfo.getBarrierProducers(barrierIdx);
-            auto producerTaskQueueType = barrierInfo.haveSameImplicitDependencyTaskQueueType(barrierProducers);
-            if (producerTaskQueueType.has_value()) {
-                // barrier produced by tasks with same type
-                auto consumersToRemove = findExplicitDependencies(barrierInfo.getBarrierConsumers(barrierIdx),
-                                                                  producerTaskQueueType.value());
-                // remove consumers
-                barrierInfo.removeConsumers(barrierIdx, consumersToRemove);
-            }
-
-            // try to optimize producers (2)
-            const auto& barrierConsumers = barrierInfo.getBarrierConsumers(barrierIdx);
-            auto consumerTaskQueueType = barrierInfo.haveSameImplicitDependencyTaskQueueType(barrierConsumers);
-            if (consumerTaskQueueType.has_value() || barrierConsumers.empty()) {
-                // barrier consumed by tasks with same type
-                BarrierInfo::TaskSet producersToRemove;
-                // find producers to remove
-                if (barrierConsumers.empty()) {
-                    for (const auto& barProd : barrierProducers) {
-                        if (barrierInfo.isSyncPoint(barProd)) {
-                            continue;
-                        }
-                        producersToRemove.insert(barProd);
-                    }
-                } else {
-                    producersToRemove = findExplicitDependencies(barrierProducers, consumerTaskQueueType.value());
-                }
-
-                // remove producers
-                barrierInfo.removeProducers(barrierIdx, producersToRemove);
-            }
-
-            bool invalidOptimization = barrierInfo.getBarrierConsumers(barrierIdx).empty() ^
-                                       barrierInfo.getBarrierProducers(barrierIdx).empty();
-            VPUX_THROW_WHEN(
-                    invalidOptimization, "Invalid optimization : Only barrier {0} became empty for barrier '{1}'",
-                    barrierProducers.empty() ? "producers" : "consumers", barrierInfo.getBarrierOpAtIndex(barrierIdx));
-        }
-    }
-}
 
 // Merge barriers using FIFO order. DMA-{IR-order}
 // DMA-0 and DMA-1 are before DMA-2 and DMA-3 in FIFO
@@ -225,13 +143,15 @@ void mergeBarriers(BarrierInfo& barrierInfo, ArrayRef<BarrierInfo::TaskSet> orig
 
 class DMABarrierOptimizationPass final : public VPUIP::impl::DMABarrierOptimizationBase<DMABarrierOptimizationPass> {
 public:
-    explicit DMABarrierOptimizationPass(Logger log) {
+    explicit DMABarrierOptimizationPass(std::optional<WorkloadManagementMode> workloadManagementMode, Logger log)
+            : _workloadManagementMode(workloadManagementMode) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
     const bool _considerTaskFifoDependency = true;
+    std::optional<WorkloadManagementMode> _workloadManagementMode = std::nullopt;
 };
 
 void DMABarrierOptimizationPass::safeRunOnFunc() {
@@ -239,10 +159,31 @@ void DMABarrierOptimizationPass::safeRunOnFunc() {
     auto& barrierInfo = getAnalysis<BarrierInfo>();
     VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log, true);
 
-    barrierInfo.optimizeBarriers(/* checkValidSlotCount */ false, _considerTaskFifoDependency);
+    if (workloadManagementModeOpt.hasValue()) {
+        _workloadManagementMode = workloadManagementModeOpt.getValue();
+    }
+
+    // Constrain executor types being optimized depending on WLM mode so as to avoid deadlocks and rollback regressions
+    // in early WLM modes.
+    bool allowOptimizationOfAllQueueTypes =
+            _workloadManagementMode.has_value() &&
+            _workloadManagementMode.value() > WorkloadManagementMode::PWLM_V1_BARRIER_FIFO;
+
+    mlir::DenseSet<vpux::VPU::ExecutorKind> executors = {VPU::ExecutorKind::DMA_NN};
+
+    if (allowOptimizationOfAllQueueTypes) {
+        executors.insert(VPU::ExecutorKind::SHAVE_ACT);
+        executors.insert(VPU::ExecutorKind::DPU);
+    }
+
+    barrierInfo.optimizeBarriers(/* checkValidSlotCount */ false, _considerTaskFifoDependency, executors);
     VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log);
 
     if (_considerTaskFifoDependency) {
+        // First, initialize DMA queues to pre-optimize producers and consumers for the subsequent barrier merging.
+        // Experiments show that optimizing on all queues before barrier merge can have negative impact on the amount of
+        // merging, schedule parallelism, inference performance and PWLM_V0_LCA mode stability.
+        barrierInfo.initializeTaskQueueTypeMap({VPU::ExecutorKind::DMA_NN});
         barrierInfo.buildTaskQueueTypeMap();
     }
 
@@ -253,11 +194,35 @@ void DMABarrierOptimizationPass::safeRunOnFunc() {
     // optimize dependencies between DMA tasks in the same FIFO
     // (Some of these dependencies may been removed during optimizeBarriers step, E137500)
     barrierInfo.removeRedundantBarrierProducersAndConsumers(_considerTaskFifoDependency);
-    removeExplicitDependencies(barrierInfo);
+    barrierInfo.removeExplicitDependencies();
     mergeBarriers(barrierInfo, origWaitBarriersMap);
-    barrierInfo.removeRedundantBarrierProducersAndConsumers(_considerTaskFifoDependency);
+    if (allowOptimizationOfAllQueueTypes) {
+        // For platforms that have enabled support for independent shave queues without risking rollback regressions,
+        // initialize and optimize dependencies on all queues.
+        barrierInfo.clearTaskQueueTypeMap();
+        barrierInfo.buildTaskQueueTypeMap();
+        barrierInfo.removeRedundantBarrierProducersAndConsumers(_considerTaskFifoDependency);
 
+        barrierInfo.clearTaskQueueTypeMap();
+        barrierInfo.initializeTaskQueueTypeMap({VPU::ExecutorKind::DMA_NN, VPU::ExecutorKind::SHAVE_ACT});
+        // TODO: include DPU executor (E#168496, E#190467)
+        allowOptimizationOfAllQueueTypes = false;
+        barrierInfo.buildTaskQueueTypeMap();
+        barrierInfo.removeExplicitDependencies();
+    } else {
+        barrierInfo.removeRedundantBarrierProducersAndConsumers(_considerTaskFifoDependency);
+    }
     VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log);
+
+    if (VPUIP::supportsPerVariantBarrierConfiguration(func) && config::isFifoPerShaveEngineEnabled(func) &&
+        allowOptimizationOfAllQueueTypes) {
+        // If each producer/consumer utilizes only a single slot from available pool of barrier slots, and if SHV tasks
+        // use their dedicated FIFOs and redundant connections to barriers from unrolled DPU tasks have been optimized
+        // out, then the number of barrier producers/consumers cannot be larger than the number of independent task
+        // executors.
+        VPUX_THROW_WHEN(!barrierInfo.verifyBarriersUsersCount(VPURT::countIndependentTaskExecutors(func)),
+                        "Encountered unexpected number of barrier users.");
+    }
     VPUX_THROW_UNLESS(barrierInfo.verifyControlGraphSplit(), "Encountered split of control graph is incorrect");
     barrierInfo.clearAttributes();
     VPURT::postProcessBarrierOps(func);
@@ -269,6 +234,7 @@ void DMABarrierOptimizationPass::safeRunOnFunc() {
 // createDMABarrierOptimizationPass
 //
 
-std::unique_ptr<mlir::Pass> vpux::VPUIP::createDMABarrierOptimizationPass(Logger log) {
-    return std::make_unique<DMABarrierOptimizationPass>(log);
+std::unique_ptr<mlir::Pass> vpux::VPUIP::createDMABarrierOptimizationPass(
+        std::optional<WorkloadManagementMode> workloadManagementMode, Logger log) {
+    return std::make_unique<DMABarrierOptimizationPass>(workloadManagementMode, log);
 }

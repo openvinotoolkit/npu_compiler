@@ -58,7 +58,7 @@ bool vpux::isBufAllocOp(mlir::Operation* op) {
         return false;
     }
 
-    if (!mlir::isa<mlir::BaseMemRefType>(op->getResult(0).getType())) {
+    if (!isBufferType(op->getResult(0).getType())) {
         return false;
     }
 
@@ -118,4 +118,15 @@ mlir::ModuleOp vpux::getModuleOp(mlir::Operation* op) {
     VPUX_THROW_UNLESS(module != nullptr, "Can't get parent Module from Operation '{0}' at '{1}'", op->getName(),
                       op->getLoc());
     return module;
+}
+
+mlir::ModuleOp vpux::getModuleOp(mlir::OpBuilder& builder) {
+    if (auto* block = builder.getInsertionBlock()) {
+        if (auto* parentOp = block->getParentOp()) {
+            return parentOp->getParentOfType<mlir::ModuleOp>();
+        }
+    }
+
+    VPUX_THROW("No insertion point is set on a builder. Can't get a ModuleOp.");
+    return nullptr;
 }

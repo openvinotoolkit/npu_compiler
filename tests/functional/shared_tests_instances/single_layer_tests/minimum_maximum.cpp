@@ -84,6 +84,21 @@ TEST_P(MaxMinLayerTestDynamic, NPU4000_SW) {
     run(Platform::NPU4000);
 }
 
+TEST_P(MaxMinLayerTestCommon, NPU5010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(MaxMinLayerTestDynamic, NPU5010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(ShaveCodeGenMaxMinLayerTestCommon, NPU5010) {
+    setReferenceSoftwareMode();
+    setMLIRCompilerType();
+    run(Platform::NPU5010);
+}
 }  // namespace test
 }  // namespace ov
 

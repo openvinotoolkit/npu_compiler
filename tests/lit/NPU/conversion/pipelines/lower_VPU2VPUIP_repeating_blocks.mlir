@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --lower-VPU-to-VPUIP %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -47,8 +47,10 @@ module @TwoFunctions {
         %0 = VPU.Copy(%arg0) : tensor<1x4x60x60xf16> -> tensor<1x4x60x60xf16>
         return %0 : tensor<1x4x60x60xf16>
 
-        // CHECK: [[OUT:%.+]] = VPUIP.Copy inputs([[ARG0]] : memref<1x4x60x60xf16>) outputs([[ARG1]] : memref<1x4x60x60xf16>) -> memref<1x4x60x60xf16>
-        // CHECK: return [[OUT]] : memref<1x4x60x60xf16>
+        // CHECK: [[ALLOC:%.+]] = memref.alloc() : memref<1x4x60x60xf16>
+        // CHECK: [[COPY1:%.+]] = VPUIP.Copy inputs([[ARG0]] : memref<1x4x60x60xf16>) outputs([[ALLOC]] : memref<1x4x60x60xf16>) -> memref<1x4x60x60xf16>
+        // CHECK: [[COPY2:%.+]] = VPUIP.Copy inputs([[COPY1]] : memref<1x4x60x60xf16>) outputs([[ARG1]] : memref<1x4x60x60xf16>) -> memref<1x4x60x60xf16>
+        // CHECK: return [[COPY2]] : memref<1x4x60x60xf16>
     }
 
     // CHECK: func.func @main([[ARG0:[^:]+]]: memref<1x8x60x60xf16>, [[ARG0_DUP:[^:]+]]: memref<1x8x60x60xf16>, [[ARG1:[^:]+]]: memref<1x4x60x60xf16>, [[ARG2:[^:]+]]: memref<1x2x60x60xf16>, [[ARG1_DUP:[^:]+]]: memref<1x4x60x60xf16>, [[ARG2_DUP:[^:]+]]: memref<1x2x60x60xf16>)

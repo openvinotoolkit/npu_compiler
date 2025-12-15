@@ -4,7 +4,7 @@
 //
 
 #include <mlir/IR/BuiltinTypes.h>
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/utils/dynamic_shape_propagation.hpp"
 #include "vpux/compiler/utils/range_bound.hpp"
 

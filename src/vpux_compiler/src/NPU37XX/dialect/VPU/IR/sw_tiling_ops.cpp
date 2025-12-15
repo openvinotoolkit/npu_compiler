@@ -5,10 +5,12 @@
 
 #include "vpux/compiler/NPU37XX/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/arithmetic.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/normalization.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sw_tiling_interface_utils.hpp"
-#include "vpux/compiler/utils/VPU/tile_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 
 using namespace vpux;
 

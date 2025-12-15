@@ -41,6 +41,7 @@ private:
 
 private:
     config::ArchKind _arch = config::ArchKind::UNKNOWN;
+    std::optional<config::Platform> _platform;
     config::CompilationMode _compilationMode = config::CompilationMode::DefaultHW;
     std::optional<int> _revisionID;
     int _numOfDPUGroups = 1;
@@ -68,9 +69,16 @@ mlir::LogicalResult InitResourcesPass::initializeOptions(
 }
 
 void InitResourcesPass::initializeFromOptions() {
-    auto archStr = config::symbolizeEnum<config::ArchKind>(archOpt.getValue());
-    VPUX_THROW_UNLESS(archStr.has_value(), "Unknown VPU architecture : '{0}'", archOpt.getValue());
-    _arch = archStr.value();
+    VPUX_THROW_WHEN(platformOpt.hasValue() && archOpt.hasValue(), "Either 'platform' or 'vpu-arch' should be set.");
+    if (platformOpt.hasValue()) {
+        _platform = config::symbolizeEnum<config::Platform>(platformOpt.getValue());
+        VPUX_THROW_UNLESS(_platform.has_value(), "Unknown NPU platform : '{0}'", platformOpt.getValue());
+        _arch = getArch(_platform.value());
+    } else {
+        const auto arch = config::symbolizeEnum<config::ArchKind>(archOpt.getValue());
+        VPUX_THROW_UNLESS(arch.has_value(), "Unknown NPU architecture : '{0}'", archOpt.getValue());
+        _arch = arch.value();
+    }
 
     auto compilationModeStr = config::symbolizeEnum<config::CompilationMode>(compilationModeOpt.getValue());
     VPUX_THROW_UNLESS(compilationModeStr.has_value(), "Unknown compilation mode: '{0}'", compilationModeOpt.getValue());
@@ -101,8 +109,12 @@ void InitResourcesPass::initializeFromOptions() {
 void InitResourcesPass::safeRunOnModule() {
     auto module = getOperation();
 
-    _log.trace("Set VPU architecture to {0}", _arch);
-    config::setArch(module, _arch, _numOfDPUGroups, _numOfDMAPorts, _availableCMXMemory, _allowCustomValues);
+    if (_platform) {
+        _log.trace("Set NPU platform to {0}", stringifyEnum(_platform.value()));
+    } else {
+        _log.trace("Set NPU architecture to {0}", stringifyEnum(_arch));
+    }
+    config::setArch(module, _platform, _arch, _numOfDPUGroups, _numOfDMAPorts, _availableCMXMemory, _allowCustomValues);
 
     VPUX_THROW_WHEN(!_allowCustomValues && config::hasCompilationMode(module),
                     "CompilationMode is already defined, probably you run '--init-compiler' twice");

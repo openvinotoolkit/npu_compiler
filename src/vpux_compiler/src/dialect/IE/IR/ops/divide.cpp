@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 using namespace vpux;
 
@@ -20,18 +21,29 @@ mlir::LogicalResult vpux::IE::DivideOp::inferReturnTypeComponents(
         return mlir::failure();
     }
 
-    const auto in1Type = mlir::cast<mlir::RankedTensorType>(divide.getInput1().getType());
-    const auto in2Type = mlir::cast<mlir::RankedTensorType>(divide.getInput2().getType());
+    const auto in1Type = mlir::cast<vpux::NDTypeInterface>(divide.getInput1().getType());
+    const auto in2Type = mlir::cast<vpux::NDTypeInterface>(divide.getInput2().getType());
 
-    const auto outShapeRes =
-            IE::broadcastEltwiseShape(in1Type.getShape(), in2Type.getShape(), divide.getAutoBroadcast(), loc);
-    if (mlir::succeeded(outShapeRes)) {
-        const auto outOrder =
-                in1Type.getRank() >= in2Type.getRank() ? vpux::getOrder(in1Type) : vpux::getOrder(in2Type);
+    auto outShapeInfo = inferEltwiseOutputShapeInfo(ShapeInfo::fromNDType(in1Type), ShapeInfo::fromNDType(in2Type),
+                                                    divide.getAutoBroadcast(), loc);
 
-        const auto tensorAttr = getTensorAttr(ctx, outOrder, getMemorySpace(in1Type), getBounds(in1Type));
-        inferredReturnShapes.emplace_back(outShapeRes.value(), in1Type.getElementType(), tensorAttr);
+    const auto outDesc = vpux::getTensorAttr(ctx, inferOrder(in1Type, in2Type), /*memSpace=*/nullptr,
+                                             BoundsRef(outShapeInfo.bounds));
+    inferredReturnShapes.emplace_back(outShapeInfo.shape, in1Type.getElementType(), outDesc);
+
+    return mlir::success();
+}
+
+mlir::LogicalResult vpux::IE::DivideOp::reifyResultShapes(mlir::OpBuilder& builder,
+                                                          mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    auto loc = getLoc();
+
+    auto outShape = reifyEltwiseTensors(builder, getInput1(), getInput2(), getAutoBroadcast(), loc);
+
+    if (mlir::failed(outShape)) {
+        return outShape;
     }
 
-    return outShapeRes;
+    reifiedReturnShapes.emplace_back(std::move(outShape.value()));
+    return mlir::success();
 }

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
@@ -53,13 +53,42 @@ func.func @FuseLayoutCasts(%arg0: tensor<1x4x8x64xf32>) -> tensor<1x4x8x64xf32, 
 
     return %1 : tensor<1x4x8x64xf32, {order = #NHWC}>
 
-    // CHECK:   [[LAYOUT_CAST:%.*]] = VPU.LayoutCast([[INPUT]]) {
+    // CHECK:   [[LAYOUT_CAST:%.+]] = VPU.LayoutCast([[INPUT]]) {
     // CHECK-SAME:      order = #NHWC
     // CHECK-SAME:  } : tensor<1x4x8x64xf32> -> tensor<1x4x8x64xf32, {order = #NHWC}>
 
     // CHECK:   return [[LAYOUT_CAST]]
 }
 
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @FuseLayoutCastsWithShapeCast
+// CHECK-SAME: [[INPUT:%.+]]: tensor<1x4x8x64xf32>
+func.func @FuseLayoutCastsWithShapeCast(%arg0: tensor<1x4x8x64xf32>) -> tensor<1x1x32x64xf32> {
+    %0 = VPU.LayoutCast(%arg0) {
+        dst_order = #NHWC
+    } : tensor<1x4x8x64xf32> -> tensor<1x4x8x64xf32, {order = #NHWC}>
+
+    %1 = VPU.ShapeCast {shape = [1, 1, 32, 64]} inputs(%0 : tensor<1x4x8x64xf32, {order = #NHWC}>) -> tensor<1x1x32x64xf32, {order = #NHWC}>
+
+    %2 = VPU.LayoutCast(%1) {
+        dst_order = #NCHW
+    } : tensor<1x1x32x64xf32, {order = #NHWC}> -> tensor<1x1x32x64xf32>
+
+    return %2 : tensor<1x1x32x64xf32>
+
+    // CHECK-NOT:   VPU.LayoutCast
+
+    // CHECK:   [[LAYOUT_CAST:%.+]] = VPU.ShapeCast {shape = [1, 1, 32, 64]} inputs([[INPUT]]
+    // CHECK-SAME:   -> tensor<1x1x32x64xf32>
+
+    // CHECK-NOT:   VPU.LayoutCast
+
+    // CHECK:   return [[LAYOUT_CAST]]
+}
 // -----
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>

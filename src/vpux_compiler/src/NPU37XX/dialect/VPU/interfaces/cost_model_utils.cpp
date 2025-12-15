@@ -6,7 +6,7 @@
 #include "vpux/compiler/NPU37XX/dialect/VPU/IR/ops_interfaces.hpp"
 
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+
 #include "vpux/compiler/dialect/VPU/interfaces/cost_model_utils.hpp"
 
 namespace vpux {

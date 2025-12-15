@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @PrintParseConfigureBarrier
 func.func @PrintParseConfigureBarrier(%arg0: memref<1xf16>, %arg1: memref<1xf16>) -> memref<1xf16> {

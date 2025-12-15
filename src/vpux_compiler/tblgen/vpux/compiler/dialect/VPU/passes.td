@@ -23,9 +23,14 @@ def InitResources : PassBase<"init-resources", "vpux::ModulePass"> {
 
     let options = [
         Option<
+            "platformOpt", "platform",
+            "std::string", "",
+            "Target NPU platform"
+        >,
+        Option<
             "archOpt", "vpu-arch",
             "std::string", "",
-            "VPU architecture to compile for"
+            "Target NPU architecture"
         >,
         Option<
             "compilationModeOpt", "compilation-mode",
@@ -596,6 +601,11 @@ def VfTiling : PassBase<"vertical-fusion-tiling", "vpux::FunctionPass"> {
             "Flag to enable vertical fusion pipelining"
         >,
         Option<
+            "enableVFScheduleTrace", "enable-vf-schedule-trace",
+            "bool", "false",
+            "Flag to enable vertical fusion schedule tracing"
+        >,
+        Option<
             "workloadManagementModeOpt", "workload-management-mode",
             "vpux::WorkloadManagementMode", "",
             "Setting which controls mode of WLM",
@@ -886,27 +896,6 @@ def CMXConcat : PassBase<"cmx-concat", "vpux::FunctionPass"> {
         This pass will try to check if a Concat operation can fit in NNCMX
         with few restrictions and if so move the concat from DDR to NNCMX.
     }];
-
-    let dependentDialects = [
-        "vpux::VPU::VPUDialect"
-    ];
-}
-
-//
-// AddSwOpAuxiliaryBuffer
-//
-
-def AddSwOpAuxiliaryBuffer : PassBase<"add-sw-op-auxiliary-buffer", "vpux::FunctionPass"> {
-    let summary = "Adds buffers needed for specific Software Operations.";
-
-    let description = [{
-        It requires the creation of a auxiliary input buffer, who has the role of storing
-        the intermediate results obtained after the relevant operation.
-        The results will be sorted, recalculated, and finally, the output will be extracted based on them.
-        This auxiliary buffer has a necessary size depend by input parameters.
-    }];
-
-    let constructor = "vpux::VPU::createAddSwOpAuxiliaryBufferPass()";
 
     let dependentDialects = [
         "vpux::VPU::VPUDialect"
@@ -1666,9 +1655,14 @@ def SetupPipelineOptions : PassBase<"setup-pipeline-options", "vpux::ModulePass"
 
     let options = [
         Option<
+            "platformOpt", "platform",
+            "std::string", "",
+            "Target NPU platform"
+        >,
+        Option<
             "archOpt", "vpu-arch",
             "std::string", "",
-            "VPU architecture to compile for"
+            "Target NPU architecture"
         >,
         Option<
             "allowCustomValues", "allow-custom-values",
@@ -2884,5 +2878,96 @@ def AdjustBlockSizeForScfTiling : PassBase<"adjust-block-size-for-scf-tiling", "
         "mlir::arith::ArithDialect",
         "mlir::scf::SCFDialect",
         "mlir::cf::ControlFlowDialect",
+    ];
+}
+
+
+//
+// UnrollSCFLoop
+//
+
+def UnrollSCFLoop : PassBase<"unroll-scf-loop", "vpux::ModulePass"> {
+    let summary = "Unrolls SCF loops";
+
+    let description = [{
+        Unrolls scf.for loops by a specified unroll factor.
+        This optimization can improve performance by reducing loop overhead.
+
+        The pass takes an unroll factor for each tensor dimension (N, C, H, W) and unrolls
+        loops accordingly. Post unrolling,  tensor extract_slice and insert_slice operations
+        within the loop body are optimized using VPU Slice and Concat operations and fused into NPU
+        kernel functions where applicable.
+
+        Example:
+        Before unrolling with unroll-factor=[1, 1, 2, 1]:
+        ```mlir
+        %result = scf.for %i = %c0 to %c8 step %c1 iter_args(%arg = %init) -> tensor<1x16x8x32xf16> {
+            %slice = tensor.extract_slice %input[0, 0, %i, 0] [1, 16, 1, 32] [1, 1, 1, 1]
+            %processed = VPU.SomeOp %slice : tensor<1x16x1x32xf16> -> tensor<1x16x1x32xf16>
+            %updated = tensor.insert_slice %processed into %arg[0, 0, %i, 0] [1, 16, 1, 32] [1, 1, 1, 1]
+            scf.yield %updated : tensor<1x16x8x32xf16>
+        }
+        ```
+
+        After unrolling (H dimension unrolled by factor 2):
+        ```mlir
+        %result = scf.for %i = %c0 to %c8 step %c2 iter_args(%arg = %init) -> tensor<1x16x8x32xf16> {
+            // First iteration (i)
+            %slice0 = tensor.extract_slice %input[0, 0, %i, 0] [1, 16, 1, 32] [1, 1, 1, 1]
+            %processed0 = VPU.SomeOp %slice0 : tensor<1x16x1x32xf16> -> tensor<1x16x1x32xf16>
+            %updated0 = tensor.insert_slice %processed0 into %arg[0, 0, %i, 0] [1, 16, 1, 32] [1, 1, 1, 1]
+
+            // Second iteration (i+1)
+            %i_plus_1 = arith.addi %i, %c1 : index
+            %slice1 = tensor.extract_slice %input[0, 0, %i_plus_1, 0] [1, 16, 1, 32] [1, 1, 1, 1]
+            %processed1 = VPU.SomeOp %slice1 : tensor<1x16x1x32xf16> -> tensor<1x16x1x32xf16>
+            %updated1 = tensor.insert_slice %processed1 into %updated0[0, 0, %i_plus_1, 0] [1, 16, 1, 32] [1, 1, 1, 1]
+
+            scf.yield %updated1 : tensor<1x16x8x32xf16>
+        }
+        ```
+
+        Post-processing optimization using VPU operations:
+        ```mlir
+        %result = scf.for %i = %c0 to %c8 step %c2 iter_args(%arg = %init) -> tensor<1x16x8x32xf16> {
+            // Extract a slice covering two H elements
+            %slice0 = tensor.extract_slice %input[0, 0, %i, 0] [1, 16, 2, 32] [1, 1, 1, 1]
+
+            // Further extract single H slices using VPU.Slice
+            %slice0_view = VPU.Slice %input [0, 0, 0, 0] [1, 16, 1, 32] : tensor<1x16x8x32xf16> to tensor<1x16x1x32xf16>
+            %slice1 = VPU.Slice %input [0, 0, 1, 0] [1, 16, 1, 32] : tensor<1x16x8x32xf16> to tensor<1x16x1x32xf16>
+
+            // Process slices (potentially fused into NPU kernel)
+            %processed0 = VPU.SomeOp %slice0_view : tensor<1x16x1x32xf16> -> tensor<1x16x1x32xf16>
+            %processed1 = VPU.SomeOp %slice1 : tensor<1x16x1x32xf16> -> tensor<1x16x1x32xf16>
+
+            // Concatenate processed slices using VPU.Concat
+            %combined = VPU.Concat(%processed0, %processed1) {axis = 2 : i64} :
+            tensor<1x16x1x32xf16>, tensor<1x16x1x32xf16> -> tensor<1x16x2x32xf16>
+
+            // Insert combined result back into output tensor
+            %updated = tensor.insert_slice %combined into %arg[0, 0, %i, 0] [1, 16, 2, 32] [1, 1, 1, 1]
+
+            scf.yield %updated : tensor<1x16x8x32xf16>
+        }
+    ```
+    }];
+
+    let constructor = "vpux::VPU::createUnrollSCFLoopPass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect",
+        "mlir::tensor::TensorDialect",
+        "mlir::arith::ArithDialect",
+        "mlir::scf::SCFDialect",
+        "mlir::cf::ControlFlowDialect",
+    ];
+
+    let options = [
+        Option<
+            "loopUnrollFactor", "loop-unroll-factor",
+            "std::string", [{"1,1,1,1"}],
+            "Loop unroll factor for the SCF loop"
+        >
     ];
 }

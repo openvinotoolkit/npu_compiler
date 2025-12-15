@@ -45,7 +45,7 @@ void WlmLegalizeSplitGraphToPagesPass::safeRunOnFunc() {
     }
 
     auto& barrierInfo = getAnalysis<BarrierInfo>();
-    VPURT::BarrierPagesSplitHandler barrierPagesSplitHandler(barrierInfo, numBarriers, _log);
+    VPURT::BarrierPagesSplitHandler barrierPagesSplitHandler(func, barrierInfo, numBarriers, _log);
     barrierPagesSplitHandler.initializeForLegalization();
     // TODO: Initialization can update dependencies. Separate it to make it clear
     // when and what methods modify dependencies and their call requires updating IR - E#177834
@@ -69,7 +69,8 @@ void WlmLegalizeSplitGraphToPagesPass::safeRunOnFunc() {
             barrierInfo = vpux::BarrierInfo{func};
         }
         VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log, true);
-        barrierPagesSplitHandler = VPURT::BarrierPagesSplitHandler{barrierInfo, static_cast<size_t>(numBarriers), _log};
+        barrierPagesSplitHandler =
+                VPURT::BarrierPagesSplitHandler{func, barrierInfo, static_cast<size_t>(numBarriers), _log};
         barrierPagesSplitHandler.initializeForLegalization();
     }
 
@@ -81,7 +82,8 @@ void WlmLegalizeSplitGraphToPagesPass::safeRunOnFunc() {
         // date state
         barrierInfo = barrierPagesSplitHandler.getUpdatedBarrierInfo();
         VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log, true);
-        barrierPagesSplitHandler = VPURT::BarrierPagesSplitHandler{barrierInfo, static_cast<size_t>(numBarriers), _log};
+        barrierPagesSplitHandler =
+                VPURT::BarrierPagesSplitHandler{func, barrierInfo, static_cast<size_t>(numBarriers), _log};
         barrierPagesSplitHandler.initializeForLegalization();
     }
 
@@ -101,7 +103,8 @@ void WlmLegalizeSplitGraphToPagesPass::safeRunOnFunc() {
         }
         VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log, true);
 
-        barrierPagesSplitHandler = VPURT::BarrierPagesSplitHandler{barrierInfo, static_cast<size_t>(numBarriers), _log};
+        barrierPagesSplitHandler =
+                VPURT::BarrierPagesSplitHandler{func, barrierInfo, static_cast<size_t>(numBarriers), _log};
         barrierPagesSplitHandler.initializeForLegalization();
     }
 
@@ -109,7 +112,8 @@ void WlmLegalizeSplitGraphToPagesPass::safeRunOnFunc() {
     VPUX_THROW_UNLESS(barrierInfo.verifyControlGraphSplit(), "Encountered split of control graph is incorrect");
 
     barrierInfo = vpux::BarrierInfo{func};
-    barrierPagesSplitHandler = VPURT::BarrierPagesSplitHandler{barrierInfo, static_cast<size_t>(numBarriers), _log};
+    barrierPagesSplitHandler =
+            VPURT::BarrierPagesSplitHandler{func, barrierInfo, static_cast<size_t>(numBarriers), _log};
     barrierPagesSplitHandler.initializeForLegalization();
     barrierPagesSplitHandler.verifyTaskBarrierPagesAreValid();
     barrierPagesSplitHandler.verifyNoCyclicDeps();

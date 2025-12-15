@@ -15,6 +15,7 @@
 
 #include "vpux/compiler/NPU37XX/pipeline_options.hpp"
 #include "vpux/compiler/NPU40XX/pipeline_options.hpp"
+#include "vpux/compiler/NPU50XX/pipeline_options.hpp"
 
 #include <openvino/runtime/properties.hpp>
 #include <vpux/utils/core/error.hpp>
@@ -28,6 +29,10 @@ uint32_t getPlatformDPUClusterNum(const std::string& platform) {
         return VPUX37XX_MAX_DPU_GROUPS;
     } else if (platform == ov::intel_npu::Platform::NPU4000) {
         return VPUX40XX_MAX_DPU_GROUPS;
+    } else if (platform == ov::intel_npu::Platform::NPU5000) {
+        return VPUX50XX_MAX_DPU_GROUPS;
+    } else if (platform == ov::intel_npu::Platform::NPU5010) {
+        return VPUX5010_MAX_DPU_GROUPS;
     } else {
         VPUX_THROW("Unsupported VPUX platform");
     }
@@ -77,6 +82,8 @@ std::optional<std::string> getPerformanceHintOverride(const intel_npu::Config& c
         return getPerformanceHintOverride<DefaultHWOptions37XX>(config);
     } else if (arch == config::ArchKind::NPU40XX) {
         return getPerformanceHintOverride<DefaultHWOptions40XX>(config);
+    } else if (arch == config::ArchKind::NPU50XX) {
+        return getPerformanceHintOverride<DefaultHWOptions50XX>(config);
     } else {
         return std::nullopt;
     }
@@ -84,6 +91,8 @@ std::optional<std::string> getPerformanceHintOverride(const intel_npu::Config& c
 
 int getNumberOfDPUGroupsUnchecked(const intel_npu::Config& config) {
     const std::string platform = ov::intel_npu::Platform::standardize(config.get<intel_npu::PLATFORM>());
+    const bool is50XXPlatform =
+            platform == ov::intel_npu::Platform::NPU5000 || platform == ov::intel_npu::Platform::NPU5010;
     const auto& performanceHintOverride = getPerformanceHintOverride(config);
     // NPUPerformanceMode consists of same enums as ov::hint::PerformanceMode + EFFICIENCY
     // In future, ov::hint::PerformanceMode can be extended with the new value, so
@@ -131,6 +140,15 @@ int getNumberOfDPUGroupsUnchecked(const intel_npu::Config& config) {
         default:
             return 2;
         }
+    } else if (is50XXPlatform) {
+        switch (performanceMode) {
+        case NPUPerformanceMode::THROUGHPUT:
+            return 1;
+        case NPUPerformanceMode::EFFICIENCY:
+        case NPUPerformanceMode::LATENCY:
+        default:
+            return getMaxDPUClusterNum(config);
+        }
     } else {
         switch (performanceMode) {
         case NPUPerformanceMode::THROUGHPUT:
@@ -148,21 +166,31 @@ int getNumberOfDPUGroupsUnchecked(const intel_npu::Config& config) {
 namespace vpux {
 
 //
+// getPlatform
+//
+
+config::Platform getPlatform(const intel_npu::Config& config) {
+    const std::string platform = ov::intel_npu::Platform::standardize(config.get<intel_npu::PLATFORM>());
+    if (platform == ov::intel_npu::Platform::NPU3720) {
+        return config::Platform::NPU3720;
+    } else if (platform == ov::intel_npu::Platform::NPU4000) {
+        return config::Platform::NPU4000;
+    } else if (platform == ov::intel_npu::Platform::NPU5000) {
+        return config::Platform::NPU5000;
+    } else if (platform == ov::intel_npu::Platform::NPU5010) {
+        return config::Platform::NPU5010;
+    } else {
+        VPUX_THROW("Unsupported NPU platform");
+    }
+}
+
+//
 // getArchKind
 //
 
 config::ArchKind getArchKind(const intel_npu::Config& config) {
-    const std::string platform = ov::intel_npu::Platform::standardize(config.get<intel_npu::PLATFORM>());
-
-    if (platform == ov::intel_npu::Platform::AUTO_DETECT) {
-        return config::ArchKind::UNKNOWN;
-    } else if (platform == ov::intel_npu::Platform::NPU3720) {
-        return config::ArchKind::NPU37XX;
-    } else if (platform == ov::intel_npu::Platform::NPU4000) {
-        return config::ArchKind::NPU40XX;
-    } else {
-        VPUX_THROW("Unsupported VPUX platform");
-    }
+    config::Platform platform = getPlatform(config);
+    return config::getArch(platform);
 }
 
 //
@@ -243,6 +271,10 @@ std::optional<int> getNumberOfDMAEngines(const intel_npu::Config& config) {
         Revert this back to "return maxDmaPorts" and implement E#135226 */
         if (maxArchTiles == 1) {
             return 1;
+        }
+        // E#182008 We can support maxDmaPorts once FWLM is enabled for NPU50XX+
+        else if (archKind == config::ArchKind::NPU50XX) {
+            return maxDmaPorts;
         } else {
             return std::min(maxDmaPorts, numOfDpuGroups.value_or(maxDmaPorts));
         }
@@ -251,6 +283,8 @@ std::optional<int> getNumberOfDMAEngines(const intel_npu::Config& config) {
     if (archKind == config::ArchKind::NPU37XX) {
         return getNumOfDmaPortsWithDpuCountLimit();
     } else if (archKind == config::ArchKind::NPU40XX) {
+        return getNumOfDmaPortsWithDpuCountLimit();
+    } else if (archKind == config::ArchKind::NPU50XX) {
         return getNumOfDmaPortsWithDpuCountLimit();
     } else {
         switch (config.get<intel_npu::PERFORMANCE_HINT>()) {
@@ -274,6 +308,10 @@ Byte getAvailableCmx(const intel_npu::Config& config) {
         return VPUX37XX_CMX_WORKSPACE_SIZE;
     } else if (platform == ov::intel_npu::Platform::NPU4000) {
         return VPUX40XX_CMX_WORKSPACE_SIZE;
+    } else if (platform == ov::intel_npu::Platform::NPU5000) {
+        return VPUX50XX_CMX_WORKSPACE_SIZE;
+    } else if (platform == ov::intel_npu::Platform::NPU5010) {
+        return VPUX5010_CMX_WORKSPACE_SIZE;
     } else {
         VPUX_THROW("Unsupported VPUX platform");
     }
@@ -296,6 +334,8 @@ std::optional<bool> getEnableVerifiers(const intel_npu::Config& config) {
         return getEnableVerifiers<DefaultHWOptions37XX>(config);
     } else if (arch == config::ArchKind::NPU40XX) {
         return getEnableVerifiers<DefaultHWOptions40XX>(config);
+    } else if (arch == config::ArchKind::NPU50XX) {
+        return getEnableVerifiers<DefaultHWOptions50XX>(config);
     } else {
         return std::nullopt;
     }
@@ -318,6 +358,8 @@ std::optional<bool> getWlmEnabled(const intel_npu::Config& config) {
         return std::nullopt;
     } else if (arch == config::ArchKind::NPU40XX) {
         return getWlmEnabled<DefaultHWOptions40XX>(config);
+    } else if (arch == config::ArchKind::NPU50XX) {
+        return getWlmEnabled<DefaultHWOptions50XX>(config);
     } else {
         return std::nullopt;
     }
@@ -340,6 +382,8 @@ std::optional<bool> getWlmRollback(const intel_npu::Config& config) {
         return std::nullopt;
     } else if (arch == config::ArchKind::NPU40XX) {
         return getWlmRollback<DefaultHWOptions40XX>(config);
+    } else if (arch == config::ArchKind::NPU50XX) {
+        return getWlmRollback<DefaultHWOptions50XX>(config);
     } else {
         return std::nullopt;
     }
@@ -379,6 +423,8 @@ std::optional<bool> getEnableMemoryUsageCollector(const intel_npu::Config& confi
         return getEnableMemoryUsageCollector<DefaultHWOptions37XX>(config);
     } else if (arch == config::ArchKind::NPU40XX) {
         return getEnableMemoryUsageCollector<DefaultHWOptions40XX>(config);
+    } else if (arch == config::ArchKind::NPU50XX) {
+        return getEnableMemoryUsageCollector<DefaultHWOptions50XX>(config);
     } else {
         return std::nullopt;
     }
@@ -400,6 +446,8 @@ std::optional<bool> getEnableFunctionStatisticsInstrumentation(const intel_npu::
         return getEnableFunctionStatisticsInstrumentation<DefaultHWOptions37XX>(config);
     } else if (arch == config::ArchKind::NPU40XX) {
         return getEnableFunctionStatisticsInstrumentation<DefaultHWOptions40XX>(config);
+    } else if (arch == config::ArchKind::NPU50XX) {
+        return getEnableFunctionStatisticsInstrumentation<DefaultHWOptions50XX>(config);
     } else {
         return std::nullopt;
     }
@@ -421,6 +469,8 @@ std::optional<DummyOpMode> getDummyOpReplacement(const intel_npu::Config& config
         return getDummyOpReplacement<DefaultHWOptions37XX>(config);
     } else if (arch == config::ArchKind::NPU40XX) {
         return getDummyOpReplacement<DefaultHWOptions40XX>(config);
+    } else if (arch == config::ArchKind::NPU50XX) {
+        return getDummyOpReplacement<DefaultHWOptions50XX>(config);
     } else {
         return std::nullopt;
     }
@@ -455,6 +505,8 @@ std::optional<ConstantFoldingConfig> getConstantFoldingInBackground(const intel_
         return getConstantFoldingInBackground<DefaultHWOptions37XX>(config);
     } else if (arch == config::ArchKind::NPU40XX) {
         return getConstantFoldingInBackground<DefaultHWOptions40XX>(config);
+    } else if (arch == config::ArchKind::NPU50XX) {
+        return getConstantFoldingInBackground<DefaultHWOptions50XX>(config);
     } else {
         return std::nullopt;
     }
@@ -470,6 +522,33 @@ std::optional<bool> getPerfCount(const intel_npu::Config& config) {
     }
 
     return std::nullopt;
+}
+
+namespace {
+
+template <typename Options>
+std::optional<bool> getEnableDecomposeSDPA(const intel_npu::Config& config) {
+    const auto options =
+            parseCompilationModeParams<Options>(config.get<intel_npu::COMPILATION_MODE_PARAMS>(), getArchKind(config));
+    if (options == nullptr) {
+        return std::nullopt;
+    }
+    return options->enableDecomposeSDPA;
+}
+
+}  // namespace
+
+std::optional<bool> getEnableDecomposeSDPA(const intel_npu::Config& config) {
+    const auto arch = getArchKind(config);
+    if (arch == config::ArchKind::NPU37XX) {
+        return getEnableDecomposeSDPA<DefaultHWOptions37XX>(config);
+    } else if (arch == config::ArchKind::NPU40XX) {
+        return getEnableDecomposeSDPA<DefaultHWOptions40XX>(config);
+    } else if (arch == config::ArchKind::NPU50XX) {
+        return getEnableDecomposeSDPA<DefaultHWOptions50XX>(config);
+    } else {
+        return std::nullopt;
+    }
 }
 
 }  // namespace vpux

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --swap-d2s-and-scale-shift %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: func.func @SwapD2SAndScaleShift
 // CHECK-SAME:     ([[INPUT:%.+]]: tensor<1x48x224x224xf16>)

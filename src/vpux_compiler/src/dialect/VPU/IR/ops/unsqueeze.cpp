@@ -5,7 +5,7 @@
 
 #include "vpux/compiler/dialect/IE/utils/unsqueeze.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/VPU/utils/layout_utils.hpp"
 
 using namespace vpux;

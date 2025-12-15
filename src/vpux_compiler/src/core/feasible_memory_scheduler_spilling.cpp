@@ -1008,10 +1008,11 @@ mlir::async::ExecuteOp FeasibleMemorySchedulerSpilling::insertSpillReadDmaOp(mli
     return spillReadExecOp;
 }
 
-mlir::Operation* FeasibleMemorySchedulerSpilling::SpillUsersUpdate::getViewOpForMasterBuffer(mlir::Value asyncResult) {
+SmallVector<mlir::Operation*> FeasibleMemorySchedulerSpilling::SpillUsersUpdate::getViewOpsForMasterBuffer(
+        mlir::Value asyncResult) {
     // Identify pure viewOp for master buffer that is related to result of
     // asyncExecOp that is spilled
-    mlir::Operation* viewOpForMasterBuffer = nullptr;
+    SmallVector<mlir::Operation*> viewOpsForMasterBuffer;
     mlir::Value sourceAlias = asyncResult;
 
     while ((sourceAlias = *(_spillingParentClass._aliasInfo.getSources(sourceAlias).begin()))) {
@@ -1019,26 +1020,41 @@ mlir::Operation* FeasibleMemorySchedulerSpilling::SpillUsersUpdate::getViewOpFor
         if (sourceOp == nullptr) {
             continue;
         }
-        if (VPUIP::isPureViewOp(sourceOp)) {
-            if (auto viewOp = mlir::dyn_cast<mlir::ViewLikeOpInterface>(sourceOp)) {
-                auto source = viewOp.getViewSource();
-                if (mlir::isa<mlir::BlockArgument>(source)) {
-                    source = _spillingParentClass._aliasInfo.getRoot(source);
-                }
-
-                if (source == _bufferToSpill) {
-                    VPUX_THROW_UNLESS(
-                            viewOpForMasterBuffer == nullptr,
-                            "Chain of pure-view ops is not supported for the same buffer in single async.ExecuteOp. "
-                            "Pure-view has already been identified for given asyncResult - {0}",
-                            asyncResult);
-                    viewOpForMasterBuffer = viewOp.getOperation();
-                }
-            }
+        // Skip non pure viewOps as we are interested in finding an op which defines in given async.ExecOp
+        // relation (view) to spilled root buffer
+        if (!VPUIP::isPureViewOp(sourceOp)) {
+            continue;
         }
+
+        auto viewOp = mlir::dyn_cast<mlir::ViewLikeOpInterface>(sourceOp);
+        VPUX_THROW_WHEN(viewOp == nullptr, "Expecting ViewLikeOpInterface on op '{0}'", sourceOp->getName());
+
+        auto source = _spillingParentClass._aliasInfo.getRoot(viewOp.getViewSource());
+
+        if (source != _bufferToSpill) {
+            continue;
+        }
+
+        // Identified pure view operation which is an alias to spilled buffer
+        // If it is a concat op skip it as it does not represent part of spilled buffer but the buffer itself in total
+        if (auto concatOp = mlir::dyn_cast<VPUIP::ConcatViewOp>(sourceOp)) {
+            auto concatOutputType = concatOp.getOutputBuff().getType();
+            auto bufferToSpillType = _bufferToSpill.getType();
+            VPUX_THROW_UNLESS(
+                    concatOutputType == bufferToSpillType,
+                    "ConcatViewOp output type '{0}' is expected to match type of buffer that was spilled '{1}'",
+                    concatOutputType, bufferToSpillType);
+            continue;
+        }
+
+        viewOpsForMasterBuffer.push_back(viewOp.getOperation());
     }
 
-    return viewOpForMasterBuffer;
+    llvm::sort(viewOpsForMasterBuffer, [](mlir::Operation* lhs, mlir::Operation* rhs) {
+        return lhs->isBeforeInBlock(rhs);
+    });
+
+    return viewOpsForMasterBuffer;
 }
 
 SmallVector<mlir::async::ExecuteOp>
@@ -1158,15 +1174,15 @@ void FeasibleMemorySchedulerSpilling::SpillUsersUpdate::resolveSpillBufferUsage(
         // Identify pure viewOp for master buffer that is related to result of asyncExecOp
         // that is spilled. If such operation is located then users need to have
         // similar operation injected to properly refer to replacement of spilled buffer
-        auto* viewOpForMasterBuffer = getViewOpForMasterBuffer(opThatWasSpilledResult);
-        if (viewOpForMasterBuffer && !usersOfSpilledOpThatNeedUpdate.empty()) {
+        auto viewOpsForMasterBuffer = getViewOpsForMasterBuffer(opThatWasSpilledResult);
+
+        if (!viewOpsForMasterBuffer.empty() && !usersOfSpilledOpThatNeedUpdate.empty()) {
             for (auto userOfSpilledOpThatNeedUpdate : usersOfSpilledOpThatNeedUpdate) {
                 auto userOfSpilledOpBodyBlock = userOfSpilledOpThatNeedUpdate.getBody();
                 // Insert view Op defining relation between spilled buffer and user of
                 // asyncExecOp result referring to this buffer
                 mlir::OpBuilder builder(userOfSpilledOpThatNeedUpdate);
                 builder.setInsertionPointToStart(userOfSpilledOpBodyBlock);
-                auto newViewOp = builder.clone(*viewOpForMasterBuffer);
 
                 // Get asyncExecOp argument index related to result of spilled asyncExecOp
                 auto operandIndex =
@@ -1175,11 +1191,29 @@ void FeasibleMemorySchedulerSpilling::SpillUsersUpdate::resolveSpillBufferUsage(
                 // Get argument of asyncExecOp block that would need to be updated
                 // to be used in the body through newly inserted view op
                 auto arg = userOfSpilledOpBodyBlock->getArgument(operandIndex);
-                arg.replaceAllUsesWith(newViewOp->getOpResult(0));
 
-                auto finalType = newViewOp->getOpOperand(0).get().getType();
-                newViewOp->setOperand(0, arg);
-                newViewOp->getOpOperand(0).get().setType(finalType);
+                SmallVector<mlir::Operation*> newViewOps;
+                for (auto* viewOpForMasterBuffer : viewOpsForMasterBuffer) {
+                    auto newViewOp = builder.clone(*viewOpForMasterBuffer);
+                    newViewOps.push_back(newViewOp);
+                }
+
+                // Make previous user of argument related to spill use new view op result
+                // which will be the final view op defining relation to spilled root buffer
+                arg.replaceAllUsesWith(newViewOps.back()->getOpResult(0));
+
+                // Make first view op use asyncExecOp argument
+                auto finalType = newViewOps.front()->getOpOperand(0).get().getType();
+                newViewOps.front()->setOperand(0, arg);
+                newViewOps.front()->getOpOperand(0).get().setType(finalType);
+
+                // Make connections between view ops chain as after cloning they still refer
+                // to their original async execute op body
+                for (size_t i = 1; i < newViewOps.size(); i++) {
+                    auto prevViewOp = newViewOps[i - 1];
+                    auto currViewOp = newViewOps[i];
+                    currViewOp->setOperand(0, prevViewOp->getOpResult(0));
+                }
             }
         }
         updateSpillResultUsers(opThatWasSpilledResult, spillReadExecOpResult);

@@ -8,9 +8,8 @@
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/init.hpp"
 
-#include <mlir/Dialect/Quant/QuantOps.h>
-
 #include <gtest/gtest.h>
+#include <mlir/Dialect/Quant/IR/Quant.h>
 
 using namespace vpux;
 
@@ -41,7 +40,7 @@ Const::DeclareOp buildConstant(mlir::MLIRContext& ctx, const ShapeRef shape, con
 TEST_P(MLIR_IE_PermuteInfer, inferPermuteReturnTypeComponents) {
     auto registry = vpux::createDialectRegistry();
     mlir::MLIRContext ctx(registry);
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
     ctx.loadDialect<Const::ConstDialect>();
 
     const auto params = GetParam();

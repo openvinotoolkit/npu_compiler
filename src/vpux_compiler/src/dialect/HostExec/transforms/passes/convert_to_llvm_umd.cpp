@@ -70,7 +70,7 @@ struct CommandListIndexState {
     }
 
     // Update pointers of commandlist**
-    mlir::Value updateCommandListIndex(mlir::OpBuilder& builder, mlir::func::FuncOp& funcOp) {
+    void increaseCommandListIndex(mlir::OpBuilder& builder, mlir::func::FuncOp& funcOp) {
         auto loc = builder.getUnknownLoc();
         auto numArgs = funcOp.getNumArguments();
         auto cmdList = funcOp.getArgument(GET_ARG_INDEX_COMMAND_LIST(numArgs));
@@ -82,14 +82,10 @@ struct CommandListIndexState {
             mlir::LLVM::AddOp addOp = builder.create<mlir::LLVM::AddOp>(loc, i64Type, lastResult, stepSizeInByte);
             lastResult = addOp.getResult();
             lastResultPtr = builder.create<mlir::LLVM::IntToPtrOp>(loc, voidPtrType, lastResult);
-
-            return lastResultPtr;
         } else {
             // For the first commandlist pointer, no need of increasing commandlist pointer
             lastResult = builder.create<mlir::LLVM::PtrToIntOp>(loc, i64Type, cmdList);
             lastResultPtr = builder.create<mlir::LLVM::IntToPtrOp>(loc, voidPtrType, lastResult);
-
-            return cmdList;
         }
     }
 
@@ -461,8 +457,8 @@ void addFuncParamsForUmdFuncCall(mlir::func::FuncOp& funcOp) {
     entryBlock.addArgument(eventHandlePtrType, funcOp->getLoc());
 }
 
-//@brief create function call op to reset a command list
-void createL0ResetCommandList(mlir::Operation* op, mlir::PatternRewriter& rewriter,
+//@brief increase index of command lists
+void increaseCommandListIndex(mlir::Operation* op, mlir::PatternRewriter& rewriter,
                               CommandListIndexState& cmdListIndexState) {
     if (cmdListIndexState.commandListGroupStarted) {
         // Skip redudant command list reset
@@ -474,13 +470,9 @@ void createL0ResetCommandList(mlir::Operation* op, mlir::PatternRewriter& rewrit
     }
 
     auto funcOp = op->getParentOfType<mlir::func::FuncOp>();
-    auto moduleOp = getModuleOp(op);
-    mlir::MLIRContext* ctx = rewriter.getContext();
-    auto returnType = mlir::Type(mlir::LLVM::LLVMVoidType::get(ctx));
 
     cmdListIndexState.commandListGroupStarted = true;
-    auto cmdList = cmdListIndexState.updateCommandListIndex(rewriter, funcOp);
-    createLLVMFuncCallOp(rewriter, moduleOp, "npu_level_zero_reset_commandlist", {cmdList}, returnType);
+    cmdListIndexState.increaseCommandListIndex(rewriter, funcOp);
 }
 
 //@brief create function call op to submit command list
@@ -505,7 +497,7 @@ void createSubmitCommandList(mlir::OpBuilder& builder, mlir::ModuleOp& moduleOp,
     mlir::Value nullPtr = builder.create<mlir::LLVM::ZeroOp>(builder.getUnknownLoc(), elementPtrType);
 
     // Host side synchronization will be required for the last command list.
-    // The last two arguments will be updated in updateCommandListIndex later if required.
+    // The last two arguments will be updated in increaseCommandListIndex later if required.
     auto numArgs = funcOp.getNumArguments();
     auto cmdQueue = funcOp.getArgument(GET_ARG_INDEX_COMMAND_QUEUE(numArgs));
 
@@ -630,7 +622,7 @@ mlir::LogicalResult LvlZeroMemoryCopyLowering ::matchAndRewrite(mlir::memref::Co
 
     // As of today, copy op should be considered as a sub graph
     // So, command list reset/submission is required for the copy op
-    createL0ResetCommandList(origOp, rewriter, commandListIndexState);
+    increaseCommandListIndex(origOp, rewriter, commandListIndexState);
 
     auto cmdList = commandListIndexState.getCommandList(funcOp);
     createLLVMFuncCallOp(rewriter, moduleOp, "npu_level_zero_append_memory_copy", {src, target, sizeBytes, cmdList},
@@ -799,7 +791,7 @@ mlir::LogicalResult AsyncOpRewriter<mlir::async::AddToGroupOp>::matchAndRewrite(
 template <>
 mlir::LogicalResult AsyncOpRewriter<mlir::async::CreateGroupOp>::matchAndRewrite(
         mlir::async::CreateGroupOp origOp, mlir::PatternRewriter& rewriter) const {
-    createL0ResetCommandList(origOp, rewriter, commandListIndexState);
+    increaseCommandListIndex(origOp, rewriter, commandListIndexState);
 
     rewriter.eraseOp(origOp);
     return mlir::success();
@@ -823,7 +815,7 @@ mlir::LogicalResult AsyncOpRewriter<mlir::async::ExecuteOp>::matchAndRewrite(mli
 
     // note: needs to calculate the size of the kernel function after serialization of the core.NestedModule
     if (origOp->template getParentOfType<mlir::scf::ForOp>() == nullptr) {
-        createL0ResetCommandList(origOp, rewriter, commandListIndexState);
+        increaseCommandListIndex(origOp, rewriter, commandListIndexState);
     }
 
     // Process kernels

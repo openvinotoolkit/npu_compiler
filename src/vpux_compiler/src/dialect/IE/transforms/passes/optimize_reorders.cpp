@@ -14,6 +14,8 @@
 #include "vpux/compiler/dialect/IE/transforms/rewriters/expand_with_layer_rewriter.hpp"
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/adjust_layout_utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
@@ -1612,17 +1614,17 @@ mlir::LogicalResult ReorderWithReadValue::matchAndRewrite(IE::ReadValueOp origRe
 }
 
 //
-// ReorderWithHWAdd
+// ReorderWithHWEltwise
 //
 //  The beneficial pattern:
 //
 // Reorder    Reorder or Const  Reorder     Reorder
 //        \     /                  |           |
-//         Add             =>   Reorder     Reorder
+//        Eltwise          =>   Reorder     Reorder
 //          |                      |           |
 //        Reorder             LayoutCast   LayoutCast  or Const(changed dims order)
 //          |                         \     /
-//        SWOp                          Add
+//        SWOp                        Eltwise
 //                                       |
 //                                    LayoutCast
 //                                       |
@@ -1633,11 +1635,11 @@ mlir::LogicalResult ReorderWithReadValue::matchAndRewrite(IE::ReadValueOp origRe
 // in optimal layout.
 //
 
-template <class ConcreteOp>
-class ReorderWithHWAdd final : public mlir::OpRewritePattern<IE::ReorderOp> {
+template <class EltwiseOp, class ConcreteOp>
+class ReorderWithHWEltwise final : public mlir::OpRewritePattern<IE::ReorderOp> {
 public:
-    ReorderWithHWAdd(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::ReorderOp>(ctx), _log(log) {
-        this->setDebugName("ReorderWithHWAdd");
+    ReorderWithHWEltwise(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::ReorderOp>(ctx), _log(log) {
+        this->setDebugName("ReorderWithHWEltwise");
     }
 
     mlir::LogicalResult matchAndRewrite(IE::ReorderOp origOp, mlir::PatternRewriter& rewriter) const final;
@@ -1646,28 +1648,29 @@ private:
     Logger _log;
 };
 
-template <class ConcreteOp>
-mlir::LogicalResult ReorderWithHWAdd<ConcreteOp>::matchAndRewrite(IE::ReorderOp origOp,
-                                                                  mlir::PatternRewriter& rewriter) const {
+template <class EltwiseOp, class ConcreteOp>
+mlir::LogicalResult ReorderWithHWEltwise<EltwiseOp, ConcreteOp>::matchAndRewrite(
+        IE::ReorderOp origOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got IE::ReorderOp at {1}", this->getDebugName(), origOp->getLoc());
 
-    auto parentAdd = origOp.getInput().getDefiningOp<IE::AddOp>();
-    if (parentAdd == nullptr || !parentAdd.getResult().hasOneUse()) {
+    auto parentEltwise = origOp.getInput().getDefiningOp<EltwiseOp>();
+    if (parentEltwise == nullptr || !parentEltwise.getResult().hasOneUse() ||
+        VPU::NCEInvariant::isSupported(parentEltwise).failed()) {
         return mlir::failure();
     }
 
-    auto parentInput1Reorder = parentAdd.getInput1().getDefiningOp<IE::ReorderOp>();
+    auto parentInput1Reorder = mlir::dyn_cast_or_null<IE::ReorderOp>(parentEltwise.getInput1().getDefiningOp());
     if (parentInput1Reorder == nullptr || !parentInput1Reorder.getResult().hasOneUse()) {
         return mlir::failure();
     }
 
     // Second input must be Reorder or Constant
-    auto parentInput2Reorder = parentAdd.getInput2().getDefiningOp<IE::ReorderOp>();
+    auto parentInput2Reorder = mlir::dyn_cast_or_null<IE::ReorderOp>(parentEltwise.getInput2().getDefiningOp());
     if (parentInput2Reorder != nullptr && !parentInput2Reorder.getResult().hasOneUse()) {
         return mlir::failure();
     }
 
-    auto constInput = parentAdd.getInput2().getDefiningOp<Const::DeclareOp>();
+    auto constInput = mlir::dyn_cast_or_null<Const::DeclareOp>(parentEltwise.getInput2().getDefiningOp());
     if (constInput != nullptr && !constInput.getResult().hasOneUse()) {
         return mlir::failure();
     }
@@ -1676,12 +1679,12 @@ mlir::LogicalResult ReorderWithHWAdd<ConcreteOp>::matchAndRewrite(IE::ReorderOp 
         return mlir::failure();
     }
 
-    // E#122076: ReorderWithHWAdd only supports for HW AddOp (DimOrder::NHWC) who could be converted to
-    // NCE.Eltwise.Add ReorderWithHWAdd should only be a temporary solution. ReorderWithHWAdd rewriter should be
+    // E#122076: ReorderWithHWEltwise only supports for HW AddOp (DimOrder::NHWC) who could be converted to
+    // NCE.Eltwise.Add ReorderWithHWEltwise should only be a temporary solution. ReorderWithHWEltwise rewriter should be
     // work for any DimOrder.
     const auto targetInOutOrder = DimsOrder::NHWC;
-    const auto parentAddOutOrder = DimsOrder::fromValue(parentAdd.getOutput());
-    if (parentAddOutOrder != targetInOutOrder) {
+    const auto parentEltwiseOutOrder = DimsOrder::fromValue(parentEltwise.getOutput());
+    if (parentEltwiseOutOrder != targetInOutOrder) {
         return mlir::failure();
     }
 
@@ -1692,7 +1695,7 @@ mlir::LogicalResult ReorderWithHWAdd<ConcreteOp>::matchAndRewrite(IE::ReorderOp 
             return mlir::failure();
         }
         reorderInput2 =
-                rewriter.create<IE::ReorderOp>(origOp->getLoc(), parentAdd.getInput2(), origOp.getDstOrderAttr());
+                rewriter.create<IE::ReorderOp>(origOp->getLoc(), parentEltwise.getInput2(), origOp.getDstOrderAttr());
     } else if (constInput != nullptr) {
         reorderInput2 = rewriter.createOrFold<IE::ReorderOp>(origOp->getLoc(), constInput.getResult(),
                                                              origOp.getDstOrderAttr());
@@ -1703,22 +1706,23 @@ mlir::LogicalResult ReorderWithHWAdd<ConcreteOp>::matchAndRewrite(IE::ReorderOp 
     const auto nhwcOrderAttr = mlir::AffineMapAttr::get(targetInOutOrder.toAffineMap(origOp.getContext()));
 
     auto reorderInput1 =
-            rewriter.create<IE::ReorderOp>(origOp->getLoc(), parentAdd.getInput1(), origOp.getDstOrderAttr());
-    auto newIn1 = rewriter.create<IE::LayoutCastOp>(parentAdd.getLoc(), reorderInput1, nhwcOrderAttr);
-    auto newIn2 = rewriter.create<IE::LayoutCastOp>(parentAdd.getLoc(), reorderInput2, nhwcOrderAttr);
-    auto newAdd = rewriter.create<IE::AddOp>(parentAdd.getLoc(), parentAdd.getType(), newIn1, newIn2,
-                                             parentAdd.getAutoBroadcastAttr(), parentAdd.getPostOpAttr(),
-                                             parentAdd.getClampAttr(), parentAdd.getOutputPaddingAttr(),
-                                             parentAdd.getInputPaddingAttr());
+            rewriter.create<IE::ReorderOp>(origOp->getLoc(), parentEltwise.getInput1(), origOp.getDstOrderAttr());
+    auto newIn1 = rewriter.create<IE::LayoutCastOp>(parentEltwise.getLoc(), reorderInput1, nhwcOrderAttr);
+    auto newIn2 = rewriter.create<IE::LayoutCastOp>(parentEltwise.getLoc(), reorderInput2, nhwcOrderAttr);
 
-    _log.trace("New AddOp: {0}", newAdd);
+    mlir::IRMapping mapper;
+    mapper.map(parentEltwise->getOperands(), SmallVector{newIn1, newIn2});
+    auto newEltwiseOp = rewriter.clone(*parentEltwise, mapper);
+    rewriter.replaceOp(parentEltwise, newEltwiseOp->getResults());
+
+    _log.trace("New EltwiseOp: {0}", newEltwiseOp);
 
     const auto orderOutAttr =
             mlir::AffineMapAttr::get(DimsOrder::fromValue(origOp.getOutput()).toAffineMap(origOp.getContext()));
 
     _log.trace("Replace by IE::LayoutCastOp with DimsOrder: {0}", orderOutAttr);
 
-    rewriter.replaceOpWithNewOp<IE::LayoutCastOp>(origOp, newAdd, orderOutAttr);
+    rewriter.replaceOpWithNewOp<IE::LayoutCastOp>(origOp, newEltwiseOp->getResult(0), orderOutAttr);
     return mlir::success();
 }
 
@@ -2146,13 +2150,13 @@ void OptimizeReordersPass::safeRunOnFunc() {
     patterns.add<ReorderWithTile>(&ctx, _log);
     patterns.add<ReorderWithLayer>(&ctx, _log, _seOpsEnabled, _seExperimentalOpsEnabled);
     patterns.add<ReorderWithPermuteCast>(&ctx, _log);
-    patterns.add<ReorderWithHWAdd<IE::MVNOp>>(&ctx, _log);
+    patterns.add<ReorderWithHWEltwise<IE::AddOp, IE::MVNOp>>(&ctx, _log);
     patterns.add<ReorderWithHWAddSlice>(&ctx, _log);
     patterns.add<ReorderWithGroupConv>(&ctx, _log);
     IE::ReorderOp::getCanonicalizationPatterns(patterns, &ctx);
 
     auto func = getOperation();
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
         return;
     }
@@ -2163,8 +2167,7 @@ void OptimizeReordersPass::safeRunOnFunc() {
     rvaPatterns.add<ReorderWithReadValue>(&ctx, readValueAndAssignCommonPairs, _log);
     IE::ReorderOp::getCanonicalizationPatterns(rvaPatterns, &ctx);
 
-    if (mlir::failed(
-                mlir::applyPatternsAndFoldGreedily(func, std::move(rvaPatterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(rvaPatterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 
@@ -2176,8 +2179,7 @@ void OptimizeReordersPass::safeRunOnFunc() {
 
     IE::ReorderOp::getCanonicalizationPatterns(cleanupPatterns, &ctx);
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(cleanupPatterns),
-                                                        getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(cleanupPatterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

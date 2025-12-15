@@ -540,7 +540,7 @@ void PropagateShapeCast::safeRunOnFunc() {
     patterns.add<MoveThroughConvBasedOp<IE::GroupConvolutionOp>>(&ctx, _log);
     IE::ShapeCastOp::getCanonicalizationPatterns(patterns, &ctx);
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

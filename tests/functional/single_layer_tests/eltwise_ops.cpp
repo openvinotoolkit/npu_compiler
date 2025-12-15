@@ -79,6 +79,10 @@ TEST_F(EltwiseMultiplyLayerTest, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
+TEST_F(EltwiseMultiplyLayerTest, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
 typedef Eltwise2InputLayerTest<ov::op::v1::Add> EltwiseAddLayerTest;
 class EltwiseAddLayerTest_HostCompile : public EltwiseLayerTest, virtual public VpuOv2LayerTest {};
 
@@ -100,6 +104,28 @@ TEST_P(EltwiseAddLayerTest_HostCompile, NPU4000_HC) {
     setHostCompileMode();
     setMLIRCompilerType();
     run(Platform::NPU4000);
+}
+
+typedef Eltwise2InputLayerTest<ov::op::v1::Subtract> EltwiseSubtractLayerTest;
+
+TEST_F(EltwiseAddLayerTest, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_F(EltwiseSubtractLayerTest, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(EltwiseAddLayerTest_HostCompile, NPU5010_HC) {
+    setSkipInferenceCallback([](std::stringstream& skip) {
+        skip << "Host Pipeline does not support inference yet: C#164943";
+    });
+
+    setHostCompileMode();
+    setMLIRCompilerType();
+    run(Platform::NPU5010);
 }
 
 const std::vector<std::vector<ov::test::InputShape>> dynamicShapes = {

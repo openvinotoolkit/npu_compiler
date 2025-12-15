@@ -11,7 +11,7 @@
 
 // XFAIL: *
 // RUN: vpux-opt --vpu-arch=%arch% --default-hw-mode="enable-adaptive-stripping" %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 /// This is a dummy module with a dummy function to run the LIT test and expect a fail with
 /// enable-adaptive-stripping passed through default-hw-mode

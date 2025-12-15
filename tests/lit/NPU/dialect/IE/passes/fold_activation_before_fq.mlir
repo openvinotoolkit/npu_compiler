@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --fold-activation-before-fq %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @ReLUFakeQuantizeFolded
 func.func @ReLUFakeQuantizeFolded(%arg0: tensor<1x3x30x30xf16>) -> tensor<1x3x30x30xf16> {

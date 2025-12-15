@@ -5,7 +5,7 @@
 
 if(ENABLE_NPU_MONO)
     if (NOT TARGET VPUXLoader)
-        message(FATAL_ERROR "elf/vpux_elf/VPUXLoader target must exist since ENABLE_NPU_MONO is ON")
+        message(FATAL_ERROR "elf/VPUXLoader target must exist since ENABLE_NPU_MONO is ON")
     endif()
 else()
     add_subdirectory(loader)

@@ -5,10 +5,13 @@
 
 #include "vpux/compiler/NPU40XX/utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 
@@ -144,13 +147,17 @@ void MoveConvertAroundViewLikeOpsPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
 
-    mlir::RewritePatternSet patterns(&ctx);
-    patterns.add<MoveConvertAfterOperation<VPU::PermuteCastOp>>(&ctx, _log.nest());
-    patterns.add<MoveConvertAfterOperation<VPU::ShapeCastOp>>(&ctx, _log.nest());
-    patterns.add<MoveConvertBeforeAffineReshape>(&ctx, _log.nest());
+    {
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.add<MoveConvertAfterOperation<VPU::PermuteCastOp>>(&ctx, _log.nest());
+        patterns.add<MoveConvertAfterOperation<VPU::ShapeCastOp>>(&ctx, _log.nest());
+        collectOpsAndApplyPatterns(func, std::move(patterns));
+    }
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
+    {
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.add<MoveConvertBeforeAffineReshape>(&ctx, _log.nest());
+        collectOpsAndApplyPatterns(func, std::move(patterns));
     }
 }
 

@@ -4,7 +4,7 @@
 //
 
 // RUN: env OV_NPU_LOG_LEVEL=LOG_INFO env IE_NPU_LOG_FILTER=dump-statistics-of-ie-ops vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --dump-statistics-of-ie-ops -o /dev/null %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 !qElemType = !quant.uniform<u8:f16, 1.0:128>
 

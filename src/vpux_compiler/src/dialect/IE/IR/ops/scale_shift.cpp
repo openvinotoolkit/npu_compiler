@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 
+#include <llvm/ADT/STLExtras.h>
 #include <mlir/IR/PatternMatch.h>
 
 using namespace vpux;
@@ -158,6 +159,62 @@ mlir::LogicalResult FuseScaleShifts::matchAndRewrite(IE::ScaleShiftOp scaleShift
     return mlir::success();
 }
 
+//
+// FoldScaleShift
+//
+
+class FoldScaleShift final : public mlir::OpRewritePattern<IE::ScaleShiftOp> {
+public:
+    using mlir::OpRewritePattern<IE::ScaleShiftOp>::OpRewritePattern;
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::ScaleShiftOp scaleShiftOp, mlir::PatternRewriter& rewriter) const final;
+};
+
+mlir::LogicalResult FoldScaleShift::matchAndRewrite(IE::ScaleShiftOp scaleShiftOp,
+                                                    mlir::PatternRewriter& rewriter) const {
+    auto weights = scaleShiftOp.getWeights();
+    auto biases = scaleShiftOp.getBiases();
+
+    if (weights == nullptr && biases == nullptr) {
+        return mlir::failure();
+    }
+
+    if (weights != nullptr) {
+        // Check if weights are constants
+        auto weightsConst = weights.getDefiningOp<Const::DeclareOp>();
+        if (weightsConst == nullptr) {
+            return mlir::failure();
+        }
+        // Check that if all the weights have neutral values
+        auto weightsVals = IE::getConst(weightsConst);
+        if (!llvm::all_of(weightsVals, [](float w) {
+                return std::fabs(w - 1.0f) < 1e-6;
+            })) {
+            return mlir::failure();
+        }
+    }
+
+    if (biases != nullptr) {
+        // Check if biases are constants
+        auto biasesConst = biases.getDefiningOp<Const::DeclareOp>();
+        if (biasesConst == nullptr) {
+            return mlir::failure();
+        }
+        // Check that if all the biases have neutral values
+        auto biasesVals = IE::getConst(biasesConst);
+        if (!llvm::all_of(biasesVals, [](float b) {
+                return std::fabs(b) < 1e-6;
+            })) {
+            return mlir::failure();
+        }
+    }
+
+    // Identity ScaleShift identified, so it can be removed by replacing it with its input
+    rewriter.replaceOp(scaleShiftOp, scaleShiftOp.getInput());
+    return mlir::success();
+}
+
 }  // namespace
 
 mlir::LogicalResult vpux::IE::ScaleShiftOp::inferReturnTypeComponents(
@@ -184,4 +241,5 @@ void vpux::IE::ScaleShiftOp::getCanonicalizationPatterns(mlir::RewritePatternSet
                                                          mlir::MLIRContext* context) {
     patterns.add<FuseScaleAndBias>(context);
     patterns.add<FuseScaleShifts>(context);
+    patterns.add<FoldScaleShift>(context);
 }

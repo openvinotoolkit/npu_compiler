@@ -182,10 +182,6 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
 
     IE::buildOperationConversionPipeline(pm, IE::OperationConversionOptions(options), log);
 
-    if (options.enableM2I) {
-        pm.addPass(IE::createM2IBatchNormFusionPass());
-    }
-
     pm.addPass(IE::createConvertNceOpsTo4DPass(log));
     pm.addPass(IE::createUnrollConv3dToConv2dPass(log));
     pm.addPass(IE::createReshapeMaxPoolPass(log));
@@ -208,11 +204,7 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     pm.addPass(IE::createSplitInterpolateAxesPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
     pm.addPass(IE::createConvertGatherElementsToGatherPass(log));
-    //  [Tracking number: E#101595]
-    // This temporary check is necessary for m2i interpolate functional tests and it will be removed as part of
-    // E#101595
-    pm.addPass(IE::createConvertToSpatialOpPass(isOptionEnabled(options.enableM2I),
-                                                isOptionEnabled(options.enableSEPtrsOperations), log));
+    pm.addPass(IE::createConvertToSpatialOpPass(false, isOptionEnabled(options.enableSEPtrsOperations), log));
     pm.addPass(IE::createConvertSubtractToAddPass(log));
     pm.addPass(IE::createConvertBranchesConcatToConvPass(log));
     pm.addPass(IE::createSwapOperationsPass(isOptionEnabled(options.enableSEPtrsOperations) ||
@@ -336,13 +328,16 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     IE::buildOptimizeMemPermuteAndActivationChannelsExpandPipeline(pm, IE::ExpandActivationChannelsOptions(options),
                                                                    log);
 
+    pm.addPass(IE::createAdaptODUPermutePass(log));
     pm.addPass(IE::createRemoveViewLikeOpsChainPass(log));
     pm.addPass(IE::createOptimizeOpSlicePass(log));
     pm.addPass(IE::createConvertParallelSlicesToGatherPass(log));
     pm.addPass(IE::createUniquifyOpsPass(log));
     if (options.enableExpandActivationChannels) {
         pm.addPass(IE::createExpandActivationWidthPass(log));
-        pm.addPass(IE::createAdjustInputShapePass(log));
+        if (options.enableAdjustInputShapePass) {
+            pm.addPass(IE::createAdjustInputShapePass(log));
+        }
         pm.addPass(mlir::createCanonicalizerPass(grc));
         pm.addPass(IE::createPropagateAffineReshapePass(log));
         if (options.enableOptimizeSliceExpand) {

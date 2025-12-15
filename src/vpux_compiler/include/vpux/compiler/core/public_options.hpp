@@ -48,6 +48,7 @@ struct PublicOptions : mlir::PassPipelineOptions<PublicOptions> {
         switch (arch) {
         case config::ArchKind::NPU37XX:
         case config::ArchKind::NPU40XX:
+        case config::ArchKind::NPU50XX:
             return "auto";
         default:
             return "false";
@@ -62,6 +63,7 @@ struct PublicOptions : mlir::PassPipelineOptions<PublicOptions> {
     static bool getDefaultEnableSEPtrsOperations(config::ArchKind arch) {
         switch (arch) {
         case config::ArchKind::NPU40XX:
+        case config::ArchKind::NPU50XX:
             return true;
         default:
             return false;
@@ -100,6 +102,8 @@ struct PublicOptions : mlir::PassPipelineOptions<PublicOptions> {
             ::llvm::cl::desc("Option for enabling WLM enqueue barriers search algorithm at VPURT. To be used only for "
                              "experiments."),
             ::llvm::cl::values(
+                    clEnumValN(WorkloadManagementMode::FWLM_V1_PAGES, "FWLM_V1_PAGES",
+                               "Full WLM with split into pages"),
                     clEnumValN(WorkloadManagementMode::PWLM_V2_PAGES, "PWLM_V2_PAGES",
                                "Partial WLM with split into subgraphs"),
                     clEnumValN(WorkloadManagementMode::PWLM_V1_BARRIER_FIFO, "PWLM_V1_BARRIER_FIFO",
@@ -111,6 +115,8 @@ struct PublicOptions : mlir::PassPipelineOptions<PublicOptions> {
         switch (arch) {
         case config::ArchKind::NPU40XX:
             return WorkloadManagementMode::PWLM_V0_LCA;
+        case config::ArchKind::NPU50XX:
+            return WorkloadManagementMode::FWLM_V1_PAGES;
         default:
             return WorkloadManagementMode::PWLM_V0_LCA;
         }

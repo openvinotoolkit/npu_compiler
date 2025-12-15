@@ -5,7 +5,7 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% enable-qdq-optimization-aggressive=false" --qdq-optimization-aggressive %s | FileCheck %s --check-prefix=CHECK-AGG-OFF
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% enable-qdq-optimization-aggressive=true" --qdq-optimization-aggressive %s | FileCheck %s --check-prefix=CHECK-AGG-ON
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-AGG-OFF-LABEL: @QDQOptimizationAggressiveForConv
 // CHECK-AGG-OFF-SAME:      ([[INPUT:%.+]]: tensor<1x1x60x60xui8>) -> tensor<1x1x60x60xf32>

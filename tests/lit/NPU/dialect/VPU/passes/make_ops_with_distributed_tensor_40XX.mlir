@@ -1903,7 +1903,7 @@ func.func @SubgraphWithMaxPoolAndEltwise(%arg0: tensor<1x32x112x112xf16, {order 
 // CHECK-SAME:    [[ARG0:%.+]]: tensor<1x1x32x6xf16>
 func.func @RMSNormSOH(%arg0: tensor<1x1x32x6xf16>) -> tensor<1x1x32x6xf16> {
   %cst = const.Declare tensor<1x1x1x6xf16> = dense<1.000000e+00>: tensor<1x1x1x6xf16>
-  %0 = VPU.RMS(%arg0, %cst) {epsilon = 9.9999997473787516E-6 : f64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x1x32x6xf16>, tensor<1x1x1x6xf16> -> tensor<1x1x32x6xf16>
+  %0 = VPU.RMS(%arg0, %cst) {eps = 9.9999997473787516E-6 : f64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x1x32x6xf16>, tensor<1x1x1x6xf16> -> tensor<1x1x32x6xf16>
   return %0 : tensor<1x1x32x6xf16>
 
     // CHECK:    [[CST:%.+]] = const.Declare tensor<1x1x1x6xf16> = dense<1.000000e+00> : tensor<1x1x1x6xf16>
@@ -1920,7 +1920,7 @@ func.func @RMSNormSOH(%arg0: tensor<1x1x32x6xf16>) -> tensor<1x1x32x6xf16> {
     // CHECK-SAME{LITERAL}:      memory_shapes = [[1, 1, 1, 6], [1, 1, 1, 6], [1, 1, 1, 6], [1, 1, 1, 6], [1, 1, 1, 6], [1, 1, 1, 6]],
     // CHECK-SAME{LITERAL}:      memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
 
-    // CHECK:    [[RMS:%.+]] = VPU.RMS([[DATA]], [[GAMMA]]) {epsilon = 9.9999997473787516E-6 : f64} :
+    // CHECK:    [[RMS:%.+]] = VPU.RMS([[DATA]], [[GAMMA]]) {eps = 9.9999997473787516E-6 : f64} :
     // CHECK-SAME:             !VPU.DistributedTensor<1x1x32x6xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 6, 1], num_clusters = 6 : i64, uniform_distributed_segments,
     // CHECK-SAME{LITERAL}:          compute_shapes = [[1, 1, 6, 6], [1, 1, 6, 6], [1, 1, 5, 6], [1, 1, 5, 6], [1, 1, 5, 6], [1, 1, 5, 6]],
     // CHECK-SAME{LITERAL}:          compute_offsets = [[0, 0, 0, 0], [0, 0, 6, 0], [0, 0, 12, 0], [0, 0, 17, 0], [0, 0, 22, 0], [0, 0, 27, 0]],
@@ -1952,7 +1952,7 @@ func.func @RMSNormSOH(%arg0: tensor<1x1x32x6xf16>) -> tensor<1x1x32x6xf16> {
 // CHECK-SAME:    [[ARG0:%.+]]: tensor<1x32x1x6xf16>
 func.func @RMSNormSOK(%arg0: tensor<1x32x1x6xf16>) -> tensor<1x32x1x6xf16> {
   %cst = const.Declare tensor<1x1x1x6xf16> = dense<1.000000e+00>: tensor<1x1x1x6xf16>
-  %0 = VPU.RMS(%arg0, %cst) {epsilon = 9.9999997473787516E-6 : f64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x32x1x6xf16>, tensor<1x1x1x6xf16> -> tensor<1x32x1x6xf16>
+  %0 = VPU.RMS(%arg0, %cst) {eps = 9.9999997473787516E-6 : f64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x32x1x6xf16>, tensor<1x1x1x6xf16> -> tensor<1x32x1x6xf16>
   return %0 : tensor<1x32x1x6xf16>
 
     // CHECK:    [[CST:%.+]] = const.Declare tensor<1x1x1x6xf16> = dense<1.000000e+00> : tensor<1x1x1x6xf16>
@@ -1969,7 +1969,7 @@ func.func @RMSNormSOK(%arg0: tensor<1x32x1x6xf16>) -> tensor<1x32x1x6xf16> {
     // CHECK-SAME{LITERAL}:     memory_shapes = [[1, 1, 1, 6], [1, 1, 1, 6], [1, 1, 1, 6], [1, 1, 1, 6], [1, 1, 1, 6], [1, 1, 1, 6]],
     // CHECK-SAME{LITERAL}:     memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
 
-    // CHECK:    [[RMS:%.+]] = VPU.RMS([[DATA]], [[GAMMA]]) {epsilon = 9.9999997473787516E-6 : f64} :
+    // CHECK:    [[RMS:%.+]] = VPU.RMS([[DATA]], [[GAMMA]]) {eps = 9.9999997473787516E-6 : f64} :
     // CHECK-SAME:             !VPU.DistributedTensor<1x32x1x6xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 6, 1, 1], num_clusters = 6 : i64, uniform_distributed_segments,
     // CHECK-SAME{LITERAL}:          compute_shapes = [[1, 6, 1, 6], [1, 6, 1, 6], [1, 5, 1, 6], [1, 5, 1, 6], [1, 5, 1, 6], [1, 5, 1, 6]],
     // CHECK-SAME{LITERAL}:          compute_offsets = [[0, 0, 0, 0], [0, 6, 0, 0], [0, 12, 0, 0], [0, 17, 0, 0], [0, 22, 0, 0], [0, 27, 0, 0]],
@@ -2002,7 +2002,7 @@ func.func @RMSNormSOK(%arg0: tensor<1x32x1x6xf16>) -> tensor<1x32x1x6xf16> {
 // CHECK: [[ARG0:%.+]]: tensor<1x32x1x6xf16>
 func.func @RMSNormClustering(%arg0: tensor<1x32x1x6xf16>) -> tensor<1x32x1x6xf16> {
   %cst = const.Declare tensor<1x1x1x6xf16> = dense<1.000000e+00>: tensor<1x1x1x6xf16>
-  %0 = VPU.RMS(%arg0, %cst) {epsilon = 9.9999997473787516E-6 : f64, multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>} : tensor<1x32x1x6xf16>, tensor<1x1x1x6xf16> -> tensor<1x32x1x6xf16>
+  %0 = VPU.RMS(%arg0, %cst) {eps = 9.9999997473787516E-6 : f64, multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>} : tensor<1x32x1x6xf16>, tensor<1x1x1x6xf16> -> tensor<1x32x1x6xf16>
   return %0 : tensor<1x32x1x6xf16>
 
     // CHECK:	 [[CST:%.+]] = const.Declare tensor<1x1x1x6xf16> = dense<1.000000e+00> : tensor<1x1x1x6xf16>
@@ -2018,7 +2018,7 @@ func.func @RMSNormClustering(%arg0: tensor<1x32x1x6xf16>) -> tensor<1x32x1x6xf16
     // CHECK-SAME{LITERAL}:    compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
     // CHECK-SAME{LITERAL}:    memory_shapes = [[1, 1, 1, 6], [1, 1, 1, 6], [1, 1, 1, 6], [1, 1, 1, 6], [1, 1, 1, 6], [1, 1, 1, 6]],
     // CHECK-SAME{LITERAL}:    memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
-    // CHECK:    [[RMS:%.+]] = VPU.RMS([[DATA]], [[GAMMA]]) {epsilon = 9.9999997473787516E-6 : f64} :
+    // CHECK:    [[RMS:%.+]] = VPU.RMS([[DATA]], [[GAMMA]]) {eps = 9.9999997473787516E-6 : f64} :
     // CHECK-SAME:    !VPU.DistributedTensor<1x32x1x6xf16, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 6 : i64, uniform_distributed_segments,
     // CHECK-SAME{LITERAL}:    compute_shapes = [[1, 32, 1, 6], [1, 32, 1, 6], [1, 32, 1, 6], [1, 32, 1, 6], [1, 32, 1, 6], [1, 32, 1, 6]],
     // CHECK-SAME{LITERAL}:    compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],

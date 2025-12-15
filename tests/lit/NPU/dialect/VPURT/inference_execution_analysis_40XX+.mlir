@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --init-compiler="vpu-arch=%arch% allow-custom-values=true" --inference-execution-analysis %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 !qElemType = !quant.uniform<u8:f16, 1.000000e+00>
 !qElemType1 = !quant.uniform<u8:f16, 1.000000e+00>

@@ -5,7 +5,9 @@
 
 #include "vpux/compiler/dialect/IE/IR/ops/arithmetic.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 
@@ -37,10 +39,12 @@ mlir::LogicalResult vpux::IE::CumSumOp::inferReturnTypeComponents(
         return mlir::failure();
     }
 
-    const auto inType = mlir::cast<mlir::ShapedType>(cumsum.getInput().getType());
-    const auto inShape = inType.getShape();
+    const auto inType = mlir::cast<vpux::NDTypeInterface>(cumsum.getInput().getType());
+    const auto inShapeInfo = ShapeInfo::fromNDType(inType);
 
-    inferredReturnShapes.emplace_back(inShape, inType.getElementType());
+    const auto outDesc =
+            vpux::getTensorAttr(ctx, inType.getDimsOrder(), inType.getMemSpace(), BoundsRef(inShapeInfo.bounds));
+    inferredReturnShapes.emplace_back(inShapeInfo.shape, inType.getElementType(), outDesc);
 
     return mlir::success();
 }

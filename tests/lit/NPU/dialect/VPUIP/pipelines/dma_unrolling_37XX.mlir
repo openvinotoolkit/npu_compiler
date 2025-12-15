@@ -55,7 +55,7 @@ func.func @UnrollS2DepthAndUpsamplingDMA() -> !OutputDistributed {
     //CHECK:    [[INPUT_BUFFER_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <2304> -> memref<1x4x16x48x!qElemType, #NHWC, [@CMX_NN, 0]>
     //CHECK:    [[INPUT_BUFFER_2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <4608> -> memref<1x4x16x48x!qElemType, #NHWC, [@CMX_NN, 0]>
     //CHECK:    [[INPUT_BUFFER_3:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <6912> -> memref<1x4x12x48x!qElemType, #NHWC, [@CMX_NN, 0]>
-    
+
     //CHECK:    [[OUTDISTRIBUTION:%.+]] = VPURT.DeclareBuffer <CMX_NN> <0> -> !VPUIP.DistributedBuffer<1x16x24x24x!qElemType, #NHWC, @CMX_NN
     //CHECK-SAME:   {mode = "OVERLAPPED", num_tiles = [1, 1, 4, 1], kernel = [3, 3], pads = #VPU.Padding<left = 0 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64>
     //CHECK-SAME:   strides = [1, 1], num_clusters = 4 : i64}>

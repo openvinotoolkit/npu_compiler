@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/prefetch_lastop_vf_scheduling.hpp"
-#include "vpux/compiler/utils/VPU/tile_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 
 #include <llvm/ADT/SetOperations.h>
 

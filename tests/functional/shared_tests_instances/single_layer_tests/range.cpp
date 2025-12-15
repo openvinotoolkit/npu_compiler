@@ -9,7 +9,6 @@
 using namespace ov::test::utils;
 
 namespace ov {
-
 namespace test {
 
 class RangeLayerTestCommon : public RangeLayerTest, virtual public VpuOv2LayerTest {
@@ -127,8 +126,16 @@ TEST_P(RangeLayerTestCommon, NPU4000_HW) {
     VpuOv2LayerTest::setDefaultHardwareMode();
     VpuOv2LayerTest::run(Platform::NPU4000);
 }
-}  // namespace test
+TEST_P(RangeLayerTestCommon, NPU5010_HW) {
+    VpuOv2LayerTest::setDefaultHardwareMode();
+    VpuOv2LayerTest::run(Platform::NPU5010);
+}
 
+TEST_P(RangeLayerTestDynamic, NPU5010_HW) {
+    VpuOv2LayerTest::setDefaultHardwareMode();
+    VpuOv2LayerTest::run(Platform::NPU5010);
+}
+}  // namespace test
 }  // namespace ov
 
 using namespace ov::test;

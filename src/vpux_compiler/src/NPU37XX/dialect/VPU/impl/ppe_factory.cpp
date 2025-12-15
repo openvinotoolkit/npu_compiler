@@ -17,7 +17,7 @@
 #include "vpux/utils/core/numeric.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <limits>
 
 using namespace vpux;

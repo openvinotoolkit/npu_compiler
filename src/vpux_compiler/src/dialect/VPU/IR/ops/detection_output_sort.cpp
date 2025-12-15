@@ -4,16 +4,67 @@
 //
 
 #include <mlir/IR/BuiltinOps.h>
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/IR/tiling_info.hpp"
+#include "vpux/compiler/dialect/VPU/utils/auxiliary_buffers.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 using namespace vpux;
+
+SmallVector<mlir::Type> getAuxiliaryBufferTypes(mlir::ModuleOp moduleOp, mlir::Value confidence,
+                                                std::vector<int32_t>& indicesBufferData) {
+    const auto confidenceShape = getShape(confidence);
+    VPUX_THROW_UNLESS(confidenceShape.size() == 4, "Class predictions tensor must be 4D");
+    indicesBufferData.clear();
+    indicesBufferData.resize(confidenceShape.totalSize());
+    const auto width = confidenceShape[Dims4D::Act::W];
+    const auto height = confidenceShape[Dims4D::Act::H];
+    for (int h = 0; h < height; h++) {
+        for (int w = 0; w < width; w++) {
+            indicesBufferData[h * width + w] = w;
+        }
+    }
+    const auto indicesBufferType =
+            mlir::RankedTensorType::get(confidenceShape.raw(), getSInt32Type(confidence.getContext()));
+
+    // Four buffers of 256 elements are required for counting sort
+    // tensor has SEGMENTED distribution mode
+    // multiply the buffer numShaves times to provide unique buffer for each shave
+    auto numShaves = config::getTotalNumOfEngines(moduleOp, VPU::ExecutorKind::SHAVE_ACT);
+    Shape sortingBufferShape{1, 1, 4 * numShaves, 256};
+    const auto sortingBufferType =
+            mlir::RankedTensorType::get(sortingBufferShape.raw(), getSInt32Type(confidence.getContext()));
+
+    return {indicesBufferType, sortingBufferType};
+}
+
+mlir::Value createIndicesBufferConstant(mlir::OpBuilder& builder, mlir::Location loc, mlir::Type indicesBufferType,
+                                        ArrayRef<int32_t> indicesBufferData) {
+    return Const::createConst(builder, appendLoc(loc, "sort_IndicesBuffer"),
+                              mlir::cast<mlir::RankedTensorType>(indicesBufferType), indicesBufferData);
+}
+
+void vpux::VPU::DetectionOutputSortOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState,
+                                             mlir::Value confidence, mlir::FloatAttr confidenceThreshold,
+                                             mlir::IntegerAttr topK) {
+    auto block = odsBuilder.getInsertionBlock();
+    const auto moduleOp = getModuleOp(block->getParentOp());
+
+    std::vector<int32_t> indicesBufferData;
+    auto auxBufferTypes = getAuxiliaryBufferTypes(moduleOp, confidence, indicesBufferData);
+    VPUX_THROW_WHEN(auxBufferTypes.size() != 2, "Expected 2 auxiliary buffer types, got {0}", auxBufferTypes.size());
+    auto indicesBuffer =
+            createIndicesBufferConstant(odsBuilder, odsState.location, auxBufferTypes[0], indicesBufferData);
+    auto sortingBuffer = VPU::createAuxiliaryBuffer(odsBuilder, odsState.location, auxBufferTypes[1]);
+
+    build(odsBuilder, odsState, confidence, indicesBuffer, sortingBuffer, confidenceThreshold, topK, nullptr);
+}
 
 //
 // inferReturnTypes
@@ -51,53 +102,6 @@ mlir::LogicalResult VPU::DetectionOutputSortOp::inferReturnTypes(
     inferredReturnTypes.push_back(outSizesType);
 
     return mlir::success();
-}
-
-mlir::Value createIndicesAuxiliaryBuffer(mlir::OpBuilder& rewriter, ShapeRef shape) {
-    VPUX_THROW_UNLESS(shape.size() == 4, "Class predictions tensor must be 4D");
-    auto auxIndicesContent = std::vector<int32_t>(shape.totalSize());
-    const auto width = shape[Dims4D::Act::W];
-    const auto height = shape[Dims4D::Act::H];
-    for (int h = 0; h < height; h++) {
-        for (int w = 0; w < width; w++) {
-            auxIndicesContent[h * width + w] = w;
-        }
-    }
-
-    const auto auxIndicesType = mlir::RankedTensorType::get(shape.raw(), getSInt32Type(rewriter.getContext()));
-    return Const::createConst(rewriter, appendLoc(mlir::UnknownLoc::get(rewriter.getContext()), "sort_IndicesBuffer"),
-                              auxIndicesType, ArrayRef(auxIndicesContent));
-}
-
-mlir::Value createSortingAuxiliaryBuffer(mlir::OpBuilder& rewriter, ShapeRef shape) {
-    const auto auxIndicesType = mlir::RankedTensorType::get(shape.raw(), getSInt32Type(rewriter.getContext()));
-    return Const::createConst(rewriter, appendLoc(mlir::UnknownLoc::get(rewriter.getContext()), "sort_SortingBuffer"),
-                              auxIndicesType, ArrayRef<int32_t>(0));
-}
-
-static mlir::ModuleOp getModule(::mlir::OpBuilder& odsBuilder) {
-    auto block = odsBuilder.getInsertionBlock();
-    auto parentOp = block->getParentOp();
-    while (parentOp && !llvm::isa<mlir::ModuleOp>(parentOp)) {
-        parentOp = parentOp->getParentOp();
-    }
-    return llvm::cast<mlir::ModuleOp>(parentOp);
-}
-
-void vpux::VPU::DetectionOutputSortOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState,
-                                             ::mlir::Value classPredictions, ::mlir::FloatAttr confidenceThreshold,
-                                             ::mlir::IntegerAttr topK) {
-    auto indicesBuffer = createIndicesAuxiliaryBuffer(odsBuilder, getShape(classPredictions));
-    auto module = getModule(odsBuilder);
-    auto numShaves = config::getTotalNumOfEngines(module, VPU::ExecutorKind::SHAVE_ACT);
-
-    // 4 buffers of size 256 elements are required for counting sort
-    // tensor has SEGMENTED distribution mode
-    // multiply the buffer numShaves times to provide unique buffer for each shave
-    Shape shape{1, 1, 4 * numShaves, 256};
-    auto sortingBuffer = createSortingAuxiliaryBuffer(odsBuilder, shape);
-
-    build(odsBuilder, odsState, classPredictions, indicesBuffer, sortingBuffer, confidenceThreshold, topK, nullptr);
 }
 
 //
@@ -185,4 +189,33 @@ bool vpux::VPU::DetectionOutputSortOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeInt
 
 bool vpux::VPU::DetectionOutputSortOp::supportCycleCostCalculation() {
     return false;
+}
+
+llvm::LogicalResult VPU::DetectionOutputSortOp::verify() {
+    const auto moduleOp = getModuleOp(getOperation()->getParentOp());
+    // The size of the auxiliary buffers depend on the number of available SHAVE executors
+    // In case the IR is not populated with this information, skip the verification of the buffer sizes
+    auto tileOp = config::getTileExecutor(moduleOp);
+    if (tileOp == nullptr) {
+        return mlir::success();
+    }
+
+    std::vector<int32_t> indicesBufferData;
+    auto expectedAuxBuffTypes = getAuxiliaryBufferTypes(moduleOp, getConfidence(), indicesBufferData);
+    if (expectedAuxBuffTypes.size() != 2) {
+        return errorAt(getOperation(), "Expected two reference auxiliary buffer types, but got {0}",
+                       expectedAuxBuffTypes.size());
+    }
+    auto loc = getOperation()->getLoc();
+    if (mlir::failed(VPU::compareTypes(loc, getIndicesBuffer().getType(), expectedAuxBuffTypes[0]))) {
+        return errorAt(getOperation(), "Invalid indices auxiliary buffer");
+    }
+    if (mlir::failed(VPU::compareTypes(loc, getSortingBuffer().getType(), expectedAuxBuffTypes[1]))) {
+        return errorAt(getOperation(), "Invalid sorting auxiliary buffer");
+    }
+    return mlir::success();
+}
+
+SmallVector<mlir::Value> VPU::DetectionOutputSortOp::getAuxiliaryBuffers() {
+    return {getIndicesBuffer(), getSortingBuffer()};
 }

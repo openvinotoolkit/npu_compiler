@@ -15,7 +15,7 @@
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
@@ -363,7 +363,7 @@ void FusePermuteQuantizeExpandPass::safeRunOnFunc() {
     patterns.add<FuseExpandIntoPermuteQuantizeRewrite>(&ctx, _log);
     patterns.add<FuseQuantizeCastExpandIntoPermuteQuantizeQuantizeCastRewrite>(&ctx, _log);
 
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

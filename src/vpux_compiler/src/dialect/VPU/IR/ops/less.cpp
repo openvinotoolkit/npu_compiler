@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/comparison.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
@@ -24,22 +24,8 @@ mlir::LogicalResult vpux::VPU::LessOp::inferReturnTypes(mlir::MLIRContext* ctx, 
         return mlir::failure();
     }
 
-    const auto in1Type = mlir::cast<vpux::NDTypeInterface>(less.getInput1().getType());
-    const auto in2Type = mlir::cast<vpux::NDTypeInterface>(less.getInput2().getType());
-
-    const auto outShapeInfo = inferEltwiseOutputShapeInfo(ShapeInfo::fromNDType(in1Type),
-                                                          ShapeInfo::fromNDType(in2Type), less.getAutoBroadcast(), loc);
-
-    // Less operation returns boolean type
-    const auto elementType = getBool8Type(ctx);
-    const auto tensorAttr = vpux::getTensorAttr(ctx, IE::inferOrder(in1Type, in2Type), /*memSpace=*/nullptr,
-                                                BoundsRef(outShapeInfo.bounds));
-
-    auto outType = mlir::RankedTensorType::get(outShapeInfo.shape, elementType, tensorAttr);
-
-    inferredReturnTypes.emplace_back(outType);
-
-    return mlir::success();
+    return inferEltwiseReturnTypes(inferredReturnTypes, loc, less.getInput1(), less.getInput2(),
+                                   less.getAutoBroadcast(), getBool8Type(ctx));
 }
 
 void vpux::VPU::LessOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState, ::mlir::Value input1,

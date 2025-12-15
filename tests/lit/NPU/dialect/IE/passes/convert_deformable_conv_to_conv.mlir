@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" -convert-deformable-conv-to-conv %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @Convert_DeformableConv_Kernel1
 // CHECK-SAME: ([[INPUT:%.+]]: tensor<1x128x19x19xf16>, [[OFFSET:%.+]]: tensor<1x2x19x19xf16>, [[KERNEL:%.+]]: tensor<128x128x1x1xf16>, [[MASK:%.+]]: tensor<1x1x19x19xf16>) -> tensor<1x128x19x19xf16>

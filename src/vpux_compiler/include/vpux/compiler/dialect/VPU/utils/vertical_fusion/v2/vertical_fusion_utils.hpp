@@ -59,4 +59,7 @@ std::optional<int64_t> getCbrtMaxTileCandidate(int64_t minTile, int64_t maxTile)
 // Determines if the operand represents shared weights for the operation in Vertical Fusion
 bool isOperandSharedWeightsForTiling(mlir::Operation* op, mlir::Value operand, ShapeRef tiledShape);
 
+// dump VF scheduling trace to JSON file
+void printVFSchedulingTrace(mlir::func::FuncOp funcOp, const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
+                            Logger log);
 }  // namespace vpux::VPU::VF::v2

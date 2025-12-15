@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --decompose-lstm-sequence %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: func.func @DecomposeLSTMSequence(
 // CHECK-SAME:      %[[VAL_0:.*]]: tensor<1x3x64xf32>) -> (tensor<1x2x3x128xf32>, tensor<1x2x128xf32>, tensor<1x2x128xf32>) {

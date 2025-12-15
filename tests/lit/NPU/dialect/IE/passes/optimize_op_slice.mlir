@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --optimize-op-slice %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @NoChangesAcrossInputsAtHeight
 func.func @NoChangesAcrossInputsAtHeight(%arg0: tensor<1x16x4x4xf16>, %arg1 : tensor<1x16x3x4xf16>) -> tensor<1x16x3x4xf16> {

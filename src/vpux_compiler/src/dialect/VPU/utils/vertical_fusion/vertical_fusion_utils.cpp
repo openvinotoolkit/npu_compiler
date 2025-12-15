@@ -4,14 +4,18 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/control_flow.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/vertical_fusion_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vf_axis_increment.hpp"
-#include "vpux/compiler/utils/VPU/tile_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/dma.hpp"
+#include "vpux/compiler/utils/strings.hpp"
 #include "vpux/utils/core/numeric.hpp"
+#include "vpux/utils/profiling/reports/api.hpp"
 
 #include <llvm/ADT/SetOperations.h>
 #include <llvm/ADT/TypeSwitch.h>
@@ -593,6 +597,21 @@ bool vpux::VPU::onlySupportPartialTilingDims(vpux::VPU::TilingViewLikeOpInterfac
         return !viewOp.isSupportedTilingDim({dim});
     });
 };
+
+SmallVector<mlir::Operation*> vpux::VPU::getParentViewLikeOpsInVF(mlir::Operation* operation) {
+    SmallVector<mlir::Operation*> parents;
+    for (auto operand : operation->getOperands()) {
+        auto parentOp = operand.getDefiningOp();
+        if (parentOp != nullptr && VPU::isPureViewOp(parentOp)) {
+            parents.push_back(parentOp);
+            parents.append(getParentViewLikeOpsInVF(parentOp));
+        }
+    }
+    llvm::sort(parents, [](auto op1, auto op2) {
+        return op1->isBeforeInBlock(op2);
+    });
+    return parents;
+}
 
 // Explicit instantiation of the template function for V1/V2 VFConfig
 template mlir::FailureOr<SmallVector<SmallVector<int64_t>>> vpux::VPU::backInferVFTilingStrategy<

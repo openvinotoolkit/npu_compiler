@@ -8,7 +8,17 @@
 #include "vpux/compiler/core/cost_model_utils.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/activation.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/comparison.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/image.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/logical.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/normalization.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/recurrent.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/factories/cost_model_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/layer_vpunn_cost.hpp"
@@ -17,13 +27,13 @@
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/op_tiling_cache.hpp"
+#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
-#include "vpux/compiler/utils/VPU/tile_utils.hpp"
 #include "vpux/compiler/utils/sparsity.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
@@ -41,6 +51,7 @@ namespace {
 // Stride DMA cost is inaccurate by cost model, so use this variable to help correct the cost value
 // TODO: Ticket E#171462, remove this variable when stride DMA cost is accurate by VPUNN cost model
 constexpr double strideDMACorrectionThresholdInBitsV1 = 512;
+constexpr double strideDMACorrectionThresholdInBitsV2 = 1024;
 
 double getSpillingCostForNonMultiCluster(vpux::NDTypeInterface tensorType, const VPU::DistributionInfo&,
                                          SpillingType /*spillingType*/, double ddrLatency, double ddrBandwidth,
@@ -444,7 +455,7 @@ double LayerCostModel::getDMACostOfType(vpux::NDTypeInterface srcType, SpillingT
     auto srcMode = distributedSrcType != nullptr ? distributedSrcType.getDistribution().getMode().getValue()
                                                  : VPU::DistributionMode::NONE;
 
-    if (_arch == config::ArchKind::NPU37XX) {
+    if (_arch == config::ArchKind::NPU37XX || _arch == config::ArchKind::NPU50XX) {
         return static_cast<double>(getDMACost(srcType, _vpuDeviceType,
                                               _layerCostModel->get_TheoreticalDMA_cost_model_shared(), _numDMAPorts));
     }
@@ -473,7 +484,7 @@ double LayerCostModel::getSpillingWriteCost(vpux::NDTypeInterface srcTensorType)
 
 double LayerCostModel::getDMACostOfType(vpux::NDTypeInterface srcType, const VPU::DistributionInfo& distribution,
                                         SpillingType spillingType) const {
-    if (_arch == config::ArchKind::NPU37XX) {
+    if (_arch == config::ArchKind::NPU37XX || _arch == config::ArchKind::NPU50XX) {
         TensorDistributionMap distributionMap;
         distributionMap.insert(std::make_pair(srcType, distribution));
         auto distributedType = getDistributedTypeFromDistributionMap(srcType, distributionMap);
@@ -2042,6 +2053,17 @@ uint32_t vpux::VPU::getActivationDMACostForNCEOp(VPU::NCEOpInterface nceOp, cons
     SmallVector<uint32_t> filteredDPUCosts;
     auto useFilteredCosts = false;
     const auto temporalSize = tilingStrategy[Dims4D::Act::C];
+    // Consider activation sharing in cost calculation for nested tiling, reduces total DMA
+    // Only apply to 50XX, as only arch with accurate DMA cost model
+    if (config::getArch(nceOp) == config::ArchKind::NPU50XX && isActSharedNestedTiling) {
+        useFilteredCosts = true;
+        // Unroll channel first
+        // Activation DMAs are partially shared. Every tile_C activation are shared
+        for (size_t i = 0; i < tiles.size(); i += temporalSize) {
+            filteredDPUCosts.push_back(layerDPUCosts[i]);
+            filteredDMACosts.push_back(layerDMACosts[i]);
+        }
+    }
     if (!useFilteredCosts) {
         filteredDMACosts = SmallVector<uint32_t>(layerDMACosts);
         filteredDPUCosts = layerDPUCosts;
@@ -2139,7 +2161,8 @@ bool vpux::VPU::hasLayerWithMultipleInputs(mlir::Operation* op) {
 
 bool vpux::VPU::isSingleBatchRequired(mlir::Operation* op) {
     return !mlir::isa<VPU::MVNOp, VPU::MVN1NormalizeOp, VPU::MVN1SumOp, VPU::LSTMSequenceOp, VPU::DequantizeOp,
-                      VPU::ReverseOp, VPU::GridSampleOp, VPU::DeformableConvolutionOp, VPU::MemPermuteOp>(op);
+                      VPU::ReverseOp, VPU::ReverseSequenceOp, VPU::GridSampleOp, VPU::DeformableConvolutionOp,
+                      VPU::MemPermuteOp>(op);
 }
 
 bool vpux::VPU::setSOKForRuntimeDequantConvolution(VPU::NCEOpInterface nceOp, LayerCostModel& costModel) {
@@ -2209,5 +2232,9 @@ bool vpux::VPU::alignStrategyWithParentRuntimeDequant(VPU::ClusteredOpInterface 
 }
 
 double vpux::VPU::getStrideDMACorrectionThresholdByArch([[maybe_unused]] config::ArchKind arch) {
+    // Experimental threshold to correct 50XX DMA cost
+    if (arch == config::ArchKind::NPU50XX) {
+        return strideDMACorrectionThresholdInBitsV2;
+    }
     return strideDMACorrectionThresholdInBitsV1;
 }

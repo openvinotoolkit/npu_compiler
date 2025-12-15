@@ -36,9 +36,23 @@ TEST_P(ShaveCodeGenConversionLayerTest, NPU4000) {
     run(Platform::NPU4000);
 }
 
+TEST_P(ConversionLayerTestCommon_HW, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+TEST_P(ShaveCodeGenConversionLayerTest, NPU5010) {
+    setReferenceSoftwareMode();
+    setMLIRCompilerType();
+    run(Platform::NPU5010);
+}
+
 TEST_P(ConversionLayerTestCommon, NPU4000_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU4000);
+}
+TEST_P(ConversionLayerTestCommon, NPU5010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
 }
 }  // namespace test
 }  // namespace ov
@@ -85,6 +99,8 @@ const auto configParamsI4Tiling = genParams({i4}, {i8, f16}, inShapeTiling);
 const auto configParamsU4OddShape = genParams({u4}, {f16, u8, i8}, inShapeOdd);
 const auto configParamsU16ToF16 = genParams({u16}, {f16}, inShapeOdd);
 const auto configParamsF16ToU16 = genParams({f16}, {u16}, inShapeOdd);
+const auto configParamsF8ToF16 = genParams({f8e4m3, f8e5m2}, {f16}, inShapeOdd, false);
+const auto configParamsF16ToF8 = genParams({f16}, {f8e4m3, f8e5m2}, inShapeOdd, false);
 
 // ------ HW ------
 
@@ -115,6 +131,14 @@ INSTANTIATE_TEST_SUITE_P(smoke_u16_f16_Conversion, ConversionLayerTestCommon_HW,
 INSTANTIATE_TEST_SUITE_P(smoke_f16_u16_Conversion, ConversionLayerTestCommon_HW, configParamsF16ToU16,
                          ConversionLayerTest::getTestCaseName);
 
+INSTANTIATE_TEST_SUITE_P(smoke_f8_f16_Conversion, ConversionLayerTestCommon_HW, configParamsF8ToF16,
+                         ConversionLayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_f16_f8_Conversion, ConversionLayerTestCommon_HW, configParamsF16ToF8,
+                         ConversionLayerTest::getTestCaseName);
+
+// ------ ShaveCodeGen ------
+
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_ShaveCodeGen_Conversion, ShaveCodeGenConversionLayerTest, configParams,
                          ConversionLayerTest::getTestCaseName);
 
@@ -126,6 +150,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_f64_i64_ShaveCodeGen_Conversion, ShaveCodeGenConv
 
 INSTANTIATE_TEST_SUITE_P(smoke_i64_f64_ShaveCodeGen_Conversion, ShaveCodeGenConversionLayerTest, configParamsI64ToF64,
                          ConversionLayerTest::getTestCaseName);
+
 // Tracking number [E#128077]
 INSTANTIATE_TEST_SUITE_P(DISABLED_TMP_smoke_precommit_u4_odd_Conversion, ConversionLayerTestCommon_HW,
                          configParamsU4OddShape, ConversionLayerTest::getTestCaseName);

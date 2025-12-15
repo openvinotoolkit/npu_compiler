@@ -158,8 +158,8 @@ mlir::FailureOr<SymbolizationResult> DPUInvariantRewriter::symbolize(VPUMI40XX::
             op.getInputChannelsCompressionAttr(), op.getIsZeroOffsetWeightsTableAttr(), op.getOutChannelOffsetAttr(),
             op.getIsSuperdenseAttr(), op.getIsInplaceAttr(), op.getInputSeSizeAttr(), op.getOutputSeSizeAttr(),
             op.getIsPermuteQuantizeAttr(), op.getIsSmallKernelOptimizedAttr(), op.getDynamicScaleConfigAttr(),
-            op.getLocalRegionAttr(), op.getStartAfterAttr(), op.getCleanAfterAttr(), variantsInGroupAttr,
-            firstVariantAttr, lastVariantAttr);
+            op.getLocalRegionAttr(), op.getS2dConfigAttr(), op.getStartAfterAttr(), op.getCleanAfterAttr(),
+            variantsInGroupAttr, firstVariantAttr, lastVariantAttr);
     {
         auto& ppeRegion = invariant.getPpe();
         ppeRegion.emplaceBlock();

@@ -13,6 +13,8 @@ add_library(${TARGET_NAME}
         vcl_executable.cpp
         vcl_profiling.cpp
         vcl_query_network.cpp
+        xml_deserializer.cpp
+        vcl_deserializer.cpp
 )
 
 find_package(Git REQUIRED)
@@ -65,6 +67,7 @@ target_include_directories(${TARGET_NAME}
 target_link_libraries(${TARGET_NAME}
     PRIVATE
         openvino::npu_al
+        openvino::xml_util
         npu_llvm_utils
         npu_ov_utils
         npu_mlir_compiler_static

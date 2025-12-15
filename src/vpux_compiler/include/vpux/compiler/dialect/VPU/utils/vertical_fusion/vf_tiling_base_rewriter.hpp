@@ -4,7 +4,9 @@
 //
 #pragma once
 
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 
 namespace vpux::VPU {
 
@@ -277,10 +279,17 @@ void VerticalFusionTilingRewriterBase<VFConfigType, VFSchedulingFactoryType>::ap
     if (auto pipelinedScenario = std::dynamic_pointer_cast<IVFPipelinedScheduling<VFConfigType>>(scenario)) {
         auto pipelining = pipelinedScenario->getPipelining(config, numTiles, storage, _vpunnCostFunction);
         auto timeline = pipelining.getTimeLine();
+
         if (!timeline.empty()) {
             mlir::Value currentResult;
             Shape currentTile;
             for (auto& [index, operation] : pipelining.getTimeLine()) {
+                // pipelining only records the compute ops, need to handle its view-like parents in advance
+                auto viewLikeParents = VPU::getParentViewLikeOpsInVF(operation);
+                for (auto viewOp : viewLikeParents) {
+                    tilingProcedure(index, viewOp, currentResult, currentTile);
+                }
+
                 // currentResult and currentTiles keep result from previous call tilingProcedure
                 tilingProcedure(index, operation, currentResult, currentTile);
 

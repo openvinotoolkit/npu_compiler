@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --reassociate-multiply %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: func.func @ReassociateMultiply
 // CHECK-SAME:  ([[INPUT0:%.+]]: tensor<1x32x1x1xf16>, [[INPUT1:%.+]]: tensor<1x32x1024x96xf16>)

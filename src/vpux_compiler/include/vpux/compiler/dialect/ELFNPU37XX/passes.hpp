@@ -4,7 +4,7 @@
 //
 
 #pragma once
-
+#include "vpux/compiler/dialect/VPURegMapped/types.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
 #include <mlir/Pass/Pass.h>

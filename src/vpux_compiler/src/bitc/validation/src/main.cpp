@@ -21,6 +21,8 @@ bitc::ArchType string_to_arch(const std::string& arch_type) {
         return bitc::ArchType::NPU27;
     } else if (arch_type == "NPU4"s) {
         return bitc::ArchType::NPU4;
+    } else if (arch_type == "NPU5"s) {
+        return bitc::ArchType::NPU5;
     } else {
         return;
     }
@@ -31,6 +33,9 @@ int check_dataset_compression(const config_map& config_test, bitc::BitCompactorC
     uint64_t count_size_diff{};
     uint64_t count_content_diff{};
     uint64_t count_runs{};
+    if (config.sparse_mode_enable) {
+        config.sparse_block_size = std::stoi(std::get<std::string>(config_test.at("sparse_block_size")));
+    }
     std::string decompressed_data_path = std::get<std::string>(config_test.at("decompressed_data_path"));
     const string_vector& decompressed_data_set = std::get<string_vector>(config_test.at("decompressed_data"));
     const string_vector& compressed_data_set = std::get<string_vector>(config_test.at("compressed_data"));
@@ -41,6 +46,18 @@ int check_dataset_compression(const config_map& config_test, bitc::BitCompactorC
 
         std::vector<uint8_t> decompressed_data, compressed_data_out, bitmap;
         if (FileIO::read(decompressed_data_filename_path, decompressed_data)) {
+            if (config.sparse_mode_enable) {
+                const string_vector& bitmap_data_set = std::get<string_vector>(config_test.at("bitmap_data"));
+                std::string bitmap_file_path = bitmap_data_set[idx];
+
+                bitmap_file_path.insert(0, std::get<std::string>(config_test.at("bitmap_data_path")));
+
+                if (!FileIO::read(bitmap_file_path, bitmap)) {
+                    std::cerr << "Could not read bitmap\n";
+                    return 1;
+                }
+                config.bitmap = bitmap;
+            }
 #ifdef __BITC__EN_DBG__
             std::cout << "Encoder read decompressed input: " << decompressed_data_filename << " ("
                       << decompressed_data.size() << " bytes)" << std::endl;
@@ -124,6 +141,9 @@ int check_dataset_decompression(const config_map& config_test, const bitc::BitCo
     uint64_t count_runs{};
 
     int sparse_block_size = 0;
+    if (config.sparse_mode_enable) {
+        sparse_block_size = std::stoi(std::get<std::string>(config_test.at("sparse_block_size")));
+    }
     std::string compressed_data_path = std::get<std::string>(config_test.at("compressed_data_path"));
     const string_vector& decompressed_data_set = std::get<string_vector>(config_test.at("decompressed_data"));
     const string_vector& compressed_data_set = std::get<string_vector>(config_test.at("compressed_data"));
@@ -141,10 +161,25 @@ int check_dataset_decompression(const config_map& config_test, const bitc::BitCo
             bitc::Decoder decoder{compressed_data, config};
             std::vector<uint8_t> decompressed_data_out;
             std::vector<uint8_t> bitmap;
+            if (config.sparse_mode_enable) {
+                const string_vector& bitmap_data_set = std::get<string_vector>(config_test.at("bitmap_data"));
+                std::string bitmap_file_path = bitmap_data_set[idx];
+
+                bitmap_file_path.insert(0, std::get<std::string>(config_test.at("bitmap_data_path")));
+
+                if (!FileIO::read(bitmap_file_path, bitmap)) {
+                    std::cerr << "Could not read bitmap\n";
+                    return 1;
+                }
+            }
 #ifdef __BITC__EN_PROFILING__
             auto start = steady_clock::now();
 #endif
-            decoder.decode(decompressed_data_out);
+            if (config.sparse_mode_enable) {
+                decoder.decode(decompressed_data_out, bitmap, sparse_block_size);
+            } else {
+                decoder.decode(decompressed_data_out);
+            }
 #ifdef __BITC__EN_PROFILING__
             auto stop = steady_clock::now();
             auto duration = duration_cast<microseconds>(stop - start);
@@ -223,6 +258,7 @@ int main(int argc, char* argv[]) {
     print_config(config);
 
     bitc::BitCompactorConfig config_bitc{string_to_arch(std::get<std::string>(config.at("arch_type"))),
+                                         std::get<std::string>(config.at("sparse_mode_enable")) == "true"s,
                                          std::get<std::string>(config.at("weight_compress_enable")) == "true"s,
                                          std::get<std::string>(config.at("bypass_compression")) == "true"s,
                                          std::get<std::string>(config.at("mode_fp16_enable")) == "true"s};

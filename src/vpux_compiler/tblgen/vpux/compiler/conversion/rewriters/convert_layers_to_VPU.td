@@ -379,22 +379,6 @@ def RewriteMaxPool :
         >;
 
 //
-// IE.MaxPool8 -> VPU.MaxPool8
-//
-
-def createMaxPool8Op :
-        NativeCodeCall<[{
-            $_builder.create<vpux::VPU::MaxPool8Op>(
-                $_loc, $0, $1, $2, $3, $4, $5, $6, $7, $8)
-        }]>;
-
-def RewriteMaxPool8 :
-        Pat<
-            (IE_MaxPool8Op $input, $kernel_size, $strides, $dilations, $pads_begin, $pads_end, $rounding_type, $index_element_type, $axis),
-            (VPU_MaxPool8Op $input, $kernel_size, $strides, $dilations, $pads_begin, $pads_end, $rounding_type, $index_element_type, $axis)
-        >;
-
-//
 // IE.Convolution -> VPU.Convolution
 //
 
@@ -2226,8 +2210,8 @@ def createRMSOp :
 
 def RewriteRMS :
         Pat<
-            (IE_RMSOp $input, $gamma, $epsilon),
-            (createRMSOp $input, $gamma, $epsilon)
+            (IE_RMSOp $input, $gamma, $eps),
+            (createRMSOp $input, $gamma, $eps)
         >;
 
 //
@@ -2310,7 +2294,6 @@ def createSDPAOp :
             $_builder.create<vpux::VPU::SDPAOp>($_loc, $0, $1, $2,
             $3.size() == 1 ? $3[0] : nullptr,
             $4.size() == 1 ? $4[0] : nullptr,
-            nullptr,
             nullptr)
         }]>;
 
@@ -2329,7 +2312,6 @@ def createSDPAExtendedOp :
             $_builder.create<vpux::VPU::SDPAExtendedOp>($_loc, $0, $1, $2,
             $3.size() == 1 ? $3[0] : nullptr,
             $4.size() == 1 ? $4[0] : nullptr,
-            nullptr,
             $5)
         }]>;
 

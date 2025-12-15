@@ -446,44 +446,6 @@ def NPUReg40XX_DPUVariantOp :
     ];
 }
 
-//
-// M2IOp
-//
-
-def NPUReg40XX_M2IOp :
-        NPUReg40XX_ExecutableTaskOpWithProperties<"M2I", [
-                DeclareOpInterfaceMethods<ELF_RelocatableOpInterface>,
-                DeclareOpInterfaceMethods<ELF_BinaryOpInterface, ["serialize"]>,
-                Symbol,
-                DeclareOpInterfaceMethods<VPURegMapped_NPURegDescriptorOpInterface>
-            ],
-            "M2IDescriptorProp",
-            "vpux::NPUReg40XX::Descriptors::VpuMediaTask"
-        > {
-
-    let summary = "M2I Op";
-
-    let arguments = (ins
-        SymbolNameAttr:$sym_name,
-        SymbolRefAttr:$input,
-        SymbolRefAttr:$output_buff,
-        OptionalAttr<SymbolRefAttr>:$profiling_data,
-        OptionalAttr<SymbolRefAttr>:$next_link,
-        M2IDescriptorProp:$descriptor
-    );
-
-    let skipDefaultBuilders = 1;
-    let builders = [
-        OpBuilder<(ins
-            "mlir::StringAttr":$sym_name,
-            "mlir::SymbolRefAttr":$input,
-            "mlir::SymbolRefAttr":$output_buff,
-            "mlir::SymbolRefAttr":$profiling_data,
-            "mlir::SymbolRefAttr":$next_link,
-            "vpux::NPUReg40XX::Descriptors::VpuMediaTask&&":$descriptor
-        )>
-    ];
-}
 
 //
 // NNRTConfigOp

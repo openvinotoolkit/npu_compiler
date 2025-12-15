@@ -40,7 +40,7 @@ private:
 };
 
 mlir::LogicalResult ReduceMinRewriter::matchAndRewrite(IE::ReduceMinOp origOp, mlir::PatternRewriter& rewriter) const {
-    _log.trace("[{0}] Try to unroll ReduceMin at '{1}'", getDebugName(), origOp->getLoc(), origOp);
+    _log.trace("[{0}] Try to unroll ReduceMin at '{1}', {2}", getDebugName(), origOp->getLoc(), origOp);
     mlir::MLIRContext* ctx = origOp->getContext();
     const auto origInput = origOp->getOperand(0);
     const auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue().value());

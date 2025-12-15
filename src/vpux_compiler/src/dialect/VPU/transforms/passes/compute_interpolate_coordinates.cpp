@@ -7,12 +7,14 @@
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/IE/utils/interpolate_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/image.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/types.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 #include "vpux/utils/core/range.hpp"
 #include "vpux/utils/core/type/float16.hpp"
 
@@ -265,9 +267,7 @@ void ComputeInterpolateCoordinatesPass::safeRunOnFunc() {
 
     mlir::RewritePatternSet greedyPatterns(&ctx);
     greedyPatterns.add<ComputeInterpolateCoordinates>(&ctx, _enableExplicitDistributionInfoAttr, _log);
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(greedyPatterns), getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
-    }
+    collectOpsAndApplyPatterns(func, std::move(greedyPatterns));
 }
 
 }  // namespace

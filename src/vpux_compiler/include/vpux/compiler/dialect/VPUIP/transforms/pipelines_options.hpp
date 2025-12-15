@@ -62,6 +62,11 @@ struct MemoryAllocationOptionsBase : mlir::PassPipelineOptions<MemoryAllocationO
                                        ::llvm::cl::desc("Enables compiler to optimize dynamic spilling DMAs"),
                                        ::llvm::cl::init(true)};
 
+    BoolOption enableMultiScheduleHeuristic{
+            *this, "enable-multi-schedule-heuristic",
+            ::llvm::cl::desc("Enables compiler to schedule with different heuristic logics and compare costs"),
+            ::llvm::cl::init(false)};
+
     BoolOption enableGroupAsyncExecuteOps{*this, "group-async-execute-ops",
                                           llvm::cl::desc("Enable group-async-execute-ops pass"), llvm::cl::init(false)};
 
@@ -76,6 +81,7 @@ struct MemoryAllocationOptionsBase : mlir::PassPipelineOptions<MemoryAllocationO
         enablePrefetching = options.enablePrefetching;
         enablePipelining = options.enablePipelining;
         optimizeDynamicSpilling = options.optimizeDynamicSpilling;
+        enableMultiScheduleHeuristic = options.enableMultiScheduleHeuristic;
         enableGroupAsyncExecuteOps = options.enableGroupAsyncExecuteOps;
     }
 };

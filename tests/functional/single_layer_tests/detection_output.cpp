@@ -72,8 +72,8 @@ class DetectionOutputAttributesBuilder {
 public:
 #define str(x) #x
 #define BUILD_PARAM(Type, Field)                                                    \
-    DetectionOutputAttributesBuilder& set##Type(Type value) {                       \
-        params.Field = value;                                                       \
+    DetectionOutputAttributesBuilder& set##Type(Type param) {                       \
+        params.Field = param.value();                                               \
         VPUX_THROW_WHEN(filled.count(str(Type)) != 0, str(Type) " is already set"); \
         filled.insert(str(Type));                                                   \
         return *this;                                                               \
@@ -94,7 +94,7 @@ public:
     BUILD_PARAM(InputWidth, input_width);
     BUILD_PARAM(ObjectnessScore, objectness_score);
     DetectionOutputAttributesBuilder& setKeepTopK(KeepTopK value) {
-        params.keep_top_k = std::vector<int>{value};
+        params.keep_top_k = std::vector<int>{value.value()};
         VPUX_THROW_WHEN(filled.count("KeepTopK") != 0, "KeepTopK is already set");
         filled.insert("KeepTopK");
         return *this;
@@ -153,28 +153,29 @@ auto generateBox(Distribution& distr, float minSize) {
 
 ov::Tensor generateNormalizedPriorBoxTensor(NumBatches numBatches, PriorBatchSizeOne priorBatchSizeOne,
                                             VarianceEncodedInTarget varianceEncodedInTarget, NumPriors numPriors) {
-    const auto height = varianceEncodedInTarget ? 1 : 2;
+    const auto height = varianceEncodedInTarget.value() ? 1 : 2;
     const auto normalizedBoxSize = sizeof(NormalizedBox) / sizeof(float);
-    const auto numPriorBatches = priorBatchSizeOne ? 1 : static_cast<int>(numBatches);
+    const auto numPriorBatches = priorBatchSizeOne.value() ? 1 : numBatches.value();
 
-    const auto tensor = ov::Tensor{ov::element::f32, makeShape(numPriorBatches, height, numPriors * normalizedBoxSize)};
+    const auto tensor =
+            ov::Tensor{ov::element::f32, makeShape(numPriorBatches, height, numPriors.value() * normalizedBoxSize)};
     const auto normalizedPriors = TensorView<NormalizedBox, 3>(tensor);
 
     const auto priorMinSize = 0.3f;
     auto priorsDistr = std::uniform_real_distribution<float>(-0.45f, 1.45f - priorMinSize);  // ssd_mobilenet_v1_coco
 
     for (int b = 0; b < numPriorBatches; b++) {
-        for (int p = 0; p < numPriors; p++) {
+        for (int p = 0; p < numPriors.value(); p++) {
             normalizedPriors.at(b, 0, p) = generateBox(priorsDistr, priorMinSize);
         }
     }
 
-    if (!varianceEncodedInTarget) {
+    if (!varianceEncodedInTarget.value()) {
         const auto varianceMinSize = 0.1f;
         auto varianceDistr = std::uniform_real_distribution<float>(0.7f, 1.2f - varianceMinSize);  // values near 1.0f
 
         for (int b = 0; b < numPriorBatches; b++) {
-            for (int p = 0; p < numPriors; p++) {
+            for (int p = 0; p < numPriors.value(); p++) {
                 normalizedPriors.at(b, 1, p) = generateBox(varianceDistr, varianceMinSize);
             }
         }
@@ -220,20 +221,22 @@ NormalizedBox encodeBoxLogit(NormalizedBox decodedBox, NormalizedBox priorBox, N
 
 ov::Tensor encodeBoxLogits(TensorView<NormalizedBox, 3> priorBoxes, NumPriors numPriors, NumClasses numClasses,
                            NumBatches numBatches, ShareLocation shareLocation, CodeType codeType) {
-    const auto numLocClasses = shareLocation ? 1 : static_cast<int>(numClasses);
+    const auto numLocClasses = shareLocation.value() ? 1 : numClasses.value();
     const auto varianceEncodedInTarget = (priorBoxes.getShape()[1] == 1);
     const auto priorBatchSizeOne = (priorBoxes.getShape()[0] == 1);
 
     const auto boxSize = sizeof(NormalizedBox) / sizeof(float);
-    const auto tensor = ov::Tensor{ov::element::f32, makeShape(numBatches, numPriors * numLocClasses * boxSize)};
-    const auto boxLogits = TensorView<NormalizedBox, 3>(tensor, makeShape(numBatches, numPriors, numLocClasses));
+    const auto tensor =
+            ov::Tensor{ov::element::f32, makeShape(numBatches.value(), numPriors.value() * numLocClasses * boxSize)};
+    const auto boxLogits =
+            TensorView<NormalizedBox, 3>(tensor, makeShape(numBatches.value(), numPriors.value(), numLocClasses));
 
     const auto decodedMinSize = 0.05f;
     auto decodedDistr = std::uniform_real_distribution<float>(0.0f, 1.0f - decodedMinSize);
 
-    for (int b = 0; b < numBatches; b++) {
+    for (int b = 0; b < numBatches.value(); b++) {
         const auto priorBatch = b * !priorBatchSizeOne;
-        for (int p = 0; p < numPriors; p++) {
+        for (int p = 0; p < numPriors.value(); p++) {
             const auto priorBox = priorBoxes.at(priorBatch, 0, p);
             const auto varianceBox =
                     varianceEncodedInTarget ? NormalizedBox{1.0f, 1.0f, 1.0f, 1.0f} : priorBoxes.at(priorBatch, 1, p);
@@ -248,10 +251,10 @@ ov::Tensor encodeBoxLogits(TensorView<NormalizedBox, 3> priorBoxes, NumPriors nu
     return tensor;
 }
 
-std::vector<int> generateDetectedClassesIndices(int numClasses, int maxDetectedClasses) {
-    const auto numDetectedClasses = std::min<int>(numClasses, maxDetectedClasses);
+std::vector<int> generateDetectedClassesIndices(NumClasses numClasses, NumDetectedClasses maxDetectedClasses) {
+    const auto numDetectedClasses = std::min<int>(numClasses.value(), maxDetectedClasses.value());
 
-    auto indices = std::vector<int>(numClasses);
+    auto indices = std::vector<int>(numClasses.value());
     std::iota(indices.begin(), indices.end(), 0);
     std::shuffle(indices.begin(), indices.end(), RandomGenerator::get());
 
@@ -262,40 +265,43 @@ std::vector<int> generateDetectedClassesIndices(int numClasses, int maxDetectedC
 }
 
 ov::Tensor generateClassPredictions(NumBatches numBatches, NumPriors numPriors, NumClasses numClasses,
-                                    int maxDetectedClasses, int maxDetectionsPerClass,
+                                    NumDetectedClasses maxDetectedClasses, NumDetectionsPerClass maxDetectionsPerClass,
                                     ConfidenceThreshold confidenceThreshold) {
-    const auto tensor = ov::Tensor{ov::element::f32, makeShape(numBatches, numPriors * numClasses)};
-    const auto classPredictions = TensorView<float, 3>(tensor, makeShape(numBatches, numPriors, numClasses));
+    const auto tensor =
+            ov::Tensor{ov::element::f32, makeShape(numBatches.value(), numPriors.value() * numClasses.value())};
+    const auto classPredictions =
+            TensorView<float, 3>(tensor, makeShape(numBatches.value(), numPriors.value(), numClasses.value()));
 
     std::fill_n(classPredictions.data(), classPredictions.size(), 0.0f);
 
     const auto detectedClassIndices = generateDetectedClassesIndices(numClasses, maxDetectedClasses);
-    const auto numDetectionsPerClass = std::min<int>(maxDetectionsPerClass, numPriors);
+    const auto numDetectionsPerClass = std::min<int>(maxDetectionsPerClass.value(), numPriors.value());
 
     const auto genConfidenceUniform = [&](std::vector<float>& confidence) {
-        const auto threshold = confidenceThreshold + 0.001;  // to not have a box with confidence == confidenceThreshold
+        const auto threshold =
+                confidenceThreshold.value() + 0.001;  // to not have a box with confidence == confidenceThreshold
         const auto step = (1.0f - threshold) / numDetectionsPerClass;
 
         for (int i = 0; i < numDetectionsPerClass; i++) {
             confidence[i] = threshold + step * i;
         }
-        for (int i = numDetectionsPerClass; i < numPriors; i++) {
+        for (int i = numDetectionsPerClass; i < numPriors.value(); i++) {
             confidence[i] = 0.0f;
         }
 
         std::shuffle(confidence.begin(), confidence.end(), RandomGenerator::get());
     };
 
-    auto confidence = std::vector<float>(numPriors);
+    auto confidence = std::vector<float>(numPriors.value());
     const auto numDetections = static_cast<int>(detectedClassIndices.size());
-    for (int b = 0; b < numBatches; b++) {
+    for (int b = 0; b < numBatches.value(); b++) {
         for (int i = 0; i < numDetections; i++) {
             const auto classIndex = detectedClassIndices[i];
 
             genConfidenceUniform(confidence);
 
-            VPUX_THROW_UNLESS(confidence.size() == numPriors, "Confidence values have unexpected size");
-            for (int p = 0; p < numPriors; p++) {
+            VPUX_THROW_UNLESS(confidence.size() == numPriors.value(), "Confidence values have unexpected size");
+            for (int p = 0; p < numPriors.value(); p++) {
                 classPredictions.at(b, p, classIndex) = confidence[p];
             }
         }
@@ -319,10 +325,10 @@ ov::Tensor denormalizePriorBoxTensor(TensorView<NormalizedBox, 3> normalizedPrio
         DenormalizedBox denormalized;
 
         denormalized.padding = 0.0f;
-        denormalized.xmin = normalized.xmin * inputWidth;
-        denormalized.ymin = normalized.ymin * inputHeight;
-        denormalized.xmax = normalized.xmax * inputWidth;
-        denormalized.ymax = normalized.ymax * inputHeight;
+        denormalized.xmin = normalized.xmin * inputWidth.value();
+        denormalized.ymin = normalized.ymin * inputHeight.value();
+        denormalized.xmax = normalized.xmax * inputWidth.value();
+        denormalized.ymax = normalized.ymax * inputHeight.value();
 
         return denormalized;
     };
@@ -356,7 +362,7 @@ float jaccardOverlap(const NormalizedBox& box1, const NormalizedBox& box2) {
 void removeUnwantedClassPredictions(TensorView<float, 3> classPredictions, TensorView<NormalizedBox, 3> decodedBoxes,
                                     NumClasses numClasses, ShareLocation shareLocation, DecreaseLabelId decreaseLabelId,
                                     NmsThreshold nmsThreshold, ConfidenceThreshold confidenceThreshold) {
-    VPUX_THROW_UNLESS(decreaseLabelId == false, "DecreaseLabelId == true (MxNet NMS) is not supported");
+    VPUX_THROW_UNLESS(decreaseLabelId.value() == false, "DecreaseLabelId == true (MxNet NMS) is not supported");
 
     const auto rangeNearNmsThreshold = 0.1f;
 
@@ -376,10 +382,10 @@ void removeUnwantedClassPredictions(TensorView<float, 3> classPredictions, Tenso
     goodBoxes.reserve(numPriors);
 
     for (int b = 0; b < numBatches; b++) {
-        for (int c = 0; c < numClasses; c++) {
+        for (int c = 0; c < numClasses.value(); c++) {
             detections.clear();
             for (int p = 0; p < numPriors; p++) {
-                const auto box = decodedBoxes.at(b, c * !shareLocation, p);
+                const auto box = decodedBoxes.at(b, c * !shareLocation.value(), p);
                 const auto conf = classPredictions.at(b, p, c);
                 detections.push_back(BoxConfidence{conf, p, box});
             }
@@ -390,7 +396,7 @@ void removeUnwantedClassPredictions(TensorView<float, 3> classPredictions, Tenso
             std::sort(detections.begin(), detections.end(), greaterConf);
 
             const auto nonConfidentBox = [&](const BoxConfidence& boxConf) {
-                return boxConf.confidence < confidenceThreshold;
+                return boxConf.confidence < confidenceThreshold.value();
             };
             const auto lastBoxIt = std::find_if(detections.begin(), detections.end(), nonConfidentBox);
             const auto confidentBoxesCount = std::distance(detections.begin(), lastBoxIt);
@@ -403,7 +409,7 @@ void removeUnwantedClassPredictions(TensorView<float, 3> classPredictions, Tenso
 
                 const auto intersectsNearNmsThreshold = [&](const NormalizedBox& goodBox) {
                     const auto overlap = jaccardOverlap(suspectBox, goodBox);
-                    return (std::fabs(overlap - nmsThreshold) < rangeNearNmsThreshold);
+                    return (std::fabs(overlap - nmsThreshold.value()) < rangeNearNmsThreshold);
                 };
                 const auto isBorderlineBox =
                         std::any_of(goodBoxes.begin(), goodBoxes.end(), intersectsNearNmsThreshold);
@@ -593,7 +599,7 @@ public:
         const auto numBatches = std::get<NumBatches>(tensorSizeParams);
         const auto priorBatchSizeOne = std::get<PriorBatchSizeOne>(tensorSizeParams);
 
-        const auto normalizedPriorBoxTensor =
+        auto normalizedPriorBoxTensor =
                 generateNormalizedPriorBoxTensor(numBatches, priorBatchSizeOne, varianceEncodedInTarget, numPriors);
 
         const auto detectionOutputAttributes = std::get<DetectionOutputAttributes>(GetParam());
@@ -601,7 +607,7 @@ public:
         const auto decreaseLabelId = std::get<DecreaseLabelId>(detectionOutputAttributes);
         const auto confidenceThreshold = std::get<ConfidenceThreshold>(detectionOutputAttributes);
 
-        const auto numLocClasses = shareLocation ? 1 : static_cast<int>(numClasses);
+        const auto numLocClasses = shareLocation.value() ? 1 : numClasses.value();
         const auto normalizedPriorBoxes = TensorView<NormalizedBox, 3>(normalizedPriorBoxTensor);
         const auto boxLogitsTensor =
                 encodeBoxLogits(normalizedPriorBoxes, numPriors, numClasses, numBatches, shareLocation, codeType);
@@ -612,19 +618,19 @@ public:
         auto classPredictionsTensor = generateClassPredictions(numBatches, numPriors, numClasses, numDetectedClasses,
                                                                numDetectionsPerClass, confidenceThreshold);
 
-        const auto boxLogits =
-                TensorView<NormalizedBox, 3>(boxLogitsTensor, makeShape(numBatches, numPriors, numLocClasses));
+        const auto boxLogits = TensorView<NormalizedBox, 3>(
+                boxLogitsTensor, makeShape(numBatches.value(), numPriors.value(), numLocClasses));
         const auto decodedBoxesTensor = decodeBoxes(boxLogits, normalizedPriorBoxes, codeType);
 
-        auto classPredictions =
-                TensorView<float, 3>(classPredictionsTensor, makeShape(numBatches, numPriors, numClasses));
+        auto classPredictions = TensorView<float, 3>(
+                classPredictionsTensor, makeShape(numBatches.value(), numPriors.value(), numClasses.value()));
 
         const auto decodedBoxes = TensorView<NormalizedBox, 3>(decodedBoxesTensor);
         removeUnwantedClassPredictions(classPredictions, decodedBoxes, numClasses, shareLocation, decreaseLabelId,
                                        nmsThreshold, confidenceThreshold);
 
         const auto& priorBoxTensor = [&] {
-            if (normalized) {
+            if (normalized.value()) {
                 return normalizedPriorBoxTensor;
             }
             return denormalizePriorBoxTensor(normalizedPriorBoxes, inputWidth, inputHeight);
@@ -702,7 +708,7 @@ public:
         const auto& [normalizationParams, tensorSizeParams, detectionOutputAttributes, additionalInputsParams,
                      metaParams, device] = GetParam();
 
-        targetDevice = device;
+        targetDevice = device.value();
         inType = ov::element::Type_t::f32;
         outType = ov::element::Type_t::f32;
 
@@ -731,18 +737,19 @@ public:
                         .setVarianceEncodedInTarget(varianceEncodedInTarget)
                         .build();
 
-        VPUX_THROW_UNLESS(hasAdditionalInputs == false, "DetectionOutput test does not support additional inputs");
+        VPUX_THROW_UNLESS(hasAdditionalInputs.value() == false,
+                          "DetectionOutput test does not support additional inputs");
 
-        const auto numLocClasses = shareLocation ? 1 : static_cast<int>(numClasses);
+        const auto numLocClasses = shareLocation.value() ? 1 : numClasses.value();
 
-        auto boxLogitsShape = generateTestShape(numBatches, numPriors * numLocClasses * 4);
-        auto classConfidenceShape = generateTestShape(numBatches, numPriors * numClasses);
+        auto boxLogitsShape = generateTestShape(numBatches.value(), numPriors.value() * numLocClasses * 4);
+        auto classConfidenceShape = generateTestShape(numBatches.value(), numPriors.value() * numClasses.value());
 
-        const auto priorBatch = priorBatchSizeOne ? 1 : static_cast<int>(numBatches);
-        const auto priorHeight = varianceEncodedInTarget ? 1 : 2;
-        const auto priorBoxSize = normalized ? 4 : 5;
+        const auto priorBatch = priorBatchSizeOne.value() ? 1 : numBatches.value();
+        const auto priorHeight = varianceEncodedInTarget.value() ? 1 : 2;
+        const auto priorBoxSize = normalized.value() ? 4 : 5;
 
-        auto priorBoxesShape = generateTestShape(priorBatch, priorHeight, numPriors * priorBoxSize);
+        auto priorBoxesShape = generateTestShape(priorBatch, priorHeight, numPriors.value() * priorBoxSize);
 
         init_input_shapes({boxLogitsShape, classConfidenceShape, priorBoxesShape});
 
@@ -816,6 +823,11 @@ TEST_P(DetectionOutputLayerTestCommon, NPU3720_HW) {
 TEST_P(DetectionOutputLayerTestCommon, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
+}
+
+TEST_P(DetectionOutputLayerTestCommon, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
 }
 
 //

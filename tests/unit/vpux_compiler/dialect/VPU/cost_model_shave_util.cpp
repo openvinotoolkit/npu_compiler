@@ -40,3 +40,14 @@ TEST_F(CostModelShaveUtil, testCreateShaveCostModelUtilsAndCheckOpNPU40) {
     EXPECT_FALSE(shaveUtils.isSwKernelOpSupported("NonExistOp"));
     EXPECT_EQ(shaveUtils.getSwKernelContainer().size(), 73);  // Total size of Shave1 API
 }
+
+TEST_F(CostModelShaveUtil, testCreateShaveCostModelUtilsAndCheckOpNPU50) {
+    VPU::CostModelConfig::setFactory(config::ArchKind::NPU50XX);
+    VPU::CostModelConfig::setCMShaveUtils(config::ArchKind::NPU50XX);
+
+    const auto& shaveUtils = VPU::CostModelConfig::getShaveCostModelUtilsInterface(config::ArchKind::NPU50XX);
+
+    EXPECT_TRUE(shaveUtils.isSwKernelOpSupported("SoftMax"));
+    EXPECT_FALSE(shaveUtils.isSwKernelOpSupported("NonExistOp"));
+    EXPECT_EQ(shaveUtils.getSwKernelContainer().size(), 73);  // Total size of Shave1 API
+}

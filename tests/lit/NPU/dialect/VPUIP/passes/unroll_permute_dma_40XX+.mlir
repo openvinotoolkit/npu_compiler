@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --unroll-permute-dma  %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -13,7 +13,7 @@
     {
       mode = "DUPLICATED",
       num_clusters = 4 : i64,
-      uniform_distributed_segments,                
+      uniform_distributed_segments,
       compute_shapes = [[1, 1, 960, 4], [1, 1, 960, 4], [1, 1, 960, 4], [1, 1, 960, 4]],
       compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
       memory_shapes = [[1, 1, 960, 4], [1, 1, 960, 4], [1, 1, 960, 4], [1, 1, 960, 4]],
@@ -26,7 +26,7 @@
     {
       mode = "DUPLICATED",
       num_clusters = 4 : i64,
-      uniform_distributed_segments,                
+      uniform_distributed_segments,
       compute_shapes = [[1, 960, 4, 1], [1, 960, 4, 1], [1, 960, 4, 1], [1, 960, 4, 1]],
       compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
       memory_shapes = [[1, 960, 4, 1], [1, 960, 4, 1], [1, 960, 4, 1], [1, 960, 4, 1]],
@@ -42,7 +42,7 @@ func.func @PermuteDMAForShapeWithDuplicatedOutputWithExplicitShapesAndOffsets() 
     %output = VPURT.DeclareBuffer <CMX_NN> <16384> -> !OutputDistributed
 
     VPURT.Task updates(%BAR_0 : !VPURT.Barrier) {
-      %80 = VPUIP.PermuteDMA {mem_perm = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, port = 0 : i64} 
+      %80 = VPUIP.PermuteDMA {mem_perm = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, port = 0 : i64}
               inputs(%input : !InputDistributed)
               outputs(%output : !OutputDistributed)
               -> !OutputDistributed
@@ -93,12 +93,12 @@ func.func @PermuteDMAForShapeWithDuplicatedOutputWithExplicitShapesAndOffsets() 
 !InputDistributed = !VPUIP.DistributedBuffer<
     64x64x3x3xf16, #NCHW, @CMX_NN,
     {
-      mode = "DUPLICATED", 
-      num_clusters = 4 : i64, 
-      uniform_distributed_segments, 
-      compute_shapes = [[64, 64, 3, 3], [64, 64, 3, 3], [64, 64, 3, 3], [64, 64, 3, 3]], 
-      compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]], 
-      memory_shapes = [[64, 64, 3, 3], [64, 64, 3, 3], [64, 64, 3, 3], [64, 64, 3, 3]], 
+      mode = "DUPLICATED",
+      num_clusters = 4 : i64,
+      uniform_distributed_segments,
+      compute_shapes = [[64, 64, 3, 3], [64, 64, 3, 3], [64, 64, 3, 3], [64, 64, 3, 3]],
+      compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+      memory_shapes = [[64, 64, 3, 3], [64, 64, 3, 3], [64, 64, 3, 3], [64, 64, 3, 3]],
       memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
     }
 >
@@ -106,12 +106,12 @@ func.func @PermuteDMAForShapeWithDuplicatedOutputWithExplicitShapesAndOffsets() 
 !OutputDistributed = !VPUIP.DistributedBuffer<
     64x64x3x3xf16, #NHWC, @CMX_NN,
     {
-      mode = "DUPLICATED", 
-      num_clusters = 4 : i64, 
-      uniform_distributed_segments, 
-      compute_shapes = [[64, 64, 3, 3], [64, 64, 3, 3], [64, 64, 3, 3], [64, 64, 3, 3]], 
-      compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]], 
-      memory_shapes = [[64, 64, 3, 3], [64, 64, 3, 3], [64, 64, 3, 3], [64, 64, 3, 3]], 
+      mode = "DUPLICATED",
+      num_clusters = 4 : i64,
+      uniform_distributed_segments,
+      compute_shapes = [[64, 64, 3, 3], [64, 64, 3, 3], [64, 64, 3, 3], [64, 64, 3, 3]],
+      compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+      memory_shapes = [[64, 64, 3, 3], [64, 64, 3, 3], [64, 64, 3, 3], [64, 64, 3, 3]],
       memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
     }
 >
@@ -124,7 +124,7 @@ func.func @PermuteDMAForLayoutWithDuplicatedOutputWithExplicitShapesAndOffsets()
     %output = VPURT.DeclareBuffer <CMX_NN> <689152> -> !OutputDistributed
 
     VPURT.Task updates(%BAR_0 : !VPURT.Barrier) {
-      %1 = VPUIP.PermuteDMA {mem_perm = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, port = 0 : i64} 
+      %1 = VPUIP.PermuteDMA {mem_perm = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, port = 0 : i64}
               inputs(%input : !InputDistributed)
               outputs(%output : !OutputDistributed)
               -> !OutputDistributed
@@ -812,7 +812,7 @@ func.func @UnrollDistributedPermuteDMA() -> memref<1x3x24x24xf16, #NHWC, @DDR> {
     //CHECK:    }
 
     //CHECK:    VPURT.Task waits([[BAR_9]] : !VPURT.Barrier) updates([[BAR_10]] : !VPURT.Barrier)
-    //CHECK:      VPUIP.NNDMA inputs(%cst_0 : memref<1x1x1x16xui8>) outputs(%33 : !VPUIP.DistributedBuffer<1x1x1x16xui8, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>) -> !VPUIP.DistributedBuffer<1x1x1x16xui8, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
+    //CHECK:      VPUIP.NNDMA inputs([[CST:%.+]] : memref<1x1x1x16xui8>) outputs(%33 : !VPUIP.DistributedBuffer<1x1x1x16xui8, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>) -> !VPUIP.DistributedBuffer<1x1x1x16xui8, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
     //CHECK:    }
 
     // nce task
@@ -1158,7 +1158,7 @@ func.func @ClusterPermuteDMAWithDistributedInputAndOutput() -> !OutputDistribute
               outputs(%1 : !OutputDistributed) -> !OutputDistributed
     }
     return %1: !OutputDistributed
- 
+
     //CHECK:    [[BAR_0:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     //CHECK:    [[BAR_1:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 

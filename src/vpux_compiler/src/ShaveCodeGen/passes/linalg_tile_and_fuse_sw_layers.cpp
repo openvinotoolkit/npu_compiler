@@ -94,23 +94,25 @@ mlir::LogicalResult LinalgTileAndFuseSwLayersPass::tileAndFuseOp(mlir::TilingInt
             _log.trace("Failed to tile reduction dimensions for {0}", tileOp->getName());
             return mlir::failure();
         }
+
         _log.trace("Success tiling reduction dimensions for {0}", tileOp->getName());
-        rewriter.replaceOp(tileOp, tiledResults->replacements);
+        rewriter.replaceOp(tileOp, tiledResults->mergeResult.replacements);
+
         return mlir::success();
     }
 
     mlir::scf::SCFTileAndFuseOptions tileAndFuseOptions;
     tileAndFuseOptions.tilingOptions = std::move(tilingOptions);
-    auto tiledResults = mlir::scf::tileConsumerAndFuseProducersUsingSCF(rewriter, tileOp, tileAndFuseOptions);
+    auto tileFuseResult = mlir::scf::tileConsumerAndFuseProducersUsingSCF(rewriter, tileOp, tileAndFuseOptions);
 
-    if (failed(tiledResults)) {
+    if (failed(tileFuseResult)) {
         _log.trace("Failed to tile and fuse parallel dimensions for {0}", tileOp->getName());
         return mlir::failure();
     }
     _log.trace("Success for tile and fuse on parallel dimensions for {0}", tileOp->getName());
 
     for (mlir::OpResult res : tileOp->getResults()) {
-        if (auto replacement = tiledResults->replacements.lookup(res)) {
+        if (auto replacement = tileFuseResult->replacements.lookup(res)) {
             rewriter.replaceAllUsesWith(res, replacement);
         }
     }
@@ -147,7 +149,7 @@ mlir::LogicalResult LinalgTileAndFuseSwLayersPass::tileAndFuseOps(mlir::func::Fu
     mlir::RewritePatternSet patterns(&ctx);
     mlir::linalg::populateLinalgTilingCanonicalizationPatterns(patterns);
     mlir::tensor::populateFoldTensorEmptyPatterns(patterns);
-    if (failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns)))) {
+    if (failed(mlir::applyPatternsGreedily(func, std::move(patterns)))) {
         return mlir::failure();
     }
     return mlir::success();

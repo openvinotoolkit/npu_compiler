@@ -20,6 +20,7 @@ add_npu_library(npu_compiler_npu40xx
     LINK_LIBS PRIVATE
         npu_compiler_conversion
         npu_compiler_shave_code_gen
+        npu_compiler_dialect_config
         npu_compiler_dialect_hostexec
         npu_compiler_dialect_hostexec_transforms
         npu_compiler_dialect_vpurt
@@ -32,6 +33,7 @@ add_npu_library(npu_compiler_npu40xx
         npu_compiler_dialect_const
         npu_compiler_dialect_elf
         npu_compiler_dialect_elf_transforms
+        npu_compiler_dialect_elf_utils
         npu_compiler_dialect_vpu_interfaces
         npu_compiler_dialect_vpu_transforms
         npu_compiler_dialect_vpuasm

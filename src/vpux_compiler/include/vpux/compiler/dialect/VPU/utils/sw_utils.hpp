@@ -72,6 +72,8 @@ VPU::DistributionMode getSWInputTensorDistributionMode(VPU::SDPAOp op, VPU::Mult
 VPU::DistributionMode getSWInputTensorDistributionMode(VPU::SDPAExtendedOp op, VPU::MultiClusterStrategy strategy,
                                                        mlir::Value operand);
 VPU::DistributionMode getSWInputTensorDistributionMode(VPU::ReverseOp op, VPU::MultiClusterStrategy strategy);
+VPU::DistributionMode getSWInputTensorDistributionMode(VPU::ReverseSequenceOp op, VPU::MultiClusterStrategy strategy,
+                                                       mlir::Value operand);
 VPU::DistributionMode getSWInputTensorDistributionMode(VPU::CumSumOp op, VPU::MultiClusterStrategy strategy);
 VPU::DistributionMode getSWInputTensorDistributionMode(VPU::TopKOp op, VPU::MultiClusterStrategy strategy,
                                                        mlir::Value operand);
@@ -153,6 +155,9 @@ SmallVector<int64_t> getSWInputTensorNumTiles(VPU::SDPAExtendedOp op, int64_t nu
                                               vpux::NDTypeInterface inputType);
 SmallVector<int64_t> getSWInputTensorNumTiles(VPU::ReverseOp op, int64_t numClustersAvailableForCompilation,
                                               VPU::MultiClusterStrategy strategy, vpux::NDTypeInterface inputType);
+SmallVector<int64_t> getSWInputTensorNumTiles(VPU::ReverseSequenceOp op, int64_t numClustersAvailableForCompilation,
+                                              VPU::MultiClusterStrategy strategy, mlir::Value operand,
+                                              vpux::NDTypeInterface inputType);
 SmallVector<int64_t> getSWInputTensorNumTiles(VPU::CumSumOp op, int64_t numClustersAvailableForCompilation,
                                               VPU::MultiClusterStrategy strategy, vpux::NDTypeInterface inputType);
 SmallVector<int64_t> getSWInputTensorNumTiles(VPU::TopKOp op, int64_t numClustersAvailableForCompilation,
@@ -174,6 +179,8 @@ SmallVector<int64_t> getSWInputTensorNumTiles(VPU::YuvToRgbOp op, int64_t numClu
 SmallVector<int64_t> getSWInputTensorNumTiles(VPU::ReduceMeanSquareOp op, int64_t numClustersAvailableForCompilation,
                                               VPU::MultiClusterStrategy strategy, mlir::Value operand,
                                               vpux::NDTypeInterface inputType);
+
+std::optional<SmallVector<int64_t>> getSWAlignment(mlir::Operation* op, ShapeRef divisors, ShapeRef shape);
 
 }  // namespace VPU
 }  // namespace vpux

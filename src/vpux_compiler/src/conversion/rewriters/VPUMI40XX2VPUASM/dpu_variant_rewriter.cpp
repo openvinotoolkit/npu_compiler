@@ -4,7 +4,6 @@
 //
 
 #include "vpux/compiler/conversion/rewriters/VPUMI40XX2VPUASM/dpu_variant_rewriter.hpp"
-#include "vpux/compiler/NPU40XX/dialect/VPUIPDPU/ops.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 
 namespace vpux {

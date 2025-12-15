@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_scheduler_interface.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_utils.hpp"
-#include "vpux/compiler/utils/VPU/tile_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 
 #include <deque>
@@ -250,7 +250,9 @@ void VFScheduling::correctInputPrefetchingCost(StrategyCost& /*prefetchCost*/, m
 StrategyCost VFScheduling::getCost(VFConfig& config, int64_t tilesNumber,
                                    const TilingOperationStorage::UPtr& tilingInfo,
                                    const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction) const {
-    return getLinearCost(config, tilesNumber, tilingInfo, costFunction);
+    auto linearTimeIntervals = calculateLinearTimeIntervals(config, tilesNumber, tilingInfo, costFunction);
+    return linearTimeIntervals.maxCost() == 0 ? std::numeric_limits<StrategyCost>::max()
+                                              : linearTimeIntervals.maxCost();
 }
 
 StrategyCost VFScheduling::getPrefetchingCost(mlir::Operation* operation, VFConfig& config,
@@ -291,23 +293,26 @@ StrategyCost VFScheduling::getPrefetchingCost(mlir::Operation* operation, VFConf
     return prefetchedCost;
 }
 
-StrategyCost VFScheduling::getLinearCost(VFConfig& config, int64_t tilesNumber,
-                                         const TilingOperationStorage::UPtr& tilingInfo,
-                                         const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction) const {
-    StrategyCost fullCost = 0;
+VFLinearContainer VFScheduling::calculateLinearTimeIntervals(
+        VFConfig& config, int64_t tilesNumber, const TilingOperationStorage::UPtr& tilingInfo,
+        const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction) const {
     _prefetchedCost.clear();
+    StrategyCost fullCost = 0;
+    VFLinearContainer linearTimeIntervals;
     auto inputs = config.getInputs();
     DenseMap<mlir::Operation*, StrategyCost> isolatedOperCost;
     _log.trace("Calculate linear cost for merged VF at {0} with tiles number {1}, op number {2}",
                config.getSubgraph().getLoc(), tilesNumber, config.getOperationsForTiling().size());
     for (auto index : irange(tilesNumber)) {
         for (auto item : config.getOperationsForTiling() | indexed) {
+            auto lastEndTime = fullCost;
             auto opIndex = item.index();
             auto op = item.value();
             auto costParameters = fillInCostParam(op, tilingInfo, index);
             if (costParameters._tiling.empty()) {
                 _log.warning("No tiling information for VF op at '{0}'", op->getLoc());
-                return std::numeric_limits<StrategyCost>::max();
+                linearTimeIntervals.invalidate();
+                return linearTimeIntervals;
             }
 
             // isolated operation cost
@@ -315,41 +320,47 @@ StrategyCost VFScheduling::getLinearCost(VFConfig& config, int64_t tilesNumber,
             _log.trace("opIndex {0} isolated cost {1}", opIndex, isolatedCost);
             if (isolatedCost >= std::numeric_limits<StrategyCost>::max()) {
                 _log.warning("Invalid VPUNN cost");
-                return isolatedCost;
+                linearTimeIntervals.invalidate();
+                return linearTimeIntervals;
             }
             isolatedOperCost[op] = isolatedCost;
             fullCost += isolatedCost;
 
+            StrategyCost outputCost = 0;
+            StrategyCost correctedOutputCost = 0;
             if (llvm::find(config.getOutputs(), op) != config.getOutputs().end() && tilesNumber > 1) {
                 // add the cost of output dma
-                auto spillCost = costFunction->getSpillingTypeCost(
+                outputCost = costFunction->getSpillingTypeCost(
                         config.getOperationTypes(op, costParameters._tiling[0], costParameters._operandsTiling[0])
                                 .back(),
                         costParameters._tiling[0].axis);
-                if (spillCost >= std::numeric_limits<StrategyCost>::max()) {
+                if (outputCost >= std::numeric_limits<StrategyCost>::max()) {
                     _log.warning("Invalid VPUNN cost");
-                    return spillCost;
+                    linearTimeIntervals.invalidate();
+                    return linearTimeIntervals;
                 }
-                _log.trace("opIndex {0} original output spill cost {1}", opIndex, spillCost);
-                correctOutputSpillCost(spillCost, config, isolatedOperCost, index, tilesNumber);
-                _log.trace("opIndex {0} corrected output spill cost {1}", opIndex, spillCost);
-                fullCost += spillCost;
+                _log.trace("opIndex {0} original output spill cost {1}", opIndex, outputCost);
+                correctedOutputCost = outputCost;
+                correctOutputSpillCost(correctedOutputCost, config, isolatedOperCost, index, tilesNumber);
+                _log.trace("opIndex {0} corrected output spill cost {1}", opIndex, correctedOutputCost);
+                fullCost += correctedOutputCost;
             }
             const bool isInput = llvm::find(inputs, op) != inputs.end();
             StrategyCost prefetchedCost =
                     getPrefetchingCost(op, config, costFunction, costParameters, isInput, tilingInfo, index);
+            StrategyCost correctedPrefetchedCost = prefetchedCost;
 
             if (prefetchedCost >= std::numeric_limits<StrategyCost>::max()) {
                 _log.warning("Invalid VPUNN cost");
-                return prefetchedCost;
+                linearTimeIntervals.invalidate();
+                return linearTimeIntervals;
             }
             if (_prefetching && prefetchedCost > 0) {
                 _log.trace("opIndex {0} original prefetch spill cost {1}", opIndex, prefetchedCost);
-                correctInputPrefetchingCost(prefetchedCost, op, config, isolatedOperCost, index);
-                _log.trace("opIndex {0} corrected prefetch spill cost {1}", opIndex, prefetchedCost);
+                correctInputPrefetchingCost(correctedPrefetchedCost, op, config, isolatedOperCost, index);
+                _log.trace("opIndex {0} corrected prefetch spill cost {1}", opIndex, correctedPrefetchedCost);
             }
-
-            fullCost += prefetchedCost;
+            fullCost += correctedPrefetchedCost;
 
             auto internalSliceCost =
                     getInternalSliceCopyCost(op, config, costFunction, costParameters, isInput, tilingInfo, index);
@@ -358,10 +369,25 @@ StrategyCost VFScheduling::getLinearCost(VFConfig& config, int64_t tilesNumber,
                 _log.trace("opIndex {0} internal slice spill cost {1}", opIndex, internalSliceCost);
                 fullCost += internalSliceCost;
             }
+
+            if (prefetchedCost > 0) {
+                linearTimeIntervals.addDMA(op, index, lastEndTime - prefetchedCost + correctedPrefetchedCost,
+                                           prefetchedCost);
+                lastEndTime += correctedPrefetchedCost;
+            }
+            if (internalSliceCost > 0) {
+                linearTimeIntervals.addDMA(op, index, lastEndTime, internalSliceCost);
+                lastEndTime += internalSliceCost;
+            }
+            linearTimeIntervals.addOperation(op, index, lastEndTime, isolatedCost);
+            lastEndTime += isolatedCost;
+            if (outputCost > 0) {
+                linearTimeIntervals.addDMA(op, index, lastEndTime, outputCost);
+            }
         }
     }
     _log.trace("Total linear cost: {0}", fullCost);
-    return fullCost;
+    return linearTimeIntervals;
 }
 
 /*
@@ -482,5 +508,12 @@ void VFScheduling::reduceCostWithPrefetchedDMA(StrategyCost& parentCost, const S
         parentCost -= _prefetchedCost[index];
     }
     _prefetchedCost[index] += prefetchCost;
+}
+
+SmallVector<TimelineInterval> VFScheduling::getTimeIntervals(
+        VFConfig& config, int64_t tilesNumber, const TilingOperationStorage::UPtr& tilingInfo,
+        const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction) const {
+    auto linearTimeIntervals = calculateLinearTimeIntervals(config, tilesNumber, tilingInfo, costFunction);
+    return linearTimeIntervals.getAllIntervals();
 }
 }  // namespace vpux::VPU::VF::v2

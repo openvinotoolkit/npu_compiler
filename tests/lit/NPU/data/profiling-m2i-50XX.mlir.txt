@@ -1,0 +1,121 @@
+//
+// Copyright (C) 2025 Intel Corporation.
+// SPDX-License-Identifier: Apache-2.0
+//
+
+#loc = loc(unknown)
+#loc3 = loc("profiling_result")
+module @double_m2i attributes {config.arch = #config.arch_kind<NPU50XX>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
+  config.PipelineOptions @Options {
+    config.Option @config.UseDedicatedFifoPerShaveEngine : false
+    config.Option @config.BarrierMaxVariantSum : 64
+    config.Option @config.BarrierMaxVariantCount : 128
+    config.Option @config.MetadataMaxVariantCount : 128
+    config.Option @config.MetadataMaxInvariantCount : 64
+    config.Option @config.MetadataMaxKernelInvocationCount : 64
+    config.Option @config.MetadataMaxKernelRangeCount : 64
+    config.Option @config.MetadataMaxMediaCount : 4
+    config.Option @config.MaxKernelSize : 11
+  }
+
+  config.Resources {activity_factor = 0.000000e+00 : f64} 3 of @NCE at 1.700000e+03 MHz {
+    builtin.module @ReservedMemory {
+      module @DmaProfilingReservedMemory {
+        config.MemoryResource 512 bytes of @CMX_NN offset 0 loc(#loc)
+      } loc(#loc)
+      module @CompressDmaReservedMemory {
+        config.MemoryResource 64 bytes of @CMX_NN offset 512 loc(#loc)
+      } loc(#loc)
+    } loc(#loc)
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware loc(#loc)
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64} loc(#loc)
+    config.ExecutorResource 2 of @SHAVE_ACT loc(#loc)
+    config.ExecutorResource 1 of @DPU loc(#loc)
+  } loc(#loc)
+  config.Resources 1 of @global {
+    config.ExecutorResource 1 of @M2I loc(#loc)
+    config.ExecutorResource 1 of @DMA_NN loc(#loc)
+    config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64} loc(#loc)
+  } loc(#loc)
+  net.NetworkInfo {inferenceTiming = 113636 : i64} entryPoint : @main inputsInfo : {
+    DataInfo "data" : tensor<1x768x512x1xui8> loc(#loc16)
+  } outputsInfo : {
+    DataInfo "Result" : tensor<2x512x512x3xui8> loc(#loc17)
+  } profilingOutputsInfo : {
+    DataInfo "profilingOutput" {
+      VPUIP.ProfilingSection type 7 : 128 bytes from 0 loc(#loc)
+      VPUIP.ProfilingSection type 6 : 320 bytes from 128 loc(#loc)
+      VPUIP.ProfilingSection type 5 : 64 bytes from 448 loc(#loc)
+    } : tensor<128xui32> loc(#loc)
+  } loc(#loc)
+  func.func @main(%arg0: memref<1x768x512x1xui8, @DDR> loc(unknown), %arg1: memref<2x512x512x3xui8, @DDR> loc(unknown), %arg2: memref<128xui32> loc("profiling_result")) -> (memref<2x512x512x3xui8, @DDR>, memref<128xui32>) {
+    %0 = VPURT.ConfigureBarrier<0> -> !VPURT.Barrier loc(#loc4)
+    %1 = VPURT.ConfigureBarrier<1> -> !VPURT.Barrier loc(#loc18)
+    %2 = VPURT.ConfigureBarrier<2> -> !VPURT.Barrier loc(#loc19)
+    %3 = VPURT.ConfigureBarrier<3> -> !VPURT.Barrier loc(#loc20)
+    %4 = VPURT.ConfigureBarrier<4> -> !VPURT.Barrier loc(#loc21)
+    %5 = VPURT.ConfigureBarrier<5> <{isFinalBarrier}> -> !VPURT.Barrier loc(#loc8)
+    %6 = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR> loc(#loc)
+    %7 = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR> loc(#loc)
+    %8 = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x768x512x1xui8, @DDR> loc(#loc18)
+    %9 = VPURT.DeclareBuffer <ProfilingOutput> [0] <0> -> memref<128xui8> loc(#loc18)
+    %10 = VPURT.DeclareBuffer <CMX_NN> [0] <787136> -> memref<1x768x512x1xui8, [@CMX_NN, 0]> loc(#loc18)
+    %11 = VPURT.DeclareBuffer <CMX_NN> [0] <576> -> memref<128xui8, [@CMX_NN, 0]> loc(#loc9)
+    %12 = VPURT.DeclareBuffer <CMX_NN> [0] <704> -> memref<1x512x512x3xui8, [@CMX_NN, 0]> loc(#loc19)
+    %13 = VPURT.DeclareBuffer <CMX_NN> [0] <787136> -> memref<1x768x512x1xui8, [@CMX_NN, 0]> loc(#loc20)
+    %14 = VPURT.DeclareBuffer <CMX_NN> [0] <704> -> memref<1x512x512x3xui8, [@CMX_NN, 0]> loc(#loc21)
+    %15 = VPURT.DeclareBuffer <CMX_NN> [0] <576> -> memref<64xui8, [@CMX_NN, 0]> loc(#loc22)
+    %16 = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<1x512x512x3xui8, @DDR> loc(#loc23)
+    %17 = VPURT.DeclareBuffer <CMX_NN> [0] <640> -> memref<64xui8, [@CMX_NN, 0]> loc(#loc24)
+    %18 = VPURT.DeclareBuffer <NetworkOutput> [0] <786432> -> memref<1x512x512x3xui8, @DDR> loc(#loc23)
+    VPURT.Task updates(%0 : !VPURT.Barrier) {
+      %19 = VPUIP.SyncDMA {port = 0 : i64} inputs(%6 : memref<0x0x0x0xi32, @DDR>) outputs(%7 : memref<0x0x0x0xi32, @DDR>) -> memref<0x0x0x0xi32, @DDR> loc(#loc13)
+    } loc(#loc13)
+    VPURT.Task waits(%0 : !VPURT.Barrier) updates(%1 : !VPURT.Barrier) {
+      %19 = VPUIP.NNDMA {dma_hwp_id = 1 : si32, port = 0 : i64, profilingMetadata = #VPUIP.DmaProfilingMetadataAttr<dataIndex = 1 : i64>} inputs(%8 : memref<1x768x512x1xui8, @DDR>) outputs(%10 : memref<1x768x512x1xui8, [@CMX_NN, 0]>) -> memref<1x768x512x1xui8, [@CMX_NN, 0]> loc(#loc18)
+    } loc(#loc18)
+    VPURT.Task waits(%1 : !VPURT.Barrier) updates(%2 : !VPURT.Barrier) {
+      %output, %profiling_output = VPUIP.M2ITask {chroma_out_reverse_channels, do_csc = true, do_norm = false, inFmt = #VPU.m2i_color_fmt<SP_NV12_8>, outFmt = #VPU.m2i_color_fmt<IL_RGB888>, profilingMetadata = #VPUIP.M2IProfilingMetadataAttr<bufferId = 0 : i64, bufferOffset = 0 : i64>, scale_factor_x = 131072 : ui32, scale_factor_y = 131072 : ui32} inputs(%10 : memref<1x768x512x1xui8, [@CMX_NN, 0]>) outputs(%12 : memref<1x512x512x3xui8, [@CMX_NN, 0]>) profiling_data(%15 : memref<64xui8, [@CMX_NN, 0]>) -> memref<1x512x512x3xui8, [@CMX_NN, 0]>, memref<64xui8, [@CMX_NN, 0]> loc(#loc19)
+    } loc(#loc19)
+    VPURT.Task waits(%2 : !VPURT.Barrier) updates(%3 : !VPURT.Barrier) {
+      %19 = VPUIP.NNDMA {dma_hwp_id = 2 : si32, port = 0 : i64, profilingMetadata = #VPUIP.DmaProfilingMetadataAttr<dataIndex = 2 : i64>} inputs(%8 : memref<1x768x512x1xui8, @DDR>) outputs(%13 : memref<1x768x512x1xui8, [@CMX_NN, 0]>) -> memref<1x768x512x1xui8, [@CMX_NN, 0]> loc(#loc20)
+    } loc(#loc20)
+    VPURT.Task waits(%2 : !VPURT.Barrier) updates(%3 : !VPURT.Barrier) {
+      %19 = VPUIP.NNDMA {dma_hwp_id = 3 : si32, port = 0 : i64, profilingMetadata = #VPUIP.DmaProfilingMetadataAttr<dataIndex = 3 : i64>} inputs(%12 : memref<1x512x512x3xui8, [@CMX_NN, 0]>) outputs(%16 : memref<1x512x512x3xui8, @DDR>) -> memref<1x512x512x3xui8, @DDR> loc(#loc23)
+    } loc(#loc23)
+    VPURT.Task waits(%3 : !VPURT.Barrier) updates(%4 : !VPURT.Barrier) {
+      %output, %profiling_output = VPUIP.M2ITask {chroma_out_reverse_channels, do_csc = true, do_norm = false, inFmt = #VPU.m2i_color_fmt<SP_NV12_8>, outFmt = #VPU.m2i_color_fmt<IL_RGB888>, profilingMetadata = #VPUIP.M2IProfilingMetadataAttr<bufferId = 0 : i64, bufferOffset = 1 : i64>, scale_factor_x = 131072 : ui32, scale_factor_y = 131072 : ui32} inputs(%13 : memref<1x768x512x1xui8, [@CMX_NN, 0]>) outputs(%14 : memref<1x512x512x3xui8, [@CMX_NN, 0]>) profiling_data(%17 : memref<64xui8, [@CMX_NN, 0]>) -> memref<1x512x512x3xui8, [@CMX_NN, 0]>, memref<64xui8, [@CMX_NN, 0]> loc(#loc21)
+    } loc(#loc21)
+    VPURT.Task waits(%4 : !VPURT.Barrier) {
+      %19 = VPUIP.NNDMA {port = 0 : i64} inputs(%11 : memref<128xui8, [@CMX_NN, 0]>) outputs(%9 : memref<128xui8>) -> memref<128xui8> loc(#loc14)
+    } loc(#loc14)
+    VPURT.Task waits(%4 : !VPURT.Barrier) updates(%5 : !VPURT.Barrier) {
+      %19 = VPUIP.NNDMA {dma_hwp_id = 4 : si32, is_out_of_order, port = 0 : i64, profilingMetadata = #VPUIP.DmaProfilingMetadataAttr<dataIndex = 4 : i64>} inputs(%14 : memref<1x512x512x3xui8, [@CMX_NN, 0]>) outputs(%18 : memref<1x512x512x3xui8, @DDR>) -> memref<1x512x512x3xui8, @DDR> loc(#loc23)
+    } loc(#loc23)
+    return %arg1, %arg2 : memref<2x512x512x3xui8, @DDR>, memref<128xui32> loc(#loc25)
+  } loc(#loc)
+} loc(#loc)
+#loc1 = loc("data")
+#loc2 = loc("Combine")
+#loc4 = loc("start_barrier")
+#loc5 = loc("NV12toBGR_1")
+#loc6 = loc("input-0-CMX")
+#loc7 = loc("NV12toBGR_2")
+#loc8 = loc("finishing_barrier")
+#loc9 = loc("m2iProfilingSubviewBuffer_0")
+#loc10 = loc("_m2iProfilingSubview_0")
+#loc11 = loc("Concat_8")
+#loc12 = loc("_m2iProfilingSubview_64")
+#loc13 = loc("sync_dma")
+#loc14 = loc("m2iProfilingCMX2DDR0")
+#loc15 = loc("output")
+#loc16 = loc(fused<{name = "data", type = "Parameter"}>[#loc1])
+#loc17 = loc(fused<{name = "Combine", type = "Result"}>[#loc2])
+#loc18 = loc(fused<{name = "NV12toBGR_1", type = "NV12toBGR"}>[#loc5, #loc6])
+#loc19 = loc(fused<{name = "NV12toBGR_1", type = "NV12toBGR"}>[#loc5])
+#loc20 = loc(fused<{name = "NV12toBGR_2", type = "NV12toBGR"}>[#loc7, #loc6])
+#loc21 = loc(fused<{name = "NV12toBGR_2", type = "NV12toBGR"}>[#loc7])
+#loc22 = loc(fused[#loc9, #loc10])
+#loc23 = loc(fused<{name = "Concat_8", type = "Concat"}>[#loc11])
+#loc24 = loc(fused[#loc9, #loc12])
+#loc25 = loc(fused<{name = "output", type = "Output"}>[#loc15])

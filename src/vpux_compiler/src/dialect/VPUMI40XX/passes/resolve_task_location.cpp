@@ -44,12 +44,10 @@ private:
         MetadataBuffersContainerType<TaskBufferSize> sizes;
     };
 
-    llvm::SmallVector<VPURegMapped::TaskType> _supportedTaskTypes = {VPURegMapped::TaskType::DPUInvariant,
-                                                                     VPURegMapped::TaskType::DPUVariant,
-                                                                     VPURegMapped::TaskType::ActKernelRange,
-                                                                     VPURegMapped::TaskType::ActKernelInvocation,
-                                                                     VPURegMapped::TaskType::DMA,
-                                                                     VPURegMapped::TaskType::M2I};
+    llvm::SmallVector<VPURegMapped::TaskType> _supportedTaskTypes = {
+            VPURegMapped::TaskType::DPUInvariant, VPURegMapped::TaskType::DPUVariant,
+            VPURegMapped::TaskType::ActKernelRange, VPURegMapped::TaskType::ActKernelInvocation,
+            VPURegMapped::TaskType::DMA};
     struct MaxTileInfo {
         std::unordered_map<VPURegMapped::TaskType, size_t> maxTilePerTaskType;
         size_t maxUsedTile;
@@ -222,7 +220,6 @@ void ResolveTaskLocationPass::safeRunOnFunc() {
     populate<VPURegMapped::TaskType::ActKernelRange>(metadataBuffers, mappedInferenceOp, maxTileInfo);
     populate<VPURegMapped::TaskType::ActKernelInvocation>(metadataBuffers, mappedInferenceOp, maxTileInfo);
     populate<VPURegMapped::TaskType::DMA>(metadataBuffers, mappedInferenceOp, maxTileInfo);
-    populate<VPURegMapped::TaskType::M2I>(metadataBuffers, mappedInferenceOp, maxTileInfo);
 
     auto builder = mlir::OpBuilder::atBlockBegin(&funcOp.getBody().front());
 

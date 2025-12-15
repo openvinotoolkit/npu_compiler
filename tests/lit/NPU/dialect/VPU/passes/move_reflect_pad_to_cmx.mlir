@@ -5,7 +5,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --move-reflect-pad-to-cmx %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 !qElemType = !quant.uniform<u8:f16, 0.0038406767097173954>
 !qElemType1 = !quant.uniform<u8:f16, 0.0076813534194347909>

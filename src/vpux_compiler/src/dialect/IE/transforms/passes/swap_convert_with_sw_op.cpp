@@ -245,8 +245,7 @@ void SwapConvertWithSWOp::safeRunOnFunc() {
     eltwisePatterns.add<SwapConvertWithEltwiseOp<IE::MultiplyOp>>(&ctx, _log);
     eltwisePatterns.add<SwapConvertWithEltwiseOp<IE::AddOp>>(&ctx, _log);
     eltwisePatterns.add<SwapConvertWithEltwiseOp<IE::SubtractOp>>(&ctx, _log);
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(eltwisePatterns),
-                                                        getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(eltwisePatterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
         return;
     }

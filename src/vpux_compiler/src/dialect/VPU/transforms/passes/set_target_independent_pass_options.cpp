@@ -44,28 +44,29 @@ private:
 };
 
 mlir::LogicalResult SetTargetIndependentPassOptionsPass::initialize(mlir::MLIRContext* context) {
-    _optionSet = {
-            {config::AUTO_PADDING_ODU, getAttributeFromOption(context, enableAutoPaddingODU)},
-            {config::AUTO_PADDING_IDU, getAttributeFromOption(context, enableAutoPaddingIDU)},
-            {config::ASYMMETRIC_PER_TENSOR_ZP, getAttributeFromOption(context, enableAsymmetricPerTensorZP)},
-            {config::ASYMMETRIC_PER_CHANNEL_ZP, getAttributeFromOption(context, enableAsymmetricPerChannelZP)},
-            {config::REDUCE_SUPPORTED, getAttributeFromOption(context, enableIsReduceSupported)},
-            {config::FP16_COMPRESSED_CONV, getAttributeFromOption(context, enableFP16CompressedConvolution)},
-            {config::VPUNN_PRE_SPLIT, getAttributeFromOption(context, enableVPUNNPreSplit)},
-            {config::ENABLE_SE_PTRS_OPERATIONS, getAttributeFromOption(context, enableSEPtrsOperations)},
-            {config::ENABLE_EXPERIMENTAL_SE_PTRS_OPERATIONS,
-             getAttributeFromOption(context, enableExperimentalSEPtrsOperations)},
-            {config::ENABLE_QDQ_OPTIMIZATION_AGGRESSIVE,
-             getAttributeFromOption(context, enableQDQOptimizationAggressive)},
-            {config::ENABLE_ADAPTIVE_STRIPPING,
-             mlir::BoolAttr::get(context,
-                                 enableQDQOptimizationAggressive.getValue() || enableAdaptiveStripping.getValue())},
-            {config::ENABLE_EXTRA_STATIC_SHAPE_OPS, getAttributeFromOption(context, enableExtraStaticShapeOps)},
-            {config::WEIGHTS_TABLE_REUSE_MODE, getAttributeFromOption(context, weightsTableReuseMode)},
-            {config::ENABLE_PROFILING, getAttributeFromOption(context, enableProfiling)},
-            {config::ENABLE_WEIGHTS_DYNAMIC_DEQUANTIZATION,
-             getAttributeFromOption(context, enableWeightsDynamicDequantization)},
-    };
+    _optionSet = {{config::AUTO_PADDING_ODU, getAttributeFromOption(context, enableAutoPaddingODU)},
+                  {config::AUTO_PADDING_IDU, getAttributeFromOption(context, enableAutoPaddingIDU)},
+                  {config::ASYMMETRIC_PER_TENSOR_ZP, getAttributeFromOption(context, enableAsymmetricPerTensorZP)},
+                  {config::ASYMMETRIC_PER_CHANNEL_ZP, getAttributeFromOption(context, enableAsymmetricPerChannelZP)},
+                  {config::REDUCE_SUPPORTED, getAttributeFromOption(context, enableIsReduceSupported)},
+                  {config::FP16_COMPRESSED_CONV, getAttributeFromOption(context, enableFP16CompressedConvolution)},
+                  {config::VPUNN_PRE_SPLIT, getAttributeFromOption(context, enableVPUNNPreSplit)},
+                  {config::ENABLE_SE_PTRS_OPERATIONS, getAttributeFromOption(context, enableSEPtrsOperations)},
+                  {config::ENABLE_EXPERIMENTAL_SE_PTRS_OPERATIONS,
+                   getAttributeFromOption(context, enableExperimentalSEPtrsOperations)},
+                  {config::ENABLE_QDQ_OPTIMIZATION_AGGRESSIVE,
+                   getAttributeFromOption(context, enableQDQOptimizationAggressive)},
+                  {config::ENABLE_ADAPTIVE_STRIPPING,
+                   mlir::BoolAttr::get(
+                           context, enableQDQOptimizationAggressive.getValue() || enableAdaptiveStripping.getValue())},
+                  {config::ENABLE_EXTRA_STATIC_SHAPE_OPS, getAttributeFromOption(context, enableExtraStaticShapeOps)},
+                  {config::WEIGHTS_TABLE_REUSE_MODE, getAttributeFromOption(context, weightsTableReuseMode)},
+                  {config::ENABLE_PROFILING, getAttributeFromOption(context, enableProfiling)},
+                  {config::ENABLE_WEIGHTS_DYNAMIC_DEQUANTIZATION,
+                   getAttributeFromOption(context, enableWeightsDynamicDequantization)}};
+    // This pass should be applied to NPU5+ only, but right now we don't have per-generation setupCompilerOptions
+    // It will be done as a part of E-149049, so this will be removed from common part
+    _optionSet.push_back({config::SPRLUT_ENABLED, getAttributeFromOption(context, enableSprLUT)});
 
     if (allowCustomValues.hasValue()) {
         _allowCustomValues = allowCustomValues.getValue();

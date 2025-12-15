@@ -6,6 +6,7 @@
 #pragma once
 
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
+#include "vpux/compiler/dialect/config/IR/utils.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 
@@ -40,5 +41,22 @@ mlir::Value createDynamicReshape(mlir::OpBuilder& builder, mlir::Location loc, m
                                  BoundedShape outputShape);
 
 bool allowsChannelsReshape(mlir::Operation* origOp);
+
+/*
+    @brief Returns the most performant output permutation a DPU op may have.
+    @param initialDimOrder - output order of the DPU op
+    @param nonBatchOneDims - vector of all dims that are equal to 1, but are not batch
+    @param is32Bit - data type of the output is on 32 bits
+
+    DPU ops can use the ODU's ability to permute data to output a different layout than NHWC, hence reducing the need of
+    extra permute ops. However, not all possible ODU permutes have the same throughput. Best performance is obtained for
+    C as innermost dim, then for H and finally W. For 32-bit output C-innermost and H-innermost have the same
+    throughput, with W-innermost still being the worst one.
+
+    This util tries to find an equivalent permutation for the output, such that the data is still the same in memory
+   (i.e. no actual permutation op need to be inserted), but one with better element throughput.
+*/
+vpux::DimsOrder returnBestDimOrder(const vpux::DimsOrder& initialDimOrder, SmallVector<Dim>& nonBatchOneDims,
+                                   bool is32Bit);
 }  // namespace IE
 }  // namespace vpux

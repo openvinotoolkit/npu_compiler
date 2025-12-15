@@ -4,19 +4,19 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --optimize-copies %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @RemoveCMXToCMXCopyPropagateStrideToCopy
 // CHECK-SAME:    [[INPUT1:%.*]]: memref<1x256x18x18xf16, #NHWC, @CMX_NN>
 // CHECK-SAME:    [[INPUT2:%.*]]: memref<128x256x3x3xf16, #NHWC, @CMX_NN>
-// CHECK-SAME:    [[INPUT3:%.*]]: memref<128x1x1x4xsi32, @CMX_NN>
-func.func @RemoveCMXToCMXCopyPropagateStrideToCopy(%arg0 : memref<1x256x18x18xf16, #NHWC, @CMX_NN>, %arg1 : memref<128x256x3x3xf16, #NHWC, @CMX_NN>, %arg2 : memref<128x1x1x4xsi32, @CMX_NN>) -> (memref<1x256x18x18xf16, #NHWC, @CMX_NN>, memref<1x128x18x18xf16, #NHWC, @CMX_NN>) {
+
+func.func @RemoveCMXToCMXCopyPropagateStrideToCopy(%arg0 : memref<1x256x18x18xf16, #NHWC, @CMX_NN>, %arg1 : memref<128x256x3x3xf16, #NHWC, @CMX_NN>) -> (memref<1x256x18x18xf16, #NHWC, @CMX_NN>, memref<1x128x18x18xf16, #NHWC, @CMX_NN>) {
     %0 = memref.alloc() : memref<1x128x18x18xf16, #NHWC, @CMX_NN>
     %1 = memref.alloc() : memref<1x128x18x18xf16, #NHWC, @CMX_NN>
     %2 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, kernel_size = [3, 3], kernel_strides = [1, 1], minimumHardwareExecutionCost = 93417 : i64, task_type = #VPUIP.nce_task_type<CONV>}
-        input(%arg0 : memref<1x256x18x18xf16, #NHWC, @CMX_NN>) weights(%arg1 : memref<128x256x3x3xf16, #NHWC, @CMX_NN>) weight_table(%arg2 : memref<128x1x1x4xsi32, @CMX_NN>)
+        input(%arg0 : memref<1x256x18x18xf16, #NHWC, @CMX_NN>) weights(%arg1 : memref<128x256x3x3xf16, #NHWC, @CMX_NN>)
         parent_input(%arg0 : memref<1x256x18x18xf16, #NHWC, @CMX_NN>) parent_output(%0 : memref<1x128x18x18xf16, #NHWC, @CMX_NN>) outputs(%0 : memref<1x128x18x18xf16, #NHWC, @CMX_NN>) -> memref<1x128x18x18xf16, #NHWC, @CMX_NN> variants : {
             DPUTask {cluster_id = 0 : i64, outEnd = [17, 17, 63], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, outStart = [0, 0, 0]}
             DPUTask {cluster_id = 1 : i64, outEnd = [17, 17, 127], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, outStart = [0, 0, 64]}
@@ -25,7 +25,7 @@ func.func @RemoveCMXToCMXCopyPropagateStrideToCopy(%arg0 : memref<1x256x18x18xf1
         }
 
     %3 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, kernel_size = [3, 3], kernel_strides = [1, 1], minimumHardwareExecutionCost = 93417 : i64, task_type = #VPUIP.nce_task_type<CONV>}
-        input(%arg0 : memref<1x256x18x18xf16, #NHWC, @CMX_NN>) weights(%arg1 : memref<128x256x3x3xf16, #NHWC, @CMX_NN>) weight_table(%arg2 : memref<128x1x1x4xsi32, @CMX_NN>)
+        input(%arg0 : memref<1x256x18x18xf16, #NHWC, @CMX_NN>) weights(%arg1 : memref<128x256x3x3xf16, #NHWC, @CMX_NN>)
         parent_input(%arg0 : memref<1x256x18x18xf16, #NHWC, @CMX_NN>) parent_output(%1 : memref<1x128x18x18xf16, #NHWC, @CMX_NN>) outputs(%1 : memref<1x128x18x18xf16, #NHWC, @CMX_NN>) -> memref<1x128x18x18xf16, #NHWC, @CMX_NN> variants : {
             DPUTask {cluster_id = 0 : i64, outEnd = [17, 17, 63], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, outStart = [0, 0, 0]}
             DPUTask {cluster_id = 1 : i64, outEnd = [17, 17, 127], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, outStart = [0, 0, 64]}
@@ -50,7 +50,7 @@ func.func @RemoveCMXToCMXCopyPropagateStrideToCopy(%arg0 : memref<1x256x18x18xf1
     // CHECK:       [[SBUVIEW_0:%.*]] = VPUIP.SubView %alloc [0, 0, 0, 0] [1, 128, 18, 18] : memref<1x256x18x18xf16, #NHWC, @CMX_NN> to memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN>
 
     // CHECK:       [[NCETASK_0:%.*]] = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, kernel_size = [3, 3], kernel_strides = [1, 1], minimumHardwareExecutionCost = 93417 : i64, task_type = #VPUIP.nce_task_type<CONV>}
-    // CHECK-SAME:      input([[INPUT1]] : memref<1x256x18x18xf16, #NHWC, @CMX_NN>) weights([[INPUT2]] : memref<128x256x3x3xf16, #NHWC, @CMX_NN>) weight_table([[INPUT3]] : memref<128x1x1x4xsi32, @CMX_NN>)
+    // CHECK-SAME:      input([[INPUT1]] : memref<1x256x18x18xf16, #NHWC, @CMX_NN>) weights([[INPUT2]] : memref<128x256x3x3xf16, #NHWC, @CMX_NN>)
     // CHECK-SAME:      parent_input([[INPUT1]] : memref<1x256x18x18xf16, #NHWC, @CMX_NN>) parent_output([[SBUVIEW_0]] : memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN>)
     // CHECK-SAME:      outputs([[SBUVIEW_0]] : memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN>) -> memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN> variants : {
     // CHECK:           DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [17, 17, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>}
@@ -58,10 +58,9 @@ func.func @RemoveCMXToCMXCopyPropagateStrideToCopy(%arg0 : memref<1x256x18x18xf1
     // CHECK:           } PPE : {
     // CHECK:               PPETask {ppe = #VPU.PPEStub<>}
     // CHECK:           }
-
     // CHECK:       [[SBUVIEW_1:%.*]] = VPUIP.SubView [[BUFF_0]] [0, 128, 0, 0] [1, 128, 18, 18] : memref<1x256x18x18xf16, #NHWC, @CMX_NN> to memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN>
     // CHECK:       [[NCETASK_1:%.*]] = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, kernel_size = [3, 3], kernel_strides = [1, 1], minimumHardwareExecutionCost = 93417 : i64, task_type = #VPUIP.nce_task_type<CONV>}
-    // CHECK-SAME:      input([[INPUT1]] : memref<1x256x18x18xf16, #NHWC, @CMX_NN>) weights([[INPUT2]] : memref<128x256x3x3xf16, #NHWC, @CMX_NN>) weight_table([[INPUT3]] : memref<128x1x1x4xsi32, @CMX_NN>)
+    // CHECK-SAME:      input([[INPUT1]] : memref<1x256x18x18xf16, #NHWC, @CMX_NN>) weights([[INPUT2]] : memref<128x256x3x3xf16, #NHWC, @CMX_NN>)
     // CHECK-SAME:      parent_input([[INPUT1]] : memref<1x256x18x18xf16, #NHWC, @CMX_NN>) parent_output([[SBUVIEW_1]] : memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN>)
     // CHECK-SAME:      outputs([[SBUVIEW_1]] : memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN>) -> memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN> variants : {
     // CHECK:           DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [17, 17, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>}
@@ -656,7 +655,6 @@ func.func @RemoveCMXToCMXTilingCopyAndInsertNewCopyWithReshapeCopyUser(%arg0 : !
 !InDataType = memref<1x256x28x28xf16, #NHWC, @CMX_NN>
 !InSMType = memref<1x256x28x28xi1, #NHWC, @CMX_NN>
 !ConvWeightsType = memref<128x256x3x3xf16, #NHWC, @CMX_NN>
-!ConvWeightsTableType = memref<128x1x1x4xsi32, @CMX_NN>
 
 !OutDataBufferType = !VPUIP.DistributedBuffer<1x256x14x14xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED|SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64, alignment = [1, 16, 1, 1]}>
 !OutSMBufferType = !VPUIP.DistributedBuffer<1x256x14x14xi1, #NHWC, @CMX_NN, {mode = "DUPLICATED|SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64, alignment = [1, 16, 1, 1]}>
@@ -664,13 +662,11 @@ func.func @RemoveCMXToCMXTilingCopyAndInsertNewCopyWithReshapeCopyUser(%arg0 : !
 // CHECK-LABEL: @RemoveCMXToCMXTilingCopyAndInsertNewCopyWithReshapeCopyUserSparsity
 // CHECK-SAME:  [[INPUT1:%.*]]: memref<1x256x28x28xf16, #NHWC, @CMX_NN>,
 // CHECK-SAME:  [[INPUT2:%.*]]: memref<1x256x28x28xi1, #NHWC, @CMX_NN>,
-// CHECK-SAME:  [[INPUT3:%.*]]: memref<128x256x3x3xf16, #NHWC, @CMX_NN>,
-// CHECK-SAME:  [[INPUT4:%.*]]: memref<128x1x1x4xsi32, @CMX_NN>
+// CHECK-SAME:  [[INPUT3:%.*]]: memref<128x256x3x3xf16, #NHWC, @CMX_NN>
 func.func @RemoveCMXToCMXTilingCopyAndInsertNewCopyWithReshapeCopyUserSparsity(
     %inData : !InDataType,
     %inSparsityMap : !InSMType,
-    %inWeights : !ConvWeightsType,
-    %inWeightsTable : !ConvWeightsTableType)
+    %inWeights : !ConvWeightsType)
     -> (!OutDataBufferType, !OutSMBufferType, memref<1x128x28x7xf16, #NHWC, @DDR>, memref<1x128x28x7xi1, #NHWC, @DDR>)
 {
     // alloc for Conv data out
@@ -683,7 +679,6 @@ func.func @RemoveCMXToCMXTilingCopyAndInsertNewCopyWithReshapeCopyUserSparsity(
         input(%inData : !InDataType)
         input_sparsity_map(%inSparsityMap : !InSMType)
         weights(%inWeights : !ConvWeightsType)
-        weight_table(%inWeightsTable : !ConvWeightsTableType)
         parent_input(%inData : !InDataType)
         parent_input_sparsity_map(%inSparsityMap : !InSMType)
         parent_output(%0 : !VPUIP.DistributedBuffer<1x128x14x14xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED|SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64, alignment = [1, 16, 1, 1]}>)
@@ -728,7 +723,6 @@ func.func @RemoveCMXToCMXTilingCopyAndInsertNewCopyWithReshapeCopyUserSparsity(
         input(%inData : !InDataType)
         input_sparsity_map(%inSparsityMap : !InSMType)
         weights(%inWeights : !ConvWeightsType)
-        weight_table(%inWeightsTable : !ConvWeightsTableType)
         parent_input(%inData : !InDataType)
         parent_input_sparsity_map(%inSparsityMap : !InSMType)
         parent_output(%10 : !VPUIP.DistributedBuffer<1x128x14x14xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED|SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64, alignment = [1, 16, 1, 1]}>)
@@ -852,7 +846,6 @@ func.func @RemoveCMXToCMXTilingCopyAndInsertNewCopyWithReshapeCopyUserSparsity(
 !InDataType = memref<1x256x28x28xf16, #NHWC, @CMX_NN>
 !InSMType = memref<1x256x28x28xi1, #NHWC, @CMX_NN>
 !ConvWeightsType = memref<128x256x3x3xf16, #NHWC, @CMX_NN>
-!ConvWeightsTableType = memref<128x1x1x4xsi32, @CMX_NN>
 
 !OutDataBufferType = memref<1x256x14x14xf16, #NHWC, @CMX_NN>
 !OutSMBufferType = memref<1x256x14x14xi1, #NHWC, @CMX_NN>
@@ -860,13 +853,11 @@ func.func @RemoveCMXToCMXTilingCopyAndInsertNewCopyWithReshapeCopyUserSparsity(
 // CHECK-LABEL: @RemoveCMXToCMXCopyAndInsertNewCopyWithReshapeSparsity
 // CHECK-SAME:  [[INPUT1:%.*]]: memref<1x256x28x28xf16, #NHWC, @CMX_NN>,
 // CHECK-SAME:  [[INPUT2:%.*]]: memref<1x256x28x28xi1, #NHWC, @CMX_NN>,
-// CHECK-SAME:  [[INPUT3:%.*]]: memref<128x256x3x3xf16, #NHWC, @CMX_NN>,
-// CHECK-SAME:  [[INPUT4:%.*]]: memref<128x1x1x4xsi32, @CMX_NN>
+// CHECK-SAME:  [[INPUT3:%.*]]: memref<128x256x3x3xf16, #NHWC, @CMX_NN>
 func.func @RemoveCMXToCMXCopyAndInsertNewCopyWithReshapeSparsity(
     %inData : !InDataType,
     %inSparsityMap : !InSMType,
-    %inWeights : !ConvWeightsType,
-    %inWeightsTable : !ConvWeightsTableType)
+    %inWeights : !ConvWeightsType)
     -> (!OutDataBufferType, !OutSMBufferType, memref<1x128x7x28xf16, #NHWC, @CMX_NN>, memref<1x128x7x28xi1, #NHWC, @CMX_NN>)
 {
     // alloc for Conv data out
@@ -880,7 +871,6 @@ func.func @RemoveCMXToCMXCopyAndInsertNewCopyWithReshapeSparsity(
         input(%inData : !InDataType)
         input_sparsity_map(%inSparsityMap : !InSMType)
         weights(%inWeights : !ConvWeightsType)
-        weight_table(%inWeightsTable : !ConvWeightsTableType)
         parent_input(%inData : !InDataType)
         parent_input_sparsity_map(%inSparsityMap : !InSMType)
         parent_output(%0 : memref<1x128x14x14xf16, #NHWC, @CMX_NN>)
@@ -931,7 +921,6 @@ func.func @RemoveCMXToCMXCopyAndInsertNewCopyWithReshapeSparsity(
         input(%inData : !InDataType)
         input_sparsity_map(%inSparsityMap : !InSMType)
         weights(%inWeights : !ConvWeightsType)
-        weight_table(%inWeightsTable : !ConvWeightsTableType)
         parent_input(%inData : !InDataType)
         parent_input_sparsity_map(%inSparsityMap : !InSMType)
         parent_output(%10 : memref<1x128x14x14xf16, #NHWC, @CMX_NN>)

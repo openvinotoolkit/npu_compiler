@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --populate-dynamic-dimensions-generic %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
@@ -163,6 +163,7 @@ func.func @EltwiseMaximum(%arg0: tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64E
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 // CHECK-LABEL: EltwiseSubtract
+// CHECK-SAME:  [[ARG0:%.+]]: tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
 func.func @EltwiseSubtract(%arg0: tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>) -> tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}> {
     %cst = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32> isSplat
     %0 = IE.Subtract(%cst, %arg0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x1xf32>, tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}> -> tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
@@ -170,7 +171,7 @@ func.func @EltwiseSubtract(%arg0: tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64
 
     // CHECK: [[CST:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
 
-    // CHECK: [[SUB:%.+]] = IE.Subtract([[CST]], %arg0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
+    // CHECK: [[SUB:%.+]] = IE.Subtract([[CST]], [[ARG0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
     // CHECK-SAME: tensor<1x1x1x1xf32>, tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
     // CHECK-SAME: -> tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
 
@@ -188,6 +189,146 @@ func.func @EltwiseSubtract(%arg0: tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64
     // CHECK-DAG: [[NEW_SHAPE:%.+]] = IE.Concat([[CST_0]], [[CST_1]], [[CST_2]], [[BITCAST]]) {per_axis = #IE.Concat<axis = 0 : i64>} : tensor<1xsi64>, tensor<1xsi64>, tensor<1xsi64>, tensor<1xsi64> -> tensor<4xsi64>
 
     // CHECK: [[RESHAPE:%.+]] = IE.DynamicReshape([[SUB]], [[NEW_SHAPE]]) {only_set_shape, output_bounds = [1, 1, 1, 64], output_shape = [1, 1, 1, -9223372036854775808]} : tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>, tensor<4xsi64> -> tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+
+    // CHECK: return [[RESHAPE]] : tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: EltwisePower
+// CHECK-SAME:  [[ARG0:%.+]]: tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+func.func @EltwisePower(%arg0: tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>) -> tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}> {
+    %cst = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32> isSplat
+    %0 = IE.Power(%cst, %arg0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x1xf32>, tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}> -> tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+    return %0 : tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+
+    // CHECK: [[CST:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
+
+    // CHECK: [[POW:%.+]] = IE.Power([[CST]], [[ARG0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
+    // CHECK-SAME: tensor<1x1x1x1xf32>, tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK-SAME: -> tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+
+    // CHECK-DAG: [[C3:%.+]] = arith.constant 3 : index
+    // CHECK-DAG: [[DIM:%.+]] = tensor.dim [[POW]], [[C3]] : tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK-DAG: [[CST_0:%.+]] = const.Declare tensor<1xsi64> = dense<1> : tensor<1xsi64>
+    // CHECK-DAG: [[CST_1:%.+]] = const.Declare tensor<1xsi64> = dense<1> : tensor<1xsi64>
+    // CHECK-DAG: [[CST_2:%.+]] = const.Declare tensor<1xsi64> = dense<1> : tensor<1xsi64>
+
+    // CHECK-DAG: [[DIM_I64:%.+]] = arith.index_cast [[DIM]] : index to i64
+    // CHECK-DAG: [[FROM_ELEMENTS:%.+]] = tensor.from_elements [[DIM_I64]] : tensor<1xi64>
+
+    // CHECK-DAG: [[BITCAST:%.+]] = tensor.bitcast [[FROM_ELEMENTS]] : tensor<1xi64> to tensor<1xsi64>
+
+    // CHECK-DAG: [[NEW_SHAPE:%.+]] = IE.Concat([[CST_0]], [[CST_1]], [[CST_2]], [[BITCAST]]) {per_axis = #IE.Concat<axis = 0 : i64>} : tensor<1xsi64>, tensor<1xsi64>, tensor<1xsi64>, tensor<1xsi64> -> tensor<4xsi64>
+
+    // CHECK: [[RESHAPE:%.+]] = IE.DynamicReshape([[POW]], [[NEW_SHAPE]]) {only_set_shape, output_bounds = [1, 1, 1, 64], output_shape = [1, 1, 1, -9223372036854775808]} : tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>, tensor<4xsi64> -> tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+
+    // CHECK: return [[RESHAPE]] : tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: EltwiseMod
+// CHECK-SAME:  [[ARG0:%.+]]: tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+func.func @EltwiseMod(%arg0: tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>) -> tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}> {
+    %cst = const.Declare tensor<1x1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1x1xf32> isSplat
+    %0 = IE.Mod(%arg0, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x1x1x1xf32> -> tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+    return %0 : tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+
+    // CHECK: [[CST:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1x1xf32>
+
+    // CHECK: [[MOD:%.+]] = IE.Mod([[ARG0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
+    // CHECK-SAME: tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x1x1x1xf32>
+    // CHECK-SAME: -> tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+
+    // CHECK-DAG: [[C3:%.+]] = arith.constant 3 : index
+    // CHECK-DAG: [[DIM:%.+]] = tensor.dim [[MOD]], [[C3]] : tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK-DAG: [[CST_0:%.+]] = const.Declare tensor<1xsi64> = dense<1> : tensor<1xsi64>
+    // CHECK-DAG: [[CST_1:%.+]] = const.Declare tensor<1xsi64> = dense<1> : tensor<1xsi64>
+    // CHECK-DAG: [[CST_2:%.+]] = const.Declare tensor<1xsi64> = dense<1> : tensor<1xsi64>
+
+    // CHECK-DAG: [[DIM_I64:%.+]] = arith.index_cast [[DIM]] : index to i64
+    // CHECK-DAG: [[FROM_ELEMENTS:%.+]] = tensor.from_elements [[DIM_I64]] : tensor<1xi64>
+
+    // CHECK-DAG: [[BITCAST:%.+]] = tensor.bitcast [[FROM_ELEMENTS]] : tensor<1xi64> to tensor<1xsi64>
+
+    // CHECK-DAG: [[NEW_SHAPE:%.+]] = IE.Concat([[CST_0]], [[CST_1]], [[CST_2]], [[BITCAST]]) {per_axis = #IE.Concat<axis = 0 : i64>} : tensor<1xsi64>, tensor<1xsi64>, tensor<1xsi64>, tensor<1xsi64> -> tensor<4xsi64>
+
+    // CHECK: [[RESHAPE:%.+]] = IE.DynamicReshape([[MOD]], [[NEW_SHAPE]]) {only_set_shape, output_bounds = [1, 1, 1, 64], output_shape = [1, 1, 1, -9223372036854775808]} : tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>, tensor<4xsi64> -> tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+
+    // CHECK: return [[RESHAPE]] : tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: EltwiseFloorMod
+// CHECK-SAME:  [[ARG0:%.+]]: tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+func.func @EltwiseFloorMod(%arg0: tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>) -> tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}> {
+    %cst = const.Declare tensor<1x1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1x1xf32> isSplat
+    %0 = IE.FloorMod(%arg0, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x1x1x1xf32> -> tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+    return %0 : tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+
+    // CHECK: [[CST:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1x1xf32>
+
+    // CHECK: [[FLOORMOD:%.+]] = IE.FloorMod([[ARG0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
+    // CHECK-SAME: tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x1x1x1xf32>
+    // CHECK-SAME: -> tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+
+    // CHECK-DAG: [[C3:%.+]] = arith.constant 3 : index
+    // CHECK-DAG: [[DIM:%.+]] = tensor.dim [[FLOORMOD]], [[C3]] : tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK-DAG: [[CST_0:%.+]] = const.Declare tensor<1xsi64> = dense<1> : tensor<1xsi64>
+    // CHECK-DAG: [[CST_1:%.+]] = const.Declare tensor<1xsi64> = dense<1> : tensor<1xsi64>
+    // CHECK-DAG: [[CST_2:%.+]] = const.Declare tensor<1xsi64> = dense<1> : tensor<1xsi64>
+
+    // CHECK-DAG: [[DIM_I64:%.+]] = arith.index_cast [[DIM]] : index to i64
+    // CHECK-DAG: [[FROM_ELEMENTS:%.+]] = tensor.from_elements [[DIM_I64]] : tensor<1xi64>
+
+    // CHECK-DAG: [[BITCAST:%.+]] = tensor.bitcast [[FROM_ELEMENTS]] : tensor<1xi64> to tensor<1xsi64>
+
+    // CHECK-DAG: [[NEW_SHAPE:%.+]] = IE.Concat([[CST_0]], [[CST_1]], [[CST_2]], [[BITCAST]]) {per_axis = #IE.Concat<axis = 0 : i64>} : tensor<1xsi64>, tensor<1xsi64>, tensor<1xsi64>, tensor<1xsi64> -> tensor<4xsi64>
+
+    // CHECK: [[RESHAPE:%.+]] = IE.DynamicReshape([[FLOORMOD]], [[NEW_SHAPE]]) {only_set_shape, output_bounds = [1, 1, 1, 64], output_shape = [1, 1, 1, -9223372036854775808]} : tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>, tensor<4xsi64> -> tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+
+    // CHECK: return [[RESHAPE]] : tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: EltwiseDivide
+// CHECK-SAME:  [[ARG0:%.+]]: tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+func.func @EltwiseDivide(%arg0: tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>) -> tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}> {
+    %cst = const.Declare tensor<1x1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1x1xf32> isSplat
+    %0 = IE.Divide(%arg0, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x1x1x1xf32> -> tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+    return %0 : tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+
+    // CHECK: [[CST:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1x1xf32>
+
+    // CHECK: [[DIVIDE:%.+]] = IE.Divide([[ARG0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
+    // CHECK-SAME: tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x1x1x1xf32>
+    // CHECK-SAME: -> tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+
+    // CHECK-DAG: [[C3:%.+]] = arith.constant 3 : index
+    // CHECK-DAG: [[DIM:%.+]] = tensor.dim [[DIVIDE]], [[C3]] : tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK-DAG: [[CST_0:%.+]] = const.Declare tensor<1xsi64> = dense<1> : tensor<1xsi64>
+    // CHECK-DAG: [[CST_1:%.+]] = const.Declare tensor<1xsi64> = dense<1> : tensor<1xsi64>
+    // CHECK-DAG: [[CST_2:%.+]] = const.Declare tensor<1xsi64> = dense<1> : tensor<1xsi64>
+
+    // CHECK-DAG: [[DIM_I64:%.+]] = arith.index_cast [[DIM]] : index to i64
+    // CHECK-DAG: [[FROM_ELEMENTS:%.+]] = tensor.from_elements [[DIM_I64]] : tensor<1xi64>
+
+    // CHECK-DAG: [[BITCAST:%.+]] = tensor.bitcast [[FROM_ELEMENTS]] : tensor<1xi64> to tensor<1xsi64>
+
+    // CHECK-DAG: [[NEW_SHAPE:%.+]] = IE.Concat([[CST_0]], [[CST_1]], [[CST_2]], [[BITCAST]]) {per_axis = #IE.Concat<axis = 0 : i64>} : tensor<1xsi64>, tensor<1xsi64>, tensor<1xsi64>, tensor<1xsi64> -> tensor<4xsi64>
+
+    // CHECK: [[RESHAPE:%.+]] = IE.DynamicReshape([[DIVIDE]], [[NEW_SHAPE]]) {only_set_shape, output_bounds = [1, 1, 1, 64], output_shape = [1, 1, 1, -9223372036854775808]} : tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>, tensor<4xsi64> -> tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
 
     // CHECK: return [[RESHAPE]] : tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
 }

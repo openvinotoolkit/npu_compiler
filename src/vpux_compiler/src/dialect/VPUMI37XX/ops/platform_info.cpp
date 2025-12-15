@@ -9,6 +9,7 @@
 #include <vpux_headers/platform.hpp>
 #include "vpux/compiler/dialect/ELFNPU37XX/utils.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/ops.hpp"
+#include "vpux/compiler/dialect/VPURegMapped/types.hpp"
 
 void vpux::VPUMI37XX::PlatformInfoOp::serialize(elf::writer::BinaryDataSection<uint8_t>& binDataSection) {
     elf::platform::PlatformInfo platformInfo;

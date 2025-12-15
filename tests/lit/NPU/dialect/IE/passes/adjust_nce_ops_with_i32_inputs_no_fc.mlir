@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --adjust-nce-ops-with-i32-inputs="convert-fc-to-conv=false" --canonicalize %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @FC_NoConvert
 // CHECK-SAME:      [[INPUT0:%.+]]: tensor<2x3xsi32>, [[INPUT1:%.+]]: tensor<2x3xsi32>

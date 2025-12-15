@@ -279,6 +279,8 @@ bool isPotentialScaleShift(mlir::Operation* op) {
     auto actInputs = getActInputs(op);
     auto constInputs = getConstInputs(op);
     auto secondInputMustBeConst = true;
+    const auto arch = config::getArch(op);
+    secondInputMustBeConst = !mlir::isa<IE::MultiplyOp>(op) || arch < config::ArchKind::NPU50XX;
     if (actInputs.empty() || (constInputs.empty() && secondInputMustBeConst)) {
         return false;
     }
@@ -453,8 +455,8 @@ void AdaptShapesForScaleShiftPass::safeRunOnFunc() {
     transposePatterns.add<TransposeEltwiseRewriter<IE::SubtractOp>>(&ctx, _log);
     transposePatterns.add<TransposeEltwiseRewriter<IE::AddOp>>(&ctx, _log);
     transposePatterns.add<MultiNonTrivialDimEltwiseRewriter<IE::MultiplyOp>>(&ctx, _log);
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(transposePatterns),
-                                                        getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(
+                mlir::applyPatternsGreedily(func, std::move(transposePatterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
         return;
     }

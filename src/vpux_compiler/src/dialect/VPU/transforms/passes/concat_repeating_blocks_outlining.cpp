@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
@@ -410,8 +410,7 @@ private:
         _log.nest().trace("Found a total of {0} outlining instances", allOutliningInstances.size());
 
         if (allOutliningInstances.size() == 1 && allOutliningInstances.front().size() == 1) {
-            _log.trace("Found a single slice to outline which would contain the entire main function. Skipping",
-                       allOutliningInstances.size());
+            _log.trace("Found a single slice to outline which would contain the entire main function. Skipping");
             return {};
         }
 

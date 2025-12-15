@@ -4,7 +4,7 @@
 //
 
 #include "common/utils.hpp"
-#include "vpux/compiler/utils/IE/function_outlining_splitter.hpp"
+#include "vpux/compiler/dialect/IE/utils/function_outlining_splitter.hpp"
 
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/Parser/Parser.h>

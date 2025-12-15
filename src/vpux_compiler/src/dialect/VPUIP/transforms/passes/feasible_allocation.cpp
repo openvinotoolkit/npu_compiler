@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/core/async_deps_info.hpp"
+#include "vpux/compiler/core/concurrent_scheduler.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
 #include "vpux/compiler/core/feasible_memory_scheduler.hpp"
 #include "vpux/compiler/core/feasible_memory_scheduler_control_edges.hpp"
@@ -18,6 +19,7 @@
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/hw_settings.hpp"
@@ -30,8 +32,6 @@
 #endif  // defined(VPUX_DEVELOPER_BUILD) || !defined(NDEBUG)
 
 #include <vpu_cost_model.h>
-
-#include <queue>
 
 namespace vpux::VPUIP {
 #define GEN_PASS_DECL_FEASIBLEALLOCATION
@@ -197,7 +197,8 @@ class FeasibleAllocationPass final : public VPUIP::impl::FeasibleAllocationBase<
 public:
     FeasibleAllocationPass(VPUIP::MemKindCreateFunc memKindCb, VPUIP::MemKindCreateFunc secondLevelmemKindCb,
                            bool linearizeSchedule, bool enablePipelining, bool enablePrefetching,
-                           bool optimizeFragmentation, bool optimizeDynamicSpilling, Logger log);
+                           bool optimizeFragmentation, bool optimizeDynamicSpilling, bool enableMultiScheduleHeuristic,
+                           Logger log);
 
 public:
     mlir::LogicalResult initialize(mlir::MLIRContext* ctx) final;
@@ -226,19 +227,22 @@ private:
     bool _enableScheduleStatistics{false};
     bool _optimizeFragmentation{true};
     bool _optimizeDynamicSpilling{true};
+    bool _enableMultiScheduleHeuristic{false};
 };
 
 FeasibleAllocationPass::FeasibleAllocationPass(VPUIP::MemKindCreateFunc memKindCb,
                                                VPUIP::MemKindCreateFunc secondLvlmemKindCb, bool linearizeSchedule,
                                                bool enablePipelining, bool enablePrefetching,
-                                               bool optimizeFragmentation, bool optimizeDynamicSpilling, Logger log)
+                                               bool optimizeFragmentation, bool optimizeDynamicSpilling,
+                                               bool enableMultiScheduleHeuristic, Logger log)
         : _memKindCb(std::move(memKindCb)),
           _secondLvlMemKindCb(std::move(secondLvlmemKindCb)),
           _linearizeSchedule(linearizeSchedule),
           _enablePipelining(enablePipelining),
           _enablePrefetching(enablePrefetching),
           _optimizeFragmentation(optimizeFragmentation),
-          _optimizeDynamicSpilling(optimizeDynamicSpilling) {
+          _optimizeDynamicSpilling(optimizeDynamicSpilling),
+          _enableMultiScheduleHeuristic(enableMultiScheduleHeuristic) {
     Base::initLogger(log, Base::getArgumentName());
 }
 
@@ -626,7 +630,6 @@ void FeasibleAllocationPass::safeRunOnFunc() {
 
     auto& ctx = getContext();
     auto func = getOperation();
-
     auto module = func->getParentOfType<mlir::ModuleOp>();
 
     // cluster information
@@ -666,7 +669,8 @@ void FeasibleAllocationPass::safeRunOnFunc() {
 
     // feasible memory scheduler - list scheduler
     FeasibleMemoryScheduler scheduler(_memKind, _secondLvlMemKind, liveRangeInfo, depsInfo, _log, scan, arch, costModel,
-                                      tileCount, dmaCount, _enableScheduleStatistics, _optimizeFragmentation);
+                                      tileCount, dmaCount, _enableScheduleStatistics, _optimizeFragmentation,
+                                      /*activelySpillForPrefetching*/ false);
 
     // 1. initial schedule
     auto scheduledOps = scheduler.generateSchedule();
@@ -680,8 +684,6 @@ void FeasibleAllocationPass::safeRunOnFunc() {
         PrefetchDataOps prefetching(scheduledOps, depsInfo);
         if (prefetching.enableDataOpPrefetching()) {
             VPUIP::moveDeclarationsToTop(func);
-            LinearScan<mlir::Value, LinearScanHandler> prefetchScan(maxSize.count(), reservedMemVec, alignment);
-            auto prefetchLiveRangeInfo = MemLiveRangeInfoMemType<VPU::MemoryKind::CMX_NN>{func, aliasesInfo};
             // prefetching logic has reordered IR, depsInfo needs to be regenerated since
             // scheduling depends on incrementing value of async-deps-info along IR
             depsInfo = AsyncDepsInfo{func};
@@ -689,11 +691,63 @@ void FeasibleAllocationPass::safeRunOnFunc() {
                 linearizeComputeOps(_linearizeSchedule, _enablePipelining, func, depsInfo);
             }
 
-            FeasibleMemoryScheduler schedulerWithPrefetch(_memKind, _secondLvlMemKind, prefetchLiveRangeInfo, depsInfo,
-                                                          _log, prefetchScan, arch, costModel, tileCount, dmaCount,
-                                                          _enableScheduleStatistics, _optimizeFragmentation);
-            scheduledOps = schedulerWithPrefetch.generateSchedule();
-            scan = std::move(prefetchScan);
+            ConcurrentMemorySchedulerRunner runner{&ctx, _log};
+            std::vector<ConcurrentMemorySchedulerRunner::SchedulerTask> tasks;
+            auto liveRange = MemLiveRangeInfoMemType<VPU::MemoryKind::CMX_NN>{
+                    func, AliasesInfoMemType<VPU::MemoryKind::CMX_NN>(func)};
+
+            // Prefetch scheduler task
+            LinearScan<mlir::Value, LinearScanHandler> prefetchScan(maxSize.count(), reservedMemVec, alignment);
+            auto scheduleFuncBase = [&](AsyncDepsInfo& taskDepsInfo,
+                                        LinearScan<mlir::Value, LinearScanHandler>& taskScan,
+                                        MemLiveRangeInfoMemType<VPU::MemoryKind::CMX_NN>& liveRange)
+                    -> FeasibleMemoryScheduler::ScheduledOpInfoVec {
+                FeasibleMemoryScheduler schedulerWithPrefetch(_memKind, _secondLvlMemKind, liveRange, taskDepsInfo,
+                                                              _log, taskScan, arch, costModel, tileCount, dmaCount,
+                                                              _enableScheduleStatistics, _optimizeFragmentation,
+                                                              /*activelySpillForPrefetching*/ false);
+                return schedulerWithPrefetch.generateSchedule();
+            };
+            tasks.emplace_back(scheduleFuncBase, depsInfo, prefetchScan, liveRange);
+
+            // Aggressive prefetch scheduler task
+            // Different from prefetch scheduler task, this scheduler actively spill buffers to resolve memory
+            // fragmentation It's more likely to successfully prefetch data ops ConcurrentMemorySchedulerRunner executes
+            // tasks concurrently and get the best result When memory fragmentation happens, aggressive prefetch
+            // scheduler gets different result Otherwise the results should be the same
+            if (_enableMultiScheduleHeuristic) {
+                auto scheduleFuncAggressive = [&](AsyncDepsInfo& taskDepsInfo,
+                                                  LinearScan<mlir::Value, LinearScanHandler>& taskScan,
+                                                  MemLiveRangeInfoMemType<VPU::MemoryKind::CMX_NN>& liveRange)
+                        -> FeasibleMemoryScheduler::ScheduledOpInfoVec {
+                    FeasibleMemoryScheduler schedulerWithAggressivePrefetch(
+                            _memKind, _secondLvlMemKind, liveRange, taskDepsInfo, _log, taskScan, arch, costModel,
+                            tileCount, dmaCount, _enableScheduleStatistics, _optimizeFragmentation,
+                            /*activelySpillForPrefetching*/ true);
+                    const auto& res = schedulerWithAggressivePrefetch.generateSchedule();
+                    if (_enableScheduleStatistics) {
+                        schedulerWithAggressivePrefetch.printFragmentFixCountLog();
+                    }
+                    return res;
+                };
+                // depsInfo and prefetchScan are copied for each task, so it's safe to reuse them
+                tasks.emplace_back(scheduleFuncAggressive, depsInfo, std::move(prefetchScan), liveRange,
+                                   SchedulerType::AggressivePrefetch);
+            }
+
+            // Execute all scheduling tasks concurrently using the runner.
+            runner.runTasks(std::move(tasks));
+            // Retrieve the best schedule result from the completed tasks.
+            auto& bestSchedule = runner.getBestSchedule();
+            // Throw an exception if the best schedule generation failed, which means all tasks failed.
+            VPUX_THROW_WHEN(mlir::failed(bestSchedule.result), "Schedule failed due to {0}", bestSchedule.errorMsg);
+            if (_enableScheduleStatistics) {
+                runner.printSchedulersCosts();
+            }
+            // Update the schedule state with the result from the best schedule.
+            scan = std::move(bestSchedule.result.value().scan);
+            scheduledOps = std::move(bestSchedule.result.value().scheduledOps);
+            depsInfo = std::move(bestSchedule.result.value().depsInfo);
             scheduler.cleanUpAndLogSchedule(scheduledOps);
         }
     }
@@ -808,8 +862,8 @@ void FeasibleAllocationPass::safeRunOnFunc() {
 std::unique_ptr<mlir::Pass> vpux::VPUIP::createFeasibleAllocationPass(
         MemKindCreateFunc memKindCb, MemKindCreateFunc secondLvlmemKindCb, const bool linearizeSchedule,
         const bool enablePrefetching, const bool enablePipelining, const bool optimizeFragmentation,
-        const bool optimizeDynamicSpilling, Logger log) {
-    return std::make_unique<FeasibleAllocationPass>(std::move(memKindCb), std::move(secondLvlmemKindCb),
-                                                    linearizeSchedule, enablePipelining, enablePrefetching,
-                                                    optimizeFragmentation, optimizeDynamicSpilling, log);
+        const bool optimizeDynamicSpilling, const bool enableMultiScheduleHeuristic, Logger log) {
+    return std::make_unique<FeasibleAllocationPass>(
+            std::move(memKindCb), std::move(secondLvlmemKindCb), linearizeSchedule, enablePipelining, enablePrefetching,
+            optimizeFragmentation, optimizeDynamicSpilling, enableMultiScheduleHeuristic, log);
 }

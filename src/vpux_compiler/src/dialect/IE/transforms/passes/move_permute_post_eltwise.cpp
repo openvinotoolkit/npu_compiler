@@ -666,6 +666,11 @@ mlir::LogicalResult PermuteEltwiseDiffLayoutRewriter::matchAndRewrite(IE::AddOp 
     const auto firstLeftType = mlir::cast<vpux::NDTypeInterface>(firstLeftValue.getType());
     const auto firstRightType = mlir::cast<vpux::NDTypeInterface>(firstRightValue.getType());
 
+    if ((isLeftNCEOp && firstLeftType.getDimsOrder() != DimsOrder::NHWC) ||
+        (isRightNCEOp && firstRightType.getDimsOrder() != DimsOrder::NHWC)) {
+        return matchFailed(_log, rewriter, origOp, "Unsupported case: Layout != NHWC for NCE op");
+    }
+
     auto alignment = vpux::VPU::NCEInvariant::getAlignment(firstLeftType.getElementType());
     auto logCb = [&](const formatv_object_base& msg) {
         _log.trace("{0}", msg.str());
@@ -750,7 +755,7 @@ void MovePermutePostEltwisePass::safeRunOnFunc() {
     patterns.add<PermuteEltwiseRewriter<IE::AvgPoolOp>>(&ctx, verifyAvgPool, 1, _log);
     patterns.add<PermuteEltwiseDiffLayoutRewriter>(&ctx, _log);
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
         return;
     }

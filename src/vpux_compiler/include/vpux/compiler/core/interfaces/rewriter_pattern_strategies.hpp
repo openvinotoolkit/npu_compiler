@@ -5,8 +5,10 @@
 
 #pragma once
 
+#include "vpux/utils/core/small_vector.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
+#include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/DialectConversion.h>
 
 namespace vpux {
@@ -30,6 +32,16 @@ public:
 
     virtual void addPatterns(mlir::RewritePatternSet& patterns, Logger& log) const = 0;
     virtual void markOpLegality(mlir::ConversionTarget& target, Logger& log) const = 0;
+};
+
+/*
+   Interface for implementing platform specific rewriter patterns applied using the Iterative Walk Driver
+*/
+class IIterativeWalkPassStrategy {
+public:
+    virtual ~IIterativeWalkPassStrategy() = default;
+
+    virtual void addPatterns(SmallVector<mlir::RewritePatternSet>& patterns, Logger& log) const = 0;
 };
 
 }  // namespace vpux

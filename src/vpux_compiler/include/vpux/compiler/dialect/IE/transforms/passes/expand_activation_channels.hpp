@@ -253,5 +253,22 @@ private:
     Logger _log;
 };
 
+//
+// FlashSDPARewriter
+//
+
+class FlashSDPARewriter final : public mlir::OpRewritePattern<IE::FlashSDPAOp> {
+public:
+    FlashSDPARewriter(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::FlashSDPAOp>(ctx), _log(std::move(log)) {
+        setDebugName("FlashSDPARewriter");
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::FlashSDPAOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
 }  // namespace IE
 }  // namespace vpux

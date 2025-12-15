@@ -10,7 +10,7 @@
 #include "vpux/utils/core/numeric.hpp"
 
 #include <mlir/Dialect/Func/IR/FuncOps.h>
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 
 namespace vpux {
 

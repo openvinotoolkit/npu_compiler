@@ -23,6 +23,11 @@ TEST_P(GroupConvBackpropLayerTestCommon, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
+TEST_P(GroupConvBackpropLayerTestCommon, NPU5010_HW) {
+    abs_threshold = 0.1;
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
 }  // namespace test
 }  // namespace ov
 

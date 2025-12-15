@@ -1031,9 +1031,9 @@ func.func @SplitNCEConvOverOH(%arg0: tensor<1x32x64x64xf16, {order = #NHWC}>) ->
 !qElemType1 = !quant.uniform<u8:f16, 0.054779411764705882>
 !qElemType2 = !quant.uniform<u8<0:254>:f16, 8.7179349163385824E-4:127>
 
-// CHECK-LABEL:   @SplitQuantNCEConvOverOC
+// CHECK-LABEL:   @SplitQuantNCEConvOverOH
 // CHECK-SAME:          [[INPUT:%arg[0-9]]]: tensor<1x32x64x64x!qElemType, {order = #NHWC}>
-func.func @SplitQuantNCEConvOverOC(%arg0: tensor<1x32x64x64x!qElemType, {order = #NHWC}>) -> tensor<1x512x64x64x!qElemType1, {order = #NHWC}> {
+func.func @SplitQuantNCEConvOverOH(%arg0: tensor<1x32x64x64x!qElemType, {order = #NHWC}>) -> tensor<1x512x64x64x!qElemType1, {order = #NHWC}> {
     %weights = const.Declare tensor<512x32x3x3x!qElemType2, {order = #NHWC}> = dense<1.000000e+00> : tensor<512x32x3x3xf16>, [#const.CastElemType<ui8>, #const.CastElemType<!qElemType2>, #const.Reorder<#NHWC>]
     %weights_table = const.Declare tensor<512x1x1x4xsi32, {order = #NCHW}> = dense<10> : tensor<512x1x1x4xsi32>
 
@@ -1046,27 +1046,80 @@ func.func @SplitQuantNCEConvOverOC(%arg0: tensor<1x32x64x64x!qElemType, {order =
 
     return %0 : tensor<1x512x64x64x!qElemType1, {order = #NHWC}>
 
-// CHECK:    [[WEIGHTS_TABLE_TILE:%.+]] = const.Declare tensor<512x32x3x3x!qElemType2,
+// CHECK:    [[FILTER:%.+]] = const.Declare tensor<512x32x3x3x!qElemType2,
 // CHECK-SAME:    {order = #NHWC}> = dense<1.000000e+00> : tensor<512x32x3x3xf16>, [#const.CastElemType<ui8>, #const.CastElemType<!qElemType2>, #const.Reorder<#NHWC>]
-// CHECK:    [[FILTER_TILE:%.+]] = const.Declare tensor<512x1x1x4xsi32,
+// CHECK:    [[WEIGHTS_TABLE:%.+]] = const.Declare tensor<512x1x1x4xsi32,
 // CHECK-SAME:  {order = #NCHW}> = dense<10> : tensor<512x1x1x4xsi32>
 // CHECK:    [[SLICE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 32, 33, 64]
 // CHECK-SAME:  tensor<1x32x64x64x!qElemType, {order = #NHWC}> to tensor<1x32x33x64x!qElemType, {order = #NHWC}>
-// CHECK:    [[CONV0:%.+]] = VPU.NCE.Convolution([[SLICE0]], [[WEIGHTS_TABLE_TILE]], [[FILTER_TILE]])
+// CHECK:    [[CONV0:%.+]] = VPU.NCE.Convolution([[SLICE0]], [[FILTER]], [[WEIGHTS_TABLE]])
 // CHECK-SAME:  pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 0 : i64>,
 // CHECK-SAME:  rawFilterShape = [512, 32, 3, 3], strides = [1, 1]}
 // CHECK-SAME:  -> tensor<1x512x32x64x!qElemType1, {order = #NHWC}>
 // CHECK:    [[SLICE1:%.+]] = VPU.Slice [[INPUT]] [0, 0, 31, 0] [1, 32, 33, 64]
 // CHECK-SAME:   tensor<1x32x64x64x!qElemType, {order = #NHWC}> to tensor<1x32x33x64x!qElemType, {order = #NHWC}>
-// CHECK:    [[CONV1:%.+]] = VPU.NCE.Convolution([[SLICE1]], [[WEIGHTS_TABLE_TILE]], [[FILTER_TILE]])
+// CHECK:    [[CONV1:%.+]] = VPU.NCE.Convolution([[SLICE1]], [[FILTER]], [[WEIGHTS_TABLE]])
 // CHECK-SAME:  pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64>,
 // CHECK-SAME:  rawFilterShape = [512, 32, 3, 3], strides = [1, 1]}
 // CHECK-SAME:  -> tensor<1x512x32x64x!qElemType1, {order = #NHWC}>
 // CHECK:    [[CONCAT:%.+]] = VPU.Concat([[CONV0]], [[CONV1]])
-// CHECK-LITERAL:  {static_offsets = [[0, 0, 0, 0], [0, 0, 32, 0]]}
+// CHECK{LITERAL}:  {static_offsets = [[0, 0, 0, 0], [0, 0, 32, 0]]}
 // CHECK-SAME:   tensor<1x512x32x64x!qElemType1, {order = #NHWC}>, tensor<1x512x32x64x!qElemType1, {order = #NHWC}>
 // CHECK-SAME:  -> tensor<1x512x64x64x!qElemType1, {order = #NHWC}>
 // CHECK:    return [[CONCAT]] : tensor<1x512x64x64x!qElemType1, {order = #NHWC}>
+}
+
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+!qElemType = !quant.uniform<u8:f16, 0.96372549019607844>
+!qElemType1 = !quant.uniform<u8:f16, 0.054779411764705882>
+!qElemType2 = !quant.uniform<u8<0:254>:f16, 8.7179349163385824E-4:127>
+
+//CHECK-LABEL:   @SplitQuantNCEConvOverOC
+//CHECK-SAME:         [[INPUT:%arg[0-9]]]: tensor<1x32x16x16x!qElemType, {order = #NHWC}>
+
+func.func @SplitQuantNCEConvOverOC(%arg0: tensor<1x32x16x16x!qElemType, {order = #NHWC}>) -> tensor<1x9216x16x16x!qElemType1, {order = #NHWC}> {
+    %weights = const.Declare tensor<9216x32x3x3x!qElemType2, {order = #NHWC}> = dense<1.000000e+00> : tensor<9216x32x3x3xf16>, [#const.CastElemType<ui8>, #const.CastElemType<!qElemType2>, #const.Reorder<#NHWC>]
+    %weights_table = const.Declare tensor<9216x1x1x4xsi32, {order = #NCHW}> = dense<10> : tensor<9216x1x1x4xsi32>
+
+    %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) {
+        ppe = #VPU.PPEStub<>,
+        pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+        rawFilterShape = [9216, 32, 3, 3],
+        strides = [1, 1]
+    } : tensor<1x32x16x16x!qElemType, {order = #NHWC}>, tensor<9216x32x3x3x!qElemType2, {order = #NHWC}>, tensor<9216x1x1x4xsi32, {order = #NCHW}> -> tensor<1x9216x16x16x!qElemType1, {order = #NHWC}>
+
+    return %0 : tensor<1x9216x16x16x!qElemType1, {order = #NHWC}>
+    // CHECK:        [[WT_TABLE2:%.+]] = const.Declare tensor<3072x1x1x4xsi32> = dense<10> : tensor<9216x1x1x4xsi32>, [#const.SubView<[6144, 0, 0, 0], [3072, 1, 1, 4]>]
+    // CHECK:        [[FILTER2:%.+]] = const.Declare tensor<3072x32x3x3x!qElemType2, {order = #NHWC}> = dense<1.000000e+00> : tensor<9216x32x3x3xf16>, [#const.SubView<[6144, 0, 0, 0], [3072, 32, 3, 3]>, #const.CastElemType<ui8>, #const.CastElemType<!qElemType2>, #const.Reorder<#NHWC>]
+
+    // CHECK:        [[WT_TABLE1:%.+]] = const.Declare tensor<3072x1x1x4xsi32> = dense<10> : tensor<9216x1x1x4xsi32>, [#const.SubView<[3072, 0, 0, 0], [3072, 1, 1, 4]>]
+    // CHECK:        [[FILTER1:%.+]] = const.Declare tensor<3072x32x3x3x!qElemType2, {order = #NHWC}> = dense<1.000000e+00> : tensor<9216x32x3x3xf16>, [#const.SubView<[3072, 0, 0, 0], [3072, 32, 3, 3]>, #const.CastElemType<ui8>, #const.CastElemType<!qElemType2>, #const.Reorder<#NHWC>]
+
+    // CHECK:        [[FILTER0:%.+]] = const.Declare tensor<3072x32x3x3x!qElemType2, {order = #NHWC}> = dense<1.000000e+00> : tensor<9216x32x3x3xf16>, [#const.SubView<[0, 0, 0, 0], [3072, 32, 3, 3]>, #const.CastElemType<ui8>, #const.CastElemType<!qElemType2>, #const.Reorder<#NHWC>]
+    // CHECK:        [[WT_TABLE0:%.+]] = const.Declare tensor<3072x1x1x4xsi32> = dense<10> : tensor<9216x1x1x4xsi32>, [#const.SubView<[0, 0, 0, 0], [3072, 1, 1, 4]>]
+
+    // CHECK:        [[CONV0:%.+]] = VPU.NCE.Convolution([[INPUT]], [[FILTER0]], [[WT_TABLE0]])
+    // CHECK-SAME:                  {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>,
+    // CHECK-SAME:                  rawFilterShape = [3072, 32, 3, 3], strides = [1, 1]} : tensor<1x32x16x16x!qElemType, {order = #NHWC}>, tensor<3072x32x3x3x!qElemType2, {order = #NHWC}>, tensor<3072x1x1x4xsi32>
+    // CHECK-SAME:                  -> tensor<1x3072x16x16x!qElemType1, {order = #NHWC}>
+
+    // CHECK:        [[CONV1:%.+]] = VPU.NCE.Convolution([[INPUT]], [[FILTER1]], [[WT_TABLE1]])
+    // CHECK-SAME:                  {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>,
+    // CHECK-SAME:                  rawFilterShape = [3072, 32, 3, 3], strides = [1, 1]} : tensor<1x32x16x16x!qElemType, {order = #NHWC}>, tensor<3072x32x3x3x!qElemType2, {order = #NHWC}>, tensor<3072x1x1x4xsi32>
+    // CHECK-SAME:                  -> tensor<1x3072x16x16x!qElemType1, {order = #NHWC}>
+
+    // CHECK:        [[CONV2:%.+]] = VPU.NCE.Convolution([[INPUT]], [[FILTER2]], [[WT_TABLE2]])
+    // CHECK-SAME:                  {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>,
+    // CHECK-SAME:                  rawFilterShape = [3072, 32, 3, 3], strides = [1, 1]} : tensor<1x32x16x16x!qElemType, {order = #NHWC}>, tensor<3072x32x3x3x!qElemType2, {order = #NHWC}>, tensor<3072x1x1x4xsi32>
+    // CHECK-SAME:                  -> tensor<1x3072x16x16x!qElemType1, {order = #NHWC}>
+
+    // CHECK:        [[CONCAT:%.+]] = VPU.Concat([[CONV0]], [[CONV1]], [[CONV2]])
+    // CHECK-SAME{LITERAL}:      {static_offsets = [[0, 0, 0, 0], [0, 3072, 0, 0], [0, 6144, 0, 0]]} : tensor<1x3072x16x16x!qElemType1, {order = #NHWC}>, tensor<1x3072x16x16x!qElemType1, {order = #NHWC}>, tensor<1x3072x16x16x!qElemType1, {order = #NHWC}> -> tensor<1x9216x16x16x!qElemType1, {order = #NHWC}>
+    // CHECK:        return [[CONCAT]] : tensor<1x9216x16x16x!qElemType1, {order = #NHWC}>
 }
 
 // -----

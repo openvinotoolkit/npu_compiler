@@ -35,8 +35,6 @@ void vpux::buildLowerVPU2VPUIPPipeline(mlir::OpPassManager& pm, bool enableInPla
                                        bool useMemrefForHostFunctionBufferization, Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
 
-    pm.addPass(createAdjustDynamicOpsBeforeBufferizationPass());
-    pm.addPass(VPU::createLegalizeDynamicShapeConcatForSWLayersPass(log));
     if (enableInPlaceBufferization) {
         pm.addPass(createInPlaceBufferizationAnalyzePass());
     }

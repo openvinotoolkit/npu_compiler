@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --adjust-memory-space-for-shv-ops %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // Case A: Not all input and output tensors fit in CMX. Try to work as much as possible with CMX.
 // The input tensor is smaller so it will be placed in DDR, while the output will be placed in CMX.

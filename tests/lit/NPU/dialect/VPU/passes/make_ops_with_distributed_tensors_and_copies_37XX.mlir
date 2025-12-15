@@ -1964,22 +1964,23 @@ func.func @EltwiseAddToDistributedOpSOHDuplicatedIn(%arg0: tensor<1x3x52x104xf16
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @TopKSWTilingSOH
+// CHECK-SAME:  ([[INPUT:%.+]]: tensor<1x31x103x513xf16, {order = #NHWC}>)
 func.func @TopKSWTilingSOH(%arg0: tensor<1x31x103x513xf16, {order = #NHWC}>) -> tensor<1x1x103x513xsi32, {order = #NHWC}> {
-    %cst = const.Declare tensor<1x1x1x16xui8, {order = #NHWC}> = dense<0> : tensor<1x1x1x16xui8>, [#const.Reorder<#NHWC>]
-    %output_values, %target_shape = VPU.TopK(%arg0, %cst) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>,
-        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, operandSegmentSizes = array<i32: 1, 0, 1>, sort = #IE.topk_sort_type<SORT_INDICES>}
-            : tensor<1x31x103x513xf16, {order = #NHWC}>, tensor<1x1x1x16xui8, {order = #NHWC}> -> tensor<1x1x103x513xf16, {order = #NHWC}>, tensor<1x1x103x513xsi32, {order = #NHWC}>
+    %aux = const.Declare tensor<1x1x1x496xui8> = dense<0> : tensor<1x1x1x496xui8>
+    %output_values, %target_shape = VPU.TopK(%arg0, %aux) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, sort = #IE.topk_sort_type<SORT_INDICES>}
+            : tensor<1x31x103x513xf16, {order = #NHWC}>, tensor<1x1x1x496xui8> -> tensor<1x1x103x513xf16, {order = #NHWC}>, tensor<1x1x103x513xsi32, {order = #NHWC}>
 
     return %target_shape : tensor<1x1x103x513xsi32, {order = #NHWC}>
 
-    //CHECK:        [[CST:%.+]] = const.Declare tensor<1x1x1x16xui8, {order = #NHWC}> = dense<0> : tensor<1x1x1x16xui8>, [#const.Reorder<#NHWC>]
-    //CHECK:        [[INPUT:%.+]] = VPU.Copy
+    //CHECK:        [[AUX:%.+]] = const.Declare tensor<1x1x1x496xui8> = dense<0> : tensor<1x1x1x496xui8>
+
+    //CHECK:        [[INPUT_CMX:%.+]] = VPU.Copy([[INPUT]])
     //CHECK-SAME:   -> !VPU.DistributedTensor<1x31x103x513xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
+    //CHECK:        [[AUX_CMX:%.+]] = VPU.Copy([[AUX]])
+    //CHECK-SAME:   -> !VPU.DistributedTensor<1x1x1x496xui8, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
 
-    //CHECK:        [[AUX_BUFFER:%.+]] = VPU.Copy([[CST]]
-    //CHECK:         -> !VPU.DistributedTensor<1x1x1x16xui8, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
-
-    //CHECK:        [[OUTPUT:%.+]], [[TARGET:%.+]] = VPU.TopK([[INPUT]], [[AUX_BUFFER]])
+    //CHECK:        [[OUTPUT:%.+]], [[TARGET:%.+]] = VPU.TopK([[INPUT_CMX]], [[AUX_CMX]])
     //CHECK-SAME:   -> !VPU.DistributedTensor<1x1x103x513xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>,
     //CHECK-SAME:   !VPU.DistributedTensor<1x1x103x513xsi32, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
 
@@ -1997,22 +1998,23 @@ func.func @TopKSWTilingSOH(%arg0: tensor<1x31x103x513xf16, {order = #NHWC}>) -> 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @TopKSWTilingSOK
+// CHECK-SAME:  ([[INPUT:%.+]]: tensor<1x103x513x31xf16, {order = #NHWC}>)
 func.func @TopKSWTilingSOK(%arg0: tensor<1x103x513x31xf16, {order = #NHWC}>) -> tensor<1x103x513x1xsi32, {order = #NHWC}> {
-    %cst = const.Declare tensor<1x1x1x496xui8, {order = #NHWC}> = dense<0> : tensor<1x1x1x496xui8>, [#const.Reorder<#NHWC>]
-    %output_values, %target_shape = VPU.TopK(%arg0, %cst) {axis = 3 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>,
-        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, operandSegmentSizes = array<i32: 1, 0, 1>, sort = #IE.topk_sort_type<SORT_INDICES>}
-            : tensor<1x103x513x31xf16, {order = #NHWC}>, tensor<1x1x1x496xui8, {order = #NHWC}> -> tensor<1x103x513x1xf16, {order = #NHWC}>, tensor<1x103x513x1xsi32, {order = #NHWC}>
+    %aux = const.Declare tensor<1x1x1x496xui8> = dense<0> : tensor<1x1x1x496xui8>
+    %output_values, %target_shape = VPU.TopK(%arg0, %aux) {axis = 3 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, sort = #IE.topk_sort_type<SORT_INDICES>}
+            : tensor<1x103x513x31xf16, {order = #NHWC}>, tensor<1x1x1x496xui8> -> tensor<1x103x513x1xf16, {order = #NHWC}>, tensor<1x103x513x1xsi32, {order = #NHWC}>
 
     return %target_shape : tensor<1x103x513x1xsi32, {order = #NHWC}>
 
-    //CHECK:        [[CST:%.+]] = const.Declare tensor<1x1x1x496xui8, {order = #NHWC}> = dense<0> : tensor<1x1x1x496xui8>, [#const.Reorder<#NHWC>]
-    //CHECK:        [[INPUT:%.+]] = VPU.Copy
+    //CHECK:        [[AUX:%.+]] = const.Declare tensor<1x1x1x496xui8> = dense<0> : tensor<1x1x1x496xui8>
+
+    //CHECK:        [[INPUT_CMX:%.+]] = VPU.Copy([[INPUT]])
     //CHECK-SAME:   -> !VPU.DistributedTensor<1x103x513x31xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+    //CHECK:        [[AUX_CMX:%.+]] = VPU.Copy([[AUX]])
+    //CHECK-SAME:   -> !VPU.DistributedTensor<1x1x1x496xui8, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
 
-    //CHECK:        [[AUX_BUFFER:%.+]] = VPU.Copy([[CST]]
-    //CHECK:         -> !VPU.DistributedTensor<1x1x1x496xui8, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
-
-    //CHECK:        [[OUTPUT:%.+]], [[TARGET:%.+]] = VPU.TopK([[INPUT]], [[AUX_BUFFER]])
+    //CHECK:        [[OUTPUT:%.+]], [[TARGET:%.+]] = VPU.TopK([[INPUT_CMX]], [[AUX_CMX]])
     //CHECK-SAME:   -> !VPU.DistributedTensor<1x103x513x1xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>,
     //CHECK-SAME:   !VPU.DistributedTensor<1x103x513x1xsi32, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
 
@@ -4136,4 +4138,64 @@ func.func @GatherDMA(%input: tensor<1x1x128256x2048xf16>, %indices: tensor<1x1x1
     // CHECK-SAME:      -> tensor<1x1x1024x2048xf16>
 
     // CHECK:        return [[OUT]] : tensor<1x1x1024x2048xf16>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL:   @ReLUSWWithSOH
+// CHECK-SAME:    [[INPUT:%.+]]: tensor<1x32x44x44xf16>
+func.func @ReLUSWWithSOH(%arg0: tensor<1x32x44x44xf16>) -> tensor<1x32x44x44xf16> {
+    %0 = VPU.ReLU(%arg0) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x32x44x44xf16> -> tensor<1x32x44x44xf16>
+    return %0 : tensor<1x32x44x44xf16>
+
+    // CHECK:        [[IN:%.+]] = VPU.Copy([[INPUT]])
+    // CHECK-SAME:                       -> !VPU.DistributedTensor<1x32x44x44xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
+
+    // CHECK:        [[RELU:%.+]] = VPU.ReLU([[IN]])
+    // CHECK-SAME:                       -> !VPU.DistributedTensor<1x32x44x44xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
+
+    // CHECK:        [[OUT:%.+]] = VPU.Copy([[RELU]]
+    // CHECK:        return [[OUT]] : tensor<1x32x44x44xf16>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL:   @ReLUSWWithSOK
+// CHECK-SAME:    [[INPUT:%.+]]: tensor<1x32x1x44xf16>
+func.func @ReLUSWWithSOK(%arg0: tensor<1x32x1x44xf16>) -> tensor<1x32x1x44xf16> {
+    %0 = VPU.ReLU(%arg0) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x32x1x44xf16> -> tensor<1x32x1x44xf16>
+    return %0 : tensor<1x32x1x44xf16>
+
+    // CHECK:        [[IN:%.+]] = VPU.Copy([[INPUT]])
+    // CHECK-SAME:                       -> !VPU.DistributedTensor<1x32x1x44xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+
+    // CHECK:        [[RELU:%.+]] = VPU.ReLU([[IN]])
+    // CHECK-SAME:                       -> !VPU.DistributedTensor<1x32x1x44xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+
+    // CHECK:        [[OUT:%.+]] = VPU.Copy([[RELU]]
+    // CHECK:        return [[OUT]] : tensor<1x32x1x44xf16>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL:   @ReLUSWWithClustering
+// CHECK-SAME:    [[INPUT:%.+]]: tensor<1x1x1x44xf16>
+func.func @ReLUSWWithClustering(%arg0: tensor<1x1x1x44xf16>) -> tensor<1x1x1x44xf16> {
+    %0 = VPU.ReLU(%arg0) {multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>} : tensor<1x1x1x44xf16> -> tensor<1x1x1x44xf16>
+    return %0 : tensor<1x1x1x44xf16>
+
+    // CHECK:        [[IN:%.+]] = VPU.Copy([[INPUT]]
+    // CHECK-SAME:                       -> !VPU.DistributedTensor<1x1x1x44xf16, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
+
+    // CHECK:        [[RELU:%.+]] = VPU.ReLU([[IN]])
+    // CHECK-SAME:                       -> !VPU.DistributedTensor<1x1x1x44xf16, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
+
+    // CHECK:        [[OUT:%.+]] = VPU.Copy([[RELU]]
+    // CHECK:        return [[OUT]] : tensor<1x1x1x44xf16>
 }

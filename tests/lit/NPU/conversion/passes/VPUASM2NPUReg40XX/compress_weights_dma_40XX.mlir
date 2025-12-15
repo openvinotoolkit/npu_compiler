@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --vpu-arch=%arch% --convert-VPUASM-to-NPUReg40XX %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: dev-build && arch-NPU40XX
 
 module @mainModule attributes {config.arch = #config.arch_kind<NPU40XX>} {
   config.ExecutorResource 1 of @DMA_NN

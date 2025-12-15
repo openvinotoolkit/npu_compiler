@@ -10,7 +10,6 @@
 using namespace ov::test::utils;
 
 namespace ov {
-
 namespace test {
 
 class RegionYoloLayerTestCommon : public RegionYoloLayerTest, virtual public VpuOv2LayerTest {
@@ -44,6 +43,10 @@ TEST_P(RegionYoloLayerTestCommon, NPU3720_SW) {
 TEST_P(RegionYoloLayerTestCommon, NPU4000_SW) {
     VpuOv2LayerTest::setReferenceSoftwareMode();
     VpuOv2LayerTest::run(Platform::NPU4000);
+}
+TEST_P(RegionYoloLayerTestCommon, NPU5010_SW) {
+    VpuOv2LayerTest::setReferenceSoftwareMode();
+    VpuOv2LayerTest::run(Platform::NPU5010);
 }
 }  // namespace test
 }  // namespace ov

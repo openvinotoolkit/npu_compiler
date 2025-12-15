@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/act_kernels/shave_binary_resources.h"
 #include "vpux/compiler/conversion.hpp"
+#include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/ops.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/utils.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/ops.hpp"
@@ -12,7 +13,6 @@
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
-#include "vpux/compiler/utils/ELF/utils.hpp"
 
 #include <npu_37xx_nnrt.hpp>
 

@@ -370,7 +370,8 @@ mlir::LogicalResult opWithMaxPoolOptimization(
     rewriter.replaceOpWithNewOp<IE::MaxPoolOp>(origOp, newOp->getResult(0), getIntArrayAttr(ctx, maxPoolKernels),
                                                getIntArrayAttr(ctx, maxPoolStrides), padsAttr, padsAttr,
                                                vpux::IE::RoundingTypeAttr::get(ctx, vpux::IE::RoundingType::FLOOR),
-                                               nullptr, nullptr, nullptr, nullptr);
+                                               nullptr, nullptr, nullptr, nullptr)
+            ->setLoc(loc);
 
     return mlir::success();
 }
@@ -601,8 +602,7 @@ void HandleLargeStridesPass::safeRunOnFunc() {
     mpPatterns.add<GroupConvMPOptimizationRewriter>(&ctx, _log);
     mpPatterns.add<MaxPoolMPOptimizationRewriter>(&ctx, _log);
     mpPatterns.add<AvgPoolMPOptimizationRewriter>(&ctx, _log);
-    if (mlir::failed(
-                mlir::applyPatternsAndFoldGreedily(func, std::move(mpPatterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(mpPatterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 

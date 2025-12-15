@@ -342,7 +342,7 @@ void DecomposeGRUSequencePass::safeRunOnFunc() {
     patterns.add<GRUSequenceOpConverter>(&ctx, benefitLevels[0], _log);
     patterns.add<UnrollGRUSequenceLastPartToGRUCellsRewriter>(&ctx, benefitLevels[1], _log);
     auto func = getOperation();
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

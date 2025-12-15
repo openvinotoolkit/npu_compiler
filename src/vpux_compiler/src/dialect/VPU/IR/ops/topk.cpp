@@ -2,14 +2,41 @@
 // Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache-2.0
 //
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
+
+#include "vpux/compiler/dialect/VPU/utils/auxiliary_buffers.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/attributes_utils.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 
 using namespace vpux;
+
+mlir::Type getAuxiliaryBufferType(mlir::Value input, mlir::IntegerAttr axisAttr) {
+    constexpr int64_t int32Size = sizeof(int32_t);
+
+    const auto axis = parseIntAttr<int64_t>(axisAttr);
+
+    const auto inputType = mlir::cast<vpux::NDTypeInterface>(input.getType());
+    const auto axisDim = inputType.getShape().raw()[axis];
+    const int64_t bufferSizePerShave =
+            axisDim * (2 * std::max(int32Size, inputType.getElemTypeSize().to<Byte>().count()));
+    const auto auxBuffType =
+            mlir::RankedTensorType::get({1, 1, 1, 2 * bufferSizePerShave}, getUInt8Type(input.getContext()));
+    return auxBuffType;
+}
+
+void VPU::TopKOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState, mlir::Value input, mlir::Value k,
+                        mlir::IntegerAttr kValue, mlir::IntegerAttr axis, IE::TopKModeAttr mode,
+                        IE::TopKSortTypeAttr sort, mlir::TypeAttr elementType,
+                        VPU::MultiClusterStrategyAttr multiClusterStrategy) {
+    const auto auxBuffType = getAuxiliaryBufferType(input, axis);
+    auto auxBuffer = VPU::createAuxiliaryBuffer(odsBuilder, odsState.location, auxBuffType);
+    build(odsBuilder, odsState, input, k, auxBuffer, kValue, axis, mode, sort, elementType, multiClusterStrategy);
+}
 
 mlir::LogicalResult vpux::VPU::TopKOp::inferReturnTypes(mlir::MLIRContext* ctx, std::optional<mlir::Location> optLoc,
                                                         mlir::ValueRange operands, mlir::DictionaryAttr attrs,
@@ -199,25 +226,12 @@ bool vpux::VPU::TopKOp::supportCycleCostCalculation() {
     return false;
 }
 
+llvm::LogicalResult VPU::TopKOp::verify() {
+    auto auxBufferType = mlir::cast<NDTypeInterface>(getLineBuffer().getType());
+    auto expectedType = mlir::cast<NDTypeInterface>(getAuxiliaryBufferType(getInput(), getAxisAttr()));
+    return VPU::compareTypes(getOperation()->getLoc(), auxBufferType, expectedType);
+}
+
 SmallVector<mlir::Value> VPU::TopKOp::getAuxiliaryBuffers() {
     return {getLineBuffer()};
-}
-
-mlir::LogicalResult VPU::TopKOp::setAuxiliaryBuffers(ArrayRef<mlir::Value> buffers) {
-    if (buffers.size() != 1 || buffers.front() == nullptr) {
-        return mlir::failure();
-    }
-    getLineBufferMutable().assign(buffers.front());
-    return mlir::success();
-}
-
-SmallVector<mlir::Type> VPU::TopKOp::getBufferTypes() {
-    constexpr int64_t int32Size = sizeof(int32_t);
-
-    const auto inputType = mlir::cast<vpux::NDTypeInterface>(getInput().getType());
-    const auto axisDim = inputType.getShape().raw()[getAxis()];
-    const int64_t bufferSizePerShave =
-            axisDim * (2 * std::max(int32Size, inputType.getElemTypeSize().to<Byte>().count()));
-    const auto auxBuffType = mlir::RankedTensorType::get({1, 1, 1, 2 * bufferSizePerShave}, getUInt8Type(getContext()));
-    return {auxBuffType};
 }

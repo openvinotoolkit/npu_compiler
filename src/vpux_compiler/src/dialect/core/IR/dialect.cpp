@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/core/IR/dialect.hpp"
+#include "vpux/compiler/act_kernels/shave_binary_resources.h"
 #include "vpux/compiler/dialect/core/IR/ops.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/dialect/core/IR/unified_func_inliner_interface.hpp"
@@ -75,6 +76,7 @@ void vpux::Core::CoreDialect::initialize() {
             >();
 
     addInterfaces<CoreInlinerInterface>();
+    addInterfaces<ShaveBinaryResourcesCache>();
 
     vpux::TensorAttr::attachInterface<TensorEncodingVerifier>(*getContext());
 }

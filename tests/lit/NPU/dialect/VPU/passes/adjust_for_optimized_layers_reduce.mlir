@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --adjust-for-optimized-layers %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 
@@ -16,7 +16,8 @@ func.func @AdjustForReduceMinWithKeepDimsAndNWCH(%arg0: tensor<1x1x1x1024xf16, {
 
     // CHECK: [[SHAPECAST_IN:%.*]] = VPU.ShapeCast {shape = [1, 1, 1024, 1]} inputs([[INPUT]] : tensor<1x1x1x1024xf16, {order = #NWCH}>) -> tensor<1x1x1024x1xf16, {order = #NWCH}>
     // CHECK: [[REDUCE_OP:%.*]] = VPU.ReduceMin([[SHAPECAST_IN]]) {axes_value = [2], keep_dims} : tensor<1x1x1024x1xf16, {order = #NWCH}> -> tensor<1x1x1x1xf16, {order = #NWCH}>
-    // CHECK: return [[REDUCE_OP]] : tensor<1x1x1x1xf16, {order = #NWCH}>
+    // CHECK: [[SHAPECAST_OUT:%.*]] = VPU.ShapeCast {shape = [1, 1, 1, 1]} inputs([[REDUCE_OP]] : tensor<1x1x1x1xf16, {order = #NWCH}>) -> tensor<1x1x1x1xf16, {order = #NWCH}>
+    // CHECK: return [[SHAPECAST_OUT]] : tensor<1x1x1x1xf16, {order = #NWCH}>
 }
 
 // -----
@@ -62,7 +63,8 @@ func.func @AdjustForReduceMaxWithKeepDimsAndNWCH(%arg0: tensor<1x1x1x1024xf16, {
 
     // CHECK: [[SHAPECAST_IN:%.*]] = VPU.ShapeCast {shape = [1, 1, 1024, 1]} inputs([[INPUT]] : tensor<1x1x1x1024xf16, {order = #NWCH}>) -> tensor<1x1x1024x1xf16, {order = #NWCH}>
     // CHECK: [[REDUCE_OP:%.*]] = VPU.ReduceMax([[SHAPECAST_IN]]) {axes_value = [2], keep_dims} : tensor<1x1x1024x1xf16, {order = #NWCH}> -> tensor<1x1x1x1xf16, {order = #NWCH}>
-    // CHECK: return [[REDUCE_OP]] : tensor<1x1x1x1xf16, {order = #NWCH}>
+    // CHECK: [[RESHAPE_OUT:%.*]] = VPU.ShapeCast {shape = [1, 1, 1, 1]} inputs([[REDUCE_OP]] : tensor<1x1x1x1xf16, {order = #NWCH}>) -> tensor<1x1x1x1xf16, {order = #NWCH}>
+    // CHECK: return [[RESHAPE_OUT]] : tensor<1x1x1x1xf16, {order = #NWCH}>
 }
 
 // -----
@@ -108,7 +110,8 @@ func.func @AdjustForReduceMeanWithKeepDimsAndNWCH(%arg0: tensor<1x1x1x1024xf16, 
 
     // CHECK: [[SHAPECAST_IN:%.*]] = VPU.ShapeCast {shape = [1, 1, 1024, 1]} inputs([[INPUT]] : tensor<1x1x1x1024xf16, {order = #NWCH}>) -> tensor<1x1x1024x1xf16, {order = #NWCH}>
     // CHECK: [[REDUCE_OP:%.*]] = VPU.ReduceMean([[SHAPECAST_IN]]) {axes_value = [2], keep_dims} : tensor<1x1x1024x1xf16, {order = #NWCH}> -> tensor<1x1x1x1xf16, {order = #NWCH}>
-    // CHECK: return [[REDUCE_OP]] : tensor<1x1x1x1xf16, {order = #NWCH}>
+    // CHECK: [[RESHAPE_OUT:%.*]] = VPU.ShapeCast {shape = [1, 1, 1, 1]} inputs([[REDUCE_OP]] : tensor<1x1x1x1xf16, {order = #NWCH}>) -> tensor<1x1x1x1xf16, {order = #NWCH}>
+    // CHECK: return [[RESHAPE_OUT]] : tensor<1x1x1x1xf16, {order = #NWCH}>
 }
 
 // -----
@@ -154,7 +157,8 @@ func.func @AdjustForReduceSumWithKeepDimsAndNWCH(%arg0: tensor<1x1x1x1024xf16, {
 
     // CHECK: [[SHAPECAST_IN:%.*]] = VPU.ShapeCast {shape = [1, 1, 1024, 1]} inputs([[INPUT]] : tensor<1x1x1x1024xf16, {order = #NWCH}>) -> tensor<1x1x1024x1xf16, {order = #NWCH}>
     // CHECK: [[REDUCE_OP:%.*]] = VPU.ReduceSum([[SHAPECAST_IN]]) {axes_value = [2], keep_dims} : tensor<1x1x1024x1xf16, {order = #NWCH}> -> tensor<1x1x1x1xf16, {order = #NWCH}>
-    // CHECK: return [[REDUCE_OP]] : tensor<1x1x1x1xf16, {order = #NWCH}>
+    // CHECK: [[RESHAPE_OUT:%.*]] = VPU.ShapeCast {shape = [1, 1, 1, 1]} inputs([[REDUCE_OP]] : tensor<1x1x1x1xf16, {order = #NWCH}>) -> tensor<1x1x1x1xf16, {order = #NWCH}>
+    // CHECK: return [[RESHAPE_OUT]] : tensor<1x1x1x1xf16, {order = #NWCH}>
 }
 
 // -----
@@ -200,7 +204,8 @@ func.func @AdjustForReduceProdWithKeepDimsAndNWCH(%arg0: tensor<1x1x1x1024xf16, 
 
     // CHECK: [[SHAPECAST_IN:%.*]] = VPU.ShapeCast {shape = [1, 1, 1024, 1]} inputs([[INPUT]] : tensor<1x1x1x1024xf16, {order = #NWCH}>) -> tensor<1x1x1024x1xf16, {order = #NWCH}>
     // CHECK: [[REDUCE_OP:%.*]] = VPU.ReduceProd([[SHAPECAST_IN]]) {axes_value = [2], keep_dims} : tensor<1x1x1024x1xf16, {order = #NWCH}> -> tensor<1x1x1x1xf16, {order = #NWCH}>
-    // CHECK: return [[REDUCE_OP]] : tensor<1x1x1x1xf16, {order = #NWCH}>
+    // CHECK: [[RESHAPE_OUT:%.*]] = VPU.ShapeCast {shape = [1, 1, 1, 1]} inputs([[REDUCE_OP]] : tensor<1x1x1x1xf16, {order = #NWCH}>) -> tensor<1x1x1x1xf16, {order = #NWCH}>
+    // CHECK: return [[RESHAPE_OUT]] : tensor<1x1x1x1xf16, {order = #NWCH}>
 }
 
 // -----
@@ -246,7 +251,8 @@ func.func @AdjustForReduceL1WithKeepDimsAndNWCH(%arg0: tensor<1x1x1x1024xf16, {o
 
     // CHECK: [[SHAPECAST_IN:%.*]] = VPU.ShapeCast {shape = [1, 1, 1024, 1]} inputs([[INPUT]] : tensor<1x1x1x1024xf16, {order = #NWCH}>) -> tensor<1x1x1024x1xf16, {order = #NWCH}>
     // CHECK: [[REDUCE_OP:%.*]] = VPU.ReduceL1([[SHAPECAST_IN]]) {axes_value = [2], keep_dims} : tensor<1x1x1024x1xf16, {order = #NWCH}> -> tensor<1x1x1x1xf16, {order = #NWCH}>
-    // CHECK: return [[REDUCE_OP]] : tensor<1x1x1x1xf16, {order = #NWCH}>
+    // CHECK: [[RESHAPE_OUT:%.*]] = VPU.ShapeCast {shape = [1, 1, 1, 1]} inputs([[REDUCE_OP]] : tensor<1x1x1x1xf16, {order = #NWCH}>) -> tensor<1x1x1x1xf16, {order = #NWCH}>
+    // CHECK: return [[RESHAPE_OUT]] : tensor<1x1x1x1xf16, {order = #NWCH}>
 }
 
 // -----
@@ -292,7 +298,8 @@ func.func @AdjustForReduceL2WithKeepDimsAndNWCH(%arg0: tensor<1x1x1x1024xf16, {o
 
     // CHECK: [[SHAPECAST_IN:%.*]] = VPU.ShapeCast {shape = [1, 1, 1024, 1]} inputs([[INPUT]] : tensor<1x1x1x1024xf16, {order = #NWCH}>) -> tensor<1x1x1024x1xf16, {order = #NWCH}>
     // CHECK: [[REDUCE_OP:%.*]] = VPU.ReduceL2([[SHAPECAST_IN]]) {axes_value = [2], keep_dims} : tensor<1x1x1024x1xf16, {order = #NWCH}> -> tensor<1x1x1x1xf16, {order = #NWCH}>
-    // CHECK: return [[REDUCE_OP]] : tensor<1x1x1x1xf16, {order = #NWCH}>
+    // CHECK: [[RESHAPE_OUT:%.*]] = VPU.ShapeCast {shape = [1, 1, 1, 1]} inputs([[REDUCE_OP]] : tensor<1x1x1x1xf16, {order = #NWCH}>) -> tensor<1x1x1x1xf16, {order = #NWCH}>
+    // CHECK: return [[RESHAPE_OUT]] : tensor<1x1x1x1xf16, {order = #NWCH}>
 }
 
 // -----
@@ -338,7 +345,8 @@ func.func @AdjustForReduceLogicalAndOpWithKeepDimsAndNWCH(%arg0: tensor<1x1x1x10
 
     // CHECK: [[SHAPECAST_IN:%.*]] = VPU.ShapeCast {shape = [1, 1, 1024, 1]} inputs([[INPUT]] : tensor<1x1x1x1024xf16, {order = #NWCH}>) -> tensor<1x1x1024x1xf16, {order = #NWCH}>
     // CHECK: [[REDUCE_OP:%.*]] = VPU.ReduceLogicalAnd([[SHAPECAST_IN]]) {axes_value = [2], keep_dims} : tensor<1x1x1024x1xf16, {order = #NWCH}> -> tensor<1x1x1x1xf16, {order = #NWCH}>
-    // CHECK: return [[REDUCE_OP]] : tensor<1x1x1x1xf16, {order = #NWCH}>
+    // CHECK: [[RESHAPE_OUT:%.*]] = VPU.ShapeCast {shape = [1, 1, 1, 1]} inputs([[REDUCE_OP]] : tensor<1x1x1x1xf16, {order = #NWCH}>) -> tensor<1x1x1x1xf16, {order = #NWCH}>
+    // CHECK: return [[RESHAPE_OUT]] : tensor<1x1x1x1xf16, {order = #NWCH}>
 }
 
 // -----
@@ -384,7 +392,8 @@ func.func @AdjustForReduceLogicalOrOpWithKeepDimsAndNWCH(%arg0: tensor<1x1x1x102
 
     // CHECK: [[SHAPECAST_IN:%.*]] = VPU.ShapeCast {shape = [1, 1, 1024, 1]} inputs([[INPUT]] : tensor<1x1x1x1024xf16, {order = #NWCH}>) -> tensor<1x1x1024x1xf16, {order = #NWCH}>
     // CHECK: [[REDUCE_OP:%.*]] = VPU.ReduceLogicalOr([[SHAPECAST_IN]]) {axes_value = [2], keep_dims} : tensor<1x1x1024x1xf16, {order = #NWCH}> -> tensor<1x1x1x1xf16, {order = #NWCH}>
-    // CHECK: return [[REDUCE_OP]] : tensor<1x1x1x1xf16, {order = #NWCH}>
+    // CHECK: [[RESHAPE_OUT:%.*]] = VPU.ShapeCast {shape = [1, 1, 1, 1]} inputs([[REDUCE_OP]] : tensor<1x1x1x1xf16, {order = #NWCH}>) -> tensor<1x1x1x1xf16, {order = #NWCH}>
+    // CHECK: return [[RESHAPE_OUT]] : tensor<1x1x1x1xf16, {order = #NWCH}>
 }
 
 // -----

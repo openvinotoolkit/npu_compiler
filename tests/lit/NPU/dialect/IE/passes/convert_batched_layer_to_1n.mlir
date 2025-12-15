@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-batched-layer-to-1n %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 #map = affine_map<(d0, d1, d2, d3) -> (d2, d1, d0, d3)>
 
@@ -294,10 +294,10 @@ func.func @ConvertSigmoid(%arg0: tensor<9376x3x1x1xf16>) -> tensor<9376x3x1x1xf1
     return %0 : tensor<9376x3x1x1xf16>
 
     // CHECK: [[IN_AFFINERESHAPE:%.+]] = IE.AffineReshape([[INPUT]])
-    // CHECK-LITERAL: {dim_mapping = [[0, 1], [1], [2], [3]], shape_value = [1, 28128, 1, 1]} : tensor<9376x3x1x1xf16> -> tensor<1x28128x1x1xf16>
+    // CHECK{LITERAL}: {dim_mapping = [[0, 1], [1], [2], [3]], shape_value = [1, 28128, 1, 1]} : tensor<9376x3x1x1xf16> -> tensor<1x28128x1x1xf16>
     // CHECK: [[SIGMOID:%.+]] = IE.Sigmoid([[IN_AFFINERESHAPE]]) : tensor<1x28128x1x1xf16> -> tensor<1x28128x1x1xf16>
     // CHECK: [[OUT_AFFINERESHAPE:%.+]] = IE.AffineReshape([[SIGMOID]])
-    // CHECK-LITERAL: {dim_mapping = [[0], [0, 1], [2], [3]], shape_value = [9376, 3, 1, 1]} : tensor<1x28128x1x1xf16> -> tensor<9376x3x1x1xf16>
+    // CHECK{LITERAL}: {dim_mapping = [[0], [0, 1], [2], [3]], shape_value = [9376, 3, 1, 1]} : tensor<1x28128x1x1xf16> -> tensor<9376x3x1x1xf16>
 
     // CHECK: return [[OUT_AFFINERESHAPE]] : tensor<9376x3x1x1xf16>
 }
@@ -491,10 +491,10 @@ func.func @BatchConvertTo1N(%arg0: tensor<2x64x38x96xf16>) -> tensor<2x64x38x96x
     return %0 : tensor<2x64x38x96xf32>
 
     // CHECK: [[IN_AFFINERESHAPE:%.+]] = IE.AffineReshape([[INPUT]])
-    // CHECK-LITERAL: {dim_mapping = [[0, 1], [1], [2], [3]], shape_value = [1, 128, 38, 96]} : tensor<2x64x38x96xf16> -> tensor<1x128x38x96xf16>
+    // CHECK{LITERAL}: {dim_mapping = [[0, 1], [1], [2], [3]], shape_value = [1, 128, 38, 96]} : tensor<2x64x38x96xf16> -> tensor<1x128x38x96xf16>
     // CHECK: [[CONVERT:%.+]] = IE.Convert([[IN_AFFINERESHAPE]]) {dstElemType = f32} : tensor<1x128x38x96xf16> -> tensor<1x128x38x96xf32>
     // CHECK: [[OUT_AFFINERESHAPE:%.+]] = IE.AffineReshape([[CONVERT]])
-    // CHECK-LITERAL: {dim_mapping = [[0], [0, 1], [2], [3]], shape_value = [2, 64, 38, 96]} : tensor<1x128x38x96xf32> -> tensor<2x64x38x96xf32>
+    // CHECK{LITERAL}: {dim_mapping = [[0], [0, 1], [2], [3]], shape_value = [2, 64, 38, 96]} : tensor<1x128x38x96xf32> -> tensor<2x64x38x96xf32>
 
     // CHECK: return [[OUT_AFFINERESHAPE]] : tensor<2x64x38x96xf32>
 }

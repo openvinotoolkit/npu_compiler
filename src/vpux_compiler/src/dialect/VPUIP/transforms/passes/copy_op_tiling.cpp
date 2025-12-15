@@ -354,8 +354,7 @@ void CopyOpTilingPass::safeRunOnFunc() {
         mlir::RewritePatternSet patterns(&ctx);
         patterns.add<CopyOpTiling>(&ctx, _log, arch, dmaPortNum);
 
-        if (mlir::failed(
-                    mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+        if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
             signalPassFailure();
         }
     }

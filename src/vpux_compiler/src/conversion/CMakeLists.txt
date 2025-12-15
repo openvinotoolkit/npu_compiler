@@ -18,7 +18,9 @@ add_npu_library(npu_compiler_conversion
         npu_37xx_firmware_headers
         npu_40xx_firmware_headers
         npu_compiler_dialect_npureg40xx
+        npu_compiler_dialect_npureg50xx
         npu_compiler_dialect_elfnpu37xx
+        npu_compiler_dialect_elf_utils
         npu_compiler_dialect_vpurt
         MLIRMathTransforms
     PUBLIC

@@ -21,11 +21,13 @@
 
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/Hashing.h>
+#include <llvm/ADT/StringExtras.h>
 #include <llvm/ADT/bit.h>
 #include <mlir/IR/OpImplementation.h>
 #include <mlir/Support/LLVM.h>
 #include <mlir/Support/LogicalResult.h>
 
+#include "vpux/compiler/core/developer_build_utils.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/types.hpp"
 #include "vpux/utils/core/array_ref.hpp"
 #include "vpux/utils/core/mem_size.hpp"
@@ -498,75 +500,100 @@ public:
     }
 
     void print(mlir::AsmPrinter& printer) const {
-        printer << '<';
-        printer.increaseIndent();
-        printer.printNewline();
-        printer << NAME << " {";
-        printer.increaseIndent();
+        if constexpr (isDeveloperBuild()) {
+            printer << '<';
+            printer.increaseIndent();
+            printer.printNewline();
+            printer << NAME << " {";
+            printer.increaseIndent();
 
-        (RegistersPack::print(printer, static_cast<const Descriptor&>(*this)), ...);
+            (RegistersPack::print(printer, static_cast<const Descriptor&>(*this)), ...);
 
-        printer.decreaseIndent();
-        printer.printNewline();
-        printer << "}";
+            printer.decreaseIndent();
+            printer.printNewline();
+            printer << "}";
 
-        const auto maybeVersion = getDescriptorVersion();
-        if (maybeVersion.has_value()) {
-            printer << " requires " << maybeVersion.value().getMajor() << ":" << maybeVersion.value().getMinor() << ":"
-                    << maybeVersion.value().getPatch();
+            const auto maybeVersion = getDescriptorVersion();
+            if (maybeVersion.has_value()) {
+                printer << " requires " << maybeVersion.value().getMajor() << ":" << maybeVersion.value().getMinor()
+                        << ":" << maybeVersion.value().getPatch();
+            }
+
+            printer.decreaseIndent();
+            printer.printNewline();
+            printer << '>';
+        } else {
+            // On non-developer / non-debug builds, the printer and parser implementation is simplified so that the
+            // descriptor is dumped in the form of a hexadecimal string. This is done in order to reduce the binary size
+            // of the project, as these print / parse methods are created for each class that ends up generated during
+            // build (each descriptor, register and field class)
+            std::string_view data(reinterpret_cast<const char*>(getStorage().data()), getStorage().size());
+            printer << '"' << llvm::toHex(data) << '"';
         }
-
-        printer.decreaseIndent();
-        printer.printNewline();
-        printer << '>';
     }
 
     static std::optional<Descriptor> parse(mlir::AsmParser& parser) {
-        if (parser.parseLess().failed()) {
-            return {};
+        if constexpr (isDeveloperBuild()) {
+            if (parser.parseLess().failed()) {
+                return {};
+            }
+
+            if (std::string parsedName; parser.parseKeywordOrString(&parsedName).failed()) {
+                return {};
+            } else if (parsedName != Descriptor::NAME) {
+                parser.emitError(parser.getCurrentLocation())
+                        << "invalid descriptor name \"" << parsedName << "\", expected " << Descriptor::NAME;
+                return {};
+            }
+
+            auto result = Descriptor{};
+
+            if (parser.parseLBrace().failed()) {
+                return {};
+            }
+
+            auto status = mlir::ParseResult::success();
+            std::ostringstream errorMessage;
+            ([&] {
+                std::tie(status, errorMessage) = RegistersPack::parse(parser, result);
+                return status.succeeded();
+            }() &&
+             ...);
+
+            if (status.failed()) {
+                parser.emitError(parser.getCurrentLocation()) << errorMessage.str();
+                return {};
+            }
+
+            if (parser.parseRBrace().failed()) {
+                return {};
+            }
+
+            const auto [versionParsing, maybeVersion] = parseVersion(parser);
+            if (versionParsing.failed()) {
+                return {};
+            }
+
+            if (parser.parseGreater().failed()) {
+                return {};
+            }
+
+            return result;
+        } else {
+            // On non-developer / non-debug builds, the printer and parser implementation is simplified so that the
+            // descriptor is dumped in the form of a hexadecimal string. This is done in order to reduce the binary size
+            // of the project, as these print / parse methods are created for each class that ends up generated during
+            // build (each descriptor, register and field class)
+            std::string data;
+            if (parser.parseString(&data).failed()) {
+                return {};
+            }
+            auto result = Descriptor{};
+            auto buffer = result.getStorage();
+            auto binaryString = llvm::fromHex(data);
+            std::copy_n(binaryString.data(), buffer.size(), buffer.begin());
+            return result;
         }
-
-        if (std::string parsedName; parser.parseKeywordOrString(&parsedName).failed()) {
-            return {};
-        } else if (parsedName != Descriptor::NAME) {
-            parser.emitError(parser.getCurrentLocation())
-                    << "invalid descriptor name \"" << parsedName << "\", expected " << Descriptor::NAME;
-            return {};
-        }
-
-        auto result = Descriptor{};
-
-        if (parser.parseLBrace().failed()) {
-            return {};
-        }
-
-        auto status = mlir::ParseResult::success();
-        std::ostringstream errorMessage;
-        ([&] {
-            std::tie(status, errorMessage) = RegistersPack::parse(parser, result);
-            return status.succeeded();
-        }() &&
-         ...);
-
-        if (status.failed()) {
-            parser.emitError(parser.getCurrentLocation()) << errorMessage.str();
-            return {};
-        }
-
-        if (parser.parseRBrace().failed()) {
-            return {};
-        }
-
-        const auto [versionParsing, maybeVersion] = parseVersion(parser);
-        if (versionParsing.failed()) {
-            return {};
-        }
-
-        if (parser.parseGreater().failed()) {
-            return {};
-        }
-
-        return result;
     }
 
     std::optional<elf::Version> getDescriptorVersion() const {

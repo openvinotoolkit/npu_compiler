@@ -5,7 +5,7 @@
 
 #include "vpux/compiler/dialect/VPUIP/transforms/passes/unroll_distributed_ops.hpp"
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/factories/unroll_distributed_ops_getter.hpp"
@@ -812,9 +812,10 @@ std::optional<VPUIP::DistributedBufferType> getUniqueNCEInputTypeForPatchingSETa
 // BASE_PTR at Cluster 0:    0 0 0 0 0 0 0 0 0 0 0 0
 // BASE_PTR at Cluster 1:                        1 1 1 1 1 1 1 1 1 1 1 1
 // The third data "2" exists in two clusters on 40XX+
+// TODO: E*188156 - remove usage of base pointers altogether
 mlir::Value VPUIP::patchSETableValue(mlir::Location loc, Const::DeclareOp constOp,
                                      VPUIP::DistributedBufferType nceInputDistType, const int64_t targetClusterId,
-                                     mlir::OpBuilder& builder) {
+                                     mlir::OpBuilder& builder, bool resetBasePtrs) {
     const auto seTableContent = constOp.getContent();
     const auto seTableShape = seTableContent.getType().getShape();
     const auto seTableSize = seTableShape.totalSize();
@@ -879,7 +880,9 @@ mlir::Value VPUIP::patchSETableValue(mlir::Location loc, Const::DeclareOp constO
         newSEPointerOffsets[clusterId] = offsetInBytes;
         cumulativeUniqueLines += clusterUniqueSeVals[clusterId].size();
     }
-
+    // If resetBasePtrs is true, zero out the base pointers in the patched SE table
+    // This is a temporary solution until E*188156 is resolved
+    auto basePtrMask = resetBasePtrs ? 0xFFFFFFE0 : 0xFFFFFFFF;
     // Step 3: Apply patch:
     // patchedSEPointer = currSEPointer - baseSEPointer + newSEPointerOffset + targetClusterId
     for (int64_t idx = 0; idx < seTableSize; ++idx) {
@@ -891,6 +894,7 @@ mlir::Value VPUIP::patchSETableValue(mlir::Location loc, Const::DeclareOp constO
                 seTableVals[idx] = seTableVals[idx] - baseIt->second + offsetIt->second + targetClusterId;
             }
         }
+        seTableVals[idx] = seTableVals[idx] & basePtrMask;
     }
 
     const auto denseAttr = Const::createConstContent(mlir::cast<mlir::RankedTensorType>(seTableContent.getType()),
@@ -1055,7 +1059,8 @@ void VPUIP::ClusterPerElementDMABaseRewriter::unrollSegmentedOrOverlapped(mlir::
                 if (auto nceInputDistType = getUniqueNCEInputTypeForPatchingSETable(cst)) {
                     auto newCstOp = subviewOp.getDefiningOp<Const::DeclareOp>();
                     VPUX_THROW_WHEN(newCstOp == nullptr, "Cannot get the constant operation of SETable");
-                    return VPUIP::patchSETableValue(loc, newCstOp, nceInputDistType.value(), clusterId, builder);
+                    return VPUIP::patchSETableValue(loc, newCstOp, nceInputDistType.value(), clusterId, builder,
+                                                    resetBasePtrs(config::getArch(newCstOp.getOperation())));
                 }
             }
 

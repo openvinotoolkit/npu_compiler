@@ -14,19 +14,20 @@
 
 using namespace vpux;
 
-std::unique_ptr<IGreedilyPassStrategy> VPUIP::createUnrollPermuteDMAStrategy(mlir::func::FuncOp funcOp) {
+std::unique_ptr<IIterativeWalkPassStrategy> VPUIP::createUnrollPermuteDMAStrategy(mlir::func::FuncOp funcOp) {
     const auto arch = config::getArch(funcOp);
 
     auto module = funcOp->getParentOfType<mlir::ModuleOp>();
     auto dmaOp = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
     auto dmaPortCount = dmaOp.getCount();
 
+    auto* ctx = funcOp->getContext();
     switch (arch) {
     case config::ArchKind::NPU37XX:
-        return std::make_unique<VPUIP::arch37xx::UnrollPermuteDMAStrategy>(dmaPortCount);
+        return std::make_unique<VPUIP::arch37xx::UnrollPermuteDMAStrategy>(ctx, dmaPortCount);
         break;
     default:
-        return std::make_unique<VPUIP::arch40xx::UnrollPermuteDMAStrategy>(dmaPortCount);
+        return std::make_unique<VPUIP::arch40xx::UnrollPermuteDMAStrategy>(ctx, dmaPortCount);
         break;
     }
 }

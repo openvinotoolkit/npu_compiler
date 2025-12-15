@@ -40,7 +40,9 @@ void vpux::IE::buildExpandAndOptimizeActivationChannelsPipeline(mlir::OpPassMana
 
         pm.addPass(IE::createAdjustConvolutionWeightsPass(log));
         pm.addPass(IE::createAdjustConvolutionInputShapePass(log));
-        pm.addPass(IE::createAdjustInputShapePass(log));
+        if (options.enableAdjustInputShapePass) {
+            pm.addPass(IE::createAdjustInputShapePass(log));
+        }
         pm.addPass(mlir::createCanonicalizerPass(grc));
         if (options.enableOptimizeSliceExpand) {
             pm.addPass(IE::createOptimizeSliceExpandPass(log));
@@ -191,19 +193,14 @@ void vpux::IE::buildDynamicShapeTransformationsPipeline(mlir::OpPassManager& pm,
     pm.addPass(IE::createPopulateDynamicDimensionsHWPass(log));
     pm.addPass(IE::createPopulateDynamicDimensionsGenericPass(log));
     if (isOptionEnabled(options.enableApplyDynamicBoundaryCorrection)) {
-        // ApplyDynamicBoundaryCorrectionPass creates operations that are later processed by the MLIR pass, which
-        // results in creation of duplicate locations. All duplicate operations are removed later in the pipeline after
-        // the CSE pass.
         pm.addPass(IE::createApplyDynamicBoundaryCorrectionPass(log));
-        // The verifier is disabled before the MLIR pass which cannot be adjusted and then re-enabled after the
-        // locations are fixed to ensure their uniqueness in this part of the pipeline.
-        pm.addPass(Core::createStopLocationVerifierPass(log));
-        pm.addPass(mlir::memref::createResolveShapedTypeResultDimsPass());
-        pm.addPass(IE::createFixDynamicOpsLocationsPass(log));
-        pm.addPass(Core::createStartLocationVerifierPass(log, options.locationsVerificationMode));
-    } else {
-        pm.addPass(mlir::memref::createResolveShapedTypeResultDimsPass());
     }
+    // The verifier is disabled before the MLIR pass which cannot be adjusted and then re-enabled after the
+    // locations are fixed to ensure their uniqueness in this part of the pipeline.
+    pm.addPass(Core::createStopLocationVerifierPass(log));
+    pm.addPass(mlir::memref::createResolveShapedTypeResultDimsPass());
+    pm.addPass(IE::createFixDynamicOpsLocationsPass(log));
+    pm.addPass(Core::createStartLocationVerifierPass(log, options.locationsVerificationMode));
     pm.addPass(IE::createLegalizeReifyResultShapesResidualsPass(log));
     pm.addPass(IE::createPadDynamicInputsPass(log));
     pm.addPass(IE::createDynamicConcatToScatterNDUpdatePass(log));
@@ -291,6 +288,7 @@ void vpux::IE::buildAdjustPrecisionPipeline(mlir::OpPassManager& pm, const Adjus
     pm.addPass(IE::createUseUserPrecisionPass(log));
     pm.addPass(IE::createAdjustSoftwareOpsPrecisionPass(log));
     pm.addPass(IE::createAdjustNCEOpsWithI32InputsPass(log, options.enableConvertFCToConv));
+    pm.addPass(IE::createLegalizeEpsilonUsagePass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
 }
 
@@ -392,11 +390,7 @@ void vpux::IE::buildShaveCodeGenPipeline(mlir::OpPassManager& pm, Logger log) {
     ShaveCodeGen::buildLowerSwLayers2LinalgPipeline(pm, log);
     pm.addPass(mlir::createLinalgElementwiseOpFusionPass());
     pm.addPass(mlir::createCanonicalizerPass());
-
     pm.addPass(ShaveCodeGen::createOutlineCodeGenCapsulesPass());
-    pm.addPass(ShaveCodeGen::createFlattenEltwiseKernelPass());
-    pm.addPass(ShaveCodeGen::createLinalgTileAndFuseSwLayersPass());
-    pm.addPass(mlir::createLinalgGeneralizeNamedOpsPass());
 }
 
 //

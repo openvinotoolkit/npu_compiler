@@ -5,14 +5,16 @@
 
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/normalization.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
+#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
-#include "vpux/compiler/utils/VPU/tile_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/types.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
 #include <mlir/Pass/PassManager.h>
@@ -217,10 +219,8 @@ mlir::LogicalResult ApplyTilingMVN1Sum::initialize(mlir::MLIRContext* ctx) {
 
 class ApplyTilingMVN1Sum::MVN1SumTiling final : public mlir::OpRewritePattern<VPU::MVN1SumOp> {
 public:
-    MVN1SumTiling(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, bool enablePrefetchTiling, Logger log)
-            : mlir::OpRewritePattern<VPU::MVN1SumOp>(ctx, benefit),
-              _enablePrefetchTiling(enablePrefetchTiling),
-              _log(log) {
+    MVN1SumTiling(mlir::MLIRContext* ctx, bool enablePrefetchTiling, Logger log)
+            : mlir::OpRewritePattern<VPU::MVN1SumOp>(ctx), _enablePrefetchTiling(enablePrefetchTiling), _log(log) {
     }
 
 public:
@@ -268,8 +268,7 @@ mlir::LogicalResult ApplyTilingMVN1Sum::MVN1SumTiling::matchAndRewrite(VPU::MVN1
 
 class ApplyTilingMVN1Sum::MVN1SumCorrectHeight final : public mlir::OpRewritePattern<VPU::MVN1SumOp> {
 public:
-    MVN1SumCorrectHeight(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
-            : mlir::OpRewritePattern<VPU::MVN1SumOp>(ctx, benefit), _log(log) {
+    MVN1SumCorrectHeight(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<VPU::MVN1SumOp>(ctx), _log(log) {
     }
 
 public:
@@ -309,13 +308,18 @@ mlir::LogicalResult ApplyTilingMVN1Sum::MVN1SumCorrectHeight::matchAndRewrite(VP
 
 void ApplyTilingMVN1Sum::safeRunOnFunc() {
     auto& ctx = getContext();
-    mlir::RewritePatternSet patterns(&ctx);
-    patterns.add<MVN1SumCorrectHeight>(&ctx, benefitLevels[0], _log);
-    patterns.add<MVN1SumTiling>(&ctx, benefitLevels[1], _enablePrefetchTiling, _log);
-
     auto func = getOperation();
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
+
+    {
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.add<MVN1SumCorrectHeight>(&ctx, _log);
+        collectOpsAndApplyPatterns(func, std::move(patterns));
+    }
+
+    {
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.add<MVN1SumTiling>(&ctx, _enablePrefetchTiling, _log);
+        collectOpsAndApplyPatterns(func, std::move(patterns));
     }
 }
 

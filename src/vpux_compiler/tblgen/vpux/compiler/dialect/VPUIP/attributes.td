@@ -476,6 +476,10 @@ def VPUIP_PhysicalBarrierRangeAttr : VPUIP_Attr<"PhysicalBarrierRange"> {
     let assemblyFormat = "`<` $start `to` $end `>`";
 }
 
+//
+// VPUIP_DynamicScaleConfigAttr
+//
+
 def VPUIP_DynamicSkipMode :
     VPUIP_I64EnumAttr<
         "DynamicSkipMode",
@@ -523,6 +527,50 @@ def VPUIP_DynamicScaleConfigAttr : VPUIP_Attr<"DynamicScaleConfig"> {
 
         OptionalParameter<"mlir::IntegerAttr">:$ppeOverwriteData,
         OptionalParameter<"mlir::ArrayAttr">:$invariantPrimitiveId // IDs for invariant primitives A and B
+    );
+    let assemblyFormat = "`<` struct(params) `>`";
+}
+
+//
+// VPUIP_S2DConfigAttr
+//
+
+def VPUIP_S2DMode :
+    VPUIP_I64EnumAttr<
+        "S2DMode",
+        "S2D/D2S is enabled or disabled",
+        [
+            I64EnumAttrCase<"DISABLED", 0>,
+            I64EnumAttrCase<"S2D", 1>,
+            I64EnumAttrCase<"D2S", 2>
+        ]
+    > {
+}
+
+def VPUIP_S2DModeAttr : VPUIP_EnumAttr<VPUIP_S2DMode, "s2d_mode">;
+
+def VPUIP_S2DVar :
+    VPUIP_I64EnumAttr<
+        "S2DVar",
+        "To select Variant Type",
+        [
+            I64EnumAttrCase<"BLOCK_FIRST",  0>,
+            I64EnumAttrCase<"DEPTH_FIRST",  1>
+        ]
+    > {
+}
+
+def VPUIP_S2DVarAttr : VPUIP_EnumAttr<VPUIP_S2DVar, "s2d_var">;
+
+def VPUIP_S2DConfigAttr : VPUIP_Attr<"S2DConfig"> {
+    let description = [{
+        Config for NCE S2D (Space to Depth) and D2S (Depth to Space) operations
+    }];
+
+    let parameters = (ins
+        "S2DModeAttr":$s2dMode,
+        "S2DVarAttr":$s2dVar,
+        "mlir::IntegerAttr":$s2dBlkSize
     );
     let assemblyFormat = "`<` struct(params) `>`";
 }

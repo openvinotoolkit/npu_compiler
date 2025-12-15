@@ -27,7 +27,7 @@ The **VPUMI37XX Dialect** represents NN RunTime IR together with MappedInference
         "vpux::Const::ConstDialect",
         "vpux::VPUIP::VPUIPDialect",
         "mlir::func::FuncDialect",
-        "mlir::quant::QuantizationDialect",
+        "mlir::quant::QuantDialect",
         "vpux::VPURegMapped::VPURegMappedDialect"
     ];
 

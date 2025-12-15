@@ -4,7 +4,7 @@
 //
 
 // RUN: not vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --debatcher="debatcher-input-coefficients-partitions=[1-2],[2-2]" %s 2>&1 | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 // CHECK: DebatchCoeffDescription expects the batch position to be 0, got: d1 in [1-2]
 func.func @SingleInputSingleOutputBatched(%arg: tensor<6x3x62x62xf32>) -> tensor<6x48x60x57xf32> {

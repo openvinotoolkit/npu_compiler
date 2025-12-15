@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-pad-to-concat %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @convertPadToConcatWithN
 func.func @convertPadToConcatWithN(%arg0: tensor<1x8x16x16xf16>) -> tensor<4x8x16x16xf16> {

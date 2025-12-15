@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --adjust-scale-shift-for-dw-conv %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @AdjustScaleShiftForDWConvWithInputIsConst
 func.func @AdjustScaleShiftForDWConvWithInputIsConst(%arg0: tensor<1x77x1x1xf16>) -> tensor<77x77x3x3xf16> {
@@ -35,10 +35,10 @@ func.func @AdjustScaleShiftForDWConvWithLargeN(%arg0: tensor<1x77x77x9xf16>) -> 
 
     return %result : tensor<77x77x3x3xf16>
 
-    // CHECK-DAG:   [[CST1:%.*]] = const.Declare tensor<1x5929x1x1xf16> = dense<-1.39928699> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>, #const.Broadcast<1 : i64, 77 : i64>, #const.Broadcast<0 : i64, 77 : i64>, #const.Reshape<[1, 5929, 1, 1]>]
     // CHECK:       [[AFFINERESHAPE:%.*]] = IE.AffineReshape(%arg0)
     // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [0], [1], [2, 3]], shape_value = [77, 77, 3, 3]} : tensor<1x77x77x9xf16> -> tensor<77x77x3x3xf16>
     // CHECK:       [[RESHAPE:%.*]] = IE.Reshape([[AFFINERESHAPE]]) {shape_value = [1, 5929, 3, 3]} : tensor<77x77x3x3xf16> -> tensor<1x5929x3x3xf16>
+    // CHECK:       [[CST1:%.*]] = const.Declare tensor<1x5929x1x1xf16> = dense<-1.39928699> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>, #const.Broadcast<1 : i64, 77 : i64>, #const.Broadcast<0 : i64, 77 : i64>, #const.Reshape<[1, 5929, 1, 1]>]
     // CHECK:       [[SCALESHIFT:%.*]] = IE.ScaleShift([[RESHAPE]], [[CST1]]) {operandSegmentSizes = array<i32: 1, 1, 0>} : tensor<1x5929x3x3xf16>, tensor<1x5929x1x1xf16> -> tensor<1x5929x3x3xf16>
     // CHECK:       [[RESULT:%.*]] = IE.Reshape([[SCALESHIFT]]) {shape_value = [77, 77, 3, 3]} : tensor<1x5929x3x3xf16> -> tensor<77x77x3x3xf16>
     // CHECK:       return [[RESULT]] : tensor<77x77x3x3xf16>
@@ -67,11 +67,11 @@ func.func @AdjustScaleShiftForDWConvWithConstantSplatWeight(%arg0: tensor<8x2x64
 
     return %0 : tensor<8x2x64x1xf16>
 
-    // CHECK-DAG:   [[WEIGHTS:%.*]] = const.Declare tensor<1x16x1x1xf16> = dense<-1.500000e+00> : tensor<1x2x1x1xf16>, [#const.Broadcast<0 : i64, 8 : i64>, #const.Reshape<[1, 16, 1, 1]>]
-    // CHECK:       [[RESHAPE:%.*]] = IE.Reshape(%arg0) {shape_value = [1, 16, 64, 1]} : tensor<8x2x64x1xf16> -> tensor<1x16x64x1xf16>
-    // CHECK:       [[SCALESHIFT:%.*]] = IE.ScaleShift([[RESHAPE]], [[WEIGHTS]]) {operandSegmentSizes = array<i32: 1, 1, 0>} : tensor<1x16x64x1xf16>, tensor<1x16x1x1xf16> -> tensor<1x16x64x1xf16>
-    // CHECK:       [[RESULT:%.*]] = IE.Reshape([[SCALESHIFT]]) {shape_value = [8, 2, 64, 1]} : tensor<1x16x64x1xf16> -> tensor<8x2x64x1xf16>
-    // CHECK:       return [[RESULT]] : tensor<8x2x64x1xf16>
+    // CHECK:   [[RESHAPE:%.*]] = IE.Reshape(%arg0) {shape_value = [1, 16, 64, 1]} : tensor<8x2x64x1xf16> -> tensor<1x16x64x1xf16>
+    // CHECK:   [[WEIGHTS:%.*]] = const.Declare tensor<1x16x1x1xf16> = dense<-1.500000e+00> : tensor<1x2x1x1xf16>, [#const.Broadcast<0 : i64, 8 : i64>, #const.Reshape<[1, 16, 1, 1]>]
+    // CHECK:   [[SCALESHIFT:%.*]] = IE.ScaleShift([[RESHAPE]], [[WEIGHTS]]) {operandSegmentSizes = array<i32: 1, 1, 0>} : tensor<1x16x64x1xf16>, tensor<1x16x1x1xf16> -> tensor<1x16x64x1xf16>
+    // CHECK:   [[RESULT:%.*]] = IE.Reshape([[SCALESHIFT]]) {shape_value = [8, 2, 64, 1]} : tensor<1x16x64x1xf16> -> tensor<8x2x64x1xf16>
+    // CHECK:   return [[RESULT]] : tensor<8x2x64x1xf16>
 }
 
 // -----
@@ -107,11 +107,11 @@ func.func @AdjustScaleShiftForDWConvWithConstantSplatBiases(%arg0: tensor<8x2x64
 
     return %0 : tensor<8x2x64x1xf16>
 
-    // CHECK-DAG:   [[BIASES:%.*]] = const.Declare tensor<1x16x1x1xf16> = dense<-1.500000e+00> : tensor<1x2x1x1xf16>, [#const.Broadcast<0 : i64, 8 : i64>, #const.Reshape<[1, 16, 1, 1]>]
-    // CHECK:       [[RESHAPE:%.*]] = IE.Reshape(%arg0) {shape_value = [1, 16, 64, 1]} : tensor<8x2x64x1xf16> -> tensor<1x16x64x1xf16>
-    // CHECK:       [[SCALESHIFT:%.*]] = IE.ScaleShift([[RESHAPE]], [[BIASES]]) {operandSegmentSizes = array<i32: 1, 0, 1>} : tensor<1x16x64x1xf16>, tensor<1x16x1x1xf16> -> tensor<1x16x64x1xf16>
-    // CHECK:       [[RESULT:%.*]] = IE.Reshape([[SCALESHIFT]]) {shape_value = [8, 2, 64, 1]} : tensor<1x16x64x1xf16> -> tensor<8x2x64x1xf16>
-    // CHECK:       return [[RESULT]] : tensor<8x2x64x1xf16>
+    // CHECK:   [[RESHAPE:%.*]] = IE.Reshape(%arg0) {shape_value = [1, 16, 64, 1]} : tensor<8x2x64x1xf16> -> tensor<1x16x64x1xf16>
+    // CHECK:   [[BIASES:%.*]] = const.Declare tensor<1x16x1x1xf16> = dense<-1.500000e+00> : tensor<1x2x1x1xf16>, [#const.Broadcast<0 : i64, 8 : i64>, #const.Reshape<[1, 16, 1, 1]>]
+    // CHECK:   [[SCALESHIFT:%.*]] = IE.ScaleShift([[RESHAPE]], [[BIASES]]) {operandSegmentSizes = array<i32: 1, 0, 1>} : tensor<1x16x64x1xf16>, tensor<1x16x1x1xf16> -> tensor<1x16x64x1xf16>
+    // CHECK:   [[RESULT:%.*]] = IE.Reshape([[SCALESHIFT]]) {shape_value = [8, 2, 64, 1]} : tensor<1x16x64x1xf16> -> tensor<8x2x64x1xf16>
+    // CHECK:   return [[RESULT]] : tensor<8x2x64x1xf16>
 }
 
 // -----

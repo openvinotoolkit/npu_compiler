@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --optimize-activations="enable-fuse-clamp-op=true" %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @OptimizeActivationsConvMaxPoolRelu
 func.func @OptimizeActivationsConvMaxPoolRelu(%arg0: tensor<1x16x5x5xf16>) -> tensor<1x16x3x3xf16> {

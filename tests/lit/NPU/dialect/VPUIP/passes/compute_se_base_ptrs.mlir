@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --mlir-print-elementsattrs-with-hex-if-larger=-1 --compute-se-base-ptrs %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -14,14 +14,12 @@
 !InputSE_DDR = memref<1x1x3x3xi32, #NHWC>
 !Weights_DDR = memref<16x16x1x1xf16, #NHWC>
 !WeightsSM_DDR = memref<16x1x1x128xi1>
-!WeightsTable_DDR = memref<16x1x1x4xsi32>
 
 !Input_CMX = memref<1x16x3x3xf16, #NHWC, [@CMX_NN, 0]>
 !InputSM_CMX = memref<1x16x3x3xi1, #NHWC, [@CMX_NN, 0]>
 !InputSE_CMX = memref<1x1x3x3xi32, #NHWC, [@CMX_NN, 0]>
 !Weights_CMX = memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
 !WeightsSM_CMX = memref<16x1x1x128xi1, [@CMX_NN, 0]>
-!WeightsTable_CMX = memref<16x1x1x4xsi32, [@CMX_NN, 0]>
 !Output_CMX = memref<1x16x3x3xf16, #NHWC, [@CMX_NN, 0]>
 
 // CHECK-LABEL:  func.func @SETableSingleCluster
@@ -57,11 +55,6 @@ func.func @SETableSingleCluster(%input_data: !Input_DDR, %input_sm: !InputSM_DDR
                      outputs(%weights_sparse_cmx: !VPUIP.SparseBuffer<data=!Weights_CMX, sparsity_map=!WeightsSM_CMX, is_weights>)
         -> !VPUIP.SparseBuffer<data=!Weights_CMX, sparsity_map=!WeightsSM_CMX, is_weights>
 
-    %cst_weights_table = const.Declare !WeightsTable_DDR = dense<1> : tensor<16x1x1x4xsi32>
-    %weights_table_cmx = memref.alloc() : !WeightsTable_CMX
-
-    %weights_table = VPUIP.Copy inputs(%cst_weights_table: !WeightsTable_DDR) outputs(%weights_table_cmx: !WeightsTable_CMX) -> !WeightsTable_CMX
-
     %in_data, %in_sm, %in_se = VPUIP.UngroupSparseBuffer(%input) {resultSegmentSizes = array<i32: 1, 1, 1>}
         -> !Input_CMX, !InputSM_CMX, !InputSE_CMX
     %w_data, %w_sm = VPUIP.UngroupSparseBuffer(%weights)  {resultSegmentSizes = array<i32: 1, 1, 0>}
@@ -79,7 +72,6 @@ func.func @SETableSingleCluster(%input_data: !Input_DDR, %input_sm: !InputSM_DDR
         input_storage_element_table(%in_se : !InputSE_CMX)
         weights(%w_data : !Weights_CMX)
         weights_sparsity_map(%w_sm : !WeightsSM_CMX)
-        weight_table(%weights_table : !WeightsTable_CMX)
         parent_input(%in_data : !Input_CMX)
         parent_input_sparsity_map(%in_sm : !InputSM_CMX)
         parent_input_storage_element_table(%in_se : !InputSE_CMX)
@@ -146,25 +138,17 @@ func.func @SETableSingleCluster(%input_data: !Input_DDR, %input_sm: !InputSM_DDR
     num_clusters = 2
 }>
 
-!WeightsTableDistributed = !VPUIP.DistributedBuffer<
-    16x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "DUPLICATED",
-    num_clusters = 2
-}>
-
 !Input_DDR = memref<1x16x3x3xf16, #NHWC>
 !InputSM_DDR = memref<1x16x3x3xi1, #NHWC>
 !InputSE_DDR = memref<1x1x3x3xi32, #NHWC>
 !Weights_DDR = memref<16x16x1x1xf16, #NHWC>
 !WeightsSM_DDR = memref<16x1x1x128xi1>
-!WeightsTable_DDR = memref<16x1x1x4xsi32>
 
 !Input_CMX = memref<1x16x3x3xf16, #NHWC, @CMX_NN>
 !InputSM_CMX = memref<1x16x3x3xi1, #NHWC, @CMX_NN>
 !InputSE_CMX = memref<1x1x3x3xi32, #NHWC, @CMX_NN>
 !Weights_CMX = memref<16x16x1x1xf16, #NHWC, @CMX_NN>
 !WeightsSM_CMX = memref<16x1x1x128xi1, @CMX_NN>
-!WeightsTable_CMX = memref<16x1x1x4xsi32, @CMX_NN>
 !Output_CMX = memref<1x16x3x3xf16, #NHWC, @CMX_NN>
 
 // CHECK-LABEL:  func.func @SETableMultiCluster
@@ -198,12 +182,6 @@ func.func @SETableMultiCluster(%input_data: !Input_DDR, %input_sm: !InputSM_DDR)
         inputs(%weights_sparse : !VPUIP.SparseBuffer<data=!Weights_DDR, sparsity_map=!WeightsSM_DDR, is_weights>)
         outputs(%weights_sparse_cmx : !VPUIP.SparseBuffer<data=!WeightsDistributed, sparsity_map=!WeightsSMDistributed, is_weights>)  -> !VPUIP.SparseBuffer<data=!WeightsDistributed, sparsity_map=!WeightsSMDistributed, is_weights>
 
-    %cst_weights_table = const.Declare !WeightsTable_DDR = dense<1> : tensor<16x1x1x4xsi32>
-    %weights_table_cmx = VPURT.AllocDistributed -> !WeightsTableDistributed
-    %weights_table = VPUIP.Copy
-        inputs(%cst_weights_table : !WeightsTable_DDR)
-        outputs(%weights_table_cmx : !WeightsTableDistributed)  -> !WeightsTableDistributed
-
     %in_data, %in_sm, %in_se = VPUIP.UngroupSparseBuffer(%input) {resultSegmentSizes = array<i32: 1, 1, 1>}
         -> !InputDistributed, !InputSMDistributed, !InputSEDistributed
     %w_data, %w_sm = VPUIP.UngroupSparseBuffer(%weights)  {resultSegmentSizes = array<i32: 1, 1, 0>}
@@ -215,7 +193,6 @@ func.func @SETableMultiCluster(%input_data: !Input_DDR, %input_sm: !InputSM_DDR)
         input_storage_element_table(%in_se : !InputSEDistributed)
         weights(%w_data : !WeightsDistributed)
         weights_sparsity_map(%w_sm : !WeightsSMDistributed)
-        weight_table(%weights_table : !WeightsTableDistributed)
         parent_input(%in_data : !InputDistributed)
         parent_input_sparsity_map(%in_sm : !InputSMDistributed)
         parent_input_storage_element_table(%in_se : !InputSEDistributed)
@@ -282,25 +259,17 @@ func.func @SETableMultiCluster(%input_data: !Input_DDR, %input_sm: !InputSM_DDR)
     num_clusters = 2
 }>
 
-!WeightsTableDistributed = !VPUIP.DistributedBuffer<
-    16x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "DUPLICATED",
-    num_clusters = 2
-}>
-
 !Input_DDR = memref<1x16x3x3xf16, #NHWC>
 !InputSM_DDR = memref<1x16x6x6xi1, #NHWC>
 !InputSE_DDR = memref<1x1x6x6xi32, #NHWC>
 !Weights_DDR = memref<16x16x1x1xf16, #NHWC>
 !WeightsSM_DDR = memref<16x1x1x128xi1>
-!WeightsTable_DDR = memref<16x1x1x4xsi32>
 
 !Input_CMX = memref<1x16x3x3xf16, #NHWC, @CMX_NN>
 !InputSM_CMX = memref<1x16x6x6xi1, #NHWC, @CMX_NN>
 !InputSE_CMX = memref<1x1x6x6xi32, #NHWC, @CMX_NN>
 !Weights_CMX = memref<16x16x1x1xf16, #NHWC, @CMX_NN>
 !WeightsSM_CMX = memref<16x1x1x128xi1, @CMX_NN>
-!WeightsTable_CMX = memref<16x1x1x4xsi32, @CMX_NN>
 !Output_CMX = memref<1x16x6x6xf16, #NHWC, @CMX_NN>
 
 // CHECK-LABEL:  func.func @Interpolate
@@ -344,12 +313,6 @@ func.func @Interpolate(%input_data: !Input_DDR, %input_sm: !InputSM_DDR) -> !Out
         inputs(%weights_sparse : !VPUIP.SparseBuffer<data=!Weights_DDR, sparsity_map=!WeightsSM_DDR, is_weights>)
         outputs(%weights_sparse_cmx : !VPUIP.SparseBuffer<data=!WeightsDistributed, sparsity_map=!WeightsSMDistributed, is_weights>)  -> !VPUIP.SparseBuffer<data=!WeightsDistributed, sparsity_map=!WeightsSMDistributed, is_weights>
 
-    %cst_weights_table = const.Declare !WeightsTable_DDR = dense<1> : tensor<16x1x1x4xsi32>
-    %weights_table_cmx = VPURT.AllocDistributed -> !WeightsTableDistributed
-    %weights_table = VPUIP.Copy
-        inputs(%cst_weights_table : !WeightsTable_DDR)
-        outputs(%weights_table_cmx : !WeightsTableDistributed)  -> !WeightsTableDistributed
-
     %in_data, %in_sm, %in_se = VPUIP.UngroupSparseBuffer(%input) {resultSegmentSizes = array<i32: 1, 1, 1>}
         -> !InputDistributed, !InputSMDistributed, !InputSEDistributed
     %w_data, %w_sm = VPUIP.UngroupSparseBuffer(%weights)  {resultSegmentSizes = array<i32: 1, 1, 0>}
@@ -361,7 +324,6 @@ func.func @Interpolate(%input_data: !Input_DDR, %input_sm: !InputSM_DDR) -> !Out
         input_storage_element_table(%in_se : !InputSEDistributed)
         weights(%w_data : !WeightsDistributed)
         weights_sparsity_map(%w_sm : !WeightsSMDistributed)
-        weight_table(%weights_table : !WeightsTableDistributed)
         parent_input(%in_data : !InputDistributed)
         parent_input_sparsity_map(%in_sm : !InputSMDistributed)
         parent_input_storage_element_table(%in_se : !InputSEDistributed)
@@ -435,25 +397,17 @@ func.func @Interpolate(%input_data: !Input_DDR, %input_sm: !InputSM_DDR) -> !Out
     num_clusters = 2
 }>
 
-!WeightsTableDistributed = !VPUIP.DistributedBuffer<
-    32x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "DUPLICATED",
-    num_clusters = 2
-}>
-
 !Input_DDR = memref<1x32x3x3xf16, #NHWC>
 !InputSM_DDR = memref<1x32x6x6xi1, #NHWC>
 !InputSE_DDR = memref<1x2x6x6xi32, #NHWC>
 !Weights_DDR = memref<32x32x1x1xf16, #NHWC>
 !WeightsSM_DDR = memref<32x1x1x128xi1>
-!WeightsTable_DDR = memref<32x1x1x4xsi32>
 
 !Input_CMX = memref<1x32x3x3xf16, #NHWC, @CMX_NN>
 !InputSM_CMX = memref<1x32x6x6xi1, #NHWC, @CMX_NN>
 !InputSE_CMX = memref<1x2x6x6xi32, #NHWC, @CMX_NN>
 !Weights_CMX = memref<32x32x1x1xf16, #NHWC, @CMX_NN>
 !WeightsSM_CMX = memref<32x1x1x128xi1, @CMX_NN>
-!WeightsTable_CMX = memref<32x1x1x4xsi32, @CMX_NN>
 !Output_CMX = memref<1x32x6x6xf16, #NHWC, @CMX_NN>
 
 // CHECK-LABEL:  func.func @InterpolateSESize
@@ -497,12 +451,6 @@ func.func @InterpolateSESize(%input_data: !Input_DDR, %input_sm: !InputSM_DDR) -
         inputs(%weights_sparse : !VPUIP.SparseBuffer<data=!Weights_DDR, sparsity_map=!WeightsSM_DDR, is_weights>)
         outputs(%weights_sparse_cmx : !VPUIP.SparseBuffer<data=!WeightsDistributed, sparsity_map=!WeightsSMDistributed, is_weights>)  -> !VPUIP.SparseBuffer<data=!WeightsDistributed, sparsity_map=!WeightsSMDistributed, is_weights>
 
-    %cst_weights_table = const.Declare !WeightsTable_DDR = dense<1> : tensor<32x1x1x4xsi32>
-    %weights_table_cmx = VPURT.AllocDistributed -> !WeightsTableDistributed
-    %weights_table = VPUIP.Copy
-        inputs(%cst_weights_table : !WeightsTable_DDR)
-        outputs(%weights_table_cmx : !WeightsTableDistributed)  -> !WeightsTableDistributed
-
     %in_data, %in_sm, %in_se = VPUIP.UngroupSparseBuffer(%input) {resultSegmentSizes = array<i32: 1, 1, 1>}
         -> !InputDistributed, !InputSMDistributed, !InputSEDistributed
     %w_data, %w_sm = VPUIP.UngroupSparseBuffer(%weights)  {resultSegmentSizes = array<i32: 1, 1, 0>}
@@ -514,7 +462,6 @@ func.func @InterpolateSESize(%input_data: !Input_DDR, %input_sm: !InputSM_DDR) -
         input_storage_element_table(%in_se : !InputSEDistributed)
         weights(%w_data : !WeightsDistributed)
         weights_sparsity_map(%w_sm : !WeightsSMDistributed)
-        weight_table(%weights_table : !WeightsTableDistributed)
         parent_input(%in_data : !InputDistributed)
         parent_input_sparsity_map(%in_sm : !InputSMDistributed)
         parent_input_storage_element_table(%in_se : !InputSEDistributed)
@@ -588,25 +535,17 @@ func.func @InterpolateSESize(%input_data: !Input_DDR, %input_sm: !InputSM_DDR) -
     num_clusters = 2
 }>
 
-!WeightsTableDistributed = !VPUIP.DistributedBuffer<
-    16x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "DUPLICATED",
-    num_clusters = 2
-}>
-
 !Input_DDR = memref<1x16x3x3xf16, #NHWC>
 !InputSM_DDR = memref<1x16x4x6xi1, #NHWC>
 !InputSE_DDR = memref<1x1x4x6xi32, #NHWC>
 !Weights_DDR = memref<16x16x1x1xf16, #NHWC>
 !WeightsSM_DDR = memref<16x1x1x128xi1>
-!WeightsTable_DDR = memref<16x1x1x4xsi32>
 
 !Input_CMX = memref<1x16x3x3xf16, #NHWC, @CMX_NN>
 !InputSM_CMX = memref<1x16x4x6xi1, #NHWC, @CMX_NN>
 !InputSE_CMX = memref<1x1x4x6xi32, #NHWC, @CMX_NN>
 !Weights_CMX = memref<16x16x1x1xf16, #NHWC, @CMX_NN>
 !WeightsSM_CMX = memref<16x1x1x128xi1, @CMX_NN>
-!WeightsTable_CMX = memref<16x1x1x4xsi32, @CMX_NN>
 !Output_CMX = memref<1x16x4x6xf16, #NHWC, @CMX_NN>
 
 // CHECK-LABEL:  func.func @InterpolateOutputOffsets
@@ -650,12 +589,6 @@ func.func @InterpolateOutputOffsets(%input_data: !Input_DDR, %input_sm: !InputSM
         inputs(%weights_sparse : !VPUIP.SparseBuffer<data=!Weights_DDR, sparsity_map=!WeightsSM_DDR, is_weights>)
         outputs(%weights_sparse_cmx : !VPUIP.SparseBuffer<data=!WeightsDistributed, sparsity_map=!WeightsSMDistributed, is_weights>)  -> !VPUIP.SparseBuffer<data=!WeightsDistributed, sparsity_map=!WeightsSMDistributed, is_weights>
 
-    %cst_weights_table = const.Declare !WeightsTable_DDR = dense<1> : tensor<16x1x1x4xsi32>
-    %weights_table_cmx = VPURT.AllocDistributed -> !WeightsTableDistributed
-    %weights_table = VPUIP.Copy
-        inputs(%cst_weights_table : !WeightsTable_DDR)
-        outputs(%weights_table_cmx : !WeightsTableDistributed)  -> !WeightsTableDistributed
-
     %in_data, %in_sm, %in_se = VPUIP.UngroupSparseBuffer(%input) {resultSegmentSizes = array<i32: 1, 1, 1>}
         -> !InputDistributed, !InputSMDistributed, !InputSEDistributed
     %w_data, %w_sm = VPUIP.UngroupSparseBuffer(%weights)  {resultSegmentSizes = array<i32: 1, 1, 0>}
@@ -667,7 +600,6 @@ func.func @InterpolateOutputOffsets(%input_data: !Input_DDR, %input_sm: !InputSM
         input_storage_element_table(%in_se : !InputSEDistributed)
         weights(%w_data : !WeightsDistributed)
         weights_sparsity_map(%w_sm : !WeightsSMDistributed)
-        weight_table(%weights_table : !WeightsTableDistributed)
         parent_input(%in_data : !InputDistributed)
         parent_input_sparsity_map(%in_sm : !InputSMDistributed)
         parent_input_storage_element_table(%in_se : !InputSEDistributed)
@@ -739,19 +671,12 @@ func.func @InterpolateOutputOffsets(%input_data: !Input_DDR, %input_sm: !InputSM
     num_clusters = 2
 }>
 
-!WeightsTableDistributed = !VPUIP.DistributedBuffer<
-    16x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "DUPLICATED",
-    num_clusters = 2
-}>
-
 !Input_DDR = memref<1x16x6x16xf16, #NHWC, @DDR>
 !Input_DDR_Tile = memref<1x16x4x6xf16, #NHWC, @DDR>
 !InputSM_DDR_Tile = memref<1x16x11x20xi1, #NHWC, @DDR>
 !InputSE_DDR_Tile = memref<1x1x11x20xi32, #NHWC, @DDR>
 !Weights_DDR = memref<16x16x3x3xf16, #NHWC, @DDR>
 !WeightsSM_DDR = memref<16x1x1x256xi1, @DDR>
-!WeightsTable_DDR = memref<16x1x1x4xsi32, @DDR>
 !Output_DDR = memref<1x16x18x18xf16, #NHWC, @DDR>
 
 !Input_CMX_Tile = memref<1x16x4x6xf16, #NHWC, @CMX_NN>
@@ -759,7 +684,6 @@ func.func @InterpolateOutputOffsets(%input_data: !Input_DDR, %input_sm: !InputSM
 !InputSE_CMX_Tile = memref<1x1x11x20xi32, #NHWC, @CMX_NN>
 !Weights_CMX = memref<16x16x3x3xf16, #NHWC, @CMX_NN>
 !WeightsSM_CMX = memref<16x1x1x256xi1, @CMX_NN>
-!WeightsTable_CMX = memref<16x1x1x4xsi32, @CMX_NN>
 !Output_CMX_Tile = memref<1x16x9x18xf16, #NHWC, @CMX_NN>
 
 // CHECK-LABEL:  func.func @InterpolateTileAndMultiCluster
@@ -827,12 +751,6 @@ func.func @InterpolateTileAndMultiCluster(%input_data: !Input_DDR, %input_sm_0: 
         inputs(%weights_sparse_0 : !VPUIP.SparseBuffer<data = !Weights_DDR, sparsity_map = !WeightsSM_DDR, is_weights>)
         outputs(%weights_sparse_cmx_0 : !VPUIP.SparseBuffer<data = !WeightsDistributed, sparsity_map = !WeightsSMDistributed, is_weights>)  -> !VPUIP.SparseBuffer<data = !WeightsDistributed, sparsity_map = !WeightsSMDistributed, is_weights>
 
-    %cst_weights_table_0 = const.Declare !WeightsTable_DDR = dense<1> : tensor<16x1x1x4xsi32>
-    %weights_table_cmx_0 = VPURT.AllocDistributed -> !WeightsTableDistributed
-    %weights_table_0 = VPUIP.Copy
-        inputs(%cst_weights_table_0 : !WeightsTable_DDR)
-        outputs(%weights_table_cmx_0 : !WeightsTableDistributed)  -> !WeightsTableDistributed
-
     %in_data_0, %in_sm_0, %in_se_0 = VPUIP.UngroupSparseBuffer(%input_0) {resultSegmentSizes = array<i32: 1, 1, 1>}
         -> !InputDistributed, !InputSMDistributed, !InputSEDistributed
     %w_data_0, %w_sm_0 = VPUIP.UngroupSparseBuffer(%weights_0)  {resultSegmentSizes = array<i32: 1, 1, 0>}
@@ -844,7 +762,6 @@ func.func @InterpolateTileAndMultiCluster(%input_data: !Input_DDR, %input_sm_0: 
         input_storage_element_table(%in_se_0 : !InputSEDistributed)
         weights(%w_data_0 : !WeightsDistributed)
         weights_sparsity_map(%w_sm_0 : !WeightsSMDistributed)
-        weight_table(%weights_table_0 : !WeightsTableDistributed)
         parent_input(%in_data_0 : !InputDistributed)
         parent_input_sparsity_map(%in_sm_0 : !InputSMDistributed)
         parent_input_storage_element_table(%in_se_0 : !InputSEDistributed)
@@ -888,12 +805,6 @@ func.func @InterpolateTileAndMultiCluster(%input_data: !Input_DDR, %input_sm_0: 
         inputs(%weights_sparse_1 : !VPUIP.SparseBuffer<data = !Weights_DDR, sparsity_map = !WeightsSM_DDR, is_weights>)
         outputs(%weights_sparse_cmx_1 : !VPUIP.SparseBuffer<data = !WeightsDistributed, sparsity_map = !WeightsSMDistributed, is_weights>)  -> !VPUIP.SparseBuffer<data = !WeightsDistributed, sparsity_map = !WeightsSMDistributed, is_weights>
 
-    %cst_weights_table_1 = const.Declare !WeightsTable_DDR = dense<1> : tensor<16x1x1x4xsi32>
-    %weights_table_cmx_1 = VPURT.AllocDistributed -> !WeightsTableDistributed
-    %weights_table_1 = VPUIP.Copy
-        inputs(%cst_weights_table_1 : !WeightsTable_DDR)
-        outputs(%weights_table_cmx_1 : !WeightsTableDistributed)  -> !WeightsTableDistributed
-
     %in_data_1, %in_sm_1, %in_se_1 = VPUIP.UngroupSparseBuffer(%input_1) {resultSegmentSizes = array<i32: 1, 1, 1>}
         -> !InputDistributed, !InputSMDistributed, !InputSEDistributed
     %w_data_1, %w_sm_1 = VPUIP.UngroupSparseBuffer(%weights_1)  {resultSegmentSizes = array<i32: 1, 1, 0>}
@@ -905,7 +816,6 @@ func.func @InterpolateTileAndMultiCluster(%input_data: !Input_DDR, %input_sm_0: 
         input_storage_element_table(%in_se_1 : !InputSEDistributed)
         weights(%w_data_1 : !WeightsDistributed)
         weights_sparsity_map(%w_sm_1 : !WeightsSMDistributed)
-        weight_table(%weights_table_1 : !WeightsTableDistributed)
         parent_input(%in_data_1 : !InputDistributed)
         parent_input_sparsity_map(%in_sm_1 : !InputSMDistributed)
         parent_input_storage_element_table(%in_se_1 : !InputSEDistributed)
@@ -1012,25 +922,17 @@ func.func @InterpolateTileAndMultiCluster(%input_data: !Input_DDR, %input_sm_0: 
     num_clusters = 2
 }>
 
-!WeightsTableDistributed = !VPUIP.DistributedBuffer<
-    16x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "DUPLICATED",
-    num_clusters = 2
-}>
-
 !Input_DDR = memref<1x16x2x2xf16, #NHWC>
 !InputSM_DDR = memref<1x16x5x5xi1, #NHWC>
 !InputSE_DDR = memref<1x1x5x5xi32, #NHWC>
 !Weights_DDR = memref<16x16x3x3xf16, #NHWC>
 !WeightsSM_DDR = memref<16x1x1x256xi1>
-!WeightsTable_DDR = memref<16x1x1x4xsi32>
 
 !Input_CMX = memref<1x16x2x2xf16, #NHWC, @CMX_NN>
 !InputSM_CMX = memref<1x16x5x5xi1, #NHWC, @CMX_NN>
 !InputSE_CMX = memref<1x1x5x5xi32, #NHWC, @CMX_NN>
 !Weights_CMX = memref<16x16x3x3xf16, #NHWC, @CMX_NN>
 !WeightsSM_CMX = memref<16x1x1x256xi1, @CMX_NN>
-!WeightsTable_CMX = memref<16x1x1x4xsi32, @CMX_NN>
 !Output_CMX = memref<1x16x3x3xf16, #NHWC, @CMX_NN>
 
 // CHECK-LABEL:  func.func @InterpolateBilinearAlignCornersOutputOffsets
@@ -1074,12 +976,6 @@ func.func @InterpolateBilinearAlignCornersOutputOffsets(%input_data: !Input_DDR,
         inputs(%weights_sparse : !VPUIP.SparseBuffer<data=!Weights_DDR, sparsity_map=!WeightsSM_DDR, is_weights>)
         outputs(%weights_sparse_cmx : !VPUIP.SparseBuffer<data=!WeightsDistributed, sparsity_map=!WeightsSMDistributed, is_weights>)  -> !VPUIP.SparseBuffer<data=!WeightsDistributed, sparsity_map=!WeightsSMDistributed, is_weights>
 
-    %cst_weights_table = const.Declare !WeightsTable_DDR = dense<1> : tensor<16x1x1x4xsi32>
-    %weights_table_cmx = VPURT.AllocDistributed -> !WeightsTableDistributed
-    %weights_table = VPUIP.Copy
-        inputs(%cst_weights_table : !WeightsTable_DDR)
-        outputs(%weights_table_cmx : !WeightsTableDistributed)  -> !WeightsTableDistributed
-
     %in_data, %in_sm, %in_se = VPUIP.UngroupSparseBuffer(%input) {resultSegmentSizes = array<i32: 1, 1, 1>}
         -> !InputDistributed, !InputSMDistributed, !InputSEDistributed
     %w_data, %w_sm = VPUIP.UngroupSparseBuffer(%weights)  {resultSegmentSizes = array<i32: 1, 1, 0>}
@@ -1091,7 +987,6 @@ func.func @InterpolateBilinearAlignCornersOutputOffsets(%input_data: !Input_DDR,
         input_storage_element_table(%in_se : !InputSEDistributed)
         weights(%w_data : !WeightsDistributed)
         weights_sparsity_map(%w_sm : !WeightsSMDistributed)
-        weight_table(%weights_table : !WeightsTableDistributed)
         parent_input(%in_data : !InputDistributed)
         parent_input_sparsity_map(%in_sm : !InputSMDistributed)
         parent_input_storage_element_table(%in_se : !InputSEDistributed)

@@ -131,7 +131,7 @@ mlir::LogicalResult buildIDUNthwNtk(mlir::OpBuilder& builder, const mlir::Locati
         activationReuse = IDUNthwNtk::NTHW_NTK_16_4;
         break;
     default:
-        log.error("ODU NTHW mode not supported for MPE mode {}", mpeFrequentMode);
+        log.error("ODU NTHW mode not supported for MPE mode {0}", mpeFrequentMode);
         return mlir::failure();
     }
 

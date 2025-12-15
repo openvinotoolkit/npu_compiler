@@ -188,6 +188,24 @@ template void reindexList<VPURegMapped::FetchTaskOp>(VPUMI40XX::MappedInferenceO
                                                      size_t);
 
 //
+// AddEnqueueDMAops Util
+//
+void reindexTaskLinkAttrForDMA(VPURegMapped::TaskOpInterface head) {
+    if (!head) {
+        return;
+    }
+
+    // Start from second DMA in the list as first doesn't have previous DMA
+    head = head.getNextTask();
+    while (head) {
+        if (head.getTaskLink().has_value()) {
+            head.linkToPreviousTask();
+        }
+        head = head.getNextTask();
+    }
+}
+
+//
 // Resolve Task Location utils
 //
 
@@ -197,8 +215,7 @@ const std::unordered_map<VPURegMapped::TaskType, size_t> taskBinarySize40XX = {
         {VPURegMapped::TaskType::DPUVariant, sizeof(npu40xx::nn_public::VpuDPUVariant)},
         {VPURegMapped::TaskType::ActKernelRange, sizeof(npu40xx::nn_public::VpuActKernelRange)},
         {VPURegMapped::TaskType::ActKernelInvocation, sizeof(npu40xx::nn_public::VpuActKernelInvocation)},
-        {VPURegMapped::TaskType::DMA, sizeof(npu40xx::nn_public::VpuDMATask)},
-        {VPURegMapped::TaskType::M2I, sizeof(npu40xx::nn_public::VpuMediaTask)}};
+        {VPURegMapped::TaskType::DMA, sizeof(npu40xx::nn_public::VpuDMATask)}};
 }  // namespace
 
 // TODO: E#121934 Add method for VPURegMapped TaskType to be able to directly return its binary size in an

@@ -16,20 +16,16 @@ using namespace vpux;
 vpux::VPURT::EnqueueBarrierHandler::EnqueueBarrierHandler(mlir::func::FuncOp func, BarrierInfo& barrierInfo,
                                                           bool disableDmaSwFifo, Logger log)
         : _barrierInfo(barrierInfo),
-          _barrierDepthCheck(BARRIER_FIFO_SIZE > 1 ? BARRIER_FIFO_SIZE - 1 : 1),
           _dmaFifoDepth(disableDmaSwFifo ? DMA_HW_FIFO_SIZE : DMA_SW_FIFO_SIZE),
           _optimizeAndMergeEnqFlag(true),
           _log(log) {
+    auto barrierDepth = config::getConstraint(func, config::BARRIER_FIFO_DEPTH);
+    _barrierDepthCheck = barrierDepth > 1 ? barrierDepth - 1 : 1;
     _taskQueueTypeMap = VPURT::getTaskOpQueues(func, _barrierInfo);
     initPrevPhysBarrierData(func);
     _startBarrierIndex = getStartBarrierIndex(func);
     _swFifosPerShaveEngineEnabled = config::isFifoPerShaveEngineEnabled(func);
 
-    mlir::DenseSet<vpux::VPU::ExecutorKind> executorsKind{VPU::ExecutorKind::DMA_NN, VPU::ExecutorKind::DPU};
-    if (_swFifosPerShaveEngineEnabled) {
-        executorsKind.insert(VPU::ExecutorKind::SHAVE_ACT);
-    }
-    _barrierInfo.initializeTaskQueueTypeMap(executorsKind);
     _barrierInfo.buildTaskQueueTypeMap();
 
     auto module = func->getParentOfType<mlir::ModuleOp>();

@@ -14,6 +14,7 @@
 #include "intel_npu/config/options.hpp"
 #include "intel_npu/npu_private_properties.hpp"
 #include "vpux/compiler/frontend/ov_batch_detection.hpp"
+#include "vpux/compiler/utils/batch.hpp"
 
 namespace {
 
@@ -331,60 +332,60 @@ const CfgMap coeffDeterminingConfigBatchInCompiler{
          std::make_pair(ov::intel_npu::batch_compiler_mode_settings.name(), turnOffDebatchDisableConditions)}};
 const CfgMap coeffDeterminingConfigBatchInPlugin{{std::make_pair(ov::intel_npu::batch_mode.name(), "PLUGIN")}};
 const std::string predefinedDebatchCoefficients{
-        "batch-compile-method=debatch batch-unroll-settings=skip-unroll-batch=false "
-        "debatcher-settings={debatcher-input-coefficients-partitions=[10-10], "
-        "debatching-inlining-method=naive}  DEBATCHER-FIELD-FILLER=NOT-IMPORTANT_VALUE"};
+        "batch-compile-method=debatch batch-unroll-settings=" + vpux::BatchUnrollOptions::getDefaultOptions() +
+        " debatcher-settings={debatcher-input-coefficients-partitions=[10-10], "
+        "debatching-inlining-method=naive}"};
 const CfgMap coeffDeterminingConfigBatchInCompilerWithOverridedCoefficients{
         {std::make_pair(ov::intel_npu::batch_mode.name(), "COMPILER"),
          std::make_pair(ov::intel_npu::batch_compiler_mode_settings.name(), predefinedDebatchCoefficients)}};
-const std::string predefinedCompileParams{
-        "function-outlining='naive=num-parts=2' barrier-sched-with-function-outlining=true"};
-const CfgMap configBatchInCompilerWithNonEmptyCompileParams{
-        {std::make_pair(ov::intel_npu::batch_mode.name(), "COMPILER"), std::make_pair("LOG_LEVEL", "LOG_TRACE"),
-         std::make_pair(ov::intel_npu::batch_compiler_mode_settings.name(), predefinedCompileParams)}};
 
+const vpux::DebatchCoefficients sixCoefficientsWithBatchByOne =
+        vpux::DebatchCoefficients::create("[0-1],[0-1],[0-1],[0-1],[0-1],[0-1]").value();
 INSTANTIATE_TEST_SUITE_P(
         smoke_BehaviorTest, AutoBatchCompilerDebatchCoefficientsDeterminingTests,
-        testing::Values(AutoBatchCompilerDebatchCoefficientsDeterminingTestsParams(
-                                IODescriptions({IODescription(ov::PartialShape({2, 3, 100, 200}), {}),
-                                                IODescription(ov::PartialShape({2, 200}), {}),
-                                                IODescription(ov::PartialShape({2, 400}), {})}),
-                                coeffDeterminingConfigBatchEmpty, ""),
-                        AutoBatchCompilerDebatchCoefficientsDeterminingTestsParams(
-                                IODescriptions({IODescription(ov::PartialShape({2, 3, 100, 200}), {}),
-                                                IODescription(ov::PartialShape({2, 200}), {}),
-                                                IODescription(ov::PartialShape({2, 400}), {})}),
-                                coeffDeterminingConfigBatchInPlugin, ""),
-                        AutoBatchCompilerDebatchCoefficientsDeterminingTestsParams(
-                                IODescriptions({IODescription(ov::PartialShape({1, 3, 100, 200}), {}),
-                                                IODescription(ov::PartialShape({2, 200}), {}),
-                                                IODescription(ov::PartialShape({300, 400}), {})}),
-                                coeffDeterminingConfigBatchInCompiler,
-                                "batch-compile-method=debatch batch-unroll-settings=skip-unroll-batch=false "
-                                "debatcher-settings={debatcher-input-coefficients-partitions=[0-1],[0-1],[0-1],[0-1],["
-                                "0-1],[0-1], debatching-inlining-method=naive}"),
-                        AutoBatchCompilerDebatchCoefficientsDeterminingTestsParams(
-                                IODescriptions({IODescription(ov::PartialShape({2, 3, 100, 200}), {}),
-                                                IODescription(ov::PartialShape({100, 200}), {}),
-                                                IODescription(ov::PartialShape({300, 400}), {})}),
-                                coeffDeterminingConfigBatchInCompiler,
-                                "batch-compile-method=debatch batch-unroll-settings=skip-unroll-batch=false "
-                                "debatcher-settings={debatcher-input-coefficients-partitions=[0-1],[0-1],[0-1],[0-1],["
-                                "0-1],[0-1], debatching-inlining-method=naive}"),
-                        AutoBatchCompilerDebatchCoefficientsDeterminingTestsParams(
-                                IODescriptions({IODescription(ov::PartialShape({2, 3, 100, 200}), ov::Layout{"NCHW"}),
-                                                IODescription(ov::PartialShape({100, 200}), ov::Layout{"NC"}),
-                                                IODescription(ov::PartialShape({300, 400}), ov::Layout{"NC"})}),
-                                coeffDeterminingConfigBatchInCompiler,
-                                "batch-compile-method=debatch batch-unroll-settings=skip-unroll-batch=false "
-                                "debatcher-settings={debatcher-input-coefficients-partitions=[0-1],[0-1],[0-1],[0-1],["
-                                "0-1],[0-1], debatching-inlining-method=naive}"),
-                        AutoBatchCompilerDebatchCoefficientsDeterminingTestsParams(
-                                IODescriptions({IODescription(ov::PartialShape({2, 3, 100, 200}), {}),
-                                                IODescription(ov::PartialShape({100, 200}), {}),
-                                                IODescription(ov::PartialShape({300, 400}), {})}),
-                                coeffDeterminingConfigBatchInCompilerWithOverridedCoefficients,
-                                predefinedDebatchCoefficients)),
+        testing::Values(
+                AutoBatchCompilerDebatchCoefficientsDeterminingTestsParams(
+                        IODescriptions({IODescription(ov::PartialShape({2, 3, 100, 200}), {}),
+                                        IODescription(ov::PartialShape({2, 200}), {}),
+                                        IODescription(ov::PartialShape({2, 400}), {})}),
+                        coeffDeterminingConfigBatchEmpty, ""),
+                AutoBatchCompilerDebatchCoefficientsDeterminingTestsParams(
+                        IODescriptions({IODescription(ov::PartialShape({2, 3, 100, 200}), {}),
+                                        IODescription(ov::PartialShape({2, 200}), {}),
+                                        IODescription(ov::PartialShape({2, 400}), {})}),
+                        coeffDeterminingConfigBatchInPlugin, ""),
+                AutoBatchCompilerDebatchCoefficientsDeterminingTestsParams(
+                        IODescriptions({IODescription(ov::PartialShape({1, 3, 100, 200}), {}),
+                                        IODescription(ov::PartialShape({2, 200}), {}),
+                                        IODescription(ov::PartialShape({300, 400}), {})}),
+                        coeffDeterminingConfigBatchInCompiler,
+                        "batch-compile-method=debatch batch-unroll-settings=" +
+                                vpux::BatchUnrollOptions::getDefaultOptions() +
+                                " debatcher-settings={debatcher-input-coefficients-partitions=" +
+                                sixCoefficientsWithBatchByOne.to_string() + ", debatching-inlining-method=naive}"),
+                AutoBatchCompilerDebatchCoefficientsDeterminingTestsParams(
+                        IODescriptions({IODescription(ov::PartialShape({2, 3, 100, 200}), {}),
+                                        IODescription(ov::PartialShape({100, 200}), {}),
+                                        IODescription(ov::PartialShape({300, 400}), {})}),
+                        coeffDeterminingConfigBatchInCompiler,
+                        "batch-compile-method=debatch batch-unroll-settings=" +
+                                vpux::BatchUnrollOptions::getDefaultOptions() +
+                                " debatcher-settings={debatcher-input-coefficients-partitions=" +
+                                sixCoefficientsWithBatchByOne.to_string() + ", debatching-inlining-method=naive}"),
+                AutoBatchCompilerDebatchCoefficientsDeterminingTestsParams(
+                        IODescriptions({IODescription(ov::PartialShape({2, 3, 100, 200}), ov::Layout{"NCHW"}),
+                                        IODescription(ov::PartialShape({100, 200}), ov::Layout{"NC"}),
+                                        IODescription(ov::PartialShape({300, 400}), ov::Layout{"NC"})}),
+                        coeffDeterminingConfigBatchInCompiler,
+                        "batch-compile-method=debatch batch-unroll-settings=" +
+                                vpux::BatchUnrollOptions::getDefaultOptions() +
+                                " debatcher-settings={debatcher-input-coefficients-partitions=" +
+                                sixCoefficientsWithBatchByOne.to_string() + ", debatching-inlining-method=naive}"),
+                AutoBatchCompilerDebatchCoefficientsDeterminingTestsParams(
+                        IODescriptions({IODescription(ov::PartialShape({2, 3, 100, 200}), {}),
+                                        IODescription(ov::PartialShape({100, 200}), {}),
+                                        IODescription(ov::PartialShape({300, 400}), {})}),
+                        coeffDeterminingConfigBatchInCompilerWithOverridedCoefficients, predefinedDebatchCoefficients)),
         AutoBatchCompilerDebatchCoefficientsDeterminingTests::getTestCaseName);
 
 using AutoBatchCompilerDetectionCompatTestsParams =

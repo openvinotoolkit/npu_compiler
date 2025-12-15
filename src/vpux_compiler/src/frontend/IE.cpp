@@ -34,11 +34,11 @@
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
-#include "vpux/compiler/utils/IE/locations.hpp"
+#include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/cal_range_data.hpp"
+#include "vpux/compiler/utils/locations.hpp"
 #include "vpux/compiler/utils/logging.hpp"
-#include "vpux/compiler/utils/net/network_info_utils.hpp"
 #include "vpux/compiler/utils/range_bound.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/strings.hpp"
@@ -70,6 +70,7 @@
 #include <openvino/core/rt_info/weightless_caching_attributes.hpp>
 #include <openvino/core/type.hpp>
 #include <openvino/core/type/element_type.hpp>
+#include <openvino/op/identity.hpp>
 #include <openvino/op/stft.hpp>
 #include <openvino/op/strided_slice.hpp>
 #include <openvino/opsets/opset14.hpp>
@@ -490,6 +491,7 @@ NGraphImporter::Callback NGraphImporter::getParser(const std::shared_ptr<ov::Nod
             MAP_ENTRY(ov::opset1::VariadicSplit),
             MAP_ENTRY(ov::op::internal::RoPE),
             MAP_ENTRY(ov::opset13::ScaledDotProductAttention),
+            MAP_ENTRY(ov::op::v16::Identity),
     };
 
 #undef MAP_ENTRY
@@ -647,7 +649,7 @@ mlir::func::FuncOp NGraphImporter::buildMainFunc(mlir::OpBuilder& moduleBuilder,
         outputTypes.push_back(importTensor(tensorShape, result->get_input_element_type(0)));
     }
 
-    const auto funcLoc = IE::createLayerLocation(_ctx, "main", "Func");
+    const auto funcLoc = vpux::createLayerLocation(_ctx, "main", "Func");
     const auto funcType = mlir::FunctionType::get(_ctx, ArrayRef(inputTypes), ArrayRef(outputTypes));
     auto func = moduleBuilder.create<mlir::func::FuncOp>(funcLoc, funcName, funcType);
 
@@ -959,7 +961,7 @@ mlir::RankedTensorType patchQuantileFloatForConstImport(mlir::RankedTensorType t
     if (auto quantileFloat = mlir::dyn_cast<vpux::type::QuantileFloatType>(tensorType.getElementType())) {
         VPUX_THROW_UNLESS(mlir::isa<mlir::IntegerType>(quantileFloat.getStorageType()),
                           "Thus far only int storage type is supported in quantile-float");
-        return tensorType.cloneWith(std::nullopt, quantileFloat.getStorageType());
+        return mlir::cast<RankedTensorType>(tensorType.cloneWith(std::nullopt, quantileFloat.getStorageType()));
     }
     return tensorType;
 }
@@ -3178,6 +3180,18 @@ void NGraphImporter::parseNode(mlir::OpBuilder& builder,
     addOutputs(origNode, op);
 }
 
+void NGraphImporter::parseNode(mlir::OpBuilder& /*builder*/, const std::shared_ptr<ov::op::v16::Identity>& origNode) {
+    static_assert(std::is_same<std::decay<decltype(*origNode)>::type, ov::op::v16::Identity>::value,
+                  "opset operation mismatch");
+
+    const auto inputs = getInputs(origNode);
+    VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Identity node '{0}' has unsupported number of inputs '{1}'",
+                      origNode->get_friendly_name(), inputs.size());
+
+    // Identity operation: output = input (pass-through)
+    addOutputs(origNode, std::vector<mlir::Value>{inputs[0]});
+}
+
 void NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset1::ReverseSequence>& origNode) {
     static_assert(std::is_same<std::decay<decltype(*origNode)>::type, ov::op::v0::ReverseSequence>::value,
                   "opset operation mismatch");
@@ -4205,8 +4219,19 @@ void NGraphImporter::addOutputs(const OrigNodePtr& node, mlir::Operation* op) {
     }
 }
 
+void NGraphImporter::addOutputs(const OrigNodePtr& node, const std::vector<mlir::Value>& outputs) {
+    VPUX_THROW_UNLESS(
+            outputs.size() == node->get_output_size(),
+            "Mismatch between original Node '{0}' number of outputs '{1}' and provided number of outputs '{2}'",
+            node->get_friendly_name(), node->get_output_size(), outputs.size());
+
+    for (size_t i = 0; i < outputs.size(); ++i) {
+        _importedVals.emplace(node->output(i), outputs[i]);
+    }
+}
+
 mlir::Location NGraphImporter::createLocation(const OrigNodePtr& node) {
-    return vpux::IE::createLayerLocation(_ctx, node->get_friendly_name(), node->get_type_name());
+    return vpux::createLayerLocation(_ctx, node->get_friendly_name(), node->get_type_name());
 }
 
 //
@@ -4986,7 +5011,7 @@ static bool skipKeepConstAndDecompressionForNode(const std::shared_ptr<const ov:
     return false;
 }
 
-static void addCommonOptimizationsPasses(ov::pass::Manager& manager) {
+static void addCommonOptimizationsPasses(ov::pass::Manager& manager, const ImportNetworkConfig& importCfg) {
     // MOCTransformations contain StridedSliceOptimization transformation,
     // so we must call SliceToStridedSlice before MOCTransformations call
     manager.register_pass<ov::pass::SliceToStridedSlice>(true);
@@ -5033,12 +5058,8 @@ static void addCommonOptimizationsPasses(ov::pass::Manager& manager) {
     decomp->add_matcher<ov::pass::EinsumDecomposition>();
     decomp->add_matcher<ov::pass::DropoutWithRandomUniformReplacer>();
 
-    bool enableDecompositionForSDPA = true;
-#if defined(VPUX_DEVELOPER_BUILD) || !defined(NDEBUG)
-    parseEnv("NPU_DECOMPOSE_SDPA", enableDecompositionForSDPA);
-#endif
-    decomp->add_matcher<ov::pass::GroupQueryAttentionDecomposition>();
-    if (enableDecompositionForSDPA) {
+    if (importCfg.enableDecomposeSDPA) {
+        decomp->add_matcher<ov::pass::GroupQueryAttentionDecomposition>();
         decomp->add_matcher<ov::pass::ScaledDotProductAttentionDecomposition>();
     }
 
@@ -5095,8 +5116,9 @@ static void addCommonOptimizationsPasses(ov::pass::Manager& manager) {
 }
 
 void NGraphPasses::runNGraphPasses(const std::shared_ptr<ov::Model>& netGraph, mlir::TimingScope& rootTiming,
-                                   bool isWeightsSeparationPath) {
+                                   const ImportNetworkConfig& importCfg) {
     auto scopeTiming = rootTiming.nest("Common nGraph passes");
+
     ov::pass::Manager manager;
     auto passConfig = manager.get_pass_config();
     manager.register_pass<ov::pass::InitNodeInfo>();
@@ -5119,7 +5141,7 @@ void NGraphPasses::runNGraphPasses(const std::shared_ptr<ov::Model>& netGraph, m
     manager.register_pass<ov::pass::KeepConstAndDecompression>();
     passConfig->set_callback<ov::pass::KeepConstAndDecompression>(
             [&](const std::shared_ptr<const ov::Node>& node) -> bool {
-                if (isWeightsSeparationPath) {
+                if (importCfg.enableWeightsSeparationPath) {
                     return skipKeepConstAndDecompressionForNodeWS(node);
                 }
 
@@ -5133,7 +5155,7 @@ void NGraphPasses::runNGraphPasses(const std::shared_ptr<ov::Model>& netGraph, m
     manager.register_pass<ov::pass::ConvertInterpolate11ToInterpolate4>();
     manager.register_pass<ov::pass::ConvertTopK11ToTopK3>();
     manager.register_pass<ov::pass::ConstantFolding>();
-    addCommonOptimizationsPasses(manager);
+    addCommonOptimizationsPasses(manager, importCfg);
 
     manager.register_pass<ov::pass::ConvertPad12ToPad1>();
     manager.register_pass<ov::pass::ConvertSoftMax1ToSoftMax8>();
@@ -5326,9 +5348,9 @@ mlir::OwningOpRef<mlir::ModuleOp> vpux::IE::importNetwork(
     }
 
     log.trace("Run common nGraph passes");
-    NGraphPasses::runNGraphPasses(model, rootTiming, importCfg.enableWeightsSeparationPath);
+    NGraphPasses::runNGraphPasses(model, rootTiming, importCfg);
 
-    const auto moduleLoc = IE::createLayerLocation(ctx, "module", "Module");
+    const auto moduleLoc = createLayerLocation(ctx, "module", "Module");
     auto module = mlir::ModuleOp::create(moduleLoc, StringRef(model->get_friendly_name()));
     addSparsityStatistics(model, module, log);
     const auto mainFuncName = mlir::FlatSymbolRefAttr::get(ctx, "main");

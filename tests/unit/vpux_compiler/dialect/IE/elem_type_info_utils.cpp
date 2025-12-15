@@ -7,9 +7,8 @@
 #include "vpux/compiler/init.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 
-#include <mlir/Dialect/Quant/QuantOps.h>
-
 #include <gtest/gtest.h>
+#include <mlir/Dialect/Quant/IR/Quant.h>
 
 using namespace vpux;
 
@@ -77,7 +76,7 @@ std::vector<std::vector<uint32_t>> generateOrders(const size_t rank) {
 TEST_F(MLIR_IE_ElemTypeInfoUtils, inferElemTypeTranspose) {
     auto registry = vpux::createDialectRegistry();
     mlir::MLIRContext ctx(registry);
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     const std::vector<int64_t> inShapeVec = {2, 16, 4, 8};
     const auto orders = generateOrders(inShapeVec.size());

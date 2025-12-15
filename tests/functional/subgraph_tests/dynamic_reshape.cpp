@@ -176,6 +176,12 @@ TEST_P(NPUDynamicReshapeTest, NPU4000_HW_TestKindSubgraph) {
     run(Platform::NPU4000);
 }
 
+TEST_P(NPUDynamicReshapeTest, NPU5010_HW_TestKindSubgraph) {
+    abs_threshold = std::numeric_limits<float>::epsilon();
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
 TEST_P(NPUDynamicReshapeFusingTest, NPU3720_HW_TestKindSubgraph) {
     abs_threshold = std::numeric_limits<float>::epsilon();
     setDefaultHardwareMode();
@@ -188,6 +194,12 @@ TEST_P(NPUDynamicReshapeFusingTest, NPU4000_HW_TestKindSubgraph) {
     run(Platform::NPU4000);
 }
 
+TEST_P(NPUDynamicReshapeFusingTest, NPU5010_HW_TestKindSubgraph) {
+    abs_threshold = std::numeric_limits<float>::epsilon();
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
 TEST_P(NPUDynamicReshapeTransposeTest, NPU3720_HW_TestKindSubgraph) {
     abs_threshold = std::numeric_limits<float>::epsilon();
     setDefaultHardwareMode();
@@ -198,6 +210,12 @@ TEST_P(NPUDynamicReshapeTransposeTest, NPU4000_HW_TestKindSubgraph) {
     abs_threshold = std::numeric_limits<float>::epsilon();
     setDefaultHardwareMode();
     run(Platform::NPU4000);
+}
+
+TEST_P(NPUDynamicReshapeTransposeTest, NPU5010_HW_TestKindSubgraph) {
+    abs_threshold = std::numeric_limits<float>::epsilon();
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
 }
 
 // DynamicReshape and DynamicReshapeFusing

@@ -55,7 +55,7 @@ private:
     };
 
     bool checkForSupportedOperations(mlir::Operation* op) const {
-        return mlir::isa<IE::MultiplyOp, IE::ReduceMeanOp, IE::FakeQuantizeOp>(op);
+        return op && mlir::isa<IE::MultiplyOp, IE::ReduceMeanOp, IE::FakeQuantizeOp>(op);
     };
 
     bool isFqRangeOutOfBounds(IE::FakeQuantizeOp fqOp, float inScale, float outScale) const;
@@ -466,7 +466,7 @@ void AdjustFakeQuantizeParamsPass::safeRunOnFunc() {
     patterns.add<FQParamsRewriter>(&ctx, _log);
 
     auto func = getOperation();
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

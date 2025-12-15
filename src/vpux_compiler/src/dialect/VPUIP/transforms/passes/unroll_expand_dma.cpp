@@ -47,8 +47,7 @@ void UnrollExpandDMAPass::safeRunOnFunc() {
 
     unrollStrategy->addPatterns(patterns, _log);
 
-    if (mlir::failed(
-                mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), vpux::getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), vpux::getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

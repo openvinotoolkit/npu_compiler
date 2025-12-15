@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --ungroup-sparse-buffers %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK:       func.func @SparseCopy([[ARG0:%.+]]: memref<32x16x3x3xf16>, [[ARG1:%.+]]: memref<32x16x3x3xi1>)
 // CHECK-SAME:      -> (memref<32x16x3x3xf16, @CMX_NN>, memref<32x16x3x3xi1, @CMX_NN>)
@@ -70,12 +70,6 @@ func.func @SparseConv(%arg0: memref<1x16x64x64xf16, #NHWC>, %arg1: memref<1x16x6
                           outputs(%weights_sparse_cmx : !VPUIP.SparseBuffer<data=memref<32x16x3x3xf16, #NHWC, @CMX_NN>, sparsity_map=memref<32x1x1x256xi1, @CMX_NN>, is_weights>)
         -> !VPUIP.SparseBuffer<data=memref<32x16x3x3xf16, #NHWC, @CMX_NN>, sparsity_map=memref<32x1x1x256xi1, @CMX_NN>, is_weights>
 
-    %cst_weights_table = const.Declare memref<32x1x1x4xsi32> = dense<1> : tensor<32x1x1x4xsi32>
-    %weights_table_cmx = memref.alloc() : memref<32x1x1x4xsi32, @CMX_NN>
-    %weights_table = VPUIP.Copy inputs(%cst_weights_table : memref<32x1x1x4xsi32>)
-                                outputs(%weights_table_cmx : memref<32x1x1x4xsi32, @CMX_NN>)
-        -> memref<32x1x1x4xsi32, @CMX_NN>
-
     %in_data, %in_sm = VPUIP.UngroupSparseBuffer(%input) {resultSegmentSizes = array<i32: 1, 1, 0>}
         -> memref<1x16x64x64xf16, #NHWC, @CMX_NN>, memref<1x16x64x64xi1, #NHWC, @CMX_NN>
     %w_data, %w_sm = VPUIP.UngroupSparseBuffer(%weights)  {resultSegmentSizes = array<i32: 1, 1, 0>}
@@ -93,7 +87,6 @@ func.func @SparseConv(%arg0: memref<1x16x64x64xf16, #NHWC>, %arg1: memref<1x16x6
         input_sparsity_map(%in_sm : memref<1x16x64x64xi1, #NHWC, @CMX_NN>)
         weights(%w_data : memref<32x16x3x3xf16, #NHWC, @CMX_NN>)
         weights_sparsity_map(%w_sm : memref<32x1x1x256xi1, @CMX_NN>)
-        weight_table(%weights_table : memref<32x1x1x4xsi32, @CMX_NN>)
         parent_input(%in_data : memref<1x16x64x64xf16, #NHWC, @CMX_NN>)
         parent_input_sparsity_map(%in_sm : memref<1x16x64x64xi1, #NHWC, @CMX_NN>)
         parent_output(%out_data : memref<1x32x64x64xf16, #NHWC, @CMX_NN>)
@@ -121,7 +114,6 @@ func.func @SparseConv(%arg0: memref<1x16x64x64xf16, #NHWC>, %arg1: memref<1x16x6
 
     return %output_data, %output_sm : memref<1x32x64x64xf16, #NHWC>, memref<1x32x64x64xi1, #NHWC>
 
-    // CHECK-DAG:   [[CST_WEIGHTS_TABLE:%.+]] = const.Declare memref<32x1x1x4xsi32> = dense<1> : tensor<32x1x1x4xsi32>
     // CHECK-DAG:   [[CST_WEIGHTS_SM:%.+]] = const.Declare memref<32x1x1x256xi1> = dense<1.000000e+00> : tensor<32x16x3x3xf16>, [#const.Reorder<#NHWC>, #const.GetSparsityMap]
     // CHECK-DAG:   [[CST_WEIGHTS:%.+]] = const.Declare memref<32x16x3x3xf16, #NHWC> = dense<1.000000e+00> : tensor<32x16x3x3xf16>, [#const.Reorder<#NHWC>, #const.Sparsify<false>]
 
@@ -143,11 +135,6 @@ func.func @SparseConv(%arg0: memref<1x16x64x64xf16, #NHWC>, %arg1: memref<1x16x6
     // CHECK-SAME:                                  outputs([[WEIGHTS_SM_CMX]]
     // CHECK-SAME:      -> memref<32x1x1x256xi1, @CMX_NN>
 
-    // CHECK:       [[WEIGHTS_TABLE_CMX:%.+]] = memref.alloc() : memref<32x1x1x4xsi32, @CMX_NN>
-    // CHECK:       [[WEIGHTS_TABLE:%.+]] = VPUIP.Copy inputs([[CST_WEIGHTS_TABLE]] : memref<32x1x1x4xsi32>)
-    // CHECK-SAME:                                     outputs([[WEIGHTS_TABLE_CMX]] : memref<32x1x1x4xsi32, @CMX_NN>)
-    // CHECK-SAME:      -> memref<32x1x1x4xsi32, @CMX_NN>
-
     // CHECK:       [[OUT_DATA:%.+]] = memref.alloc() : memref<1x32x64x64xf16, #NHWC, @CMX_NN>
     // CHECK:       [[OUT_SM:%.+]] = memref.alloc() : memref<1x32x64x64xi1, #NHWC, @CMX_NN>
     // CHECK:       [[CONV_OUT:%.+]]:2 = VPUIP.NCEClusterTask
@@ -155,7 +142,6 @@ func.func @SparseConv(%arg0: memref<1x16x64x64xf16, #NHWC>, %arg1: memref<1x16x6
     // CHECK-SAME:      input_sparsity_map([[INPUT_SM]]
     // CHECK-SAME:      weights([[WEIGHTS_DATA]]
     // CHECK-SAME:      weights_sparsity_map([[WEIGHTS_SM]]
-    // CHECK-SAME:      weight_table([[WEIGHTS_TABLE]]
     // CHECK-SAME:      parent_input([[INPUT_DATA]]
     // CHECK-SAME:      parent_input_sparsity_map([[INPUT_SM]]
     // CHECK-SAME:      parent_output([[OUT_DATA]]
@@ -268,7 +254,6 @@ func.func @SparseCopyDistributed(%arg0: !Data_DDR, %arg1: !SM_DDR) -> (!Data_Dis
 !IOSMBuffer = memref<1x16x64x64xi1, #NHWC, @CMX_NN>
 !WeightsBuffer = memref<32x16x3x3xf16, #NHWC, @CMX_NN>
 !WeightsSMBuffer = memref<32x1x1x256xi1, @CMX_NN>
-!WeightsTableBuffer = memref<32x1x1x4xsi32, @CMX_NN>
 
 // CHECK:       func.func @SparseConvDistributed(
 // CHECK-SAME:      [[ARG0:%.+]]: !VPUIP.DistributedBuffer<1x16x64x64xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>,
@@ -284,8 +269,6 @@ func.func @SparseConvDistributed(%arg0: !IODistributed, %arg1: !IOSMDistributed,
 
     %weights_sparse = VPUIP.GroupSparseBuffer (%arg2, %arg3) {is_weights}
         -> !VPUIP.SparseBuffer<data=!WeightsDistributed, sparsity_map=!WeightsSMDistributed, is_weights>
-
-    %cst_weights_table = const.Declare !WeightsTableBuffer = dense<1> : tensor<32x1x1x4xsi32>
 
     %out_data = VPURT.AllocDistributed -> !IODistributed
     %out_sm = VPURT.AllocDistributed -> !IOSMDistributed
@@ -305,7 +288,6 @@ func.func @SparseConvDistributed(%arg0: !IODistributed, %arg1: !IOSMDistributed,
         input_sparsity_map(%in_sm : !IOSMDistributed)
         weights(%w_data : !WeightsDistributed)
         weights_sparsity_map(%w_sm : !WeightsSMDistributed)
-        weight_table(%cst_weights_table : !WeightsTableBuffer)
         parent_input(%in_data : !IODistributed)
         parent_input_sparsity_map(%in_sm : !IOSMDistributed)
         parent_output(%out_data : !IODistributed)
@@ -326,7 +308,6 @@ func.func @SparseConvDistributed(%arg0: !IODistributed, %arg1: !IOSMDistributed,
 
     return %conv_out_data, %conv_out_sm : !IODistributed, !IOSMDistributed
 
-    // CHECK-DAG:       [[CST_WEIGHTS_TABLE:%.+]] = const.Declare memref<32x1x1x4xsi32, @CMX_NN> = dense<1> : tensor<32x1x1x4xsi32>
     // CHECK:       [[OUT_DATA:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x16x64x64xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
     // CHECK:       [[OUT_SM:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x16x64x64xi1, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
     // CHECK:       [[CONV_OUT:%.+]]:2 = VPUIP.NCEClusterTask
@@ -334,7 +315,6 @@ func.func @SparseConvDistributed(%arg0: !IODistributed, %arg1: !IOSMDistributed,
     // CHECK-SAME:      input_sparsity_map([[ARG1]]
     // CHECK-SAME:      weights([[ARG2]]
     // CHECK-SAME:      weights_sparsity_map([[ARG3]]
-    // CHECK-SAME:      weight_table([[CST_WEIGHTS_TABLE]]
     // CHECK-SAME:      parent_input([[ARG0]]
     // CHECK-SAME:      parent_input_sparsity_map([[ARG1]]
     // CHECK-SAME:      parent_output([[OUT_DATA]]

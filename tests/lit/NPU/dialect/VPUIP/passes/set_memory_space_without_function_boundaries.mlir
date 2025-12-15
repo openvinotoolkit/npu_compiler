@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --vpu-arch=%arch% --pass-pipeline="builtin.module(builtin.module(set-memory-space{memory-space=DDR set-memory-space-for-function-boundaries=false}))" %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 //CHECK-LABEL: @NestedFunction
 module @NestedFunction {

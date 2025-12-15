@@ -233,6 +233,12 @@ void InsertBarrierToMarkTheEndOfDescriptorGroupPass::safeRunOnFunc() {
         return;
     }
 
+    // createAddPlaceholderFetchDMAsPass inserts placeholder FetchDMAs
+    if (_workloadManagementMode.has_value() &&
+        _workloadManagementMode.value() == WorkloadManagementMode::FWLM_V1_PAGES) {
+        return;
+    }
+
     mlir::OpBuilder builder(netFunc);
 
     auto taskOps = netFunc.getOps<VPURT::TaskOp>();

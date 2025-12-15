@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --vertical-fusion="vf-outlining-instance-threshold=0 vf-outlining-instance-threshold=0" %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 
 module @Do_not_Canocalize_VF_op_with_outline {

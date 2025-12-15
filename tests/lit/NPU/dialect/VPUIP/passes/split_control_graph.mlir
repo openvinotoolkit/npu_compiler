@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt  --split-input-file --init-compiler="vpu-arch=%arch%" --split-control-graph="block-size=3" %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // Note: 'idx' added since tasks can be reordered
 

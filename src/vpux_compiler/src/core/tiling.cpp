@@ -14,7 +14,7 @@
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/IE/utils/roll_utils.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/interfaces/workload_splitter.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
@@ -23,6 +23,8 @@
 #include "vpux/compiler/dialect/VPU/utils/multi_cluster_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/op_tiling_cache.hpp"
+#include "vpux/compiler/dialect/VPU/utils/sw_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/interfaces/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
@@ -30,7 +32,6 @@
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
-#include "vpux/compiler/utils/VPU/tile_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/dilated_utils.hpp"
 #include "vpux/utils/core/numeric.hpp"
@@ -384,16 +385,11 @@ bool vpux::isWeightsFirstNestedTiling(mlir::Operation* op, ShapeRef divisors) {
 std::optional<SmallVector<int64_t>> vpux::getAlignment(mlir::Operation* op, ShapeRef divisors, ShapeRef shape) {
     std::optional<SmallVector<int64_t>> optionalAlignment = std::nullopt;
 
-    if (VPU::isWeightsDequant(op)) {
-        optionalAlignment = VPU::DISTRIBUTED_N_ALIGNMENT;
-    }
-
     auto isSWOp = mlir::isa<VPU::SWOpInterface>(op);
-    auto isTiledOverC = divisors.size() == 4 ? divisors[Dims4D::Act::C] > 1 : false;
-
-    if (isSWOp && isTiledOverC) {
-        if (shape[Dims4D::Act::C] / divisors[Dims4D::Act::C] > VPU::DISTRIBUTED_C_ALIGNMENT[Dims4D::Act::C.ind()]) {
-            return VPU::DISTRIBUTED_C_ALIGNMENT;
+    if (isSWOp) {
+        optionalAlignment = VPU::getSWAlignment(op, divisors, shape);
+        if (optionalAlignment.has_value()) {
+            return optionalAlignment;
         }
     }
 
@@ -732,14 +728,14 @@ mlir::FailureOr<OutputTiling> vpux::fillDividedTiles(ArrayRef<mlir::Operation*> 
     }
     optionalAlignment = alignmentLCMResult.value();
 
+    Shape modifiedShape(shape.raw());
     if (multiplier != 1) {
-        auto newShape = to_small_vector(shape);
-        newShape[Dims4D::Act::H.ind()] /= multiplier;
-        newShape[Dims4D::Act::W.ind()] /= multiplier;
-        shape = ShapeRef(newShape);
+        modifiedShape[Dims4D::Act::H] /= multiplier;
+        modifiedShape[Dims4D::Act::W] /= multiplier;
     }
 
-    auto tiles = vpux::fillDividedTiles(divisors, shape, optionalAlignment, unrollSpatialFirst, customChannelSplit);
+    auto tiles =
+            vpux::fillDividedTiles(divisors, modifiedShape, optionalAlignment, unrollSpatialFirst, customChannelSplit);
 
     if (mlir::failed(tiles)) {
         return mlir::failure();
@@ -2291,6 +2287,12 @@ DimArr vpux::getTileDimOrder(mlir::Operation* op, TilingMode tilingMode, Logger 
                         VPUX_THROW_UNLESS(dims.size(), "Could not find dims that can be tiled");
                         return dims;
                     })
+                    .Case<VPU::ReverseSequenceOp>([&](mlir::Operation* op) {
+                        auto reverseSequence = mlir::cast<VPU::ReverseSequenceOp>(op);
+                        auto dims = reverseSequence.getTileableDims();
+                        VPUX_THROW_WHEN(dims.empty(), "Could not find dims that can be tiled");
+                        return dims;
+                    })
                     .Case<VPU::RollOp>([&](mlir::Operation* op) {
                         const auto outputType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType());
                         auto tileDimOrder = getTileDimOrderND(outputType.getMemShape(), outputType.getDimsOrder());
@@ -2323,9 +2325,17 @@ DimArr vpux::getTileDimOrder(mlir::Operation* op, TilingMode tilingMode, Logger 
                         // [1, Batch, TargetSeqLen, VEmbeddingSize]
                         return DimArr{Dims4D::Act::H, Dims4D::Act::C};
                     })
+                    .Case<VPU::MaxPool8Op>([&](mlir::Operation* op) {
+                        // MaxPool8Op shave kernel only supports Split over channel or batch
+                        const auto outputType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType());
+                        auto dims = outputType.getRank() == 3   ? DimArr{Dims3D::Act::B, Dims3D::Act::H}
+                                    : outputType.getRank() == 4 ? DimArr{Dims4D::Act::N, Dims4D::Act::C}
+                                                                : DimArr{Dims5D::Act::N, Dims5D::Act::C};
+                        return dims;
+                    })
+
                     .Default([&](mlir::Operation* op) -> DimArr {
                         const auto outputType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType());
-
                         return getTileDimOrderND(getBoundedMemShape(outputType), outputType.getDimsOrder());
                     });
 

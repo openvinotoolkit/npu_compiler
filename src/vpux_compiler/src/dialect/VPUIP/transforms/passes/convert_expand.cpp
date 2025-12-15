@@ -12,7 +12,7 @@
 #include "vpux/compiler/utils/types.hpp"
 
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 
 namespace vpux::VPUIP {
 #define GEN_PASS_DECL_CONVERTEXPAND

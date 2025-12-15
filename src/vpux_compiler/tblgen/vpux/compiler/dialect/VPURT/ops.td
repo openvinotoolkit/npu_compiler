@@ -153,13 +153,15 @@ def VPURT_DeclareVirtualBarrierOp :
 
     let builders = [
         OpBuilder<(ins), [{
-            build($_builder, $_state, nullptr, nullptr, nullptr);
-        }]>,
-        OpBuilder<(ins "mlir::UnitAttr":$isFinalBarrier), [{
-            build($_builder, $_state, isFinalBarrier, nullptr, nullptr);
+            build($_builder, $_state,
+                  /*isFinalBarrier=*/nullptr, /*isStartBarrier=*/nullptr,
+                  /*wlmPage=*/nullptr, /*barrierIndex=*/std::nullopt);
         }]>,
         OpBuilder<(ins "bool":$isFinalBarrier), [{
-            build($_builder, $_state, ((isFinalBarrier) ? $_builder.getUnitAttr() : nullptr), nullptr, nullptr);
+            auto finalAttr = isFinalBarrier ? $_builder.getUnitAttr() : nullptr;
+            build($_builder, $_state, finalAttr,
+                  /*isStartBarrier=*/nullptr, /*wlmPage=*/nullptr,
+                  /*barrierIndex=*/std::nullopt);
         }]>
     ];
 
@@ -222,10 +224,16 @@ def VPURT_ConfigureBarrierOp :
 
     let builders = [
         OpBuilder<(ins "int64_t":$id), [{
-            build($_builder, $_state, id, false, false, nullptr);
+            build($_builder, $_state, $_builder.getI64IntegerAttr(id), nullptr, nullptr, nullptr, std::nullopt);
         }]>,
         OpBuilder<(ins "int64_t":$id, "bool":$isFinalBarrier), [{
-            build($_builder, $_state, id, isFinalBarrier, false, nullptr);
+            auto finalAttr = isFinalBarrier ? $_builder.getUnitAttr() : nullptr;
+            build($_builder, $_state, $_builder.getI64IntegerAttr(id), finalAttr, nullptr, nullptr, std::nullopt);
+        }]>,
+        OpBuilder<(ins "int64_t":$id, "bool":$isFinalBarrier, "bool":$isStartBarrier, "mlir::IntegerAttr":$wlmPage), [{
+            auto finalAttr = isFinalBarrier ? $_builder.getUnitAttr() : nullptr;
+            auto startAttr = isStartBarrier ? $_builder.getUnitAttr() : nullptr;
+            build($_builder, $_state, $_builder.getI64IntegerAttr(id), finalAttr, startAttr, wlmPage, std::nullopt);
         }]>
     ];
 

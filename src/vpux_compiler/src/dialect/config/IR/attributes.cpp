@@ -46,6 +46,7 @@ namespace {
 // Run-time resources
 //
 
+constexpr llvm::StringLiteral platformAttrName = "config.platform";
 constexpr llvm::StringLiteral archAttrName = "config.arch";
 constexpr Byte DDR_HEAP_SIZE = 64000_MB;
 
@@ -129,14 +130,8 @@ struct SetResourcesFuncs {
     }
 };
 
-void setArch(mlir::ModuleOp module, config::ArchKind kind, const Resources& res, const SetResourcesFuncs& funcs,
-             bool allowCustom) {
-    VPUX_THROW_WHEN(!allowCustom && module->hasAttr(archAttrName),
-                    "Architecture is already defined, probably you run '--init-compiler' twice");
-
-    if (!module->hasAttr(archAttrName)) {
-        module->setAttr(archAttrName, config::ArchKindAttr::get(module.getContext(), kind));
-    }
+void setResources(mlir::ModuleOp module, const Resources& res, const SetResourcesFuncs& funcs, bool allowCustom) {
+    const auto kind = config::getArch(module);
 
     auto numOfDPUGroups = res.numOfDPUGroups;
     auto numOfDMAPorts = res.numOfDMAPorts;
@@ -197,18 +192,54 @@ void setArch(mlir::ModuleOp module, config::ArchKind kind, const Resources& res,
 
         break;
     }
+    case config::ArchKind::NPU50XX: {
+        const auto workspaceCMXSize =
+                availableCMXMemory.has_value() ? availableCMXMemory.value() : VPUX50XX_CMX_WORKSPACE_SIZE;
+        const auto workspaceFragmentationAwareSize =
+                availableCMXMemory.has_value()
+                        ? Byte(static_cast<double>(availableCMXMemory.value().count()) * FRAGMENTATION_AVOID_RATIO)
+                        : VPUX50XX_CMX_WORKSPACE_FRAGMENTATION_AWARE_SIZE;
+
+        auto globalResource = funcs.addGlobalResources();
+        funcs.addInnerMemoryWithAttrs(globalResource, ddrSymbolAttr, DDR_HEAP_SIZE, 0.6, 64);
+        funcs.addSubExecutor(globalResource, VPU::ExecutorKind::DMA_NN,
+                             getNumOfDMAPortsVal(std::min(numOfDPUGroups, VPUX50XX_MAX_DMA_PORTS)));
+        funcs.addSubExecutor(globalResource, VPU::ExecutorKind::M2I, 1);
+
+        nceCluster = funcs.addTileExecutor(numOfDPUGroups);
+        funcs.addSubExecutor(nceCluster, VPU::ExecutorKind::DPU, 1);
+        funcs.addSubExecutor(nceCluster, VPU::ExecutorKind::SHAVE_ACT, VPUX50XX_MAX_SHAVES_PER_TILE);
+        funcs.addInnerMemoryWithAttrs(nceCluster, cmxSymbolAttr, workspaceCMXSize, 1.0, 64);
+        funcs.addInnerMemory(nceCluster, cmxFragAwareSymbolAttr, workspaceFragmentationAwareSize);
+
+        break;
+    }
     default:
         VPUX_THROW("Unsupported architecture '{0}'", kind);
     }
 
     VPUX_THROW_WHEN(!allowCustom && nceCluster.hasProcessorFrequency(),
-                    "Processor frequencyis already defined, probably you run '--init-compiler' twice");
+                    "Processor frequencies already defined, probably you run '--init-compiler' twice");
 }
 }  // namespace
 
-void vpux::config::setArch(mlir::ModuleOp module, config::ArchKind kind, int numOfDPUGroups,
-                           std::optional<int> numOfDMAPorts, std::optional<vpux::Byte> availableCMXMemory,
-                           bool allowCustomValues) {
+void vpux::config::setArch(mlir::ModuleOp module, std::optional<config::Platform> platform, config::ArchKind kind,
+                           int numOfDPUGroups, std::optional<int> numOfDMAPorts,
+                           std::optional<vpux::Byte> availableCMXMemory, bool allowCustomValues) {
+    const bool hasArch = module->hasAttr(platformAttrName) || module->hasAttr(archAttrName);
+    VPUX_THROW_WHEN(!allowCustomValues && hasArch,
+                    "Target platform is already set, probably you run '--init-compiler' twice");
+    if (!hasArch) {
+        if (platform.has_value()) {
+            VPUX_THROW_WHEN(kind != config::ArchKind::UNKNOWN && getArch(platform.value()) != kind,
+                            "Platform mismatch.");
+            module->setAttr(platformAttrName, config::PlatformAttr::get(module.getContext(), platform.value()));
+
+        } else {
+            module->setAttr(archAttrName, config::ArchKindAttr::get(module.getContext(), kind));
+        }
+    }
+
     const auto addGlobalResource = [&]() {
         VPUX_THROW_WHEN(!allowCustomValues && config::hasGlobalResource(module),
                         "Available global resources was already added");
@@ -261,27 +292,52 @@ void vpux::config::setArch(mlir::ModuleOp module, config::ArchKind kind, int num
         }
     };
 
-    ::Resources res(numOfDPUGroups, numOfDMAPorts, availableCMXMemory);
-    ::SetResourcesFuncs funcs(addGlobalResource, addTileExecutor, addSubExecutor, addInnerAvailableMemory,
-                              addInnerAvailableMemoryWithAttrs);
+    Resources res(numOfDPUGroups, numOfDMAPorts, availableCMXMemory);
+    SetResourcesFuncs funcs(addGlobalResource, addTileExecutor, addSubExecutor, addInnerAvailableMemory,
+                            addInnerAvailableMemoryWithAttrs);
 
-    return ::setArch(module, kind, res, funcs, allowCustomValues);
+    return setResources(module, res, funcs, allowCustomValues);
 }
 
-config::ArchKind vpux::config::getArch(mlir::Operation* op) {
-    auto module = getModuleOp(op);
-
-    if (auto attr = module->getAttr(archAttrName)) {
-        VPUX_THROW_UNLESS(mlir::isa<vpux::config::ArchKindAttr>(attr),
-                          "Module attribute '{0}' has unsupported value '{1}'", archAttrName, attr);
-        return mlir::cast<vpux::config::ArchKindAttr>(attr).getValue();
+config::ArchKind vpux::config::getArch(config::Platform platform) {
+    switch (platform) {
+    case config::Platform::NPU3720:
+        return config::ArchKind::NPU37XX;
+    case config::Platform::NPU4000:
+        return config::ArchKind::NPU40XX;
+    case config::Platform::NPU5000:
+    case config::Platform::NPU5010:
+        return config::ArchKind::NPU50XX;
     }
 
     return config::ArchKind::UNKNOWN;
 }
 
+std::optional<config::Platform> vpux::config::getPlatform(mlir::Operation* op) {
+    auto module = getModuleOp(op);
+    if (auto attr = module->getAttr(platformAttrName)) {
+        return mlir::cast<vpux::config::PlatformAttr>(attr).getValue();
+    }
+    return std::nullopt;
+}
+
+config::ArchKind vpux::config::getArch(mlir::Operation* op) {
+    auto module = getModuleOp(op);
+    if (auto attr = module->getAttr(platformAttrName)) {
+        auto platform = mlir::cast<vpux::config::PlatformAttr>(attr).getValue();
+        return getArch(platform);
+    } else if (auto attr = module->getAttr(archAttrName)) {
+        return mlir::cast<vpux::config::ArchKindAttr>(attr).getValue();
+    }
+    return config::ArchKind::UNKNOWN;
+}
+
 bool vpux::config::isArchVPUX3XXX(config::ArchKind arch) {
     return (arch == config::ArchKind::NPU37XX);
+}
+
+bool vpux::config::isArchVPUX5XXX(config::ArchKind arch) {
+    return (arch == config::ArchKind::NPU50XX);
 }
 
 //

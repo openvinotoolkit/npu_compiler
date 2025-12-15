@@ -58,6 +58,14 @@ SmallVector<uint16_t> PalletLUTConverter::fillPalletTable(mlir::Type quantileTyp
         } else if (quantileType.isSignedInteger(8)) {
             uint16_t i8Masked = static_cast<uint16_t>(static_cast<int16_t>(value) & 0x00FF);
             return i8Masked << 8 | i8Masked;
+        } else if (mlir::isa<mlir::Float8E5M2Type>(quantileType)) {
+            vpux::type::float8_e5m2 bf8(static_cast<float>(value));
+            uint16_t bf8Ext = bf8.to_bits();
+            return bf8Ext << 8 | bf8Ext;
+        } else if (mlir::isa<mlir::Float8E4M3FNType>(quantileType)) {
+            vpux::type::float8_e4m3 hf8(static_cast<float>(value));
+            uint16_t hf8Ext = hf8.to_bits();
+            return hf8Ext << 8 | hf8Ext;
         } else {
             VPUX_THROW("getPalletModeBitValue: Unsupported quantileType for palletization table {0}", quantileType);
         }

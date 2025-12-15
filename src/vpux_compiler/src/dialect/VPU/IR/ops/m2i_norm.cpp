@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/IE/IR/ops/normalization.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/m2i.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/m2i_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"

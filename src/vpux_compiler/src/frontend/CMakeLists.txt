@@ -20,6 +20,7 @@ add_npu_library(${TARGET_NAME}
         npu_compiler_utils
         npu_elf
         npu_compiler_dialect_vpuip
+        npu_compiler_dialect_net
     INCLUDES
         $<TARGET_PROPERTY:openvino::npu_al,INTERFACE_INCLUDE_DIRECTORIES>)
 

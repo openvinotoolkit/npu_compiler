@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/ops.hpp"
-#include "vpux/compiler/utils/ELF/utils.hpp"
+#include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 
 #include <npu_40xx_nnrt.hpp>
 using namespace npu40xx;

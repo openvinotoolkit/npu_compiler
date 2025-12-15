@@ -85,6 +85,11 @@ TEST_P(FuseSoftmaxTestCommon, NPU4000_HW) {
     run(Platform::NPU4000);
 }
 
+TEST_P(FuseSoftmaxTestCommon, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
 INSTANTIATE_TEST_SUITE_P(
         precommit_FuseSoftmax, FuseSoftmaxTestCommon,
         ::testing::ValuesIn({

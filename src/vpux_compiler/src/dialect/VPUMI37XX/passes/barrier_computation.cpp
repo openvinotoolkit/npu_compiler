@@ -2,10 +2,12 @@
 // Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache-2.0
 //
+
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/passes.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/utils.hpp"
+#include "vpux/compiler/dialect/VPURegMapped/types.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 
 #include <npu_37xx_nnrt.hpp>

@@ -23,7 +23,7 @@ mlir::LogicalResult vpux::IE::FlashSDPAOp::inferReturnTypeComponents(
     const auto qShape = getShape(flashSdpa.getQuery());
     const auto vShape = getShape(flashSdpa.getValue());
 
-    const auto vEmbedding = vShape.back();
+    const auto vEmbedding = *std::prev(vShape.end(), 2);
     auto outShape = to_small_vector(qShape);
     outShape.back() = vEmbedding;
 

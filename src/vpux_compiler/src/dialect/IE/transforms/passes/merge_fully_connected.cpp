@@ -747,19 +747,19 @@ std::optional<mlir::Operation*> MergeFullyConnectedForDQPatternWithConvert::getM
     const auto lhs = origOp.getInput();
     const auto lhsType = mlir::dyn_cast<vpux::NDTypeInterface>(lhs.getType());
     if (lhsType.getRank() != 2) {
-        _log.trace("lhsType is not suitable", lhsType);
+        _log.trace("lhsType is not suitable {0}", lhsType);
         return std::nullopt;
     }
     // Right-hand matrix must have exactly two dimensions.
     auto rhs = origOp.getWeights();
     const auto rhsType = mlir::dyn_cast<vpux::NDTypeInterface>(rhs.getType());
     if (rhsType.getRank() != 2) {
-        _log.trace("rhsType is not suitable", rhsType);
+        _log.trace("rhsType is not suitable {0}", rhsType);
         return std::nullopt;
     }
     auto outShape = getShape(origOp.getOutput());
     if (outShape != expectedOutShape) {
-        _log.trace("outShape is not suitable", outShape);
+        _log.trace("outShape is not suitable {0}", outShape);
         return std::nullopt;
     }
 
@@ -1113,21 +1113,21 @@ std::optional<mlir::Operation*> MergeFullyConnectedForDQPatternWithDequantize::g
     const auto lhs = origOp.getInput();
     const auto lhsType = mlir::dyn_cast<vpux::NDTypeInterface>(lhs.getType());
     if (lhsType.getRank() != 2) {
-        _log.trace("lhsType is not suitable", lhsType);
+        _log.trace("lhsType is not suitable {0}", lhsType);
         return std::nullopt;
     }
     // Right-hand matrix must have exactly two dimensions.
     auto rhs = origOp.getWeights();
     const auto rhsType = mlir::dyn_cast<vpux::NDTypeInterface>(rhs.getType());
     if (rhsType.getRank() != 2) {
-        _log.trace("rhsType is not suitable", rhsType);
+        _log.trace("rhsType is not suitable {0}", rhsType);
         return std::nullopt;
     }
 
     // Validate output shape
     auto outShape = getShape(origOp.getOutput());
     if (outShape != expectedOutShape) {
-        _log.trace("outShape is not suitable", outShape);
+        _log.trace("outShape is not suitable {0}", outShape);
         return std::nullopt;
     }
 
@@ -1354,7 +1354,7 @@ void MergeFullyConnectedPass::safeRunOnFunc() {
     patterns.add<MergeFullyConnectedWithWeightsAsConstant>(&ctx, _log);
     patterns.add<MergeFullyConnectedForDQPatternWithConvert>(&ctx, _log);
     patterns.add<MergeFullyConnectedForDQPatternWithDequantize>(&ctx, _log);
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

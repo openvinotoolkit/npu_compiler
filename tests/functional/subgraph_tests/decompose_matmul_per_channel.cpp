@@ -120,6 +120,12 @@ TEST_P(MatMulWithAsymZeroPointPerChannel, NPU4000_HW) {
     run(Platform::NPU4000);
 }
 
+TEST_P(MatMulWithAsymZeroPointPerChannel, NPU5010_HW) {
+    setDefaultHardwareMode();
+    configuration[ov::intel_npu::compilation_mode_params.name()] = "matmul-mixed-precision-decomposition-ratio=0.5";
+    run(Platform::NPU5010);
+}
+
 namespace {
 using namespace ov::test::subgraph;
 

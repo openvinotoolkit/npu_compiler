@@ -4,10 +4,12 @@
 //
 
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/mpe_engine_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
@@ -79,6 +81,12 @@ void RelocateWeightTableForReusePass::safeRunOnFunc() {
         if (!mlir::isa<VPU::NCEMatMulOp, VPU::NCEConvolutionOp>(nceOp)) {
             return;
         }
+
+        // For new weights table format which actually don't have weights table, we can not apply the optimization
+        if (VPU::MPEEngineConfig::useNewWeightTableFormat(nceOp, /*isCompressConv*/ false)) {
+            return;
+        }
+
         _log.trace("[{0}]: NCE operation at {1}", nceOp->getName(), nceOp->getLoc());
         Const::DeclareOp cstOp = nullptr;
         const auto weightsTable = nceOp->getOperand(2);

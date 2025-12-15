@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-gather-to-slice %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @ConvertGatherToSliceAxis0
 func.func @ConvertGatherToSliceAxis0(%arg0: tensor<18x8x72x64xf16>) -> tensor<8x72x64xf16> {

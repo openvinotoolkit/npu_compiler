@@ -5,7 +5,7 @@
 
 #include "vpux/compiler/core/cost_model_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/factories/cost_model_config.hpp"
@@ -58,6 +58,8 @@ VPUNN::VPUDevice getVPUNNDevice(config::ArchKind archKind) {
         return VPUNN::VPUDevice::VPU_2_7;
     case config::ArchKind::NPU40XX:
         return VPUNN::VPUDevice::VPU_4_0;
+    case config::ArchKind::NPU50XX:
+        return VPUNN::VPUDevice::NPU_5_0;
     default:
         VPUX_THROW("Unsupported VPU arch type: '{0}'", archKind);
     }
@@ -82,7 +84,13 @@ VPUNN::DataType getElementType(mlir::Type type, [[maybe_unused]] VPUNN::VPUDevic
 
         if (qType.getStorageTypeIntegralWidth() == 8) {
             return qType.isSigned() ? VPUNN::DataType::INT8 : VPUNN::DataType::UINT8;
+        } else if (qType.getStorageTypeIntegralWidth() == 4 && vpuDevice > VPUNN::VPUDevice::VPU_4_0) {
+            // set INT4 only for 50XX+, see E#152912
+            return qType.isSigned() ? VPUNN::DataType::INT4 : VPUNN::DataType::UINT4;
         }
+    } else if (type.isF32() && vpuDevice > VPUNN::VPUDevice::VPU_4_0) {
+        // set FP32 only for 50XX+, see E#158088
+        return VPUNN::DataType::FLOAT32;
     } else if (mlir::isa<mlir::Float8E5M2Type>(type)) {
         return VPUNN::DataType::BF8;
     } else if (mlir::isa<mlir::Float8E4M3FNType>(type)) {
@@ -137,6 +145,64 @@ VPUNN::ActivationFunction vpux::getVPUNNActivationFunction(VPU::PPEAttr ppeAttr)
 
 namespace {
 
+bool isFullyBroadCastDPUTask(VPUIP::ITIBufferType outType, ArrayRef<int64_t> workloadOutShape) {
+    if (outType == nullptr) {
+        return false;
+    }
+    auto outwardHaloRegions = outType.getOutwardHaloRegions();
+    if (outwardHaloRegions.empty()) {
+        return false;
+    }
+    for (const auto& attr : outwardHaloRegions) {
+        auto outwardHaloRegion = mlir::cast<VPUIP::OutwardHaloRegionAttr>(attr);
+        auto outwardHaloRegionShape = parseIntArrayAttr<int64_t>(outwardHaloRegion.getShape());
+        if (outwardHaloRegionShape[Dims4D::Act::C.ind()] != workloadOutShape[2] ||
+            outwardHaloRegionShape[Dims4D::Act::H.ind()] != workloadOutShape[1] ||
+            outwardHaloRegionShape[Dims4D::Act::W.ind()] != workloadOutShape[0]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+SmallVector<int64_t> getDPUOutputWorkloadSize(ArrayRef<VPUIP::DPUTaskOp> dpuTaskOps) {
+    // DPU workload has three dimensions
+    SmallVector<int64_t> outEnd(3, std::numeric_limits<int64_t>::min());
+    SmallVector<int64_t> outStart(3, std::numeric_limits<int64_t>::max());
+    for (auto dpuTaskOp : dpuTaskOps) {
+        const auto curOutStart = parseIntArrayAttr<int64_t>(dpuTaskOp.getOutStart());
+        const auto curoutEnd = parseIntArrayAttr<int64_t>(dpuTaskOp.getOutEnd());
+        VPUX_THROW_WHEN(outStart.size() != 3 || outEnd.size() != 3, "Unexpected size of outStart/End attributes");
+        for (auto i : irange(3)) {
+            outStart[i] = std::min(outStart[i], curOutStart[i]);
+            outEnd[i] = std::max(outEnd[i], curoutEnd[i]);
+        }
+    }
+    return {outEnd[0] - outStart[0] + 1, outEnd[1] - outStart[1] + 1, outEnd[2] - outStart[2] + 1};
+}
+
+VPUNN::ISIStrategy getVPUNNISIStrategyFromITTOutputType(VPUIP::DPUTaskOp dpuTaskOp, unsigned int& outputWriteTiles) {
+    auto nceClusterOp = dpuTaskOp->getParentOfType<VPUIP::NCEClusterTaskOp>();
+    VPUX_THROW_WHEN(nceClusterOp == nullptr, "The parent of dpuTaskOp {0} must be a NCEClusterTaskOp but not",
+                    dpuTaskOp->getLoc());
+    const auto dpuTaskOps = to_small_vector(nceClusterOp.getVariants().getOps<VPUIP::DPUTaskOp>());
+    const auto dpuWorkloadSize = getDPUOutputWorkloadSize(dpuTaskOps);
+    auto outputITTType = mlir::dyn_cast<VPUIP::ITIBufferType>(nceClusterOp->getResult(0).getType());
+    auto isFullyBroadCasted = isFullyBroadCastDPUTask(outputITTType, dpuWorkloadSize);
+
+    if (!isFullyBroadCasted) {
+        outputWriteTiles = 1;
+        return VPUNN::ISIStrategy::CLUSTERING;
+    }
+    auto outwardHaloRegions = outputITTType.getOutwardHaloRegions();
+    auto inwardHaloRegion = mlir::cast<VPUIP::OutwardHaloRegionAttr>(outwardHaloRegions[0]).getInwardHaloRegions();
+    outputWriteTiles = inwardHaloRegion.size() + 1;
+    const auto outShape = getShape(nceClusterOp->getResult(0));
+    auto isSplitOverC = outShape[Dims4D::Act::C] != dpuWorkloadSize[2];
+    return isSplitOverC ? VPUNN::ISIStrategy::SPLIT_OVER_K : VPUNN::ISIStrategy::CLUSTERING;
+}
+
 // Keep the original logic of assigning VPUNN ISIStrategy for NPU37XX and NPU40XX because the DPU cost model will not be
 // updated for them.
 VPUNN::ISIStrategy getVPUNNISIStrategyForNPU40XXAndBelow(VPUIP::DPUTaskOp dpuTaskOp, unsigned int& outputWriteTiles) {
@@ -170,6 +236,34 @@ VPUNN::ISIStrategy getVPUNNISIStrategyForNPU40XXAndBelow(VPUIP::DPUTaskOp dpuTas
     }
 
     return isiStrategy;
+}
+
+// Fix the logic of assigning VPUNN ISIStrategy for NPU50XX+
+// ISIStrategy describes how the dpu output looks like when we need to broadcast it from the current cluster to others
+// 1. For SOK the dpu output is not contiguous because C is the innermost dimension, we assign ISIStrategy::SPLIT_OVER_K
+// 2. For HKSwitch the dpu output is contiguous because H is the outermost dimension, we assign ISIStrategy::CLUSTERING
+// 3. For other cases when there's no broadcast, ISIStrategy is not used actually
+VPUNN::ISIStrategy getVPUNNISIStrategyForNPU50XXAndAbove(VPUIP::DPUTaskOp dpuTaskOp, unsigned int& outputWriteTiles) {
+    auto nceClusterOp = dpuTaskOp->getParentOfType<VPUIP::NCEClusterTaskOp>();
+    VPUX_THROW_WHEN(nceClusterOp == nullptr, "The parent of dpuTaskOp {0} must be a NCEClusterTaskOp but not",
+                    dpuTaskOp->getLoc());
+    VPUNN::ISIStrategy isiStrategy = VPUNN::ISIStrategy::CLUSTERING;
+    if (auto distributedOutput = mlir::dyn_cast<VPUIP::DistributedBufferType>(nceClusterOp->getResult(0).getType())) {
+        const auto outputDistributionAttr = distributedOutput.getDistribution();
+        const auto outputMode = outputDistributionAttr.getMode().getValue();
+        if (outputMode == (VPU::DistributionMode::SEGMENTED | VPU::DistributionMode::DUPLICATED)) {
+            outputWriteTiles = outputDistributionAttr.getNumClusters().getInt();
+            isiStrategy = VPUNN::ISIStrategy::SPLIT_OVER_K;
+        } else if (outputMode == (VPU::DistributionMode::SEGMENTED | VPU::DistributionMode::MULTICASTED)) {
+            outputWriteTiles = outputDistributionAttr.getNumClusters().getInt();
+            isiStrategy = VPUNN::ISIStrategy::CLUSTERING;
+        } else {
+            outputWriteTiles = 1;
+            isiStrategy = VPUNN::ISIStrategy::CLUSTERING;
+        }
+        return isiStrategy;
+    }
+    return getVPUNNISIStrategyFromITTOutputType(dpuTaskOp, outputWriteTiles);
 }
 
 bool isConstDeclareOpFilledAllOne(Const::DeclareOp op) {
@@ -232,7 +326,9 @@ VPUNN::DPUWorkload vpux::getDPUWorkload(VPUIP::DPUTaskOp dpuTaskOp, config::Arch
     }
 
     unsigned int outputWriteTiles = 1;
-    VPUNN::ISIStrategy isiStrategy = getVPUNNISIStrategyForNPU40XXAndBelow(dpuTaskOp, outputWriteTiles);
+    VPUNN::ISIStrategy isiStrategy = arch <= config::ArchKind::NPU40XX
+                                             ? getVPUNNISIStrategyForNPU40XXAndBelow(dpuTaskOp, outputWriteTiles)
+                                             : getVPUNNISIStrategyForNPU50XXAndAbove(dpuTaskOp, outputWriteTiles);
 
     bool isWeightsSparsityEnabled = false;
     float weightsSparsityRatio = 0;
@@ -404,6 +500,20 @@ size_t calculateMultiClusterDMACost(mlir::Value innerOperand, VPUNN::DataType in
     // we might need to update the cost here as well
     auto perClusterShapes = distributedType.getPerClusterMemoryShapes();
 
+    // DMAs will be split across multiple DMA ports to execute in parallel, include in cost calculation
+    // Only apply to 50XX, as only arch with accurate DMA cost model
+    VPUX_THROW_WHEN(numDMAPorts <= 0, "Invalid number of DMA ports; should be > 0, but actual value is {0}",
+                    numDMAPorts);
+    if (archKind == config::ArchKind::NPU50XX) {
+        size_t cost = 0;
+        for (auto shape : perClusterShapes) {
+            auto vpuTensorInput = getVPUNNTensor(shape, inElemType);
+            auto vpuTensorOutput = getVPUNNTensor(shape, outElemType);
+            cost += costModel->DMA(vpuDevice, vpuTensorInput, vpuTensorOutput);
+        }
+        return cost / numDMAPorts;
+    }
+
     return static_cast<size_t>(costModel->DMA(vpuDevice, {getVPUNNTensorMultiCluster(perClusterShapes, inElemType)},
                                               {getVPUNNTensorMultiCluster(perClusterShapes, outElemType)}));
 }
@@ -455,6 +565,17 @@ size_t getSpillingCostForSegmented(vpux::NDTypeInterface tensorType, VPUNN::VPUD
     auto elemType = tensorType.getElementType();
 
     SmallVector<Shape> shapes;
+    // DMAs will be split across multiple DMA ports to execute in parallel, include in cost calculation
+    // Only apply to 50XX, as only arch with accurate DMA cost model
+    if (vpuDevice == VPUNN::VPUDevice::NPU_5_0) {
+        shapes = distributedTensorType.getPerClusterMemoryShapes();
+        size_t cost = 0;
+        for (auto shape : shapes) {
+            auto vpuTensor = getVPUNNTensor(shape, getElementType(elemType, vpuDevice));
+            cost += costModel->DMA(vpuDevice, vpuTensor, vpuTensor);
+        }
+        return cost / numDMAPorts;
+    }
     if (numDMAPorts > 1) {
         // For distributed segmented DMA, transaction will be split between ports and executing
         // in parallel when there are multiple DMA ports available.

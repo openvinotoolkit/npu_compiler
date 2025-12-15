@@ -368,7 +368,7 @@ void ConsolidateWeightsDequantizationPass::safeRunOnFunc() {
 
     auto config = getDefaultGreedyRewriteConfig();
     config.maxIterations = mlir::GreedyRewriteConfig::kNoLimit;
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), config))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), config))) {
         signalPassFailure();
     }
 }

@@ -72,6 +72,11 @@ TEST_P(DynDQTestCommon, NPU4000_TestKindSubgraph) {
     run(Platform::NPU4000);
 }
 
+TEST_P(DynDQTestCommon, NPU5010_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
 const std::vector<DynDeQuantParams> params = {
         {{3, 30, 128}, {3, 30, 1}, ov::element::i4, ov::element::f16},
         {{3, 30, 128}, {3, 1, 128}, ov::element::i4, ov::element::f16},

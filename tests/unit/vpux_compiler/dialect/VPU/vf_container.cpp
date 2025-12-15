@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/factories/cost_model_config.hpp"
@@ -22,10 +22,9 @@
 using vpux::config::ArchKind;
 using namespace vpux;
 
-using MLIR_VPU_VFPipelineContainer = vpux::VPU::arch40xx::UnitTest;
+using MLIR_VPU_VFContainer = vpux::VPU::arch40xx::UnitTest;
 
-TEST_F(MLIR_VPU_VFPipelineContainer, VF_ContainerCost) {
-    constexpr llvm::StringLiteral inputIR = R"(
+constexpr llvm::StringLiteral inputIR = R"(
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 #loc0 = loc(unknown)
@@ -52,6 +51,8 @@ TEST_F(MLIR_VPU_VFPipelineContainer, VF_ContainerCost) {
        }
     }
     )";
+
+TEST_F(MLIR_VPU_VFContainer, VF_PipelineContainerCost) {
     auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
     ASSERT_TRUE(module.get() != nullptr);
 
@@ -92,8 +93,8 @@ TEST_F(MLIR_VPU_VFPipelineContainer, VF_ContainerCost) {
         if (auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op)) {
             if (nceOp.getWeightsOperand() != nullptr) {
                 weightsCost = layerCost->getSpillingReadCost(op, params, nceOp.getWeightsOperand());
-                EXPECT_TRUE(container.addDMA(index, weightsCost));
-                EXPECT_FALSE(container.addDMA(index, 0));
+                EXPECT_TRUE(container.addDMA(op, index, weightsCost));
+                EXPECT_FALSE(container.addDMA(op, index, 0));
                 summary += weightsCost;
             }
         }
@@ -104,4 +105,93 @@ TEST_F(MLIR_VPU_VFPipelineContainer, VF_ContainerCost) {
 
     EXPECT_EQ(container.maxCost(), summary);
     EXPECT_EQ(container.getPrefetchAvailability(), summary - weightsCost);
+}
+
+TEST_F(MLIR_VPU_VFContainer, VF_LinearContainerCost) {
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
+    auto initCompilerOptions = VPU::InitCompilerOptions(ArchKind::NPU40XX, config::CompilationMode::DefaultHW);
+
+    VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
+
+    ASSERT_TRUE(mlir::succeeded(pm.run(module.get())));
+
+    auto container = VPU::VFLinearContainer();
+    // set cost model factory
+    VPU::CostModelConfig::setFactory(config::ArchKind::NPU40XX);
+    auto layerCost = std::make_unique<VPU::LayerVPUNNCost>(func);
+
+    auto operationStorage = std::make_unique<VPU::TilingOperationStorage>();
+    auto vfOp = *func.getOps<VPU::VerticalFusionOp>().begin();
+
+    auto tilingDims = parseIntArrayAttr<int64_t>(vfOp.getTilingStrategy());
+    auto tileLen = std::accumulate(tilingDims.begin(), tilingDims.end(), 1, std::multiplies<int64_t>());
+    restoreTilingRegions(vfOp, vpux::Logger::global(), operationStorage);
+
+    /*
+    Check linear scheduling without any overlapping:
+
+    TILE0_DMA | TILE0_NCE | TILE0_SW |
+                                     | TILE1_DMA | TILE1_NCE | TILE1_SW
+    */
+
+    VPU::StrategyCost summary = 0;
+    VPU::StrategyCost weightsCost = 0;
+    for (auto index : irange(tileLen)) {
+        func->walk([&](mlir::Operation* op) {
+            if (!mlir::isa<VPU::NCEOpInterface, VPU::SWOpInterface>(op)) {
+                return;
+            }
+            auto tilingInfo = operationStorage->get(op, index);
+
+            VPU::VPUNNCostParameters params(VPU::MultiClusterStrategy::Clustering, {tilingInfo.value().second},
+                                            TilingMode::ISOLATED, {tilingInfo.value().first.tiles}, false);
+
+            if (auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op)) {
+                weightsCost = layerCost->getSpillingReadCost(op, params, nceOp.getWeightsOperand());
+                container.addDMA(op, index, summary, weightsCost);
+                summary += weightsCost;
+            }
+            auto opCost = layerCost->getStrategyCost(op, params);
+            container.addOperation(op, index, summary, opCost);
+            summary += opCost;
+        });
+    }
+    EXPECT_EQ(container.maxCost(), summary);
+
+    /*
+    Check linear scheduling with weights prefetching at beginning:
+    TILE0_DMA |  TILE0_NCE | TILE0_SW |
+    TILE1_DMA |                       | TILE1_NCE | TILE1_SW
+    */
+    summary = 0;
+    container.invalidate();
+    for (auto index : irange(tileLen)) {
+        func->walk([&](mlir::Operation* op) {
+            if (!mlir::isa<VPU::NCEOpInterface, VPU::SWOpInterface>(op)) {
+                return;
+            }
+            auto tilingInfo = operationStorage->get(op, index);
+
+            VPU::VPUNNCostParameters params(VPU::MultiClusterStrategy::Clustering, {tilingInfo.value().second},
+                                            TilingMode::ISOLATED, {tilingInfo.value().first.tiles}, false);
+
+            if (auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op)) {
+                weightsCost = layerCost->getSpillingReadCost(op, params, nceOp.getWeightsOperand());
+                container.addDMA(op, index, 0, weightsCost);
+                if (index == 0) {
+                    summary += weightsCost;
+                }
+            }
+            auto opCost = layerCost->getStrategyCost(op, params);
+            container.addOperation(op, index, summary, opCost);
+            summary += opCost;
+        });
+    }
+    EXPECT_EQ(container.maxCost(), summary);
 }

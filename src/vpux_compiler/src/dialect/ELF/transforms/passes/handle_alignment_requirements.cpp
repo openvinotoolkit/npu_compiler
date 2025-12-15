@@ -6,8 +6,8 @@
 #include "vpux/compiler/NPU40XX/dialect/ELF/dialect.hpp"
 #include "vpux/compiler/NPU40XX/dialect/ELF/ops.hpp"
 #include "vpux/compiler/dialect/ELF/transforms/passes.hpp"
+#include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
-#include "vpux/compiler/utils/ELF/utils.hpp"
 #include "vpux/compiler/utils/types.hpp"
 
 #include <vpux_elf/types/vpu_extensions.hpp>

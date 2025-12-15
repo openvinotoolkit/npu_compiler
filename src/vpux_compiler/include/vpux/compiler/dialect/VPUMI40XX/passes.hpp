@@ -29,6 +29,7 @@ std::unique_ptr<mlir::Pass> createBarrierTopologicalMappingPass(Logger log = Log
 std::unique_ptr<mlir::Pass> createGroupExecutionOpsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createUnGroupExecutionOpsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAddFetchOpsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createConvertFetchDmasToFetchTaskOpsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createResolveWLMTaskLocationPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createPropagateFinalBarrierPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAddEnqueueOpsPass(
@@ -57,6 +58,8 @@ std::unique_ptr<mlir::Pass> createAddBarrierConfigurationOps(
         WorkloadManagementBarrierProgrammingMode WorkloadManagementBarrierProgrammingMode =
                 WorkloadManagementBarrierProgrammingMode::LEGACY,
         Logger log = Logger::global());
+
+std::unique_ptr<mlir::Pass> createUpdateEnqueueDMAInputAndOutput(Logger log = Logger::global());
 
 //
 // Registration

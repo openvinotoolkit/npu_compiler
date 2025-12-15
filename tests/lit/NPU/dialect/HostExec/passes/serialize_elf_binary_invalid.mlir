@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --vpu-arch=%arch% --serialize-elf-to-binary %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: dev-build && (arch-NPU40XX || arch-NPU50XX)
 
 // CHECK-LABEL: @StaticEltwiseNHWC
 // expected-error {{IOBindingsOp not found in module: OneDMAWithoutAttributes}}

@@ -6,9 +6,9 @@
 #include "vpux/compiler/dialect/VPU/transforms/factories/small_kernel_optimization.hpp"
 #include "vpux/compiler/core/attributes/dims_order.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 
 using namespace vpux;
 

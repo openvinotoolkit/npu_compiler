@@ -47,4 +47,10 @@ TEST_F(AddRelu3DTests, NPU4000_HW_TestKindSubgraph) {
     run(Platform::NPU4000);
 }
 
+TEST_F(AddRelu3DTests, NPU5010_HW_TestKindSubgraph) {
+    abs_threshold = 0.5f;
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
 }  // namespace ov::test::subgraph

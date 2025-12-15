@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt %s --split-input-file --init-compiler="vpu-arch=%arch%" --verify-diagnostics
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @MissingBothLevelsAndLowFpType
 func.func @MissingBothLevelsAndLowFpType(%arg0: tensor<1x3x30x30xf32>) -> tensor<1x3x30x30xf32> {

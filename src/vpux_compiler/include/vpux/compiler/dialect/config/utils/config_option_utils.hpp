@@ -82,6 +82,7 @@ constexpr StringRef METADATA_MAX_MEDIA_COUNT = "config.MetadataMaxMediaCount";
 constexpr StringRef SHV_FIFO_ADDRS = "config.ShvFIFOAddrs";
 constexpr StringRef DPU_FIFO_ADDRS = "config.DpuFIFOAddrs";
 constexpr StringRef BARRIER_FIFO_ADDR = "config.BarrierFIFOAddr";
+constexpr StringRef BARRIER_FIFO_DEPTH = "config.BarrierFIFODepth";
 
 // VPUNN Configurations
 constexpr StringRef VPUNN_PRE_SPLIT = "config.EnableVPUNNPreSplit";
@@ -100,6 +101,10 @@ bool isWeightsTableReuseEnabled(mlir::Operation* op);
 constexpr StringRef USE_DEDICATED_FIFO_PER_SHAVE_ENGINE = "config.UseDedicatedFifoPerShaveEngine";
 bool isFifoPerShaveEngineEnabled(mlir::Operation* op);
 bool hasSupportForFifoPerShaveEngine(config::ArchKind arch, bool enableWorkloadManagement);
+
+// SPRLUT Configurations
+constexpr StringRef SPRLUT_ENABLED = "config.SprLUTEnabled";
+bool isSprLUTEnabled(mlir::Operation* op);
 
 }  // namespace config
 }  // namespace vpux

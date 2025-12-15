@@ -46,7 +46,7 @@ function(add_npu_library name)
         EXCLUDE_FROM_LIBMLIR
         DISABLE_INSTALL
         LINK_LIBS ${ARG_LINK_LIBS}
-        DEPENDS MLIRVPUXIncGenList ${ARG_DEPENDS})
+        DEPENDS mlir-headers MLIRVPUXIncGenList ${ARG_DEPENDS})
 
     target_include_directories(${name} SYSTEM PRIVATE
         $<BUILD_INTERFACE:${MLIR_INCLUDE_DIRS}>

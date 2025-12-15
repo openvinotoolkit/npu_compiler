@@ -5,7 +5,10 @@
 
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
+#include "vpux/compiler/dialect/config/IR/ops.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
+#include "vpux/compiler/dialect/core/IR/ops.hpp"
+#include "vpux/utils/core/error.hpp"
 
 namespace vpux::VPU {
 #define GEN_PASS_DECL_CLONERESERVEDRESOURCESFROMTOPMODULE
@@ -39,32 +42,42 @@ bool CloneReservedResourcesFromTopModulePass::isModuleExecutable(mlir::ModuleOp 
 }
 
 void CloneReservedResourcesFromTopModulePass::safeRunOnModule() {
-    auto nestedModuleOp = getOperation();
-    if (!isModuleExecutable(nestedModuleOp)) {
+    auto topModuleOp = getOperation();
+
+    auto topPipelineOptions = topModuleOp.getOps<config::PipelineOptionsOp>();
+    VPUX_THROW_WHEN(
+            topPipelineOptions.empty() || std::distance(topPipelineOptions.begin(), topPipelineOptions.end()) > 1,
+            "No valid count of config.PipelineOptionsOp found {0}",
+            std::distance(topPipelineOptions.begin(), topPipelineOptions.end()));
+
+    auto topPipelineOptionsOp = *topPipelineOptions.begin();
+    auto nestedModules = topModuleOp.getOps<mlir::ModuleOp>();
+
+    if (nestedModules.empty()) {
         return;
     }
 
-    auto topModuleOp = nestedModuleOp->getParentOfType<mlir::ModuleOp>();
-    if (!topModuleOp) {
-        // If we are already at the top-level module, just return. No error emission is needed.
-        // This makes the pass safe to run in initializePipeline: it does nothing on the top module,
-        // but copies ReservedResource when initializePipeline runs on nested modules.
-        return;
-    }
+    for (auto nestedModuleOp : nestedModules) {
+        if (nestedModuleOp == topModuleOp) {
+            continue;
+        }
+        if (!isModuleExecutable(nestedModuleOp)) {
+            continue;
+        }
 
-    auto nestedTileExecutor = config::getTileExecutor(nestedModuleOp);
-    auto topTileExecutor = config::getTileExecutor(topModuleOp);
-    if (!nestedTileExecutor || !topTileExecutor) {
-        return signalPassFailure();
-    }
+        for (auto attr : topModuleOp->getAttrs()) {
+            if (!nestedModuleOp->hasAttr(attr.getName())) {
+                nestedModuleOp->setAttr(attr.getName(), attr.getValue());
+            }
+        }
 
-    auto reservedResources = topTileExecutor.lookupSymbol<mlir::ModuleOp>(config::resMemModuleName);
-    if (!reservedResources) {
-        return signalPassFailure();
-    }
+        mlir::OpBuilder nestedBuilder(nestedModuleOp.getRegion());
+        nestedBuilder.clone(*topPipelineOptionsOp);
 
-    mlir::OpBuilder nestedBuilder(nestedTileExecutor->getRegion(0));
-    nestedBuilder.clone(*reservedResources);
+        for (auto reservedResource : topModuleOp.getOps<config::ResourcesOp>()) {
+            nestedBuilder.clone(*reservedResource);
+        }
+    }
 }
 }  // namespace
 

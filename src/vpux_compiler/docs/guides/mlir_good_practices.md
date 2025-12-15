@@ -64,7 +64,7 @@ pattern).
 
 Moreover, you may wish to consider the following *additional* parameters when
 dealing with multiple overlapping rewriters:
-* The IR traversal direction used by e.g. `mlir::applyPatternsAndFoldGreedily()`
+* The IR traversal direction used by e.g. `mlir::applyPatternsGreedily()`
   (controlled using `GreedyRewriteConfig::useTopDownTraversal` flag)
 * [mlir::PatternBenefit](https://mlir.llvm.org/doxygen/classmlir_1_1PatternBenefit.html)
   that controls the priority of rewriters
@@ -149,7 +149,7 @@ void Pass1::safeRunOnFunc() {
     mlir::GreedyRewriteConfig config;
     config.useTopDownTraversal = true; // !!!
 
-    const auto res = mlir::applyPatternsAndFoldGreedily(
+    const auto res = mlir::applyPatternsGreedily(
         func, std::move(patterns), config);
     if (mlir::failed(res)) {
         signalPassFailure();
@@ -169,7 +169,7 @@ void Pass2::safeRunOnFunc() {
     mlir::GreedyRewriteConfig config;
     config.useTopDownTraversal = false; // !!!
 
-    const auto res = mlir::applyPatternsAndFoldGreedily(
+    const auto res = mlir::applyPatternsGreedily(
         func, std::move(patterns), config);
     if (mlir::failed(res)) {
         signalPassFailure();

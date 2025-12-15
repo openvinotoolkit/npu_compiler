@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 #include <mlir/Support/LogicalResult.h>
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/arithmetic.hpp"
 
 mlir::LogicalResult vpux::VPU::InverseOp::inferReturnTypes(mlir::MLIRContext* ctx, std::optional<mlir::Location> optLoc,
                                                            mlir::ValueRange operands, mlir::DictionaryAttr attrs,

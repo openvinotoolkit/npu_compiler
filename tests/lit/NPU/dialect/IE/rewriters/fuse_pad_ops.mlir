@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --run-adjust-for-vpu-rewriters="rewriter=fuse-pad-ops-set"  %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @fusePadIntoConv
 func.func @fusePadIntoConv(%arg0: tensor<1x8x13x29xf16>) -> tensor<1x16x12x28xf16> {

@@ -43,7 +43,7 @@ public:
                                                                  const mlir::bufferization::AnalysisState& state) const;
     mlir::LogicalResult bufferizeImpl(CallOpT op, mlir::RewriterBase& rewriter,
                                       const mlir::bufferization::BufferizationOptions& options,
-                                      typename CallOpT::Adaptor adaptor) const;
+                                      typename CallOpT::Adaptor& adaptor) const;
 };
 
 template <typename CallOpT>
@@ -111,7 +111,7 @@ mlir::bufferization::AliasingValueList CallOpBufferizeModel<CallOpT>::getAliasin
 template <typename CallOpT>
 mlir::LogicalResult CallOpBufferizeModel<CallOpT>::bufferizeImpl(CallOpT op, mlir::RewriterBase& rewriter,
                                                                  const mlir::bufferization::BufferizationOptions&,
-                                                                 typename CallOpT::Adaptor) const {
+                                                                 typename CallOpT::Adaptor&) const {
     auto log = vpux::Logger::global().nest("one-shot-bufferize-CallOp", 0);
     log.trace("Got '{0}' at '{1}'", op->getName(), op->getLoc());
 

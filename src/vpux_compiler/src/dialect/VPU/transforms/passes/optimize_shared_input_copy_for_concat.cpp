@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/concat_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
@@ -25,6 +25,14 @@ using namespace vpux;
 using namespace VPU;
 
 namespace {
+
+struct UserProcessingData {
+    VPU::SliceOp slice;
+    mlir::Operation* copyOp;
+    SmallVector<mlir::Value> newInputs;
+    SmallVector<SmallVector<int64_t>> newConcatOffsets;
+    SmallVector<mlir::Operation*> newDefOps;
+};
 
 bool checkMemoryKind(mlir::Value value, VPU::MemoryKind kind) {
     return mlir::cast<vpux::NDTypeInterface>(value.getType()).getMemoryKind() == kind;
@@ -138,31 +146,50 @@ mlir::LogicalResult SharedCopyInputRewriter::matchAndRewrite(VPU::ConcatOp origO
         _log.trace("propagate ops through concat '{0}'", concat.getLoc());
         llvm::DenseMap<mlir::Operation*, VPU::ConcatOp> newUserMapping;
         mlir::Operation* insertPoint = concat.getOperation();
-        for (auto user : concat->getUsers()) {
-            SmallVector<mlir::Value> newInputs;
-            SmallVector<SmallVector<int64_t>> newConcatOffsets;
 
-            auto slice = mlir::cast<VPU::SliceOp>(user);
-            auto copyOp = *user->getUsers().begin();
+        SmallVector<UserProcessingData> userDataList;
+        SmallVector<mlir::Operation*> users(concat->getUsers().begin(), concat->getUsers().end());
+
+        userDataList.reserve(users.size());
+
+        for (auto user : users) {
+            UserProcessingData userData;
+            userData.slice = mlir::cast<VPU::SliceOp>(user);
+            userData.copyOp = *user->getUsers().begin();
+
             for (auto item : concat.getInputs() | indexed) {
                 auto input = item.value();
                 auto inputIdx = item.index();
                 SmallVector<int64_t> newConcatOffset;
-                auto newInput = createNewBranchInput(input, inputIdx, concat, slice, newConcatOffset, rewriter);
+                auto newInput =
+                        createNewBranchInput(input, inputIdx, concat, userData.slice, newConcatOffset, rewriter);
                 if (newInput.has_value()) {
-                    newInputs.push_back(newInput.value());
-                    newConcatOffsets.push_back(newConcatOffset);
-                    if (insertPoint->isBeforeInBlock(newInput.value().getDefiningOp())) {
-                        insertPoint = newInput.value().getDefiningOp();
+                    userData.newInputs.push_back(newInput.value());
+                    userData.newConcatOffsets.push_back(newConcatOffset);
+                    userData.newDefOps.push_back(newInput.value().getDefiningOp());
+                }
+            }
+
+            VPUX_THROW_WHEN(userData.newInputs.empty(), "new slice input is empty");
+            userDataList.push_back(std::move(userData));
+        }
+        for (const auto& userData : userDataList) {
+            for (auto* newDefOp : userData.newDefOps) {
+                if (insertPoint != newDefOp) {
+                    bool isBeforeResult = insertPoint->isBeforeInBlock(newDefOp);
+                    if (isBeforeResult) {
+                        insertPoint = newDefOp;
                     }
                 }
             }
-            VPUX_THROW_WHEN(newInputs.empty(), "new slice input is empty");
+        }
 
-            rewriter.setInsertionPointAfter(insertPoint);
-            auto newConcat = rewriter.create<VPU::ConcatOp>(copyOp->getLoc(), copyOp->getResult(0).getType(), newInputs,
-                                                            getIntArrayOfArray(ctx, newConcatOffsets));
-            newUserMapping.insert({copyOp, newConcat});
+        rewriter.setInsertionPointAfter(insertPoint);
+        for (const auto& userData : userDataList) {
+            auto newConcat = rewriter.create<VPU::ConcatOp>(userData.copyOp->getLoc(),
+                                                            userData.copyOp->getResult(0).getType(), userData.newInputs,
+                                                            getIntArrayOfArray(ctx, userData.newConcatOffsets));
+            newUserMapping.insert({userData.copyOp, newConcat});
         }
 
         // Replace copy user with new concat op
@@ -317,7 +344,7 @@ void OptimizeSharedInputCopyForConcatPass::safeRunOnFunc() {
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<SharedCopyInputRewriter>(&ctx, _log);
 
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

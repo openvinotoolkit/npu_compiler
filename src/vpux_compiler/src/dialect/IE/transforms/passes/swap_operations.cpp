@@ -21,7 +21,7 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
@@ -439,7 +439,7 @@ private:
 
 mlir::LogicalResult SwapExpandQuantizeCast::matchAndRewrite(IE::ExpandOp expandOp,
                                                             mlir::PatternRewriter& rewriter) const {
-    _log.trace("[{0}] Got '{0}' at '{1}'", getDebugName(), expandOp->getName(), expandOp->getLoc());
+    _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), expandOp->getName(), expandOp->getLoc());
     if (!expandOp->hasOneUse()) {
         return mlir::failure();
     }
@@ -522,7 +522,7 @@ private:
 
 mlir::LogicalResult SwapDequantMemPermute::matchAndRewrite(IE::MemPermuteOp memPermuteOp,
                                                            mlir::PatternRewriter& rewriter) const {
-    _log.trace("[{0}] Got '{0}' at '{1}'", getDebugName(), memPermuteOp->getName(), memPermuteOp->getLoc());
+    _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), memPermuteOp->getName(), memPermuteOp->getLoc());
     // const -> IE.Dequantize -> IE.MemPermute
     // const -> IE.MemPermute -> IE.Dequantize
     // const [IE.MemPermute] -> IE.Dequantize
@@ -787,6 +787,7 @@ void SwapOperationsPass::safeRunOnFunc() {
     patterns.add<SwapWithActivation<IE::LeakyReluOp>>(&ctx, _log.nest(), _seOpsEnabled);
     patterns.add<SwapWithActivation<IE::ExpOp>>(&ctx, _log.nest(), _seOpsEnabled);
     patterns.add<SwapWithActivation<IE::GeluOp>>(&ctx, _log.nest(), _seOpsEnabled);
+    patterns.add<SwapWithActivation<IE::HSwishOp>>(&ctx, _log.nest(), _seOpsEnabled);
     patterns.add<SwapWithBias>(&ctx, _log.nest());
     // TODO: E#18651 Support ElemTypeInfoOpInterface for Slice
     patterns.add<SwapTanhSlice>(&ctx, _log.nest());
@@ -798,7 +799,7 @@ void SwapOperationsPass::safeRunOnFunc() {
     IE::AffineReshapeOp::getCanonicalizationPatterns(patterns, &ctx);
 
     auto func = getOperation();
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

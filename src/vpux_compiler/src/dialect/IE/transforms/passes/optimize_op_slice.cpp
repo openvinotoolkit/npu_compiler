@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include <mlir/Transforms/WalkPatternRewriteDriver.h>
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
@@ -13,6 +14,7 @@
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 
 namespace vpux::IE {
 #define GEN_PASS_DECL_OPTIMIZEOPSLICE
@@ -258,8 +260,9 @@ mlir::LogicalResult ConcatSliceRewriter::matchAndRewrite(IE::SliceOp origOp, mli
             sliceOffset[i] -= curOffset[i];
         }
 
-        rewriter.replaceOpWithNewOp<IE::SliceOp>(origOp, curVal, getIntArrayAttr(getContext(), sliceOffset),
-                                                 origOp.getStaticSizes());
+        auto result = rewriter.createOrFold<IE::SliceOp>(
+                origOp->getLoc(), curVal, getIntArrayAttr(getContext(), sliceOffset), origOp.getStaticSizes());
+        rewriter.replaceAllUsesWith(origOp->getResults(), result);
 
         return mlir::success();
     }
@@ -426,16 +429,19 @@ mlir::LogicalResult SliceConcatRewriter::matchAndRewrite(IE::SliceOp origOp, mli
         }
     }
 
-    auto newConcat = rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, "_concat"), mlir::ValueRange(concatInput),
-                                                   concatAxis.value());
-    for (auto operand : newConcat->getOperands()) {
-        auto parentOp = operand.getDefiningOp();
-        if (parentOp && newConcat->isBeforeInBlock(parentOp)) {
-            parentOp->moveAfter(parentOp);
+    auto newConcatResult = rewriter.createOrFold<IE::ConcatOp>(takeOpLoc(origOp, "_concat"),
+                                                               mlir::ValueRange(concatInput), concatAxis.value());
+    auto newConcat = newConcatResult.getDefiningOp<IE::ConcatOp>();
+    if (newConcat != nullptr) {
+        for (auto operand : newConcat->getOperands()) {
+            auto parentOp = operand.getDefiningOp();
+            if (parentOp && newConcat->isBeforeInBlock(parentOp)) {
+                parentOp->moveAfter(parentOp);
+            }
         }
     }
 
-    rewriter.replaceOp(concatOp, newConcat.getOutput());
+    rewriter.replaceOp(concatOp, newConcatResult);
     _log.trace("Optimize slice and concat operations successfully");
     return mlir::success();
 }
@@ -457,15 +463,19 @@ private:
 void OptimizeOpSlicePass::safeRunOnFunc() {
     auto func = getOperation();
     auto& ctx = getContext();
+    {
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.insert<ConcatSliceRewriter>(&ctx, _log);
+        patterns.insert<TileSliceRewriter>(&ctx, _log);
 
-    mlir::RewritePatternSet patterns(&ctx);
-    patterns.insert<ConcatSliceRewriter>(&ctx, _log);
-    patterns.insert<TileSliceRewriter>(&ctx, _log);
-    patterns.insert<SliceConcatRewriter>(&ctx, _log);
+        collectOpsAndApplyPatterns(func, std::move(patterns));
+    }
 
-    if (mlir::failed(
-                mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), vpux::getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
+    {
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.insert<SliceConcatRewriter>(&ctx, _log);
+
+        collectOpsAndApplyPatterns(func, std::move(patterns));
     }
 }
 

@@ -26,17 +26,6 @@
 namespace VPUXDriverCompiler {
 
 /**
- * @name Limitation of modelIRData
- * @see vcl_exectuble_desc_t for the structure
- * @{
- */
-const uint32_t maxNumberOfElements = 10;
-/// Use offset to get the location of xml and weight from memory, shall not exceed uint64_t now
-const uint64_t maxSizeOfXML = std::numeric_limits<uint64_t>::max() / 3;
-const uint64_t maxSizeOfWeights = maxSizeOfXML * 2;
-/** @} */
-
-/**
  * @brief Calc the time cost
  *
  */

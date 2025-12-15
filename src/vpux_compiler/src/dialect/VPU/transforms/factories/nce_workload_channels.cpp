@@ -15,6 +15,7 @@ SmallVector<int64_t> VPU::getSupportedChannelsDW(config::ArchKind arch) {
     switch (arch) {
     case config::ArchKind::NPU37XX:
     case config::ArchKind::NPU40XX:
+    case config::ArchKind::NPU50XX:
         return {64, 32, 16};
     case config::ArchKind::UNKNOWN:
     default:
@@ -30,6 +31,7 @@ bool VPU::hasAnyChannelSupportedByKernelOptimization(mlir::Operation* op, ArrayR
     case config::ArchKind::NPU37XX:
         return VPU::arch37xx::hasAnyChannelSupportedByKernelOptimization();
     case config::ArchKind::NPU40XX:
+    case config::ArchKind::NPU50XX:
         return VPU::arch40xx::hasAnyChannelSupportedByKernelOptimization(supportedChannels, KX, SX);
     case config::ArchKind::UNKNOWN:
     default:
@@ -46,6 +48,7 @@ SmallVector<int64_t> VPU::getChannelsSupportedByKernelOptimization(mlir::Operati
     case config::ArchKind::NPU37XX:
         return VPU::arch37xx::getChannelsSupportedByKernelOptimization();
     case config::ArchKind::NPU40XX:
+    case config::ArchKind::NPU50XX:
         return VPU::arch40xx::getChannelsSupportedByKernelOptimization(workloadsChannels, maxSlotsSum);
     case config::ArchKind::UNKNOWN:
     default:
@@ -60,6 +63,7 @@ bool VPU::isNCEPermuteOffsetsCorrectionNeeded(VPU::NCEOpInterface nceOp) {
     case config::ArchKind::NPU37XX:
         return VPU::arch37xx::isNCEPermuteOffsetsCorrectionNeeded(nceOp);
     case config::ArchKind::NPU40XX:
+    case config::ArchKind::NPU50XX:
         return VPU::arch40xx::isNCEPermuteOffsetsCorrectionNeeded(nceOp);
     case config::ArchKind::UNKNOWN:
     default:

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --vpu-arch=%arch% --intermediate-buffer-output="op-index=5 insertion-index=5 buffer-index=4" %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 !qElemType = !quant.uniform<u8:f16, 1.000000e+00>
 !qElemType1 = !quant.uniform<u8:f16, 1.000000e+00>

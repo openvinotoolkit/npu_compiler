@@ -15,7 +15,7 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <llvm/ADT/STLExtras.h>
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/DialectConversion.h>
 
@@ -216,7 +216,7 @@ void OptimizeInnermostConcatPass::safeRunOnFunc() {
     IE::MemPermuteOp::getCanonicalizationPatterns(patterns, &ctx);
 
     auto func = getOperation();
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

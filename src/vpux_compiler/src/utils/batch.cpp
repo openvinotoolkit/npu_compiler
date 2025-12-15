@@ -115,14 +115,15 @@ DebatchCoeffDescription DebatchCoeffDescription::createFromString(std::string_vi
                       "DebatchCoeffDescription must be started with \"[\" and finished with \"]\", got: {0}", descr);
     auto cend = descr.cbegin();
     std::advance(cend, descr.size() - 1);
-    std::vector<size_t> parsedValues;
+    std::vector<int64_t> parsedValues;
     parsedValues.reserve(2);
     auto cbegin = descr.cbegin();
     cbegin++;
     vpux::splitRangeAndApply(cbegin, cend, '-', [&parsedValues](std::string_view item) {
-        size_t result = 0;
+        int64_t result = 0;
         auto [ptr, ec] = std::from_chars(item.data(), item.data() + item.size(), result);
         VPUX_THROW_UNLESS(ec == std::errc(), "Cannot convert string: {0} to a number", item);
+        VPUX_THROW_UNLESS(result >= 0, "Each DebatchCoeffDescription mustn't be a negative: {0}", result);
         parsedValues.push_back(result);
     });
     VPUX_THROW_UNLESS(parsedValues.size() == 2,
@@ -130,18 +131,127 @@ DebatchCoeffDescription DebatchCoeffDescription::createFromString(std::string_vi
     return DebatchCoeffDescription{Dim{parsedValues[0]}, parsedValues[1]};
 }
 
+DebatchCoeffDescription DebatchCoeffDescription::createFromShapes(ShapeRef inShape, ShapeRef outShape) {
+    VPUX_THROW_UNLESS(
+            inShape.size() == outShape.size(),
+            "DebatchCoeffDescription must be created from shapes with an equal rank, got shapes in: {0}, out: {1}",
+            inShape, outShape);
+    std::optional<DebatchCoeffDescription> coeff;
+    for (size_t index = 0; index < inShape.size(); index++) {
+        if (inShape[Dim{index}] != outShape[Dim{index}]) {
+            VPUX_THROW_WHEN(coeff.has_value(),
+                            "DebatchCoeffDescription must be created from shapes which differ only in N dimension, got "
+                            "shapes in: {0}, out: {1}",
+                            inShape, outShape);
+            coeff = DebatchCoeffDescription{Dim{index}, outShape[Dim{index}]};
+        }
+    }
+
+    if (!coeff.has_value()) {
+        coeff = DebatchCoeffDescription{Dim{0}, outShape[Dim{0}]};
+    }
+
+    try {
+        coeff->apply(inShape);
+    } catch (std::exception& ex) {
+        VPUX_THROW("DebatchCoeffDescription::createFromShapes failed due to the error: {0}", ex.what());
+    }
+    return *coeff;
+}
+
 Shape DebatchCoeffDescription::apply(ShapeRef shape) const {
     // class Shape should have the method "at()" which check a dimension value on correctness by itself
     VPUX_THROW_UNLESS(batchPositionIndex.ind() >= 0 && static_cast<size_t>(batchPositionIndex.ind()) < shape.size(),
                       "Dimension value: {0} is not apt for a shape: {1}", batchPositionIndex, shape);
-    VPUX_THROW_WHEN(
-            shape[batchPositionIndex] % desiredBatchValue,
-            "Cannot get the desired batch value: {0} from a shape: {1}, where a batch is expected on the position: "
-            "{2}. A division operation on those number produces the remnant: {3} which otherwise would be adandoned",
-            desiredBatchValue, shape, batchPositionIndex, shape[batchPositionIndex] % desiredBatchValue);
+    VPUX_THROW_UNLESS(shape[batchPositionIndex],
+                      "Cannot apply batch conversion because shape: {0} has a zero batch in dimension: {1}", shape,
+                      batchPositionIndex);
+    VPUX_THROW_UNLESS(desiredBatchValue, "Cannot apply batch conversion because desiredBatchValue is zero");
+
     Shape retShape{shape};
+    if (shape[batchPositionIndex] == mlir::ShapedType::kDynamic) {
+        retShape[batchPositionIndex] = desiredBatchValue;
+        return retShape;
+    }
+    int64_t remainder = retShape[batchPositionIndex] > static_cast<int64_t>(desiredBatchValue)
+                                ? retShape[batchPositionIndex] % desiredBatchValue
+                                : desiredBatchValue % retShape[batchPositionIndex];
+    VPUX_THROW_WHEN(
+            remainder,
+            "Cannot get the desired batch value: {0} from a shape: {1}, where a batch is expected on the position: "
+            "{2}. A division operation on those number produces the remainder: {3} which otherwise would be abandoned",
+            desiredBatchValue, shape, batchPositionIndex, remainder);
     retShape[batchPositionIndex] = desiredBatchValue;
     return retShape;
+}
+
+Shape DebatchCoeffDescription::applyProportionFromShape(ShapeRef fromShape, ShapeRef toShape) const {
+    VPUX_THROW_UNLESS(batchPositionIndex.ind() >= 0 && static_cast<size_t>(batchPositionIndex.ind()) < toShape.size(),
+                      "Dimension value: {0} must be apt for the shape: {1} to apply proportions from the shape: {2}",
+                      batchPositionIndex, toShape, fromShape);
+    VPUX_THROW_UNLESS(toShape[batchPositionIndex],
+                      "Cannot apply proportions cast because toShape : {0} has a zero batch", toShape);
+
+    // Cannot extract proportion from kDynamic, thus apply the coefficient to the result instead
+    if (fromShape[batchPositionIndex] == mlir::ShapedType::kDynamic) {
+        return apply(toShape);
+    }
+
+    Shape modifiedReferenceShape = apply(fromShape);
+
+    // When coeff asks for conversion to kDynamic, do nothing regardless of whether shapes have dynamic dims or not
+    if (modifiedReferenceShape[batchPositionIndex] == mlir::ShapedType::kDynamic) {
+        return toShape.raw();
+    }
+
+    // In other cases, when we can extract proportion using fromShape and coefficient,
+    // lets use proportion cast
+    // avoid overflow in case of dynamic
+    Shape resShape = toShape.raw();
+    if (resShape[batchPositionIndex] == mlir::ShapedType::kDynamic) {
+        resShape[batchPositionIndex] = -1;
+    }
+
+    Shape origShape = fromShape.raw();
+    if (modifiedReferenceShape[batchPositionIndex] >= origShape[batchPositionIndex]) {
+        int64_t upcastRatio = modifiedReferenceShape[batchPositionIndex] / origShape[batchPositionIndex];
+        VPUX_THROW_WHEN(
+                modifiedReferenceShape[batchPositionIndex] % origShape[batchPositionIndex],
+                "Cannot apply proportions upcast, because cannot get the desired batch value: {0} "
+                "from a shape: {1}, where a batch is expected on the position: "
+                "{2}. A division operation on those number produces the remainder: {3} which otherwise would be "
+                "abandoned",
+                desiredBatchValue, fromShape, batchPositionIndex,
+                modifiedReferenceShape[batchPositionIndex] % fromShape[batchPositionIndex]);
+        resShape[batchPositionIndex] *= upcastRatio;
+    } else {
+        int64_t downcastRatio = origShape[batchPositionIndex] / modifiedReferenceShape[batchPositionIndex];
+        VPUX_THROW_WHEN(
+                origShape[batchPositionIndex] % modifiedReferenceShape[batchPositionIndex],
+                "Cannot apply proportions downcast, because cannot get the desired batch value: {0} "
+                "from a shape: {1}, where a batch is expected on the position: "
+                "{2}. A division operation on those number produces the remainder: {3} which otherwise would be "
+                "abandoned",
+                desiredBatchValue, fromShape, batchPositionIndex, fromShape[batchPositionIndex] % desiredBatchValue);
+        if (downcastRatio < 0 || downcastRatio == mlir::ShapedType::kDynamic) {
+            downcastRatio = -1;
+        }
+        // resShape must remain intact if N is supposed to disappeared after conversion.
+        // Proceed only if result is not 0
+        bool isResultZero = ((resShape[batchPositionIndex] / downcastRatio) == 0);
+        VPUX_THROW_WHEN((resShape[batchPositionIndex] % downcastRatio) && !isResultZero,
+                        "Cannot apply proportions downcast to the shape: {0} "
+                        "from a shape: {1}, while a batch expected on the given position: "
+                        "{2} and the given ratio: {3} cannot coexist without narrowing downcasting",
+                        toShape, fromShape, batchPositionIndex, downcastRatio);
+        if (!isResultZero) {
+            resShape[batchPositionIndex] /= downcastRatio;
+        }
+    }
+    if (resShape[batchPositionIndex] < 0) {
+        resShape[batchPositionIndex] = mlir::ShapedType::kDynamic;
+    }
+    return resShape;
 }
 
 std::string DebatchCoeffDescription::to_string() const {
@@ -259,4 +369,19 @@ std::optional<DebatchCoeffDescription> DebatchCoefficients::getCoefficient(const
         return {};
     }
     return it->second;
+}
+
+std::string DebatchCoefficients::to_string(bool includeNodeNames) const {
+    std::stringstream sstream;
+    for (const auto& [nodeName, coeff] : orderedInputCoefficients) {
+        if (includeNodeNames) {
+            sstream << nodeName << ":";
+        }
+        sstream << coeff.to_string() << ",";
+    }
+    std::string ret = sstream.str();
+    if (!ret.empty()) {
+        ret.pop_back();
+    }
+    return ret;
 }

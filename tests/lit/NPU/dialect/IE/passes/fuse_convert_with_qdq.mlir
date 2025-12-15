@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --fuse-convert-with-qdq %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK: !qElemType = !quant.uniform<u8:f16, 0.95599999999999996:128>
 !qElemType = !quant.uniform<u8:f16, 0.956:128>

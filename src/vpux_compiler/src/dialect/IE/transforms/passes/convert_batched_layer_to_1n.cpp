@@ -203,7 +203,7 @@ mlir::LogicalResult EltwiseLayerConverter<IE::PowerOp>::layerSpecificRewriter(IE
     if (!getDimEqualsToOne({origOp.getInput1(), origOp.getInput2()}).has_value()) {
         // No suitable dimension for transpose, use ShapeCast path
         reshapeForEltwiseOp(origOp, rewriter);
-        _log.trace("Reshape PowerOp using ShapeCast path for not suitable transpose cases", origOp->getName());
+        _log.trace("Reshape PowerOp using ShapeCast path for not suitable transpose cases, {0}", origOp->getName());
         return mlir::success();
     }
 

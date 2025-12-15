@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
@@ -309,7 +309,10 @@ mlir::FailureOr<OutputTiling> vpux::VPU::DepthToSpaceOp::getTilingStrategy(Tilin
 }
 
 bool vpux::VPU::DepthToSpaceOp::isVFSupported() {
-    return true;
+    // E#184822: Fix backInferTile calculation
+    auto paddedChannels = getPaddedChannels();
+    auto multiCluster = getMultiClusterStrategy();
+    return !paddedChannels.has_value() || multiCluster.has_value();
 }
 
 mlir::LogicalResult VPU::DepthToSpaceOp::verify() {

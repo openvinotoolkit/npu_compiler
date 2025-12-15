@@ -74,6 +74,13 @@ TEST_P(FakeConvertLayerTestCommon, NPU4000_SW) {
     run(Platform::NPU4000);
 }
 
+TEST_P(FakeConvertLayerTestCommon, NPU5010_HW) {
+    rel_threshold = 0.005;
+    abs_threshold = 0.005;
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
 }  // namespace test
 }  // namespace ov
 

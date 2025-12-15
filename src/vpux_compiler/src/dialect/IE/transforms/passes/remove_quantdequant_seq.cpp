@@ -9,7 +9,7 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
-#include <mlir/Dialect/Quant/QuantOps.h>
+#include <mlir/Dialect/Quant/IR/Quant.h>
 
 namespace vpux::IE {
 #define GEN_PASS_DECL_REMOVEQUANTDEQUANTSEQ

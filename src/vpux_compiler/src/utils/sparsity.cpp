@@ -38,7 +38,7 @@ SmallVector<int64_t> countValue(const std::vector<int64_t>& sparsifyValue, const
                                 mlir::MLIRContext* ctx) {
     auto inputValues = content.getValues<StorageType>();
     auto shape = content.getType().getShape();
-    VPUX_THROW_UNLESS(shape.size() == 4, "Const::Content::sparsify: got unxpected content shape {0}", shape.size());
+    VPUX_THROW_UNLESS(shape.size() == 4, "Const::Content::sparsify: got unexpected content shape {0}", shape.size());
 
     const auto OC = shape[Dims4D::Filter::OC];
     const auto IC = shape[Dims4D::Filter::IC];
@@ -46,20 +46,59 @@ SmallVector<int64_t> countValue(const std::vector<int64_t>& sparsifyValue, const
     const auto KX = shape[Dims4D::Filter::KX];
     const auto workloadSize = IC * KY * KX;
 
-    auto castedSparsifyValue = checked_cast<StorageType>(sparsifyValue.front());
-
     SmallVector<int64_t> elems(OC, 0);
     loop_1d(LoopExecPolicy::Parallel, ctx, elems.size(), [&](size_t oc) {
         const auto begin = oc * workloadSize;
         const auto end = (oc + 1) * workloadSize;
-        if (sparsifyValue.size() > 1) {
-            castedSparsifyValue = checked_cast<StorageType>(sparsifyValue.at(oc));
-        }
+        const auto intValue = sparsifyValue.size() > 1 ? sparsifyValue.at(oc) : sparsifyValue.front();
+        const auto castedSparsifyValue = checked_cast<StorageType>(intValue);
         for (auto inputIndex = begin; inputIndex < end; ++inputIndex) {
             if (inputValues[inputIndex] == castedSparsifyValue) {
                 continue;
             }
             elems[oc]++;
+        }
+    });
+    return elems;
+}
+
+template <>
+SmallVector<int64_t> countValue<vpux::type::float16>(const std::vector<int64_t>& sparsifyValue,
+                                                     const Const::Content& content, mlir::MLIRContext* ctx) {
+    auto inputValues = content.getValues<vpux::type::float16>();
+    auto shape = content.getType().getShape();
+    VPUX_THROW_UNLESS(shape.size() == 4, "Const::Content::sparsify: got unexpected content shape {0}", shape.size());
+
+    const auto OC = shape[Dims4D::Filter::OC];
+    const auto IC = shape[Dims4D::Filter::IC];
+    const auto KY = shape[Dims4D::Filter::KY];
+    const auto KX = shape[Dims4D::Filter::KX];
+    const auto workloadSize = IC * KY * KX;
+
+    SmallVector<int64_t> elems(OC, 0);
+    loop_1d(LoopExecPolicy::Parallel, ctx, elems.size(), [&](size_t oc) {
+        const auto begin = oc * workloadSize;
+        const auto end = (oc + 1) * workloadSize;
+        const auto intValue = sparsifyValue.size() > 1 ? sparsifyValue.at(oc) : sparsifyValue.front();
+        const auto castedSparsifyValue = vpux::type::float16(intValue);
+        const bool castedSparsifyValueZero = vpux::type::iszero(castedSparsifyValue);
+
+        for (auto inputIndex = begin; inputIndex < end; ++inputIndex) {
+            // Optimize Float16 Comparison for Zero Sparsity Values.
+            // When dealing with Float16 data, comparisons can be significantly accelerated by leveraging the sparsity
+            // of zero values. Specifically, if the sparsity value is zero, we can bypass the full comparison logic and
+            // directly return the result, thus improving performance.
+            if (castedSparsifyValueZero) {
+                if (vpux::type::iszero(inputValues[inputIndex])) {
+                    continue;
+                }
+                elems[oc]++;
+            } else {
+                if (inputValues[inputIndex] == castedSparsifyValue) {
+                    continue;
+                }
+                elems[oc]++;
+            }
         }
     });
     return elems;

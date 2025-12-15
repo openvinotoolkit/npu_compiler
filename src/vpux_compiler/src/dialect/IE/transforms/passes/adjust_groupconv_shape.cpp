@@ -407,7 +407,7 @@ void AdjustGroupConvShapePass::safeRunOnFunc() {
     patterns.add<SliceGroupConvInput>(&ctx, benefitLevels[0], _log);
     patterns.add<ReshapeGroupConvInput>(&ctx, benefitLevels[1], _log);
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

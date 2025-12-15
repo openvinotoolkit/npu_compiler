@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --dilated-conv-convert %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: func.func @DilatedGroupConvConvert
 // CHECK-SAME:    ([[INPUT_DATA:%.+]]: tensor<1x1344x33x33xf32>)

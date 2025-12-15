@@ -5,8 +5,8 @@
 
 #include "vpux/compiler/NPU40XX/dialect/ELF/dialect.hpp"
 #include "vpux/compiler/NPU40XX/dialect/ELF/ops.hpp"
-#include "vpux/compiler/NPU40XX/dialect/ELF/reloc_manager.hpp"
 #include "vpux/compiler/dialect/ELF/transforms/passes.hpp"
+#include "vpux/compiler/dialect/ELF/utils/reloc_manager.hpp"
 #include "vpux/compiler/utils/options.hpp"
 
 namespace vpux::ELF {

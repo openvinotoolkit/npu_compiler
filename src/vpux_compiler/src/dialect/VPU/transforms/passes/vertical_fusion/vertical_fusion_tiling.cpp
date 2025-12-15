@@ -4,10 +4,11 @@
 //
 
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/vf_tiling_rewriter.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vf_tiling_rewriter.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
@@ -35,9 +36,10 @@ namespace {
 
 class VfTilingPass final : public VPU::impl::VfTilingBase<VfTilingPass> {
 public:
-    explicit VfTilingPass(bool enableVerticalFusionPipelining, const WorkloadManagementMode workloadManagementMode,
-                          Logger log)
+    explicit VfTilingPass(bool enableVerticalFusionPipelining, bool enableVFScheduleTrace,
+                          const WorkloadManagementMode workloadManagementMode, Logger log)
             : _enableVerticalFusionPipelining(enableVerticalFusionPipelining),
+              _enableVerticalFusionScheduleTrace(enableVFScheduleTrace),
               _workloadManagementMode(workloadManagementMode) {
         Base::initLogger(log, Base::getArgumentName());
     }
@@ -47,6 +49,7 @@ public:
 private:
     void safeRunOnFunc() final;
     bool _enableVerticalFusionPipelining = false;
+    bool _enableVerticalFusionScheduleTrace = false;
     WorkloadManagementMode _workloadManagementMode = WorkloadManagementMode::PWLM_V0_LCA;
 };
 
@@ -57,6 +60,10 @@ mlir::LogicalResult VfTilingPass::initialize(mlir::MLIRContext* ctx) {
     if (enableVerticalFusionPipelining.hasValue()) {
         _log.trace("Overloading VfTilingPass argument by MLIR variable");
         _enableVerticalFusionPipelining = enableVerticalFusionPipelining;
+    }
+    if (enableVFScheduleTrace.hasValue()) {
+        _log.trace("Overloading VfTilingPass argument by MLIR variable");
+        _enableVerticalFusionScheduleTrace = enableVFScheduleTrace;
     }
     if (workloadManagementModeOpt.hasValue()) {
         _workloadManagementMode = workloadManagementModeOpt.getValue();
@@ -91,6 +98,10 @@ void VfTilingPass::safeRunOnFunc() {
         patterns.add<VPU::VF::v1::VerticalFusionTilingRewriter>(&ctx, _enableVerticalFusionPipelining, costFunction,
                                                                 _log);
     } else {
+        if (_enableVerticalFusionScheduleTrace) {
+            _log.trace("Vertical Fusion Schedule Tracing is enabled.");
+            VPU::VF::v2::printVFSchedulingTrace(func, costFunction, _log);
+        }
         patterns.add<VPU::VF::v2::VerticalFusionTilingRewriter>(&ctx, _enableVerticalFusionPipelining, costFunction,
                                                                 _log);
     }
@@ -106,7 +117,8 @@ void VfTilingPass::safeRunOnFunc() {
 // createVfTilingPass
 //
 
-std::unique_ptr<mlir::Pass> VPU::createVfTilingPass(bool enableVerticalFusionPipelining,
+std::unique_ptr<mlir::Pass> VPU::createVfTilingPass(bool enableVerticalFusionPipelining, bool enableVFScheduleTrace,
                                                     const WorkloadManagementMode workloadManagementMode, Logger log) {
-    return std::make_unique<VfTilingPass>(enableVerticalFusionPipelining, workloadManagementMode, log);
+    return std::make_unique<VfTilingPass>(enableVerticalFusionPipelining, enableVFScheduleTrace, workloadManagementMode,
+                                          log);
 }

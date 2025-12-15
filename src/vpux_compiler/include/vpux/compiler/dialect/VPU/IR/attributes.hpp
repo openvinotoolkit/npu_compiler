@@ -69,8 +69,6 @@ constexpr StringLiteral CMX_NN_FragmentationAware = "CMX_NN_FragmentationAware";
  */
 unsigned int getDpuFrequency(vpux::config::ArchKind arch, vpux::config::RevisionID rev);
 
-double getPerfClock(vpux::config::ArchKind arch);
-
 /**
  * @brief Get maximal DMA bandwidth for a given architecture
  *

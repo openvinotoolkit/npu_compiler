@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/IE/transforms/factories/weights_dequantize_to_fakequantize_strategy_getter.hpp"
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/weights_dequantize_to_fakequantize_strategy.hpp"
+#include "vpux/compiler/NPU50XX/dialect/IE/impl/weights_dequantize_to_fakequantize_strategy.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 
 using namespace vpux;
@@ -19,6 +20,7 @@ std::unique_ptr<IGreedilyPassStrategy> IE::createWeightsDequantizeToFakeQuantize
         return std::make_unique<arch37xx::WeightsDequantizeToFakeQuantizeStrategy>();
     }
     default: {
+        return std::make_unique<arch50xx::WeightsDequantizeToFakeQuantizeStrategy>();
     }
     }
     VPUX_THROW("Unable to get WeightsDequantizeToFakeQuantizeStrategy for arch {0}", arch);

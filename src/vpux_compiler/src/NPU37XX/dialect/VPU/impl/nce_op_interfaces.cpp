@@ -6,7 +6,7 @@
 #include "vpux/compiler/dialect/VPU/interfaces/nce_op_interfaces.hpp"
 #include "vpux/compiler/NPU37XX/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 
 using namespace vpux;
@@ -23,6 +23,16 @@ std::vector<unsigned int> getNTHWNTKGrid(VPU::MPEMode mode) {
         return {16, 16, 64};
     }
 }
+std::vector<unsigned int> getNTHWNTKGrid50XX(VPU::MPEMode mode) {
+    switch (mode) {
+    case VPU::MPEMode::CUBOID_4x16:
+        return {8, 8, 128};
+    case VPU::MPEMode::CUBOID_8x16:
+        return {16, 8, 64};
+    default:
+        return {16, 16, 32};
+    }
+}
 VPU::MPEMode getMpeModeForConv([[maybe_unused]] config::ArchKind arch, ShapeRef shape) {
     std::vector<std::pair<double, VPU::MPEMode>> MPECost = {{0.0, VPU::MPEMode::CUBOID_4x16},
                                                             {0.0, VPU::MPEMode::CUBOID_8x16},
@@ -30,6 +40,11 @@ VPU::MPEMode getMpeModeForConv([[maybe_unused]] config::ArchKind arch, ShapeRef 
 
     for (unsigned int idx = 0; idx < MPECost.size(); idx++) {
         auto grid = getNTHWNTKGrid(MPECost[idx].second);
+        // Only NPU5 has the temporary reduction in output channel accumulator contexts.
+        // All previous and subsequent platforms have the same x2 amount;
+        if (arch == config::ArchKind::NPU50XX) {
+            grid = getNTHWNTKGrid50XX(MPECost[idx].second);
+        }
         // Get the number of weights and activation grid reads
         double numWtGrids = std::ceil((double)shape[Dims4D::Act::C] / (double)grid[2]);
         double numActGrids = std::ceil((double)shape[Dims4D::Act::H] / (double)grid[1]) *

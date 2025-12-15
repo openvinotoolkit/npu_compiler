@@ -111,9 +111,13 @@ private:
         overwriteIfUnset(options.enableScfComputeOpsOutlining, true);
         overwriteIfUnset(options.useMemrefForHostFunctionBufferization, true);
         overwriteIfUnset(options.disablePassOnEntryFunctionForHostCompile, true);
-        overwriteIfUnset(options.enableD2SToTransposedConvConversion, false);
         overwriteIfUnset(options.setMemorySpaceForFunctionBoundaries, false);
+
+        // the below options enable DepthToSpace as a SHAVE operator
+        overwriteIfUnset(options.enableD2SToTransposedConvConversion, false);
         overwriteIfUnset(options.enableFuseD2SExpand, true);
+        overwriteIfUnset(options.enableOpsAsDMA, false);
+        overwriteIfUnset(options.enableConvertExpandToConvPass, false);
 
         // tiling over channels is not supported for HostCompile, so we disable propagation of permute through eltwise
         overwriteIfUnset(options.enablePropagateMemPermuteThroughEltwise, false);
@@ -197,11 +201,6 @@ public:
     }
 
     void buildLowerIE2VPUPipeline(mlir::OpPassManager& pm, Logger log) override {
-        // Lowering to VPU
-        if (_optionsContainer->getPipelineOptions().enableM2I) {
-            pm.addPass(createConvertIEToVPUM2IPass(log));
-        }
-
         vpux::buildLowerIE2VPUPipeline(pm, log);
     }
 
@@ -251,7 +250,8 @@ public:
     }
 
     void buildVPUPipeline(mlir::OpPassManager& pm, Logger log) override {
-        VPU::arch37xx::buildReferenceSWPipeline(pm, log);
+        VPU::arch37xx::buildReferenceSWPipeline(
+                pm, VPU::arch37xx::DefaultHWOptions(_optionsContainer->getPipelineOptions()), log);
     }
 
     void buildLowerVPU2VPUIPPipeline(mlir::OpPassManager& pm, Logger log) override {

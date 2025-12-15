@@ -201,6 +201,10 @@ TEST_P(FuseInputScaleShiftCommon, NPU4000_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
+TEST_P(FuseInputScaleShiftCommon, NPU5010_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
 const std::vector<ScalesMode> scalesModes = {ScalesMode::DIFFERENT, ScalesMode::SPLAT, ScalesMode::NO_SCALES};
 
 INSTANTIATE_TEST_SUITE_P(FuseInputScaleShift, FuseInputScaleShiftCommon, ::testing::ValuesIn(scalesModes),

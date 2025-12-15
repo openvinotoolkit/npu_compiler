@@ -116,5 +116,8 @@ bool isOpTiled(mlir::Operation* op);
 
 // Check if the tiling view op does not support tiling on all possible dimensions
 bool onlySupportPartialTilingDims(vpux::VPU::TilingViewLikeOpInterface viewOp);
+
+SmallVector<mlir::Operation*> getParentViewLikeOpsInVF(mlir::Operation* operation);
+
 }  // namespace VPU
 }  // namespace vpux

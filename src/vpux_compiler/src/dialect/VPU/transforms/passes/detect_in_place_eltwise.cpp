@@ -3,11 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/types.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
@@ -122,10 +123,7 @@ void DetectInPlaceEltwisePass::safeRunOnFunc() {
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<DetectInPlaceEltwise>(&ctx, _log);
 
-    if (mlir::failed(
-                mlir::applyPatternsAndFoldGreedily(function, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
-    }
+    collectOpsAndApplyPatterns(function, std::move(patterns));
 }
 
 }  // namespace

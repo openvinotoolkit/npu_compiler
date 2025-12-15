@@ -83,7 +83,7 @@ IE::LayerWithPermuteInterface getFusableLayerWithPermuteInterface(mlir::Operatio
 NDTypeInterface inferNewTypeWithMemPerm(NDTypeInterface oldType, mlir::AffineMap memPerm, const DimsOrder& dstOrder);
 
 std::optional<mlir::AffineMap> tryToFindPermutationForPermuteCast(NDTypeInterface inputType, DimsOrder outOrder,
-                                                                  ShapeRef outShape, mlir::PatternRewriter& rewriter);
+                                                                  ShapeRef outShape, mlir::MLIRContext* ctx);
 
 std::optional<IE::PermuteCastOp> tryToFindPermuteCastOp(mlir::Location loc, mlir::Value input, DimsOrder outOrder,
                                                         ShapeRef outShape, mlir::PatternRewriter& rewriter);

@@ -29,6 +29,8 @@ VPUIP::TargetDevice mapTargetDevice(config::ArchKind kind) {
         return VPUIP::TargetDevice::TargetDevice_VPUX37XX;
     case config::ArchKind::NPU40XX:
         return VPUIP::TargetDevice::TargetDevice_VPUX40XX;
+    case config::ArchKind::NPU50XX:
+        return VPUIP::TargetDevice::TargetDevice_VPUX50XX;
     default:
         VPUX_THROW("Unsupported architecture '{0}'", kind);
     }

@@ -7,8 +7,10 @@
 
 namespace mlir {
 class RewritePatternSet;
-}
+}  // namespace mlir
 
 namespace vpux::ShaveCodeGen {
 void populateIEReduceToLinalgPatterns(mlir::RewritePatternSet& patternSet);
-}
+void populateIEDataMovementToTensorPatterns(mlir::RewritePatternSet& patternSet);
+void populateIEShapeManipulationToTensorPatterns(mlir::RewritePatternSet& patternSet);
+}  // namespace vpux::ShaveCodeGen

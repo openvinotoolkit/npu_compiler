@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 
@@ -44,7 +45,7 @@ private:
 template <typename ConcreteOp>
 mlir::LogicalResult RemoveIdentityPool<ConcreteOp>::matchAndRewrite(ConcreteOp origOp,
                                                                     mlir::PatternRewriter& rewriter) const {
-    _log.trace("Got '{1}' at '{2}'", origOp->getName(), origOp->getLoc());
+    _log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
     if (!IE::isIdentityPooling(origOp)) {
         _log.nest().trace("Op not identity");
         return mlir::failure();
@@ -116,7 +117,7 @@ private:
 
 mlir::LogicalResult FuseIdentityAvgPoolWithPostOp::matchAndRewrite(IE::AvgPoolOp avgPoolOp,
                                                                    mlir::PatternRewriter& rewriter) const {
-    _log.trace("Got '{1}' at '{2}'", avgPoolOp->getName(), avgPoolOp->getLoc());
+    _log.trace("Got '{0}' at '{1}'", avgPoolOp->getName(), avgPoolOp->getLoc());
 
     // Found the identity avgPool with postOp
     if (!isIdentityAvgPoolWithPostOp(avgPoolOp)) {
@@ -296,17 +297,26 @@ private:
 
 void OptimizeIdentityPoolPass::safeRunOnFunc() {
     auto& ctx = getContext();
-
-    mlir::RewritePatternSet patterns(&ctx);
-    patterns.add<RemoveIdentityPool<IE::MaxPoolOp>>(&ctx, _log);
-    patterns.add<RemoveIdentityPool<IE::AvgPoolOp>>(&ctx, _log);
-    patterns.add<FuseIdentityAvgPoolWithPostOp>(&ctx, _log);
-    patterns.add<FuseIdentityQuantizedAvgPool>(&ctx, _log);
-    patterns.add<FuseIdentityWithQuantizedAdd>(&ctx, _log);
-
     auto func = getOperation();
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
+
+    {
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.add<FuseIdentityQuantizedAvgPool>(&ctx, _log);
+        patterns.add<FuseIdentityWithQuantizedAdd>(&ctx, _log);
+        collectOpsAndApplyPatterns(func, std::move(patterns));
+    }
+
+    {
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.add<FuseIdentityAvgPoolWithPostOp>(&ctx, _log);
+        collectOpsAndApplyPatterns(func, std::move(patterns));
+    }
+
+    {
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.add<RemoveIdentityPool<IE::MaxPoolOp>>(&ctx, _log);
+        patterns.add<RemoveIdentityPool<IE::AvgPoolOp>>(&ctx, _log);
+        collectOpsAndApplyPatterns(func, std::move(patterns));
     }
 }
 

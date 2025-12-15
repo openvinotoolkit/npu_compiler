@@ -225,14 +225,6 @@ def VPU_AuxiliaryBufferOpInterface : OpInterface<"AuxiliaryBufferOpInterface"> {
         InterfaceMethod<
             "Get the auxiliary buffer(s)",
             "vpux::SmallVector<mlir::Value>", "getAuxiliaryBuffers", (ins)
-        >,
-        InterfaceMethod<
-            "Set the auxiliary buffer(s)",
-            "mlir::LogicalResult", "setAuxiliaryBuffers", (ins "ArrayRef<mlir::Value>":$buffers)
-        >,
-        InterfaceMethod<
-            "Get the necessary types for the auxiliary buffer(s)",
-            "vpux::SmallVector<mlir::Type>", "getBufferTypes", (ins)
         >
     ];
 }

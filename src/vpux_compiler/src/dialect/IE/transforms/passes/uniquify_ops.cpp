@@ -13,10 +13,12 @@
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+#include <llvm/ADT/SetVector.h>
 #include <mlir/IR/PatternMatch.h>
 
 namespace vpux::IE {
@@ -78,9 +80,12 @@ mlir::LogicalResult RemoveDuplicatingGeneric<ConcreteOp>::matchAndRewrite(Concre
         }
     }
 
-    mlir::DenseSet<mlir::Operation*> usersToRemove;
+    // Small/SetVector preserves insertion order while keeping uniqueness
+    constexpr auto maxUsersEstimate{16};
+    llvm::SmallSetVector<mlir::Operation*, maxUsersEstimate> usersToRemove;
 
-    for (auto user : llvm::make_early_inc_range(firstUser->getOperand(0).getUsers())) {
+    auto opUsers = firstUser->getOperand(0).getUsers();
+    for (auto user : opUsers) {
         if (user == firstUser) {
             continue;
         }
@@ -92,7 +97,7 @@ mlir::LogicalResult RemoveDuplicatingGeneric<ConcreteOp>::matchAndRewrite(Concre
         }
     }
 
-    if (usersToRemove.size() == 0) {
+    if (usersToRemove.empty()) {
         return mlir::failure();
     }
 
@@ -234,48 +239,26 @@ bool RemoveDuplicatingPermute::isDuplicatedOperation(IE::MemPermuteOp firstOp, I
         return true;
     }
 
-    // check if two MemPermute ops have the same merged permutation
-    auto firstMergedPermAndShape = vpux::getMergedPermutationAndShape(
-            mlir::cast<vpux::NDTypeInterface>(firstOp.getInput().getType()), firstOp.getMemPerm());
-    auto secondMergedPermAndShape = vpux::getMergedPermutationAndShape(
-            mlir::cast<vpux::NDTypeInterface>(secondOp.getInput().getType()), secondOp.getMemPerm());
+    auto firstOpType = mlir::cast<NDTypeInterface>(firstOp.getType());
+    auto secondOpType = mlir::cast<NDTypeInterface>(secondOp.getType());
+    auto maybeMemPerm = tryToFindPermutationForPermuteCast(firstOpType, secondOpType.getDimsOrder(),
+                                                           secondOpType.getShape(), firstOp.getContext());
 
-    auto firstMergedPerm = firstMergedPermAndShape.first;
-    auto secondMergedPerm = secondMergedPermAndShape.first;
-
-    log.trace("[RemoveDuplicatingPermute]: firstMergedPerm {0}, secondMergedPerm {1}", firstMergedPerm,
-              secondMergedPerm);
-    if (firstMergedPerm == secondMergedPerm) {
-        return true;
-    }
-
-    return false;
+    log.trace("[RemoveDuplicatingPermute]: valid permutation {0}.", maybeMemPerm.has_value() ? "found" : "not found");
+    return maybeMemPerm.has_value();
 }
 
 void RemoveDuplicatingPermute::eliminateDuplicatedOperation(IE::MemPermuteOp firstOp, IE::MemPermuteOp secondOp,
                                                             mlir::PatternRewriter& rewriter) const {
-    auto ctx = rewriter.getContext();
-
-    rewriter.startOpModification(firstOp);
     rewriter.setInsertionPointAfter(firstOp);
 
     // Set destination order
     auto outputType = mlir::cast<vpux::NDTypeInterface>(secondOp.getOutput().getType());
-
-    const auto targetLayout = outputType.getDimsOrder();
-    const auto targetOrderAttr = mlir::AffineMapAttr::get(targetLayout.toAffineMap(ctx));
-    const auto outLayoutCastLoc = appendLoc(secondOp.getLoc(), "_out_layout_cast");
-    auto outLayoutCastOp = rewriter.create<IE::LayoutCastOp>(outLayoutCastLoc, firstOp.getOutput(), targetOrderAttr);
-
-    // Set destination shape
-    const auto outShapeCastLoc = appendLoc(secondOp.getLoc(), "_out_shape_cast");
-    const auto targetShape = outputType.getShape();
-    const auto targetShapeAttr = getIntArrayAttr(ctx, targetShape.raw());
-    auto outShapeCastOp =
-            rewriter.create<IE::ShapeCastOp>(outShapeCastLoc, outputType, outLayoutCastOp.getOutput(), targetShapeAttr);
-    rewriter.replaceOp(secondOp, outShapeCastOp->getResults());
-
-    rewriter.finalizeOpModification(firstOp);
+    const auto outPermuteCastLoc = appendLoc(secondOp.getLoc(), "_out_perm_cast");
+    auto permuteCast = tryToFindPermuteCastOp(outPermuteCastLoc, firstOp.getOutput(), outputType.getDimsOrder(),
+                                              outputType.getShape(), rewriter);
+    assert(permuteCast.has_value() && "Valid PermuteCast must be generated. Condition checked beforehand.");
+    rewriter.replaceOp(secondOp, permuteCast.value()->getResults());
 }
 
 //
@@ -376,7 +359,7 @@ void UniquifyOpsPass::safeRunOnFunc() {
     patterns.add<RemoveDuplicatingExpand>(&ctx, _log);
 
     auto func = getOperation();
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

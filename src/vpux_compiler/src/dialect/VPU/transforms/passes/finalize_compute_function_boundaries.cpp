@@ -4,7 +4,6 @@
 //
 
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 
 #include "vpux/compiler/core/attributes/dims_order.hpp"
@@ -15,6 +14,7 @@
 #include "vpux/utils/core/error.hpp"
 
 #include <mlir/Dialect/Affine/IR/AffineOps.h>
+#include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
 #include <mlir/Dialect/SCF/Transforms/Patterns.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
@@ -155,51 +155,32 @@ void FinalizeComputeFunctionBoundariesPass::safeRunOnModule() {
         return type;
     });
 
-    const auto convert = [&ctx, this](mlir::OpBuilder& builder, mlir::RankedTensorType destType,
-                                      mlir::ValueRange inputs, mlir::Location loc) -> mlir::Value {
+    const auto convert = [this](mlir::OpBuilder& builder, mlir::RankedTensorType destType, mlir::ValueRange inputs,
+                                mlir::Location loc) -> mlir::Value {
         auto newLocation = appendLoc(loc, "casted");
-        auto isOutputValue = [](mlir::Value value) {
-            return llvm::any_of(value.getUsers(), [](mlir::Operation* user) {
-                return mlir::isa<mlir::func::ReturnOp>(user);
-            });
-        };
-        auto isInputValue = [](mlir::Value value) {
-            return mlir::isa<mlir::BlockArgument>(value);
-        };
 
         VPUX_THROW_UNLESS(inputs.size() == 1, "Got wrong number of inputs : {0}", inputs.size());
         auto input = inputs[0];
 
         _log.trace("Materialization called: input={0}, destType={1}", input.getType(), destType);
-
-        auto inputNdType = mlir::cast<NDTypeInterface>(input.getType());
-        auto inputOrder = inputNdType.getDimsOrder();
-        auto getPermutation = [&](auto getTypeFunc) {
-            auto castOpIt = llvm::find_if(input.getUsers(), [&](mlir::Operation* user) {
-                return mlir::isa<mlir::UnrealizedConversionCastOp>(user) &&
-                       vpux::getTensorAttr(mlir::cast<mlir::RankedTensorType>(getTypeFunc(user))) != nullptr;
-            });
-            if (castOpIt != input.getUsers().end()) {
-                auto castOp = mlir::cast<mlir::UnrealizedConversionCastOp>(*castOpIt);
-                auto castNdType = mlir::cast<vpux::NDTypeInterface>(getTypeFunc(castOp));
-                return std::optional(getPermutationFromOrders(inputOrder, castNdType.getDimsOrder(), ctx));
+        auto isOutputValue = [](mlir::Value value) {
+            for (auto* user : value.getUsers()) {
+                if (mlir::isa<mlir::func::ReturnOp>(user)) {
+                    return true;
+                }
+                if (auto castOp = mlir::dyn_cast<mlir::UnrealizedConversionCastOp>(user)) {
+                    for (auto* unrealizedUser : user->getUsers()) {
+                        if (mlir::isa<mlir::func::ReturnOp>(unrealizedUser)) {
+                            return true;
+                        }
+                    }
+                }
             }
-            return std::optional<mlir::AffineMap>();
+            return false;
         };
-        auto dstOrder = [&] {
-            if (isOutputValue(input)) {
-                return getPermutation([](mlir::Operation* op) {
-                    return op->getOperand(0).getType();
-                });
-            } else if (isInputValue(input)) {
-                return getPermutation([](mlir::Operation* op) {
-                    return op->getResult(0).getType();
-                });
-            }
-            return std::optional<mlir::AffineMap>();
-        }();
-        VPUX_THROW_UNLESS(dstOrder.has_value(), "Cannot detect destination order for input '{0}'",
-                          input.getDefiningOp()->getName());
+        auto isInputValue = [](mlir::Value value) {
+            return mlir::isa<mlir::BlockArgument>(value);
+        };
 
         if (isInputValue(input) || isOutputValue(input)) {
             return builder.createOrFold<Core::ReinterpretCastOp>(newLocation, destType, input);
@@ -228,6 +209,8 @@ void FinalizeComputeFunctionBoundariesPass::safeRunOnModule() {
     target.addDynamicallyLegalOp<mlir::tensor::EmptyOp>(isLegalOp);
     target.addDynamicallyLegalOp<mlir::tensor::DimOp>(isLegalOp);
     target.addDynamicallyLegalOp<mlir::tensor::CastOp>(isLegalOp);
+
+    target.addDynamicallyLegalOp<Core::NestedCallOp>(isLegalOp);
 
     target.addDynamicallyLegalOp<mlir::func::ReturnOp>(isLegalOp);
     target.addDynamicallyLegalOp<mlir::func::CallOp>(isLegalOp);

@@ -5,7 +5,7 @@
 
 
 // RUN: vpux-opt --init-compiler="vpu-arch=%arch%" --convert-VPUASM-to-NPUReg40XX --create-elf-relocations %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: dev-build && (arch-NPU40XX || arch-NPU50XX)
 
 module @Model20 {
   net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -33,7 +33,10 @@ module @Model20 {
         VPUASM.DeclareKernelData @DeclareKernelArgs_0_0 {elfMemOffsetAttrKey = 0 : ui64} : "activation_sigmoid"
       }
       ELF.CreateSection @shave.params aligned(1024) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
-        VPUASM.KernelParams @KernelParams_0_0 inputs([@buffer.CMX_NN.0::@DeclareBuffer5]) outputs([@buffer.CMX_NN.0::@DeclareBuffer6]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("activation_sigmoid") {elfMemOffsetAttrKey = 0 : ui64} < { kernel_params = [0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]}>
+        VPUASM.KernelParams @KernelParams_0_0 inputs([@buffer.CMX_NN.0::@DeclareBuffer5]) outputs([@buffer.CMX_NN.0::@DeclareBuffer6]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("activation_sigmoid") {elfMemOffsetAttrKey = 0 : ui64} <
+        { inputDimsBinaryVector = [], inputStridesBinaryVector = [], outputDimsBinaryVector = [], outputStridesBinaryVector = [],
+          kernel_params = [0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]
+        }>
       }
       ELF.CreateSection @task.shave.range.0.0 aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
         VPUASM.ActKernelRange @ActKernelRange_0_0 idx(!VPURegMapped.Index<0:0:0>) taskLocation(@program.metadata.cmx::@DeclareTaskBuffer_ActKernelRange_0_0_0) kernelTaskType(@COMPUTE) calls @shave.text::@DeclareKernelText_0_0 : @DeclareKernelEntry_0_0 {elfMemOffsetAttrKey = 0 : ui64}
@@ -58,7 +61,9 @@ module @Model20 {
     // CHECK: ELF.CreateSection @shave.params aligned(1024) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
     // CHECK:    VPUASM.KernelParams
     // CHECK: {elfMemOffsetAttrKey = 0 : ui64}
-    // CHECK: < {kernel_params = [120, 128, 1, 64, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 240, 128, 1, 64, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]}>
+    // CHECK: < {inputDimsBinaryVector = [], inputStridesBinaryVector = [],
+    // CHECK: kernel_params = [120, 128, 1, 64, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 240, 128, 1, 64, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0],
+    // CHECK: outputDimsBinaryVector = [], outputStridesBinaryVector = []}>
 
     // CHECK:    VpuActKernelInvocation {
     // CHECK:        range = UINT 0x40203C00,

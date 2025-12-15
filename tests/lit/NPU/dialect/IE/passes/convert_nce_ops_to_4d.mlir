@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-nce-ops-to-4d %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @ConvertNceOpsTo4DConvolution
 func.func @ConvertNceOpsTo4DConvolution(%arg0: tensor<1x16x64xf16>) -> tensor<1x1x61xf16> {

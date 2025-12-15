@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --segment-halos %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -69,9 +69,6 @@ func.func @main(%arg0:  memref<1x16x17x32xf16, #NHWC, [@CMX_NN, 0]>, %arg1:  mem
     %weights0 = VPURT.DeclareBuffer <CMX_NN> [0] <34816> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
     %weights1 = VPURT.DeclareBuffer <CMX_NN> [1] <34816> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 1]>
 
-    %weights_table0 = VPURT.DeclareBuffer <CMX_NN> [0] <39424> -> memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>
-    %weights_table1 = VPURT.DeclareBuffer <CMX_NN> [1] <39424> -> memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 1]>
-
     %output_sm0 = VPURT.DeclareBuffer <CMX_NN> [0] <39680> -> !OutputITISparse0
     %output_sm1 = VPURT.DeclareBuffer <CMX_NN> [1] <39680> -> !OutputITISparse1
 
@@ -84,7 +81,6 @@ func.func @main(%arg0:  memref<1x16x17x32xf16, #NHWC, [@CMX_NN, 0]>, %arg1:  mem
             }
             input(%input0: !Input0)
             weights(%weights0: memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-            weight_table(%weights_table0: memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>)
             parent_input(%input0: !Input0)
             parent_output(%output0: !OutputITI0)
             parent_output_sparsity_map(%output_sm0 : !OutputITISparse0)
@@ -124,7 +120,6 @@ func.func @main(%arg0:  memref<1x16x17x32xf16, #NHWC, [@CMX_NN, 0]>, %arg1:  mem
             }
             input(%input1: !Input1)
             weights(%weights1: memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 1]>)
-            weight_table(%weights_table1: memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 1]>)
             parent_input(%input1: !Input1)
             parent_output(%output1: !OutputITI1)
             parent_output_sparsity_map(%output_sm1 : !OutputITISparse1)
@@ -325,10 +320,6 @@ func.func @main(%arg0:  memref<1x16x32x17xf16>, %arg1:  memref<1x16x32x17xf16>, 
     %weights1 = VPURT.DeclareBuffer <CMX_NN> [1] <37888> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 1]>
     %weights2 = VPURT.DeclareBuffer <CMX_NN> [2] <37888> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 2]>
 
-    %weights_table0 = VPURT.DeclareBuffer <CMX_NN> [0] <38400> -> memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>
-    %weights_table1 = VPURT.DeclareBuffer <CMX_NN> [1] <38400> -> memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 1]>
-    %weights_table2 = VPURT.DeclareBuffer <CMX_NN> [2] <38400> -> memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 2]>
-
     VPURT.Task {
         VPUIP.NCEClusterTask {
                 kernel_padding = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>,
@@ -338,7 +329,6 @@ func.func @main(%arg0:  memref<1x16x32x17xf16>, %arg1:  memref<1x16x32x17xf16>, 
             }
             input(%input0: !Input0)
             weights(%weights0: memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-            weight_table(%weights_table0: memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>)
             parent_input(%input0: !Input0)
             parent_output(%output0: !OutputITI0)
             output_ITI_buff(%output1 : !OutputITI1)
@@ -376,7 +366,6 @@ func.func @main(%arg0:  memref<1x16x32x17xf16>, %arg1:  memref<1x16x32x17xf16>, 
             }
             input(%input1: !Input1)
             weights(%weights1: memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 1]>)
-            weight_table(%weights_table1: memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 1]>)
             parent_input(%input1: !Input1)
             parent_output(%output1: !OutputITI1)
             output_ITI_buff(%output0, %output2: !OutputITI0, !OutputITI2)
@@ -414,7 +403,6 @@ func.func @main(%arg0:  memref<1x16x32x17xf16>, %arg1:  memref<1x16x32x17xf16>, 
             }
             input(%input2: !Input2)
             weights(%weights2: memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 2]>)
-            weight_table(%weights_table2: memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 2]>)
             parent_input(%input2: !Input2)
             parent_output(%output2: !OutputITI2)
             output_ITI_buff(%output1: !OutputITI1)
@@ -651,10 +639,6 @@ func.func @main(%arg0:  memref<1x16x10x10xf16>, %arg1:  memref<1x16x10x10xf16>, 
     %weights1 = VPURT.DeclareBuffer <CMX_NN> [1] <22400> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 1]>
     %weights2 = VPURT.DeclareBuffer <CMX_NN> [2] <22400> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 2]>
 
-    %weights_table0 = VPURT.DeclareBuffer <CMX_NN> [0] <23424> -> memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>
-    %weights_table1 = VPURT.DeclareBuffer <CMX_NN> [1] <23424> -> memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 1]>
-    %weights_table2 = VPURT.DeclareBuffer <CMX_NN> [2] <23424> -> memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 2]>
-
     VPURT.Task {
         VPUIP.NCEClusterTask {
                 kernel_padding = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>,
@@ -664,7 +648,6 @@ func.func @main(%arg0:  memref<1x16x10x10xf16>, %arg1:  memref<1x16x10x10xf16>, 
             }
             input(%input0: !Input0)
             weights(%weights0: memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-            weight_table(%weights_table0: memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>)
             parent_input(%input0: !Input0)
             parent_output(%output0: !OutputITI0)
             output_ITI_buff(%output1, %output2 : !OutputITI1, !OutputITI2)
@@ -702,7 +685,6 @@ func.func @main(%arg0:  memref<1x16x10x10xf16>, %arg1:  memref<1x16x10x10xf16>, 
             }
             input(%input1: !Input1)
             weights(%weights1: memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 1]>)
-            weight_table(%weights_table1: memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 1]>)
             parent_input(%input1: !Input1)
             parent_output(%output1: !OutputITI1)
             output_ITI_buff(%output0, %output2: !OutputITI0, !OutputITI2)
@@ -740,7 +722,6 @@ func.func @main(%arg0:  memref<1x16x10x10xf16>, %arg1:  memref<1x16x10x10xf16>, 
             }
             input(%input2: !Input2)
             weights(%weights2: memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 2]>)
-            weight_table(%weights_table2: memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 2]>)
             parent_input(%input2: !Input2)
             parent_output(%output2: !OutputITI2)
             output_ITI_buff(%output0, %output1: !OutputITI0, !OutputITI1)
@@ -999,11 +980,6 @@ func.func @main(%arg0:  memref<1x16x16x16xf16>, %arg1:  memref<1x16x16x16xf16>, 
     %weights2 = VPURT.DeclareBuffer <CMX_NN> [2] <45056> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 2]>
     %weights3 = VPURT.DeclareBuffer <CMX_NN> [3] <45056> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 3]>
 
-    %weights_table0 = VPURT.DeclareBuffer <CMX_NN> [0] <46080> -> memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>
-    %weights_table1 = VPURT.DeclareBuffer <CMX_NN> [1] <46080> -> memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 1]>
-    %weights_table2 = VPURT.DeclareBuffer <CMX_NN> [2] <46080> -> memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 2]>
-    %weights_table3 = VPURT.DeclareBuffer <CMX_NN> [3] <46080> -> memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 3]>
-
     VPURT.Task {
         VPUIP.NCEClusterTask {
                 kernel_padding = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>,
@@ -1013,7 +989,6 @@ func.func @main(%arg0:  memref<1x16x16x16xf16>, %arg1:  memref<1x16x16x16xf16>, 
             }
             input(%input0: !Input0)
             weights(%weights0: memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-            weight_table(%weights_table0: memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>)
             parent_input(%input0: !Input0)
             parent_output(%output0: !OutputITI0)
             output_ITI_buff(%output1, %output2, %output3 : !OutputITI1, !OutputITI2, !OutputITI3)
@@ -1051,7 +1026,6 @@ func.func @main(%arg0:  memref<1x16x16x16xf16>, %arg1:  memref<1x16x16x16xf16>, 
             }
             input(%input1: !Input1)
             weights(%weights1: memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 1]>)
-            weight_table(%weights_table1: memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 1]>)
             parent_input(%input1: !Input1)
             parent_output(%output1: !OutputITI1)
             output_ITI_buff(%output0, %output2, %output3: !OutputITI0, !OutputITI2, !OutputITI3)
@@ -1089,7 +1063,6 @@ func.func @main(%arg0:  memref<1x16x16x16xf16>, %arg1:  memref<1x16x16x16xf16>, 
             }
             input(%input2: !Input2)
             weights(%weights2: memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 2]>)
-            weight_table(%weights_table2: memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 2]>)
             parent_input(%input2: !Input2)
             parent_output(%output2: !OutputITI2)
             output_ITI_buff(%output0, %output1, %output3: !OutputITI0, !OutputITI1, !OutputITI3)
@@ -1145,7 +1118,6 @@ func.func @main(%arg0:  memref<1x16x16x16xf16>, %arg1:  memref<1x16x16x16xf16>, 
             }
             input(%input3: !Input3)
             weights(%weights3: memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 3]>)
-            weight_table(%weights_table3: memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 3]>)
             parent_input(%input3: !Input3)
             parent_output(%output3: !OutputITI3)
             output_ITI_buff(%output0, %output1, %output2: !OutputITI0, !OutputITI1, !OutputITI2)
@@ -1500,11 +1472,6 @@ func.func @main(%arg0:  memref<1x16x20x16xf16>, %arg1:  memref<1x16x20x16xf16>, 
     %weights2 = VPURT.DeclareBuffer <CMX_NN> [2] <22848> -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 2]>
     %weights3 = VPURT.DeclareBuffer <CMX_NN> [3] <22848> -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 3]>
 
-    %weights_table0 = VPURT.DeclareBuffer <CMX_NN> [0] <23360> -> memref<16x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>
-    %weights_table1 = VPURT.DeclareBuffer <CMX_NN> [1] <23360> -> memref<16x1x1x4xsi32, #NHWC, [@CMX_NN, 1]>
-    %weights_table2 = VPURT.DeclareBuffer <CMX_NN> [2] <23360> -> memref<16x1x1x4xsi32, #NHWC, [@CMX_NN, 2]>
-    %weights_table3 = VPURT.DeclareBuffer <CMX_NN> [3] <23360> -> memref<16x1x1x4xsi32, #NHWC, [@CMX_NN, 3]>
-
     VPURT.Task {
         VPUIP.NCEClusterTask {
                 kernel_padding = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>,
@@ -1514,7 +1481,6 @@ func.func @main(%arg0:  memref<1x16x20x16xf16>, %arg1:  memref<1x16x20x16xf16>, 
             }
             input(%input0: !Input0)
             weights(%weights0: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-            weight_table(%weights_table0: memref<16x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>)
             parent_input(%input0: !Input0)
             parent_output(%output0: !OutputITI0)
             output_ITI_buff(%output1, %output2, %output3 : !OutputITI1, !OutputITI2, !OutputITI3)
@@ -1552,7 +1518,6 @@ func.func @main(%arg0:  memref<1x16x20x16xf16>, %arg1:  memref<1x16x20x16xf16>, 
             }
             input(%input1: !Input1)
             weights(%weights1: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 1]>)
-            weight_table(%weights_table1: memref<16x1x1x4xsi32, #NHWC, [@CMX_NN, 1]>)
             parent_input(%input1: !Input1)
             parent_output(%output1: !OutputITI1)
             output_ITI_buff(%output0, %output2, %output3: !OutputITI0, !OutputITI2, !OutputITI3)
@@ -1590,7 +1555,6 @@ func.func @main(%arg0:  memref<1x16x20x16xf16>, %arg1:  memref<1x16x20x16xf16>, 
             }
             input(%input2: !Input2)
             weights(%weights2: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 2]>)
-            weight_table(%weights_table2: memref<16x1x1x4xsi32, #NHWC, [@CMX_NN, 2]>)
             parent_input(%input2: !Input2)
             parent_output(%output2: !OutputITI2)
             output_ITI_buff(%output0, %output1, %output3: !OutputITI0, !OutputITI1, !OutputITI3)
@@ -1619,7 +1583,6 @@ func.func @main(%arg0:  memref<1x16x20x16xf16>, %arg1:  memref<1x16x20x16xf16>, 
             }
             input(%input3: !Input3)
             weights(%weights3: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 3]>)
-            weight_table(%weights_table3: memref<16x1x1x4xsi32, #NHWC, [@CMX_NN, 3]>)
             parent_input(%input3: !Input3)
             parent_output(%output3: !OutputITI3)
             output_ITI_buff(%output0, %output1, %output2: !OutputITI0, !OutputITI1, !OutputITI2)
@@ -1939,11 +1902,6 @@ func.func @main(%arg0:  memref<1x128x14x56xf16>, %arg1:  memref<1x128x14x56xf16>
     %weights2 = VPURT.DeclareBuffer <CMX_NN> [2] <2816> -> memref<128x16x1x1x!qElemType0, #NHWC, [@CMX_NN, 2]>
     %weights3 = VPURT.DeclareBuffer <CMX_NN> [3] <2816> -> memref<128x16x1x1x!qElemType0, #NHWC, [@CMX_NN, 3]>
 
-    %weights_table0 = VPURT.DeclareBuffer <CMX_NN> [0] <768> -> memref<128x1x1x4xsi32, [@CMX_NN, 0]>
-    %weights_table1 = VPURT.DeclareBuffer <CMX_NN> [1] <768> -> memref<128x1x1x4xsi32, [@CMX_NN, 1]>
-    %weights_table2 = VPURT.DeclareBuffer <CMX_NN> [2] <768> -> memref<128x1x1x4xsi32, [@CMX_NN, 2]>
-    %weights_table3 = VPURT.DeclareBuffer <CMX_NN> [3] <768> -> memref<128x1x1x4xsi32, [@CMX_NN, 3]>
-
     VPURT.Task {
         VPUIP.NCEClusterTask {
                 is_small_kernel_optimized,
@@ -1954,7 +1912,6 @@ func.func @main(%arg0:  memref<1x128x14x56xf16>, %arg1:  memref<1x128x14x56xf16>
             }
             input(%input0: !Input0)
             weights(%weights0: memref<128x16x1x1x!qElemType0, #NHWC, [@CMX_NN, 0]>)
-            weight_table(%weights_table0: memref<128x1x1x4xsi32, [@CMX_NN, 0]>)
             parent_input(%input0: !Input0)
             parent_output(%output0: !OutputITI0)
             output_ITI_buff(%output1, %output2, %output3 : !OutputITI1, !OutputITI2, !OutputITI3)
@@ -1980,7 +1937,6 @@ func.func @main(%arg0:  memref<1x128x14x56xf16>, %arg1:  memref<1x128x14x56xf16>
             }
             input(%input1: !Input1)
             weights(%weights1: memref<128x16x1x1x!qElemType0, #NHWC, [@CMX_NN, 1]>)
-            weight_table(%weights_table1: memref<128x1x1x4xsi32, [@CMX_NN, 1]>)
             parent_input(%input1: !Input1)
             parent_output(%output1: !OutputITI1)
             output_ITI_buff(%output0, %output2, %output3: !OutputITI0, !OutputITI2, !OutputITI3)
@@ -2006,7 +1962,6 @@ func.func @main(%arg0:  memref<1x128x14x56xf16>, %arg1:  memref<1x128x14x56xf16>
             }
             input(%input2: !Input2)
             weights(%weights2: memref<128x16x1x1x!qElemType0, #NHWC, [@CMX_NN, 2]>)
-            weight_table(%weights_table2: memref<128x1x1x4xsi32, [@CMX_NN, 2]>)
             parent_input(%input2: !Input2)
             parent_output(%output2: !OutputITI2)
             output_ITI_buff(%output0, %output1, %output3: !OutputITI0, !OutputITI1, !OutputITI3)
@@ -2032,7 +1987,6 @@ func.func @main(%arg0:  memref<1x128x14x56xf16>, %arg1:  memref<1x128x14x56xf16>
             }
             input(%input3: !Input3)
             weights(%weights3: memref<128x16x1x1x!qElemType0, #NHWC, [@CMX_NN, 3]>)
-            weight_table(%weights_table3: memref<128x1x1x4xsi32, [@CMX_NN, 3]>)
             parent_input(%input3: !Input3)
             parent_output(%output3: !OutputITI3)
             output_ITI_buff(%output0, %output1, %output2: !OutputITI0, !OutputITI1, !OutputITI2)
@@ -2066,11 +2020,6 @@ func.func @main(%arg0:  memref<1x128x14x56xf16>, %arg1:  memref<1x128x14x56xf16>
 //CHECK:    [[WTS_3:%.+]] = VPURT.DeclareBuffer <CMX_NN> [3] <2816> -> memref<128x16x1x1x!qElemType1, #NHWC, [@CMX_NN, 3]>
 
 
-//CHECK:    [[WT_TBL_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <768> -> memref<128x1x1x4xsi32, [@CMX_NN, 0]>
-//CHECK:    [[WT_TBL_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <768> -> memref<128x1x1x4xsi32, [@CMX_NN, 1]>
-//CHECK:    [[WT_TBL_2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <768> -> memref<128x1x1x4xsi32, [@CMX_NN, 2]>
-//CHECK:    [[WT_TBL_3:%.+]] = VPURT.DeclareBuffer <CMX_NN> [3] <768> -> memref<128x1x1x4xsi32, [@CMX_NN, 3]>
-
 //CHECK:      [[NCE_TASK:%.+]] = VPUIP.NCEClusterTask {is_small_kernel_optimized,
 //CHECK-SAME:      kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 0 : i64>,
 //CHECK-SAME:      kernel_size = [3, 3],
@@ -2078,7 +2027,6 @@ func.func @main(%arg0:  memref<1x128x14x56xf16>, %arg1:  memref<1x128x14x56xf16>
 //CHECK-SAME:      task_type = #VPUIP.nce_task_type<DWCONV>}
 //CHECK:      input([[INPUT_0]] : memref<1x128x14x56xf16, #NHWC, [@CMX_NN, 0]>)
 //CHECK:      weights([[WTS_0]] : memref<128x16x1x1x!qElemType1, #NHWC, [@CMX_NN, 0]>)
-//CHECK:      weight_table([[WT_TBL_0]] : memref<128x1x1x4xsi32, [@CMX_NN, 0]>)
 //CHECK:      parent_input([[INPUT_0]] : memref<1x128x14x56xf16, #NHWC, [@CMX_NN, 0]>)
 //CHECK:      parent_output([[OUT_CMX0]]
 //CHECK:      output_ITI_buff([[OUT_CMX1]], [[OUT_CMX2]], [[OUT_CMX3]]
@@ -2091,7 +2039,6 @@ func.func @main(%arg0:  memref<1x128x14x56xf16>, %arg1:  memref<1x128x14x56xf16>
 //CHECK-SAME:      task_type = #VPUIP.nce_task_type<DWCONV>}
 //CHECK:      input([[INPUT_1]] : memref<1x128x14x56xf16, #NHWC, [@CMX_NN, 1]>)
 //CHECK:      weights([[WTS_1]] : memref<128x16x1x1x!qElemType1, #NHWC, [@CMX_NN, 1]>)
-//CHECK:      weight_table([[WT_TBL_1]] : memref<128x1x1x4xsi32, [@CMX_NN, 1]>)
 //CHECK:      parent_input([[INPUT_1]] : memref<1x128x14x56xf16, #NHWC, [@CMX_NN, 1]>)
 //CHECK:      parent_output([[OUT_CMX1]]
 //CHECK:      output_ITI_buff([[OUT_CMX0]], [[OUT_CMX2]], [[OUT_CMX3]]
@@ -2104,7 +2051,6 @@ func.func @main(%arg0:  memref<1x128x14x56xf16>, %arg1:  memref<1x128x14x56xf16>
 //CHECK-SAME:      task_type = #VPUIP.nce_task_type<DWCONV>}
 //CHECK:      input([[INPUT_2]] : memref<1x128x14x56xf16, #NHWC, [@CMX_NN, 2]>)
 //CHECK:      weights([[WTS_2]] : memref<128x16x1x1x!qElemType1, #NHWC, [@CMX_NN, 2]>)
-//CHECK:      weight_table([[WT_TBL_2]] : memref<128x1x1x4xsi32, [@CMX_NN, 2]>)
 //CHECK:      parent_input([[INPUT_2]] : memref<1x128x14x56xf16, #NHWC, [@CMX_NN, 2]>)
 //CHECK:      parent_output([[OUT_CMX2]]
 //CHECK:      output_ITI_buff([[OUT_CMX0]], [[OUT_CMX1]], [[OUT_CMX3]]
@@ -2117,7 +2063,6 @@ func.func @main(%arg0:  memref<1x128x14x56xf16>, %arg1:  memref<1x128x14x56xf16>
 //CHECK-SAME:      task_type = #VPUIP.nce_task_type<DWCONV>}
 //CHECK:      input([[INPUT_3]] : memref<1x128x14x56xf16, #NHWC, [@CMX_NN, 3]>)
 //CHECK:      weights([[WTS_3]] : memref<128x16x1x1x!qElemType1, #NHWC, [@CMX_NN, 3]>)
-//CHECK:      weight_table([[WT_TBL_3]] : memref<128x1x1x4xsi32, [@CMX_NN, 3]>)
 //CHECK:      parent_input([[INPUT_3]] : memref<1x128x14x56xf16, #NHWC, [@CMX_NN, 3]>)
 //CHECK:      parent_output([[OUT_CMX3]]
 //CHECK:      output_ITI_buff([[OUT_CMX0]], [[OUT_CMX1]], [[OUT_CMX2]]

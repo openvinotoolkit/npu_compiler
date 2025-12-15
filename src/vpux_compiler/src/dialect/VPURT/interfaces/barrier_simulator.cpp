@@ -283,37 +283,33 @@ void vpux::VPURT::BarrierSimulator::parseTasks(mlir::Operation* parentOp) {
 
         switch (taskOp.getExecutorKind()) {
         case VPU::ExecutorKind::DMA_NN: {
-            const auto ports = VPURT::getDMATaskPorts(taskOp);
             auto dmaTask = mlir::dyn_cast<VPUIP::DMATypeOpInterface>(wrappedTaskOp);
             VPUX_THROW_WHEN(dmaTask == nullptr, "Not a DMA task");
 
-            SmallVector<DmaTaskIdx> dmaTaskIndexs;
-            for (auto& port : ports) {
-                // Find index of DMA FIFO that is analyzed by barrier simulator
-                // If this DMA task corresponds to a FIFO that was not already encountered
-                // then increase the size of tracked DMA FIFOs
-                int64_t dmaTasksQueueIndex;
-                auto dmaQueueId = getDMAQueueIdEncoding(port, dmaTask.getChannelType());
+            auto portValOpt = dmaTask.getPortVal();
+            VPUX_THROW_WHEN(!portValOpt.has_value(), "DMA task port value is not set");
+            auto port = portValOpt.value();
 
-                auto dmaQueueIt = dmaQueueIdToIndexMap.find(dmaQueueId);
-                if (dmaQueueIt == dmaQueueIdToIndexMap.end()) {
-                    dmaTasksQueueIndex = dmaQueueIdToIndexMap.size();
-                    dmaQueueIdToIndexMap[dmaQueueId] = dmaTasksQueueIndex;
-                } else {
-                    dmaTasksQueueIndex = dmaQueueIt->second;
-                }
+            // Find index of DMA FIFO that is analyzed by barrier simulator
+            // If this DMA task corresponds to a FIFO that was not already encountered
+            // then increase the size of tracked DMA FIFOs
+            int64_t dmaTasksQueueIndex;
+            auto dmaQueueId = getDMAQueueIdEncoding(port, dmaTask.getChannelType());
 
-                VPUX_THROW_UNLESS(dmaTasksQueueIndex < static_cast<int64_t>(_dmaTasks.size()),
-                                  "NNDMAOp queue index '{0}' larger than maximum number of queues '{1}'",
-                                  dmaTasksQueueIndex, _dmaTasks.size());
-                auto dmaTaskIdx = std::make_pair(port, _dmaTasks[dmaTasksQueueIndex].size());
-                dmaTaskIndexs.push_back(dmaTaskIdx);
-                _dmaTasks[dmaTasksQueueIndex].emplace_back(virtualDep);
+            auto dmaQueueIt = dmaQueueIdToIndexMap.find(dmaQueueId);
+            if (dmaQueueIt == dmaQueueIdToIndexMap.end()) {
+                dmaTasksQueueIndex = dmaQueueIdToIndexMap.size();
+                dmaQueueIdToIndexMap[dmaQueueId] = dmaTasksQueueIndex;
+            } else {
+                dmaTasksQueueIndex = dmaQueueIt->second;
             }
+
+            VPUX_THROW_UNLESS(dmaTasksQueueIndex < static_cast<int64_t>(_dmaTasks.size()),
+                              "NNDMAOp queue index '{0}' larger than maximum number of queues '{1}'",
+                              dmaTasksQueueIndex, _dmaTasks.size());
+
+            _dmaTasks[dmaTasksQueueIndex].emplace_back(virtualDep);
             updateBarrierConfigs(taskOp);
-            if (dmaTaskIndexs.size() > 1) {
-                _multiQueueDmaTaskStatus.insert({dmaTaskIndexs, false});
-            }
             break;
         }
 
@@ -630,34 +626,16 @@ mlir::LogicalResult vpux::VPURT::BarrierSimulator::simulateBarriers(Logger log, 
             for (; dma[e] < _dmaTasks[e].size(); ++dma[e], progressed = true) {
                 auto& dt = _dmaTasks[e][dma[e]];
 
-                auto isDMATaskInMultiQueues = [&]() {
-                    return llvm::find_if(_multiQueueDmaTaskStatus, [&](const auto& item) {
-                        const auto& multiTaskList = item.first;
-                        DmaTaskIdx currentDmaTaskIdx{e, dma[e]};
-                        return llvm::find(multiTaskList, currentDmaTaskIdx) != multiTaskList.end();
-                    });
-                };
-                auto iter = isDMATaskInMultiQueues();
-                // Check if dma task is processed in other task queue
-                if (iter == _multiQueueDmaTaskStatus.end() || !(iter->second)) {
-                    const auto status =
-                            processSim(_vdt.dep(dt.virtualDep), dt, dt.count, "DMA[" + std::to_string(e) + "]", dma[e],
-                                       toVirtual, nextReal, log.nest(3));
+                const auto status = processSim(_vdt.dep(dt.virtualDep), dt, dt.count, "DMA[" + std::to_string(e) + "]",
+                                               dma[e], toVirtual, nextReal, log.nest(3));
 
-                    if (status == Status::Fail) {
-                        return mlir::failure();
-                    }
-                    if (status == Status::Skip) {
-                        break;
-                    }
-                    log.nest(3).trace("DMA[{0}][{1}]: waits: {2}, posts: {3}", e, dma[e], dt.waits, dt.posts);
-                    if (iter != _multiQueueDmaTaskStatus.end()) {
-                        // mark task as processed
-                        iter->second = true;
-                    }
-                } else if (iter != _multiQueueDmaTaskStatus.end()) {
-                    log.trace("skip DMA[{0}][{1}] since it has been processed in other queue", e, dma[e]);
+                if (status == Status::Fail) {
+                    return mlir::failure();
                 }
+                if (status == Status::Skip) {
+                    break;
+                }
+                log.nest(3).trace("DMA[{0}][{1}]: waits: {2}, posts: {3}", e, dma[e], dt.waits, dt.posts);
             }
         }
 

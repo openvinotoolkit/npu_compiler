@@ -87,7 +87,9 @@ public:
         if (pass->getName() == "mlir::detail::OpToOpPassAdaptor") {
             return;
         }
-        auto module = op->getParentOfType<mlir::ModuleOp>();
+
+        auto module =
+                mlir::isa<mlir::ModuleOp>(op) ? mlir::cast<mlir::ModuleOp>(op) : op->getParentOfType<mlir::ModuleOp>();
         if (config::getWorkloadManagementStatus(module) == WorkloadManagementStatus::FAILED) {
             _log.warning("WLM Failed Pass {0} on Operation {1}", pass->getName(), op->getLoc());
         } else {

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --mlir-print-elementsattrs-with-hex-if-larger=-1 --compute-se-base-ptrs %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -65,25 +65,17 @@
     num_clusters = 2
 }>
 
-!WeightsTableDistributed = !VPUIP.DistributedBuffer<
-    16x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "DUPLICATED",
-    num_clusters = 2
-}>
-
 !Input_DDR = memref<1x16x4x4xf16, #NHWC>
 !InputSM_DDR = memref<1x16x8x8xi1, #NHWC>
 !InputSE_DDR = memref<1x1x8x8xi32, #NHWC, @DDR>
 !Weights_DDR = memref<16x16x1x1xf16, #NHWC>
 !WeightsSM_DDR = memref<16x1x1x128xi1>
-!WeightsTable_DDR = memref<16x1x1x4xsi32>
 
 !Input_CMX = memref<1x16x4x4xf16, #NHWC, @CMX_NN>
 !InputSM_CMX = memref<1x16x8x8xi1, #NHWC, @CMX_NN>
 !InputSE_CMX = memref<1x1x8x8xi32, #NHWC, @CMX_NN>
 !Weights_CMX = memref<16x16x1x1xf16, #NHWC, @CMX_NN>
 !WeightsSM_CMX = memref<16x1x1x128xi1, @CMX_NN>
-!WeightsTable_CMX = memref<16x1x1x4xsi32, @CMX_NN>
 !Output_CMX = memref<1x16x8x8xf16, #NHWC, @CMX_NN>
 
 // CHECK-LABEL:  func.func @SEPaddingWithLargePadSize
@@ -117,12 +109,6 @@ func.func @SEPaddingWithLargePadSize(%input_data: !Input_DDR, %input_sm: !InputS
         inputs(%weights_sparse : !VPUIP.SparseBuffer<data=!Weights_DDR, sparsity_map=!WeightsSM_DDR, is_weights>)
         outputs(%weights_sparse_cmx : !VPUIP.SparseBuffer<data=!WeightsDistributed, sparsity_map=!WeightsSMDistributed, is_weights>)  -> !VPUIP.SparseBuffer<data=!WeightsDistributed, sparsity_map=!WeightsSMDistributed, is_weights>
 
-    %cst_weights_table = const.Declare !WeightsTable_DDR = dense<1> : tensor<16x1x1x4xsi32>
-    %weights_table_cmx = VPURT.AllocDistributed -> !WeightsTableDistributed
-    %weights_table = VPUIP.Copy
-        inputs(%cst_weights_table : !WeightsTable_DDR)
-        outputs(%weights_table_cmx : !WeightsTableDistributed)  -> !WeightsTableDistributed
-
     %in_data, %in_sm, %in_se = VPUIP.UngroupSparseBuffer(%input) {resultSegmentSizes = array<i32: 1, 1, 1>}
         -> !InputDistributed, !InputSMDistributed, !InputSEDistributed
     %w_data, %w_sm = VPUIP.UngroupSparseBuffer(%weights)  {resultSegmentSizes = array<i32: 1, 1, 0>}
@@ -134,7 +120,6 @@ func.func @SEPaddingWithLargePadSize(%input_data: !Input_DDR, %input_sm: !InputS
         input_storage_element_table(%in_se : !InputSEDistributed)
         weights(%w_data : !WeightsDistributed)
         weights_sparsity_map(%w_sm : !WeightsSMDistributed)
-        weight_table(%weights_table : !WeightsTableDistributed)
         parent_input(%in_data : !InputDistributed)
         parent_input_sparsity_map(%in_sm : !InputSMDistributed)
         parent_input_storage_element_table(%in_se : !InputSEDistributed)

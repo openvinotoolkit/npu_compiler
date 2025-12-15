@@ -7,18 +7,17 @@
 
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/core/profiling_metadata.hpp"
+#include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
-#include "vpux/compiler/utils/ELF/utils.hpp"
 
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/utils/core/error.hpp"
 
 #include "vpux/compiler/conversion/rewriters/VPUIP2VPUMI40XX/barrier_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUIP2VPUMI40XX/dma_rewriter.hpp"
-#include "vpux/compiler/conversion/rewriters/VPUIP2VPUMI40XX/m2i_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUIP2VPUMI40XX/nce_cluster_task_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUIP2VPUMI40XX/sw_kernel_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUIP2VPUMI40XX/task_rewriter.hpp"
@@ -325,7 +324,6 @@ void createMappedInferenceOp(mlir::func::FuncOp funcOp, AllocateShaveStackFrames
     size_t actKernRangesTasksArgLength = 0;
     size_t actKernInvocationsTasksArgLength = 0;
     mlir::Value barrierTasks;
-    mlir::Value mediaTasks;
     mlir::Value actShvRt;
     SmallVector<mlir::Value> actShaveStacks;
 
@@ -338,7 +336,6 @@ void createMappedInferenceOp(mlir::func::FuncOp funcOp, AllocateShaveStackFrames
                                                             mlir::SmallVector<int64_t>(shavesPerTileCount, 0));
 
     int64_t barrierCount = 0;
-    int64_t mediaCount = 0;
     bool hasInvocations = false;
 
     for (size_t tileIdx = 0; tileIdx < dmaTileCount; ++tileIdx) {
@@ -385,10 +382,6 @@ void createMappedInferenceOp(mlir::func::FuncOp funcOp, AllocateShaveStackFrames
     barrierTasks = findTaskIf<VPUMI40XX::ConfigureBarrierOp>(funcOp);
     barrierCount = countTasksIf<VPUMI40XX::ConfigureBarrierOp>(funcOp);
 
-    // mediaTasks
-    mediaTasks = findTaskIf<VPUMI40XX::M2IOp>(funcOp);
-    mediaCount = countTasksIf<VPUMI40XX::M2IOp>(funcOp);
-
     // create MappedInferenceOp
     mlir::OpBuilder builderFunc(&(funcOp.getBody().front().back()));
 
@@ -407,7 +400,7 @@ void createMappedInferenceOp(mlir::func::FuncOp funcOp, AllocateShaveStackFrames
                      actKernRangesTasksArgLength),  // llvm::ArrayRef<::mlir::ValueRange> actKernelRanges
             ArrayRef(actKernelInvocationsArgs.data(),
                      actKernInvocationsTasksArgLength),  // llvm::ArrayRef<::mlir::ValueRange> actKernelInvocations
-            mediaTasks,                                  // mlir::Value mediaTasks
+            nullptr,                                     // mlir::Value mediaTasks
             barrierTasks,                                // mlir::Value barrierTasks
             nullptr,                                     // mlir::Value workItemTasks
             nullptr,                                     // mlir::Value bootstrapBarriers
@@ -420,7 +413,7 @@ void createMappedInferenceOp(mlir::func::FuncOp funcOp, AllocateShaveStackFrames
             builderFunc.getI64ArrayAttr(ArrayRef(variantCount)),    // mlir::ArrayAttr variantCount
             getIntArrayOfArray(ctx, rangeCount),                    // mlir::ArrayAttr actKernelRangesCount
             getIntArrayOfArray(ctx, invoCount),                     // mlir::ArrayAttr actKernelInvocationsCount
-            mediaCount,                                             // mlir::IntegerAttr mediaCount
+            0,                                                      // mlir::IntegerAttr mediaCount
             barrierCount,                                           // mlir::IntegerAttr barrierCount
             nullptr,                                                // mlir::IntegerAttr workItemCount
             nullptr,                                                // mlir::IntegerAttr bootstrapBarriersCount
@@ -584,7 +577,6 @@ private:
         tasksConverters.add<ReadOnlyDMARewriter>(&ctx, _enableMemorySideCacheOption);
         tasksConverters.add<NCEClusterTaskRewriter>(&ctx);
         tasksConverters.add<SWKernelRewriter>(&ctx);
-        tasksConverters.add<M2IRewriter>(&ctx);
 
         mlir::ConversionTarget irWithMITasksInsideVPURTTaskOp(ctx);
         irWithMITasksInsideVPURTTaskOp.addIllegalDialect<VPUIP::VPUIPDialect>();

@@ -8,7 +8,7 @@
 #include "vpux/compiler/dialect/const/utils/content.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 
 namespace vpux {
 

@@ -6,6 +6,7 @@
 #include "vpux/compiler/compilation_options.hpp"
 #include "vpux/compiler/NPU37XX/pipeline_options.hpp"
 #include "vpux/compiler/NPU40XX/pipeline_options.hpp"
+#include "vpux/compiler/NPU50XX/pipeline_options.hpp"
 #include "vpux/compiler/pipelines/options_mapper.hpp"
 
 #include <intel_npu/config/options.hpp>
@@ -28,6 +29,8 @@ void checkCompilerOptions(const intel_npu::Config& config) {
         checkCompilerOptions<DefaultHWOptions37XX>(config);
     } else if (arch == config::ArchKind::NPU40XX) {
         checkCompilerOptions<DefaultHWOptions40XX>(config);
+    } else if (arch == config::ArchKind::NPU50XX) {
+        checkCompilerOptions<DefaultHWOptions50XX>(config);
     }
 }
 

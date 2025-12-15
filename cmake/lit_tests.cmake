@@ -123,6 +123,13 @@ function(vpux_setup_lit_tests TEST_NAME)
         set(EXTRA_AVAILABLE_FEATURES "${EXTRA_AVAILABLE_FEATURES}\nconfig.available_features.add(('${var}-' + config.${var}))")
     endforeach()
 
+    # Add `dev-build` as an available feature to lit tests, which can be used in the REQUIRES field of the tests
+    # This is useful for disabling incompatible tests in non-developer environments (e.g. lit-tests that use backend descriptors,
+    # whose printing / parsing logic behaves differently in developer vs non-developer builds)
+    if(ENABLE_DEVELOPER_BUILD)
+        set(EXTRA_AVAILABLE_FEATURES "${EXTRA_AVAILABLE_FEATURES}\nconfig.available_features.add(('dev-build'))")
+    endif()
+
     if(ENABLE_PREBUILT_LLVM_MLIR_LIBS)
         set(LLVM_LIBRARY_DIR ${MLIR_BINARY_PKG_DIR}/lib)
         set(LLVM_TOOLS_BINARY_DIR ${MLIR_BINARY_PKG_DIR}/bin)

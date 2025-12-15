@@ -23,6 +23,11 @@ TEST_P(LSTMCellLayerTestCommon, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
+TEST_P(LSTMCellLayerTestCommon, NPU5010_HW) {
+    rel_threshold = 0.06;
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
 }  // namespace test
 }  // namespace ov
 

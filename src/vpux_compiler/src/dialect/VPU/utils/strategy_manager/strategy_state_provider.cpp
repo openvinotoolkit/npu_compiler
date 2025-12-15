@@ -6,8 +6,8 @@
 #include "vpux/compiler/dialect/VPU/utils/strategy_manager/strategy_state_provider.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/layer_vpunn_cost.hpp"
+#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
-#include "vpux/compiler/utils/VPU/tile_utils.hpp"
 
 #include <numeric>
 

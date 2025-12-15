@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% workload-management-enable=false" --convert-VPUMI40XX-to-VPUASM="workload-management-enable=false" %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 net.NetworkInfo entryPoint : @oneDma inputsInfo : {
   DataInfo "input" : tensor<1x2x3x4xf16>

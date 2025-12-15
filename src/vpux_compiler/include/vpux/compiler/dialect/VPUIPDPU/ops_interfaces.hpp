@@ -5,8 +5,8 @@
 
 #pragma once
 
+#include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUIPDPU/ops.hpp"
-#include "vpux/compiler/utils/ELF/utils.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
 #include <mlir/IR/Builders.h>

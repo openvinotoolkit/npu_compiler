@@ -129,3 +129,38 @@ TEST_F(MLIR_CostModelAnalysisTest, CostModelAnalysisBehavior) {
     // No exception thrown during pm run
     ASSERT_TRUE(mlir::succeeded(pm.run(module.get())));
 }
+
+const static llvm::StringLiteral inputIR50XX = R"(
+    #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+    module @test attributes {config.arch = #config.arch_kind<NPU50XX>} {
+        func.func @main(%arg0: tensor<1x128x32x32xf16, {order = #NHWC}>) -> tensor<1x64x32x32xf16, {order = #NHWC}> {
+            %cst = const.Declare tensor<64x1x1x4xsi32> = dense<10> : tensor<64x1x1x4xsi32>
+            %cst_0 = const.Declare tensor<64x128x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<64x128x1x1xf16>, [#const.Reorder<#NHWC>]
+            %0 = VPU.NCE.Convolution(%arg0, %cst_0, %cst) {
+                ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64>,
+                pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+                rawFilterShape = [64, 128, 1, 1], strides = [1, 1]} : tensor<1x128x32x32xf16, {order = #NHWC}>, tensor<64x128x1x1xf16, {order = #NHWC}>, tensor<64x1x1x4xsi32>
+                -> tensor<1x64x32x32xf16, {order = #NHWC}>
+            return %0 : tensor<1x64x32x32xf16, {order = #NHWC}>
+        }
+})";
+
+TEST_F(MLIR_CostModelAnalysisTest, CostModelCachedSharedInstance_NPU50XX) {
+    auto registry = vpux::createDialectRegistry();
+    auto interfacesRegistry = vpux::createInterfacesRegistry(config::ArchKind::NPU50XX);
+    interfacesRegistry->registerInterfaces(registry);
+    VPU::CostModelConfig::setFactory(config::ArchKind::NPU50XX);
+
+    mlir::MLIRContext ctx(registry);
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR50XX, &ctx);
+    ASSERT_NE(module.get(), nullptr);
+
+    mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
+    pm.addPass(VPU::createCostModelAnalysisConstructPass(vpux::Logger::global()));
+    pm.addPass(std::make_unique<CostModelAnalysisTests::CheckSharedCostModelPass>());  // Check cached shared instance
+    pm.addPass(VPU::createCostModelAnalysisDestroyPass(vpux::Logger::global()));
+    pm.addPass(
+            std::make_unique<CostModelAnalysisTests::CheckSharedCostModelPass>());  // Check created with getOrCreate()
+
+    ASSERT_TRUE(mlir::succeeded(pm.run(module.get())));
+}

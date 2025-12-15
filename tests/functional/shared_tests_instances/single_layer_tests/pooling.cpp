@@ -223,6 +223,29 @@ TEST_P(PoolingLayerTest_NPU4000_SOB, HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
+class PoolingLayerTest_NPU5010 : public PoolingLayerTest, virtual public VpuOv2LayerTest {};
+class PoolingLayerTest_NPU5010_SOB : public PoolingLayerTestWithUnrollBatchingCompileMethod {};
+
+TEST_P(PoolingLayerTest_NPU5010, SW) {
+    abs_threshold = 0.02;
+    setSkipCompilationCallback([this](std::stringstream& skip) {
+        const auto& poolParams = std::get<0>(GetParam());
+        PoolingTypes poolType = std::get<0>(poolParams);
+        const auto netPrecision = std::get<1>(GetParam());
+        if (((poolType == PoolingTypes::MAX) || poolType == (PoolingTypes::AVG)) &&
+            (netPrecision == ov::element::i8 || netPrecision == ov::element::u8)) {
+            skip << "Max pool SingleLayerTest is not enabled with precision: " << netPrecision;
+        }
+    });
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(PoolingLayerTest_NPU5010_SOB, HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
 class MaxPoolingV8LayerTestCommon : public MaxPoolingV8LayerTest, virtual public VpuOv2LayerTest {};
 
 TEST_P(MaxPoolingV8LayerTestCommon, NPU3720_SW) {
@@ -245,6 +268,16 @@ TEST_P(MaxPoolingV8LayerTestCommon, NPU4000_SW) {
     });
     setReferenceSoftwareMode();
     run(Platform::NPU4000);
+}
+TEST_P(MaxPoolingV8LayerTestCommon, NPU5010_SW) {
+    setSkipCompilationCallback([this](std::stringstream& skip) {
+        const auto netPrecision = std::get<1>(GetParam());
+        if (netPrecision == ov::element::i8 || netPrecision == ov::element::u8) {
+            skip << "MaxPool8 SingleLayerTest is not enabled with precision: " << netPrecision;
+        }
+    });
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
 }
 
 class AvgPoolingV16LayerTestCommon : public AvgPoolingV16LayerTest, virtual public VpuOv2LayerTest {};
@@ -271,6 +304,16 @@ TEST_P(AvgPoolingV16LayerTestCommon, NPU4000_SW) {
     run(Platform::NPU4000);
 }
 
+TEST_P(AvgPoolingV16LayerTestCommon, NPU5010_SW) {
+    setSkipCompilationCallback([this](std::stringstream& skip) {
+        const auto netPrecision = std::get<1>(GetParam());
+        if (netPrecision == ov::element::i8 || netPrecision == ov::element::u8) {
+            skip << "AvgPool16 SingleLayerTest is not enabled with precision: " << netPrecision;
+        }
+    });
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
 class PoolingLayerTest_HostCompile : public PoolingLayerTest, virtual public VpuOv2LayerTest {};
 
 TEST_P(PoolingLayerTest_HostCompile, NPU4000_HC) {
@@ -281,6 +324,16 @@ TEST_P(PoolingLayerTest_HostCompile, NPU4000_HC) {
     setHostCompileMode();
     setMLIRCompilerType();
     run(Platform::NPU4000);
+}
+
+TEST_P(PoolingLayerTest_HostCompile, NPU5010_HC) {
+    setSkipInferenceCallback([](std::stringstream& skip) {
+        skip << "Host Pipeline does not support inference yet: C#164943";
+    });
+
+    setHostCompileMode();
+    setMLIRCompilerType();
+    run(Platform::NPU5010);
 }
 
 }  // namespace test
@@ -803,8 +856,8 @@ auto generateSOBParamsFromInputShape = [](const std::vector<ov::Shape>& inputSha
 
 /* ========== MaxPool8 ========== */
 
-const std::vector<std::vector<size_t>> kernels = {{3, 5}};
-const std::vector<std::vector<size_t>> kernel_3d = {{2, 2, 2}};
+const std::vector<std::vector<size_t>> kernels = {{3, 5}, {2, 2}, {3, 3}};
+const std::vector<std::vector<size_t>> kernel_3d = {{2, 2, 2}, {3, 3, 3}};
 
 const std::vector<ov::Strides> strides = {{2, 1}};
 const std::vector<ov::Strides> strides_3d = {{1, 1, 1}};
@@ -820,6 +873,7 @@ const std::vector<std::vector<size_t>> pad_ends_3d = {{0, 0, 0}};
 
 const std::vector<std::vector<ov::Shape>> inputShape = {{{1, 3, 30, 30}}};
 const std::vector<std::vector<ov::Shape>> inputShape_5d = {{{1, 4, 16, 8, 12}}};
+const std::vector<std::vector<ov::Shape>> inputShape_5d_tiling = {{{1, 128, 20, 14, 14}}};
 
 /* ========== Explicit Pad Floor Rounding ========== */
 const auto maxPool8_ExplicitPad_FloorRounding_Params =
@@ -895,6 +949,27 @@ const auto maxPool8_SameLowerPad_CeilRounding_5Dinput_Params =
                                               ::testing::Values(ov::op::PadType::SAME_LOWER)),
                            ::testing::Values(ov::element::f16),
                            ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShape_5d)),
+                           ::testing::Values(test_utils::TARGET_DEVICE));
+
+/* ========= Same Lower Pad Ceil Rounding 5D input tiling========== */
+const auto maxPool8_SameLowerPad_CeilRounding_5Dinput_tiling_Axis0_Params =
+        ::testing::Combine(::testing::Combine(::testing::ValuesIn(kernel_3d), ::testing::ValuesIn(strides_3d),
+                                              ::testing::ValuesIn(dilation_3d), ::testing::ValuesIn(pad_begins_3d),
+                                              ::testing::ValuesIn(pad_ends_3d), ::testing::Values(ov::element::i32),
+                                              ::testing::Values(0), ::testing::Values(ov::op::RoundingType::CEIL),
+                                              ::testing::Values(ov::op::PadType::SAME_LOWER)),
+                           ::testing::Values(ov::element::f16),
+                           ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShape_5d_tiling)),
+                           ::testing::Values(test_utils::TARGET_DEVICE));
+
+const auto maxPool8_SameLowerPad_CeilRounding_5Dinput_tiling_Axis2_Params =
+        ::testing::Combine(::testing::Combine(::testing::ValuesIn(kernel_3d), ::testing::ValuesIn(strides_3d),
+                                              ::testing::ValuesIn(dilation_3d), ::testing::ValuesIn(pad_begins_3d),
+                                              ::testing::ValuesIn(pad_ends_3d), ::testing::Values(ov::element::i32),
+                                              ::testing::Values(2), ::testing::Values(ov::op::RoundingType::CEIL),
+                                              ::testing::Values(ov::op::PadType::SAME_LOWER)),
+                           ::testing::Values(ov::element::f16),
+                           ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShape_5d_tiling)),
                            ::testing::Values(test_utils::TARGET_DEVICE));
 
 /* ========== AvgPool16 ========== */
@@ -1160,6 +1235,25 @@ INSTANTIATE_TEST_SUITE_P_WITH_DISABLE_OPTION(smoke_MaxPooling_LargeKernelsX, Poo
                                              maxPool_largeKernelsX, PoolingLayerTest::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P_WITH_DISABLE_OPTION(smoke_MaxPooling_LargeKernelsY, PoolingLayerTest_NPU4000,
                                              maxPool_largeKernelsY, PoolingLayerTest::getTestCaseName);
+/* ============= NPU 5010 ============= */
+
+INSTANTIATE_TEST_SUITE_P(smoke_Pooling_NoPadding, PoolingLayerTest_NPU5010, pool_ExplicitNoPadding_Params,
+                         PoolingLayerTest_NPU5010::getTestCaseName);
+
+// U-net usecase
+
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_Pooling_unet, PoolingLayerTest_NPU5010, pool_unet_Params,
+                         PoolingLayerTest_NPU5010::getTestCaseName);
+
+// Integer Input/Output
+INSTANTIATE_TEST_SUITE_P(smoke_Pooling_InputOutputInteger, PoolingLayerTest_NPU5010, pool_inputOutputInteger,
+                         PoolingLayerTest_NPU5010::getTestCaseName);
+
+// SOB multi-clustering
+INSTANTIATE_TEST_SUITE_P(smoke_Pooling_SOB, PoolingLayerTest_NPU5010_SOB,
+                         generateSOBParamsFromInputShape({{3, 64, 28, 28}}),
+                         PoolingLayerTest_NPU5010_SOB::getTestCaseName);
+
 /* ============= MaxPool8 ============= */
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_MaxPool8_ExplicitPad_FloorRounding, MaxPoolingV8LayerTestCommon,
@@ -1182,6 +1276,14 @@ INSTANTIATE_TEST_SUITE_P(smoke_MaxPool8_SameUpperPad_CeilRounding5D, MaxPoolingV
 
 INSTANTIATE_TEST_SUITE_P(smoke_MaxPool8_SameLowerPad_CeilRounding5D, MaxPoolingV8LayerTestCommon,
                          maxPool8_SameLowerPad_CeilRounding_5Dinput_Params, MaxPoolingV8LayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_MaxPool8_SameLowerPad_CeilRounding5D_tiling_axis0, MaxPoolingV8LayerTestCommon,
+                         maxPool8_SameLowerPad_CeilRounding_5Dinput_tiling_Axis0_Params,
+                         MaxPoolingV8LayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_MaxPool8_SameLowerPad_CeilRounding5D_tiling_axis2, MaxPoolingV8LayerTestCommon,
+                         maxPool8_SameLowerPad_CeilRounding_5Dinput_tiling_Axis2_Params,
+                         MaxPoolingV8LayerTest::getTestCaseName);
 /* ============= AvgPool16 ============= */
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_AvgPool16_ExplicitPad_FloorRounding, AvgPoolingV16LayerTestCommon,

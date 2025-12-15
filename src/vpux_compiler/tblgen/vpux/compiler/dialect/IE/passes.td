@@ -2222,7 +2222,7 @@ def HandleU16FakeQuantize : PassBase<"handle-u16-fake-quantize", "vpux::Function
 
     let dependentDialects = [
         "vpux::IE::IEDialect",
-        "mlir::quant::QuantizationDialect"
+        "mlir::quant::QuantDialect"
     ];
 }
 
@@ -2242,7 +2242,7 @@ def QDQOptimizationAggressive : PassBase<"qdq-optimization-aggressive", "vpux::M
 
     let dependentDialects = [
         "vpux::IE::IEDialect",
-        "mlir::quant::QuantizationDialect"
+        "mlir::quant::QuantDialect"
     ];
 }
 
@@ -2493,7 +2493,7 @@ def SplitFakeQuant : PassBase<"split-fake-quant", "vpux::FunctionPass"> {
 
     let dependentDialects = [
         "vpux::IE::IEDialect",
-        "mlir::quant::QuantizationDialect"
+        "mlir::quant::QuantDialect"
     ];
 }
 
@@ -2599,7 +2599,7 @@ def PropagateAndFuseQuantizeDequantize : PassBase<"propagate-and-fuse-quantize-d
 
     let dependentDialects = [
         "vpux::IE::IEDialect",
-        "mlir::quant::QuantizationDialect"
+        "mlir::quant::QuantDialect"
     ];
 
     let options = [
@@ -2826,7 +2826,7 @@ def FuseQuantizedOps : PassBase<"fuse-quantized-ops", "vpux::FunctionPass"> {
 
     let dependentDialects = [
         "vpux::IE::IEDialect",
-        "mlir::quant::QuantizationDialect"
+        "mlir::quant::QuantDialect"
     ];
 
     let options = [
@@ -2881,7 +2881,7 @@ def RemoveQuantDequantSeq : PassBase<"remove-quantdequant-seq", "vpux::FunctionP
 
     let dependentDialects = [
         "vpux::IE::IEDialect",
-        "mlir::quant::QuantizationDialect"
+        "mlir::quant::QuantDialect"
     ];
 }
 
@@ -2901,7 +2901,7 @@ def OptimizeUnalignedQDQSeq : PassBase<"optimize-unaligned-qdq-seq", "vpux::Func
 
     let dependentDialects = [
         "vpux::IE::IEDialect",
-        "mlir::quant::QuantizationDialect"
+        "mlir::quant::QuantDialect"
     ];
 }
 
@@ -4057,6 +4057,46 @@ def FuseMemPermutePass : PassBase<"fuse-mem-permute", "vpux::FunctionPass"> {
     }];
 
     let constructor = "vpux::IE::createFuseMemPermutePass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+
+//
+// AdaptODUPermutePass
+//
+
+def AdaptODUPermutePass : PassBase<"adapt-odu-permute", "vpux::FunctionPass"> {
+    let summary = "Search and adapt the layout for ODU permutation to a better one";
+
+    let description = [{
+        number of elements DPU can receive in a single clock cycle from the PPE:
+
+        ---------------------------------------
+        | Layout | 8 bits | 16 bits | 32 bits |
+        |  NHWC  |   64   |   32    |    16   |
+        |  NWHC  |   64   |   32    |    16   |
+        |  NWCH  |   16   |   16    |    16   |
+        |  NCWH  |   16   |   16    |    16   |
+        |  NHCW  |    4   |    4    |     4   |
+        |  NCHW  |    4   |    4    |     4   |
+        ---------------------------------------
+
+        adapts the layout if posible these subgraph:
+        ```
+        if H == 1
+            Input [NHWC] -> IE.Convolution [NCHW]
+        ```
+        Into the following subgraph respectively:
+        ```
+            Input [NHWC] -> IE.Convolution [NCWH] -> IE.PermuteCast  [NCHW]
+        ```
+
+    }];
+
+    let constructor = "vpux::IE::createAdaptODUPermutePass()";
 
     let dependentDialects = [
         "vpux::IE::IEDialect"
@@ -6155,6 +6195,30 @@ def AdjustForVPUPipelineRewriterExecutor : PassBase<"run-adjust-for-vpu-rewriter
     ];
 
     let constructor = "vpux::IE::createAdjustForVPUPipelineRewriterExecutorPass()";
+}
+
+//
+// LegalizeEpsilonUsage
+//
+
+def LegalizeEpsilonUsage : PassBase<"legalize-epsilon-usage", "vpux::FunctionPass"> {
+    let summary = "Legalize Epsilon Usage To Prevent Divide-By-Zero Conditions";
+
+    let description = [{
+        Low-precision normalization subgraphs and layers often rely on small positive epsilon values to
+        prevent divide-by-zero. If epsilon is too small it can cease to function properly and lead to NaNs
+        in the output when the input tensor contains exclusively or mostly zeros.
+
+        This pass legalizes epsilon values in IE.RMS Ops, IE.NormalizeL2 Ops, as well as in unfused
+        normalization-like subgraphs. It ensures small epsilon values are larger than a certain threshold
+        for the given precision.
+    }];
+
+    let constructor = "vpux::IE::createLegalizeEpsilonUsagePass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
 }
 
 #endif

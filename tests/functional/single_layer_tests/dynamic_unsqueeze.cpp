@@ -42,13 +42,13 @@ protected:
     void SetUp() override {
         const auto& [inputShape, indices, inputType] = GetParam();
 
-        const auto indicesValues = static_cast<std::vector<int>>(indices);
+        const auto indicesValues = indices.value();
         const auto indicesShape = ov::Shape{indicesValues.size()};
         const auto indicesPartialShape = generateTestShape(indicesShape);
 
-        init_input_shapes({inputShape, indicesPartialShape});
+        init_input_shapes({inputShape.value(), indicesPartialShape});
 
-        const auto dataParam = std::make_shared<ov::opset13::Parameter>(inputType, inputDynamicShapes.front());
+        const auto dataParam = std::make_shared<ov::opset13::Parameter>(inputType.value(), inputDynamicShapes.front());
         const auto axesConstant =
                 std::make_shared<ov::opset13::Constant>(ov::element::i64, indicesShape, indicesValues);
         const auto unsqueeze = std::make_shared<ov::opset13::Unsqueeze>(dataParam, axesConstant);

@@ -5,7 +5,7 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-scatterndupdate-to-strided-concat
 // --canonicalize %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @ConvertScatterNDUpdateToStridedConcat
 func.func @ConvertScatterNDUpdateToStridedConcat(%arg0:  tensor<1x1x1x1x15xf16>, %arg1 : tensor<1x1x1x1x5xf16> ) -> tensor<1x1x1x1x15xf16>{

@@ -224,9 +224,8 @@ void vpux::VPUIP::GatherDMAOp::build(mlir::OpBuilder& builder, mlir::OperationSt
                                      mlir::Value indices, mlir::Value outputBuff, mlir::IntegerAttr elementSize,
                                      mlir::IntegerAttr padding, int64_t port = 0) {
     GatherDMAOp::build(builder, state, input, indices, outputBuff, elementSize, padding,
-                       /* port = */ vpux::getIntAttr(builder, port), /* channelType = */ nullptr,
-                       /* isOutOfOrder = */ nullptr,
-                       /* isCritical = */ nullptr,
+                       /* port = */ vpux::getIntAttr(builder, port),
+                       /* isOutOfOrder = */ nullptr, /* isCritical = */ nullptr,
                        /* DMADescriptor = */ nullptr, /* dmaHwpId = */ nullptr, /* profilingMetadata = */ nullptr,
                        /* gatherAddressingMode = */ nullptr);
 }
@@ -236,9 +235,8 @@ void vpux::VPUIP::GatherDMAOp::build(mlir::OpBuilder& builder, mlir::OperationSt
                                      int64_t port = 0) {
     GatherDMAOp::build(builder, state, input, indices, outputBuff, vpux::getIntAttr(builder, elementSize),
                        vpux::getIntAttr(builder, padding),
-                       /* port = */ vpux::getIntAttr(builder, port), /* channelType = */ nullptr,
-                       /* isOutOfOrder = */ nullptr,
-                       /* isCritical = */ nullptr,
+                       /* port = */ vpux::getIntAttr(builder, port),
+                       /* isOutOfOrder = */ nullptr, /* isCritical = */ nullptr,
                        /* DMADescriptor = */ nullptr, /* dmaHwpId = */ nullptr, /* profilingMetadata = */ nullptr,
                        /* gatherAddressingMode = */ nullptr);
 }
@@ -249,9 +247,8 @@ void vpux::VPUIP::GatherDMAOp::build(mlir::OpBuilder& builder, mlir::OperationSt
                                      GatherAddressingMode addressingMode = GatherAddressingMode::INDEXED) {
     GatherDMAOp::build(builder, state, input, indices, outputBuff, vpux::getIntAttr(builder, elementSize),
                        vpux::getIntAttr(builder, padding),
-                       /* port = */ vpux::getIntAttr(builder, port), /* channelType = */ nullptr,
-                       /* isOutOfOrder = */ nullptr,
-                       /* isCritical = */ nullptr,
+                       /* port = */ vpux::getIntAttr(builder, port),
+                       /* isOutOfOrder = */ nullptr, /* isCritical = */ nullptr,
                        /* DMADescriptor = */ nullptr, /* dmaHwpId = */ nullptr, /* profilingMetadata = */ nullptr,
                        VPUIP::GatherAddressingModeAttr::get(builder.getContext(), addressingMode));
 }

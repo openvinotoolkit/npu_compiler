@@ -97,6 +97,14 @@ std::unique_ptr<mlir::Pass> createConvertVPUIPDPU2NPUReg40XXPass(
 std::unique_ptr<mlir::Pass> createConvertVPUASM2NPUReg40XXPass(Logger log = Logger::global(),
                                                                uint32_t modelIdentifier = 0);
 
+// NPU50XX ELF specific passes
+std::unique_ptr<mlir::Pass> createConvertVPUIPDPU2NPUReg50XXPass(
+        Logger log = Logger::global(),
+        vpux::VPURegMapped::NPU5PPEBackwardsCompatibilityMode npu5PPEBackwardsCompatibilityMode =
+                vpux::VPURegMapped::NPU5PPEBackwardsCompatibilityMode::DISABLED);
+std::unique_ptr<mlir::Pass> createConvertVPUASM2NPUReg50XXPass(Logger log = Logger::global(),
+                                                               uint32_t modelIdentifier = 0);
+
 // Host compile specific passes
 void buildLLVMTranslationPipeline(mlir::OpPassManager& pm);
 

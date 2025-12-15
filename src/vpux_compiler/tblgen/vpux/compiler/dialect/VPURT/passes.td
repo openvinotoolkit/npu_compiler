@@ -44,7 +44,8 @@ def AssignPhysicalBarriers : PassBase<"assign-physical-barriers", "vpux::Functio
             [{::llvm::cl::values(
                 clEnumValN(vpux::WorkloadManagementMode::PWLM_V0_LCA, "PWLM_V0_LCA", "WLM enqueue barriers search algorithm at VPURT ENABLED"),
                 clEnumValN(vpux::WorkloadManagementMode::PWLM_V1_BARRIER_FIFO, "PWLM_V1_BARRIER_FIFO", "WLM enqueue barriers search algorithm at VPURT DISABLED"),
-                clEnumValN(vpux::WorkloadManagementMode::PWLM_V2_PAGES, "PWLM_V2_PAGES", "WLM with split into subgraphs(pages)")
+                clEnumValN(vpux::WorkloadManagementMode::PWLM_V2_PAGES, "PWLM_V2_PAGES", "WLM with split into subgraphs(pages)"),
+                clEnumValN(vpux::WorkloadManagementMode::FWLM_V1_PAGES, "FWLM_V1_PAGES", "FWLM with split into subgraphs(pages)")
             )}]
         >
     ];
@@ -472,6 +473,33 @@ def WlmLegalizePagesForBarrierDmas : PassBase<"wlm-legalize-pages-for-barrier-dm
         >
     ];
 }
+
+//
+// WlmInsertDummyDmasInPages
+//
+
+def WlmInsertDummyDmasInPages : PassBase<"wlm-insert-dummy-dmas-in-pages", "vpux::FunctionPass"> {
+    let summary = "For WLM pages split insert dummy DMAs if given page doesn't have this DMA type";
+
+    let description = [{
+        This pass checks if in each page there is at least 1 DMA of each type to enable possibility
+        of enqueuing all DMAs at bootstrap as single link-list of tasks. If there is no DMAx in PageN
+        that guarantees that barriers from PageN-1 have been consumed and there are DMAs of this type
+        in some later pages, then we need to insert task of DMAx in PageN and this DMAx
+        needs to depend on all boundary tasks on PageN-1/PageN border.
+    }];
+
+    let constructor = "vpux::VPURT::createWlmInsertDummyDmasInPagesPass()";
+
+    let options = [
+        Option<
+            "numBarriersOpt", "num-barriers",
+            "int", "",
+            "Number of physical barriers, available for use"
+        >
+    ];
+}
+
 //
 // WlmInsertDummyBarriersInPages
 //
@@ -514,6 +542,29 @@ def OptimizeBarriersSlotsUsage : PassBase<"optimize-barriers-slots-usage", "vpux
 
     let constructor = "vpux::VPURT::createOptimizeBarriersSlotsUsagePass()";
 }
+
+//
+// FindWlmEnqueueDmasBarrier
+//
+
+def FindWlmEnqueueDmasBarrier : PassBase<"find-wlm-enqueue-dmas-barrier", "vpux::FunctionPass"> {
+    let summary = "For Full WLM with WLM pages split find barriers for enqueuing DMAs";
+
+    let description = [{
+        This pass for each tasks finds a barrier at which it can have an enqueue DMA
+    }];
+
+    let constructor = "vpux::VPURT::createFindWlmEnqueueDmasBarrierPass()";
+
+    let options = [
+        Option<
+            "numBarriersOpt", "num-barriers",
+            "int", "",
+            "Number of physical barriers, available for use"
+        >
+    ];
+}
+
 //
 // CheckWlmPageSplitConstraints
 //

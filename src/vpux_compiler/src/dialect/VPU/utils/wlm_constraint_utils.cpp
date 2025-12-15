@@ -48,6 +48,12 @@ const std::unordered_map<TaskListKey, uint32_t, TaskListKeyHash> taskListsDefaul
         {{config::ArchKind::NPU40XX, VPU::TaskType::ActKernelRange}, NPU_DEFAULT_KERNEL_RANGE_COUNT},
         {{config::ArchKind::NPU40XX, VPU::TaskType::M2I}, NPU_DEFAULT_MEDIA_COUNT},
         {{config::ArchKind::NPU40XX, VPU::TaskType::DMA}, NPU_DEFAULT_DMA_TASK_COUNT},
+        {{config::ArchKind::NPU50XX, VPU::TaskType::DPUInvariant}, NPU_DEFAULT_INVARIANT_COUNT},
+        {{config::ArchKind::NPU50XX, VPU::TaskType::DPUVariant}, NPU_DEFAULT_VARIANT_COUNT},
+        {{config::ArchKind::NPU50XX, VPU::TaskType::ActKernelInvocation}, NPU_DEFAULT_KERNEL_INVO_COUNT},
+        {{config::ArchKind::NPU50XX, VPU::TaskType::ActKernelRange}, NPU_DEFAULT_KERNEL_RANGE_COUNT},
+        {{config::ArchKind::NPU50XX, VPU::TaskType::M2I}, NPU_DEFAULT_MEDIA_COUNT},
+        {{config::ArchKind::NPU50XX, VPU::TaskType::DMA}, NPU_DEFAULT_DMA_TASK_COUNT},
 };
 
 uint32_t VPU::getDefaultTaskListCount(VPU::TaskType taskType, config::ArchKind archKind) {

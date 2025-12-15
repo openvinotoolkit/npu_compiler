@@ -23,6 +23,9 @@
 
 namespace vpux::VPU {
 
+enum class TilePosition { MIDDLE = 0, END = 1, START = 2, FULLBLK = 3 };
+constexpr size_t NUMBITS = 2;
+
 /** @brief Information about a tile.
 
     The structure encapsulates data of offsets, shape and tile axis
@@ -99,7 +102,7 @@ std::pair<std::optional<mlir::Range>, std::optional<int64_t>> solutionForOutputR
     The function generates ExtractSliceOp based on offset and size in tile info
 */
 mlir::Value generateTile(mlir::Location loc, mlir::OpBuilder& builder, mlir::Value origInput,
-                         const SCFTileInfo& inputTileInfo);
+                         const SCFTileInfo& inputTileInfo, SmallVector<mlir::Operation*>& generatedSlices);
 
 /** @brief Return result type after tiling to new shape
 
@@ -357,4 +360,10 @@ mlir::func::FuncOp cloneFuncOp(mlir::func::FuncOp originalFunc, const std::strin
 
 mlir::RankedTensorType removeBoundsAttr(mlir::RankedTensorType type);
 
+void moveAffineArithOpsEarly(mlir::Block& block);
+
+void addCheckForBlockSize(mlir::OpBuilder& builder, mlir::tensor::DimOp dimOp, mlir::Value blockSize,
+                          mlir::func::FuncOp funcOp, llvm::StringRef errorMsg);
+mlir::LogicalResult getTensorDimOpFromIndex(mlir::OpBuilder& builder, mlir::Value tensor, int64_t dimIdx,
+                                            mlir::tensor::DimOp& dimOp);
 }  // namespace vpux::VPU

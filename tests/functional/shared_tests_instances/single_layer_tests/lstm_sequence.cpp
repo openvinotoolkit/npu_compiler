@@ -619,6 +619,15 @@ TEST_P(LSTMSequenceLayerTestCommonSwDpu, NPU4000_HW) {
     run(Platform::NPU4000);
 }
 
+TEST_P(LSTMSequenceLayerTestCommon, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+TEST_P(LSTMSequenceLayerTestCommon, NPU5010_HW_SINGLE_CLUSTER) {
+    setDefaultHardwareMode();
+    setSingleClusterMode();
+    run(Platform::NPU5010);
+}
 }  // namespace test
 }  // namespace ov
 

@@ -340,9 +340,7 @@ mlir::FailureOr<VPU::DistributionInfo> vpux::applyPermutationOnDistributionInfo(
 // for a given input and a output requirement(outOrdr and outShape), the function is trying to find a permutation that
 // can use permuteCastOp to convert input to output requirement.
 std::optional<mlir::AffineMap> vpux::tryToFindPermutationForPermuteCast(NDTypeInterface inputType, DimsOrder outOrder,
-                                                                        ShapeRef outShape,
-                                                                        mlir::PatternRewriter& rewriter) {
-    const auto ctx = rewriter.getContext();
+                                                                        ShapeRef outShape, mlir::MLIRContext* ctx) {
     const auto inMemShape = inputType.getMemShape().raw();
     const auto outMemShape = outOrder.toMemoryOrder(outShape).raw();
 
@@ -405,7 +403,8 @@ std::optional<IE::PermuteCastOp> vpux::tryToFindPermuteCastOp(mlir::Location loc
                                                               ShapeRef outShape, mlir::PatternRewriter& rewriter) {
     const auto ctx = rewriter.getContext();
     const auto inputType = mlir::cast<vpux::NDTypeInterface>(input.getType());
-    auto hasValidPermutationMap = tryToFindPermutationForPermuteCast(inputType, outOrder, outShape, rewriter);
+    auto hasValidPermutationMap =
+            tryToFindPermutationForPermuteCast(inputType, outOrder, outShape, rewriter.getContext());
     if (hasValidPermutationMap.has_value()) {
         return rewriter.create<IE::PermuteCastOp>(loc, input, mlir::AffineMapAttr::get(outOrder.toAffineMap(ctx)),
                                                   mlir::AffineMapAttr::get(hasValidPermutationMap.value()));

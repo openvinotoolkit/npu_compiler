@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-parallel-slices-to-gather %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @ConvertParallelSliceBranchesToGather
 // CHECK-SAME:      [[INPUT_0:%arg[0-9]]]: tensor<8x12288x1x1xf16>
@@ -72,11 +72,6 @@ func.func @ConvertParallelSliceBranchesToGather(
 
     return %35 : tensor<1x30x1x1536xf16>
 
-    // CHECK-DAG:       [[INDICES_1x6:%.+]] = const.Declare tensor<1x6xsi32> =
-    // CHECK-SAME{LITERAL}:     dense<[[0, 7, 14, 21, 28, 35]]> : tensor<1x6xsi32>
-    // CHECK-DAG:       [[INDICES_1x8:%.+]] = const.Declare tensor<1x8xsi32> =
-    // CHECK-SAME{LITERAL}:     dense<[[0, 9, 18, 27, 36, 45, 54, 63]]> : tensor<1x8xsi32>
-
     // CHECK:           [[SOURCE_0:%.+]] = IE.AffineReshape([[INPUT_0]])
     // CHECK-SAME{LITERAL}:     {dim_mapping = [[0], [1], [1], [1]], shape_value = [8, 12288]} : tensor<8x12288x1x1xf16> -> tensor<8x12288xf16>
     // CHECK:           [[SOURCE_1:%.+]] = IE.AffineReshape([[INPUT_1]])
@@ -87,18 +82,26 @@ func.func @ConvertParallelSliceBranchesToGather(
     // CHECK-SAME{LITERAL}:     {dim_mapping = [[0], [1], [1], [1]], shape_value = [6, 9216]} : tensor<6x9216x1x1xf16> -> tensor<6x9216xf16>
 
     // CHECK:           [[SOURCE_RESHAPE_0:%.+]] = IE.Reshape([[SOURCE_0]]) {shape_value = [64, 1536]} : tensor<8x12288xf16> -> tensor<64x1536xf16>
-    // CHECK:           [[GATHER_0:%.+]] = IE.Gather([[SOURCE_RESHAPE_0]], [[INDICES_1x8]]) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<64x1536xf16>, tensor<1x8xsi32> -> tensor<1x8x1536xf16>
+    // CHECK:           [[INDICES_1x8_0:%.+]] = const.Declare tensor<1x8xsi32> =
+    // CHECK-SAME{LITERAL}:     dense<[[0, 9, 18, 27, 36, 45, 54, 63]]> : tensor<1x8xsi32>
+    // CHECK:           [[GATHER_0:%.+]] = IE.Gather([[SOURCE_RESHAPE_0]], [[INDICES_1x8_0]]) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<64x1536xf16>, tensor<1x8xsi32> -> tensor<1x8x1536xf16>
     // CHECK:           [[GATHER_RESHAPE_0:%.+]] = IE.Reshape([[GATHER_0]]) {shape_value = [8, 1536]} : tensor<1x8x1536xf16> -> tensor<8x1536xf16>
 
     // CHECK:           [[SOURCE_RESHAPE_1:%.+]] = IE.Reshape([[SOURCE_1]]) {shape_value = [64, 1536]} : tensor<8x12288xf16> -> tensor<64x1536xf16>
-    // CHECK:           [[GATHER_1:%.+]] = IE.Gather([[SOURCE_RESHAPE_1]], [[INDICES_1x8]]) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<64x1536xf16>, tensor<1x8xsi32> -> tensor<1x8x1536xf16>
+    // CHECK:           [[INDICES_1x8_1:%.+]] = const.Declare tensor<1x8xsi32> =
+    // CHECK-SAME{LITERAL}:     dense<[[0, 9, 18, 27, 36, 45, 54, 63]]> : tensor<1x8xsi32>
+    // CHECK:           [[GATHER_1:%.+]] = IE.Gather([[SOURCE_RESHAPE_1]], [[INDICES_1x8_1]]) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<64x1536xf16>, tensor<1x8xsi32> -> tensor<1x8x1536xf16>
     // CHECK:           [[GATHER_RESHAPE_1:%.+]] = IE.Reshape([[GATHER_1]]) {shape_value = [8, 1536]} : tensor<1x8x1536xf16> -> tensor<8x1536xf16>
 
     // CHECK:           [[SOURCE_RESHAPE_2:%.+]] = IE.Reshape([[SOURCE_2]]) {shape_value = [64, 1536]} : tensor<8x12288xf16> -> tensor<64x1536xf16>
-    // CHECK:           [[GATHER_2:%.+]] = IE.Gather([[SOURCE_RESHAPE_2]], [[INDICES_1x8]]) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<64x1536xf16>, tensor<1x8xsi32> -> tensor<1x8x1536xf16>
+    // CHECK:           [[INDICES_1x8_2:%.+]] = const.Declare tensor<1x8xsi32> =
+    // CHECK-SAME{LITERAL}:     dense<[[0, 9, 18, 27, 36, 45, 54, 63]]> : tensor<1x8xsi32>
+    // CHECK:           [[GATHER_2:%.+]] = IE.Gather([[SOURCE_RESHAPE_2]], [[INDICES_1x8_2]]) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<64x1536xf16>, tensor<1x8xsi32> -> tensor<1x8x1536xf16>
     // CHECK:           [[GATHER_RESHAPE_2:%.+]] = IE.Reshape([[GATHER_2]]) {shape_value = [8, 1536]} : tensor<1x8x1536xf16> -> tensor<8x1536xf16>
 
     // CHECK:           [[SOURCE_RESHAPE_3:%.+]] = IE.Reshape([[SOURCE_3]]) {shape_value = [36, 1536]} : tensor<6x9216xf16> -> tensor<36x1536xf16>
+    // CHECK:           [[INDICES_1x6:%.+]] = const.Declare tensor<1x6xsi32> =
+    // CHECK-SAME{LITERAL}:     dense<[[0, 7, 14, 21, 28, 35]]> : tensor<1x6xsi32>
     // CHECK:           [[GATHER_3:%.+]] = IE.Gather([[SOURCE_RESHAPE_3]], [[INDICES_1x6]]) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<36x1536xf16>, tensor<1x6xsi32> -> tensor<1x6x1536xf16>
     // CHECK:           [[GATHER_RESHAPE_3:%.+]] = IE.Reshape([[GATHER_3]]) {shape_value = [6, 1536]} : tensor<1x6x1536xf16> -> tensor<6x1536xf16>
 
@@ -185,15 +188,6 @@ func.func @ConvertParallelSliceBranchesToGatherLessBranches(
 
     return %13 : tensor<1x8x1x1536xf16>
 
-    // CHECK-DAG:       [[INDICES_3:%.+]] = const.Declare tensor<1x2xsi32> =
-    // CHECK-SAME{LITERAL}:     dense<[[14, 21]]> : tensor<1x2xsi32>
-    // CHECK-DAG:       [[INDICES_2:%.+]] = const.Declare tensor<1x2xsi32> =
-    // CHECK-SAME{LITERAL}:     dense<[[0, 9]]> : tensor<1x2xsi32>
-    // CHECK-DAG:       [[INDICES_1:%.+]] = const.Declare tensor<1x2xsi32> =
-    // CHECK-SAME{LITERAL}:     dense<[[9, 27]]> : tensor<1x2xsi32>
-    // CHECK-DAG:       [[INDICES_0:%.+]] = const.Declare tensor<1x2xsi32> =
-    // CHECK-SAME{LITERAL}:     dense<[[0, 18]]> : tensor<1x2xsi32>
-
     // CHECK:           [[SOURCE_0:%.+]] = IE.AffineReshape([[INPUT_0]])
     // CHECK-SAME{LITERAL}:     {dim_mapping = [[0], [1], [1], [1]], shape_value = [8, 12288]} : tensor<8x12288x1x1xf16> -> tensor<8x12288xf16>
     // CHECK:           [[SOURCE_1:%.+]] = IE.AffineReshape([[INPUT_1]])
@@ -204,18 +198,26 @@ func.func @ConvertParallelSliceBranchesToGatherLessBranches(
     // CHECK-SAME{LITERAL}:     {dim_mapping = [[0], [1], [1], [1]], shape_value = [6, 9216]} : tensor<6x9216x1x1xf16> -> tensor<6x9216xf16>
 
     // CHECK:           [[SOURCE_RESHAPE_0:%.+]] = IE.Reshape([[SOURCE_0]]) {shape_value = [64, 1536]} : tensor<8x12288xf16> -> tensor<64x1536xf16>
+    // CHECK:           [[INDICES_0:%.+]] = const.Declare tensor<1x2xsi32> =
+    // CHECK-SAME{LITERAL}:     dense<[[0, 18]]> : tensor<1x2xsi32>
     // CHECK:           [[GATHER_0:%.+]] = IE.Gather([[SOURCE_RESHAPE_0]], [[INDICES_0]]) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<64x1536xf16>, tensor<1x2xsi32> -> tensor<1x2x1536xf16>
     // CHECK:           [[GATHER_RESHAPE_0:%.+]] = IE.Reshape([[GATHER_0]]) {shape_value = [2, 1536]} : tensor<1x2x1536xf16> -> tensor<2x1536xf16>
 
     // CHECK:           [[SOURCE_RESHAPE_1:%.+]] = IE.Reshape([[SOURCE_1]]) {shape_value = [64, 1536]} : tensor<8x12288xf16> -> tensor<64x1536xf16>
+    // CHECK:           [[INDICES_1:%.+]] = const.Declare tensor<1x2xsi32> =
+    // CHECK-SAME{LITERAL}:     dense<[[9, 27]]> : tensor<1x2xsi32>
     // CHECK:           [[GATHER_1:%.+]] = IE.Gather([[SOURCE_RESHAPE_1]], [[INDICES_1]]) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<64x1536xf16>, tensor<1x2xsi32> -> tensor<1x2x1536xf16>
     // CHECK:           [[GATHER_RESHAPE_1:%.+]] = IE.Reshape([[GATHER_1]]) {shape_value = [2, 1536]} : tensor<1x2x1536xf16> -> tensor<2x1536xf16>
 
     // CHECK:           [[SOURCE_RESHAPE_2:%.+]] = IE.Reshape([[SOURCE_2]]) {shape_value = [64, 1536]} : tensor<8x12288xf16> -> tensor<64x1536xf16>
+    // CHECK:           [[INDICES_2:%.+]] = const.Declare tensor<1x2xsi32> =
+    // CHECK-SAME{LITERAL}:     dense<[[0, 9]]> : tensor<1x2xsi32>
     // CHECK:           [[GATHER_2:%.+]] = IE.Gather([[SOURCE_RESHAPE_2]], [[INDICES_2]]) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<64x1536xf16>, tensor<1x2xsi32> -> tensor<1x2x1536xf16>
     // CHECK:           [[GATHER_RESHAPE_2:%.+]] = IE.Reshape([[GATHER_2]]) {shape_value = [2, 1536]} : tensor<1x2x1536xf16> -> tensor<2x1536xf16>
 
     // CHECK:           [[SOURCE_RESHAPE_3:%.+]] = IE.Reshape([[SOURCE_3]]) {shape_value = [36, 1536]} : tensor<6x9216xf16> -> tensor<36x1536xf16>
+    // CHECK:       [[INDICES_3:%.+]] = const.Declare tensor<1x2xsi32> =
+    // CHECK-SAME{LITERAL}:     dense<[[14, 21]]> : tensor<1x2xsi32>
     // CHECK:           [[GATHER_3:%.+]] = IE.Gather([[SOURCE_RESHAPE_3]], [[INDICES_3]]) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<36x1536xf16>, tensor<1x2xsi32> -> tensor<1x2x1536xf16>
     // CHECK:           [[GATHER_RESHAPE_3:%.+]] = IE.Reshape([[GATHER_3]]) {shape_value = [2, 1536]} : tensor<1x2x1536xf16> -> tensor<2x1536xf16>
 
@@ -266,12 +268,6 @@ func.func @ConvertParallelSliceBranchesToGatherWithSingleSliceOpInGroup(
 
     return %12 : tensor<1x7x1x1536xf16>
 
-    // CHECK-DAG:       [[INDICES_2:%.+]] = const.Declare tensor<1x2xsi32> =
-    // CHECK-SAME{LITERAL}:     dense<[[0, 9]]> : tensor<1x2xsi32>
-    // CHECK-DAG:       [[INDICES_1:%.+]] = const.Declare tensor<1x2xsi32> =
-    // CHECK-SAME{LITERAL}:     dense<[[9, 27]]> : tensor<1x2xsi32>
-    // CHECK-DAG:       [[INDICES_0:%.+]] = const.Declare tensor<1x2xsi32> =
-    // CHECK-SAME{LITERAL}:     dense<[[0, 18]]> : tensor<1x2xsi32>
 
     // CHECK:           [[SOURCE_0:%.+]] = IE.AffineReshape([[INPUT_0]])
     // CHECK-SAME{LITERAL}:     {dim_mapping = [[0], [1], [1], [1]], shape_value = [8, 12288]} : tensor<8x12288x1x1xf16> -> tensor<8x12288xf16>
@@ -285,14 +281,20 @@ func.func @ConvertParallelSliceBranchesToGatherWithSingleSliceOpInGroup(
     // CHECK:           [[SLICE:%.+]] = IE.Slice [[SOURCE_3]] [2, 3072] [1, 1536] : tensor<6x9216xf16> to tensor<1x1536xf16>
 
     // CHECK:           [[SOURCE_RESHAPE_0:%.+]] = IE.Reshape([[SOURCE_0]]) {shape_value = [64, 1536]} : tensor<8x12288xf16> -> tensor<64x1536xf16>
+    // CHECK:           [[INDICES_0:%.+]] = const.Declare tensor<1x2xsi32> =
+    // CHECK-SAME{LITERAL}:     dense<[[0, 18]]> : tensor<1x2xsi32>
     // CHECK:           [[GATHER_0:%.+]] = IE.Gather([[SOURCE_RESHAPE_0]], [[INDICES_0]]) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<64x1536xf16>, tensor<1x2xsi32> -> tensor<1x2x1536xf16>
     // CHECK:           [[GATHER_RESHAPE_0:%.+]] = IE.Reshape([[GATHER_0]]) {shape_value = [2, 1536]} : tensor<1x2x1536xf16> -> tensor<2x1536xf16>
 
     // CHECK:           [[SOURCE_RESHAPE_1:%.+]] = IE.Reshape([[SOURCE_1]]) {shape_value = [64, 1536]} : tensor<8x12288xf16> -> tensor<64x1536xf16>
+    // CHECK:           [[INDICES_1:%.+]] = const.Declare tensor<1x2xsi32> =
+    // CHECK-SAME{LITERAL}:     dense<[[9, 27]]> : tensor<1x2xsi32>
     // CHECK:           [[GATHER_1:%.+]] = IE.Gather([[SOURCE_RESHAPE_1]], [[INDICES_1]]) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<64x1536xf16>, tensor<1x2xsi32> -> tensor<1x2x1536xf16>
     // CHECK:           [[GATHER_RESHAPE_1:%.+]] = IE.Reshape([[GATHER_1]]) {shape_value = [2, 1536]} : tensor<1x2x1536xf16> -> tensor<2x1536xf16>
 
     // CHECK:           [[SOURCE_RESHAPE_2:%.+]] = IE.Reshape([[SOURCE_2]]) {shape_value = [64, 1536]} : tensor<8x12288xf16> -> tensor<64x1536xf16>
+    // CHECK:           [[INDICES_2:%.+]] = const.Declare tensor<1x2xsi32> =
+    // CHECK-SAME{LITERAL}:     dense<[[0, 9]]> : tensor<1x2xsi32>
     // CHECK:           [[GATHER_2:%.+]] = IE.Gather([[SOURCE_RESHAPE_2]], [[INDICES_2]]) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<64x1536xf16>, tensor<1x2xsi32> -> tensor<1x2x1536xf16>
     // CHECK:           [[GATHER_RESHAPE_2:%.+]] = IE.Reshape([[GATHER_2]]) {shape_value = [2, 1536]} : tensor<1x2x1536xf16> -> tensor<2x1536xf16>
 

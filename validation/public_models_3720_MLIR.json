@@ -19,7 +19,8 @@
         "input_layout": "NCHW",
         "output_layout": "NC",
         "model_input_layout": "NCHW",
-        "model_output_layout": "NC"
+        "model_output_layout": "NC",
+        "shape": "input[1,3,224,224]"
       }
     },
     {
@@ -41,7 +42,8 @@
         "input_layout": "NCHW",
         "output_layout": "NC",
         "model_input_layout": "NCHW",
-        "model_output_layout": "NC"
+        "model_output_layout": "NC",
+        "shape": "input[1,3,224,224]"
       }
     },
     {

@@ -23,7 +23,7 @@ module {
     DataInfo "Result" : tensor<1x1000xf16>
   }
 // CHECK:       module @VPU.SW  {
-// CHECK:           func.func private @builtin_SoftMax(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, i64, i64)
+// CHECK:           func.func private @builtin_SoftMax(memref<*xf16>, memref<*xf16>, i64, i64)
 // CHECK-SAME:           attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.kernel_name = "softmax", VPU.task_type = @COMPUTE}
 // CHECK:           func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK:       }
@@ -33,23 +33,16 @@ func.func @SingleLayer(%arg0: tensor<1x1000xf16>) -> tensor<1x1000xf16> {
     %0 = VPU.SoftMax(%arg0) {axisInd = 1} : tensor<1x1000xf16> -> tensor<1x1000xf16>
     return %0 : tensor<1x1000xf16>
 
-    // CHECK:       [[VAR0:%.+]] = memref.alloc() : memref<1x1000xf16, [@CMX_NN, 0]>
-    // CHECK:       [[VAR1:%.+]] = VPUIP.Copy inputs([[ARG0]] : memref<1x1000xf16>)
-    // CHECK-SAME:                  outputs([[VAR0]] : memref<1x1000xf16, [@CMX_NN, 0]>) -> memref<1x1000xf16, [@CMX_NN, 0]>
-    // CHECK:       [[VAR2:%.+]] = memref.alloc() : memref<1x1000xf16, [@CMX_NN, 0]>
-
-    // CHECK:       [[VAR3:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>}
-    // CHECK-SAME:      @VPU.SW::@builtin_SoftMax inputs([[VAR1]] as %arg2: memref<1x1000xf16, [@CMX_NN, 0]>)
-    // CHECK-SAME:                                outputs([[VAR2]] as %arg3: memref<1x1000xf16, [@CMX_NN, 0]>) on tile 0
-    // CHECK-SAME:               -> memref<1x1000xf16, [@CMX_NN, 0]>{
+    // CHECK:       [[ALLOC:%.+]] = memref.alloc() : memref<1x1000xf16>
+    // CHECK:       [[SW:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>}
+    // CHECK-SAME:      @VPU.SW::@builtin_SoftMax inputs([[ARG0]] as %arg2: memref<1x1000xf16>)
+    // CHECK-SAME:                                outputs([[ALLOC]] as %arg3: memref<1x1000xf16>) on tile 0
+    // CHECK-SAME:               -> memref<1x1000xf16>{
     // CHECK:           VPUIP.SW.Kernel.run {attrs = [0, 0]}(%arg2, %arg3)
-    // CHECK-SAME:               : memref<1x1000xf16, [@CMX_NN, 0]>, memref<1x1000xf16, [@CMX_NN, 0]>
+    // CHECK-SAME:               : memref<1x1000xf16>, memref<1x1000xf16>
     // CHECK:       }
-
-    // CHECK:       [[VAR4:%.+]] = memref.alloc() : memref<1x1000xf16>
-    // CHECK:       [[VAR5:%.+]] = VPUIP.Copy inputs([[VAR3]] : memref<1x1000xf16, [@CMX_NN, 0]>) outputs([[VAR4]] : memref<1x1000xf16>) -> memref<1x1000xf16>
-    // CHECK:       [[VAR6:%.+]] = VPUIP.Copy inputs([[VAR5]] : memref<1x1000xf16>) outputs([[ARG1]] : memref<1x1000xf16>) -> memref<1x1000xf16>
-    // CHECK:       return [[VAR6]] : memref<1x1000xf16>
+    // CHECK:       [[OUT:%.+]] = VPUIP.Copy inputs([[SW]] : memref<1x1000xf16>) outputs([[ARG1]] : memref<1x1000xf16>) -> memref<1x1000xf16>
+    // CHECK:       return [[OUT]] : memref<1x1000xf16>
 }
 }
 // -----
@@ -61,7 +54,7 @@ module {
     DataInfo "Result" : tensor<1x512x1x1xf16>
   }
 // CHECK:       module @VPU.SW  {
-// CHECK:           func.func private @builtin_SoftMax(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, i64, i64)
+// CHECK:           func.func private @builtin_SoftMax(memref<*xf16>, memref<*xf16>, i64, i64)
 // CHECK-SAME:           attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.kernel_name = "softmax", VPU.task_type = @COMPUTE}
 // CHECK:           func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK:       }
@@ -73,25 +66,18 @@ func.func @ReshapeInGraph(%arg0 : tensor<1x512x1x1xf16>) -> tensor<1x512x1x1xf16
     %2 = VPU.Reshape(%1) {shape_value = [1, 512, 1, 1]} : tensor<1x512xf16> -> tensor<1x512x1x1xf16>
     return %2 : tensor<1x512x1x1xf16>
 
-    // CHECK:       [[VAR0:%.+]] = VPUIP.GenericReshape inputs(%arg0 : memref<1x512x1x1xf16>) -> memref<1x512xf16>
-    // CHECK:       [[VAR1:%.+]] = memref.alloc() : memref<1x512xf16, [@CMX_NN, 0]>
-    // CHECK:       [[VAR2:%.+]] = VPUIP.Copy inputs([[VAR0]] : memref<1x512xf16>)
-    // CHECK-SAME:                  outputs([[VAR1]] : memref<1x512xf16, [@CMX_NN, 0]>) -> memref<1x512xf16, [@CMX_NN, 0]>
-    // CHECK:       [[VAR3:%.+]] = memref.alloc() : memref<1x512xf16, [@CMX_NN, 0]>
-
-    // CHECK:       [[VAR4:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>}
-    // CHECK-SAME:      @VPU.SW::@builtin_SoftMax inputs([[VAR2]] as %arg2: memref<1x512xf16, [@CMX_NN, 0]>)
-    // CHECK-SAME:                                outputs([[VAR3]] as %arg3: memref<1x512xf16, [@CMX_NN, 0]>) on tile 0
-    // CHECK-SAME:               -> memref<1x512xf16, [@CMX_NN, 0]>{
+    // CHECK:       [[RESHAPE_IN:%.+]] = VPUIP.GenericReshape inputs([[ARG0]] : memref<1x512x1x1xf16>) -> memref<1x512xf16>
+    // CHECK:       [[ALLOC:%.+]] = memref.alloc() : memref<1x512xf16>
+    // CHECK:       [[SW:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>}
+    // CHECK-SAME:      @VPU.SW::@builtin_SoftMax inputs([[RESHAPE_IN]] as %arg2: memref<1x512xf16>)
+    // CHECK-SAME:                                outputs([[ALLOC]] as %arg3: memref<1x512xf16>) on tile 0
+    // CHECK-SAME:               -> memref<1x512xf16>{
     // CHECK:         VPUIP.SW.Kernel.run {attrs = [0, 0]}(%arg2, %arg3)
-    // CHECK-SAME:               : memref<1x512xf16, [@CMX_NN, 0]>, memref<1x512xf16, [@CMX_NN, 0]>
+    // CHECK-SAME:               : memref<1x512xf16>, memref<1x512xf16>
     // CHECK:       }
-
-    // CHECK:       [[VAR5:%.+]] = memref.alloc() : memref<1x512xf16>
-    // CHECK:       [[VAR6:%.+]] = VPUIP.Copy inputs([[VAR4]] : memref<1x512xf16, [@CMX_NN, 0]>) outputs([[VAR5]] : memref<1x512xf16>) -> memref<1x512xf16>
-    // CHECK:       [[VAR7:%.+]] = VPUIP.GenericReshape inputs([[VAR6]] : memref<1x512xf16>) -> memref<1x512x1x1xf16>
-    // CHECK:       [[VAR8:%.+]] = VPUIP.Copy inputs([[VAR7]] : memref<1x512x1x1xf16>) outputs([[ARG1]] : memref<1x512x1x1xf16>) -> memref<1x512x1x1xf16>
-    // CHECK:       return [[VAR8]] : memref<1x512x1x1xf16>
+    // CHECK:       [[RESHAPE_OUT:%.+]] = VPUIP.GenericReshape inputs([[SW]] : memref<1x512xf16>) -> memref<1x512x1x1xf16>
+    // CHECK:       [[OUT:%.+]] = VPUIP.Copy inputs([[RESHAPE_OUT]] : memref<1x512x1x1xf16>) outputs([[ARG1]] : memref<1x512x1x1xf16>) -> memref<1x512x1x1xf16>
+    // CHECK:       return [[OUT]] : memref<1x512x1x1xf16>
 }
 }
 

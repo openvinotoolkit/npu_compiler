@@ -5,7 +5,7 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" %s | FileCheck %s
 // RUN: vpux-opt --emit-bytecode --init-compiler="vpu-arch=%arch%" %s | vpux-opt --vpu-arch=%arch% | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: dev-build && arch-NPU40XX
 
 module @OneDMAWithoutAttributes {
   net.NetworkInfo entryPoint : @main inputsInfo : {

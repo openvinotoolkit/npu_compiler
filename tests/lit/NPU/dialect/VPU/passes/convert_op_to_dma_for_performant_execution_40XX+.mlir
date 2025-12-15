@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-op-to-dma-for-performant-execution %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @GatherMoveToDMA
 // CHECK-SAME:  [[ARG0:%.+]]: tensor<30522x21xf16>, [[ARG1:%.+]]: tensor<1x512xsi32>

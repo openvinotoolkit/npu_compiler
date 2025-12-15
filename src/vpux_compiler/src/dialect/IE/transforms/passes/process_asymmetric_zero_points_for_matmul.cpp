@@ -416,6 +416,10 @@ mlir::LogicalResult FixMatmulZeroPointRewriter::matchAndRewrite(IE::ConvolutionO
         return matchFailed(nestedLog, rewriter, convOp, "Only convolutions with 1x1 kernels are supported");
     }
 
+    if (convOp.getStaticScaleAttr()) {
+        return matchFailed(nestedLog, rewriter, convOp, "Convolution has static_scale, skipping optimization");
+    }
+
     auto asymmetricFQ = getMatchingFakeQuantizeOp(convOp);
     if (asymmetricFQ == nullptr) {
         return matchFailed(nestedLog, rewriter, convOp, "Could not find asymmetric FQ");
@@ -521,7 +525,7 @@ void ProcessAsymmetricZeroPointsForMatmulPass::safeRunOnFunc() {
     auto func = getOperation();
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<FixMatmulZeroPointRewriter>(&ctx, _decompositionEnablementRatio, _log);
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

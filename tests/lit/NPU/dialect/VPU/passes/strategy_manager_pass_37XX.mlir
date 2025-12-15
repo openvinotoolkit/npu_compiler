@@ -473,30 +473,41 @@ func.func @ConvertOpAssignedMCStratClustering(%arg0: tensor<2x48x160x80xf16>) ->
 
 // -----
 
-// CHECK-LABEL:   func.func @ConvertOpAssignedMCStratSOK
-func.func @ConvertOpAssignedMCStratSOK(%arg0: tensor<1x48x3x3xf16>) -> tensor<1x48x3x3xf32> {
+// CHECK-LABEL:   func.func @SmallConvertOpAssignedMCStratClustering
+func.func @SmallConvertOpAssignedMCStratClustering(%arg0: tensor<1x48x3x3xf16>) -> tensor<1x48x3x3xf32> {
     %0 = VPU.Convert(%arg0) {dstElemType = f32} : tensor<1x48x3x3xf16> -> tensor<1x48x3x3xf32>
     return %0 : tensor<1x48x3x3xf32>
-    // CHECK:       [[CONVERT:%.+]] = VPU.Convert(%arg0) {dstElemType = f32, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x48x3x3xf16> -> tensor<1x48x3x3xf32>
+    // CHECK:       [[CONVERT:%.+]] = VPU.Convert(%arg0) {dstElemType = f32, multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>} : tensor<1x48x3x3xf16> -> tensor<1x48x3x3xf32>
     // CHECK:       return [[CONVERT]] : tensor<1x48x3x3xf32>
+}
+
+// -----
+
+// CHECK-LABEL:   func.func @ConvertOpAssignedMCStratSOK
+func.func @ConvertOpAssignedMCStratSOK(%arg0: tensor<1x480x3x3xf16>) -> tensor<1x480x3x3xf32> {
+    %0 = VPU.Convert(%arg0) {dstElemType = f32} : tensor<1x480x3x3xf16> -> tensor<1x480x3x3xf32>
+    return %0 : tensor<1x480x3x3xf32>
+    // CHECK:       [[CONVERT:%.+]] = VPU.Convert
+    // CHECK-SAME:       {dstElemType = f32, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x480x3x3xf16> -> tensor<1x480x3x3xf32>
+    // CHECK:       return [[CONVERT]] : tensor<1x480x3x3xf32>
 }
 
 // -----
 
 // CHECK-LABEL: @AssignSOHForLayerWithTopK
 func.func @AssignSOHForLayerWithTopK(%arg0: tensor<1x151x513x513xf16>) -> tensor<1x1x513x513xsi32> {
-    %cst = const.Declare tensor<1x1x1x16xui8> = dense<0> : tensor<1x1x1x16xui8>
-    %output_values, %target_shape = VPU.TopK(%arg0, %cst)
-        {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 0, 1>,  sort = #IE.topk_sort_type<SORT_INDICES>}
-            : tensor<1x151x513x513xf16>, tensor<1x1x1x16xui8> -> tensor<1x1x513x513xf16>, tensor<1x1x513x513xsi32>
+    %aux = const.Declare tensor<1x1x1x2416xui8> = dense<0> : tensor<1x1x1x2416xui8>
+    %output_values, %target_shape = VPU.TopK(%arg0, %aux)
+        {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>}
+            : tensor<1x151x513x513xf16>, tensor<1x1x1x2416xui8> -> tensor<1x1x513x513xf16>, tensor<1x1x513x513xsi32>
     return %target_shape : tensor<1x1x513x513xsi32>
 
-    // CHECK:        [[CST:%.+]] = const.Declare tensor<1x1x1x16xui8> = dense<0> : tensor<1x1x1x16xui8>
-    // CHECK:        [[OUTPUT_VALUES:%.+]], [[TARGET_SHAPE:%.+]] = VPU.TopK(%arg0, [[CST]])
+    // CHECK:        [[AUX:%.+]] = const.Declare tensor<1x1x1x2416xui8> = dense<0> : tensor<1x1x1x2416xui8>
+    // CHECK:        [[OUTPUT_VALUES:%.+]], [[TARGET_SHAPE:%.+]] = VPU.TopK(%arg0, [[AUX]])
     // CHECK-SAME:        axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>,
-    // CHECK-SAME:        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, operandSegmentSizes = array<i32: 1, 0, 1>, sort = #IE.topk_sort_type<SORT_INDICES>
+    // CHECK-SAME:        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, sort = #IE.topk_sort_type<SORT_INDICES>
     // CHECK-SAME:        tilingStrategy = [1, 1, 22, 1]
-    // CHECK-SAME:        : tensor<1x151x513x513xf16>, tensor<1x1x1x16xui8> -> tensor<1x1x513x513xf16>, tensor<1x1x513x513xsi32>
+    // CHECK-SAME:        : tensor<1x151x513x513xf16>, tensor<1x1x1x2416xui8> -> tensor<1x1x513x513xf16>, tensor<1x1x513x513xsi32>
     // CHECK:        return [[TARGET_SHAPE]] : tensor<1x1x513x513xsi32>
 }
 

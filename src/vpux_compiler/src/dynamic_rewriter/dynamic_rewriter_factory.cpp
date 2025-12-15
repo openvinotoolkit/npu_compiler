@@ -222,7 +222,7 @@ mlir::LogicalResult RewriterExecutorInterfaceBase::executeRewriters(mlir::MLIRCo
     }
 
     auto greedyRewriteConfig = getDefaultGreedyRewriteConfig();
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(funcOp, std::move(patterns), greedyRewriteConfig))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(funcOp, std::move(patterns), greedyRewriteConfig))) {
         log.error("Failed to apply rewriters");
         return mlir::failure();
     }

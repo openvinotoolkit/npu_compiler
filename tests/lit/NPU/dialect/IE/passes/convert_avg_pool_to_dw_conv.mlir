@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-avg-pool-to-dw-conv %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @ConvertAveragePoolingToGroupConvolution1
 func.func @ConvertAveragePoolingToGroupConvolution1(%arg0: tensor<1x2048x7x7xf16>) -> tensor<1x2048x1x1xf16> {

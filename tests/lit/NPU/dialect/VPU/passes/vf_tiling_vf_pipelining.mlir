@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --vertical-fusion-tiling="enable-vertical-fusion-pipelining=true" %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -172,4 +172,43 @@ func.func @VfTilingWithPRelu(%arg0: tensor<1x32x48x48xf16, {order = #NHWC}>) -> 
    // CHECK-SAME{LITERAL}:  {static_offsets = [[0, 0, 0, 0], [0, 0, 24, 0]]}
    // CHECK-SAME:        tensor<1x32x24x48xf16, {order = #NHWC}>, tensor<1x32x24x48xf16, {order = #NHWC}> -> tensor<1x32x48x48xf16, {order = #NHWC}>
    // CHECK:         return [[CONCAT]] : tensor<1x32x48x48xf16, {order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!qElemType = !quant.uniform<u8:f16, 0.00565029593075023:128>
+!qElemType1 = !quant.uniform<u8:f16, 0.013744638480392157:128>
+!qElemType2 = !quant.uniform<u8:f16, 0.04372939495922859:128>
+
+// CHECK-LABEL: @VfTilingWithQuantizeCast
+// CHECK-SAME:      [[INPUT_0:%.+]]: tensor<1x48x48x4x!qElemType, {order = #NHWC}>
+// CHECK-SAME:      [[INPUT_1:%.+]]: tensor<4096x48x1x1x!qElemType1, {order = #NHWC}>
+
+func.func @VfTilingWithQuantizeCast(%arg0: tensor<1x48x48x4x!qElemType, {order = #NHWC}>, %arg1: tensor<4096x48x1x1x!qElemType1, {order = #NHWC}>) -> tensor<1x4096x48x4xf16, {order = #NHWC}> {
+   %0 = VPU.VerticalFusion (%arg0 as %arg2: tensor<1x48x48x4x!qElemType, {order = #NHWC}>, %arg1 as %arg3: tensor<4096x48x1x1x!qElemType1, {order = #NHWC}>) attributes {scenario = #VPU.vf_scenario<VF_PIPELINING>, tilingStrategy = [1, 1, 2, 1]} -> tensor<1x4096x48x4xf16, {order = #NHWC}> {
+     %1 = VPU.QuantizeCast(%arg2) {dstElemType = !qElemType2} : tensor<1x48x48x4x!qElemType, {order = #NHWC}> -> tensor<1x48x48x4x!qElemType2, {order = #NHWC}>
+     %2 = VPU.NCE.Convolution(%1, %arg3) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [4096, 48, 1, 1], strides = [1, 1]} : tensor<1x48x48x4x!qElemType2, {order = #NHWC}>, tensor<4096x48x1x1x!qElemType1, {order = #NHWC}> -> tensor<1x4096x48x4xf16, {order = #NHWC}>
+     %3 = VPU.SoftMax(%2) {axisInd = 1 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x4096x48x4xf16, {order = #NHWC}> -> tensor<1x4096x48x4xf16, {order = #NHWC}>
+     VPU.Yield %3
+   }
+   return %0 : tensor<1x4096x48x4xf16, {order = #NHWC}>
+
+   // CHECK:         [[SLICE_ARG_0:%.+]] = VPU.Slice [[INPUT_0]] [0, 0, 0, 0] [1, 48, 24, 4]
+   // CHECK:         [[CAST_0:%.+]] = VPU.QuantizeCast([[SLICE_ARG_0]])
+   // CHECK-SAME:             {dstElemType = !qElemType2} : tensor<1x48x24x4x!qElemType, {order = #NHWC}> -> tensor<1x48x24x4x!qElemType2, {order = #NHWC}>
+   // CHECK:         [[CONV_0:%.+]] = VPU.NCE.Convolution([[CAST_0]], [[INPUT_1]])
+   // CHECK-SAME:             {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [4096, 48, 1, 1], strides = [1, 1]} : tensor<1x48x24x4x!qElemType2, {order = #NHWC}>, tensor<4096x48x1x1x!qElemType1, {order = #NHWC}> -> tensor<1x4096x24x4xf16, {order = #NHWC}>
+   // CHECK:         [[SOFTMAX_0:%.+]] = VPU.SoftMax([[CONV_0]])
+   // CHECK-SAME:             {axisInd = 1 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x4096x24x4xf16, {order = #NHWC}> -> tensor<1x4096x24x4xf16, {order = #NHWC}>
+   // CHECK:         [[SLICE_ARG_1:%.+]] = VPU.Slice [[INPUT_0]] [0, 0, 24, 0] [1, 48, 24, 4]
+   // CHECK:         [[CAST_1:%.+]] = VPU.QuantizeCast([[SLICE_ARG_1]])
+   // CHECK-SAME:             {dstElemType = !qElemType2} : tensor<1x48x24x4x!qElemType, {order = #NHWC}> -> tensor<1x48x24x4x!qElemType2, {order = #NHWC}>
+   // CHECK:         [[CONV_1:%.+]] = VPU.NCE.Convolution([[CAST_1]], [[INPUT_1]])
+   // CHECK-SAME:             {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [4096, 48, 1, 1], strides = [1, 1]} : tensor<1x48x24x4x!qElemType2, {order = #NHWC}>, tensor<4096x48x1x1x!qElemType1, {order = #NHWC}> -> tensor<1x4096x24x4xf16, {order = #NHWC}>
+   // CHECK:         [[SOFTMAX_1:%.+]] = VPU.SoftMax([[CONV_1]])
+   // CHECK-SAME:             {axisInd = 1 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x4096x24x4xf16, {order = #NHWC}> -> tensor<1x4096x24x4xf16, {order = #NHWC}>
+   // CHECK:         [[CONCAT:%.+]] = VPU.Concat([[SOFTMAX_0]], [[SOFTMAX_1]])
+   // CHECK:         return [[CONCAT]] : tensor<1x4096x48x4xf16, {order = #NHWC}>
 }

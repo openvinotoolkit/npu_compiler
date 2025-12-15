@@ -4,6 +4,9 @@
 //
 #include "common/utils.hpp"
 
+#include "vpux/compiler/dialect/VPU/IR/ops/arithmetic.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/layer_vpunn_cost.hpp"
 #include "vpux/compiler/dialect/VPU/utils/strategy_manager/operation_strategies.hpp"
 #include "vpux/compiler/dialect/VPU/utils/strategy_manager/state_provider_interface.hpp"
@@ -11,7 +14,7 @@
 #include "vpux/compiler/dialect/VPU/utils/strategy_manager/strategy_state_provider.hpp"
 
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"

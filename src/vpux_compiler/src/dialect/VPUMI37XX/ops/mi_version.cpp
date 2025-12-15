@@ -8,6 +8,7 @@
 #include <vpux_elf/types/vpu_extensions.hpp>
 #include <vpux_elf/writer.hpp>
 #include "vpux/compiler/dialect/VPUMI37XX/ops.hpp"
+#include "vpux/compiler/dialect/VPURegMapped/types.hpp"
 
 #include <npu_37xx_nnrt.hpp>
 
@@ -27,8 +28,8 @@ void vpux::VPUMI37XX::MappedInferenceVersionOp::serialize(elf::writer::BinaryDat
     static_assert(sizeof(name) == 4);
     std::memcpy(MIVersionStruct.n_name, name, nameSize);
 
-    constexpr uint32_t desc[descSize] = {elf::elf_note::ELF_NOTE_OS_LINUX, VPU_NNRT_37XX_API_VER_MAJOR,
-                                         VPU_NNRT_37XX_API_VER_MINOR, VPU_NNRT_37XX_API_VER_PATCH};
+    constexpr uint32_t desc[descSize] = {0, VPU_NNRT_37XX_API_VER_MAJOR, VPU_NNRT_37XX_API_VER_MINOR,
+                                         VPU_NNRT_37XX_API_VER_PATCH};
     static_assert(sizeof(desc) == 64);
     std::memcpy(MIVersionStruct.n_desc, desc, descSize);
 

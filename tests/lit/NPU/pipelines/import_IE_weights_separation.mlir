@@ -6,7 +6,7 @@
 // RUN: vpux-translate --vpu-arch=%arch% --import-IE ./IR/transpose_conv.xml | FileCheck %s
 // RUN: vpux-translate --vpu-arch=%arch% --import-IE --weights-separation-path=false ./IR/transpose_conv.xml | FileCheck --check-prefix=CHECK-DISABLED %s
 // RUN: vpux-translate --vpu-arch=%arch% --import-IE --weights-separation-path=true ./IR/transpose_conv.xml | FileCheck --check-prefix=CHECK-ENABLED %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 //CHECK: module @Conv2dWithTransposeTest {
 //CHECK:   net.NetworkInfo entryPoint : @main inputsInfo : {

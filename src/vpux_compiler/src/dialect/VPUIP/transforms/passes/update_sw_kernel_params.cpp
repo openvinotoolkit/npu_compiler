@@ -12,6 +12,7 @@
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/swizzling_utils.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 #include "vpux/utils/profiling/common.hpp"
 
 #include <functional>
@@ -188,8 +189,8 @@ mlir::LogicalResult UpdateSwKernelParamsRewriter::matchAndRewrite(VPUIP::SwKerne
 
     auto kernelEntryName = getSwKernelEntryName(swKernelOp);
 
-    // just softmax need parameters adjustment
-    if (kernelEntryName != "softmax") {
+    // Only SoftMax and LogSoftMax need params updated as of now
+    if (kernelEntryName != "softmax" && kernelEntryName != "log_softmax") {
         return mlir::failure();
     }
 
@@ -239,13 +240,12 @@ private:
 void UpdateSwKernelParamsPass::safeRunOnFunc() {
     auto& ctx = getContext();
 
+    auto func = getOperation();
+
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<UpdateSwKernelParamsRewriter>(&ctx, _log);
 
-    auto func = getOperation();
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
-    }
+    collectOpsAndApplyPatterns(func, std::move(patterns));
 }
 
 }  // namespace

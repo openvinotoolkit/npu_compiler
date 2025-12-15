@@ -4,9 +4,11 @@
 //
 
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 
 #include <mlir/IR/IRMapping.h>
 #include <mlir/Transforms/DialectConversion.h>

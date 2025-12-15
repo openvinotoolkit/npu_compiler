@@ -4,7 +4,8 @@
 //
 
 #include "vpux/compiler/dialect/VPU/interfaces/workload_splitter.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/nce_workload_channels.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/workload_size_constraint.hpp"

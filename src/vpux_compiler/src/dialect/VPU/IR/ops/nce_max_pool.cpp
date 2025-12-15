@@ -8,7 +8,7 @@
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/utils/type_padding.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
@@ -32,7 +32,7 @@ using namespace vpux;
 //
 
 bool vpux::VPU::NCEMaxPoolOp::fitIntoCMX(vpux::NDTypeInterface input, vpux::NDTypeInterface output, Byte reservedMem) {
-    // TODO: VPUX37XX hw doesn't require weights table and activation window for max/average pool ops
+    // TODO: VPUX37XX hw doesn't require weights table for max/average pool ops
     const auto outputShape = output.getShape();
     const auto outputChannels = outputShape[Dims4D::Act::C];
 

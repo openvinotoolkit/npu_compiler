@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @LessBroadcastable
 func.func @LessBroadcastable(%arg0: tensor<10x1xf16>, %arg1: tensor<1x50xf16>) -> tensor<10x50xi8> {

@@ -10,7 +10,7 @@
 #include <utility>
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"

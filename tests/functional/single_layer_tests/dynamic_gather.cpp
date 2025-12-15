@@ -66,7 +66,7 @@ protected:
         ov::Shape inputConstShape(InputShape.begin(), InputShape.end());
 
         std::vector<int64_t> randomInput = generateConst(inputConstShape);
-        auto inputConst = ov::op::v0::Constant::create(type, inputConstShape, randomInput);
+        auto inputConst = ov::op::v0::Constant::create(type.value(), inputConstShape, randomInput);
 
         auto axisParam = ov::op::v0::Constant::create(ov::element::i32, Shape{}, std::vector<int32_t>{0});
         const auto inferenceIndicesShapes = std::vector<ov::Shape>{{1, 32}};
@@ -88,6 +88,12 @@ TEST_P(DynamicGatherLayerTest, NPU4000_HW) {
     abs_threshold = 0.0f;
     setDefaultHardwareMode();
     run(Platform::NPU4000);
+}
+
+TEST_P(DynamicGatherLayerTest, NPU5010_HW) {
+    abs_threshold = 0.0f;
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
 }
 
 const std::vector<InputType> inputPrecision = {ov::element::f16};

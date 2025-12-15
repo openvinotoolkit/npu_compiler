@@ -4,14 +4,52 @@
 //
 
 #include "vpux/compiler/core/tiling.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
-
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
+#include "vpux/compiler/dialect/VPU/utils/auxiliary_buffers.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 
 using namespace vpux;
+
+SmallVector<int64_t> inferOutputShape(mlir::Value inputQ, mlir::Value inputK, mlir::Value inputV) {
+    const auto inQType = mlir::cast<vpux::NDTypeInterface>(inputQ.getType());
+    const auto inQShape = inQType.getShape().raw();
+    const auto rank = inQType.getShape().size();
+
+    const auto inKType = mlir::cast<vpux::NDTypeInterface>(inputK.getType());
+    const auto inKShape = inKType.getShape().raw();
+
+    const auto inVType = mlir::cast<vpux::NDTypeInterface>(inputV.getType());
+    const auto inVShape = inVType.getShape().raw();
+
+    const auto isTransposedV = inKShape[rank - 2] != inVShape[rank - 2];
+    const auto Ev = isTransposedV ? inVShape[rank - 2] : inVShape[rank - 1];
+    SmallVector<int64_t> outShape(inQShape.begin(), inQShape.end());
+    outShape[rank - 1] = Ev;
+    return outShape;
+}
+
+mlir::Type getAuxiliaryBufferType(mlir::Value inputQ, mlir::Value inputK, mlir::Value inputV) {
+    const auto inputVType = mlir::cast<vpux::NDTypeInterface>(inputV.getType());
+    const auto inputVShape = inputVType.getShape();
+    const auto vH = inputVShape[Dim(3)];
+    const auto outputShape = inferOutputShape(inputQ, inputK, inputV);
+    const auto numHeads = outputShape[1];
+    const auto oH = outputShape[2];
+    const auto auxBuffType = mlir::RankedTensorType::get({1, numHeads, oH, 4 * vH}, getUInt8Type(inputV.getContext()));
+    return {auxBuffType};
+}
+
+void vpux::VPU::SDPAOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState, ::mlir::Value inputQ,
+                              ::mlir::Value inputK, ::mlir::Value inputV, ::mlir::Value inputMask,
+                              ::mlir::Value inputScale, ::mlir::Value inputBias) {
+    const auto auxBuffType = getAuxiliaryBufferType(inputQ, inputK, inputV);
+    auto auxBuffer = VPU::createAuxiliaryBuffer(odsBuilder, odsState.location, auxBuffType);
+    build(odsBuilder, odsState, inputQ, inputK, inputV, inputMask, inputScale, inputBias, auxBuffer,
+          /*multiClusterStrategy=*/nullptr);
+}
 
 mlir::LogicalResult vpux::VPU::SDPAOp::inferReturnTypes(mlir::MLIRContext* ctx, std::optional<mlir::Location> optLoc,
                                                         mlir::ValueRange operands, mlir::DictionaryAttr attrs,
@@ -25,23 +63,17 @@ mlir::LogicalResult vpux::VPU::SDPAOp::inferReturnTypes(mlir::MLIRContext* ctx, 
     }
 
     const auto inQType = mlir::cast<vpux::NDTypeInterface>(sdpa.getInputQ().getType());
-    const auto inQShape = inQType.getShape().raw();
-    const auto rank = inQType.getShape().size();
-
-    const auto inKType = mlir::cast<vpux::NDTypeInterface>(sdpa.getInputK().getType());
-    const auto inKShape = inKType.getShape().raw();
-
-    const auto inVType = mlir::cast<vpux::NDTypeInterface>(sdpa.getInputV().getType());
-    const auto inVShape = inVType.getShape().raw();
-
-    const auto isTransposedV = inKShape[rank - 2] != inVShape[rank - 2];
-    const auto Ev = isTransposedV ? inVShape[rank - 2] : inVShape[rank - 1];
-    SmallVector<int64_t> outShape(inQShape.begin(), inQShape.end());
-    outShape[rank - 1] = Ev;
+    const auto outShape = inferOutputShape(sdpa.getInputQ(), sdpa.getInputK(), sdpa.getInputV());
     auto outputType =
             mlir::RankedTensorType::get(outShape, inQType.getElementType(), createTensorAttrFromType(inQType));
     inferredReturnTypes.push_back(outputType);
     return mlir::success();
+}
+
+llvm::LogicalResult VPU::SDPAOp::verify() {
+    auto auxBufferType = mlir::cast<NDTypeInterface>(getDataStorage().getType());
+    auto expectedType = mlir::cast<NDTypeInterface>(getAuxiliaryBufferType(getInputQ(), getInputK(), getInputV()));
+    return VPU::compareTypes(getOperation()->getLoc(), auxBufferType, expectedType);
 }
 
 //
@@ -51,12 +83,6 @@ mlir::LogicalResult vpux::VPU::SDPAOp::inferReturnTypes(mlir::MLIRContext* ctx, 
 bool vpux::VPU::SDPAOp::checkStrategyCompatibility(VPU::MultiClusterStrategy strategy, size_t) {
     return strategy == VPU::MultiClusterStrategy::SplitOverKernel ||
            strategy == VPU::MultiClusterStrategy::SplitOverHeight;
-}
-
-void vpux::VPU::SDPAOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState, ::mlir::Value inputQ,
-                              ::mlir::Value inputK, ::mlir::Value inputV, ::mlir::Value inputMask,
-                              ::mlir::Value inputScale, ::mlir::Value inputBias, ::mlir::Value dataStorage) {
-    build(odsBuilder, odsState, inputQ, inputK, inputV, inputMask, inputScale, inputBias, dataStorage, {});
 }
 
 vpux::VPU::DistributionInfo vpux::VPU::SDPAOp::getExplicitDistributionInfoAttr(
@@ -163,24 +189,4 @@ mlir::FailureOr<OutputTiling> vpux::VPU::SDPAOp::getTilingStrategy(TilingMode ti
 
 SmallVector<mlir::Value> VPU::SDPAOp::getAuxiliaryBuffers() {
     return {getDataStorage()};
-}
-
-mlir::LogicalResult VPU::SDPAOp::setAuxiliaryBuffers(ArrayRef<mlir::Value> buffers) {
-    if (buffers.size() != 1 || buffers.front() == nullptr) {
-        return mlir::failure();
-    }
-    getDataStorageMutable().assign(buffers.front());
-    return mlir::success();
-}
-
-SmallVector<mlir::Type> VPU::SDPAOp::getBufferTypes() {
-    const auto inputVType = mlir::cast<vpux::NDTypeInterface>(getInputV().getType());
-    const auto outputType = mlir::cast<vpux::NDTypeInterface>(getOutput().getType());
-    const auto inputVShape = inputVType.getShape();
-    const auto outputShape = outputType.getShape();
-    const auto vH = inputVShape[Dim(3)];
-    const auto numHeads = outputShape[Dim(1)];
-    const auto oH = outputShape[Dim(2)];
-    const auto auxBuffType = mlir::RankedTensorType::get({1, numHeads, oH, 4 * vH}, getUInt8Type(getContext()));
-    return {auxBuffType};
 }

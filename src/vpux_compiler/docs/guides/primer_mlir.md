@@ -1300,7 +1300,8 @@ private:
 
         // Calls the pattern applicator over the function operation with the pattern set and
         // the previously-defined configuration
-        if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), config))) {
+    if (mlir::failed(applyPatternsGreedily(
+        func, std::move(patterns), config))) {
             // In case something went wrong, signal a failure to stop compilation
             signalPassFailure();
         }

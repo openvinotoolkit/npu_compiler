@@ -13,9 +13,9 @@
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
-#include "vpux/compiler/utils/IE/locations.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/locations.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/ValueRange.h>
@@ -368,7 +368,7 @@ SmallVector<mlir::Value> UnrollFullyConnected::reshapeTo2d(mlir::ValueRange valu
         const ShapeRef sliceShape = getShape(val);
         const SmallVector<int64_t> target2dShape = {sliceShape[Dim(0)] * sliceShape[Dim(1)], sliceShape[Dim(2)]};
         const auto target2dShapeAttr = getIntArrayAttr(rewriter.getContext(), target2dShape);
-        const auto reshapeLoc = appendLoc(IE::getValueLocation(val), "reshape_{0}", counter++);
+        const auto reshapeLoc = appendLoc(getValueLocation(val), "reshape_{0}", counter++);
         auto reshape = rewriter.create<IE::ReshapeOp>(reshapeLoc, val, nullptr, false, target2dShapeAttr);
         return reshape.getOutput();
     };
@@ -544,7 +544,7 @@ void UnrollFullyConnectedPass::safeRunOnFunc() {
 
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<UnrollFullyConnected>(&ctx, _accumulateMatmulWithDPU, _log);
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

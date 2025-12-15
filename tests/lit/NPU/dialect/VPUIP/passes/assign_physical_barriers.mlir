@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% workload-management-enable=false" --assign-physical-barriers="num-barriers=4" %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @LinearDMA
 func.func @LinearDMA(%arg0: memref<10xf16>, %arg1: memref<10xf16>) -> memref<10xf16> {
@@ -13,7 +13,7 @@ func.func @LinearDMA(%arg0: memref<10xf16>, %arg1: memref<10xf16>) -> memref<10x
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %buf0 = VPURT.DeclareBuffer <DDR> <0> -> memref<10xf16, @DDR>
     VPURT.Task updates(%bar0 : !VPURT.Barrier) {
-        %0 = VPUIP.NNDMA
+        %0 = VPUIP.NNDMA {port = 0 : i64}
             inputs(
                 %arg0 : memref<10xf16>
             ) outputs(
@@ -25,7 +25,7 @@ func.func @LinearDMA(%arg0: memref<10xf16>, %arg1: memref<10xf16>) -> memref<10x
     %bar1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %buf1 = VPURT.DeclareBuffer <DDR> <2048> -> memref<10xf16, @DDR>
     VPURT.Task waits(%bar0 : !VPURT.Barrier) updates(%bar1 : !VPURT.Barrier) {
-        %1 = VPUIP.NNDMA
+        %1 = VPUIP.NNDMA {port = 0 : i64}
             inputs(
                 %buf0 : memref<10xf16, @DDR>
             ) outputs(
@@ -36,7 +36,7 @@ func.func @LinearDMA(%arg0: memref<10xf16>, %arg1: memref<10xf16>) -> memref<10x
     // CHECK: VPURT.ConfigureBarrier<2>
     %bar2 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     VPURT.Task waits(%bar1 : !VPURT.Barrier) updates(%bar2 : !VPURT.Barrier) {
-        %2 = VPUIP.NNDMA
+        %2 = VPUIP.NNDMA {port = 0 : i64}
             inputs(
                 %buf1 : memref<10xf16, @DDR>
             ) outputs(
@@ -55,7 +55,6 @@ func.func @LinearDMA(%arg0: memref<10xf16>, %arg1: memref<10xf16>) -> memref<10x
 func.func @MultipleExecutors(%arg0: memref<1x16x32x32xf16>, %arg1: memref<1x16x32x32xf16>) -> memref<1x16x32x32xf16> {
     %cst0 = const.Declare memref<16x16x1x1xf16, #NHWC> =
         dense<1.0> : tensor<16x16x1x1xf16>, [#const.Reorder<#NHWC>]
-    %cst1 = const.Declare memref<16x1x1x4xsi32> = dense<1> : tensor<16x1x1x4xsi32>
 
     // input buffers for SOH tiling
     %buf0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x16x32x32xf16, #NHWC, @DDR>
@@ -77,7 +76,6 @@ func.func @MultipleExecutors(%arg0: memref<1x16x32x32xf16>, %arg1: memref<1x16x3
     %buf12 = VPURT.DeclareBuffer <CMX_NN> [0] <16384> -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
     %buf13 = VPURT.DeclareBuffer <CMX_NN> [0] <24576> -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
     %buf14 = VPURT.DeclareBuffer <CMX_NN> [0] <32768> -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
-    %buf15 = VPURT.DeclareBuffer <CMX_NN> [0] <33280> -> memref<16x1x1x4xsi32, [@CMX_NN, 0]>
 
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %bar1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
@@ -103,23 +101,16 @@ func.func @MultipleExecutors(%arg0: memref<1x16x32x32xf16>, %arg1: memref<1x16x3
     // Upload weights and weights table
 
     VPURT.Task {
-         VPUIP.NNDMA
+         VPUIP.NNDMA {port = 0 : i64}
             inputs(%cst0: memref<16x16x1x1xf16, #NHWC>)
             outputs(%buf14: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
             -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
     }
 
-    VPURT.Task {
-         VPUIP.NNDMA
-            inputs(%cst1: memref<16x1x1x4xsi32>)
-            outputs(%buf15: memref<16x1x1x4xsi32, [@CMX_NN, 0]>)
-            -> memref<16x1x1x4xsi32, [@CMX_NN, 0]>
-    }
-
     // Reorder input
 
     VPURT.Task updates(%bar0: !VPURT.Barrier) {
-        VPUIP.PermuteDMA {mem_perm = #NHWC}
+        VPUIP.PermuteDMA {mem_perm = #NHWC, port = 0 : i64}
             inputs(%arg0: memref<1x16x32x32xf16>)
             outputs(%buf0: memref<1x16x32x32xf16, #NHWC, @DDR>)
             -> memref<1x16x32x32xf16, #NHWC, @DDR>
@@ -128,7 +119,7 @@ func.func @MultipleExecutors(%arg0: memref<1x16x32x32xf16>, %arg1: memref<1x16x3
     // Upload 1st input tile
 
     VPURT.Task waits(%bar0: !VPURT.Barrier) updates(%bar1: !VPURT.Barrier) {
-         VPUIP.NNDMA
+         VPUIP.NNDMA {port = 0 : i64}
             inputs(%buf1: memref<1x16x8x32xf16, #NHWC, @DDR>)
             outputs(%buf10: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
             -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
@@ -145,7 +136,6 @@ func.func @MultipleExecutors(%arg0: memref<1x16x32x32xf16>, %arg1: memref<1x16x3
             }
             input(%buf10: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
             weights(%buf14: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-            weight_table(%buf15: memref<16x1x1x4xsi32, [@CMX_NN, 0]>)
             parent_input(%buf10: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
             parent_output(%buf11: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
             outputs(%buf11: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
@@ -164,7 +154,7 @@ func.func @MultipleExecutors(%arg0: memref<1x16x32x32xf16>, %arg1: memref<1x16x3
     // Prefetch 2nd tile (in parallel)
 
     VPURT.Task updates(%bar3: !VPURT.Barrier) {
-         VPUIP.NNDMA
+         VPUIP.NNDMA {port = 0 : i64}
             inputs(%buf2: memref<1x16x8x32xf16, #NHWC, @DDR>)
             outputs(%buf12: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
             -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
@@ -173,7 +163,7 @@ func.func @MultipleExecutors(%arg0: memref<1x16x32x32xf16>, %arg1: memref<1x16x3
     // Copyback 1st result tile
 
     VPURT.Task waits(%bar2: !VPURT.Barrier) updates(%bar4: !VPURT.Barrier) {
-         VPUIP.NNDMA
+         VPUIP.NNDMA {port = 0 : i64}
             inputs(%buf11: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
             outputs(%buf6: memref<1x16x8x32xf16, #NHWC, @DDR>)
             -> memref<1x16x8x32xf16, #NHWC, @DDR>
@@ -190,7 +180,6 @@ func.func @MultipleExecutors(%arg0: memref<1x16x32x32xf16>, %arg1: memref<1x16x3
             }
             input(%buf12: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
             weights(%buf14: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-            weight_table(%buf15: memref<16x1x1x4xsi32, [@CMX_NN, 0]>)
             parent_input(%buf12: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
             parent_output(%buf13: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
             outputs(%buf13: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
@@ -209,7 +198,7 @@ func.func @MultipleExecutors(%arg0: memref<1x16x32x32xf16>, %arg1: memref<1x16x3
     // Prefetch 3rd tile (in parallel)
 
     VPURT.Task updates(%bar6: !VPURT.Barrier) {
-         VPUIP.NNDMA
+         VPUIP.NNDMA {port = 0 : i64}
             inputs(%buf3: memref<1x16x8x32xf16, #NHWC, @DDR>)
             outputs(%buf10: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
             -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
@@ -218,7 +207,7 @@ func.func @MultipleExecutors(%arg0: memref<1x16x32x32xf16>, %arg1: memref<1x16x3
     // Copyback 2nd result tile
 
     VPURT.Task waits(%bar5: !VPURT.Barrier) updates(%bar4: !VPURT.Barrier) {
-         VPUIP.NNDMA
+         VPUIP.NNDMA {port = 0 : i64}
             inputs(%buf13: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
             outputs(%buf7: memref<1x16x8x32xf16, #NHWC, @DDR>)
             -> memref<1x16x8x32xf16, #NHWC, @DDR>
@@ -235,7 +224,6 @@ func.func @MultipleExecutors(%arg0: memref<1x16x32x32xf16>, %arg1: memref<1x16x3
             }
             input(%buf10: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
             weights(%buf14: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-            weight_table(%buf15: memref<16x1x1x4xsi32, [@CMX_NN, 0]>)
             parent_input(%buf10: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
             parent_output(%buf11: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
             outputs(%buf11: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
@@ -254,7 +242,7 @@ func.func @MultipleExecutors(%arg0: memref<1x16x32x32xf16>, %arg1: memref<1x16x3
     // Prefetch 4th tile (in parallel)
 
     VPURT.Task updates(%bar8: !VPURT.Barrier) {
-         VPUIP.NNDMA
+         VPUIP.NNDMA {port = 0 : i64}
             inputs(%buf4: memref<1x16x8x32xf16, #NHWC, @DDR>)
             outputs(%buf12: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
             -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
@@ -263,7 +251,7 @@ func.func @MultipleExecutors(%arg0: memref<1x16x32x32xf16>, %arg1: memref<1x16x3
     // Copyback 3rd result tile
 
     VPURT.Task waits(%bar7: !VPURT.Barrier) updates(%bar4: !VPURT.Barrier) {
-         VPUIP.NNDMA
+         VPUIP.NNDMA {port = 0 : i64}
             inputs(%buf11: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
             outputs(%buf8: memref<1x16x8x32xf16, #NHWC, @DDR>)
             -> memref<1x16x8x32xf16, #NHWC, @DDR>
@@ -280,7 +268,6 @@ func.func @MultipleExecutors(%arg0: memref<1x16x32x32xf16>, %arg1: memref<1x16x3
             }
             input(%buf12: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
             weights(%buf14: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-            weight_table(%buf15: memref<16x1x1x4xsi32, [@CMX_NN, 0]>)
             parent_input(%buf12: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
             parent_output(%buf13: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
             outputs(%buf13: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
@@ -299,7 +286,7 @@ func.func @MultipleExecutors(%arg0: memref<1x16x32x32xf16>, %arg1: memref<1x16x3
     // Copyback 4th result tile
 
     VPURT.Task waits(%bar9: !VPURT.Barrier) updates(%bar4: !VPURT.Barrier) {
-         VPUIP.NNDMA
+         VPUIP.NNDMA {port = 0 : i64}
             inputs(%buf13: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
             outputs(%buf9: memref<1x16x8x32xf16, #NHWC, @DDR>)
             -> memref<1x16x8x32xf16, #NHWC, @DDR>
@@ -308,7 +295,7 @@ func.func @MultipleExecutors(%arg0: memref<1x16x32x32xf16>, %arg1: memref<1x16x3
     // Reorder output
 
     VPURT.Task waits(%bar4: !VPURT.Barrier) {
-        VPUIP.PermuteDMA {mem_perm = #NCHW}
+        VPUIP.PermuteDMA {mem_perm = #NCHW, port = 0 : i64}
             inputs(%buf5: memref<1x16x32x32xf16, #NHWC, @DDR>)
             outputs(%arg1: memref<1x16x32x32xf16>)
             -> memref<1x16x32x32xf16>

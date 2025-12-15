@@ -28,6 +28,7 @@ struct RegFieldValue {
     uint64_t value{};
     elf::Version version{};
 };
+enum class NPU5PPEBackwardsCompatibilityMode : bool { DISABLED = false, ENABLED = true };
 }  // namespace vpux::VPURegMapped
 
 //

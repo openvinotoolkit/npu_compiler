@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 
@@ -37,7 +37,7 @@ mlir::CallInterfaceCallable VPU::GenericSwLayerOp::getCallableForCallee() {
 }
 
 void VPU::GenericSwLayerOp::setCalleeFromCallable(mlir::CallInterfaceCallable callee) {
-    setCalleeAttr(callee.get<mlir::SymbolRefAttr>());
+    setCalleeAttr(mlir::cast<mlir::SymbolRefAttr>(callee));
 }
 
 mlir::Operation::operand_range VPU::GenericSwLayerOp::getArgOperands() {

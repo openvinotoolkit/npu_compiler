@@ -4,7 +4,7 @@
 //
 
 #include <mlir/IR/PatternMatch.h>
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 
 using namespace vpux;
 

@@ -9,13 +9,24 @@
 
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/activation.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/arithmetic.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/bitwise.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/comparison.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/image.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/logical.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/normalization.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/recurrent.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/reduce.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/layout_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sw_tiling_interface_utils.hpp"
 
-#include "vpux/compiler/utils/VPU/tile_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
@@ -42,10 +53,7 @@ mlir::LogicalResult vpux::VPU::verifyLayer(mlir::Operation* op) {
 bool vpux::VPU::supportsSparseInputs(mlir::Operation* op) {
     const auto compressedInput = [](mlir::Value operand) {
         auto inputShape = mlir::cast<vpux::NDTypeInterface>(operand.getType()).getShape();
-        if (inputShape[Dims4D::Act::C] < VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT) {
-            return true;
-        }
-        return false;
+        return inputShape[Dims4D::Act::C] < VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT;
     };
     if (compressedInput(op->getOperand(0))) {
         return false;
@@ -313,6 +321,7 @@ void vpux::VPU::registerSWTilingInfoOpInterfaceCommon(mlir::DialectRegistry& reg
         VPU::GridSampleOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GridSampleOp>>(*ctx);
         VPU::GatherDMAOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GatherDMAOp>>(*ctx);
         VPU::GatherNDOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GatherNDOp>>(*ctx);
+        VPU::MaxPool8Op::attachInterface<SwLayerTilingInfoOpModel<VPU::MaxPool8Op>>(*ctx);
         VPU::ConvertOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ConvertOp>>(*ctx);
         VPU::SigmoidOp::attachInterface<SwLayerTilingInfoOpModel<VPU::SigmoidOp>>(*ctx);
         VPU::HSwishOp::attachInterface<SwLayerTilingInfoOpModel<VPU::HSwishOp>>(*ctx);
@@ -368,9 +377,11 @@ void vpux::VPU::registerSWTilingInfoOpInterfaceCommon(mlir::DialectRegistry& reg
         VPU::ReduceMaxOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ReduceMaxOp>>(*ctx);
         VPU::ReduceMeanOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ReduceMeanOp>>(*ctx);
         VPU::ReduceMinOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ReduceMinOp>>(*ctx);
-        VPU::ReverseOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ReverseOp>>(*ctx);
         VPU::ReduceProdOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ReduceProdOp>>(*ctx);
         VPU::ReduceSumOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ReduceSumOp>>(*ctx);
+        VPU::ReduceMeanSquareOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ReduceMeanSquareOp>>(*ctx);
+        VPU::ReverseOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ReverseOp>>(*ctx);
+        VPU::ReverseSequenceOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ReverseSequenceOp>>(*ctx);
         VPU::SwishOp::attachInterface<SwLayerTilingInfoOpModel<VPU::SwishOp>>(*ctx);
         VPU::NegativeOp::attachInterface<SwLayerTilingInfoOpModel<VPU::NegativeOp>>(*ctx);
         VPU::CeilingOp::attachInterface<SwLayerTilingInfoOpModel<VPU::CeilingOp>>(*ctx);

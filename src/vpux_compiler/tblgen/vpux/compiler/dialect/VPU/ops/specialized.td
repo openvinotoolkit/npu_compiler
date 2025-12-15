@@ -113,6 +113,7 @@ def VPU_DetectionOutputSortOp:
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
                                                                      "isOperationSplitOverWidthCompatible",
                                                                      "isOperationSplitOverKernelCompatible"]>,
+                DeclareOpInterfaceMethods<VPU_AuxiliaryBufferOpInterface>
             ]
         > {
     let summary = "DetectionOutputSort VPU layer";
@@ -148,6 +149,7 @@ def VPU_DetectionOutputSortOp:
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
     }] # baseExtraClassDeclaration;
 
+    let hasVerifier = 1;
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 }
 
@@ -499,11 +501,11 @@ def VPU_SDPAOp :
             "::mlir::Value":$inputV,
             "::mlir::Value":$inputMask,
             "::mlir::Value":$inputScale,
-            "::mlir::Value":$inputBias,
-            "::mlir::Value":$dataStorage
+            "::mlir::Value":$inputBias
         )>
     ];
 
+    let hasVerifier = 1;
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 }
 
@@ -526,8 +528,8 @@ def VPU_SDPAExtendedOp :
         AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$inputV,
         Optional<AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>>:$inputMask,
         Optional<AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>>:$inputScale,
-        Optional<AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>>:$dataStorage,
-        Optional<AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>>:$dpuStorage,
+        AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>:$dataStorage,
+        AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>:$dpuStorage,
         OptionalAttr<IntAttr>:$padSizeS,
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
@@ -538,7 +540,6 @@ def VPU_SDPAExtendedOp :
 
     let extraClassDeclaration = [{
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
-
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
     }] # baseExtraClassDeclaration;
 
@@ -549,21 +550,11 @@ def VPU_SDPAExtendedOp :
             "::mlir::Value":$inputV,
             "::mlir::Value":$inputMask,
             "::mlir::Value":$inputScale,
-            "::mlir::Value":$dataStorage,
-            "::mlir::Value":$dpuStorage,
-            "::mlir::IntegerAttr":$padSizeS
-        )>,
-        OpBuilder<(ins
-            "::mlir::Value":$inputQ,
-            "::mlir::Value":$inputK,
-            "::mlir::Value":$inputV,
-            "::mlir::Value":$inputMask,
-            "::mlir::Value":$inputScale,
-            "::mlir::Value":$dataStorage,
             "::mlir::IntegerAttr":$padSizeS
         )>
     ];
 
+    let hasVerifier = 1;
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 }
 
@@ -623,7 +614,7 @@ def VPU_NonMaxSuppressionOp :
     let arguments = (ins
         3DTensorOf<[F16, F32]>:$in_box_coords,
         3DTensorOf<[F16, F32]>:$in_box_scores,
-        Optional<AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>>:$dataBuffer,
+        AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>:$dataBuffer,
 
         IE_BoxEncodingTypeAttr:$box_encoding,
         UnitAttr:$sort_result_descending,
@@ -639,6 +630,21 @@ def VPU_NonMaxSuppressionOp :
         2DTensorOf<[F16, F32]>:$out_selected_scores,
         1DTensorOf<[SI32]>:$out_valid_outputs
     );
+
+    let builders = [
+        OpBuilder<(ins
+            "mlir::Value":$inBoxCoords,
+            "mlir::Value":$inBoxScores,
+            "IE::BoxEncodingTypeAttr":$boxEncoding,
+            "mlir::UnitAttr":$sortResultDescending,
+            "mlir::IntegerAttr":$maxOutputBoxesPerClassValue,
+            "mlir::FloatAttr":$iouThresholdValue,
+            "mlir::FloatAttr":$scoreThresholdValue,
+            "mlir::FloatAttr":$softNmsSigmaValue
+        )>
+    ];
+
+    let hasVerifier = 1;
 }
 
 
@@ -707,7 +713,7 @@ def VPU_ProposalOp :
         RankedTensorOf<[F16, F32]>:$class_probs,
         RankedTensorOf<[F16, F32]>:$bbox_deltas,
         RankedTensorOf<[F16, F32]>:$image_shape,
-        Optional<1DTensorOf<[UI8]>>:$auxiliary,
+        1DTensorOf<[UI8]>:$auxiliary,
 
         IE_ProposalAttr:$proposal_attrs
     );
@@ -717,6 +723,16 @@ def VPU_ProposalOp :
         RankedTensorOf<[F16, F32]>:$probs
     );
 
+    let builders = [
+        OpBuilder<(ins
+            "mlir::Value":$classProbs,
+            "mlir::Value":$bboxDelta,
+            "mlir::Value":$imageShape,
+            "IE::ProposalAttr":$proposalAttr
+        )>
+    ];
+
+    let hasVerifier = 1;
 }
 
 
@@ -765,6 +781,7 @@ def VPU_RandomUniformOp :
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
     }] # baseExtraClassDeclaration;
 
+    let checkInferredMemSpace = 0;
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 }
 
@@ -915,8 +932,7 @@ def VPU_TopKOp :
                 DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
-                DeclareOpInterfaceMethods<VPU_AuxiliaryBufferOpInterface>,
-                AttrSizedOperandSegments
+                DeclareOpInterfaceMethods<VPU_AuxiliaryBufferOpInterface>
             ]
         > {
     let summary = "TopK VPU layer";
@@ -929,7 +945,7 @@ def VPU_TopKOp :
     let arguments = (ins
         AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>:$input,
         Optional<RankedTensorOf<[AnyInteger]>>:$k,
-        Optional<AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>>:$lineBuffer,
+        AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>:$lineBuffer,
         OptionalAttr<IntAttr>:$k_value,
 
         IntAttr:$axis,
@@ -944,12 +960,27 @@ def VPU_TopKOp :
         AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>:$target_shape
     );
 
+    let builders = [
+        OpBuilder<(ins
+            "mlir::Value":$input,
+            "mlir::Value":$k,
+            "mlir::IntegerAttr":$kValue,
+            "mlir::IntegerAttr":$axis,
+            "IE::TopKModeAttr":$mode,
+            "IE::TopKSortTypeAttr":$sort,
+            "mlir::TypeAttr":$elementType,
+            "VPU::MultiClusterStrategyAttr":$multiClusterStrategy
+        )>
+    ];
+
     let extraClassDeclaration = [{
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
         OutputTiling getOutputTiling(const vpux::TileInfo& outputTile, vpux::Logger log);
     }] # baseExtraClassDeclaration;
 
+    let hasVerifier = 1;
+    let checkInferredMemSpace = 0;
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 }
 
@@ -1053,24 +1084,31 @@ def VPU_FlashSDPAOp :
                 AttrSizedOperandSegments,
                 DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_AuxiliaryBufferOpInterface>
             ]
         > {
     let summary = "Implements SDPA computation using FlashAttention-2 algorithm";
 
     let arguments = (ins
-        AnyTypeOf<[RankedTensorOf<[F16, F32, F64]>, VPU_DistributedTensor]>:$query,
-        AnyTypeOf<[RankedTensorOf<[F16, F32, F64]>, VPU_DistributedTensor]>:$key,
-        AnyTypeOf<[RankedTensorOf<[F16, F32, F64]>, VPU_DistributedTensor]>:$value,
+        AnyTypeOf<[RankedTensorOf<[F16]>, VPU_DistributedTensor]>:$query,
+        AnyTypeOf<[RankedTensorOf<[F16]>, VPU_DistributedTensor]>:$key,
+        AnyTypeOf<[RankedTensorOf<[F16]>, VPU_DistributedTensor]>:$value,
 
-        AnyTypeOf<[RankedTensorOf<[F16, F32, F64]>, VPU_DistributedTensor]>:$aux_buffer,
+        AnyTypeOf<[RankedTensorOf<[F16]>, VPU_DistributedTensor]>:$aux_buffer,
 
-        AnyTypeOf<[RankedTensorOf<[F16, F32, F64]>, VPU_DistributedTensor]>:$input_running_output,
-        AnyTypeOf<[RankedTensorOf<[F16, F32, F64]>, VPU_DistributedTensor]>:$input_running_max,
-        AnyTypeOf<[RankedTensorOf<[F16, F32, F64]>, VPU_DistributedTensor]>:$input_running_sum,
+        AnyTypeOf<[RankedTensorOf<[SI32]>, VPU_DistributedTensor]>:$dpu_descriptor_buffer,
+        AnyTypeOf<[RankedTensorOf<[SI32]>, VPU_DistributedTensor]>:$dpu_weights_table0,
+        AnyTypeOf<[RankedTensorOf<[SI32]>, VPU_DistributedTensor]>:$dpu_weights_table1,
 
-        Optional<AnyTypeOf<[RankedTensorOf<[F16, F32, F64]>, VPU_DistributedTensor]>>:$attention_mask,
-        Optional<AnyTypeOf<[RankedTensorOf<[F16, F32, F64]>, VPU_DistributedTensor]>>:$scale,
+        AnyTypeOf<[RankedTensorOf<[F16]>, VPU_DistributedTensor]>:$input_running_output,
+        AnyTypeOf<[RankedTensorOf<[F16]>, VPU_DistributedTensor]>:$input_running_max,
+        AnyTypeOf<[RankedTensorOf<[F16]>, VPU_DistributedTensor]>:$input_running_sum,
+
+        Optional<AnyTypeOf<[RankedTensorOf<[F16]>, VPU_DistributedTensor]>>:$attention_mask,
+        Optional<AnyTypeOf<[RankedTensorOf<[F16]>, VPU_DistributedTensor]>>:$scale,
+
+        IntAttr:$source_seq_len_pad_size,
 
         BoolAttr:$is_head,
         BoolAttr:$is_tail,
@@ -1089,7 +1127,8 @@ def VPU_FlashSDPAOp :
             "::mlir::Value":$input_running_max,
             "::mlir::Value":$input_running_sum,
             "::mlir::Value":$attention_mask,
-            "::mlir::Value":$scale
+            "::mlir::Value":$scale,
+            "::mlir::IntegerAttr":$source_seq_len_pad_size
         )>,
 
         OpBuilder<(ins
@@ -1101,6 +1140,7 @@ def VPU_FlashSDPAOp :
             "::mlir::Value":$input_running_sum,
             "::mlir::Value":$attention_mask,
             "::mlir::Value":$scale,
+            "::mlir::IntegerAttr":$source_seq_len_pad_size,
             "::mlir::BoolAttr":$is_head,
             "::mlir::BoolAttr":$is_tail,
             "::mlir::IntegerAttr":$kv_num_blocks,
@@ -1127,7 +1167,9 @@ def VPU_FlashSDPAOp :
         bool fitIntoCMXAfterKeyValueTiling(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem, int64_t kvNumBlocks);
     }] # baseExtraClassDeclaration;
 
+    let hasVerifier = 1;
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
+    let hasVerifier = 1;
 }
 
 #endif

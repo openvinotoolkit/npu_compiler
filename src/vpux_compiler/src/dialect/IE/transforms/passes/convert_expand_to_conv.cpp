@@ -13,6 +13,7 @@
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 
@@ -718,14 +719,19 @@ private:
 void ConvertExpandToConvPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
+    {
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.add<ExpandQuantizeSliceRewriter>(&ctx, _log);
 
-    mlir::RewritePatternSet patterns(&ctx);
-    patterns.add<ExpandQuantizeSliceRewriter>(&ctx, _log);
-    patterns.add<QuantizedExpandRewriter>(&ctx, _log);
-    patterns.add<DPUExpandRewriter>(&ctx, _log);
+        collectOpsAndApplyPatterns(func, std::move(patterns));
+    }
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
+    {
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.add<QuantizedExpandRewriter>(&ctx, _log);
+        patterns.add<DPUExpandRewriter>(&ctx, _log);
+
+        collectOpsAndApplyPatterns(func, std::move(patterns));
     }
 }
 

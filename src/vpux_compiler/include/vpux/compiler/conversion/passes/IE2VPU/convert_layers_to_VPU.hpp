@@ -12,6 +12,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/image.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/normalization.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/recurrent.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
@@ -166,6 +167,22 @@ public:
 
 public:
     mlir::LogicalResult matchAndRewrite(IE::TopKOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+//
+// MaxPool8Rewrite
+//
+
+class MaxPool8Rewrite final : public mlir::OpRewritePattern<IE::MaxPool8Op> {
+public:
+    MaxPool8Rewrite(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::MaxPool8Op>(ctx), _log(log) {
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::MaxPool8Op origOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
     Logger _log;

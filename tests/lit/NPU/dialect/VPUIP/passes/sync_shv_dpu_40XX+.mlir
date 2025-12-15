@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW allow-custom-values=true" --sync-shv-dpu %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 #GNHWC = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3, d4, d2)>
 config.Resources 4 of @NCE at 1.700000e+03 MHz {
@@ -36,7 +36,6 @@ func.func @AddSyncTaskAfterShaveKernelWithDpu(%arg3: memref<1x1x2x64xf16, @DDR>,
   %IN = VPURT.DeclareBuffer <CMX_NN> [0] <2112> -> memref<2x1x16x4x1xf16, #GNHWC, [@CMX_NN, 0]>
   %WEIGHTS = VPURT.DeclareBuffer <CMX_NN> [0] <12864> -> memref<2x32x16x1x1xf16, #GNHWC, [@CMX_NN, 0]>
   %OUT = VPURT.DeclareBuffer <CMX_NN> [0] <1600> -> memref<2x1x32x4x1xf16, #GNHWC, [@CMX_NN, 0]>
-  %WEIGHT_TABLE = VPURT.DeclareBuffer <CMX_NN> [0] <576> -> memref<2x32x1x1x4xsi32, [@CMX_NN, 0]>
 
   VPURT.Task waits(%20 : !VPURT.Barrier) updates(%21 : !VPURT.Barrier) {
     %results:3 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 3, 0, 0>} @VPU.SW::@builtin_LstmDpu inputs(%8 as %arg6: memref<1x1x2x256xf16, [@CMX_NN, 0]>, %9 as %arg7: memref<1x1x1x64xf16, [@CMX_NN, 0]>, %10 as %arg8: memref<1x1x1x64xf16, [@CMX_NN, 0]>, %11 as %arg9: memref<1x4x64x64xf16, [@CMX_NN, 0]>, %12 as %arg10: memref<1x1x1x2xsi32, [@CMX_NN, 0]>, %13 as %arg11: memref<1x1x1x1544xsi32, [@CMX_NN, 0]>) outputs(%14 as %arg12: memref<1x1x2x64xf16, [@CMX_NN, 0]>, %15 as %arg13: memref<1x1x1x64xf16, [@CMX_NN, 0]>, %16 as %arg14: memref<1x1x1x64xf16, [@CMX_NN, 0]>) on tile 0 -> (memref<1x1x2x64xf16, [@CMX_NN, 0]>, memref<1x1x1x64xf16, [@CMX_NN, 0]>, memref<1x1x1x64xf16, [@CMX_NN, 0]>){
@@ -57,7 +56,6 @@ func.func @AddSyncTaskAfterShaveKernelWithDpu(%arg3: memref<1x1x2x64xf16, @DDR>,
       }
       input(%IN : memref<2x1x16x4x1xf16, #GNHWC, [@CMX_NN, 0]>)
       weights(%WEIGHTS : memref<2x32x16x1x1xf16, #GNHWC, [@CMX_NN, 0]>)
-      weight_table(%WEIGHT_TABLE : memref<2x32x1x1x4xsi32, [@CMX_NN, 0]>)
       parent_input(%IN : memref<2x1x16x4x1xf16, #GNHWC, [@CMX_NN, 0]>)
       parent_output(%OUT : memref<2x1x32x4x1xf16, #GNHWC, [@CMX_NN, 0]>)
       outputs(%OUT : memref<2x1x32x4x1xf16, #GNHWC, [@CMX_NN, 0]>)
@@ -125,7 +123,6 @@ func.func @NotAddSyncTaskAfterShaveKernelBecauseNotInList(%arg3: memref<1x1x2x64
   %IN = VPURT.DeclareBuffer <CMX_NN> [0] <2112> -> memref<2x1x16x4x1xf16, #GNHWC, [@CMX_NN, 0]>
   %WEIGHTS = VPURT.DeclareBuffer <CMX_NN> [0] <12864> -> memref<2x32x16x1x1xf16, #GNHWC, [@CMX_NN, 0]>
   %OUT = VPURT.DeclareBuffer <CMX_NN> [0] <1600> -> memref<2x1x32x4x1xf16, #GNHWC, [@CMX_NN, 0]>
-  %WEIGHT_TABLE = VPURT.DeclareBuffer <CMX_NN> [0] <576> -> memref<2x32x1x1x4xsi32, [@CMX_NN, 0]>
 
   VPURT.Task waits(%20 : !VPURT.Barrier) updates(%21 : !VPURT.Barrier) {
     %results:3 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 3, 0, 0>} @VPU.SW::@builtin_LstmDpu inputs(%8 as %arg6: memref<1x1x2x256xf16, [@CMX_NN, 0]>, %9 as %arg7: memref<1x1x1x64xf16, [@CMX_NN, 0]>, %10 as %arg8: memref<1x1x1x64xf16, [@CMX_NN, 0]>, %11 as %arg9: memref<1x4x64x64xf16, [@CMX_NN, 0]>, %12 as %arg10: memref<1x1x1x2xsi32, [@CMX_NN, 0]>, %13 as %arg11: memref<1x1x1x1544xsi32, [@CMX_NN, 0]>) outputs(%14 as %arg12: memref<1x1x2x64xf16, [@CMX_NN, 0]>, %15 as %arg13: memref<1x1x1x64xf16, [@CMX_NN, 0]>, %16 as %arg14: memref<1x1x1x64xf16, [@CMX_NN, 0]>) on tile 0 -> (memref<1x1x2x64xf16, [@CMX_NN, 0]>, memref<1x1x1x64xf16, [@CMX_NN, 0]>, memref<1x1x1x64xf16, [@CMX_NN, 0]>){
@@ -146,7 +143,6 @@ func.func @NotAddSyncTaskAfterShaveKernelBecauseNotInList(%arg3: memref<1x1x2x64
       }
       input(%IN : memref<2x1x16x4x1xf16, #GNHWC, [@CMX_NN, 0]>)
       weights(%WEIGHTS : memref<2x32x16x1x1xf16, #GNHWC, [@CMX_NN, 0]>)
-      weight_table(%WEIGHT_TABLE : memref<2x32x1x1x4xsi32, [@CMX_NN, 0]>)
       parent_input(%IN : memref<2x1x16x4x1xf16, #GNHWC, [@CMX_NN, 0]>)
       parent_output(%OUT : memref<2x1x32x4x1xf16, #GNHWC, [@CMX_NN, 0]>)
       outputs(%OUT : memref<2x1x32x4x1xf16, #GNHWC, [@CMX_NN, 0]>)

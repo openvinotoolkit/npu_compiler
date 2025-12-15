@@ -40,18 +40,22 @@ class OptionsSetup {
 public:
     using value_type = OptionsType;
 
-    explicit OptionsSetup(const intel_npu::Config& config): _config(config) {
+    explicit OptionsSetup(const intel_npu::Config& config) {
         _options = parseCompilationModeParams<OptionsType>(config.get<intel_npu::COMPILATION_MODE_PARAMS>(),
                                                            getArchKind(config));
         VPUX_THROW_WHEN(_options == nullptr, "Failed to parse COMPILATION_MODE_PARAMS");
 
         // it makes sense to call getArchKind/getCompilationMode even though they will be "symbolized" and "stringified"
         // back since parameters will be verified
-        auto arch = getArchKind(config);
+        auto platform = getPlatform(config);
         auto compilationMode = getCompilationMode(config);
-        _initCompilerOptions = std::make_unique<VPU::InitCompilerOptions>(arch, compilationMode, *_options);
+        _initCompilerOptions = std::make_unique<VPU::InitCompilerOptions>(platform, compilationMode, *_options);
 
-        setupOptions();
+        applyConfig(config);
+        ConcreteModel::setupOptionsImpl(*_options.get(), *_initCompilerOptions, config);
+
+        // Apply platform specific defaults to initCompilerOptions
+        _initCompilerOptions->matchAndCopyOptionValuesFrom(*_options.get());
     }
 
     // lit-test mode
@@ -60,7 +64,11 @@ public:
               _initCompilerOptions(std::make_unique<VPU::InitCompilerOptions>()) {
         _initCompilerOptions->copyOptionValuesFrom(*initCompilerOptions);
         _options->copyOptionValuesFrom(*options);
-        setupOptions();
+
+        ConcreteModel::setupLitTestOptionsImpl(*_options.get(), *_initCompilerOptions);
+
+        // Apply platform specific defaults to initCompilerOptions
+        _initCompilerOptions->matchAndCopyOptionValuesFrom(*_options.get());
     }
 
     virtual ~OptionsSetup() = default;
@@ -84,69 +92,53 @@ protected:
     }
 
 private:
-    void setupOptions() {
-        // this way user can setup specific option values
-        // for different platforms and compilation modes
-        if (_config.has_value()) {
-            const auto& configVal = _config.value();
+    void applyConfig(const intel_npu::Config& config) {
+        // Note that all of the following options are explicit OV/Plugin options.
+        // Don't parse COMPILATION_MODE_PARAMS again!
 
-            // Note that all of the following options are explicit OV/Plugin options.
-            // Don't parse COMPILATION_MODE_PARAMS again!
+        // reuse PSS tests API
+        _initCompilerOptions->setAvailableCMXMemory(getAvailableCmx(config));
 
-            // reuse PSS tests API
-            _initCompilerOptions->setAvailableCMXMemory(getAvailableCmx(configVal));
-
-            maybeSetValue(_initCompilerOptions->revisionID, getRevisionID(configVal));
-            maybeSetValue(_initCompilerOptions->numberOfDPUGroups, getNumberOfDPUGroups(configVal));
-            maybeSetValue(_initCompilerOptions->numberOfDMAPorts, getNumberOfDMAEngines(configVal));
-            const auto dynamicQuantization = getCompilerDynamicQuantization(configVal);
-            maybeSetValue(_initCompilerOptions->enableWeightsDynamicDequantization, dynamicQuantization);
-            if (dynamicQuantization.has_value() && dynamicQuantization.value()) {
-                _initCompilerOptions->weightsTableReuseMode = vpux::WeightsTableReuseMode::ENABLED;
-            }
-
-            auto optimizationAggressiveEnabled = getQDQOptimizationAggressive(configVal);
-            maybeSetValue(_initCompilerOptions->enableQDQOptimizationAggressive, optimizationAggressiveEnabled);
-
-            auto optimizationEnabled = getQDQOptimization(configVal);
-            _initCompilerOptions->enableAdaptiveStripping =
-                    optimizationAggressiveEnabled.value_or(false) || optimizationEnabled.value_or(false);
-
-            maybeSetValue(_initCompilerOptions->enableProfiling, getPerfCount(configVal));
-
-            const auto& numOfDPUGroups = _initCompilerOptions->numberOfDPUGroups;
-            const auto& numOfDMAPorts = _initCompilerOptions->numberOfDMAPorts;
-
-            bool invalidConfig = numOfDPUGroups.hasValue() && numOfDMAPorts.hasValue() &&
-                                 numOfDMAPorts.getValue() > numOfDPUGroups.getValue();
-            VPUX_THROW_WHEN(invalidConfig,
-                            "Requested configuration not supported by runtime. Number of DMA ports ({0}) larger than "
-                            "NCE clusters ({1})",
-                            numOfDMAPorts.getValue(), numOfDPUGroups.getValue());
-
-            // TODO: #169147 remove this WA
-            _options->matchAndCopyOptionValuesFrom(*_initCompilerOptions);
-
-            ConcreteModel::setupOptionsImpl(*_options.get(), *_initCompilerOptions, configVal);
-        } else {
-            ConcreteModel::setupLitTestOptionsImpl(*_options.get(), *_initCompilerOptions);
+        maybeSetValue(_initCompilerOptions->revisionID, getRevisionID(config));
+        maybeSetValue(_initCompilerOptions->numberOfDPUGroups, getNumberOfDPUGroups(config));
+        maybeSetValue(_initCompilerOptions->numberOfDMAPorts, getNumberOfDMAEngines(config));
+        const auto dynamicQuantization = getCompilerDynamicQuantization(config);
+        maybeSetValue(_initCompilerOptions->enableWeightsDynamicDequantization, dynamicQuantization);
+        if (dynamicQuantization.has_value() && dynamicQuantization.value()) {
+            _initCompilerOptions->weightsTableReuseMode = vpux::WeightsTableReuseMode::ENABLED;
         }
+
+        auto optimizationAggressiveEnabled = getQDQOptimizationAggressive(config);
+        maybeSetValue(_initCompilerOptions->enableQDQOptimizationAggressive, optimizationAggressiveEnabled);
+
+        auto optimizationEnabled = getQDQOptimization(config);
+        _initCompilerOptions->enableAdaptiveStripping =
+                optimizationAggressiveEnabled.value_or(false) || optimizationEnabled.value_or(false);
+
+        maybeSetValue(_initCompilerOptions->enableProfiling, getPerfCount(config));
+
+        const auto& numOfDPUGroups = _initCompilerOptions->numberOfDPUGroups;
+        const auto& numOfDMAPorts = _initCompilerOptions->numberOfDMAPorts;
+
+        bool invalidConfig = numOfDPUGroups.hasValue() && numOfDMAPorts.hasValue() &&
+                             numOfDMAPorts.getValue() > numOfDPUGroups.getValue();
+        // E#182008 We can support maxDmaPorts once FWLM is enabled for NPU50XX+
+        invalidConfig = invalidConfig && getArchKind(config) != config::ArchKind::NPU50XX;
+        VPUX_THROW_WHEN(invalidConfig,
+                        "Requested configuration not supported by runtime. Number of DMA ports ({0}) larger than "
+                        "NCE clusters ({1})",
+                        numOfDMAPorts.getValue(), numOfDPUGroups.getValue());
     }
 
-    // This class can operate in 2 modes: Either the options stem from an instance of intel_npu::Config. In that case we
-    // parse it. In the other case the options come from instances of OptionsType and VPU::InitCompilerOptions. In that
-    // case we create a copy.
-    std::optional<intel_npu::Config> _config;
-    std::unique_ptr<OptionsType> _options;
-    std::unique_ptr<VPU::InitCompilerOptions> _initCompilerOptions;
-
-private:
     template <typename OptionType, typename ValType>
     static void maybeSetValue(OptionType& option, std::optional<ValType> value) {
         if (value.has_value()) {
             option = value.value();
         }
     }
+
+    std::unique_ptr<OptionsType> _options;
+    std::unique_ptr<VPU::InitCompilerOptions> _initCompilerOptions;
 };
 
 template <class OptionType, class ValueType>

@@ -46,16 +46,23 @@ void HostExec::buildHostExecPipeline(mlir::OpPassManager& pm, Logger /*log*/) {
     // are added in ConvertToLLVMUMDCalls
     pm.addPass(mlir::LLVM::createRequestCWrappersPass());
 
-    // Lowering to LLVM passes
-    pm.addPass(mlir::createConvertSCFToCFPass());
-    pm.addPass(mlir::memref::createExpandStridedMetadataPass());
-    pm.addPass(mlir::createConvertControlFlowToLLVMPass());
+    // Lowering to LLVM passes, inspired by mlir/test/lib/Dialect/LLVM/TestLowerToLLVM.cpp
     pm.addPass(mlir::createLowerAffinePass());
-    pm.addPass(mlir::createConvertFuncToLLVMPass());
+    pm.addPass(mlir::createConvertSCFToCFPass());
+    pm.addPass(mlir::createCanonicalizerPass(grc));
+    pm.addPass(mlir::createCSEPass());
 
+    pm.addPass(mlir::memref::createExpandStridedMetadataPass());
+    pm.addPass(mlir::createLowerAffinePass());
     pm.addPass(mlir::createFinalizeMemRefToLLVMConversionPass());
+
+    pm.addPass(mlir::createConvertFuncToLLVMPass());
+    pm.addPass(mlir::createArithToLLVMConversionPass());
+    pm.addPass(mlir::createConvertControlFlowToLLVMPass());
+    pm.addPass(mlir::createConvertIndexToLLVMPass());
 
     pm.addPass(mlir::createReconcileUnrealizedCastsPass());
 
     pm.addPass(mlir::createCanonicalizerPass(grc));
+    pm.addPass(mlir::createCSEPass());
 }

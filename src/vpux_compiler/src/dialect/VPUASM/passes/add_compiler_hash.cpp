@@ -9,7 +9,6 @@
 #include "vpux/compiler/dialect/VPUASM/dialect.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 #include "vpux/compiler/dialect/VPUASM/passes.hpp"
-#include "vpux/compiler/utils/ELF/utils.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 
 namespace vpux::VPUASM {

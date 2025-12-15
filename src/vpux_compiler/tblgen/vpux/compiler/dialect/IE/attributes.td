@@ -600,6 +600,12 @@ def IE_ExpAttr : IE_Attr<"Exp", [
     ] > {
 }
 
+def IE_HSwishAttr : IE_Attr<"HSwish", [
+        DeclareAttrInterfaceMethods<IE_PostOpAttrInterface>,
+        IE_ChannelAgnosticAttr
+    ] > {
+}
+
 //
 // ConcatAttr
 //

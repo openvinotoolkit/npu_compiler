@@ -193,7 +193,6 @@ private:
     bool _wlmPageApproach = false;
 
     SmallVector<SmallVector<BarrierUserConfig>> _dmaTasks;
-    std::unordered_map<SmallVector<DmaTaskIdx>, bool> _multiQueueDmaTaskStatus;
     SmallVector<BarrierUserConfig> _nceTasks;
     SmallVector<BarrierUserConfig> _actTasks;
     SmallVector<BarrierUserConfig> _m2iTasks;

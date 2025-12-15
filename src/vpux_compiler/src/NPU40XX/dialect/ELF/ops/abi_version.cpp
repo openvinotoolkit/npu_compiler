@@ -7,7 +7,7 @@
 #include <cstring>
 #include <vpux_elf/writer.hpp>
 #include "vpux/compiler/NPU40XX/dialect/ELF/ops.hpp"
-#include "vpux/compiler/utils/ELF/utils.hpp"
+#include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 
 using LoaderAbiVersionNote = elf::elf_note::VersionNote;
 
@@ -23,7 +23,7 @@ void vpux::ELF::ABIVersionOp::serialize(elf::writer::BinaryDataSection<uint8_t>&
     static_assert(sizeof(name) == nameSize);
     std::memcpy(abiVersionStruct.n_name, name, nameSize);
 
-    const uint32_t desc[4] = {elf::elf_note::ELF_NOTE_OS_LINUX, getMajor(), getMinor(), getPatch()};
+    const uint32_t desc[4] = {0, getMajor(), getMinor(), getPatch()};
     static_assert(sizeof(desc) == descSize);
     std::memcpy(abiVersionStruct.n_desc, desc, descSize);
 

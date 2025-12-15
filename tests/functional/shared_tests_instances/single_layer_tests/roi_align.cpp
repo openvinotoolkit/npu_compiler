@@ -10,7 +10,6 @@
 using namespace ov::test::utils;
 
 namespace ov {
-
 namespace test {
 
 class ROIAlignV9LayerTestCommon : public ROIAlignV9LayerTest, virtual public VpuOv2LayerTest {
@@ -33,6 +32,11 @@ TEST_P(ROIAlignV9LayerTestCommon, NPU4000_SW) {
     abs_threshold = 0.012;
     setReferenceSoftwareMode();
     run(Platform::NPU4000);
+}
+TEST_P(ROIAlignV9LayerTestCommon, NPU5010_SW) {
+    abs_threshold = 0.03;
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
 }
 }  // namespace test
 }  // namespace ov

@@ -130,8 +130,8 @@ protected:
     void SetUp() override {
         const auto& [inputShapes, inputType, indicesType] = this->GetParam();
 
-        const auto data = static_cast<ov::test::InputShape>(std::get<DataShape>(inputShapes));
-        const auto indices = static_cast<ov::test::InputShape>(std::get<IndicesShape>(inputShapes));
+        const auto data = std::get<DataShape>(inputShapes).value();
+        const auto indices = std::get<IndicesShape>(inputShapes).value();
 
         const auto appendUpdatesShape = [](const std::vector<ov::Shape>& staticInputsShapes) -> std::vector<ov::Shape> {
             VPUX_THROW_UNLESS(staticInputsShapes.size() == 2, "Unexpected number of inputs");
@@ -156,18 +156,18 @@ protected:
         inputDynamicShapes = {ov::test::utils::getBoundedShape(data), ov::test::utils::getBoundedShape(indices),
                               ov::test::utils::getBoundedShape(updates)};
 
-        auto param = std::make_shared<ov::op::v0::Parameter>(inputType, inputDynamicShapes.at(0));
-        auto indices_param = std::make_shared<ov::op::v0::Parameter>(indicesType, inputDynamicShapes.at(1));
-        auto update_param = std::make_shared<ov::op::v0::Parameter>(inputType, inputDynamicShapes.at(2));
+        auto param = std::make_shared<ov::op::v0::Parameter>(inputType.value(), inputDynamicShapes.at(0));
+        auto indicesParam = std::make_shared<ov::op::v0::Parameter>(indicesType.value(), inputDynamicShapes.at(1));
+        auto updateParam = std::make_shared<ov::op::v0::Parameter>(inputType.value(), inputDynamicShapes.at(2));
 
-        auto scatterNDUpdate = std::make_shared<ov::opset4::ScatterNDUpdate>(param, indices_param, update_param);
+        auto scatterNDUpdate = std::make_shared<ov::opset4::ScatterNDUpdate>(param, indicesParam, updateParam);
 
         auto results = ov::ResultVector();
         for (size_t i = 0; i < scatterNDUpdate->get_output_size(); i++) {
             results.push_back(std::make_shared<ov::opset3::Result>(scatterNDUpdate->output(i)));
         }
 
-        function = std::make_shared<ov::Model>(results, ov::ParameterVector{param, indices_param, update_param},
+        function = std::make_shared<ov::Model>(results, ov::ParameterVector{param, indicesParam, updateParam},
                                                "DynamicScatterNDUpdate");
     }
 };

@@ -14,6 +14,7 @@
 
 #include "vpux/compiler/utils/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
@@ -186,11 +187,7 @@ void UnrollFetchTaskOpsPass::safeRunOnFunc() {
     mlir::RewritePatternSet patterns(ctx);
     patterns.add<RewriteFetchTaskToDma>(ctx, arch, _log);
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(netFunc, std::move(patterns),
-                                                        vpux::getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
-    }
-
+    collectOpsAndApplyPatterns(netFunc, std::move(patterns));
     auto parentModule = netFunc.getOperation()->getParentOfType<mlir::ModuleOp>();
     const auto tilesCount = config::getTileExecutor(parentModule).getCount();
 

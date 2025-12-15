@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --debatcher %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @SingleInputSingleOutputBatched
 func.func @SingleInputSingleOutputBatched(%arg: tensor<3x3x62x62xf32>) -> tensor<3x48x60x60xf32> {

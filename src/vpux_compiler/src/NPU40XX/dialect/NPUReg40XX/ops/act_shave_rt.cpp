@@ -7,7 +7,7 @@
 #include <vpux_elf/accessor.hpp>
 #include <vpux_elf/reader.hpp>
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/ops.hpp"
-#include "vpux/compiler/utils/ELF/utils.hpp"
+#include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 
 using namespace vpux;
 

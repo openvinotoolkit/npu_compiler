@@ -44,6 +44,10 @@ TEST_P(ReshapeLayerTestCommon, NPU4000_SW) {
     VpuOv2LayerTest::setReferenceSoftwareMode();
     VpuOv2LayerTest::run(Platform::NPU4000);
 }
+TEST_P(ReshapeLayerTestCommon, NPU5010_SW) {
+    VpuOv2LayerTest::setReferenceSoftwareMode();
+    VpuOv2LayerTest::run(Platform::NPU5010);
+}
 }  // namespace test
 }  // namespace ov
 

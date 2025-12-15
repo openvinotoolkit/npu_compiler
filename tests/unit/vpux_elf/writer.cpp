@@ -188,6 +188,37 @@ TEST(ELFWriter, SymbolSection) {
     ASSERT_EQ(relatedSection.getHeader()->sh_type, elf::SHT_NOBITS);
 }
 
+TEST(ELFWriter, DmaSymbolSection) {
+    const auto testName = std::string(".test");
+
+    elf::Writer writer;
+    auto dmaSymbolSection = writer.addDmaSymbolSection(testName);
+    auto dmaSymbol = dmaSymbolSection->addDmaSymbolEntry();
+
+    elf::DmaSymbolEntry expectedDmaSymbolEntry{
+            1, 0xB, {1, 1, 1, 1, 1, 1}, {1, 2, 3, 4, 5, 6}, {0, 0, 1, 0, 0, 0}, {1, 1, 1, 1, 1, 1}, {1, 2, 3, 4, 5, 6},
+            4};
+    dmaSymbol->setDmaSymbol(expectedDmaSymbolEntry);
+
+    writer.prepareWriter();
+    std::vector<uint8_t> blob(writer.getTotalSize());
+    OV_ASSERT_NO_THROW(writer.generateELF(blob.data()));
+
+    auto accessor = elf::DDRAccessManager<elf::DDRAlwaysEmplace>(blob.data(), blob.size());
+    elf::Reader<elf::ELF_Bitness::Elf64> reader(&accessor);
+    const auto symbolSections = getSectionsByType(reader, elf::VPU_SHT_DMA_SYMBOLS);
+    ASSERT_EQ(symbolSections.size(), 1);
+
+    const auto& symbolSection = symbolSections.front();
+    ASSERT_EQ(getSectionName(reader, symbolSection), testName);
+    ASSERT_EQ(symbolSection.getHeader()->sh_entsize, sizeof(elf::DmaSymbolEntry));
+    ASSERT_EQ(symbolSection.getHeader()->sh_size, sizeof(elf::DmaSymbolEntry));
+
+    const auto actualDmaSymbol = symbolSection.getData<elf::DmaSymbolEntry>()[0];
+
+    ASSERT_EQ(std::memcmp(&expectedDmaSymbolEntry, &actualDmaSymbol, sizeof(elf::DmaSymbolEntry)), 0);
+}
+
 TEST(ELFWriter, SymbolSectionStableSort) {
     const auto testName = std::string(".test");
     constexpr int symbolValue = 2;
@@ -298,6 +329,65 @@ TEST(ELFWriter, RelocationSection) {
     ASSERT_EQ(getSymbolName(reader, symbolTable, symbol), testSymbolName);
     ASSERT_EQ(elf::elf64STType(symbol.st_info), testSymbolType);
     ASSERT_EQ(symbol.st_size, testSymbolSize);
+}
+
+TEST(ELFWriter, RelocationSectionForDmaSymbols) {
+    const auto testBinaryDataName = std::string(".test.BinaryData");
+    const auto testRelocationName = std::string(".test.Relocation");
+    const auto testSymbolSection = std::string(".test.Symbols");
+    const auto testSymbolName = std::string(".test.Symbol");
+    struct TestObject {
+        uint32_t a = 0;
+        uint64_t b = 0;
+    };
+
+    elf::Writer writer;
+    auto refBinaryDataSection = writer.addBinaryDataSection<TestObject>(testBinaryDataName);
+    refBinaryDataSection->setSize(sizeof(TestObject));
+
+    auto refSymbolSection = writer.addDmaSymbolSection(testSymbolSection);
+    auto refSymbol = refSymbolSection->addDmaSymbolEntry();
+
+    elf::DmaSymbolEntry expectedDmaSymbolEntry{
+            1, 0xB, {1, 1, 1, 1, 1, 1}, {1, 2, 3, 4, 5, 6}, {0, 0, 1, 0, 0, 0}, {1, 1, 1, 1, 1, 1}, {1, 2, 3, 4, 5, 6},
+            4};
+    refSymbol->setDmaSymbol(expectedDmaSymbolEntry);
+
+    auto refRelocationSection = writer.addRelocationSection(testRelocationName);
+    refRelocationSection->setSectionToPatch(refBinaryDataSection);
+    refRelocationSection->setSpecialSymbolTable(refSymbolSection->getIndex());
+    auto refRelocation = refRelocationSection->addRelocationEntry();
+    refRelocation->setSpecialSymbol(refSymbol->getIndex());
+    refRelocation->setOffset(sizeof(TestObject::a));
+    refRelocation->setAddend(0);
+
+    writer.prepareWriter();
+    std::vector<uint8_t> blob(writer.getTotalSize());
+    OV_ASSERT_NO_THROW(writer.generateELF(blob.data()));
+    OV_ASSERT_NO_THROW(writer.setSectionsStartAddr(blob.data()));
+    refBinaryDataSection->appendData(TestObject{});
+
+    auto accessor = elf::DDRAccessManager<elf::DDRAlwaysEmplace>(blob.data(), blob.size());
+    elf::Reader<elf::ELF_Bitness::Elf64> reader(&accessor);
+    const auto relocationSections = getSectionsByType(reader, elf::SHT_RELA);
+    ASSERT_EQ(relocationSections.size(), 1);
+
+    const auto& relocationSection = relocationSections.front();
+    ASSERT_EQ(getSectionName(reader, relocationSection), testRelocationName);
+    ASSERT_EQ(relocationSection.getHeader()->sh_entsize, sizeof(elf::RelocationAEntry));
+    ASSERT_EQ(relocationSection.getHeader()->sh_size, sizeof(elf::RelocationAEntry));
+
+    const auto relocationToPatch = reader.getSection(relocationSection.getHeader()->sh_info);
+    ASSERT_EQ(getSectionName(reader, relocationToPatch), testBinaryDataName);
+    ASSERT_EQ(relocationToPatch.getHeader()->sh_type, elf::SHT_PROGBITS);
+
+    auto symbolTable = reader.getSection(relocationSection.getHeader()->sh_link);
+    ASSERT_EQ(getSectionName(reader, symbolTable), testSymbolSection);
+    ASSERT_EQ(symbolTable.getHeader()->sh_type, elf::VPU_SHT_DMA_SYMBOLS);
+
+    const auto relocation = relocationSection.getData<elf::RelocationAEntry>()[0];
+    ASSERT_EQ(relocation.r_addend, 0);
+    ASSERT_EQ(relocation.r_offset, sizeof(TestObject::a));
 }
 
 TEST(ELFWriter, SpecialSymReloc) {

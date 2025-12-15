@@ -3,11 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/merge_vf_region_rewriter.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/merge_vf_region_rewriter.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 
 namespace vpux::VPU {
 #define GEN_PASS_DECL_MERGEVFSUBGRAPHS
@@ -101,8 +102,14 @@ void MergeVfSubgraphsPass::safeRunOnFunc() {
     }
 
     auto config = getDefaultGreedyRewriteConfig();
+    // VF is a cost-based pass. Whether some VF blocks can be merged may depend on preceding blocks.
+    // However, if a block is scheduled before its previous block, additional iterations are needed.
+    // In the worst case, this can exceed the default maxIterations limit.
+    // Therefore, we increase maxIterations to ensure all possible merges are performed.
+    // TODO: #192550 Refactor the pass to avoid iteration-related issues.
+    config.maxIterations *= 10;
     config.useTopDownTraversal = maxTilingOp == maxTiling.end() || maxTilingOp != std::prev(maxTiling.end());
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), config))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), config))) {
         signalPassFailure();
     }
 }

@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 
 namespace vpux::VPUIP {
 #define GEN_PASS_DECL_BATCHMATMULTOMATMUL
@@ -254,9 +255,7 @@ void BatchMatMulToMatMul::safeRunOnFunc() {
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<MatMulRewriter>(&ctx, _log);
 
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), vpux::getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
-    }
+    collectOpsAndApplyPatterns(func, std::move(patterns));
 }
 
 }  // namespace

@@ -12,7 +12,7 @@
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/Transforms/DialectConversion.h>
 
 namespace vpux::IE {
@@ -165,7 +165,7 @@ void ConvertToDequantizePass::safeRunOnFunc() {
     patterns.add<ConvertOpConverter>(&ctx, _log);
 
     auto func = getOperation();
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

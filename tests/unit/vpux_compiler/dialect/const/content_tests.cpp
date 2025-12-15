@@ -18,8 +18,8 @@
 #include "common/utils.hpp"
 
 #include <llvm/Support/raw_os_ostream.h>
-#include <mlir/Dialect/Quant/QuantOps.h>
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/Quant.h>
+
 #include <mlir/IR/AsmState.h>
 #include <mlir/IR/BuiltinDialect.h>
 #include <mlir/IR/DialectResourceBlobManager.h>
@@ -983,7 +983,7 @@ TEST_F(MLIR_ConstContentAttrTest, Add) {
 }
 
 TEST_F(MLIR_ConstContentAttrTest, QuantCast) {
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     const auto baseType = mlir::RankedTensorType::get({1, 16}, getUInt8Type(&ctx));
 
@@ -1011,7 +1011,7 @@ TEST_F(MLIR_ConstContentAttrTest, QuantCast) {
 }
 
 TEST_F(MLIR_ConstContentAttrTest, Dequantize) {
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     const auto baseType = mlir::RankedTensorType::get({1, 16}, getSInt8Type(&ctx));
 
@@ -1289,7 +1289,7 @@ TEST_F(MLIR_ConstContentAttrTest, PadSplat) {
 }
 
 TEST_F(MLIR_ConstContentAttrTest, PadUniformQuant) {
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     const int64_t OC = 2;
     const int64_t IC = 1;
@@ -1329,7 +1329,7 @@ TEST_F(MLIR_ConstContentAttrTest, PadUniformQuant) {
 }
 
 TEST_F(MLIR_ConstContentAttrTest, PadPerAxisQuant) {
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     const int64_t OC = 2;
     const int64_t IC = 1;
@@ -1382,7 +1382,7 @@ TEST_F(MLIR_ConstContentAttrTest, PadPerAxisQuant) {
 }
 
 TEST_F(MLIR_ConstContentAttrTest, PadUniformQuantileI4) {
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     const int64_t OC = 1;
     const int64_t IC = 1;
@@ -1428,7 +1428,7 @@ TEST_F(MLIR_ConstContentAttrTest, PadUniformQuantileI4) {
 }
 
 TEST_F(MLIR_ConstContentAttrTest, PadPerAxisQuantileI4) {
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     const int64_t OC = 1;
     const int64_t IC = 1;
@@ -1813,7 +1813,7 @@ TEST_F(MLIR_ConstContentAttrTest, GetSparsityMap) {
 }
 
 TEST_F(MLIR_ConstContentAttrTest, GetSparsityMapQuantized) {
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     const int64_t OC = 1;
     const int64_t IC = 1;
@@ -1927,7 +1927,7 @@ TEST_F(MLIR_ConstContentAttrTest, Sparsify_True) {
 }
 
 TEST_F(MLIR_ConstContentAttrTest, SparsifyQuantized) {
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     const int64_t IN = 2;
     const int64_t IC = 1;
@@ -1998,7 +1998,7 @@ TEST_F(MLIR_ConstContentAttrTest, PositionRequirement) {
 }
 
 TEST_F(MLIR_ConstContentAttrTest, ChangeShapeAndElemType) {
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     const auto baseType = mlir::RankedTensorType::get({2, 1, 1, 8}, getUInt8Type(&ctx));
     const auto vals = generateValues<uint8_t>(baseType.getNumElements());
@@ -2024,7 +2024,7 @@ TEST_F(MLIR_ConstContentAttrTest, ChangeShapeAndElemType) {
 }
 
 TEST_F(MLIR_ConstContentAttrTest, ChangeShapeAndElemTypePerAxisQuant) {
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     const auto baseType = mlir::RankedTensorType::get({2, 1, 1, 8}, getUInt8Type(&ctx));
     const auto vals = generateValues<uint8_t>(baseType.getNumElements());
@@ -2547,7 +2547,7 @@ class MLIR_ConstContentAttrTest_ConvertElemType :
         public ::testing::WithParamInterface<GetConvertElemTypeParams> {
 public:
     MLIR_ConstContentAttrTest_ConvertElemType() {
-        ctx.loadDialect<mlir::quant::QuantizationDialect>();
+        ctx.loadDialect<mlir::quant::QuantDialect>();
     }
 };
 
@@ -2716,7 +2716,7 @@ INSTANTIATE_TEST_SUITE_P(
                 }));
 
 TEST_F(MLIR_ConstContentAttrTest, Quantize) {
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     const auto baseType = mlir::RankedTensorType::get({1, 16}, mlir::Float32Type::get(&ctx));
     std::vector<float> vals = {-2.0, -1.75, -1.5, -1.25, -1.0, -0.75, -0.5, -0.25,
@@ -2747,7 +2747,7 @@ TEST_F(MLIR_ConstContentAttrTest, Quantize) {
 }
 
 TEST_F(MLIR_ConstContentAttrTest, Quantize_Subbyte_s4) {
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     const auto baseType = mlir::RankedTensorType::get({1, 16}, mlir::Float32Type::get(&ctx));
     std::vector<float> vals = {-2.0, -1.75, -1.5, -1.25, -1.0, -0.75, -0.5, -0.25,
@@ -2777,7 +2777,7 @@ TEST_F(MLIR_ConstContentAttrTest, Quantize_Subbyte_s4) {
 }
 
 TEST_F(MLIR_ConstContentAttrTest, Quantize_Subbyte_u4) {
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     const auto baseType = mlir::RankedTensorType::get({1, 16}, mlir::Float32Type::get(&ctx));
     std::vector<float> vals = {-2.0, -1.75, -1.5, -1.25, -1.0, -0.75, -0.5, -0.25,
@@ -2806,7 +2806,7 @@ TEST_F(MLIR_ConstContentAttrTest, Quantize_Subbyte_u4) {
 }
 
 TEST_F(MLIR_ConstContentAttrTest, Quantize_Subbyte_u6) {
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     const auto baseType = mlir::RankedTensorType::get({1, 16}, mlir::Float32Type::get(&ctx));
     std::vector<float> vals = {-2.0, -1.75, -1.5, -1.25, -1.0, -0.75, -0.5, -0.25,
@@ -2835,7 +2835,7 @@ TEST_F(MLIR_ConstContentAttrTest, Quantize_Subbyte_u6) {
 }
 
 TEST_F(MLIR_ConstContentAttrTest, Quantize_Subbyte_u3) {
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     const auto baseType = mlir::RankedTensorType::get({1, 16}, mlir::Float32Type::get(&ctx));
     std::vector<float> vals = {-2.0, -1.75, -1.5, -1.25, -1.0, -0.75, -0.5, -0.25,
@@ -2865,7 +2865,7 @@ TEST_F(MLIR_ConstContentAttrTest, Quantize_Subbyte_u3) {
 }
 
 TEST_F(MLIR_ConstContentAttrTest, Quantize_Subbyte_s2) {
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     const auto baseType = mlir::RankedTensorType::get({1, 16}, mlir::Float32Type::get(&ctx));
     std::vector<float> vals = {-2.0, -1.75, -1.5, -1.25, -1.0, -0.75, -0.5, -0.25,
@@ -2895,7 +2895,7 @@ TEST_F(MLIR_ConstContentAttrTest, Quantize_Subbyte_s2) {
 }
 
 TEST_F(MLIR_ConstContentAttrTest, Quantize_Subbyte_u2) {
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     const auto baseType = mlir::RankedTensorType::get({1, 16}, mlir::Float32Type::get(&ctx));
     std::vector<float> vals = {-2.0, -1.75, -1.5, -1.25, -1.0, -0.75, -0.5, -0.25,
@@ -2924,7 +2924,7 @@ TEST_F(MLIR_ConstContentAttrTest, Quantize_Subbyte_u2) {
 }
 
 TEST_F(MLIR_ConstContentAttrTest, Quantize_Subbyte_u1) {
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     const auto baseType = mlir::RankedTensorType::get({1, 16}, mlir::Float32Type::get(&ctx));
     std::vector<float> vals = {-2.0, -1.75, -1.5, -1.25, -1.0, -0.75, -0.5, -0.25,
@@ -2953,7 +2953,7 @@ TEST_F(MLIR_ConstContentAttrTest, Quantize_Subbyte_u1) {
 }
 
 TEST_F(MLIR_ConstContentAttrTest, PerAxisQuantize_s8) {
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     const auto baseType = mlir::RankedTensorType::get({2, 16}, mlir::Float32Type::get(&ctx));
     std::vector<float> vals(baseType.getNumElements());
@@ -2994,7 +2994,7 @@ TEST_F(MLIR_ConstContentAttrTest, PerAxisQuantize_s8) {
 }
 
 TEST_F(MLIR_ConstContentAttrTest, PerAxisQuantize_s4) {
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     const auto baseType = mlir::RankedTensorType::get({2, 16}, mlir::Float32Type::get(&ctx));
     std::vector<float> vals(baseType.getNumElements());
@@ -3037,7 +3037,7 @@ TEST_F(MLIR_ConstContentAttrTest, PerAxisQuantize_s4) {
 }
 
 TEST_F(MLIR_ConstContentAttrTest, DequantizeQuantize) {
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     const auto si8Type = getSInt8Type(&ctx);
     // Quantize to 0.003;-21;<-120;120> type => [-0.297;0.423]
@@ -3185,11 +3185,11 @@ TEST_F(MLIR_ConstContentAttrTest_StableHash, SameValues_CastElemTypeUniformPerAx
     mlir::MLIRContext ctx1;
     ctx1.appendDialectRegistry(registry);
     ctx1.loadDialect<Const::ConstDialect>();
-    ctx1.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx1.loadDialect<mlir::quant::QuantDialect>();
     mlir::MLIRContext ctx2;
     ctx2.appendDialectRegistry(registry);
     ctx2.loadDialect<Const::ConstDialect>();
-    ctx2.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx2.loadDialect<mlir::quant::QuantDialect>();
 
     const auto getHash = [&](bool secondCall) {
         auto& currentCtx = secondCall ? ctx2 : ctx1;
@@ -3225,11 +3225,11 @@ TEST_F(MLIR_ConstContentAttrTest_StableHash, SameValues_CastElemTypeQuantilePerA
     mlir::MLIRContext ctx1;
     ctx1.appendDialectRegistry(registry);
     ctx1.loadDialect<Const::ConstDialect>();
-    ctx1.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx1.loadDialect<mlir::quant::QuantDialect>();
     mlir::MLIRContext ctx2;
     ctx2.appendDialectRegistry(registry);
     ctx2.loadDialect<Const::ConstDialect>();
-    ctx2.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx2.loadDialect<mlir::quant::QuantDialect>();
 
     const auto getHash = [&](bool secondCall) {
         auto& currentCtx = secondCall ? ctx2 : ctx1;

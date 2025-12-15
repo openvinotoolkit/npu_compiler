@@ -34,6 +34,8 @@ std::string getMoviLDArchPath(config::ArchKind arch) {
         return "37xxxx";
     case config::ArchKind::NPU40XX:
         return "40xxxx";
+    case config::ArchKind::NPU50XX:
+        return "50xxxx";
     default:
         VPUX_THROW("Invalid ArchKind for Movi LLD path resolution");
     }
@@ -140,7 +142,7 @@ void vpux::lowerLLVMToBinary(mlir::ModuleOp moduleOp, std::unique_ptr<llvm::Modu
     VPUX_THROW_UNLESS(arch != config::ArchKind::UNKNOWN, "Could not identify arch");
 
     auto llvmFuncOpNameStr = llvmFuncOp.getName().str();
-    ShaveBinaryResources& sbr = ShaveBinaryResources::getInstance();
+    ShaveBinaryResources& sbr = ShaveBinaryResourcesCache::getCache(moduleOp->getContext());
 
     auto archArgument = sbr.getSwKernelArchString(arch);
 

@@ -49,7 +49,7 @@ void WeightsDequantizeToFakeQuantizePass::safeRunOnFunc() {
     // forever until convergence. if this halts, there's a bug somewhere in the
     // pass.
     config.maxIterations = mlir::GreedyRewriteConfig::kNoLimit;
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), config))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), config))) {
         signalPassFailure();
     }
 }

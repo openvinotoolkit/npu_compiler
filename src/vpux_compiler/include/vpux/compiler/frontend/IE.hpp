@@ -46,6 +46,7 @@ struct ImportNetworkConfig {
     DummyOpMode stubLayers = DummyOpMode::DISABLED;
     bool dynamicShapeToStatic = false;
     bool enableWeightsSeparationPath = false;
+    bool enableDecomposeSDPA = false;
 };
 
 // TODO Get rid of this function (importNetwork), move logic to compiler.cpp
@@ -62,7 +63,7 @@ std::vector<std::shared_ptr<const ov::Node>> buildOVResults(const std::shared_pt
 class NGraphPasses final {
 public:
     static void runNGraphPasses(const std::shared_ptr<ov::Model>& netGraph, mlir::TimingScope& rootTiming,
-                                bool enableWeightsSeparationPath = false);
+                                const ImportNetworkConfig& importCfg);
 };
 
 class NGraphImporter final {
@@ -282,10 +283,12 @@ private:
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset8::DeformableConvolution>& origNode);
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset1::VariadicSplit>& origNode);
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset13::ScaledDotProductAttention>& origNode);
+    void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::op::v16::Identity>& origNode);
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::op::Op>& origNode);
 
     SmallVector<mlir::Value> getInputs(const OrigNodePtr& node);
     void addOutputs(const OrigNodePtr& node, mlir::Operation* op);
+    void addOutputs(const OrigNodePtr& node, const std::vector<mlir::Value>& outputs);
     mlir::Location createLocation(const OrigNodePtr& node);
 
     mlir::RankedTensorType importTensor(const ov::PartialShape& shape, const ov::element::Type& elemType);

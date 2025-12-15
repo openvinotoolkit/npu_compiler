@@ -10,7 +10,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/transforms/factories/map_bilinear_interpolate_on_dpu_strategy_getter.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
@@ -282,7 +282,7 @@ mlir::Value IE::MapBilinearInterpolateOnDPUBaseRewriter::scaleOnAxis(mlir::Patte
 
 mlir::LogicalResult IE::MapBilinearInterpolateOnDPUBaseRewriter::matchAndRewrite(
         IE::InterpolateOp origOp, mlir::PatternRewriter& rewriter) const {
-    _log.trace("Got '{1}' at '{2}'", origOp->getName(), origOp->getLoc());
+    _log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
     const auto attrs = origOp.getAttr();
     const auto axesValue = parseIntArrayAttr<int64_t>(origOp.getAxesAttrAttr());

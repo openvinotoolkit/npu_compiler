@@ -21,7 +21,7 @@
 
 using namespace vpux;
 
-void copy_str(char* dst, const std::string& src, bool throwOnErr = false) {
+static void copy_str(char* dst, const std::string& src, bool throwOnErr = false) {
     VPUX_THROW_WHEN(throwOnErr && (src.size() >= elf::MAX_STRING_LEN), "Target char array is too small");
     auto str_len = src.size() < elf::MAX_STRING_LEN ? src.size() : elf::MAX_STRING_LEN - 1;
 
@@ -70,14 +70,14 @@ elf::DType ELFNPU37XX::createDType(mlir::Type type) {
         return elf::DType::DType_BIN;
     } else if (mlir::isa<mlir::quant::QuantizedType>(type)) {
         return createDType(mlir::cast<mlir::quant::QuantizedType>(type).getStorageType());
-    } else if (mlir::isa<vpux::type::QuantileFloatType>(type)) {
+    } else if (mlir::isa<type::QuantileFloatType>(type)) {
         return elf::DType::DType_I4X;
     } else {
         VPUX_THROW("Unsupported element type {0}", type);
     }
 }
 
-elf::TensorRef ELFNPU37XX::createTensorRef(vpux::NDTypeInterface type, StringRef name) {
+elf::TensorRef ELFNPU37XX::createTensorRef(NDTypeInterface type, StringRef name) {
     elf::TensorRef out{};
 
     copy_str(out.name, name.str());
@@ -178,7 +178,7 @@ elf::OVNodeType ELFNPU37XX::createOVNodeType(mlir::Type type) {
     } else if (type.isInteger(1)) {
         // Both signed and unsigned 1-bit integers are converted to U1
         return elf::OVNodeType::OVNodeType_U1;
-    } else if (mlir::isa<vpux::type::QuantileFloatType>(type)) {
+    } else if (mlir::isa<type::QuantileFloatType>(type)) {
         // 4 bit quantile float dtype
         return elf::OVNodeType::OVNodeType_NF4;
     } else {
@@ -186,12 +186,14 @@ elf::OVNodeType ELFNPU37XX::createOVNodeType(mlir::Type type) {
     }
 }
 
+namespace {
+
 void setOVNodeType(elf::OVNode& node, net::DataInfoOp dataInfo) {
-    auto userType = mlir::cast<vpux::NDTypeInterface>(dataInfo.getUserType());
+    auto userType = mlir::cast<NDTypeInterface>(dataInfo.getUserType());
     node.type = ELFNPU37XX::createOVNodeType(userType.getElementType());
 }
 
-void setOVNodeNames(elf::OVNode& node, net::DataInfoOp dataInfo, vpux::Logger log) {
+void setOVNodeNames(elf::OVNode& node, net::DataInfoOp dataInfo, const Logger& log) {
     auto primaryName = dataInfo.getName().str();
 
     // If the friendlyName is not set in DataInfoOp, friendlyName is equal to primary name.
@@ -220,8 +222,8 @@ void setOVNodeNames(elf::OVNode& node, net::DataInfoOp dataInfo, vpux::Logger lo
 void setOVNodeShape(elf::OVNode& node, net::DataInfoOp dataInfo) {
     // If the originalShape is not set in DataInfo, originalShape is the same as shape of userType
     auto shape = dataInfo.getOriginalShape().has_value()
-                         ? mlir::cast<vpux::NDTypeInterface>(dataInfo.getOriginalShape().value()).getShape()
-                         : mlir::cast<vpux::NDTypeInterface>(dataInfo.getUserType()).getShape();
+                         ? mlir::cast<NDTypeInterface>(dataInfo.getOriginalShape().value()).getShape()
+                         : mlir::cast<NDTypeInterface>(dataInfo.getUserType()).getShape();
     node.shape_size = checked_cast<uint32_t>(shape.size());
     for (const auto& sh_iterator : shape | indexed) {
         auto dim = sh_iterator.value();
@@ -240,7 +242,7 @@ void setOVNodeShape(elf::OVNode& node, net::DataInfoOp dataInfo) {
     }
 }
 
-void createOVNodes(std::vector<elf::OVNode>& nodes, ArrayRef<net::DataInfoOp> dataInfoVector, vpux::Logger log) {
+void createOVNodes(std::vector<elf::OVNode>& nodes, ArrayRef<net::DataInfoOp> dataInfoVector, const Logger& log) {
     for (auto dataInfo : dataInfoVector) {
         // Serialize metadata only for model primary parameters and results, skip state and shape nodes
         const auto name = dataInfo.getName().str();
@@ -309,6 +311,16 @@ std::string stringifyOVNodeType(elf::OVNodeType val) {
     }
 }
 
+std::string stringifyPlatform(mlir::ModuleOp module, const Logger& log) {
+    auto platform = config::getPlatform(module);
+    if (platform.has_value()) {
+        return config::stringifyPlatform(platform.value()).str();
+    }
+    log.warning("Target platform is not defined. Serializing TEST blob.");
+    // Unknown platform indicates test configuration
+    return "TEST";
+}
+
 std::string namesToString(elf::TensorName* names, uint32_t size) {
     std::stringstream names_str_stream;
     bool first = true;
@@ -337,7 +349,7 @@ std::string shapeToString(uint64_t* shape, uint32_t size) {
     return shape_str_stream.str();
 }
 
-void printOVNodes(const std::vector<elf::OVNode>& nodes, Logger log) {
+void printOVNodes(const std::vector<elf::OVNode>& nodes, const Logger& log) {
     for (const auto& p : nodes | indexed) {
         auto node = p.value();
         log.debug("{0}:friendly_name: \"{1}\"", llvm::format_decimal(p.index(), 3), node.friendly_name);
@@ -349,13 +361,15 @@ void printOVNodes(const std::vector<elf::OVNode>& nodes, Logger log) {
 }
 
 // Metadata parameter passed as pointer due to large size of `elf::NetworkMetadata` structure
-void printMetadata(elf::NetworkMetadata* metadata, Logger log) {
+void printMetadata(elf::NetworkMetadata* metadata, const Logger& log) {
     log.debug("mOVParameters:");
     printOVNodes(metadata->mOVParameters, log);
 
     log.debug("mOVResults:");
     printOVNodes(metadata->mOVResults, log);
 }
+
+}  // namespace
 
 std::unique_ptr<elf::NetworkMetadata> ELFNPU37XX::constructMetadata(mlir::ModuleOp module, Logger log) {
     log.setName("constructMetadata");
@@ -375,7 +389,7 @@ std::unique_ptr<elf::NetworkMetadata> ELFNPU37XX::constructMetadata(mlir::Module
 
     // Copy arch_name and throw if it doesn't fit into the buffer.
     // arch_name must not be truncated to ensure proper operation of the ELF loader.
-    copy_str(metadata.mIdentification.arch_name, config::stringifyArchKind(config::getArch(module)).str(), true);
+    copy_str(metadata.mIdentification.arch_name, stringifyPlatform(module, log), true);
     // Copy blob_name and throw if it doesn't fit into the buffer.
     // blob_name must not be truncated to ensure proper operation of the driver.
     copy_str(metadata.mIdentification.blob_name, module.getName().value_or("network").str(), true);
@@ -395,8 +409,8 @@ std::unique_ptr<elf::NetworkMetadata> ELFNPU37XX::constructMetadata(mlir::Module
             (module->getParentOfType<mlir::ModuleOp>() == nullptr);
 
     auto setTensor = [&](elf::TensorRef& netInput, elf::TensorRef& tensorDesc, NDTypeInterface type,
-                         vpux::net::DataInfoOp userInfo) {
-        const auto userType = mlir::cast<vpux::NDTypeInterface>(userInfo.getUserType());
+                         net::DataInfoOp userInfo) {
+        const auto userType = mlir::cast<NDTypeInterface>(userInfo.getUserType());
 
         // For dynamic shape, userType is required as it has both size and bounds.
         netInput = createTensorRef(isLLVMMainForHostCompile ? userType : type, userInfo.getName());
@@ -508,5 +522,5 @@ void vpux::ELFNPU37XX::setResourceRequirement(mlir::ModuleOp moduleOp, elf::Netw
     metadata.mResourceRequirements.nn_barriers_ = checked_cast<uint8_t>(nBarrs);
     metadata.mResourceRequirements.nn_slice_count_ = checked_cast<uint8_t>(VPUIP::getNumTilesUsed(moduleOp));
     metadata.mResourceRequirements.nn_slice_length_ =
-            checked_cast<uint32_t>(config::getAvailableMemory(moduleOp, vpux::VPU::MemoryKind::CMX_NN).getByteSize());
+            checked_cast<uint32_t>(config::getAvailableMemory(moduleOp, VPU::MemoryKind::CMX_NN).getByteSize());
 }

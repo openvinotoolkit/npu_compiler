@@ -69,7 +69,7 @@ mlir::LogicalResult MultiClusterExpandDMARewriter::matchAndRewrite(VPUIP::Expand
     const auto distributionAttr = distributedType.getDistribution();
     const auto mode = distributionAttr.getMode().getValue();
     if (mode == VPU::DistributionMode::SEGMENTED || mode == VPU::DistributionMode::OVERLAPPED) {
-        _log.trace("Process SEGMENTED/OVERLAPPED mode", VPU::stringifyDistributionMode(mode));
+        _log.trace("Process SEGMENTED/OVERLAPPED mode {0}", VPU::stringifyDistributionMode(mode));
         unrollSegmentedOrOverlapped(expandDmaOp->getLoc(), expandDmaOp, vpurtTask, distributedType,
                                     dmaDescriptorGenerator, rewriter);
     } else if (mode == VPU::DistributionMode::DUPLICATED) {

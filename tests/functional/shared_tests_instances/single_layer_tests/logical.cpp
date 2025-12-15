@@ -41,6 +41,16 @@ TEST_P(ShaveCodeGenLogicalLayerTestCommon, NPU4000) {
     run(Platform::NPU4000);
 }
 
+TEST_P(LogicalLayerTestCommon, NPU5010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(ShaveCodeGenLogicalLayerTestCommon, NPU5010) {
+    setReferenceSoftwareMode();
+    setMLIRCompilerType();
+    run(Platform::NPU5010);
+}
 }  // namespace test
 }  // namespace ov
 

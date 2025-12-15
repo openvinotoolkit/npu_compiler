@@ -13,7 +13,7 @@ include "vpux/compiler/dialect/VPU/attributes.td"
 include "vpux/compiler/dialect/VPU/ops_interfaces.td"
 include "vpux/compiler/dialect/VPU/types.td"
 
-include "mlir/Dialect/Quant/QuantOpsBase.td"
+include "mlir/Dialect/Quant/IR/QuantBase.td"
 
 
 def VPU_BatchToSpace :
@@ -413,6 +413,7 @@ def VPU_GatherOp :
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
     }] # baseExtraClassDeclaration;
 
+    let checkInferredMemSpace = 0;
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 }
 
@@ -743,21 +744,44 @@ def VPU_ReverseOp :
 
 def VPU_ReverseSequenceOp :
         VPU_LayerOp<
-            "ReverseSequence"
+            "ReverseSequence",
+            [
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>
+            ]
         > {
     let summary = "Reverse variable length sequence  VPU operation";
 
     let arguments = (ins
-        AnyRankedTensor:$data,
-        RankedTensorOf<[AnyInteger]>:$seq_length,
+        AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>:$data,
+        AnyTypeOf<[RankedTensorOf<[AnyInteger]>, VPU_DistributedTensor]>:$seq_length,
 
         IntAttr:$seq_axis,
-        IntAttr:$batch_axis
+        IntAttr:$batch_axis,
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
     let results = (outs
-        AnyRankedTensor:$output
+        AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>:$output
     );
+
+    let extraClassDeclaration = [{
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+        DimArr getTileableDims();
+    }] # baseExtraClassDeclaration;
+
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::Value":$data,
+            "::mlir::Value":$seq_length,
+            "::mlir::IntegerAttr":$seq_axis,
+            "::mlir::IntegerAttr":$batch_axis
+        )>
+    ];
+
+    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 }
 
 

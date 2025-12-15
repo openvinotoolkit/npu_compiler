@@ -41,10 +41,10 @@ protected:
     void SetUp() override {
         const auto& [inputShape, inputType] = this->GetParam();
 
-        init_input_shapes({inputShape});
+        init_input_shapes({inputShape.value()});
         ov::ParameterVector inputParams;
         for (auto&& shape : inputDynamicShapes) {
-            inputParams.push_back(std::make_shared<ov::op::v0::Parameter>(inputType, shape));
+            inputParams.push_back(std::make_shared<ov::op::v0::Parameter>(inputType.value(), shape));
         }
 
         auto nonZero = std::make_shared<ov::opset10::NonZero>(inputParams[0], ov::element::i64);
@@ -71,6 +71,12 @@ TEST_P(NonZeroLayerTestCommon, NPU4000_HW) {
     abs_threshold = 0.0f;
     setDefaultHardwareMode();
     run(Platform::NPU4000);
+}
+
+TEST_P(NonZeroLayerTestCommon, NPU5010_HW) {
+    abs_threshold = 0.0f;
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
 }
 
 const std::vector<BoundedShape> inShapesDynamic = {generateTestShape(1, 768), generateTestShape(1, 300),

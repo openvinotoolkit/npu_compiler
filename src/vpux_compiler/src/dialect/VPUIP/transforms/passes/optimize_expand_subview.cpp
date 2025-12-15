@@ -11,6 +11,7 @@
 
 #include "vpux/compiler/utils/allocate_buffers.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 
 namespace vpux::VPUIP {
 #define GEN_PASS_DECL_OPTIMIZEEXPANDSUBVIEW
@@ -175,9 +176,7 @@ void OptimizeExpandSubviewPass::safeRunOnFunc() {
     patterns.add<ExpandSubviewConverter>(&ctx, _log);
 
     auto func = getOperation();
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
-    }
+    collectOpsAndApplyPatterns(func, std::move(patterns));
 }
 
 }  // namespace

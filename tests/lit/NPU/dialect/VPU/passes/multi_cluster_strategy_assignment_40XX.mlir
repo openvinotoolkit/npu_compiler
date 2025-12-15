@@ -2155,17 +2155,20 @@ func.func @PropagateDistributedQuantizeCast(%arg0: tensor<1x512x14x14x!qElemType
 // -----
 
 // CHECK-LABEL: func.func @NoStrategyDetectionOutputSortForHeightLessThanTileNumber
-// CHECK-SAME:        [[INPUT1:%arg[0-9]]]: tensor<1x1x2x10112xf16>,
-// CHECK-SAME:        [[INPUT2:%arg[0-9]]]: tensor<1x1x2x10112xsi32>,
-// CHECK-SAME:        [[INPUT3:%arg[0-9]]]: tensor<1x1x32x256xsi32>
-func.func @NoStrategyDetectionOutputSortForHeightLessThanTileNumber(%arg0: tensor<1x1x2x10112xf16>, %arg1: tensor<1x1x2x10112xsi32>, %arg2: tensor<1x1x32x256xsi32>) -> (tensor<1x1x2x10112xf16>, tensor<1x1x2x10112xsi32>, tensor<1x1x2x1xsi32>){
-    %confidence, %indices, %sizes = VPU.DetectionOutputSort(%arg0, %arg1, %arg2) {confidence_threshold = 0.0099999997764825821 : f64, top_k = 400 : i64} : tensor<1x1x2x10112xf16>, tensor<1x1x2x10112xsi32>, tensor<1x1x32x256xsi32> -> tensor<1x1x2x10112xf16>, tensor<1x1x2x10112xsi32>, tensor<1x1x2x1xsi32>
+// CHECK-SAME:        [[CONFIDENCE:%arg[0-9]]]: tensor<1x1x2x10112xf16>,
+// CHECK-SAME:        [[AUX_INDICES:%arg[0-9]]]: tensor<1x1x2x10112xsi32>,
+// CHECK-SAME:        [[AUX_SORTING:%arg[0-9]]]: tensor<1x1x48x256xsi32>
+func.func @NoStrategyDetectionOutputSortForHeightLessThanTileNumber(%confidence: tensor<1x1x2x10112xf16>, %aux_indices: tensor<1x1x2x10112xsi32>, %aux_sorting: tensor<1x1x48x256xsi32>)
+        -> (tensor<1x1x2x10112xf16>, tensor<1x1x2x10112xsi32>, tensor<1x1x2x1xsi32>){
+    %out_confidence, %out_indices, %out_sizes = VPU.DetectionOutputSort(%confidence, %aux_indices, %aux_sorting) {
+        confidence_threshold = 0.0099999997764825821 : f64, top_k = 400 : i64
+    } : tensor<1x1x2x10112xf16>, tensor<1x1x2x10112xsi32>, tensor<1x1x48x256xsi32> -> tensor<1x1x2x10112xf16>, tensor<1x1x2x10112xsi32>, tensor<1x1x2x1xsi32>
 
-    return %confidence, %indices, %sizes : tensor<1x1x2x10112xf16>, tensor<1x1x2x10112xsi32>, tensor<1x1x2x1xsi32>
+    return %out_confidence, %out_indices, %out_sizes : tensor<1x1x2x10112xf16>, tensor<1x1x2x10112xsi32>, tensor<1x1x2x1xsi32>
 
-    // CHECK:        [[CONFIDENCE:%.+]], [[INDICES:%.+]], [[SIZE:%.+]] = VPU.DetectionOutputSort([[INPUT1]], [[INPUT2]], [[INPUT3]])
-    // CHECK-SAME:               {confidence_threshold = 0.0099999997764825821 : f64, top_k = 400 : i64} : tensor<1x1x2x10112xf16>, tensor<1x1x2x10112xsi32>, tensor<1x1x32x256xsi32> -> tensor<1x1x2x10112xf16>, tensor<1x1x2x10112xsi32>, tensor<1x1x2x1xsi32>
-    // CHECK:        return [[CONFIDENCE]], [[INDICES]], [[SIZE]]
+    // CHECK:        [[OUT_CONFIDENCE:%.+]], [[OUT_INDICES:%.+]], [[OUT_SIZE:%.+]] = VPU.DetectionOutputSort([[CONFIDENCE]], [[AUX_INDICES]], [[AUX_SORTING]])
+    // CHECK-SAME:               {confidence_threshold = 0.0099999997764825821 : f64, top_k = 400 : i64} : tensor<1x1x2x10112xf16>, tensor<1x1x2x10112xsi32>, tensor<1x1x48x256xsi32> -> tensor<1x1x2x10112xf16>, tensor<1x1x2x10112xsi32>, tensor<1x1x2x1xsi32>
+    // CHECK:        return [[OUT_CONFIDENCE]], [[OUT_INDICES]], [[OUT_SIZE]]
 }
 
 // -----
@@ -2813,13 +2816,14 @@ func.func @DefaultDequantizeStrategySOK() -> tensor<128x128x10x10xf16, {order = 
 // -----
 
 // CHECK-LABEL:   @SDPAAssignedSplitOverKernel
-// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x32x1x96xf16>, [[ARG1:%.+]]: tensor<1x32x1024x96xf16>, [[ARG2:%.+]]: tensor<1x32x96x1024xf16>, [[ARG3:%.+]]: tensor<1x1x1x1024xf16>)
-func.func @SDPAAssignedSplitOverKernel(%arg0: tensor<1x32x1x96xf16>, %arg1: tensor<1x32x1024x96xf16>, %arg2: tensor<1x32x96x1024xf16>, %arg3: tensor<1x1x1x1024xf16>) -> (tensor<1x32x1x96xf16>){
-    %0 = VPU.SDPA(%arg0, %arg1, %arg2, %arg3) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 0, 0>} : tensor<1x32x1x96xf16>, tensor<1x32x1024x96xf16>, tensor<1x32x96x1024xf16>, tensor<1x1x1x1024xf16> -> tensor<1x32x1x96xf16>
+// CHECK-SAME:  ([[INPUT_Q:%.+]]: tensor<1x32x1x96xf16>, [[INPUT_K:%.+]]: tensor<1x32x1024x96xf16>, [[INPUT_V:%.+]]: tensor<1x32x96x1024xf16>, [[INPUT_MASK:%.+]]: tensor<1x1x1x1024xf16>)
+func.func @SDPAAssignedSplitOverKernel(%input_q: tensor<1x32x1x96xf16>, %input_k: tensor<1x32x1024x96xf16>, %input_v: tensor<1x32x96x1024xf16>, %input_mask: tensor<1x1x1x1024xf16>) -> (tensor<1x32x1x96xf16>){
+    %aux = const.Declare tensor<1x32x1x4096xui8> = dense<0> : tensor<1x32x1x4096xui8>
+    %0 = VPU.SDPA(%input_q, %input_k, %input_v, %input_mask, %aux) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 0, 1>} : tensor<1x32x1x96xf16>, tensor<1x32x1024x96xf16>, tensor<1x32x96x1024xf16>, tensor<1x1x1x1024xf16>, tensor<1x32x1x4096xui8> -> tensor<1x32x1x96xf16>
     return %0 : tensor<1x32x1x96xf16>
 
-    // CHECK:       [[SDPA:%.*]] = VPU.SDPA(
-    // CHECK-SAME:      {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 0, 0>}
+    // CHECK:       [[SDPA:%.*]] = VPU.SDPA
+    // CHECK-SAME:      multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>
 
 }
 

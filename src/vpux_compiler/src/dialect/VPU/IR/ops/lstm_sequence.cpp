@@ -6,7 +6,7 @@
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/recurrent.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/recurrent.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/max_lstm_hidden_size_constant.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/shave_controls_dpu.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"

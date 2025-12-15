@@ -6,7 +6,6 @@
 #include "vpux_headers/compiler_hash.hpp"
 #include "vpux/compiler/compiler_version.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
-#include "vpux/compiler/utils/ELF/utils.hpp"
 
 std::vector<uint8_t> vpux::VPUASM::CompilerHashOp::getSerializedCompilerHash() {
     auto compilerHashString = getCompilerHash();

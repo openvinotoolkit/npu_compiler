@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --outliner="function-outlining=\"batching='', naive=''\"" --verify-diagnostics %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // expected-error@+1 {{The module attribute 'VPU.debatch' doesn't support multiple `OutlinerPassOptions`, got: 2}}
 module @ValidModuleWithAttrButIncorrectOptions attributes {VPU.debatch = 1 : i64} {

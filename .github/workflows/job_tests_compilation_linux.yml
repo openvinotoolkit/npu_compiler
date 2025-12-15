@@ -36,7 +36,7 @@ permissions:
 
 jobs:
   CompilationTests:
-    name: Compilation tests ${{ matrix.npu-platform }}
+    name: Compilation tests ${{ inputs.compiler-type }} ${{ matrix.npu-platform }}
     runs-on: ${{ inputs.test-runner }}
     timeout-minutes: 60
     env:
@@ -49,23 +49,33 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        npu-platform:
+          - NPU.3720
+          - NPU.4000
+          - NPU.5010
+        compiler-mode: 
+          - ${{ inputs.compiler-type }}
         include:
           - npu-platform: NPU.3720
             models-config: ./validation/public_models_3720_${{ inputs.compiler-type }}.json
           - npu-platform: NPU.4000
             models-config: ./validation/public_models_4000_${{ inputs.compiler-type }}.json
+          - npu-platform: NPU.5010
+            models-config: ./validation/public_models_5010_${{ inputs.compiler-type }}.json
     steps:
       - name: Checkout
+        if: ${{ !(matrix.npu-platform == 'NPU.5010' && inputs.compiler-type == 'DRIVER') }}
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
 
       - name: Download artifacts
+        if: ${{ !(matrix.npu-platform == 'NPU.5010' && inputs.compiler-type == 'DRIVER') }}
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53  # v6.0.0
         with:
           name: ${{ inputs.install-package }}
           path: ${{ env.INSTALL_PACKAGE_DIR }}
 
       - name: Unpack Driver artifacts
-        if: ${{ inputs.compiler-type == 'DRIVER' }}
+        if: ${{ inputs.compiler-type == 'DRIVER' && !(matrix.npu-platform == 'NPU.5010') }}
         run: |
           cd ${INSTALL_PACKAGE_DIR}
           dpkg --extract external/intel-driver-compiler-npu_*.deb .
@@ -75,12 +85,13 @@ jobs:
           find . -type f
 
       - name: Install system packages
-        if: ${{ inputs.compiler-type == 'DRIVER' }}
+        if: ${{ inputs.compiler-type == 'DRIVER' && !(matrix.npu-platform == 'NPU.5010') }}
         run: |
           sudo apt update
           sudo apt install -y libtbb12
 
       - name: Download models for ${{ matrix.npu-platform }}
+        if: ${{ !(matrix.npu-platform == 'NPU.5010' && inputs.compiler-type == 'DRIVER') }}
         uses: ./.github/actions/download-models
         with:
           compiler-type: ${{ inputs.compiler-type }}
@@ -88,6 +99,7 @@ jobs:
           models-dir: ${{ env.MODELS_DIR }}
 
       - name: Compile models for ${{ matrix.npu-platform }}
+        if: ${{ !(matrix.npu-platform == 'NPU.5010' && inputs.compiler-type == 'DRIVER') }}
         uses: ./.github/actions/compile-models
         with:
           compiler-type: ${{ inputs.compiler-type }}

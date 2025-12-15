@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --fuse-constants %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 !Input_DDR = memref<1x16x16x16xf16, #NHWC, @DDR>
@@ -58,14 +58,14 @@ func.func @FuseConstantsConv(%in : !Input_DDR) -> !OutputStub_CMX {
         }
     return %3 : !OutputStub_CMX
 
-	// CHECK-DAG:       [[FUSED_CONSTANT:%.+]] = const.Declare memref<1x1x1x384xui8>
-    // CHECK-NOT:   [[WEIGHT_TABLE:%.+]] = const.Declare !WeightsTable_DDR
-    // CHECK-NOT:   [[WEIGHTS:%.+]] = const.Declare !Weights_DDR
-
     // CHECK:       [[OUT_BUF1:%.+]] = memref.alloc() : memref<1x16x16x16xf16, #NHWC, @CMX_NN>
     // CHECK:       [[OUT_BUF2:%.+]] = memref.alloc() : memref<1x16x16x16xf16, #NHWC, @CMX_NN>
     // CHECK:       [[VAR_INPUT:%.*]] = VPUIP.Copy inputs(%arg0 : memref<1x16x16x16xf16, #NHWC, @DDR>)
     // CHECK-SAME:      outputs([[OUT_BUF1]]  : memref<1x16x16x16xf16, #NHWC, @CMX_NN>) -> memref<1x16x16x16xf16, #NHWC, @CMX_NN>
+
+    // CHECK:       [[FUSED_CONSTANT:%.+]] = const.Declare memref<1x1x1x384xui8>
+    // CHECK-NOT:   [[WEIGHT_TABLE:%.+]] = const.Declare !WeightsTable_DDR
+    // CHECK-NOT:   [[WEIGHTS:%.+]] = const.Declare !Weights_DDR
 
     // CHECK:       [[VAR0:%.*]] = memref.alloc() : memref<1x1x1x384xui8, [@CMX_NN, 0]>
     // CHECK:       [[VAR1:%.*]] = VPUIP.Copy inputs([[FUSED_CONSTANT]] : memref<1x1x1x384xui8>)
@@ -160,14 +160,14 @@ func.func @FuseConstantsConv(%in : !Input_DDR) -> !OutputStub_CMX {
         }
     return %3 : !OutputStub_CMX
 
-    // CHECK-DAG:   [[FUSED_CONSTANT:%.+]] = const.Declare memref<1x1x1x288xui8> = dense<1> : tensor<16x1x1x4xsi32>, [#const.FuseWeights<tensor<1x1x1x288xui8>, weightsTable = <dense<1> : tensor<16x1x1x4xsi32>>, weights = <dense<1.000000e+00> : tensor<16x1x1x4xf16>, [#const.CastElemType<si4>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]>>]
-    // CHECK-NOT:   [[WEIGHT_TABLE:%.+]] = const.Declare !WeightsTable_DDR
-    // CHECK-NOT:   [[WEIGHTS:%.+]] = const.Declare !Weights_DDR
-
     // CHECK:       [[OUT_BUF1:%.+]] = memref.alloc() : memref<1x16x16x16xf16, #NHWC, @CMX_NN>
     // CHECK:       [[OUT_BUF2:%.+]] = memref.alloc() : memref<1x16x16x16xf16, #NHWC, @CMX_NN>
     // CHECK:       [[VAR_INPUT:%.*]] = VPUIP.Copy inputs(%arg0 : memref<1x16x16x16xf16, #NHWC, @DDR>)
     // CHECK-SAME:      outputs([[OUT_BUF1]]  : memref<1x16x16x16xf16, #NHWC, @CMX_NN>) -> memref<1x16x16x16xf16, #NHWC, @CMX_NN>
+
+    // CHECK:   [[FUSED_CONSTANT:%.+]] = const.Declare memref<1x1x1x288xui8> = dense<1> : tensor<16x1x1x4xsi32>, [#const.FuseWeights<tensor<1x1x1x288xui8>, weightsTable = <dense<1> : tensor<16x1x1x4xsi32>>, weights = <dense<1.000000e+00> : tensor<16x1x1x4xf16>, [#const.CastElemType<si4>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]>>]
+    // CHECK-NOT:   [[WEIGHT_TABLE:%.+]] = const.Declare !WeightsTable_DDR
+    // CHECK-NOT:   [[WEIGHTS:%.+]] = const.Declare !Weights_DDR
 
     // CHECK:       [[VAR0:%.*]] = memref.alloc() : memref<1x1x1x288xui8, [@CMX_NN, 0]>
     // CHECK:       [[VAR1:%.*]] = VPUIP.Copy inputs([[FUSED_CONSTANT]] : memref<1x1x1x288xui8>)
@@ -257,19 +257,21 @@ func.func @FuseConstantsMaxPool(%in : !Input_DDR) -> !OutputStub_CMX {
         }
     return %3 : !OutputStub_CMX
 
-    // CHECK-DAG:       [[FUSED_CONSTANT:%.+]] = const.Declare memref<1x1x1x256xui8>
-    // CHECK-NOT:   [[WEIGHT_TABLE:%.+]] = const.Declare !WeightsTable_DDR
 
     // CHECK:       [[OUT_BUF1:%.+]] = memref.alloc() : memref<1x16x16x16xf16, #NHWC, @CMX_NN>
     // CHECK:       [[OUT_BUF2:%.+]] = memref.alloc() : memref<1x16x16x16xf16, #NHWC, @CMX_NN>
     // CHECK:       [[VAR_INPUT:%.*]] = VPUIP.Copy inputs(%arg0 : memref<1x16x16x16xf16, #NHWC, @DDR>)
     // CHECK-SAME:      outputs([[OUT_BUF1]] : memref<1x16x16x16xf16, #NHWC, @CMX_NN>) -> memref<1x16x16x16xf16, #NHWC, @CMX_NN>
 
+    // CHECK:       [[FUSED_CONSTANT:%.+]] = const.Declare memref<1x1x1x256xui8>
+    // CHECK-NOT:   [[WEIGHT_TABLE:%.+]] = const.Declare !WeightsTable_DDR
+
     // CHECK:       [[VAR0:%.*]] = memref.alloc() : memref<1x1x1x256xui8, [@CMX_NN, 0]>
     // CHECK:       [[VAR1:%.*]] = VPUIP.Copy inputs([[FUSED_CONSTANT]] : memref<1x1x1x256xui8>)
     // CHECK-SAME:      outputs([[VAR0]] : memref<1x1x1x256xui8, [@CMX_NN, 0]>) -> memref<1x1x1x256xui8, [@CMX_NN, 0]>
 
-    // CHECK:       [[VAR3:%.*]] = VPUIP.ViewOp [[VAR1]] : memref<1x1x1x256xui8,
+    // CHECK:       [[VAR2:%.*]] = VPUIP.SubView [[VAR1]] [0, 0, 0, 0] [1, 1, 1, 256] : memref<1x1x1x256xui8, [@CMX_NN, 0]> to memref<1x1x1x256xui8, [@CMX_NN, 0]>
+    // CHECK:       [[VAR3:%.*]] = VPUIP.ViewOp [[VAR2]] : memref<1x1x1x256xui8,
     // CHECK-SAME:		[@CMX_NN, 0]> to memref<16x1x1x4xsi32, @CMX_NN>
 
     // CHECK:       [[VAR6:%.*]] = VPUIP.NCEClusterTask
@@ -353,15 +355,16 @@ func.func @FuseConstantsConvSparseWeights(%in : !Input_DDR) -> !OutputStub_CMX {
         }
     return %4 : !OutputStub_CMX
 
-    // CHECK-DAG:       [[FUSED_CONSTANT:%.+]] = const.Declare memref<1x1x1x1024xui8>
-    // CHECK-NOT:   [[WEIGHT_TABLE:%.+]] = const.Declare !WeightsTable_DDR
-    // CHECK-NOT:   [[WEIGHTS:%.+]] = const.Declare !Weights_DDR
-    // CHECK-NOT:   [[WEIGHTS_SM:%.+]] = const.Declare !WeightsSM_DDR
 
     // CHECK:       [[OUT_BUF1:%.+]] = memref.alloc() : memref<1x16x16x16xf16, #NHWC, @CMX_NN>
     // CHECK:       [[OUT_BUF2:%.+]] = memref.alloc() : memref<1x16x16x16xf16, #NHWC, @CMX_NN>
     // CHECK:       [[VAR_INPUT:%.*]] = VPUIP.Copy inputs(%arg0 : memref<1x16x16x16xf16, #NHWC, @DDR>)
     // CHECK-SAME:      outputs([[OUT_BUF1]] : memref<1x16x16x16xf16, #NHWC, @CMX_NN>) -> memref<1x16x16x16xf16, #NHWC, @CMX_NN>
+
+    // CHECK:       [[FUSED_CONSTANT:%.+]] = const.Declare memref<1x1x1x1024xui8>
+    // CHECK-NOT:   [[WEIGHT_TABLE:%.+]] = const.Declare !WeightsTable_DDR
+    // CHECK-NOT:   [[WEIGHTS:%.+]] = const.Declare !Weights_DDR
+    // CHECK-NOT:   [[WEIGHTS_SM:%.+]] = const.Declare !WeightsSM_DDR
 
     // CHECK:       [[VAR0:%.*]] = memref.alloc() : memref<1x1x1x1024xui8, [@CMX_NN, 0]>
     // CHECK:       [[VAR1:%.*]] = VPUIP.Copy inputs([[FUSED_CONSTANT]] : memref<1x1x1x1024xui8>)
@@ -500,9 +503,6 @@ func.func @FuseDuplicatedConstants(%input : !Input_DDR) -> !Output_DDR
 
     // Verify that constants are fused by checking no other cst is present other than fused constant
 
-    // CHECK-DAG:   [[FUSED_CONSTANT:%.+]] = const.Declare memref<1x1x1x1280xf16>
-    // CHECK-NOT:   [[WEIGHT_TABLE:%.+]] = const.Declare !WeightsTable_DDR
-    // CHECK-NOT:   [[WEIGHTS:%.+]] = const.Declare !Weights_DDR
 
     // CHECK:   [[BUF_OUT_1_CMX:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x16x56x56xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
     // CHECK:   [[BUF_OUT_2_CMX:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x16x56x56xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
@@ -511,6 +511,10 @@ func.func @FuseDuplicatedConstants(%input : !Input_DDR) -> !Output_DDR
     // CHECK:       [[COPY_INPUT:%.+]] = VPUIP.Copy
     // CHECK-SAME:      inputs(%arg0 : memref<1x16x56x56xf16, #NHWC, @DDR>)
     // CHECK-SAME:      outputs([[BUF_OUT_1_CMX]]
+
+    // CHECK:   [[FUSED_CONSTANT:%.+]] = const.Declare memref<1x1x1x1280xf16>
+    // CHECK-NOT:   [[WEIGHT_TABLE:%.+]] = const.Declare !WeightsTable_DDR
+    // CHECK-NOT:   [[WEIGHTS:%.+]] = const.Declare !Weights_DDR
 
     // CHECK:   [[FUSED_CMX:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x1x1x1280xf16, {order = #NCHW, strides = [1280, 1280, 1280, 1]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
     // CHECK:       [[COPY_FUSED:%.+]] = VPUIP.Copy
@@ -616,10 +620,6 @@ func.func @FuseDuplicatedConstantsWithShapeCast(%input : !Input_DDR) -> !Output_
 
     // Verify that constants are fused by checking no other cst is present other than fused constant
 
-    // CHECK-DAG:   [[FUSED_CONSTANT:%.+]] = const.Declare memref<1x1x1x1280xf16>
-    // CHECK-NOT:   [[WEIGHT_TABLE:%.+]] = const.Declare !WeightsTable_DDR
-    // CHECK-NOT:   [[WEIGHTS:%.+]] = const.Declare !Weights_DDR
-
     // CHECK:   [[BUF_OUT_1_CMX:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x16x112x28xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
     // CHECK:   [[BUF_OUT_2_CMX:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x16x56x56xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
     // CHECK:   [[BUF_OUT_DDR:%.+]] = memref.alloc() : memref<1x16x56x56xf16, #NHWC, @DDR>
@@ -627,6 +627,10 @@ func.func @FuseDuplicatedConstantsWithShapeCast(%input : !Input_DDR) -> !Output_
     // CHECK:       [[COPY_INPUT:%.+]] = VPUIP.Copy
     // CHECK-SAME:      inputs(%arg0 : memref<1x16x112x28xf16, #NHWC, @DDR>)
     // CHECK-SAME:      outputs([[BUF_OUT_1_CMX]]
+
+    // CHECK:   [[FUSED_CONSTANT:%.+]] = const.Declare memref<1x1x1x1280xf16>
+    // CHECK-NOT:   [[WEIGHT_TABLE:%.+]] = const.Declare !WeightsTable_DDR
+    // CHECK-NOT:   [[WEIGHTS:%.+]] = const.Declare !Weights_DDR
 
     // CHECK:   [[FUSED_CMX:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x1x1x1280xf16, {order = #NCHW, strides = [1280, 1280, 1280, 1]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
     // CHECK:       [[COPY_FUSED:%.+]] = VPUIP.Copy
@@ -752,10 +756,6 @@ func.func @FuseDuplicatedConstantsWithExplicitDistributedAttr(%input : !Input_DD
 
     // Verify that constants are fused by checking no other cst is present other than fused constant
 
-    // CHECK-DAG:   [[FUSED_CONSTANT:%.+]] = const.Declare memref<1x1x1x1280xf16>
-    // CHECK-NOT:   [[WEIGHT_TABLE:%.+]] = const.Declare !WeightsTable_DDR
-    // CHECK-NOT:   [[WEIGHTS:%.+]] = const.Declare !Weights_DDR
-
     // CHECK:   [[BUF_OUT_1_CMX:%.+]] = VPURT.AllocDistributed
     // CHECK-SAME:  -> !VPUIP.DistributedBuffer<1x16x56x56xf16, #NHWC, @CMX_NN,
     // CHECK-SAME:         {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64,
@@ -777,6 +777,10 @@ func.func @FuseDuplicatedConstantsWithExplicitDistributedAttr(%input : !Input_DD
     // CHECK:       [[COPY_INPUT:%.+]] = VPUIP.Copy
     // CHECK-SAME:      inputs([[INPUT]] : memref<1x16x56x56xf16, #NHWC, @DDR>)
     // CHECK-SAME:      outputs([[BUF_OUT_1_CMX]]
+
+    // CHECK:   [[FUSED_CONSTANT:%.+]] = const.Declare memref<1x1x1x1280xf16>
+    // CHECK-NOT:   [[WEIGHT_TABLE:%.+]] = const.Declare !WeightsTable_DDR
+    // CHECK-NOT:   [[WEIGHTS:%.+]] = const.Declare !Weights_DDR
 
     // CHECK:       [[FUSED_CMX:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x1x1x1280xf16,
     // CHECK-SAME:          {order = #NCHW, strides = [1280, 1280, 1280, 1]}, @CMX_NN,

@@ -8,6 +8,8 @@
 #include "vpux/compiler/core/interfaces/rewriter_pattern_strategies.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 
+#include <mlir/IR/MLIRContext.h>
+
 namespace vpux::VPUIP::arch37xx {
 class SingleClusterDepthToSpaceDMARewriter final : public mlir::OpRewritePattern<VPUIP::DepthToSpaceDMAOp> {
 public:
@@ -23,13 +25,14 @@ private:
     Logger _log;
 };
 
-class UnrollDepthToSpaceDMAStrategy : public IGreedilyPassStrategy {
+class UnrollDepthToSpaceDMAStrategy : public IIterativeWalkPassStrategy {
 public:
-    UnrollDepthToSpaceDMAStrategy(int64_t dmaPortCount);
+    UnrollDepthToSpaceDMAStrategy(mlir::MLIRContext* ctx, int64_t dmaPortCount);
 
-    void addPatterns(mlir::RewritePatternSet& patterns, Logger& log) const final;
+    void addPatterns(SmallVector<mlir::RewritePatternSet>& patterns, Logger& log) const final;
 
 private:
+    mlir::MLIRContext* _ctx;
     int64_t _dmaPortCount;
 };
 

@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/utils/async_dialect_utils.hpp"
 #include "vpux/compiler/utils/dma.hpp"
+#include "vpux/compiler/utils/strings.hpp"
 #include "vpux/utils/profiling/reports/ted.hpp"
 
 #include <llvm/Support/JSON.h>
@@ -361,6 +362,7 @@ void vpux::createTracingJSON(mlir::func::FuncOp& netFunc, MemLiveRangeInfo& live
         }
 
         jOps.push_back(llvm::json::Object({{"op_id", std::move(indexString)},
+                                           {"op_loc", vpux::stringifyPrimaryLocation(execOp.getLoc())},
                                            {"cycle_begin", cycleBegin},
                                            {"cycle_end", cycleEnd},
                                            {"inputs", llvm::json::Value(llvm::json::Array(std::move(inBuffers)))},

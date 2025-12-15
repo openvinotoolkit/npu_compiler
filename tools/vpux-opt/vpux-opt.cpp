@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/passes.hpp"
+#include "vpux/compiler/NPU50XX/dialect/NPUReg50XX/passes.hpp"
 #include "vpux/compiler/ShaveCodeGen/passes.hpp"
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/dialect/ELF/transforms/passes.hpp"
@@ -20,6 +21,7 @@
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/passes.hpp"
+#include "vpux/compiler/dialect/config/constraints_initializer.hpp"
 #include "vpux/compiler/dialect/const/passes.hpp"
 #include "vpux/compiler/dialect/core/transforms/passes.hpp"
 #include "vpux/compiler/dynamic_rewriter/passes.hpp"
@@ -60,6 +62,8 @@ int main(int argc, char* argv[]) {
 
             auto interfacesRegistry = vpux::createInterfacesRegistry(archKind);
             interfacesRegistry->registerInterfaces(registry);
+
+            vpux::config::registerConstraints(registry, archKind);
         };
         // Rewriter Registration
         vpux::createRewriterRegistry();
@@ -87,6 +91,8 @@ int main(int argc, char* argv[]) {
         vpux::registerConversionPasses();
         vpux::registerConversionPipelines();
         vpux::registerDynamicRewriterExecutorPass();
+
+        vpux::NPUReg50XX::registerPasses();
 
         mlir::registerTransformsPasses();
         mlir::func::registerFuncPasses();

@@ -20,10 +20,10 @@
 #include "vpux/compiler/dialect/VPU/utils/conv_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/se_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/se_roll_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
-#include "vpux/compiler/utils/VPU/tile_utils.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
 
@@ -540,6 +540,10 @@ bool vpux::VPU::NCEInvariant::isAlignmentBeneficial(mlir::Operation* op) {
     }
 
     if (auto SDPAExtendedOp = mlir::dyn_cast<IE::SDPAExtendedOp>(op)) {
+        return true;
+    }
+
+    if (mlir::isa<IE::FlashSDPAOp>(op)) {
         return true;
     }
 

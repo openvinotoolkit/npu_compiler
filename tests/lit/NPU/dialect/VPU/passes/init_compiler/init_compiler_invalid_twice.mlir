@@ -4,8 +4,8 @@
 //
 
 // RUN: vpux-opt %s --init-compiler="vpu-arch=%arch%" --init-compiler="vpu-arch=%arch%" -verify-diagnostics
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
-// expected-error@+1 {{Architecture is already defined, probably you run '--init-compiler' twice}}
+// expected-error@+1 {{Target platform is already set, probably you run '--init-compiler' twice}}
 module @test {
 }

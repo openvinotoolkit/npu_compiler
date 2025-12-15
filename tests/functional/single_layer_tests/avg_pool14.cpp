@@ -50,4 +50,8 @@ TEST_F(AvgPoolV14LayerTestCommon, NPU4000_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU4000);
 }
+TEST_F(AvgPoolV14LayerTestCommon, NPU5010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
 }  // namespace ov::test

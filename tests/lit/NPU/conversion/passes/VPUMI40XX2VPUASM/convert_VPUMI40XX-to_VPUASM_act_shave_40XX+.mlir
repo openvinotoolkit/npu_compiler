@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-VPUMI40XX-to-VPUASM %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -57,7 +57,10 @@ func.func private @act_shave() {
 //CHECK:   VPUASM.DeclareKernelData @[[DeclareKernelArgs:.+]] : [[KernelName]]
 
 //CHECK: ELF.CreateSection @[[ParamsSection:.+]] aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC)
-//CHECK:   VPUASM.KernelParams @[[KernelParams:.+]] inputs([@[[BuffersSection]]::@[[DeclareBuffer0]]]) outputs([@[[BuffersSection]]::@[[DeclareBuffer1]]]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type([[KernelName]]) < {kernel_params = [0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]}>
+//CHECK:   VPUASM.KernelParams @[[KernelParams:.+]] inputs([@[[BuffersSection]]::@[[DeclareBuffer0]]]) outputs([@[[BuffersSection]]::@[[DeclareBuffer1]]]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type([[KernelName]]) < {
+//CHECK: inputDimsBinaryVector = [232, 3, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], inputStridesBinaryVector = [16, 0, 0, 0, 0, 0, 0, 0, 128, 62, 0, 0, 0, 0, 0, 0, 128, 62, 0, 0, 0, 0, 0, 0, 128, 62, 0, 0, 0, 0, 0, 0],
+//CHECK:  kernel_params = [0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]
+//CHECK:  outputDimsBinaryVector = [232, 3, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], outputStridesBinaryVector = [16, 0, 0, 0, 0, 0, 0, 0, 128, 62, 0, 0, 0, 0, 0, 0, 128, 62, 0, 0, 0, 0, 0, 0, 128, 62, 0, 0, 0, 0, 0, 0]}>
 
 //CHECK: ELF.CreateLogicalSection @[[MetadataSection:.+]] aligned(64) secType(VPU_SHT_CMX_METADATA) secFlags("SHF_NONE")
 //CHECK:   VPUASM.DeclareTaskBuffer @[[RangeTaskLocation:.+]] idx(!VPURegMapped.Index<[[RTLI:.+]]>) <ActKernelRange>
@@ -146,7 +149,10 @@ func.func private @act_shave() {
 //CHECK:   VPUASM.DeclareKernelData @[[DeclareKernelArgs:.+]] : [[KernelName]]
 
 //CHECK: ELF.CreateSection @[[ParamsSection:.+]] aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC)
-//CHECK:   VPUASM.KernelParams @[[KernelParams:.+]] inputs([@[[BuffersSection]]::@[[DeclareBuffer0]]]) outputs([@[[BuffersSection]]::@[[DeclareBuffer1]]]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type([[KernelName]]) < {kernel_params = [0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]}>
+//CHECK:   VPUASM.KernelParams @[[KernelParams:.+]] inputs([@[[BuffersSection]]::@[[DeclareBuffer0]]]) outputs([@[[BuffersSection]]::@[[DeclareBuffer1]]]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type([[KernelName]])
+//CHECK: < {inputDimsBinaryVector = [232, 3, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], inputStridesBinaryVector = [16, 0, 0, 0, 0, 0, 0, 0, 128, 62, 0, 0, 0, 0, 0, 0, 128, 62, 0, 0, 0, 0, 0, 0, 128, 62, 0, 0, 0, 0, 0, 0],
+//CHECK:     kernel_params = [0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0],
+//CHECK: outputDimsBinaryVector = [232, 3, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], outputStridesBinaryVector = [16, 0, 0, 0, 0, 0, 0, 0, 128, 62, 0, 0, 0, 0, 0, 0, 128, 62, 0, 0, 0, 0, 0, 0, 128, 62, 0, 0, 0, 0, 0, 0]}>
 
 //CHECK: ELF.CreateLogicalSection @[[MetadataSection:.+]] aligned(64) secType(VPU_SHT_CMX_METADATA) secFlags("SHF_NONE")
 //CHECK:   VPUASM.DeclareTaskBuffer @[[RangeTaskLocation:.+]] idx(!VPURegMapped.Index<[[RTLI:.+]]>) <ActKernelRange>
@@ -262,7 +268,10 @@ func.func private @act_shave() {
 //CHECK:   VPUASM.DeclareKernelData @[[DeclareKernelArgs:.+]] : [[KernelName]]
 
 //CHECK: ELF.CreateSection @[[ParamsSection:.+]] aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC)
-//CHECK:   VPUASM.KernelParams @[[KernelParams:.+]] inputs([@[[BuffersSection]]::@[[DeclareBuffer0]]]) outputs([@[[BuffersSection]]::@[[DeclareBuffer1]]]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type([[KernelName]]) < {kernel_params = [0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]}>
+//CHECK:   VPUASM.KernelParams @[[KernelParams:.+]] inputs([@[[BuffersSection]]::@[[DeclareBuffer0]]]) outputs([@[[BuffersSection]]::@[[DeclareBuffer1]]]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type([[KernelName]]) < {
+//CHECK: inputDimsBinaryVector = [232, 3, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], inputStridesBinaryVector = [16, 0, 0, 0, 0, 0, 0, 0, 128, 62, 0, 0, 0, 0, 0, 0, 128, 62, 0, 0, 0, 0, 0, 0, 128, 62, 0, 0, 0, 0, 0, 0],
+//CHECK: kernel_params = [0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0],
+//CHECK: outputDimsBinaryVector = [232, 3, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], outputStridesBinaryVector = [16, 0, 0, 0, 0, 0, 0, 0, 128, 62, 0, 0, 0, 0, 0, 0, 128, 62, 0, 0, 0, 0, 0, 0, 128, 62, 0, 0, 0, 0, 0, 0]}>
 
 //CHECK: ELF.CreateLogicalSection @[[MetadataSection:.+]] aligned(64) secType(VPU_SHT_CMX_METADATA) secFlags("SHF_NONE")
 //CHECK:   VPUASM.DeclareTaskBuffer @[[RangeTaskLocation:.+]] idx(!VPURegMapped.Index<[[RTLI:.+]]>) <ActKernelRange>

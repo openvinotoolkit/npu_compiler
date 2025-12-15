@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 
@@ -32,6 +33,10 @@ public:
     }
 
     static bool useNewWeightTableFormat(mlir::Operation*, bool) {
+        return false;
+    }
+
+    static bool isNewWeightTableFormatSupportedWithDwOps([[maybe_unused]] config::ArchKind arch) {
         return false;
     }
 };

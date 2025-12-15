@@ -4,9 +4,12 @@
 //
 
 #include "vpux/compiler/core/layers.hpp"
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+#include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 
 namespace vpux::VPU {
 #define GEN_PASS_DECL_SHIFTOUTPUTWORKLOADSFORHALO

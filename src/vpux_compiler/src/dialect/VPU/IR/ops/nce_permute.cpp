@@ -8,7 +8,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/permute_quantize_utils.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
@@ -130,12 +130,19 @@ bool vpux::VPU::NCEPermuteOp::isSupported(IE::PermuteQuantizeOp op, LogCb logCb,
         return false;
     }
 
-    if (!mlir::cast<vpux::NDTypeInterface>(op.getInput().getType()).getElementType().isF16()) {
-        logCb(formatv("Only F16 input is supported."));
-        return false;
+    auto inputElemType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType()).getElementType();
+    auto outputElemType = mlir::cast<vpux::NDTypeInterface>(op.getOutput().getType()).getElementType();
+    if (IE::isPurePermuteCompatiblePrecision(inputElemType, outputElemType)) {
+        return true;
     }
 
-    return true;
+    if (inputElemType.isF16() && mlir::isa<mlir::quant::QuantizedType>(outputElemType)) {
+        return true;
+    }
+
+    logCb(formatv("Unsupported quantized data types combination. Input: {0}, Output: {1}", inputElemType,
+                  outputElemType));
+    return false;
 }
 
 //

@@ -38,7 +38,7 @@ def VPURegMapped_RegField : VPURegMapped_Type<"RegField"> {
         "uint32_t":$pos,
         "uint64_t":$value,
         "std::string":$name,
-        VPURegMapped_RegFieldDataType:$dataType,
+        "vpux::VPURegMapped::RegFieldDataType":$dataType,
         "elf::Version":$requiredMIVersion
     );
 

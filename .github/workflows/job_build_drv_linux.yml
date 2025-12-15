@@ -107,6 +107,7 @@ jobs:
         if: ${{ !steps.cache-restore.outputs.cache-hit }}
         run: |
           sed -i "s|^set(OPENVINO_REPOSITORY .*|set(OPENVINO_REPOSITORY https://github.com/${{ steps.versions.outputs.openvino-repository }})|" ${NPU_DRIVER_REPO}/compiler/compiler_source.cmake
+          sed -i "s|^set(OPENVINO_REVISION .*|set(OPENVINO_REVISION ${{ steps.versions.outputs.openvino-sha }})|" ${NPU_DRIVER_REPO}/compiler/compiler_source.cmake
           sed -i '/GIT_REPOSITORY/{n;s|https://github.com/openvinotoolkit/npu_compiler.git|https://github.com/${{ steps.versions.outputs.npu-compiler-repository }}.git|}' ${NPU_DRIVER_REPO}/compiler/compiler_source.cmake
           sed -i "s|^set(NPU_COMPILER_TAG .*|set(NPU_COMPILER_TAG ${{ steps.versions.outputs.npu-compiler-tag }})|" ${NPU_DRIVER_REPO}/compiler/compiler_source.cmake
           sed -i "s|^set(NPU_COMPILER_REVISION .*|set(NPU_COMPILER_REVISION ${{ steps.versions.outputs.npu-compiler-sha }})|" ${NPU_DRIVER_REPO}/compiler/compiler_source.cmake

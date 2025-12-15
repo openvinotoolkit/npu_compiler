@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --adjust-block-size-for-scf-tiling  --canonicalize %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #map = affine_map<(d0)[s0] -> (-d0 + s0, 100)>
@@ -51,21 +51,21 @@ module @StaticEltwiseNHWC {
   // CHECK:      [[C3:%.*]] = arith.constant 3 : index
   // CHECK:      [[DIM:%.*]] = tensor.dim [[ARG0]], [[C3]] : tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1000]> : tensor<4xsi64>, order = #NHWC}>
   // CHECK:      [[EMPTY:%.*]] = tensor.empty([[DIM]]) : tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1000]> : tensor<4xsi64>, order = #NHWC}>
+  // CHECK:      [[HAS_ENOUGH:%.*]] = arith.cmpi sge, [[DIM]], [[C100]] : index
+  // CHECK:      cf.assert [[HAS_ENOUGH]], "Not enough elements to backtrack in scf.for loop for Output tensor"
   // CHECK:      [[REMUI:%.*]] = arith.remui [[DIM]], [[C100]] : index
   // CHECK:      [[FOR_RESULT:%.*]] = scf.for [[ARG2:%.*]] = [[C0]] to [[DIM]] step [[C100]] iter_args([[ARG3:%.*]] = [[EMPTY]]) -> (tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1000]> : tensor<4xsi64>, order = #NHWC}>) {
   // CHECK:        [[MIN_SIZE:%.*]] = affine.min #[[$MAP]]([[ARG2]])[[[DIM]]]
   // CHECK:        [[IS_FIRST:%.*]] = arith.cmpi eq, [[ARG2]], [[C0]] : index
   // CHECK:        [[OFFSET:%.*]] = scf.if [[IS_FIRST]] -> (index) {
-  // CHECK:          [[HAS_ENOUGH:%.*]] = arith.cmpi sge, [[MIN_SIZE]], [[C100]] : index
-  // CHECK:          cf.assert [[HAS_ENOUGH]], "Not enough elements to backtrack in scf.for loop"
   // CHECK:          scf.yield [[ARG2]] : index
   // CHECK:        } else {
-  // CHECK:          [[NEXT_POS:%.*]] = arith.addi [[ARG2]], [[C100]] : index
+  // CHECK:          [[NEXT_POS:%.*]] = arith.addi [[ARG2]], [[MIN_SIZE]] : index
   // CHECK:          [[IN_BOUNDS:%.*]] = arith.cmpi slt, [[NEXT_POS]], [[DIM]] : index
   // CHECK:          [[FINAL_OFFSET:%.*]] = scf.if [[IN_BOUNDS]] -> (index) {
   // CHECK:            scf.yield [[ARG2]] : index
   // CHECK:          } else {
-  // CHECK:            [[IS_EXACT:%.*]] = arith.cmpi eq, [[NEXT_POS]], [[DIM]] : index
+  // CHECK:            [[IS_EXACT:%.*]] = arith.cmpi eq, [[MIN_SIZE]], [[C100]] : index
   // CHECK:            [[BACKTRACK_OFFSET:%.*]] = scf.if [[IS_EXACT]] -> (index) {
   // CHECK:              scf.yield [[ARG2]] : index
   // CHECK:            } else {
@@ -164,16 +164,14 @@ module @Add {
   // CHECK:        [[MIN_SIZE:%.*]] = affine.min #[[$MAP]]([[ARG2]])
   // CHECK:        [[IS_FIRST:%.*]] = arith.cmpi eq, [[ARG2]], [[C0]] : index
   // CHECK:        [[OFFSET:%.*]] = scf.if [[IS_FIRST]] -> (index) {
-  // CHECK:          [[HAS_ENOUGH:%.*]] = arith.cmpi sge, [[MIN_SIZE]], [[C44]] : index
-  // CHECK:          cf.assert [[HAS_ENOUGH]], "Not enough elements to backtrack in scf.for loop"
   // CHECK:          scf.yield [[ARG2]] : index
   // CHECK:        } else {
-  // CHECK:          [[NEXT_POS:%.*]] = arith.addi [[ARG2]], [[C44]] : index
+  // CHECK:          [[NEXT_POS:%.*]] = arith.addi [[ARG2]], [[MIN_SIZE]] : index
   // CHECK:          [[IN_BOUNDS:%.*]] = arith.cmpi slt, [[NEXT_POS]], [[C720]] : index
   // CHECK:          [[FINAL_OFFSET:%.*]] = scf.if [[IN_BOUNDS]] -> (index) {
   // CHECK:            scf.yield [[ARG2]] : index
   // CHECK:          } else {
-  // CHECK:            [[IS_EXACT:%.*]] = arith.cmpi eq, [[NEXT_POS]], [[C720]] : index
+  // CHECK:            [[IS_EXACT:%.*]] = arith.cmpi eq, [[MIN_SIZE]], [[C44]] : index
   // CHECK:            [[BACKTRACK_OFFSET:%.*]] = scf.if [[IS_EXACT]] -> (index) {
   // CHECK:              scf.yield [[ARG2]] : index
   // CHECK:            } else {
@@ -288,9 +286,13 @@ module {
   // CHECK:      [[C2:%.*]] = arith.constant 2 : index
   // CHECK:      [[DIM:%.*]] = tensor.dim [[ARG0]], [[C2]] : tensor<1x32x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 1024, 64]> : tensor<4xsi64>, order = #NHWC}>
   // CHECK:      [[EMPTY:%.*]] = tensor.empty([[DIM]]) : tensor<1x256x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 1024, 64]> : tensor<4xsi64>, order = #NHWC}>
+  // CHECK:      [[HAS_ENOUGH:%.*]] = arith.cmpi sge, [[DIM]], [[C256]] : index
+  // CHECK:      cf.assert [[HAS_ENOUGH]], "Not enough elements to backtrack in scf.for loop for Output tensor"
   // CHECK:      [[DIM_0:%.*]] = tensor.dim [[ARG0]], [[C2]] : tensor<1x32x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 1024, 64]> : tensor<4xsi64>, order = #NHWC}>
   // CHECK:      [[REMUI:%.*]] = arith.remui [[DIM_0]], [[C256]] : index
   // CHECK:      [[DIM_1:%.*]] = tensor.dim [[ARG0]], [[C2]] : tensor<1x32x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 1024, 64]> : tensor<4xsi64>, order = #NHWC}>
+  // CHECK:      [[HAS_ENOUGH_INPUT:%.*]] = arith.cmpi sge, [[DIM_1]], [[C257]] : index
+  // CHECK:      cf.assert [[HAS_ENOUGH_INPUT]], "Not enough elements to backtrack in scf.for loop for Input tensor"
   // CHECK:      [[REMUI_1:%.*]] = arith.remui [[DIM_1]], [[C257]] : index
   // CHECK:      [[FOR_RESULT:%.*]] = scf.for [[ARG1:%.*]] = [[C0]] to [[DIM_0]] step [[C256]] iter_args([[ARG2:%.*]] = [[EMPTY]]) -> (tensor<1x256x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 1024, 64]> : tensor<4xsi64>, order = #NHWC}>) {
   // CHECK:        [[MIN_SIZE:%.*]] = affine.min #[[$MAP]]([[ARG1]])[[[DIM_0]]]
@@ -302,16 +304,14 @@ module {
   // CHECK:        [[APPLY_SIZE:%.*]] = affine.apply #[[$MAP5]]([[MIN_SIZE]], [[MIN_H]], [[MIN_SIZE_2]])
   // CHECK:        [[IS_FIRST:%.*]] = arith.cmpi eq, [[ARG1]], [[C0]] : index
   // CHECK:        [[OFFSET:%.*]] = scf.if [[IS_FIRST]] -> (index) {
-  // CHECK:          [[HAS_ENOUGH:%.*]] = arith.cmpi sge, [[MIN_SIZE]], [[C256]] : index
-  // CHECK:          cf.assert [[HAS_ENOUGH]], "Not enough elements to backtrack in scf.for loop"
   // CHECK:          scf.yield [[ARG1]] : index
   // CHECK:        } else {
-  // CHECK:          [[NEXT_POS:%.*]] = arith.addi [[ARG1]], [[C256]] : index
+  // CHECK:          [[NEXT_POS:%.*]] = arith.addi [[ARG1]], [[MIN_SIZE]] : index
   // CHECK:          [[IN_BOUNDS:%.*]] = arith.cmpi slt, [[NEXT_POS]], [[DIM_0]] : index
   // CHECK:          [[FINAL_OFFSET:%.*]] = scf.if [[IN_BOUNDS]] -> (index) {
   // CHECK:            scf.yield [[ARG1]] : index
   // CHECK:          } else {
-  // CHECK:            [[IS_EXACT:%.*]] = arith.cmpi eq, [[NEXT_POS]], [[DIM_0]] : index
+  // CHECK:            [[IS_EXACT:%.*]] = arith.cmpi eq, [[MIN_SIZE]], [[C256]] : index
   // CHECK:            [[BACKTRACK_OFFSET:%.*]] = scf.if [[IS_EXACT]] -> (index) {
   // CHECK:              scf.yield [[ARG1]] : index
   // CHECK:            } else {
@@ -324,19 +324,17 @@ module {
   // CHECK:        }
   // CHECK:        [[IS_ZERO_POS:%.*]] = arith.cmpi eq, [[MAX_POS]], [[C0]] : index
   // CHECK:        [[CASE_OFFSET:%.*]]:2 = scf.if [[IS_ZERO_POS]] -> (index, index) {
-  // CHECK:          [[HAS_ENOUGH_CASE:%.*]] = arith.cmpi sge, [[APPLY_SIZE]], [[C257]] : index
-  // CHECK:          cf.assert [[HAS_ENOUGH_CASE]], "Not enough elements to backtrack in scf.for loop"
   // CHECK:          [[IS_EXACT_CASE:%.*]] = arith.cmpi eq, [[APPLY_SIZE]], [[DIM_1]] : index
   // CHECK:          [[CASE:%.*]] = arith.select [[IS_EXACT_CASE]], [[C3]], [[C2]] : index
   // CHECK:          scf.yield [[CASE]], [[MAX_POS]] : index, index
   // CHECK:        } else {
-  // CHECK:          [[NEXT_POS_CASE:%.*]] = arith.addi [[MAX_POS]], [[C257]] : index
+  // CHECK:          [[NEXT_POS_CASE:%.*]] = arith.addi [[MAX_POS]], [[APPLY_SIZE]] : index
   // CHECK:          [[IN_BOUNDS_CASE:%.*]] = arith.cmpi slt, [[NEXT_POS_CASE]], [[DIM_1]] : index
   // CHECK:          [[CASE_ALT:%.*]] = arith.select [[IN_BOUNDS_CASE]], [[C0]], [[C1]] : index
   // CHECK:          [[OFFSET_CASE:%.*]] = scf.if [[IN_BOUNDS_CASE]] -> (index) {
   // CHECK:            scf.yield [[MAX_POS]] : index
   // CHECK:          } else {
-  // CHECK:            [[IS_EXACT_ALT:%.*]] = arith.cmpi eq, [[NEXT_POS_CASE]], [[DIM_1]] : index
+  // CHECK:            [[IS_EXACT_ALT:%.*]] = arith.cmpi eq, [[APPLY_SIZE]], [[C257]] : index
   // CHECK:            [[BACKTRACK_OFFSET_ALT:%.*]] = scf.if [[IS_EXACT_ALT]] -> (index) {
   // CHECK:              scf.yield [[MAX_POS]] : index
   // CHECK:            } else {
@@ -533,11 +531,19 @@ module {
   // CHECK:      [[DIM:%.*]] = tensor.dim [[ARG0]], [[C2]] : tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 1024, 640]> : tensor<4xsi64>, order = #NHWC}>
   // CHECK:      [[DIM_0:%.*]] = tensor.dim [[ARG0]], [[C3]] : tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 1024, 640]> : tensor<4xsi64>, order = #NHWC}>
   // CHECK:      [[EMPTY:%.*]] = tensor.empty([[DIM]], [[DIM_0]]) : tensor<1x256x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 1024, 640]> : tensor<4xsi64>, order = #NHWC}>
+  // CHECK:      [[HAS_ENOUGH_0:%.*]] = arith.cmpi sge, [[DIM_0]], [[C160]] : index
+  // CHECK:      cf.assert [[HAS_ENOUGH_0]], "Not enough elements to backtrack in scf.for loop for Output tensor"
+  // CHECK:      [[HAS_ENOUGH_1:%.*]] = arith.cmpi sge, [[DIM]], [[C256]] : index
+  // CHECK:      cf.assert [[HAS_ENOUGH_1]], "Not enough elements to backtrack in scf.for loop for Output tensor"
   // CHECK:      [[REMUI:%.*]] = arith.remui [[DIM]], [[C256]] : index
   // CHECK:      [[REMUI_1:%.*]] = arith.remui [[DIM_0]], [[C160]] : index
   // CHECK:      [[DIM_3:%.*]] = tensor.dim [[ARG0]], [[C2]] : tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 1024, 640]> : tensor<4xsi64>, order = #NHWC}>
+  // CHECK:      [[HAS_ENOUGH_INPUT:%.*]] = arith.cmpi sge, [[DIM_3]], [[C257]] : index
+  // CHECK:      cf.assert [[HAS_ENOUGH_INPUT]], "Not enough elements to backtrack in scf.for loop for Input tensor"
   // CHECK:      [[REMUI_2:%.*]] = arith.remui [[DIM_3]], [[C257]] : index
   // CHECK:      [[DIM_4:%.*]] = tensor.dim [[ARG0]], [[C3]] : tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 1024, 640]> : tensor<4xsi64>, order = #NHWC}>
+  // CHECK:      [[HAS_ENOUGH_INPUT_1:%.*]] = arith.cmpi sge, [[DIM_4]], [[C161]] : index
+  // CHECK:      cf.assert [[HAS_ENOUGH_INPUT_1]], "Not enough elements to backtrack in scf.for loop for Input tensor"
   // CHECK:      [[REMUI_3:%.*]] = arith.remui [[DIM_4]], [[C161]] : index
   // CHECK:      [[FOR_RESULT:%.*]] = scf.for [[ARG1:%.*]] = [[C0]] to [[DIM]] step [[C256]] iter_args([[ARG2:%.*]] = [[EMPTY]]) -> (tensor<1x256x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 1024, 640]> : tensor<4xsi64>, order = #NHWC}>) {
   // CHECK:        [[FOR_RESULT_1:%.*]] = scf.for [[ARG3:%.*]] = [[C0]] to [[DIM_0]] step [[C160]] iter_args([[ARG4:%.*]] = [[ARG2]]) -> (tensor<1x256x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 1024, 640]> : tensor<4xsi64>, order = #NHWC}>) {
@@ -558,16 +564,14 @@ module {
   // CHECK:          [[IS_FIRST:%.*]] = arith.cmpi eq, [[ARG1]], [[C0]] : index
   // CHECK:          [[IS_FIRST_1:%.*]] = arith.cmpi eq, [[ARG3]], [[C0]] : index
   // CHECK:          [[OFFSET:%.*]] = scf.if [[IS_FIRST_1]] -> (index) {
-  // CHECK:            [[HAS_ENOUGH:%.*]] = arith.cmpi sge, [[MIN_SIZE_1]], [[C160]] : index
-  // CHECK:            cf.assert [[HAS_ENOUGH]], "Not enough elements to backtrack in scf.for loop"
   // CHECK:            scf.yield [[ARG3]] : index
   // CHECK:          } else {
-  // CHECK:            [[NEXT_POS:%.*]] = arith.addi [[ARG3]], [[C160]] : index
+  // CHECK:            [[NEXT_POS:%.*]] = arith.addi [[ARG3]], [[MIN_SIZE_1]] : index
   // CHECK:            [[IN_BOUNDS:%.*]] = arith.cmpi slt, [[NEXT_POS]], [[DIM_0]] : index
   // CHECK:            [[FINAL_OFFSET:%.*]] = scf.if [[IN_BOUNDS]] -> (index) {
   // CHECK:              scf.yield [[ARG3]] : index
   // CHECK:            } else {
-  // CHECK:              [[IS_EXACT:%.*]] = arith.cmpi eq, [[NEXT_POS]], [[DIM_0]] : index
+  // CHECK:              [[IS_EXACT:%.*]] = arith.cmpi eq, [[MIN_SIZE_1]], [[C160]] : index
   // CHECK:              [[BACKTRACK_OFFSET:%.*]] = scf.if [[IS_EXACT]] -> (index) {
   // CHECK:                scf.yield [[ARG3]] : index
   // CHECK:              } else {
@@ -579,16 +583,14 @@ module {
   // CHECK:            scf.yield [[FINAL_OFFSET]] : index
   // CHECK:          }
   // CHECK:          [[OFFSET_1:%.*]] = scf.if [[IS_FIRST]] -> (index) {
-  // CHECK:            [[HAS_ENOUGH_1:%.*]] = arith.cmpi sge, [[MIN_SIZE]], [[C256]] : index
-  // CHECK:            cf.assert [[HAS_ENOUGH_1]], "Not enough elements to backtrack in scf.for loop"
   // CHECK:            scf.yield [[ARG1]] : index
   // CHECK:          } else {
-  // CHECK:            [[NEXT_POS_1:%.*]] = arith.addi [[ARG1]], [[C256]] : index
+  // CHECK:            [[NEXT_POS_1:%.*]] = arith.addi [[ARG1]], [[MIN_SIZE]] : index
   // CHECK:            [[IN_BOUNDS_1:%.*]] = arith.cmpi slt, [[NEXT_POS_1]], [[DIM]] : index
   // CHECK:            [[FINAL_OFFSET_1:%.*]] = scf.if [[IN_BOUNDS_1]] -> (index) {
   // CHECK:              scf.yield [[ARG1]] : index
   // CHECK:            } else {
-  // CHECK:              [[IS_EXACT_1:%.*]] = arith.cmpi eq, [[NEXT_POS_1]], [[DIM]] : index
+  // CHECK:              [[IS_EXACT_1:%.*]] = arith.cmpi eq, [[MIN_SIZE]], [[C256]] : index
   // CHECK:              [[BACKTRACK_OFFSET_1:%.*]] = scf.if [[IS_EXACT_1]] -> (index) {
   // CHECK:                scf.yield [[ARG1]] : index
   // CHECK:              } else {
@@ -602,19 +604,17 @@ module {
   // CHECK:          [[IS_ZERO_POS:%.*]] = arith.cmpi eq, [[MAX_POS]], [[C0]] : index
   // CHECK:          [[IS_ZERO_POS_1:%.*]] = arith.cmpi eq, [[MAX_POS_2]], [[C0]] : index
   // CHECK:          [[CASE_OFFSET:%.*]]:2 = scf.if [[IS_ZERO_POS_1]] -> (index, index) {
-  // CHECK:            [[HAS_ENOUGH_2:%.*]] = arith.cmpi sge, [[APPLY_SIZE_1]], [[C161]] : index
-  // CHECK:            cf.assert [[HAS_ENOUGH_2]], "Not enough elements to backtrack in scf.for loop"
   // CHECK:            [[IS_EXACT_2:%.*]] = arith.cmpi eq, [[APPLY_SIZE_1]], [[DIM_4]] : index
   // CHECK:            [[CASE:%.*]] = arith.select [[IS_EXACT_2]], [[C3]], [[C2]] : index
   // CHECK:            scf.yield [[CASE]], [[MAX_POS_2]] : index, index
   // CHECK:          } else {
-  // CHECK:            [[NEXT_POS_2:%.*]] = arith.addi [[MAX_POS_2]], [[C161]] : index
+  // CHECK:            [[NEXT_POS_2:%.*]] = arith.addi [[MAX_POS_2]], [[APPLY_SIZE_1]] : index
   // CHECK:            [[IN_BOUNDS_2:%.*]] = arith.cmpi slt, [[NEXT_POS_2]], [[DIM_4]] : index
   // CHECK:            [[CASE_ALT:%.*]] = arith.select [[IN_BOUNDS_2]], [[C0]], [[C1]] : index
   // CHECK:            [[OFFSET_CASE:%.*]] = scf.if [[IN_BOUNDS_2]] -> (index) {
   // CHECK:              scf.yield [[MAX_POS_2]] : index
   // CHECK:            } else {
-  // CHECK:              [[IS_EXACT_ALT:%.*]] = arith.cmpi eq, [[NEXT_POS_2]], [[DIM_4]] : index
+  // CHECK:              [[IS_EXACT_ALT:%.*]] = arith.cmpi eq, [[APPLY_SIZE_1]], [[C161]] : index
   // CHECK:              [[BACKTRACK_OFFSET_ALT:%.*]] = scf.if [[IS_EXACT_ALT]] -> (index) {
   // CHECK:                scf.yield [[MAX_POS_2]] : index
   // CHECK:              } else {
@@ -626,19 +626,17 @@ module {
   // CHECK:            scf.yield [[CASE_ALT]], [[OFFSET_CASE]] : index, index
   // CHECK:          }
   // CHECK:          [[CASE_OFFSET_1:%.*]]:2 = scf.if [[IS_ZERO_POS]] -> (index, index) {
-  // CHECK:            [[HAS_ENOUGH_3:%.*]] = arith.cmpi sge, [[APPLY_SIZE]], [[C257]] : index
-  // CHECK:            cf.assert [[HAS_ENOUGH_3]], "Not enough elements to backtrack in scf.for loop"
   // CHECK:            [[IS_EXACT_3:%.*]] = arith.cmpi eq, [[APPLY_SIZE]], [[DIM_3]] : index
   // CHECK:            [[CASE_1:%.*]] = arith.select [[IS_EXACT_3]], [[C3]], [[C2]] : index
   // CHECK:            scf.yield [[CASE_1]], [[MAX_POS]] : index, index
   // CHECK:          } else {
-  // CHECK:            [[NEXT_POS_3:%.*]] = arith.addi [[MAX_POS]], [[C257]] : index
+  // CHECK:            [[NEXT_POS_3:%.*]] = arith.addi [[MAX_POS]], [[APPLY_SIZE]] : index
   // CHECK:            [[IN_BOUNDS_3:%.*]] = arith.cmpi slt, [[NEXT_POS_3]], [[DIM_3]] : index
   // CHECK:            [[CASE_ALT_1:%.*]] = arith.select [[IN_BOUNDS_3]], [[C0]], [[C1]] : index
   // CHECK:            [[OFFSET_CASE_1:%.*]] = scf.if [[IN_BOUNDS_3]] -> (index) {
   // CHECK:              scf.yield [[MAX_POS]] : index
   // CHECK:            } else {
-  // CHECK:              [[IS_EXACT_ALT_1:%.*]] = arith.cmpi eq, [[NEXT_POS_3]], [[DIM_3]] : index
+  // CHECK:              [[IS_EXACT_ALT_1:%.*]] = arith.cmpi eq, [[APPLY_SIZE]], [[C257]] : index
   // CHECK:              [[BACKTRACK_OFFSET_ALT_1:%.*]] = scf.if [[IS_EXACT_ALT_1]] -> (index) {
   // CHECK:                scf.yield [[MAX_POS]] : index
   // CHECK:              } else {
@@ -808,11 +806,15 @@ module {
   // CHECK:      [[ADDI:%.*]] = arith.addi [[DIM]], [[C1]] : index
   // CHECK:      [[DIVSI:%.*]] = arith.divsi [[ADDI]], [[C2]] : index
   // CHECK:      [[EMPTY:%.*]] = tensor.empty([[DIVSI]]) : tensor<1x256x?x32xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 512, 32]> : tensor<4xsi64>, order = #NHWC}>
+  // CHECK:      [[HAS_ENOUGH:%.*]] = arith.cmpi sge, [[DIVSI]], [[C256]] : index
+  // CHECK:      cf.assert [[HAS_ENOUGH]], "Not enough elements to backtrack in scf.for loop for Output tensor"
   // CHECK:      [[DIM_0:%.*]] = tensor.dim [[ARG0]], [[C2]] : tensor<1x32x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 1024, 64]> : tensor<4xsi64>, order = #NHWC}>
   // CHECK:      [[ADDI_1:%.*]] = arith.addi [[DIM_0]], [[C1]] : index
   // CHECK:      [[DIVSI_1:%.*]] = arith.divsi [[ADDI_1]], [[C2]] : index
   // CHECK:      [[REMUI:%.*]] = arith.remui [[DIVSI_1]], [[C256]] : index
   // CHECK:      [[DIM_1:%.*]] = tensor.dim [[ARG0]], [[C2]] : tensor<1x32x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 1024, 64]> : tensor<4xsi64>, order = #NHWC}>
+  // CHECK:      [[HAS_ENOUGH_INPUT:%.*]] = arith.cmpi sge, [[DIM_1]], [[C512]] : index
+  // CHECK:      cf.assert [[HAS_ENOUGH_INPUT]], "Not enough elements to backtrack in scf.for loop for Input tensor"
   // CHECK:      [[REMUI_1:%.*]] = arith.remui [[DIM_1]], [[C512]] : index
   // CHECK:      [[FOR_RESULT:%.*]] = scf.for [[ARG1:%.*]] = [[C0]] to [[DIVSI_1]] step [[C256]] iter_args([[ARG2:%.*]] = [[EMPTY]]) -> (tensor<1x256x?x32xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 512, 32]> : tensor<4xsi64>, order = #NHWC}>) {
   // CHECK:        [[MIN_SIZE:%.*]] = affine.min #[[$MAP]]([[ARG1]])[[[DIVSI_1]]]
@@ -820,16 +822,14 @@ module {
   // CHECK:        [[APPLY_SIZE:%.*]] = affine.apply #[[$MAP2]]([[MIN_SIZE]])
   // CHECK:        [[IS_FIRST:%.*]] = arith.cmpi eq, [[ARG1]], [[C0]] : index
   // CHECK:        [[OFFSET:%.*]] = scf.if [[IS_FIRST]] -> (index) {
-  // CHECK:          [[HAS_ENOUGH:%.*]] = arith.cmpi sge, [[MIN_SIZE]], [[C256]] : index
-  // CHECK:          cf.assert [[HAS_ENOUGH]], "Not enough elements to backtrack in scf.for loop"
   // CHECK:          scf.yield [[ARG1]] : index
   // CHECK:        } else {
-  // CHECK:          [[NEXT_POS:%.*]] = arith.addi [[ARG1]], [[C256]] : index
+  // CHECK:          [[NEXT_POS:%.*]] = arith.addi [[ARG1]], [[MIN_SIZE]] : index
   // CHECK:          [[IN_BOUNDS:%.*]] = arith.cmpi slt, [[NEXT_POS]], [[DIVSI_1]] : index
   // CHECK:          [[FINAL_OFFSET:%.*]] = scf.if [[IN_BOUNDS]] -> (index) {
   // CHECK:            scf.yield [[ARG1]] : index
   // CHECK:          } else {
-  // CHECK:            [[IS_EXACT:%.*]] = arith.cmpi eq, [[NEXT_POS]], [[DIVSI_1]] : index
+  // CHECK:            [[IS_EXACT:%.*]] = arith.cmpi eq, [[MIN_SIZE]], [[C256]] : index
   // CHECK:            [[BACKTRACK_OFFSET:%.*]] = scf.if [[IS_EXACT]] -> (index) {
   // CHECK:              scf.yield [[ARG1]] : index
   // CHECK:            } else {
@@ -842,19 +842,17 @@ module {
   // CHECK:        }
   // CHECK:        [[IS_ZERO_POS:%.*]] = arith.cmpi eq, [[MAX_POS]], [[C0]] : index
   // CHECK:        [[CASE_OFFSET:%.*]]:2 = scf.if [[IS_ZERO_POS]] -> (index, index) {
-  // CHECK:          [[HAS_ENOUGH_CASE:%.*]] = arith.cmpi sge, [[APPLY_SIZE]], [[C512]] : index
-  // CHECK:          cf.assert [[HAS_ENOUGH_CASE]], "Not enough elements to backtrack in scf.for loop"
   // CHECK:          [[IS_EXACT_CASE:%.*]] = arith.cmpi eq, [[APPLY_SIZE]], [[DIM_1]] : index
   // CHECK:          [[CASE:%.*]] = arith.select [[IS_EXACT_CASE]], [[C3]], [[C2]] : index
   // CHECK:          scf.yield [[CASE]], [[MAX_POS]] : index, index
   // CHECK:        } else {
-  // CHECK:          [[NEXT_POS_CASE:%.*]] = arith.addi [[MAX_POS]], [[C512]] : index
+  // CHECK:          [[NEXT_POS_CASE:%.*]] = arith.addi [[MAX_POS]], [[APPLY_SIZE]] : index
   // CHECK:          [[IN_BOUNDS_CASE:%.*]] = arith.cmpi slt, [[NEXT_POS_CASE]], [[DIM_1]] : index
   // CHECK:          [[CASE_ALT:%.*]] = arith.select [[IN_BOUNDS_CASE]], [[C0]], [[C1]] : index
   // CHECK:          [[OFFSET_CASE:%.*]] = scf.if [[IN_BOUNDS_CASE]] -> (index) {
   // CHECK:            scf.yield [[MAX_POS]] : index
   // CHECK:          } else {
-  // CHECK:            [[IS_EXACT_ALT:%.*]] = arith.cmpi eq, [[NEXT_POS_CASE]], [[DIM_1]] : index
+  // CHECK:            [[IS_EXACT_ALT:%.*]] = arith.cmpi eq, [[APPLY_SIZE]], [[C512]] : index
   // CHECK:            [[BACKTRACK_OFFSET_ALT:%.*]] = scf.if [[IS_EXACT_ALT]] -> (index) {
   // CHECK:              scf.yield [[MAX_POS]] : index
   // CHECK:            } else {

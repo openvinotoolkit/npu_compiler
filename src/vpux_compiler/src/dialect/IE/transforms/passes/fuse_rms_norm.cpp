@@ -27,12 +27,6 @@ using namespace vpux;
 
 namespace {
 
-const float minEpsilonForFP16 = 0.000000001f;
-// In float16 RMS Norm shave kernel, if 1/sqrt(epsilon) > float16>::max()
-// then the epsilon addition is no longer able to prevent a divide-by-zero condition anytime the
-// accumulated input is exactly 0.0 and the result is 0.0 * Inf, leading to NaNs in the output.
-// epsilon = 1e-9 is a safe value to avoid this.
-
 //
 // FuseRMSNormPass
 //
@@ -114,32 +108,31 @@ mlir::FailureOr<int64_t> getReducedSize(ArrayRef<int64_t> reduceAxes, vpux::Shap
 }
 
 mlir::FailureOr<float> getEpsilon(mlir::Operation* op) {
-    if (!op->hasOneUse()) {
-        return mlir::failure();
-    }
-
     if (auto clampOp = mlir::dyn_cast_or_null<IE::ClampOp>(op)) {
         const auto clampMin = clampOp.getMin().convertToDouble();
         const auto clampMax = clampOp.getMax().convertToDouble();
 
-        // Skip match if clamp isn't effectively single-sided with positive low end
+        // Skip match if Clamp isn't single-sided with positive low end. This ensures fusion only happens
+        // if the Clamp is effectively performing a max(x, epsilon) operation, which can be fused into an
+        // RMS_Norm kernel without affecting accuracy. Other Clamp forms cannot be fused, or are invalid.
         const double almostMax = 0.9;
         if (clampMax < almostMax * static_cast<double>(std::numeric_limits<type::float16>::max()) || clampMin < 0.0) {
             return mlir::failure();
         }
-        return std::max(static_cast<float>(clampMin), minEpsilonForFP16);
+        return static_cast<float>(clampMin);
     } else if (mlir::isa_and_nonnull<IE::AddOp, IE::MaximumOp>(op)) {
-        auto epsilonConstOp = mlir::isa<Const::DeclareOp>(op->getOperand(0).getDefiningOp())
+        auto epsilonConstOp = mlir::isa_and_nonnull<Const::DeclareOp>(op->getOperand(0).getDefiningOp())
                                       ? op->getOperand(0).getDefiningOp<Const::DeclareOp>()
                                       : op->getOperand(1).getDefiningOp<Const::DeclareOp>();
         if (epsilonConstOp == nullptr) {
             return mlir::failure();
         }
 
-        auto epsilonContent = epsilonConstOp.getContent();
-        auto epsilonArray = to_small_vector(epsilonContent.getValues<float>());
-        VPUX_THROW_WHEN(epsilonArray.size() != 1, "wrong epsilon value");
-        return std::max(epsilonArray[0], minEpsilonForFP16);
+        const auto maybeEpsilonVal = Const::getSplatValue<float>(epsilonConstOp);
+        if (mlir::failed(maybeEpsilonVal)) {
+            return mlir::failure();
+        }
+        return maybeEpsilonVal.value();
     }
     return mlir::failure();
 }
@@ -164,11 +157,14 @@ void isReduceSumPattern(mlir::Operation* maybePowerOp, IE::ReduceSumOp reduceSum
 
     auto powerInput = powerOp->getOperand(0);
     auto powerInputShape = getShape(powerInput);
-    float epsilon = minEpsilonForFP16;
+    auto epsilon = std::numeric_limits<type::float16>::smallest_mixed_precision_eps;
 
     auto sqrtOp = mlir::dyn_cast_or_null<IE::SqrtOp>(*reduceSumOp->getUsers().begin());
     if (sqrtOp == nullptr) {
         auto preventDivByZeroOp = *reduceSumOp->getUsers().begin();
+        if (!preventDivByZeroOp->hasOneUse()) {
+            return;
+        }
         auto epsilonResult = getEpsilon(preventDivByZeroOp);
         if (mlir::failed(epsilonResult)) {
             return;
@@ -399,12 +395,24 @@ void FuseRMSNormPass::safeRunOnFunc() {
 
         auto headOp = powerOp;
 
-        auto preventDivByZeroOp = *reduceMeanOp->getUsers().begin();
-        auto epsilonResult = getEpsilon(preventDivByZeroOp);
-        if (mlir::failed(epsilonResult)) {
-            return;
+        mlir::Operation* divideOp = getSqrtAndDivideOps(*reduceMeanOp->getUsers().begin());
+        auto epsilon = std::numeric_limits<type::float16>::smallest_mixed_precision_eps;
+
+        if (divideOp == nullptr) {
+            auto preventDivByZeroOp = *reduceMeanOp->getUsers().begin();
+            if (!preventDivByZeroOp->hasOneUse()) {
+                return;
+            }
+            auto epsilonResult = getEpsilon(preventDivByZeroOp);
+            if (mlir::failed(epsilonResult)) {
+                return;
+            }
+            epsilon = epsilonResult.value();
+            divideOp = getSqrtAndDivideOps(*preventDivByZeroOp->getUsers().begin());
+            if (divideOp == nullptr) {
+                return;
+            }
         }
-        float epsilon = epsilonResult.value();
 
         // Get shape size of reduced axes
         const auto reduceAxes = parseIntArrayAttr<int64_t>(reduceMeanOp.getAxesValueAttr());
@@ -418,11 +426,6 @@ void FuseRMSNormPass::safeRunOnFunc() {
             return;
         }
         const auto epsilonAttr = getFPAttr(&ctx, epsilon);
-
-        const auto divideOp = getSqrtAndDivideOps(*preventDivByZeroOp->getUsers().begin());
-        if (divideOp == nullptr) {
-            return;
-        }
 
         if (matchPatternEndsWithDivideOp(divideOp, headOp)) {
             _log.trace("Match the pattern ends with DivideOp");

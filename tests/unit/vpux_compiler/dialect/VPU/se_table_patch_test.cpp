@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
+#include "vpux/compiler/dialect/VPUIP/transforms/factories/unroll_distributed_ops_getter.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes/unroll_distributed_ops.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
@@ -26,6 +27,7 @@
 using namespace vpux;
 
 struct SETablePatchParams {
+    bool resetBasePtrs;
     std::vector<int32_t> inputSETableValues;
     std::vector<int64_t> seTableShape;
     std::vector<int64_t> numTiles;
@@ -55,6 +57,14 @@ TEST_P(SETablePatchTests, patchSETableValue) {
 
     mlir::OpBuilder builder(&ctx);
     auto loc = mlir::UnknownLoc::get(&ctx);
+
+    // Create proper MLIR module structure
+    auto moduleOp = mlir::ModuleOp::create(loc);
+    auto funcOp = mlir::func::FuncOp::create(loc, "SETablePatchTestFunc", builder.getFunctionType({}, {}));
+    moduleOp.push_back(funcOp);
+
+    auto entryBlock = funcOp.addEntryBlock();
+    builder.setInsertionPointToStart(entryBlock);
 
     // Create SE table constant with NHWC layout
     const auto seTableTensorType = mlir::RankedTensorType::get(params.seTableShape, builder.getIntegerType(32));
@@ -105,11 +115,11 @@ TEST_P(SETablePatchTests, patchSETableValue) {
         VPUX_SCOPE_EXIT {
             subviewOp.getDefiningOp()->erase();
         };
-
         auto subviewConstOp = subviewOp.getDefiningOp<Const::DeclareOp>();
 
         // Call patchSETableValue function with the subview result
-        auto patchedValue = VPUIP::patchSETableValue(loc, subviewConstOp, distributedType, clusterId, builder);
+        auto patchedValue = VPUIP::patchSETableValue(loc, subviewConstOp, distributedType, clusterId, builder,
+                                                     params.resetBasePtrs);
 
         // Extract the patched SE table values
         auto patchedConstOp = mlir::cast<Const::DeclareOp>(patchedValue.getDefiningOp());
@@ -135,6 +145,7 @@ TEST_P(SETablePatchTests, patchSETableValue) {
 std::vector<SETablePatchParams> seTablePatchParams = {
     // Test case 1: H-tiling case
     {
+        /*resetBasePtrs*/false,
         /*inputSETableValues=*/{
             0x0000, 0x0000, 0x0400, 0x0800, 0x0C00, 0x0C00,
             0x0000, 0x0000, 0x0400, 0x0800, 0x0C00, 0x0C00,
@@ -172,6 +183,7 @@ std::vector<SETablePatchParams> seTablePatchParams = {
 
     // Test case 2: W-tiling case
     {
+        /*resetBasePtrs*/false,
         /*inputSETableValues=*/{
             0x0000, 0x0000, 0x0400, 0x0800, 0x0801, 0x0801,
             0x0000, 0x0000, 0x0400, 0x0800, 0x0801, 0x0801,
@@ -212,6 +224,52 @@ std::vector<SETablePatchParams> seTablePatchParams = {
              0x2002, 0x2402, 0x2402,
              0x3002, 0x3402, 0x3402,
              0x3002, 0x3402, 0x3402},
+        }
+    },
+
+    // Test case 3: W-tiling case on other arch
+    {
+        /*resetBasePtrs*/true,
+        /*inputSETableValues=*/{
+            0x0000, 0x0000, 0x0400, 0x0800, 0x0801, 0x0801,
+            0x0000, 0x0000, 0x0400, 0x0800, 0x0801, 0x0801,
+            0x1000, 0x1000, 0x1400, 0x1800, 0x1801, 0x1801,
+            0x2000, 0x2000, 0x2400, 0x2800, 0x2801, 0x2801,
+            0x3000, 0x3000, 0x3400, 0x3800, 0x3801, 0x3801,
+            0x3000, 0x3000, 0x3400, 0x3800, 0x3801, 0x3801
+        },
+        /*seTableShape=*/{1, 1, 6, 6},
+        /*numTiles=*/{1, 1, 1, 3},
+        /*numClusters=*/3,
+        /*dataShape=*/{1, 16, 4, 4},
+        /*nceInputComputeShapes=*/{{1, 16, 4, 1}, {1, 16, 4, 2}, {1, 16, 4, 1}},
+        /*nceInputComputeOffsets=*/{{0, 0, 0, 0}, {0, 0, 0, 1}, {0, 0, 0, 3}},
+        /*nceInputMemoryShapes=*/{{1, 16, 4, 3}, {1, 16, 4, 3}, {1, 16, 4, 2}},
+        /*nceInputMemoryOffsets=*/{{0, 0, 0, 0}, {0, 0, 0, 1}, {0, 0, 0, 2}},
+        /*seTableMemoryShapes=*/{{1, 1, 6, 4}, {1, 1, 6, 3}, {1, 1, 6, 3}},
+        /*seTableMemoryOffsets=*/{{0, 0, 0, 0}, {0, 0, 0, 2}, {0, 0, 0, 3}},
+        /*expectedPatchedValues=*/{
+            // Expected patched values for cluster 0
+            {0x0000, 0x0000, 0x0400, 0x0800,
+             0x0000, 0x0000, 0x0400, 0x0800,
+             0x1000, 0x1000, 0x1400, 0x1800,
+             0x2000, 0x2000, 0x2400, 0x2800,
+             0x3000, 0x3000, 0x3400, 0x3800,
+             0x3000, 0x3000, 0x3400, 0x3800},
+            // Expected patched values for cluster 1
+            {0x0000, 0x0400, 0x0800,
+             0x0000, 0x0400, 0x0800,
+             0x1000, 0x1400, 0x1800,
+             0x2000, 0x2400, 0x2800,
+             0x3000, 0x3400, 0x3800,
+             0x3000, 0x3400, 0x3800},
+            // Expected patched values for cluster 2
+            {0x0000, 0x0400, 0x0400,
+             0x0000, 0x0400, 0x0400,
+             0x1000, 0x1400, 0x1400,
+             0x2000, 0x2400, 0x2400,
+             0x3000, 0x3400, 0x3400,
+             0x3000, 0x3400, 0x3400},
         }
     }
 };

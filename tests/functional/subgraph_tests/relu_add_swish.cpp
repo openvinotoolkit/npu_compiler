@@ -32,4 +32,9 @@ public:
     }
 };
 
+TEST_F(ReluAddSwishTest, NPU5010_HW_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
 }  // namespace ov::test::subgraph

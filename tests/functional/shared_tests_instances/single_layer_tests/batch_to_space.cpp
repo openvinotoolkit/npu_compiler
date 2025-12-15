@@ -7,7 +7,6 @@
 #include "vpu_ov2_layer_test.hpp"
 
 namespace ov {
-
 namespace test {
 
 class BatchToSpaceLayerTestCommon : public BatchToSpaceLayerTest, virtual public VpuOv2LayerTest {};
@@ -21,8 +20,11 @@ TEST_P(BatchToSpaceLayerTestCommon, NPU4000_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU4000);
 }
+TEST_P(BatchToSpaceLayerTestCommon, NPU5010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
 }  // namespace test
-
 }  // namespace ov
 
 using ov::test::BatchToSpaceLayerTestCommon;

@@ -153,7 +153,7 @@ public:
     }
 
     void buildVPUPipeline(mlir::OpPassManager& pm, Logger log) override {
-        VPU::arch37xx::buildReferenceSWPipeline(pm, log);
+        VPU::arch37xx::buildReferenceSWPipeline(pm, _optionsContainer->getPipelineOptions(), log);
     }
 
     void buildLowerVPU2VPUIPPipeline(mlir::OpPassManager& pm, Logger log) override {

@@ -16,6 +16,9 @@
 
 Change Log:
 -----------
+NPU Compiler 7.27.0
+  - UD48
+
 NPU Compiler 7.26.0
   - UD44
 

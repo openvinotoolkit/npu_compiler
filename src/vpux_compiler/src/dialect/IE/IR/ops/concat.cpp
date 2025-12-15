@@ -17,6 +17,7 @@
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/loop.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
 #include "vpux/utils/core/error.hpp"
 
@@ -700,8 +701,8 @@ mlir::Value dispatchDynamicDim(mlir::OpBuilder& builder, const int64_t dimIdx, c
         return nullptr;
     }
     const auto firstDynamicOperand = *firstDynOpIter;
-    mlir::OpFoldResult firstDimOp =
-            builder.createOrFold<mlir::tensor::DimOp>(firstDynamicOperand.getLoc(), firstDynamicOperand, dimIdx);
+    mlir::OpFoldResult firstDimOp = builder.createOrFold<mlir::tensor::DimOp>(
+            appendLoc(firstDynamicOperand.getLoc(), "dim_{0}", dimIdx), firstDynamicOperand, dimIdx);
     return mlir::getValueOrCreateConstantIndexOp(builder, firstDynamicOperand.getLoc(), firstDimOp);
 }
 };  // namespace

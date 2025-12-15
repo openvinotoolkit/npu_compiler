@@ -62,6 +62,9 @@ static mlir::LogicalResult Roundfp16(mlir::math::RoundOp op, mlir::PatternRewrit
 
     auto f16Type = operand.getType();
     auto i16Type = rewriter.getIntegerType(16);
+    auto getUI16Attr = [&](uint16_t value) {
+        return rewriter.getIntegerAttr(i16Type, llvm::APInt(16, value));
+    };
     Value xInt = rewriter.create<arith::BitcastOp>(loc, i16Type, operand);
 
     Value fp16Bias = rewriter.create<arith::ConstantOp>(loc, rewriter.getI16IntegerAttr(FP16_BIAS));
@@ -70,12 +73,11 @@ static mlir::LogicalResult Roundfp16(mlir::math::RoundOp op, mlir::PatternRewrit
     Value totalBitsMinusOne = rewriter.create<arith::ConstantOp>(loc, rewriter.getI16IntegerAttr(TOTALBITS_ONE));
 
     constexpr uint16_t signMaskValue = static_cast<uint16_t>(1u << TOTALBITS_ONE);
-    Value signMask =
-            rewriter.create<arith::ConstantOp>(loc, rewriter.getI16IntegerAttr(static_cast<int16_t>(signMaskValue)));
+    Value signMask = rewriter.create<arith::ConstantOp>(loc, getUI16Attr(signMaskValue));
 
     // xAbs = xInt & ~signMask
     constexpr uint16_t absMaskvalue = static_cast<uint16_t>(~(1u << FP16_BIAS));  // 0x7FFF
-    Value absMask = rewriter.create<arith::ConstantOp>(loc, rewriter.getI16IntegerAttr(absMaskvalue));
+    Value absMask = rewriter.create<arith::ConstantOp>(loc, getUI16Attr(absMaskvalue));
     Value xAbs = rewriter.create<arith::AndIOp>(loc, xInt, absMask);
 
     // xAbsHalfPlus = (shortx)( (halfx)xAbs + 0.5 )
@@ -92,7 +94,7 @@ static mlir::LogicalResult Roundfp16(mlir::math::RoundOp op, mlir::PatternRewrit
 
     // FP16_TRUNCFRACT = (((unsigned)-1) << FP16_FRACTBITS)
     constexpr uint16_t fp16TruncFracvalue = static_cast<uint16_t>((unsignedminusone << FP16_FRACTBITS));
-    Value fp16TruncFrac = rewriter.create<arith::ConstantOp>(loc, rewriter.getI16IntegerAttr(fp16TruncFracvalue));
+    Value fp16TruncFrac = rewriter.create<arith::ConstantOp>(loc, getUI16Attr(fp16TruncFracvalue));
 
     // truncMask = fp16TruncFrac >> xExpo (shift dinamic).
     Value truncMask = rewriter.create<arith::ShRSIOp>(loc, fp16TruncFrac, xExpo);
@@ -112,7 +114,7 @@ static mlir::LogicalResult Roundfp16(mlir::math::RoundOp op, mlir::PatternRewrit
     Value greatOrSmall = rewriter.create<arith::OrIOp>(loc, isGreat, isSmall);
 
     // Force sign extension of the constant:
-    Value rawAllOnes = rewriter.create<arith::ConstantOp>(loc, rewriter.getI16IntegerAttr(unsignedminusone));
+    Value rawAllOnes = rewriter.create<arith::ConstantOp>(loc, getUI16Attr(unsignedminusone));
     Value shiftZero = rewriter.create<arith::ConstantOp>(loc, rewriter.getI16IntegerAttr(0));
     Value allOnesExtended = rewriter.create<arith::ShRSIOp>(loc, rawAllOnes, shiftZero);
     Value isTrunc = rewriter.create<arith::XOrIOp>(loc, greatOrSmall, allOnesExtended);
@@ -164,7 +166,7 @@ static mlir::LogicalResult RoundEvenfp16(mlir::math::RoundEvenOp op, mlir::Patte
     constexpr uint16_t TOTALBITS_ONE = static_cast<uint16_t>(FP16_TOTALBITS - 1);
     constexpr uint16_t signMaskValue = static_cast<uint16_t>(1u << TOTALBITS_ONE);
     mlir::Value signMask = rewriter.create<mlir::arith::ConstantOp>(
-            loc, rewriter.getI16IntegerAttr(static_cast<int16_t>(signMaskValue)));
+            loc, rewriter.getIntegerAttr(i16Type, llvm::APInt(16, signMaskValue)));
 
     // halfx roundShift = (halfx)((shortx)FP16_GREATINT);
     mlir::Value roundShift = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getI16IntegerAttr(FP16_GREATINT));
@@ -263,8 +265,7 @@ void ExpandLayersPass::safeRunOnModule() {
         patterns.add(RoundEvenfp16, mlir::PatternBenefit(100));
         mlir::populateExpandFmaFPattern(patterns);
 
-        if (mlir::failed(
-                    mlir::applyPatternsAndFoldGreedily(funcOp, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+        if (mlir::failed(mlir::applyPatternsGreedily(funcOp, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
             signalPassFailure();
             return;
         }

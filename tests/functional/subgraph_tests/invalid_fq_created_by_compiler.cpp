@@ -79,4 +79,8 @@ TEST_F(InvalidFqCreatedByCompiler, NPU4000_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
+TEST_F(InvalidFqCreatedByCompiler, NPU5010_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
 }  // namespace ov::test::subgraph

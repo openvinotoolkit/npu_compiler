@@ -80,9 +80,8 @@ private:
     void setUpdateBarriers(size_t taskIdn, const TaskSet& barriers);
     void resizeBitMap(SmallVector<llvm::BitVector>& bitMap, size_t length, uint32_t bits);
     void resetBitMap(SmallVector<llvm::BitVector>& bitMap);
-    bool producersControlsAllConsumers(const TaskSet& origProducers, const TaskSet& newConsumers,
-                                       const TaskSet& origConsumers, ArrayRef<TaskSet> origWaitBarriersMap);
-    bool inImplicitQueueTypeDependencyList(const TaskSet& taskList);
+    bool canBarProducersControlBarConsumers(const TaskSet& producers, const TaskSet& consumers,
+                                            ArrayRef<TaskSet> origWaitBarriersMap);
 
     void optimizeBarrierProducers(size_t blockIdx);
     void optimizeBarrierConsumers(size_t blockIdx);
@@ -128,7 +127,9 @@ public:
     size_t getBarriersEarliestConsumer(const TaskSet& barriers);
 
     void logBarrierInfo();
-    void optimizeBarriers(bool checkValidSlotCount = true, bool considerTaskFifoDependency = false);
+    void optimizeBarriers(bool checkValidSlotCount = true, bool considerTaskFifoDependency = false,
+                          mlir::DenseSet<vpux::VPU::ExecutorKind> executors = {
+                                  VPU::ExecutorKind::DMA_NN, VPU::ExecutorKind::DPU, VPU::ExecutorKind::SHAVE_ACT});
 
     /**
      * @brief Eliminate tasks not controlled by barriers
@@ -236,10 +237,12 @@ public:
     SmallVector<TaskSet> createLegalVariantBatches(const TaskSet& tasks, size_t availableSlots,
                                                    bool considerTaskExecutorType = false);
     std::optional<VPURT::TaskQueueType> haveSameImplicitDependencyTaskQueueType(const TaskSet& taskInds);
+    std::optional<VPU::ExecutorKind> haveSameExecutorKind(const TaskSet& taskInds);
     bool canBarriersBeMerged(const TaskSet& barrierProducersA, const TaskSet& barrierConsumersA,
                              const TaskSet& barrierProducersB, const TaskSet& barrierConsumersB,
                              ArrayRef<TaskSet> origWaitBarriersMap);
     void removeRedundantBarrierProducersAndConsumers(bool considerTaskFifoDependency);
+    void removeExplicitDependencies();
     SmallVector<TaskSet> getWaitBarriersMap();
     void dumpBarrierDependencies(const SmallVector<BarrierInfo::TaskSet>& depsMap, std::string fileName);
     void dumpQueues(const std::map<VPURT::TaskQueueType, llvm::BitVector>& queueMap, std::string fileName);
@@ -248,6 +251,7 @@ public:
 
     void splitControlGraphToBlocks(const size_t blockSize);
     bool verifyControlGraphSplit();
+    bool verifyBarriersUsersCount(size_t maxUsersCount);
 
     /**
      * @brief Verify barriers required for task descriptor fetch

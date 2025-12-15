@@ -7,6 +7,7 @@
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/dialect/core/interfaces/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Dialect/Arith/IR/Arith.h>
@@ -17,11 +18,11 @@ namespace vpux {
 namespace IE {
 
 void DynamicDimOpBuilder::notifyOperationInserted(mlir::Operation* op, mlir::OpBuilder::InsertPoint) {
-    if (auto dimOp = mlir::dyn_cast_or_null<mlir::tensor::DimOp>(op)) {
+    if (auto dimOp = mlir::dyn_cast<mlir::tensor::DimOp>(op)) {
         auto index = dimOp.getConstantIndex().value_or(0);
         extendOpLoc(op, StringLiteral("dim_{0}"), index);
-    } else if (mlir::isa<mlir::arith::ConstantIndexOp>(op)) {
-        extendOpLoc(op, StringLiteral("const_index"));
+    } else if (auto indexOp = mlir::dyn_cast<mlir::arith::ConstantIndexOp>(op)) {
+        extendOpLoc(op, StringLiteral("const_index_{0}"), parseIntAttr<int64_t>(indexOp.getValue()));
     }
 }
 

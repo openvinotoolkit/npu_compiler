@@ -131,8 +131,7 @@ private:
         mlir::RewritePatternSet patterns(&getContext());
         patterns.add<OptimizeDequantQuantPair>(&getContext(), _log);
         patterns.add<OptimizeConvertPair>(&getContext(), _log);
-        if (mlir::failed(mlir::applyPatternsAndFoldGreedily(moduleOp, std::move(patterns),
-                                                            getDefaultGreedyRewriteConfig()))) {
+        if (mlir::failed(mlir::applyPatternsGreedily(moduleOp, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
             signalPassFailure();
         }
     }

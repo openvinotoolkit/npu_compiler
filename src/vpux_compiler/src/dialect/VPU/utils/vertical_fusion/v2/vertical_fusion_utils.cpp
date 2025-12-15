@@ -6,10 +6,14 @@
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_config.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_scheduler_interface.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_scheduling_factory.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_axis_increment.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
-
+#include "vpux/compiler/utils/strings.hpp"
 #include "vpux/utils/core/numeric.hpp"
+#include "vpux/utils/profiling/reports/api.hpp"
 
 namespace vpux::VPU::VF::v2 {
 
@@ -315,5 +319,78 @@ bool isOperandSharedWeightsForTiling(mlir::Operation* op, mlir::Value operand, S
         return false;
     }
     return getShape(operand) == tiledShape;
+}
+
+namespace {
+vpux::profiling::TaskInfo makeTaskInfo(const vpux::VPU::TimelineInterval& interval, vpux::Logger log) {
+    vpux::profiling::TaskInfo taskInfo = {};
+    switch (interval._mExecutor) {
+    case vpux::VPU::ExecutorKind::DMA_NN:
+        taskInfo.exec_type = vpux::profiling::TaskInfo::ExecType::DMA;
+        break;
+    case vpux::VPU::ExecutorKind::DPU:
+        taskInfo.exec_type = vpux::profiling::TaskInfo::ExecType::DPU;
+        taskInfo.isSubtask = false;
+        break;
+    case vpux::VPU::ExecutorKind::SHAVE_ACT:
+        taskInfo.exec_type = vpux::profiling::TaskInfo::ExecType::SW;
+        taskInfo.clusterId = 0;
+        break;
+    default:
+        log.warning("Not supported executor type - '{0}'", interval._mExecutor);
+        taskInfo.exec_type = vpux::profiling::TaskInfo::ExecType::NONE;
+        break;
+    }
+
+    taskInfo.name = llvm::formatv("{0}/{1}", vpux::stringifyPrimaryLocation(interval._mLoc), interval._mIndex);
+    taskInfo.layer_type = vpux::getLayerTypeFromLocation(interval._mLoc);
+    taskInfo.start_time_ns = interval._mBegin;
+    taskInfo.duration_ns = interval._mEnd - interval._mBegin;
+    return taskInfo;
+}
+}  // namespace
+
+void printVFSchedulingTrace(mlir::func::FuncOp funcOp, const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
+                            Logger log) {
+    auto moduleOp = funcOp->getParentOfType<mlir::ModuleOp>();
+    auto tileOp = config::getTileExecutor(moduleOp);
+    VPUX_THROW_WHEN(tileOp == nullptr, "Cannot get tile executor");
+    auto freqInMHz = tileOp.getProcessorFrequency().getValueAsDouble();
+
+    auto vfOps = funcOp.getOps<VPU::VerticalFusionOp>() | filtered([](auto vfOp) {
+                     return vfOp.getScenario().has_value();
+                 });
+    VFSchedulingFactory vfFactory(true);
+    for (auto item : vfOps | indexed) {
+        auto vfOp = item.value();
+        auto idx = item.index();
+        auto fileName = llvm::formatv("scheduling_trace_vf_{0}.json", idx);
+        log.trace("Dumping scheduling trace for VF {0} to file {1}", vfOp->getLoc(), fileName);
+
+        VFConfig config(vfOp);
+        auto type = vfOp.getScenario().value();
+        auto tilingDims = parseIntArrayAttr<int64_t>(vfOp.getTilingStrategy());
+        auto tileLen = std::accumulate(tilingDims.begin(), tilingDims.end(), 1, std::multiplies<int64_t>());
+        auto vfScheduling = std::dynamic_pointer_cast<VPU::VF::v2::VFScheduling>(vfFactory.createVFScenario(type, log));
+        VPUX_THROW_WHEN(vfScheduling == nullptr, "Cannot create VF scheduling for scenario '{0}'", type);
+
+        auto vfTilingStorage = std::make_unique<TilingOperationStorage>();
+        auto tilingStorage = calculateTilingRegions(vfOp, tilingDims, log, vfTilingStorage);
+        VPUX_THROW_WHEN(mlir::failed(tilingStorage), "Cannot get tiling regions for {0} and {1} tiles", vfOp->getLoc(),
+                        tilingDims);
+
+        auto timeIntervals = vfScheduling->getTimeIntervals(config, tileLen, vfTilingStorage, costFunction);
+        std::vector<profiling::TaskInfo> taskInfos;
+        taskInfos.reserve(timeIntervals.size());
+        llvm::transform(timeIntervals, std::back_inserter(taskInfos), [&](auto& interval) {
+            return makeTaskInfo(interval, log);
+        });
+
+        auto layers = getLayerInfo(taskInfos);
+        std::ofstream outStream(fileName.str());
+        VPUX_THROW_UNLESS(outStream.good(), "File for schedule traces not created correctly");
+        printProfilingAsTraceEvent(taskInfos, layers, /*dpuFreq=*/{freqInMHz, profiling::FreqStatus::SIM}, outStream,
+                                   log);
+    }
 }
 }  // namespace vpux::VPU::VF::v2

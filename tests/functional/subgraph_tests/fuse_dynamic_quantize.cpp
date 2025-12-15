@@ -149,6 +149,10 @@ TEST_P(FuseDQTestCommon, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
+TEST_P(FuseDQTestCommon, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
 
 namespace {
 const std::vector<ov::element::Type> input_precisions = {ov::element::f32};

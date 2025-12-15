@@ -40,13 +40,24 @@ mlir::LogicalResult ConvertGRNToNormalizeL2::matchAndRewrite(IE::GRNOp origOp, m
     const auto inputShape = to_small_vector(getShape(origOp.getInput()));
     const auto outputShape = to_small_vector(getShape(origOp.getOutput()));
     mlir::MLIRContext* ctx = origOp->getContext();
-    auto epsAttr = origOp.getBiasAttr();
 
     VPUX_THROW_UNLESS((inputShape.size() >= 2) && (inputShape.size() <= 4),
                       "GRN input rank {0} need to be >= than 2 and <= than 4", inputShape.size());
     VPUX_THROW_UNLESS(inputShape.size() == outputShape.size(),
                       "GRN input rank {0} need to be equal with output rank {1}", inputShape.size(),
                       outputShape.size());
+
+    auto epsAttr = origOp.getBiasAttr();
+
+    const auto inputType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType());
+    const auto outputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
+    if (inputType.getElementType().isF16() && outputType.getElementType().isF16()) {
+        auto minEpsilon = static_cast<double>(std::numeric_limits<type::float16>::smallest_mixed_precision_eps);
+        auto epsilon = origOp.getBias().convertToDouble();
+        if (epsilon < minEpsilon) {
+            epsAttr = getFPAttr(origOp->getContext(), minEpsilon);
+        }
+    }
 
     SmallVector<mlir::Attribute> axesAttrVec;
     auto intType = getSInt64Type(ctx);

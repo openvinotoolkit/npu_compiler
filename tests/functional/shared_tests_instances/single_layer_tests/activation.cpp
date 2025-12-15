@@ -85,11 +85,14 @@ class ShaveCodeGenActivationLayerTest_Profiling : public ShaveCodeGenActivationL
 
 DEFINE_ACT_TESTS(NPU3720, /*DISABLED_SW_*/, /*DISABLED_HW_*/, /*CONFIG_SW*/, /*CONFIG_HW*/);
 DEFINE_ACT_TESTS(NPU4000, /*DISABLED_SW_*/, /*DISABLED_HW_*/, /*CONFIG_SW*/, /*CONFIG_HW*/);
+DEFINE_ACT_TESTS(NPU5010, /*DISABLED_SW_*/, /*DISABLED_HW_*/, /*CONFIG_SW*/, /*CONFIG_HW*/);
 
 DEFINE_DYNAMIC_ACT_TESTS(NPU3720, /*DISABLED_DYN_SW_*/, /*DISABLED_DYN_HW_*/, /*CONFIG_DYN_SW*/, /*CONFIG_DYN_HW*/);
 DEFINE_DYNAMIC_ACT_TESTS(NPU4000, /*DISABLED_DYN_SW_*/, /*DISABLED_DYN_HW_*/, /*CONFIG_DYN_SW*/, /*CONFIG_DYN_HW*/);
+DEFINE_DYNAMIC_ACT_TESTS(NPU5010, /*DISABLED_DYN_SW_*/, /*DISABLED_DYN_HW_*/, /*CONFIG_DYN_SW*/, /*CONFIG_DYN_HW*/);
 
 DEFINE_SHAVE_CODE_GEN_TESTS(NPU4000, /*DISABLED_SW_*/, /*DISABLED_PROF_*/, /*CONFIG_SW*/, /*CONFIG_PROF*/);
+DEFINE_SHAVE_CODE_GEN_TESTS(NPU5010, /*DISABLED_SW_*/, /*DISABLED_PROF_*/, /*CONFIG_SW*/, /*CONFIG_PROF*/);
 
 }  // namespace test
 }  // namespace ov
@@ -168,7 +171,7 @@ const std::map<ActivationTypes, std::vector<std::vector<float>>> activationTypes
 };
 
 const std::map<ActivationTypes, std::vector<std::vector<float>>> activationDynamicTypes = {
-        {Gelu, {{1.0f}}},
+        {Gelu, {{1.0f}}}, {Atan, {{1.0f}}}, {Cos, {{1.0f}}}, {Sin, {{1.0f}}}, {Sqrt, {{1.0f}}}, {Log, {{1.0f}}},
 };
 
 const std::map<ActivationTypes, std::vector<std::vector<float>>> preluParamTypes = {
@@ -225,7 +228,9 @@ const std::map<ActivationTypes, std::vector<std::vector<float>>> shaveCodeGenAct
         {Elu, {{1.0f}}},
         {Gelu, {{1.0f}}},
         {Selu, {{1.6732f, 1.0507f}}},
-        {PReLu, {{0.01f}}}};
+        {PReLu, {{0.01f}}},
+        {SoftPlus, {{1.0f}}},
+        {Mish, {{1.0f}}}};
 
 const std::map<ActivationTypes, std::vector<std::vector<float>>> shaveCodeGenIntActivationTypes = {
         {Clamp, {{-1.0f, 1.0f}}},

@@ -11,6 +11,6 @@
 
 namespace vpux::VPUIP {
 
-std::unique_ptr<IGreedilyPassStrategy> createUnrollSpaceToDepthDMAStrategy(mlir::func::FuncOp funcOp);
+std::unique_ptr<IIterativeWalkPassStrategy> createUnrollSpaceToDepthDMAStrategy(mlir::func::FuncOp funcOp);
 
 }  // namespace vpux::VPUIP

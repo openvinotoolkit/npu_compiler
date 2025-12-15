@@ -38,8 +38,10 @@ It handles such VPU-specifics as:
         "vpux::IE::IEDialect",
         "vpux::VPU::VPUDialect",
         "mlir::func::FuncDialect",
-        "mlir::quant::QuantizationDialect",
+        "mlir::quant::QuantDialect",
         "mlir::async::AsyncDialect",
+        // Note: required because VPUIP actually relies on one-shot "buffers"
+        "mlir::bufferization::BufferizationDialect",
         "mlir::memref::MemRefDialect"
     ];
 

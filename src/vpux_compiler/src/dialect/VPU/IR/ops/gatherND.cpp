@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
@@ -46,8 +46,12 @@ mlir::LogicalResult vpux::VPU::GatherNDOp::inferReturnTypes(mlir::MLIRContext* c
         outShape.append(inputShape.begin() + batchDims + lastIndices, inputShape.end());
     }
 
+    const auto tensorAttr = createOutTensorAttrFromType(inType, outShape.size());
+    if (mlir::failed(tensorAttr)) {
+        return mlir::failure();
+    }
     auto outType = mlir::cast<NDTypeInterface>(
-            mlir::RankedTensorType::get(outShape, inType.getElementType(), createTensorAttrFromType(inType)));
+            mlir::RankedTensorType::get(outShape, inType.getElementType(), tensorAttr.value()));
     if (auto boundedIndices = mlir::dyn_cast<Core::BoundedTensorType>(indicesType)) {
         auto indicesBounds = boundedIndices.getBounds();
 

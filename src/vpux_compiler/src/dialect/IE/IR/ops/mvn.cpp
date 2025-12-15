@@ -55,12 +55,6 @@ void vpux::IE::MVNOp::build(::mlir::OpBuilder& builder, ::mlir::OperationState& 
     build(builder, state, input.getType(), input, across_channels, normalize_variance, eps, {}, {});
 }
 
-void vpux::IE::MVNOp::build(::mlir::OpBuilder& builder, ::mlir::OperationState& state, ::mlir::Value input,
-                            ::mlir::BoolAttr across_channels, ::mlir::BoolAttr normalize_variance,
-                            ::mlir::FloatAttr eps, ::mlir::ArrayAttr internal_reshape) {
-    build(builder, state, input.getType(), input, across_channels, normalize_variance, eps, internal_reshape, {});
-}
-
 //
 // LegalizeEpsAttr
 //

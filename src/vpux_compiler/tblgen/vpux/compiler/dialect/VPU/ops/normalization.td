@@ -481,7 +481,7 @@ def VPU_RMSOp :
         AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$input,
         AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$gamma,
 
-        F64Attr:$epsilon,
+        F64Attr:$eps,
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
@@ -499,7 +499,7 @@ def VPU_RMSOp :
         OpBuilder<(ins
             "::mlir::Value":$input,
             "::mlir::Value":$gamma,
-            "::mlir::FloatAttr":$epsilon
+            "::mlir::FloatAttr":$eps
         )>
     ];
 

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --consolidate-nf4-weights-pattern %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 !quantileFloatType = !QuantileFloat.quantileFloat<ui4:f16, {-1.000000e+00,-0.71435546875,-0.53564453125,-0.392822265625,-0.28564453125,-0.1785888671875,-0.08929443359375,0.000000e+00,0.080322265625,0.1607666015625,2.500000e-01,0.321533203125,0.428466796875,0.5712890625,0.71435546875,1.000000e+00}>
 

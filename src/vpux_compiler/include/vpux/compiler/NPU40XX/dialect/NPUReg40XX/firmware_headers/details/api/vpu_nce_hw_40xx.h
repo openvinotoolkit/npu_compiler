@@ -72,8 +72,8 @@ typedef struct {
         struct {
             uint32_t tensor_size_z : 14;
             uint32_t npo2_se_size : 9;
-            uint32_t reserved1 : 4;
-            uint32_t reserved2 : 4;
+            uint32_t tensor_cmp_size : 4;   // (VPU50XX+ only)
+            uint32_t tensor_cmp_offset : 4; // (VPU50XX+ only)
             uint32_t unused : 1;
         } tensor_size1_bf;
     } tensor_size1;
@@ -104,8 +104,8 @@ typedef struct {
             uint32_t pool_wt_data : 16;
             uint32_t unused1 : 6;
             uint32_t pool_wt_rd_dis : 1;
-            uint32_t reserved1 : 3;
-            uint32_t reserved2 : 1;
+            uint32_t elop_operation : 3; // (VPU50XX+ only)
+            uint32_t repeat_dis : 1;     // (VPU50XX+ only)
             uint32_t unused2 : 1;
         } elops_wload_bf;
     } elops_wload;
@@ -120,9 +120,9 @@ typedef struct {
             uint32_t dw_opt_offset : 6;
             uint32_t dw_opt_en : 1;
             uint32_t dw_3x3s1_opt_dis : 1;
-            uint32_t reserved1 : 1;
-            uint32_t reserved2 : 1;
-            uint32_t reserved3 : 2;
+            uint32_t wt_dense_opt_en : 1;  // (VPU50XX+ only)
+            uint32_t small_hw_opt_en : 1;  // (VPU50XX+ only)
+            uint32_t idu_cmx_mux_mode : 2; // (VPU50XX+ only)
             uint32_t reserved_0 : 2;
         } base_offset_b_bf;
     } base_offset_b;
@@ -239,14 +239,14 @@ typedef struct {
     union {
         uint32_t ppe_misc;
         struct {
-            uint32_t reserved1 : 2;
-            uint32_t reserved2 : 2;
-            uint32_t reserved3 : 2;
+            uint32_t ppe_mode : 2;    // (VPU50XX+ only)
+            uint32_t ppe_rnd_fd : 2;  // (VPU50XX+ only)
+            uint32_t ppe_rnd_int : 2; // (VPU50XX+ only)
             uint32_t ppe_fp16_ftz : 1;
             uint32_t ppe_fp16_clamp : 1;
             uint32_t ppe_i32_convert : 2;
-            uint32_t reserved4 : 2;
-            uint32_t reserved5 : 1;
+            uint32_t ppe_sb_dtype : 2;   // (VPU50XX+ only)
+            uint32_t ppe_mult2_mode : 1; // (VPU50XX+ only)
             uint32_t unused : 19;
         } ppe_misc_bf;
     } ppe_misc;
@@ -300,7 +300,7 @@ typedef struct {
             uint32_t cast_offset : 28;
         } odu_cast_bf;
     } odu_cast[3];
-    uint32_t reserved1;
+    uint32_t tensor2_start; // (VPU50XX+ only)
 
     union {
         uint32_t ppe_lut_ptr;
@@ -310,7 +310,7 @@ typedef struct {
             uint32_t ppe_lut_ptr_force : 1;
             uint32_t unused_2 : 13;
         } ppe_lut_ptr_bf;
-    } reserved2;
+    } ppe_lut_ptr; // (VPU50XX+ only)
     uint32_t nvar_tag;
 
     uint32_t pallet[8];
@@ -431,15 +431,15 @@ typedef struct {
             uint32_t noc_clk_en : 1;
             uint32_t odu_stat_clr_mode : 1;
             uint32_t idu_stat_clr_mode : 1;
-            uint32_t reserved1 : 1;
+            uint32_t se_only_en : 1; // (VPU50XX+ only)
             uint32_t shave_l2_cache_en : 1;
             uint32_t idu_dbg_en : 2;
-            uint32_t reserved2 : 1;
-            uint32_t reserved3 : 1;
+            uint32_t sb_read_en : 1;        // (VPU50XX+ only)
+            uint32_t tensor2_act_dense : 1; // (VPU50XX+ only)
             uint32_t reserved_2 : 3;
             uint32_t wt_swizzle_key : 3;
             uint32_t wt_swizzle_sel : 1;
-            uint32_t reserved4 : 1;
+            uint32_t gif_clk_en : 1; // (VPU50XX+ only)
         } offset_addr_bf;
     } offset_addr;
 
@@ -455,7 +455,7 @@ typedef struct {
         uint32_t var_cfg;
         struct {
             uint32_t reserved_0 : 8;
-            uint32_t reserved : 1;
+            uint32_t invar_lut_rd_en : 1;   // (VPU50XX+ only)
             uint32_t invar_line_cnt_en : 1;
             uint32_t invar_line_cnt_cnt : 4;
             uint32_t invar_lptr_force : 1;
@@ -574,7 +574,7 @@ enum class VpuInputTensorDType : uint8_t {
     U4 = 0x06,
     BIN = 0x07,
     FP8 = 0x08,
-    RESERVED = 0x09,
+    HF8 = 0x09, // (VPU50XX+ only)
     INPUT_DTYPE_UNKNOWN
 };
 

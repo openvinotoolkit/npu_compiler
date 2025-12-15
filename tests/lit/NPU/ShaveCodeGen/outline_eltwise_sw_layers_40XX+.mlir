@@ -9,7 +9,7 @@
 // RUN:     --canonicalize                                            \
 // RUN:     --outline-codegen-capsules                                \
 // RUN:   | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 module @NoBitcastUI {
   net.NetworkInfo entryPoint : @main inputsInfo : {

@@ -3,13 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/gather_dma_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/error.hpp"
@@ -22,7 +24,11 @@ namespace {
 
 mlir::FailureOr<int64_t> extractAxis(mlir::Location loc, VPU::GatherOpAdaptor gather) {
     if (gather.getAxis() != nullptr) {
-        auto axisConst = gather.getAxis().getDefiningOp<Const::DeclareOp>();
+        auto axisValue = gather.getAxis();
+        while (auto parentOp = axisValue.getDefiningOp<VPU::CopyOp>()) {
+            axisValue = parentOp->getOperand(0);
+        }
+        auto axisConst = axisValue.getDefiningOp<Const::DeclareOp>();
         if (axisConst == nullptr) {
             return errorAt(loc, "Only constant input is supported for axis");
         }
@@ -102,7 +108,11 @@ mlir::LogicalResult vpux::VPU::GatherOp::inferReturnTypes(mlir::MLIRContext* ctx
 
     calculateOutputShape(outShape, indicesShape);
 
-    auto outType = mlir::RankedTensorType::get(outShape, inType.getElementType(), createTensorAttrFromType(inType));
+    const auto tensorAttr = createOutTensorAttrFromType(inType, outShape.size());
+    if (mlir::failed(tensorAttr)) {
+        return mlir::failure();
+    }
+    auto outType = mlir::RankedTensorType::get(outShape, inType.getElementType(), tensorAttr.value());
     auto indicesType = gather.getIndices().getType();
     if (auto boundedTensor = mlir::dyn_cast<Core::BoundedTensorType>(indicesType)) {
         auto indicesBounds = boundedTensor.getBounds().raw();

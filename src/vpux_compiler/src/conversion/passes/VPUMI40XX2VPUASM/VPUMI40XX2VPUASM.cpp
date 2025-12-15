@@ -21,7 +21,6 @@
 #include "vpux/compiler/conversion/rewriters/VPUMI40XX2VPUASM/kernel_params_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUMI40XX2VPUASM/kernel_range_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUMI40XX2VPUASM/kernel_text_rewriter.hpp"
-#include "vpux/compiler/conversion/rewriters/VPUMI40XX2VPUASM/m2i_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUMI40XX2VPUASM/mapped_inference_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUMI40XX2VPUASM/mapped_inference_version_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUMI40XX2VPUASM/platform_info_rewriter.hpp"
@@ -133,7 +132,6 @@ void ConvertVPUMI40XX2VPUASMPass::safeRunOnModule() {
     patterns.add<DeclareConstBufferRewriter>(netFunc, typeConverter, symbolNameMappings, sectionMap, &ctx, _log);
     patterns.add<DeclareTaskBufferRewriter>(netFunc, typeConverter, symbolNameMappings, sectionMap, &ctx, _log);
     patterns.add<NNDMARewriter>(netFunc, typeConverter, symbolNameMappings, sectionMap, &ctx, _log);
-    patterns.add<M2IRewriter>(netFunc, typeConverter, symbolNameMappings, sectionMap, &ctx, _log);
     patterns.add<KernelTextRewriter>(netFunc, typeConverter, symbolNameMappings, sectionMap, &ctx, _log);
     patterns.add<KernelDataRewriter>(netFunc, typeConverter, symbolNameMappings, sectionMap, &ctx, _log);
     patterns.add<KernelEntryRewriter>(netFunc, typeConverter, symbolNameMappings, sectionMap, &ctx, _log);

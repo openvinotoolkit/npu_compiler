@@ -17,60 +17,65 @@ std::optional<int64_t> findOptimalTilingStrategyInRange(
         int64_t& maxNTiles, std::unique_ptr<IVFAxisIncrement>& axisIncrement, ArrayRef<int64_t> origTilingArray,
         TilingOperationStorage::UPtr& minStorage, TilingOperationStorage::UPtr& maxStorage, VFConfig& config,
         Logger log) {
-    std::optional<int64_t> result = std::nullopt;
+    auto returnFailure = [&minStorage]() -> std::optional<int64_t> {
+        minStorage.reset();
+        return std::nullopt;
+    };
+
     const auto origMaxTile = maxNTiles;
-    auto nextValueFromMin = minNTiles;
-    axisIncrement->increasedValue(nextValueFromMin, maxNTiles);
     SmallVector<int64_t> tilingMaxStrategy(origTilingArray.begin(), origTilingArray.end());
     SmallVector<int64_t> tilingArray(origTilingArray.begin(), origTilingArray.end());
 
+    // Binary search: find minimal valid tiling number within [minNTiles, maxNTiles)
     while (minNTiles < maxNTiles) {
-        auto currentNTiles = axisIncrement->getMiddleValue(minNTiles, maxNTiles);
-
+        // Check convergence: if next increment equals max, it is the boundary
+        auto nextValueFromMin = minNTiles;
+        axisIncrement->increasedValue(nextValueFromMin, maxNTiles);
         if (maxNTiles == nextValueFromMin) {
-            result = maxNTiles;
+            // Use maxStorage if returning origMaxTile, otherwise minStorage already set
             if (maxNTiles == origMaxTile) {
                 minStorage.reset(maxStorage.release());
             }
-            break;
+            return maxNTiles;
         }
 
+        // Calculate middle point
+        auto currentNTiles = axisIncrement->getMiddleValue(minNTiles, maxNTiles);
         if (currentNTiles == minNTiles) {
-            minStorage.reset();
-            return std::nullopt;
+            return returnFailure();
         }
 
+        // Get valid tiling strategy for currentNTiles
         tilingMaxStrategy[dim.ind()] = maxNTiles;
         tilingArray[dim.ind()] = currentNTiles;
 
         auto opStorage = std::make_unique<TilingOperationStorage>();
-        auto getValidTilingStrategy =
+        auto validStrategy =
                 getMinimalValidTilingStrategyFromRange(config, tilingArray, tilingMaxStrategy, dim, opStorage, log);
-        if (mlir::failed(getValidTilingStrategy)) {
-            minStorage.reset();
-            return std::nullopt;
+        if (mlir::failed(validStrategy)) {
+            return returnFailure();
         }
 
-        tilingArray = getValidTilingStrategy.value();
-        currentNTiles = tilingArray[dim.ind()];
-        result = currentNTiles;
+        currentNTiles = validStrategy.value()[dim.ind()];
 
+        // Handle reaching upper bound
         if (currentNTiles == maxNTiles) {
             minStorage.reset(opStorage.release());
-            break;
+            return currentNTiles;
         }
 
+        // Update search range based on validation result
         if (scheduling->validate(config, opStorage)) {
             maxNTiles = currentNTiles;
             minStorage.reset(opStorage.release());
+            log.trace("Valid tiling found: tiles={0}", currentNTiles);
         } else {
             minNTiles = currentNTiles;
+            log.trace("Invalid tiling: tiles={0}, searching higher", currentNTiles);
         }
-
-        nextValueFromMin = minNTiles;
-        axisIncrement->increasedValue(nextValueFromMin, maxNTiles);
     }
-    return result;
+
+    return returnFailure();
 };
 
 std::deque<std::shared_ptr<IVFScheduling<VFCase::VFConfigType>>> getSchedulingScenarios(VFCase::VFConfigType& config,

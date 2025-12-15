@@ -388,9 +388,16 @@ MapCoordFuncT getMapCoordMethod(InterpolateCoordMode coordMode) {
     }
 }
 
-bool isFusingConvertIntoBilinearInterpolateOnDpuBeneficial([[maybe_unused]] IE::InterpolateOp op,
+bool isFusingConvertIntoBilinearInterpolateOnDpuBeneficial(IE::InterpolateOp op,
                                                            [[maybe_unused]] mlir::Type convertOutType) {
-    return false;
+    config::ArchKind arch = vpux::config::getArch(op);
+    switch (arch) {
+    case config::ArchKind::NPU50XX: {
+        return convertOutType.isF32();
+    }
+    default:
+        return false;
+    }
 }
 
 }  // namespace IE

@@ -219,7 +219,7 @@ std::tuple<LinearScanHandler, std::list<ScheduledOpOneResource>> vpux::runLinear
     log.trace("Free remaining buffers");
     for (auto freeBuffers : freeBuffersCycleEnd) {
         if (!freeBuffers.second.empty()) {
-            log.nest().trace("Freeing buffers end at cycle '{1}'", freeBuffers.first);
+            log.nest().trace("Freeing buffers end at cycle '{0}'", freeBuffers.first);
             freeDeadBuffers(freeBuffers.second);
         }
     }

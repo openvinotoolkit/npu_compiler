@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-nearest-to-broadcast-or-strided-concat="interpolate-as-se-op=true" %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @ConvertNearestWithSmallChannelAndSmallSpatialSize
 func.func @ConvertNearestWithSmallChannelAndSmallSpatialSize(%arg0: tensor<1x4x160x160xf32>) -> tensor<1x4x640x640xf32> {

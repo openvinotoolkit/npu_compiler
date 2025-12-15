@@ -4,10 +4,12 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
+#include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/reduce_infer.hpp"
 #include "vpux/compiler/dialect/IE/utils/type_padding.hpp"
 #include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 
@@ -117,6 +119,26 @@ void inferPermuteReturnTypes(mlir::Value input, mlir::AffineMap memPerm, mlir::A
     inferredReturnTypes.push_back(outType);
 }
 
+mlir::LogicalResult inferEltwiseReturnTypes(SmallVectorImpl<mlir::Type>& inferredReturnTypes, mlir::Location loc,
+                                            mlir::Value input1, mlir::Value input2, IE::AutoBroadcastType broadcast,
+                                            std::optional<mlir::Type> outElemType) {
+    const auto in1Type = mlir::cast<NDTypeInterface>(input1.getType());
+    const auto in2Type = mlir::cast<NDTypeInterface>(input2.getType());
+    const auto outShapeInfo =
+            inferEltwiseOutputShapeInfo(ShapeInfo::fromNDType(in1Type), ShapeInfo::fromNDType(in2Type), broadcast, loc);
+    // The output shape can only be empty in case both inputs are scalars
+    if (outShapeInfo.shape.empty() && (in1Type.getRank() > 0 || in2Type.getRank() > 0)) {
+        return mlir::failure();
+    }
+    const auto tensorAttr =
+            vpux::getTensorAttr(in1Type.getContext(), IE::inferOrder(in1Type, in2Type), in1Type.getMemSpace(),
+                                BoundsRef(outShapeInfo.bounds), getDynamicDimsMask(in1Type));
+    const auto elemType = outElemType.value_or(in1Type.getElementType());
+    const auto outType = mlir::RankedTensorType::get(outShapeInfo.shape, elemType, tensorAttr);
+    inferredReturnTypes.push_back(outType);
+    return mlir::success();
+}
+
 vpux::TensorAttr createTensorAttrFromType(vpux::NDTypeInterface inType) {
     auto ctx = inType.getContext();
     if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(inType)) {
@@ -124,6 +146,22 @@ vpux::TensorAttr createTensorAttrFromType(vpux::NDTypeInterface inType) {
                                    boundedType.getBounds());
     }
     return vpux::getTensorAttr(ctx, inType.getDimsOrder().toAffineMap(ctx), inType.getMemSpace());
+}
+
+mlir::FailureOr<TensorAttr> createOutTensorAttrFromType(NDTypeInterface inType, size_t outRank) {
+    // In case the input and output rank differ, the output order can only be inferred if the input order is the default
+    const auto differentRanks = inType.getRank() != static_cast<int64_t>(outRank);
+    if (differentRanks && !inType.getDimsOrder().isIdentity()) {
+        return mlir::failure();
+    }
+    const auto outOrder = differentRanks ? DimsOrder::fromNumDims(outRank) : inType.getDimsOrder();
+
+    auto ctx = inType.getContext();
+    if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(inType)) {
+        return vpux::getTensorAttr(ctx, outOrder.toAffineMap(ctx), inType.getMemSpace(), boundedType.getBounds(),
+                                   getDynamicDimsMask(inType));
+    }
+    return vpux::getTensorAttr(ctx, outOrder.toAffineMap(ctx), inType.getMemSpace());
 }
 
 }  // namespace VPU

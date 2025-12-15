@@ -13,7 +13,7 @@
 #include "vpux/compiler/utils/statistics_collection.hpp"
 
 #include <mlir/Dialect/Func/IR/FuncOps.h>
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/IR/Operation.h>
 
 #include <memory>

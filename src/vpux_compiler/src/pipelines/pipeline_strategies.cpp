@@ -79,12 +79,9 @@ void HostPipelineStrategy::buildPipeline(mlir::OpPassManager& pm) {
     strategy->buildLowerIE2VPUPipeline(pm, _log);
     strategy->buildVPUPipeline(pm, _log);
 
-    pm.addPass(vpux::VPU::createFinalizeComputeFunctionBoundariesPass(_log));
-
     strategy->buildLowerVPU2VPUIPPipeline(pm, _log);
 
     pm.addPass(vpux::HostExec::createOptimizeMemRefCopiesPass(_log));
-    pm.addPass(vpux::Core::createPackNestedModulesPass(_log));
 
     // dynamic shape optimizations
     pm.addPass(mlir::memref::createResolveShapedTypeResultDimsPass());
@@ -98,12 +95,7 @@ void HostPipelineStrategy::buildPipeline(mlir::OpPassManager& pm) {
     pm.addPass(vpux::HostExec::createPrepareHostFuncForAsyncExecutionPass(_log));
 
     auto& nestedPm = pm.nest<mlir::ModuleOp>();
-    {
-        nestedPm.addPass(vpux::Core::createAddNetInfoToModulePass(_log));
-        strategy->initializePipeline(nestedPm, _log);
-
-        strategy->buildVPUIPPipeline(nestedPm, _log);
-    }
+    strategy->buildVPUIPPipeline(nestedPm, _log);
 }
 
 //

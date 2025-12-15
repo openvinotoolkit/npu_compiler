@@ -168,7 +168,18 @@ public:
     };
 };
 
-const std::vector<utils::ActivationTypes> activations = {utils::Tanh, utils::Sigmoid, utils::Gelu, utils::Exp};
+TEST_P(MaxPoolWithActivationQuantizedTest, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(MaxPoolWithSwishQuantizedTest, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
+const std::vector<utils::ActivationTypes> activations = {utils::Tanh, utils::Sigmoid, utils::Gelu, utils::Exp,
+                                                         utils::HSwish};
 
 const std::vector<float> betas = {1.0f, 1.7f, 10.0f};
 

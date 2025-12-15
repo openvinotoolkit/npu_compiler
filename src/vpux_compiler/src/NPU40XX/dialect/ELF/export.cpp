@@ -4,8 +4,8 @@
 //
 
 #include "vpux/compiler/NPU40XX/dialect/ELF/export.hpp"
+#include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/metadata.hpp"
-#include "vpux/compiler/utils/ELF/utils.hpp"
 
 #include <vpux_elf/writer.hpp>
 

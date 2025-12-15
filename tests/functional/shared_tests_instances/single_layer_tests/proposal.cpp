@@ -11,7 +11,6 @@
 using namespace ov::test::utils;
 
 namespace ov {
-
 namespace test {
 
 class ProposalLayerTestCommon : public ProposalLayerTest, virtual public VpuOv2LayerTest {
@@ -210,6 +209,10 @@ TEST_P(ProposalLayerTestCommon, NPU3720_HW) {
 TEST_P(ProposalLayerTestCommon, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
+}
+TEST_P(ProposalLayerTestCommon, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
 }
 }  // namespace test
 }  // namespace ov

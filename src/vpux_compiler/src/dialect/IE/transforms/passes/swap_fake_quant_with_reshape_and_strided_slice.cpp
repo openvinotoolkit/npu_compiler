@@ -249,7 +249,7 @@ void SwapFakeQuantWithReshapeAndStridedSlicePass::safeRunOnFunc() {
     patterns.add<FakeQuantStridedSliceSwapper>(&ctx, _log);
 
     auto func = getOperation();
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-shape-to-4d --canonicalize %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 func.func @Convert2dTopKPositiveAxis(%arg0: tensor<80x77xsi32>) -> (tensor<80x1xsi32>, tensor<80x1xsi32>) {
     %cst_K = const.Declare tensor<si32> = dense<1> : tensor<si32>
@@ -132,13 +132,13 @@ func.func @Convert3dTopKLastAxis(%arg0: tensor<60x80x77xsi32>) -> (tensor<60x80x
 // CHECK-SAME:    [[ARG0:%.+]]: tensor<1x32x6xf16>
 func.func @RMSNorm(%arg0: tensor<1x32x6xf16>) -> tensor<1x32x6xf16> {
   %cst = const.Declare tensor<1x1x6xf16> = dense<1.000000e+00> : tensor<1x1x6xf16>
-  %0 = IE.RMS(%arg0, %cst) {epsilon = 9.9999997473787516E-6 : f64} : tensor<1x32x6xf16>, tensor<1x1x6xf16> -> tensor<1x32x6xf16>
+  %0 = IE.RMS(%arg0, %cst) {eps = 9.9999997473787516E-6 : f64} : tensor<1x32x6xf16>, tensor<1x1x6xf16> -> tensor<1x32x6xf16>
   return %0 : tensor<1x32x6xf16>
 
     // CHECK:           [[CST:%.*]] = const.Declare tensor<1x1x1x6xf16> = dense<1.000000e+00> : tensor<1x1x6xf16>, [#const.Reshape<[1, 1, 1, 6]>]
     // CHECK:           [[RESHAPE_IN:%.*]] = IE.AffineReshape([[ARG0]]) {
     // CHECK-SAME{LITERAL}:     dim_mapping = [[0, 1], [2], [3]], shape_value = [1, 1, 32, 6]} : tensor<1x32x6xf16> -> tensor<1x1x32x6xf16>
-    // CHECK:           [[RMS:%.*]] = IE.RMS([[RESHAPE_IN]], [[CST]]) {epsilon = 9.9999997473787516E-6 : f64} : tensor<1x1x32x6xf16>, tensor<1x1x1x6xf16> -> tensor<1x1x32x6xf16>
+    // CHECK:           [[RMS:%.*]] = IE.RMS([[RESHAPE_IN]], [[CST]]) {eps = 9.9999997473787516E-6 : f64} : tensor<1x1x32x6xf16>, tensor<1x1x1x6xf16> -> tensor<1x1x32x6xf16>
     // CHECK:           [[RESHAPE_OUT:%.*]] = IE.AffineReshape([[RMS]]) {
     // CHECK-SAME{LITERAL}:     dim_mapping = [[0], [0], [1], [2]], shape_value = [1, 32, 6]} : tensor<1x1x32x6xf16> -> tensor<1x32x6xf16>
     // CHECK:           return [[RESHAPE_OUT]] : tensor<1x32x6xf16>

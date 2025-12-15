@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/VPU/IR/type_interfaces.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 
+#include <mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinTypes.h>
 

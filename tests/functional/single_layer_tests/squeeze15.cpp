@@ -101,6 +101,12 @@ TEST_P(Squeeze15LayerTestCommon, NPU4000_HW) {
     run(Platform::NPU4000);
 }
 
+TEST_P(Squeeze15LayerTestCommon, NPU5010_HW) {
+    setSkipCompilationCallback(skipCompilationCallback);
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
 }  // namespace ov::test
 
 namespace {

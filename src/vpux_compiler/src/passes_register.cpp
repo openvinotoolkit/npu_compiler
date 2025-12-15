@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/NPU40XX/passes_register.hpp"
+#include "vpux/compiler/NPU50XX/passes_register.hpp"
 
 #include "vpux/utils/core/error.hpp"
 
@@ -23,6 +24,8 @@ std::unique_ptr<IPassesRegistry> vpux::createPassesRegistry(config::ArchKind arc
         return std::make_unique<EmptyPassesRegistry>();
     case config::ArchKind::NPU40XX:
         return std::make_unique<PassesRegistry40XX>();
+    case config::ArchKind::NPU50XX:
+        return std::make_unique<PassesRegistry50XX>();
     default:
         VPUX_THROW("Unsupported arch kind: {0}", arch);
     }

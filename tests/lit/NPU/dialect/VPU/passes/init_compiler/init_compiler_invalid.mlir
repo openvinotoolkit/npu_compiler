@@ -4,9 +4,9 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% revision-id=3" -verify-diagnostics %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
-// expected-error@+1 {{Architecture is already defined, probably you run '--init-compiler' twice}}
+// expected-error@+1 {{Target platform is already set, probably you run '--init-compiler' twice}}
 module @test attributes {config.arch = #config.arch_kind<NPU37XX>} {
 }
 

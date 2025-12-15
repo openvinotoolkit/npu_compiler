@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/NPU37XX/dialect/VPU/impl/barrier_variant_constraint.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPU/impl/barrier_variant_constraint.hpp"
+#include "vpux/compiler/NPU50XX/dialect/VPU/impl/barrier_variant_constraint.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/barrier_variant_constraint.hpp"
 
 #include "vpux/utils/core/error.hpp"
@@ -21,6 +22,7 @@ VPU::PerBarrierVariantConstraint VPU::getPerBarrierVariantConstraint(config::Arc
         return VPU::arch40xx::PerBarrierVariantConstraint{enableWorkloadManagement};
     }
     default: {
+        return VPU::arch50xx::PerBarrierVariantConstraint{enableWorkloadManagement};
     }
     }
     VPUX_THROW("Unable to get PerBarrierVariantConstraint for arch {0}", arch);

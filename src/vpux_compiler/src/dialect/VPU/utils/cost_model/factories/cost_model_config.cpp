@@ -9,6 +9,8 @@
 #include "vpux/utils/core/error.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
+#include "vpux/compiler/NPU50XX/dialect/VPU/utils/cost_model_factory.hpp"
+
 #include <vpu_cost_model.h>
 
 using namespace vpux::config;
@@ -36,6 +38,9 @@ void CostModelConfig::setFactory(ArchKind arch) {
             break;
         case ArchKind::NPU40XX:
             factories[arch] = std::make_unique<arch40xx::CostModelFactory>();
+            break;
+        case ArchKind::NPU50XX:
+            factories[arch] = std::make_unique<arch50xx::CostModelFactory>();
             break;
         default:
             VPUX_THROW("Unsupported VPU arch type: '{0}'", arch);

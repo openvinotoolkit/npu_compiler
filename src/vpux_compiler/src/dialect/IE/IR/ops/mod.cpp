@@ -5,6 +5,8 @@
 
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
+#include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 using namespace vpux;
 
@@ -19,14 +21,29 @@ mlir::LogicalResult vpux::IE::ModOp::inferReturnTypeComponents(
         return mlir::failure();
     }
 
-    const auto in1Type = mlir::cast<mlir::ShapedType>(mod.getInput1().getType());
-    const auto in2Type = mlir::cast<mlir::ShapedType>(mod.getInput2().getType());
+    const auto in1Type = mlir::cast<vpux::NDTypeInterface>(mod.getInput1().getType());
+    const auto in2Type = mlir::cast<vpux::NDTypeInterface>(mod.getInput2().getType());
 
-    const auto outShapeRes =
-            IE::broadcastEltwiseShape(in1Type.getShape(), in2Type.getShape(), mod.getAutoBroadcast(), loc);
-    if (mlir::succeeded(outShapeRes)) {
-        inferredReturnShapes.emplace_back(outShapeRes.value(), in1Type.getElementType());
+    auto outShapeInfo = inferEltwiseOutputShapeInfo(ShapeInfo::fromNDType(in1Type), ShapeInfo::fromNDType(in2Type),
+                                                    mod.getAutoBroadcast(), loc);
+
+    const auto outDesc = vpux::getTensorAttr(ctx, inferOrder(in1Type, in2Type), /*memSpace=*/nullptr,
+                                             BoundsRef(outShapeInfo.bounds));
+    inferredReturnShapes.emplace_back(outShapeInfo.shape, in1Type.getElementType(), outDesc);
+
+    return mlir::success();
+}
+
+mlir::LogicalResult vpux::IE::ModOp::reifyResultShapes(mlir::OpBuilder& builder,
+                                                       mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    auto loc = getLoc();
+
+    auto outShape = reifyEltwiseTensors(builder, getInput1(), getInput2(), getAutoBroadcast(), loc);
+
+    if (mlir::failed(outShape)) {
+        return outShape;
     }
 
-    return outShapeRes;
+    reifiedReturnShapes.emplace_back(std::move(outShape.value()));
+    return mlir::success();
 }

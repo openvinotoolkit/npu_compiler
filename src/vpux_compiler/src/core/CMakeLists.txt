@@ -16,5 +16,6 @@ add_npu_library(npu_compiler_core
         MLIRViewLikeInterface
         npu_elf
         npu_compiler_dialect_vpurt
+        npu_compiler_dialect_net
         npu_profiling_schema
         npu_costmodel)

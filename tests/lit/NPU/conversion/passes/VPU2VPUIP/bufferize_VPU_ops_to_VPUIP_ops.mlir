@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --one-shot-bufferize-VPU-to-VPUIP %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL:  func.func @ConstantLayer
 // CHECK-SAME:       ([[ARG:%.+]]: memref<1x2x2x2xf16>)
@@ -286,19 +286,6 @@ func.func @LayoutCast(%input: tensor<1x3x32x32xf16, {order = #NWCH}>) -> tensor<
 
 // -----
 
-// CHECK-LABEL: @M2ITask
-// CHECK-SAME:       ([[ARG:%.+]]: memref<1x3x256x256xui8>)
-func.func @M2ITask(%input: tensor<1x3x256x256xui8>) -> tensor<1x3x224x224xui8> {
-    %0 = VPU.M2I.Task(%input) {axes = [2, 3], do_csc = false, do_norm = false, inFmt = #VPU.m2i_color_fmt<PL_RGB24>, outFmt = #VPU.m2i_color_fmt<PL_RGB24>, sizes = [224, 224]} -> tensor<1x3x224x224xui8>
-    return %0 : tensor<1x3x224x224xui8>
-
-    // CHECK: [[BUFFER_DDR:%.+]] = memref.alloc() : memref<1x3x224x224xui8>
-    // CHECK: [[OUTPUT:%.+]] = VPUIP.M2ITask {do_csc = false, do_norm = false, inFmt = #VPU.m2i_color_fmt<PL_RGB24>, outFmt = #VPU.m2i_color_fmt<PL_RGB24>, scale_factor_x = 149797 : ui32, scale_factor_y = 149797 : ui32} inputs([[ARG]] : memref<1x3x256x256xui8>) outputs([[BUFFER_DDR]] : memref<1x3x224x224xui8>) -> memref<1x3x224x224xui8>
-    // CHECK: return [[OUTPUT]] : memref<1x3x224x224xui8>
-}
-
-// -----
-
 // CHECK-LABEL:  func.func @StridedSlice1Dim
 // CHECK-SAME:      ([[ARG:%.+]]: memref<3x40x40x15xf16>)
 func.func @StridedSlice1Dim(%input: tensor<3x40x40x15xf16>) -> tensor<3x40x40x5xf16> {
@@ -309,19 +296,6 @@ func.func @StridedSlice1Dim(%input: tensor<3x40x40x15xf16>) -> tensor<3x40x40x5x
     // CHECK: [[ALLOC:%.+]] = memref.alloc() : memref<3x40x40x5xf16>
     // CHECK: [[OUTPUT:%.+]] = VPUIP.Copy inputs([[SUBVIEW]] : memref<3x40x40x5xf16, {order = #NCHW, strides = [24000, 600, 15, 3]}>) outputs([[ALLOC]] : memref<3x40x40x5xf16>) -> memref<3x40x40x5xf16>
     // CHECK: return [[OUTPUT]] : memref<3x40x40x5xf16>
-}
-
-// -----
-
-// CHECK-LABEL: @M2ITask
-// CHECK-SAME:       ([[ARG:%.+]]: memref<1x288x256x1xui8>)
-func.func @M2ITask(%input: tensor<1x288x256x1xui8>) -> tensor<1x3x168x224xui8> {
-    %0 = VPU.M2I.Task(%input) {axes = [2, 3], chroma_out_reverse_channels, do_csc = true, do_norm = false, inFmt = #VPU.m2i_color_fmt<SP_NV12_8>, outFmt = #VPU.m2i_color_fmt<PL_RGB24>, sizes = [168, 224]} -> tensor<1x3x168x224xui8>
-    return %0 : tensor<1x3x168x224xui8>
-
-    // CHECK: [[BUFFER_DDR:%.+]] = memref.alloc() : memref<1x3x168x224xui8>
-    // CHECK: [[OUTPUT:%.+]] = VPUIP.M2ITask {chroma_out_reverse_channels, do_csc = true, do_norm = false, inFmt = #VPU.m2i_color_fmt<SP_NV12_8>, outFmt = #VPU.m2i_color_fmt<PL_RGB24>, scale_factor_x = 149797 : ui32, scale_factor_y = 149797 : ui32} inputs([[ARG]] : memref<1x288x256x1xui8>) outputs([[BUFFER_DDR]] : memref<1x3x168x224xui8>) -> memref<1x3x168x224xui8>
-    // CHECK: return [[OUTPUT]] : memref<1x3x168x224xui8>
 }
 
 // -----

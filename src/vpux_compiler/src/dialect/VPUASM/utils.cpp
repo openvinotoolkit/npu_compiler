@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
+#include "vpux/compiler/dialect/VPUASM/types.hpp"
 #include "vpux/compiler/dialect/VPUASM/utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUIPDPU/ops.hpp"
@@ -106,9 +107,33 @@ SparsityMap getSparsityMapBuffTileMask(VPUASM::NNDMAOp dmaOp, ELF::SymbolReferen
 void setResourceRequirement(mlir::ModuleOp moduleOp, elf::NetworkMetadata& metadata) {
     metadata.mResourceRequirements.nn_slice_count_ = VPUIP::getNumTilesUsed(moduleOp);
     uint32_t workspace_offset = 0;
+    // E#179925 Compiler workspace is to be extended to include stacks and metadata
+    if (config::getArch(moduleOp) != config::ArchKind::NPU40XX) {
+        workspace_offset = VPUX50XX_CMX_WORKSPACE_OFFSET;
+    }
     metadata.mResourceRequirements.nn_slice_length_ =
             workspace_offset +
             checked_cast<uint32_t>(config::getAvailableMemory(moduleOp, vpux::VPU::MemoryKind::CMX_NN).getByteSize());
+}
+
+void insertBinaryDimsIntoVector(SmallVector<uint8_t>& dimsVector, vpux::NDTypeInterface ndType) {
+    auto shape = ndType.getShape();
+    const auto dimsOrder = ndType.getDimsOrder();
+    const auto memShape = dimsOrder.toMemoryOrder(shape);
+
+    for (auto& memDim : memShape | reversed) {
+        auto dim = checked_cast<int32_t>(memDim);
+        ArrayRef<uint8_t> valueAsArray(reinterpret_cast<const uint8_t*>(&dim), sizeof(dim));
+        dimsVector.insert(dimsVector.end(), valueAsArray.begin(), valueAsArray.end());
+    }
+}
+
+void insertBinaryStridesIntoVector(SmallVector<uint8_t>& stridesVector, vpux::NDTypeInterface ndType) {
+    auto strides = ndType.getMemStrides();
+    for (auto&& stride : strides | reversed) {
+        ArrayRef<uint8_t> valueAsArray(reinterpret_cast<const uint8_t*>(&stride), sizeof(stride));
+        stridesVector.insert(stridesVector.end(), valueAsArray.begin(), valueAsArray.end());
+    }
 }
 
 }  // namespace VPUASM

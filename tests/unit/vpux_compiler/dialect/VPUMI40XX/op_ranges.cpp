@@ -130,7 +130,6 @@ TEST_F(MLIR_TaskRangeTest, Empty) {
             config.ExecutorResource 2 of @SHAVE_ACT
             config.ExecutorResource 1 of @DPU
         }
-        config.ExecutorResource 1 of @M2I
         config.ExecutorResource 2 of @DMA_NN
         config.MemoryResource 2306867200 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
         net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -169,7 +168,6 @@ TEST_F(MLIR_TaskRangeTest, DMA) {
                 config.ExecutorResource 2 of @SHAVE_ACT
                 config.ExecutorResource 1 of @DPU
             }
-            config.ExecutorResource 1 of @M2I
             config.ExecutorResource 2 of @DMA_NN
             config.MemoryResource 2306867200 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
             net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -217,7 +215,6 @@ TEST_F(MLIR_TaskRangeTest, Shave) {
                 config.ExecutorResource 2 of @SHAVE_ACT
                 config.ExecutorResource 1 of @DPU
             }
-            config.ExecutorResource 1 of @M2I
             config.ExecutorResource 2 of @DMA_NN
             config.MemoryResource 2306867200 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
             net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -294,7 +291,6 @@ TEST_F(MLIR_TaskRangeTest, DPU) {
             config.ExecutorResource 2 of @SHAVE_ACT
             config.ExecutorResource 1 of @DPU
         }
-        config.ExecutorResource 1 of @M2I
         config.ExecutorResource 2 of @DMA_NN
         config.MemoryResource 2306867200 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
         net.NetworkInfo entryPoint : @main inputsInfo : {

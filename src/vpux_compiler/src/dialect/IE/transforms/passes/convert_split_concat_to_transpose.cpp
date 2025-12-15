@@ -596,8 +596,7 @@ void ConvertSplitConcatToTransposePass::safeRunOnFunc() {
     patterns.insert<SplitAffineReshapeConcatRewriter>(&ctx, _log);
     patterns.insert<SplitAffineReshapeConvConcatRewriter>(&ctx, _log);
 
-    if (mlir::failed(
-                mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), vpux::getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), vpux::getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

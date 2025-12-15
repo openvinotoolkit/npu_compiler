@@ -12,7 +12,7 @@
 
 #include "vpux/utils/core/format.hpp"
 
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 
 using namespace vpux;
 

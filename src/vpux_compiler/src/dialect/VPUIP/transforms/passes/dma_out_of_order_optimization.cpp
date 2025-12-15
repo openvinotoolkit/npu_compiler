@@ -176,7 +176,7 @@ void DMAOutOfOrderOptimizationPass::safeRunOnFunc() {
         }
     });
 
-    if (!_workloadManagementMode.has_value() || _workloadManagementMode <= WorkloadManagementMode::PWLM_V2_PAGES) {
+    if (!_workloadManagementMode.has_value() || _workloadManagementMode < WorkloadManagementMode::FWLM_V1_PAGES) {
         VPURT::verifyBarrierSlots(funcOp, _log);
     }
 }

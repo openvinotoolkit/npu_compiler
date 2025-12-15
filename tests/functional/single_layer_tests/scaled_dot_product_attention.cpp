@@ -40,7 +40,6 @@ class ScaledDotProductAttentionV14LayerTestCommon :
         }
     }
     void SetUp() override {
-        vpux::env::setEnvVar("NPU_DECOMPOSE_SDPA", "0");
         auto elementType = ov::element::f32;
         inType = outType = elementType;
         const auto testParams = GetParam();
@@ -96,8 +95,9 @@ class ScaledDotProductAttentionV14LayerTestCommon :
         manager.register_pass<ov::pass::ScaledDotProductAttentionDecomposition>();
         manager.run_passes(functionRefs);
     }
-    void TearDown() override {
-        vpux::env::unsetEnvVar("NPU_DECOMPOSE_SDPA");
+
+    void configure_model() override {
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-decompose-sdpa=false";
     }
 
 public:

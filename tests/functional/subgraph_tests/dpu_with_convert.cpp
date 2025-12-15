@@ -202,6 +202,31 @@ TEST_P(EltwiseWithF16ToF32ConvertTest, NPU4000_HW) {
     run(Platform::NPU4000);
 }
 
+TEST_P(ConvWithF16ToF32ConvertTest, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(GroupConvWithF16ToF32ConvertTest, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(AvgPoolWithF16ToF32ConvertTest, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(MaxPoolWithF16ToF32ConvertTest, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(EltwiseWithF16ToF32ConvertTest, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
 const std::vector<ov::Shape> inputShapes = {{1, 16, 48, 32}, {1, 1024, 4, 8}, {1, 16, 128, 32}};
 const std::vector<size_t> outputChannels = {8, 16};
 

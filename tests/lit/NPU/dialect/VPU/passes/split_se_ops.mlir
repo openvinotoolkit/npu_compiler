@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --split-se-ops="se-ops-enabled=true" %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -222,8 +222,8 @@ func.func @RollSplitWithLargeSize(%arg0: tensor<1x128x160x160xf16, {order = #NHW
 
     // CHECK-DAG: [[AXES:%.+]] = const.Declare tensor<2xsi32> = dense<[2, 3]> : tensor<2xsi32>
     // CHECK-DAG: [[SHIFT_0:%.+]] = const.Declare tensor<2xsi32> = dense<[0, 5]> : tensor<2xsi32>
-    // CHECK-DAG: [[SHIFT_1:%.+]] = const.Declare tensor<2xsi32> = dense<[6, 0]> : tensor<2xsi32>
     // CHECK: [[ROLL_0:%.+]] = VPU.Roll([[INPUT_DATA]], [[SHIFT_0]], [[AXES]]) : tensor<1x128x160x160xf16, {order = #NHWC}>, tensor<2xsi32>, tensor<2xsi32> -> tensor<1x128x160x160xf16, {order = #NHWC}>
+    // CHECK: [[SHIFT_1:%.+]] = const.Declare tensor<2xsi32> = dense<[6, 0]> : tensor<2xsi32>
     // CHECK: [[ROLL_1:%.+]] = VPU.Roll([[ROLL_0]], [[SHIFT_1]], [[AXES]]) : tensor<1x128x160x160xf16, {order = #NHWC}>, tensor<2xsi32>, tensor<2xsi32> -> tensor<1x128x160x160xf16, {order = #NHWC}>
     // CHECK: return [[ROLL_1]] : tensor<1x128x160x160xf16, {order = #NHWC}>
 }
@@ -232,7 +232,8 @@ func.func @RollSplitWithLargeSize(%arg0: tensor<1x128x160x160xf16, {order = #NHW
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-// CHECK: func.func @RollSplitWithLargeSizeAndSingleShift([[INPUT_DATA:%.+]]: tensor<1x128x160x160xf16, {order = #NHWC}>) -> tensor<1x128x160x160xf16, {order = #NHWC}> {
+// CHECK-LABEL: @RollSplitWithLargeSizeAndSingleShift
+// CHECK-SAME: ([[INPUT_DATA:%.+]]: tensor<1x128x160x160xf16, {order = #NHWC}>) -> tensor<1x128x160x160xf16, {order = #NHWC}> {
 func.func @RollSplitWithLargeSizeAndSingleShift(%arg0: tensor<1x128x160x160xf16, {order = #NHWC}>) -> tensor<1x128x160x160xf16, {order = #NHWC}> {
     %shift = const.Declare tensor<1xsi32> = dense<[6]> : tensor<1xsi32>
     %axes = const.Declare tensor<2xsi32> = dense<[2, 3]> : tensor<2xsi32>
@@ -241,8 +242,8 @@ func.func @RollSplitWithLargeSizeAndSingleShift(%arg0: tensor<1x128x160x160xf16,
 
     // CHECK-DAG: [[AXES:%.+]] = const.Declare tensor<2xsi32> = dense<[2, 3]> : tensor<2xsi32>
     // CHECK-DAG: [[SHIFT_0:%.+]] = const.Declare tensor<2xsi32> = dense<[0, 6]> : tensor<2xsi32>
-    // CHECK-DAG: [[SHIFT_1:%.+]] = const.Declare tensor<2xsi32> = dense<[6, 0]> : tensor<2xsi32>
     // CHECK: [[ROLL_0:%.+]] = VPU.Roll([[INPUT_DATA]], [[SHIFT_0]], [[AXES]]) : tensor<1x128x160x160xf16, {order = #NHWC}>, tensor<2xsi32>, tensor<2xsi32> -> tensor<1x128x160x160xf16, {order = #NHWC}>
+    // CHECK: [[SHIFT_1:%.+]] = const.Declare tensor<2xsi32> = dense<[6, 0]> : tensor<2xsi32>
     // CHECK: [[ROLL_1:%.+]] = VPU.Roll([[ROLL_0]], [[SHIFT_1]], [[AXES]]) : tensor<1x128x160x160xf16, {order = #NHWC}>, tensor<2xsi32>, tensor<2xsi32> -> tensor<1x128x160x160xf16, {order = #NHWC}>
     // CHECK: return [[ROLL_1]] : tensor<1x128x160x160xf16, {order = #NHWC}>
 }

@@ -6,8 +6,8 @@
 #include "vpux/compiler/NPU40XX/dialect/ELF/dialect.hpp"
 #include "vpux/compiler/NPU40XX/dialect/ELF/ops.hpp"
 #include "vpux/compiler/dialect/ELF/transforms/passes.hpp"
+#include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
-#include "vpux/compiler/utils/ELF/utils.hpp"
 #include "vpux/utils/core/error.hpp"
 
 #include <cstdint>

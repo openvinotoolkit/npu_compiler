@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --swap-operation-with-gather %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @MoveMultiplySubtractPostGather
 // CHECK-SAME:      [[INPUT_0:%arg[0-9]]]: tensor<1x10xsi32>

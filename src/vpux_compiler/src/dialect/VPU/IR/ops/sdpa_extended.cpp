@@ -4,12 +4,14 @@
 //
 
 #include "vpux/compiler/core/tiling.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 
+#include "vpux/compiler/dialect/VPU/utils/auxiliary_buffers.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include "vpux/compiler/dialect/VPU/transforms/factories/shave_controls_dpu.hpp"
@@ -19,6 +21,112 @@
 #include "vpux/compiler/utils/analysis.hpp"
 
 using namespace vpux;
+
+SmallVector<mlir::Type> getAuxiliaryBufferTypes(mlir::ModuleOp moduleOp, mlir::Value inputQ, mlir::Value inputV,
+                                                mlir::IntegerAttr padSizeAttr,
+                                                std::vector<int32_t>& resultDpuStorageData) {
+    const auto inputVType = mlir::cast<vpux::NDTypeInterface>(inputV.getType());
+    const auto inputVShape = inputVType.getShape();
+    const auto inputQType = mlir::cast<vpux::NDTypeInterface>(inputQ.getType());
+    const auto inputQShape = inputQType.getShape();
+
+    const auto dimS = inputVShape[Dim(3)];
+    const auto dimEv = inputVShape[Dim(2)];
+    const auto dimE = inputQShape[Dim(3)];
+    const auto dimL = inputQShape[Dim(2)];
+
+    const auto dataStorageType = [&]() -> mlir::Type {
+        static constexpr int64_t noBuffersForSoftmax = 2;
+        SmallVector<int64_t> bufferShape(
+                {1, 1, dimL, noBuffersForSoftmax * dimS * static_cast<int64_t>(sizeof(uint16_t))});
+        return mlir::RankedTensorType::get(bufferShape, getUInt8Type(inputQ.getContext()));
+    }();
+    const auto dpuStorageType = [&]() -> mlir::Type {
+        auto tileOp = config::getTileExecutor(moduleOp);
+        const auto numShavesPerTile = tileOp.getSubExecutor(VPU::ExecutorKind::SHAVE_ACT).getCount();
+
+        // dpu storage buffer
+        int64_t size1DpuDescriptor = VPU::getDpuDebugDataSize(config::getArch(moduleOp)) +
+                                     VPU::getDPUVariantDataSize(config::getArch(moduleOp)) +
+                                     VPU::getDPUInvariantDataSize(config::getArch(moduleOp));
+
+        const auto dpuBufferDescriptorSize = (size1DpuDescriptor * 2 * numShavesPerTile) / sizeof(int32_t);
+        std::vector<int32_t> dpuDescriptorVals(dpuBufferDescriptorSize, 0);
+
+        //  Create weight table
+        auto dimSReal = dimS;
+
+        if (padSizeAttr) {
+            dimSReal = dimS - padSizeAttr.getValue().getSExtValue();
+        }
+
+        const auto ppeConverter = VPU::NCESparsity::getPPEConverterCb(config::getArch(moduleOp));
+        const auto biasConverter = VPU::NCESparsity::getBiasConverterCb(config::getArch(moduleOp));
+        const auto elemType = inputQType.getElementType();
+
+        // MatMull1
+        auto inputShMM1 = Shape{dimL, 1, 1, dimE};
+        auto outputShMM1 = Shape{dimL, 1, 1, dimSReal};
+        const auto inputMM1 = mlir::RankedTensorType::get(inputShMM1.raw(), elemType);
+        const auto outputMM1 = mlir::RankedTensorType::get(outputShMM1.raw(), elemType);
+        std::vector<int32_t> matMull1WtTblDataValuesVec = VPU::NCESparsity::getWeightsTable(
+                inputMM1, outputMM1, /*weightsPtrs*/ std::nullopt, static_cast<int32_t>(dimE * 2),
+                /*sparsityPtr*/ std::nullopt, static_cast<int32_t>(0), ppeConverter, biasConverter, dimSReal);
+        for (auto oc = dimSReal; oc < dimS; oc++) {
+            matMull1WtTblDataValuesVec.push_back(matMull1WtTblDataValuesVec[0]);
+            matMull1WtTblDataValuesVec.push_back(matMull1WtTblDataValuesVec[1]);
+            matMull1WtTblDataValuesVec.push_back(matMull1WtTblDataValuesVec[2]);
+            matMull1WtTblDataValuesVec.push_back(matMull1WtTblDataValuesVec[3]);
+        }
+
+        auto inputShMM2 = Shape{dimL, 1, 1, dimS};
+        auto outputShMM2 = Shape{dimL, 1, 1, dimEv};
+        const auto inputMM2 = mlir::RankedTensorType::get(inputShMM2.raw(), elemType);
+        const auto outputMM2 = mlir::RankedTensorType::get(outputShMM2.raw(), elemType);
+        std::vector<int32_t> matMull2WtTblDataValuesVec = VPU::NCESparsity::getWeightsTable(
+                inputMM2, outputMM2, /*weightsPtrs*/ std::nullopt, static_cast<int32_t>(dimS * 2),
+                /*sparsityPtr*/ std::nullopt, static_cast<int32_t>(0), ppeConverter, biasConverter, dimEv);
+
+        resultDpuStorageData.clear();
+        resultDpuStorageData.reserve(dpuDescriptorVals.size() + matMull1WtTblDataValuesVec.size() +
+                                     matMull2WtTblDataValuesVec.size());
+        resultDpuStorageData.insert(resultDpuStorageData.end(), std::make_move_iterator(dpuDescriptorVals.begin()),
+                                    std::make_move_iterator(dpuDescriptorVals.end()));
+        resultDpuStorageData.insert(resultDpuStorageData.end(),
+                                    std::make_move_iterator(matMull1WtTblDataValuesVec.begin()),
+                                    std::make_move_iterator(matMull1WtTblDataValuesVec.end()));
+        resultDpuStorageData.insert(resultDpuStorageData.end(),
+                                    std::make_move_iterator(matMull2WtTblDataValuesVec.begin()),
+                                    std::make_move_iterator(matMull2WtTblDataValuesVec.end()));
+        const SmallVector<int64_t> shape({1, 1, 1, static_cast<int64_t>(resultDpuStorageData.size())});
+        const auto dpuStorageType = mlir::RankedTensorType::get(shape, getSInt32Type(inputQ.getContext()));
+        return dpuStorageType;
+    }();
+
+    return {dataStorageType, dpuStorageType};
+}
+
+mlir::Value createDpuStorageConstant(mlir::OpBuilder& builder, mlir::Location loc, mlir::Type dpuStorageType,
+                                     ArrayRef<int32_t> dpuStorageData) {
+    return Const::createConst(builder, appendLoc(loc, "SDPA_Extended_dpuBuffer"),
+                              mlir::cast<mlir::RankedTensorType>(dpuStorageType), dpuStorageData);
+}
+
+void vpux::VPU::SDPAExtendedOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState, mlir::Value inputQ,
+                                      mlir::Value inputK, mlir::Value inputV, mlir::Value inputMask,
+                                      mlir::Value inputScale, mlir::IntegerAttr padSizeAttr) {
+    auto block = odsBuilder.getInsertionBlock();
+    const auto moduleOp = getModuleOp(block->getParentOp());
+
+    std::vector<int32_t> dpuStorageData;
+    auto auxBufferTypes = getAuxiliaryBufferTypes(moduleOp, inputQ, inputV, padSizeAttr, dpuStorageData);
+    VPUX_THROW_WHEN(auxBufferTypes.size() != 2, "Expected 2 auxiliary buffer types, got {0}", auxBufferTypes.size());
+    auto dataStorage = VPU::createAuxiliaryBuffer(odsBuilder, odsState.location, auxBufferTypes[0]);
+    auto dpuStorage = createDpuStorageConstant(odsBuilder, odsState.location, auxBufferTypes[1], dpuStorageData);
+
+    build(odsBuilder, odsState, inputQ, inputK, inputV, inputMask, inputScale, dataStorage, dpuStorage, padSizeAttr,
+          /*multiClusterStrategy=*/nullptr);
+}
 
 mlir::LogicalResult vpux::VPU::SDPAExtendedOp::inferReturnTypes(
         mlir::MLIRContext* ctx, std::optional<mlir::Location> optLoc, mlir::ValueRange operands,
@@ -51,6 +159,25 @@ mlir::LogicalResult vpux::VPU::SDPAExtendedOp::inferReturnTypes(
     return mlir::success();
 }
 
+llvm::LogicalResult VPU::SDPAExtendedOp::verify() {
+    const auto moduleOp = getModuleOp(getOperation()->getParentOp());
+    std::vector<int32_t> dpuStorageData;
+    auto expectedAuxBuffTypes =
+            getAuxiliaryBufferTypes(moduleOp, getInputQ(), getInputV(), getPadSizeSAttr(), dpuStorageData);
+    if (expectedAuxBuffTypes.size() != 2) {
+        return errorAt(getOperation(), "Expected two reference auxiliary buffer types, but got {0}",
+                       expectedAuxBuffTypes.size());
+    }
+    auto loc = getOperation()->getLoc();
+    if (mlir::failed(VPU::compareTypes(loc, getDataStorage().getType(), expectedAuxBuffTypes[0]))) {
+        return errorAt(getOperation(), "Invalid data storage auxiliary buffer");
+    }
+    if (mlir::failed(VPU::compareTypes(loc, getDpuStorage().getType(), expectedAuxBuffTypes[1]))) {
+        return errorAt(getOperation(), "Invalid DPU storage auxiliary buffer");
+    }
+    return mlir::success();
+}
+
 //
 // ClusteredOpInterface
 //
@@ -71,114 +198,6 @@ bool vpux::VPU::SDPAExtendedOp::checkStrategyCompatibility(VPU::MultiClusterStra
     }
 
     return false;
-}
-
-static mlir::ModuleOp getModule(::mlir::OpBuilder& odsBuilder) {
-    auto block = odsBuilder.getInsertionBlock();
-    auto parentOp = block->getParentOp();
-    while (parentOp && !llvm::isa<mlir::ModuleOp>(parentOp)) {
-        parentOp = parentOp->getParentOp();
-    }
-    return llvm::cast<mlir::ModuleOp>(parentOp);
-}
-
-mlir::Value insertSDPAExtendedBuffer(Logger& log, mlir::OpBuilder& rewriter, ::mlir::Value inputQ, ::mlir::Value inputV,
-                                     ::mlir::IntegerAttr padSizeAttr) {
-    log.trace("Found SDPAExtended Operation '{0}'", mlir::UnknownLoc::get(rewriter.getContext()));
-    const auto module = getModule(rewriter);
-
-    const auto inputVType = mlir::cast<vpux::NDTypeInterface>(inputV.getType());
-    const auto inputVShape = inputVType.getShape();
-    const auto inputQType = mlir::cast<vpux::NDTypeInterface>(inputQ.getType());
-    const auto inputQShape = inputQType.getShape();
-
-    const auto dimS = inputVShape[Dim(3)];
-    const auto dimEv = inputVShape[Dim(2)];
-    const auto dimE = inputQShape[Dim(3)];
-    const auto dimL = inputQShape[Dim(2)];
-
-    auto tileOp = config::getTileExecutor(module);
-    const auto numShavesPerTile = tileOp.getSubExecutor(VPU::ExecutorKind::SHAVE_ACT).getCount();
-
-    // dpu storage buffer
-    int64_t size1DpuDescriptor = VPU::getDpuDebugDataSize(config::getArch(module)) +
-                                 VPU::getDPUVariantDataSize(config::getArch(module)) +
-                                 VPU::getDPUInvariantDataSize(config::getArch(module));
-
-    const auto dpuBufferDescriptorSize = (size1DpuDescriptor * 2 * numShavesPerTile) / sizeof(int32_t);
-    std::vector<int32_t> dpuDescriptorVals(dpuBufferDescriptorSize, 0);
-
-    //  Create weight table
-    auto dimSReal = dimS;
-
-    if (padSizeAttr) {
-        dimSReal = dimS - padSizeAttr.getValue().getSExtValue();
-    }
-    log.trace("insertSDPAExtendedBuffer, create weight with params: dimL '{0}', dimEv '{1}', dimS '{2}', dimSReal "
-              "'{3}', dimE '{2}'",
-              dimL, dimEv, dimS, dimSReal, dimE);
-
-    const auto ppeConverter = VPU::NCESparsity::getPPEConverterCb(config::getArch(module));
-    const auto biasConverter = VPU::NCESparsity::getBiasConverterCb(config::getArch(module));
-    const auto elemType = inputQType.getElementType();
-
-    // MatMull1
-    auto inputShMM1 = Shape{dimL, 1, 1, dimE};
-    auto outputShMM1 = Shape{dimL, 1, 1, dimSReal};
-    const auto inputMM1 = mlir::RankedTensorType::get(inputShMM1.raw(), elemType);
-    const auto outputMM1 = mlir::RankedTensorType::get(outputShMM1.raw(), elemType);
-    std::vector<int32_t> matMull1WtTblDataValuesVec = VPU::NCESparsity::getWeightsTable(
-            inputMM1, outputMM1, /*weightsPtrs*/ std::nullopt, static_cast<int32_t>(dimE * 2),
-            /*sparsityPtr*/ std::nullopt, static_cast<int32_t>(0), ppeConverter, biasConverter, dimSReal);
-    for (auto oc = dimSReal; oc < dimS; oc++) {
-        matMull1WtTblDataValuesVec.push_back(matMull1WtTblDataValuesVec[0]);
-        matMull1WtTblDataValuesVec.push_back(matMull1WtTblDataValuesVec[1]);
-        matMull1WtTblDataValuesVec.push_back(matMull1WtTblDataValuesVec[2]);
-        matMull1WtTblDataValuesVec.push_back(matMull1WtTblDataValuesVec[3]);
-    }
-    log.trace("matMull1WtTblDataValuesVec '{0}'", matMull1WtTblDataValuesVec);
-
-    auto inputShMM2 = Shape{dimL, 1, 1, dimS};
-    auto outputShMM2 = Shape{dimL, 1, 1, dimEv};
-    const auto inputMM2 = mlir::RankedTensorType::get(inputShMM2.raw(), elemType);
-    const auto outputMM2 = mlir::RankedTensorType::get(outputShMM2.raw(), elemType);
-    std::vector<int32_t> matMull2WtTblDataValuesVec = VPU::NCESparsity::getWeightsTable(
-            inputMM2, outputMM2, /*weightsPtrs*/ std::nullopt, static_cast<int32_t>(dimS * 2),
-            /*sparsityPtr*/ std::nullopt, static_cast<int32_t>(0), ppeConverter, biasConverter, dimEv);
-    log.trace("matMull2WtTblDataValuesVec '{0}'", matMull2WtTblDataValuesVec);
-
-    std::vector<int32_t> resultDpuBufData;
-    resultDpuBufData.reserve(dpuDescriptorVals.size() + matMull1WtTblDataValuesVec.size() +
-                             matMull2WtTblDataValuesVec.size());
-    resultDpuBufData.insert(resultDpuBufData.end(), std::make_move_iterator(dpuDescriptorVals.begin()),
-                            std::make_move_iterator(dpuDescriptorVals.end()));
-    resultDpuBufData.insert(resultDpuBufData.end(), std::make_move_iterator(matMull1WtTblDataValuesVec.begin()),
-                            std::make_move_iterator(matMull1WtTblDataValuesVec.end()));
-    resultDpuBufData.insert(resultDpuBufData.end(), std::make_move_iterator(matMull2WtTblDataValuesVec.begin()),
-                            std::make_move_iterator(matMull2WtTblDataValuesVec.end()));
-    const SmallVector<int64_t> shape({1, 1, 1, static_cast<int64_t>(resultDpuBufData.size())});
-    const auto dpuBufferType = mlir::RankedTensorType::get(shape, getSInt32Type(rewriter.getContext()));
-    return Const::createConst(rewriter,
-                              appendLoc(mlir::UnknownLoc::get(rewriter.getContext()), "SDPA_Extended_dpuBuffer"),
-                              dpuBufferType, ArrayRef(resultDpuBufData));
-}
-
-void vpux::VPU::SDPAExtendedOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState,
-                                      ::mlir::Value inputQ, ::mlir::Value inputK, ::mlir::Value inputV,
-                                      ::mlir::Value inputMask, ::mlir::Value inputScale, ::mlir::Value dataStorage,
-                                      ::mlir::Value dpuStorage, ::mlir::IntegerAttr padSizeAttr) {
-    build(odsBuilder, odsState, inputQ, inputK, inputV, inputMask, inputScale, dataStorage, dpuStorage, padSizeAttr,
-          {});
-}
-
-void vpux::VPU::SDPAExtendedOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState,
-                                      ::mlir::Value inputQ, ::mlir::Value inputK, ::mlir::Value inputV,
-                                      ::mlir::Value inputMask, ::mlir::Value inputScale, ::mlir::Value dataStorage,
-                                      ::mlir::IntegerAttr padSizeAttr) {
-    auto log = vpux::Logger::global();
-    auto dpuStorage = insertSDPAExtendedBuffer(log, odsBuilder, inputQ, inputV, padSizeAttr);
-    build(odsBuilder, odsState, inputQ, inputK, inputV, inputMask, inputScale, dataStorage, dpuStorage, padSizeAttr,
-          {});
 }
 
 vpux::VPU::DistributionInfo vpux::VPU::SDPAExtendedOp::getExplicitDistributionInfoAttr(
@@ -274,26 +293,5 @@ mlir::FailureOr<OutputTiling> vpux::VPU::SDPAExtendedOp::getTilingStrategy(Tilin
 }
 
 SmallVector<mlir::Value> VPU::SDPAExtendedOp::getAuxiliaryBuffers() {
-    return {getDataStorage()};
-}
-
-mlir::LogicalResult VPU::SDPAExtendedOp::setAuxiliaryBuffers(ArrayRef<mlir::Value> buffers) {
-    if (buffers.size() != 1 || buffers.front() == nullptr) {
-        return mlir::failure();
-    }
-    getDataStorageMutable().assign(buffers.front());
-    return mlir::success();
-}
-
-SmallVector<mlir::Type> VPU::SDPAExtendedOp::getBufferTypes() {
-    const auto inputVType = mlir::cast<vpux::NDTypeInterface>(getInputV().getType());
-    const auto inputQType = mlir::cast<vpux::NDTypeInterface>(getInputQ().getType());
-    const auto inputQShape = inputQType.getShape();
-    const auto inputVShape = inputVType.getShape();
-    const auto dimS = inputVShape[Dim(3)];
-    const auto dimL = inputQShape[Dim(2)];
-    const int64_t noBuffersForSoftmax = 2;
-    SmallVector<int64_t> bufferShape({1, 1, dimL, noBuffersForSoftmax * dimS * static_cast<int64_t>(sizeof(uint16_t))});
-    const auto auxBuffType = mlir::RankedTensorType::get(bufferShape, getUInt8Type(getContext()));
-    return {auxBuffType};
+    return {getDataStorage(), getDpuStorage()};
 }

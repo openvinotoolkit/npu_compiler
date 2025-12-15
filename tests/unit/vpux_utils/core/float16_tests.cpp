@@ -103,4 +103,34 @@ TEST(float16, values) {
     // underflow cases
     EXPECT_EQ(static_cast<vpux::type::float16>(3.45023e-14).to_bits(), 0x0000);  // 0x0000 = 0
     EXPECT_EQ(static_cast<vpux::type::float16>(-4.2796e-14).to_bits(), 0x8000);  // 0x8000 = -0
+
+    // iszero cases
+    EXPECT_TRUE(vpux::type::iszero(vpux::type::float16(0, 0, 0)));
+    EXPECT_TRUE(vpux::type::iszero(vpux::type::float16(1, 0, 0)));
+    EXPECT_FALSE(vpux::type::iszero(vpux::type::float16(0, 1, 0)));
+    EXPECT_FALSE(vpux::type::iszero(vpux::type::float16(0, 0, 1)));
+    EXPECT_FALSE(vpux::type::iszero(vpux::type::float16(1, 1, 0)));
+    EXPECT_FALSE(vpux::type::iszero(vpux::type::float16(1, 0, 1)));
+
+    // float16 operator ==
+    EXPECT_TRUE(vpux::type::float16(0, 0, 0) == vpux::type::float16(0, 0, 0));         // +0 == +0
+    EXPECT_TRUE(vpux::type::float16(1, 0, 0) == vpux::type::float16(1, 0, 0));         // -0 == -0
+    EXPECT_TRUE(vpux::type::float16(0, 0, 0) == vpux::type::float16(1, 0, 0));         // +0 == -0
+    EXPECT_TRUE(vpux::type::float16(0, 0x1F, 0) == vpux::type::float16(0, 0x1F, 0));   // +Inf == +Inf
+    EXPECT_TRUE(vpux::type::float16(1, 0x1F, 0) == vpux::type::float16(1, 0x1F, 0));   // -Inf == -Inf
+    EXPECT_FALSE(vpux::type::float16(0, 0x1F, 0) == vpux::type::float16(1, 0x1F, 0));  // +Inf != -Inf
+    EXPECT_FALSE(vpux::type::float16(0, 0x1F, 1) == vpux::type::float16(0, 0x1F, 1));  // NaN != NaN
+    EXPECT_FALSE(vpux::type::float16(0, 0x1F, 1) == vpux::type::float16(1, 0x1F, 1));  // NaN != NaN
+    EXPECT_TRUE(vpux::type::float16(0, 1, 1) == vpux::type::float16(0, 1, 1));
+    EXPECT_FALSE(vpux::type::float16(0, 1, 1) == vpux::type::float16(1, 1, 1));
+    EXPECT_FALSE(vpux::type::float16(0, 1, 1) == vpux::type::float16(0, 1, 2));
+    EXPECT_FALSE(vpux::type::float16(0, 1, 1) == vpux::type::float16(0, 2, 1));
+
+    // float16 operator !=
+    EXPECT_TRUE(vpux::type::float16(0, 0x1F, 1) != vpux::type::float16(0, 0x1F, 1));  // NaN != NaN
+    EXPECT_TRUE(vpux::type::float16(1, 0x1F, 1) != vpux::type::float16(1, 0x1F, 1));  // NaN != NaN
+    EXPECT_TRUE(vpux::type::float16(0, 0x1F, 1) != vpux::type::float16(0, 1, 1));     // NaN != normal float16
+    EXPECT_TRUE(vpux::type::float16(0, 0x1F, 1) != vpux::type::float16(0, 0x1F, 0));  // NaN != +Inf
+    EXPECT_TRUE(vpux::type::float16(0, 0x1F, 1) != vpux::type::float16(1, 0x1F, 0));  // NaN != -Inf
+    EXPECT_TRUE(vpux::type::float16(0, 0x1F, 1) != vpux::type::float16(0, 0, 0));     // NaN != +0
 }

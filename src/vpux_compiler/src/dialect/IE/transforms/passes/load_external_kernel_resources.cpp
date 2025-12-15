@@ -53,7 +53,7 @@ void LoadExternalKernelResources::safeRunOnFunc() {
         return;
     }
 
-    auto& shaveBinResources = ShaveBinaryResources::getInstance();
+    auto& shaveBinResources = ShaveBinaryResourcesCache::getCache(&getContext());
     auto arch = config::getArch(func);
 
     // Keep track of loaded kernel resources in order to avoid multiple retrivals

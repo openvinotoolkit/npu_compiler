@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --vpu-arch=%arch% --split-input-file --mlir-disable-threading --finalize-compute-function-boundaries %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module @StaticEltwiseNHWC {

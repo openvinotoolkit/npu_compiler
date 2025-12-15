@@ -88,6 +88,11 @@ public:
             return deviceName.find("4000") != std::string::npos;
         });
     }
+    bool has5010() const {
+        return std::any_of(_availableDevices.begin(), _availableDevices.end(), [](const std::string& deviceName) {
+            return deviceName.find("5010") != std::string::npos;
+        });
+    }
 
 private:
     std::vector<std::string> _availableDevices;

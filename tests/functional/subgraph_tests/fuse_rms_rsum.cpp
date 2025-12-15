@@ -128,6 +128,20 @@ TEST_P(FuseRMSReduceSumTestUnstripped, NPU4000_HW) {
     setBatchCompilerMode("unroll");
     run(Platform::NPU4000);
 }
+TEST_P(FuseRMSReduceSumTestCommon, NPU5010_HW) {
+    setDefaultHardwareMode();
+    // TODO E####-159644
+    setBatchCompilerMode("unroll");
+    run(Platform::NPU5010);
+}
+TEST_P(FuseRMSReduceSumTestUnstripped, NPU5010_HW) {
+    const float fqRange = 3, fqLevels = 256;
+    abs_threshold = fqRange / fqLevels;
+    setDefaultHardwareMode();
+    // TODO E####-159644
+    setBatchCompilerMode("unroll");
+    run(Platform::NPU5010);
+}
 namespace {
 const std::vector<ov::element::Type> inputPrecisions = {ov::element::f32};
 

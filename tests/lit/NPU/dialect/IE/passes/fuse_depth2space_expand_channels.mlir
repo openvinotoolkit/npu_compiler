@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --fuse-depth-to-space-expand-channels %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 func.func @FuseDepth2SpaceExpandChannels(%arg0: tensor<1x4x512x8xf16>) -> tensor<1x16x1024x16xf16> {
     // CHECK-LABEL: @FuseDepth2SpaceExpandChannels

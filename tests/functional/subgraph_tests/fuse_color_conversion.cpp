@@ -19,9 +19,12 @@ using namespace ov::test;
 
 namespace ov::test::subgraph {
 
+enum class ColorFormat { RGB, BGR };
+
 struct ColorConversionParams {
     int64_t height;
     int64_t width;
+    ColorFormat colorFormat;
 
     ov::Shape getYInputShape() const {
         return {1, static_cast<size_t>(height), static_cast<size_t>(width), 1};
@@ -52,7 +55,8 @@ public:
 
         result << "Y:" << yShape << sep;
         result << "UV:" << uvShape << sep;
-        result << "Out:" << outputShape;
+        result << "Out:" << outputShape << sep;
+        result << "Format:" << (params.colorFormat == ColorFormat::RGB ? "RGB" : "BGR");
 
         return result.str();
     }
@@ -61,23 +65,12 @@ public:
         VpuOv2LayerTest::inputs.clear();
         const auto& funcInputs = VpuOv2LayerTest::function->inputs();
 
-        ov::test::utils::InputGenerateData yGenData;
-        // The shapes are populated only with value 128
-        // Tracking ticket: E#186480
-        yGenData.start_from = 128;
-        yGenData.range = 1;
-        yGenData.resolution = 1;
-        ov::Tensor yTensorData = ov::test::utils::create_and_fill_tensor(funcInputs[0].get_element_type(),
-                                                                         targetInputStaticShapes[0], yGenData);
-        VpuOv2LayerTest::inputs.insert({funcInputs[0].get_node_shared_ptr(), yTensorData});
-
-        ov::test::utils::InputGenerateData uvGenData;
-        uvGenData.start_from = 128;
-        uvGenData.range = 1;
-        uvGenData.resolution = 1;
-        ov::Tensor uvTensorData = ov::test::utils::create_and_fill_tensor(funcInputs[1].get_element_type(),
-                                                                          targetInputStaticShapes[1], uvGenData);
-        VpuOv2LayerTest::inputs.insert({funcInputs[1].get_node_shared_ptr(), uvTensorData});
+        for (size_t i = 0; i < targetInputStaticShapes.size(); i++) {
+            const auto& inputStaticShape = targetInputStaticShapes[i];
+            const auto& funcInput = funcInputs[i];
+            auto inputTensor = ov::test::utils::create_and_fill_tensor(funcInput.get_element_type(), inputStaticShape);
+            VpuOv2LayerTest::inputs.insert({funcInput.get_node_shared_ptr(), inputTensor});
+        }
     }
 
     void SetUp() override {
@@ -93,7 +86,8 @@ public:
         const auto uvInput = std::make_shared<ov::op::v0::Parameter>(inType, inputDynamicShapes.at(1));
 
         // Build the YUV to RGB conversion pattern
-        auto result = buildYuvToRgbPattern(yInput, uvInput, yInputShape, uvInputShape, outputShape);
+        auto result =
+                buildYuvToRgbPattern(yInput, uvInput, yInputShape, uvInputShape, outputShape, testParams.colorFormat);
 
         const ov::ResultVector results{std::make_shared<ov::op::v0::Result>(result)};
         function =
@@ -103,7 +97,8 @@ public:
 private:
     std::shared_ptr<ov::Node> buildYuvToRgbPattern(const ov::Output<ov::Node>& yInput,
                                                    const ov::Output<ov::Node>& uvInput, const ov::Shape& yInputShape,
-                                                   const ov::Shape& uvInputShape, const ov::Shape& outputShape) {
+                                                   const ov::Shape& uvInputShape, const ov::Shape& outputShape,
+                                                   ColorFormat colorFormat) {
         ov::Shape yReshapeShape = {yInputShape[0], 1, yInputShape[1], yInputShape[2]};
         auto yReshapeConst =
                 ov::op::v0::Constant::create(ov::element::i64, ov::Shape{yReshapeShape.size()}, yReshapeShape);
@@ -135,21 +130,25 @@ private:
         // Concat Y and UV channels
         auto concat = std::make_shared<ov::op::v0::Concat>(ov::OutputVector{yReshape, interpolate}, 1);
 
-        // OpenVINO standard
-        // R = 1.164*(Y-16) + 1.596*(V-128)
-        // G = 1.164*(Y-16) - 0.813*(V-128) - 0.391*(U-128)
-        // B = 1.164*(Y-16) + 2.018*(U-128)
+        // Set weights and biases based on color format
+        std::vector<float> convWeights;
+        std::vector<float> biasValues;
 
-        // Weights are normalized: coefficient/255 to work with [0,1] range instead of [0,255]
-        // R channel: 1.164/255≈0.00457, 2.018/255≈0.00792, 0
-        // G channel: 1.164/255≈0.00457, -0.391/255≈-0.00152, -0.813/255≈-0.00318
-        // B channel: 1.164/255≈0.00457, 0, 1.596/255≈0.00627
-
-        std::vector<float> convWeights = {
-                0.00456994f, 0.00792123f,  0.00000000f,   // R channel: Y, U, V
-                0.00456994f, -0.00152331f, -0.00317720f,  // G channel: Y, U, V
-                0.00456994f, 0.00000000f,  0.00626735f    // B channel: Y, U, V
-        };
+        if (colorFormat == ColorFormat::RGB) {
+            convWeights = {
+                    1.164f, 0.000f,  1.596f,   // R channel: Y, U, V
+                    1.164f, -0.391f, -0.813f,  // G channel: Y, U, V
+                    1.164f, 2.018f,  0.000f    // B channel: Y, U, V
+            };
+            biasValues = {-222.912f, 135.488f, -276.928f};
+        } else {  // BGR
+            convWeights = {
+                    1.164f, 2.018f,  0.000f,   // B channel: Y, U, V
+                    1.164f, -0.391f, -0.813f,  // G channel: Y, U, V
+                    1.164f, 0.000f,  1.596f    // R channel: Y, U, V
+            };
+            biasValues = {-276.928f, 135.488f, -222.912f};
+        }
 
         auto weightsConst = ov::op::v0::Constant::create(ov::element::f32, ov::Shape{3, 3, 1, 1}, convWeights);
 
@@ -157,7 +156,6 @@ private:
                                                                      ov::CoordinateDiff{0, 0}, ov::CoordinateDiff{0, 0},
                                                                      ov::Strides{1, 1});
 
-        std::vector<float> biasValues = {-1.08561909f, 0.53161991f, -0.87418211f};
         auto biasConst = ov::op::v0::Constant::create(ov::element::f32, ov::Shape{1, 3, 1, 1}, biasValues);
 
         auto add = std::make_shared<ov::op::v1::Add>(convolution, biasConst);
@@ -178,22 +176,28 @@ TEST_P(FuseColorConversionTestCommon, NPU4000_HW) {
     run(Platform::NPU4000);
 }
 
+TEST_P(FuseColorConversionTestCommon, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
 namespace {
 
 static const std::vector<ColorConversionParams> precommit_testValues = {
         // Small resolution
-        ColorConversionParams{32, 32},
+        ColorConversionParams{32, 32, ColorFormat::RGB}, ColorConversionParams{32, 32, ColorFormat::BGR},
         // Medium resolution
-        ColorConversionParams{64, 48}};
+        ColorConversionParams{64, 48, ColorFormat::RGB}, ColorConversionParams{64, 48, ColorFormat::BGR}};
 
-static const std::vector<ColorConversionParams> smoke_testValues = {  // VGA resolution
-        ColorConversionParams{480, 640},
+static const std::vector<ColorConversionParams> smoke_testValues = {
+        // VGA resolution
+        ColorConversionParams{480, 640, ColorFormat::RGB}, ColorConversionParams{480, 640, ColorFormat::BGR},
         // HD resolution
-        ColorConversionParams{720, 1280},
+        ColorConversionParams{720, 1280, ColorFormat::RGB}, ColorConversionParams{720, 1280, ColorFormat::BGR},
         // 4K resolution (scaled down for testing)
-        ColorConversionParams{1080, 1920},
+        ColorConversionParams{1080, 1920, ColorFormat::RGB}, ColorConversionParams{1080, 1920, ColorFormat::BGR},
         // Square resolution
-        ColorConversionParams{512, 512}};
+        ColorConversionParams{512, 512, ColorFormat::RGB}, ColorConversionParams{512, 512, ColorFormat::BGR}};
 
 INSTANTIATE_TEST_SUITE_P(precommit_FuseColorConversion, FuseColorConversionTestCommon,
                          ::testing::ValuesIn(precommit_testValues), FuseColorConversionTestCommon::getTestCaseName);

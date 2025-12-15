@@ -80,7 +80,6 @@ module @StaticEltwiseNHWC attributes {config.arch = #config.arch_kind<NPU40XX>, 
   //CHECK-NOT: async.await_all
   //CHECK-NOT: async.await
   //CHECK-NOT: async.execute
-  //CHECK: llvm.call @npu_level_zero_reset_commandlist
   //CHECK: llvm.call @npu_level_zero_execute_graph
   //CHECK: llvm.call @npu_level_zero_submit_commandlist
 }
@@ -154,7 +153,7 @@ module @Add attributes {config.compilationMode = #config.compilation_mode<HostCo
   //CHECK-NOT: async.await_all
   //CHECK-NOT: async.await
   //CHECK-NOT: async.execute
-  //CHECK: llvm.call @npu_level_zero_reset_commandlist
+  //CHECK-NOT: llvm.call @npu_level_zero_reset_commandlist
   //CHECK: llvm.call @npu_level_zero_execute_graph
   //CHECK: llvm.call @npu_level_zero_submit_commandlist
 }

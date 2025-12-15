@@ -388,7 +388,7 @@ void PropagateAndCleanUpFQ::safeRunOnFunc() {
     propagateFQpatterns.add<PropagateFQDown>(&ctx, _log, propagatedFQ);
 
     auto config = getDefaultGreedyRewriteConfig();
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(propagateFQpatterns), config))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(propagateFQpatterns), config))) {
         signalPassFailure();
     }
 
@@ -396,7 +396,7 @@ void PropagateAndCleanUpFQ::safeRunOnFunc() {
     cleanUpFQpatterns.add<CleanupFQRewriter>(&ctx, _log, propagatedFQ);
 
     config = getDefaultGreedyRewriteConfig();
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(cleanUpFQpatterns), config))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(cleanUpFQpatterns), config))) {
         signalPassFailure();
     }
 }

@@ -17,6 +17,7 @@ std::unique_ptr<IConvertQuantizeOpsToNceOpsStrategy> createConvertQuantizeOpsToN
     switch (arch) {
     case config::ArchKind::NPU37XX:
     case config::ArchKind::NPU40XX:
+    case config::ArchKind::NPU50XX:
         return std::make_unique<IE::arch37xx::ConvertQuantizeOpsToNceOpsStrategy>();
 
     default:

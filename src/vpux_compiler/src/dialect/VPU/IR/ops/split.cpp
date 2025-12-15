@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/error.hpp"
@@ -33,7 +33,11 @@ Dim normalizeAxis(VPU::SplitOpAdaptor split) {
 
 mlir::FailureOr<Dim> extractAxis(mlir::Location loc, VPU::SplitOpAdaptor split) {
     if (split.getAxis() != nullptr) {
-        auto axisConst = split.getAxis().getDefiningOp<Const::DeclareOp>();
+        auto axisValue = split.getAxis();
+        while (auto parentOp = axisValue.getDefiningOp<VPU::CopyOp>()) {
+            axisValue = parentOp->getOperand(0);
+        }
+        auto axisConst = axisValue.getDefiningOp<Const::DeclareOp>();
         if (axisConst == nullptr) {
             return errorAt(loc, "Only constant input is supported for axis");
         }

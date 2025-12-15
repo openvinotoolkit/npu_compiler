@@ -15,7 +15,6 @@
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes/unroll_batch.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 
 using namespace vpux;
 

@@ -12,7 +12,7 @@ include "vpux/compiler/dialect/IE/attributes.td"
 include "vpux/compiler/dialect/core/ops_interfaces.td"
 include "vpux/compiler/dialect/core/types.td"
 
-include "mlir/Dialect/Quant/QuantOpsBase.td"
+include "mlir/Dialect/Quant/IR/QuantBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 
 def IE_AssignOp :
@@ -516,7 +516,9 @@ def IE_FlashSDPAOp :
         RankedTensorOf<[F16, F32, F64]>:$key,
         RankedTensorOf<[F16, F32, F64]>:$value,
         Optional<RankedTensorOf<[F16, F32, F64]>>:$attention_mask,
-        Optional<RankedTensorOf<[F16, F32, F64]>>:$scale
+        Optional<RankedTensorOf<[F16, F32, F64]>>:$scale,
+
+        IntAttr:$source_seq_len_pad_size
     );
 
     let results = (outs
@@ -569,7 +571,7 @@ def IE_PermuteQuantizeOp :
     let summary = "InferenceEngine PermuteQuantize layer";
 
     let arguments = (ins
-        RankedTensorOf<[F16, F32]>:$input,
+        RankedTensorOf<[F16, F32, quant_QuantizedType]>:$input,
 
         AffineMapAttr:$dst_order,
         AffineMapAttr:$mem_perm,

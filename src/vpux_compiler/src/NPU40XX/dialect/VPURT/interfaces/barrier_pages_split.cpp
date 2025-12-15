@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/VPURT/utils/barrier_legalization_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/dma.hpp"
 #include "vpux/compiler/utils/shave.hpp"
 #include "vpux/compiler/utils/wlm_legalization_utils.hpp"
@@ -18,9 +19,10 @@
 
 using namespace vpux;
 
-vpux::VPURT::BarrierPagesSplitHandler::BarrierPagesSplitHandler(BarrierInfo& barrierInfo, size_t numPhysBarriers,
-                                                                Logger log)
-        : _barrierInfo(barrierInfo), _barrierFifoDepth(BARRIER_FIFO_SIZE), _log(log) {
+vpux::VPURT::BarrierPagesSplitHandler::BarrierPagesSplitHandler(mlir::func::FuncOp func, BarrierInfo& barrierInfo,
+                                                                size_t numPhysBarriers, Logger log)
+        : _barrierInfo(barrierInfo), _log(log) {
+    _barrierFifoDepth = config::getConstraint(func, config::BARRIER_FIFO_DEPTH);
     VPUX_THROW_UNLESS(numPhysBarriers % 2 == 0, "Number of physical barriers must be even, numPhysBarriers - {0}",
                       numPhysBarriers);
     _pageSize = numPhysBarriers / 2;
@@ -110,6 +112,11 @@ void vpux::VPURT::BarrierPagesSplitHandler::findShvTasksWithDpu(size_t numCluste
                 _shvTasksWithDpuPerTile[tileIndex].push_back(taskInd);
             }
         }
+    }
+    // Sort as later indexes are being compared to minimize the range of checks and reduce
+    // compile time
+    for (auto& [_, shvTasksVec] : _shvTasksWithDpuPerTile) {
+        llvm::sort(shvTasksVec);
     }
 }
 
@@ -215,6 +222,7 @@ void vpux::VPURT::BarrierPagesSplitHandler::initializeBarrierToPageAssignment() 
 // taskPage = max(waitBarriersPage, prevTaskPage)
 void vpux::VPURT::BarrierPagesSplitHandler::initializeTaskToPageAssignment() {
     _taskPageAssignment.resize(_barrierInfo.getNumOfTasks());
+    _firstAndLastTaskPerPage.resize(_pageCount);
     _log.trace("Initializing task to page assignment");
 
     for (auto& [_, taskVec] : _taskQueueTypeMap) {
@@ -238,6 +246,16 @@ void vpux::VPURT::BarrierPagesSplitHandler::initializeTaskToPageAssignment() {
 
             _taskPageAssignment[taskInd] = taskPage;
             _log.nest().trace("Task {0}: page {1}", taskInd, taskPage);
+        }
+    }
+
+    for (size_t taskInd = 0; taskInd < _barrierInfo.getNumOfTasks(); taskInd++) {
+        auto taskPage = _taskPageAssignment[taskInd];
+
+        if (!_firstAndLastTaskPerPage[taskPage].has_value()) {
+            _firstAndLastTaskPerPage[taskPage] = std::make_pair(taskInd, taskInd);
+        } else {
+            _firstAndLastTaskPerPage[taskPage].value().second = taskInd;
         }
     }
 }
@@ -494,27 +512,23 @@ void vpux::VPURT::BarrierPagesSplitHandler::readTaskPageAssignmentFromIr() {
 // All legalization steps expect each page to have at least one task so during page
 // split it is expected that pages without tasks will have dummy tasks inserted using information
 // returned from this method.
-SmallVector<VPURT::BarrierPagesSplitHandler::PagesWithNoTaskData>
-vpux::VPURT::BarrierPagesSplitHandler::getPagesWithNoTasksData() {
-    llvm::BitVector pagesWithNoTasks(_pageCount - 1, true);
+SmallVector<VPURT::BarrierPagesSplitHandler::DummyDmaDataForPagesWithNoTasks>
+vpux::VPURT::BarrierPagesSplitHandler::getDummyDmaDataForPagesWithNoTasks() {
+    SmallVector<DummyDmaDataForPagesWithNoTasks> dummyDmaDataForPagesWithNoTasks;
 
-    SmallVector<PagesWithNoTaskData> pagesWithNoTasksData;
-
-    for (size_t taskInd = 0; taskInd < _barrierInfo.getNumOfTasks(); taskInd++) {
-        auto taskPage = _taskPageAssignment[taskInd];
-        // Skip last page as it is OK if it doesn't have tasks
-        if (taskPage == _pageCount - 1) {
+    // Traverse all pages and identify which do not have any tasks assigned
+    // Skip last page as it is OK if it doesn't have tasks
+    for (size_t pageInd = 0; pageInd < _pageCount - 1; pageInd++) {
+        if (_firstAndLastTaskPerPage[pageInd].has_value()) {
             continue;
         }
-        pagesWithNoTasks.reset(taskPage);
+        auto nextPageFirstBar = _firstBarrierInPage[pageInd + 1];
+        auto pageLastBar = nextPageFirstBar - 1;
+        auto insertBefore = _barrierInfo.getBarrierLatestProducer(pageLastBar) + 1;
+        dummyDmaDataForPagesWithNoTasks.push_back({pageInd, pageLastBar, nextPageFirstBar, insertBefore});
     }
 
-    for (auto pageWithNoTasks : pagesWithNoTasks.set_bits()) {
-        auto nextPageFirstBar = _firstBarrierInPage[pageWithNoTasks + 1];
-        auto pageLastBar = nextPageFirstBar - 1;
-        pagesWithNoTasksData.push_back({pageWithNoTasks, pageLastBar, nextPageFirstBar});
-    }
-    return pagesWithNoTasksData;
+    return dummyDmaDataForPagesWithNoTasks;
 }
 
 // Check if given task has illegal dependencies from page split point of view
@@ -1734,11 +1748,17 @@ void vpux::VPURT::BarrierPagesSplitHandler::updateTaskPageAssignmentForQueue(siz
             break;
         }
 
+        auto taskOp = _barrierInfo.getTaskOpAtIndex(taskInd);
+        // Check if task is already before moveBeforeOp as it might have already been moved
+        // and checking just indexes may give false information about task position in IR
+        if (taskOp->isBeforeInBlock(moveBeforeOp)) {
+            continue;
+        }
+
         if (!_barrierInfo.getWaitBarriers(taskInd).empty()) {
             // If task has wait barriers then it cannot be reassigned to a different page
             _log.trace("Task {0} with wait barriers needs to be relocated. Move it before {1}", taskInd,
                        moveBeforeOp->getLoc());
-            auto taskOp = _barrierInfo.getTaskOpAtIndex(taskInd);
             taskOp->moveBefore(moveBeforeOp);
             continue;
         }
@@ -1747,7 +1767,6 @@ void vpux::VPURT::BarrierPagesSplitHandler::updateTaskPageAssignmentForQueue(siz
                    _taskPageAssignment[taskInd], newPageIndex, stringifyEnum(queueType.type).data(), queueType.id);
         _taskPageAssignment[taskInd] = newPageIndex;
 
-        auto taskOp = _barrierInfo.getTaskOpAtIndex(taskInd);
         taskOp.setWlmPage(newPageIndex);
     }
 }
@@ -2331,12 +2350,20 @@ void vpux::VPURT::BarrierPagesSplitHandler::addUpdateBarriersForLastTaskOnFifoIn
                 boundaryTasksWaitBars.insert(pageBoundaryTaskWaitBars.begin(), pageBoundaryTaskWaitBars.end());
             }
 
-            VPUX_THROW_WHEN(boundaryTasksWaitBars.empty(), "No wait barriers used by boundary tasks on page {0}",
-                            pageInd);
-            // As an update barrier use latest barrier from identified set. It gives highest likelihood
-            // of finding a barrier within this page which the task itself does not depend on.
-            updateBarrierToUseOnPage[pageInd] =
-                    *std::max_element(boundaryTasksWaitBars.begin(), boundaryTasksWaitBars.end());
+            if (!boundaryTasksWaitBars.empty()) {
+                // As an update barrier use latest barrier from identified set. It gives highest likelihood
+                // of finding a barrier within this page which the task itself does not depend on.
+                updateBarrierToUseOnPage[pageInd] =
+                        *std::max_element(boundaryTasksWaitBars.begin(), boundaryTasksWaitBars.end());
+            } else {
+                // In case the pageBoundaryTask has no previous task then use the last barrier from page
+                VPUX_THROW_UNLESS(pageInd == 0,
+                                  "No wait barrier identified for boundary task that is not on page 0 but page {0}",
+                                  pageInd);
+                auto pageLastBar = _firstBarrierInPage[pageInd + 1] - 1;
+                updateBarrierToUseOnPage[pageInd] = pageLastBar;
+            }
+
             auto barPage = getBarrierPage(updateBarrierToUseOnPage[pageInd].value());
             VPUX_THROW_UNLESS(barPage == pageInd, "Barrier {0} page {1} invalid. Expected {2}",
                               updateBarrierToUseOnPage[pageInd].value(), barPage, pageInd);
@@ -2461,7 +2488,7 @@ size_t vpux::VPURT::BarrierPagesSplitHandler::getNumberOfWorkloads(size_t taskIn
         return 1;
     }
 
-    if (taskOp.getExecutorKind() == VPU::ExecutorKind::DMA_NN || taskOp.getExecutorKind() == VPU::ExecutorKind::M2I) {
+    if (taskOp.getExecutorKind() == VPU::ExecutorKind::DMA_NN) {
         return 1;
     }
 
@@ -2554,6 +2581,10 @@ SmallVector<VPURT::BarrierPagesSplitHandler::EnqueueDmaData> vpux::VPURT::Barrie
             _log.trace("There are {0} SHV tasks which submit DPU. DPU[{1}] enqueue needs to take that into account",
                        _shvTasksWithDpuPerTile[queueType.id].size(), queueType.id);
         }
+        // Initialize start index for SHV tasks with DPU _shvTasksWithDpuPerTile[<queue>] vector processing
+        // This is for compile time optimization to not always check whole _shvTasksWithDpuPerTile[<queue>] if
+        // there were DPUs that were already delayed because of some already processed SHV with DPU
+        size_t shvTasksWithDpuVecStartInd = 0;
 
         std::optional<size_t> previousTaskIndOpt = std::nullopt;
         std::optional<size_t> prevTaskPage = std::nullopt;
@@ -2742,11 +2773,17 @@ SmallVector<VPURT::BarrierPagesSplitHandler::EnqueueDmaData> vpux::VPURT::Barrie
             // Check if enqueue barrier needs to be delayed because of SHV task submitting DPU
             if (dpuEnqCheckForShv) {
                 bool isDpuDelayedAfterShv = false;
-                for (auto shvTaskInd : _shvTasksWithDpuPerTile[queueType.id]) {
-                    if (isDepFromTaskAToTaskB(shvTaskInd, taskInd)) {
+                for (size_t shvTasksWithDpuVecInd = shvTasksWithDpuVecStartInd;
+                     shvTasksWithDpuVecInd < _shvTasksWithDpuPerTile[queueType.id].size(); shvTasksWithDpuVecInd++) {
+                    auto shvTaskInd = _shvTasksWithDpuPerTile[queueType.id][shvTasksWithDpuVecInd];
+
+                    if (shvTaskInd < taskInd && isDepFromTaskAToTaskB(shvTaskInd, taskInd)) {
                         // DPU task depends on SHV. Check if DPU enqueue DMA barrier is after SHV task
                         _log.nest().trace("DPU task {0} depends on SHV task {1} which submits DPU", taskInd,
                                           shvTaskInd);
+                        // Since this DPU depends on this SHV task, there is no need for subsequent DPUs to check
+                        // dependency against it, thus move the iteration start index forward
+                        shvTasksWithDpuVecStartInd = shvTasksWithDpuVecInd + 1;
 
                         auto& lastEnqDmaData = enqDmaDataPerQueueVec.back();
 
@@ -2815,6 +2852,33 @@ SmallVector<VPURT::BarrierPagesSplitHandler::EnqueueDmaData> vpux::VPURT::Barrie
                                                   enqDmaDataPerQueueVec.back().waitBars);
                             }
                             isDpuDelayedAfterShv = true;
+
+                            if (previousTaskIndOpt.has_value()) {
+                                auto& lastEnqDmaDataForCheck = enqDmaDataPerQueueVec.back();
+                                auto prevTask = previousTaskIndOpt.value();
+                                VPURT::TaskQueueType enqueueDmaQueueType{
+                                        VPU::ExecutorKind::DMA_NN,
+                                        getDMAQueueIdEncoding(/*port*/ 0, VPUIP::DmaChannelType::DDR)};
+
+                                auto closestDmaTaskInd = _barrierInfo.getPrevTaskOnQueue(prevTask, enqueueDmaQueueType);
+                                while (closestDmaTaskInd.has_value() &&
+                                       !isDepFromTaskAToTaskB(closestDmaTaskInd.value(), prevTask)) {
+                                    closestDmaTaskInd = _barrierInfo.getPrevTaskOnSameQueue(closestDmaTaskInd.value());
+                                }
+
+                                VPUX_THROW_WHEN(!closestDmaTaskInd.has_value(),
+                                                "Cannot be enqueued safely with dpuFromShave execution");
+
+                                if (lastEnqDmaDataForCheck.insertBefore <= closestDmaTaskInd.value()) {
+                                    _log.nest().trace("DMA {0} is the closest task for DPU {1}",
+                                                      closestDmaTaskInd.value(), prevTask);
+                                    auto newInsertBefore = closestDmaTaskInd.value() + 1;
+                                    _log.nest().trace("Change enqueue insertion position from {0} to {1}",
+                                                      lastEnqDmaDataForCheck.insertBefore, newInsertBefore);
+
+                                    lastEnqDmaDataForCheck.insertBefore = newInsertBefore;
+                                }
+                            }
                         }
                     }
                 }

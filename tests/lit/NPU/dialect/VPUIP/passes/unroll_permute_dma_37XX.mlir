@@ -388,7 +388,7 @@ func.func @UnrollDistributedPermuteDMA() -> memref<1x3x24x24xf16, #NHWC, @DDR> {
     //CHECK:    }
 
     //CHECK:    VPURT.Task waits([[BAR9]] : !VPURT.Barrier) updates([[BAR10]] : !VPURT.Barrier)
-    //CHECK:      VPUIP.NNDMA inputs(%cst_0 : memref<1x1x1x16xui8>) outputs(%33 : !VPUIP.DistributedBuffer<1x1x1x16xui8, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>) -> !VPUIP.DistributedBuffer<1x1x1x16xui8, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
+    //CHECK:      VPUIP.NNDMA inputs([[CST:%.+]] : memref<1x1x1x16xui8>) outputs(%33 : !VPUIP.DistributedBuffer<1x1x1x16xui8, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>) -> !VPUIP.DistributedBuffer<1x1x1x16xui8, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
     //CHECK:    }
 
     // nce task

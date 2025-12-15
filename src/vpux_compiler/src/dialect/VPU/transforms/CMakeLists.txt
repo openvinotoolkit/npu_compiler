@@ -18,6 +18,8 @@ add_npu_library(npu_compiler_dialect_vpu_transforms
         npu_compiler_dialect_vpu
         npu_compiler_dialect_vpu_interfaces
         npu_compiler_dialect_vpu_utils
+        npu_compiler_dialect_net
         npu_compiler_npu37xx
         npu_compiler_npu40xx
+        npu_compiler_npu50xx
         npu_costmodel)

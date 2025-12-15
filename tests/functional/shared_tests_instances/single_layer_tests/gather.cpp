@@ -13,11 +13,13 @@ namespace test {
 
 class GatherLayerTest_NPU3720 : public GatherLayerTest, virtual public VpuOv2LayerTest {};
 class GatherLayerTest_NPU4000 : public GatherLayerTest, virtual public VpuOv2LayerTest {};
+class GatherLayerTest_NPU5010 : public GatherLayerTest, virtual public VpuOv2LayerTest {};
 
 class Gather7LayerTest_NPU3720 : public Gather7LayerTest, virtual public VpuOv2LayerTest {};
 
 class Gather8LayerTest_NPU3720 : public Gather8LayerTest, virtual public VpuOv2LayerTest {};
 class Gather8LayerTest_NPU4000 : public Gather8LayerTest, virtual public VpuOv2LayerTest {};
+class Gather8LayerTest_NPU5010 : public Gather8LayerTest, virtual public VpuOv2LayerTest {};
 
 TEST_P(GatherLayerTest_NPU3720, HW) {
     setDefaultHardwareMode();
@@ -42,6 +44,15 @@ TEST_P(GatherLayerTest_NPU4000, SW) {
 TEST_P(Gather8LayerTest_NPU4000, HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
+}
+TEST_P(GatherLayerTest_NPU5010, SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(Gather8LayerTest_NPU5010, HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
 }
 }  // namespace test
 }  // namespace ov
@@ -77,6 +88,7 @@ const auto params =
 
 INSTANTIATE_TEST_SUITE_P(smoke_Gather1, GatherLayerTest_NPU3720, params, GatherLayerTest_NPU3720::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(smoke_Gather1, GatherLayerTest_NPU4000, params, GatherLayerTest_NPU4000::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Gather1, GatherLayerTest_NPU5010, params, GatherLayerTest_NPU5010::getTestCaseName);
 }  // namespace
 
 namespace {  // conformance scenarios
@@ -214,6 +226,23 @@ const std::vector<ov::element::Type> modelType = {ov::element::f16, ov::element:
                              testing::Values(std::tuple<int, int>{axis, batch_dims}), testing::ValuesIn(modelType), \
                              testing::Values(test_utils::TARGET_DEVICE)),                                           \
             Gather8LayerTest_NPU4000::getTestCaseName)
+#define GEN8_PRECOMMIT_NPU5010_TEST(no, inputShape, indicesShape, axis, batch_dims)                                 \
+    INSTANTIATE_TEST_SUITE_P(                                                                                       \
+            smoke_precommit_Gather8_##no, Gather8LayerTest_NPU5010,                                                 \
+            testing::Combine(testing::Values(static_shapes_to_test_representation({inputShape})),                   \
+                             testing::Values(std::vector<size_t> indicesShape),                                     \
+                             testing::Values(std::tuple<int, int>{axis, batch_dims}), testing::ValuesIn(modelType), \
+                             testing::Values(test_utils::TARGET_DEVICE)),                                           \
+            Gather8LayerTest_NPU5010::getTestCaseName)
+
+#define GEN8_NPU5010_TEST(no, inputShape, indicesShape, axis, batch_dims)                                           \
+    INSTANTIATE_TEST_SUITE_P(                                                                                       \
+            smoke_Gather8_##no, Gather8LayerTest_NPU5010,                                                           \
+            testing::Combine(testing::Values(static_shapes_to_test_representation({inputShape})),                   \
+                             testing::Values(std::vector<size_t> indicesShape),                                     \
+                             testing::Values(std::tuple<int, int>{axis, batch_dims}), testing::ValuesIn(modelType), \
+                             testing::Values(test_utils::TARGET_DEVICE)),                                           \
+            Gather8LayerTest_NPU5010::getTestCaseName)
 GEN8_TEST(0, (ov::Shape{3, 5, 1, 1}), ({3, 2}), 1, 1);
 GEN8_TEST(1, (ov::Shape{4, 3, 5, 1}), ({4, 4}), 2, 1);
 GEN8_TEST(2, (ov::Shape{3, 2, 1, 1}), ({3, 2}), 1, 1);
@@ -229,4 +258,7 @@ GEN8_PRECOMMIT_NPU3720_TEST(1, (ov::Shape{3, 2, 4, 1}), ({3, 3}), 2, 1);
 GEN8_PRECOMMIT_NPU4000_TEST(0, (ov::Shape{2, 3, 1, 1}), ({2, 1}), 1, 1);
 GEN8_PRECOMMIT_NPU4000_TEST(1, (ov::Shape{3, 2, 4, 1}), ({3, 3}), 2, 1);
 GEN8_PRECOMMIT_NPU4000_TEST(2, (ov::Shape{1, 3, 64, 512}), ({3}), 1, 0);
+GEN8_PRECOMMIT_NPU5010_TEST(0, (ov::Shape{2, 3, 1, 1}), ({2, 1}), 1, 1);
+GEN8_PRECOMMIT_NPU5010_TEST(1, (ov::Shape{3, 2, 4, 1}), ({3, 3}), 2, 1);
+GEN8_PRECOMMIT_NPU5010_TEST(2, (ov::Shape{1, 3, 64, 512}), ({3}), 1, 0);
 }  // namespace

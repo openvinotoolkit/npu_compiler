@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --fuse-rmsnorm --canonicalize %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @FuseRMSNormForReduceMean
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x1x3072xf16>, [[ARG1:%.+]]: tensor<1x1x3072xf16>)
@@ -30,7 +30,7 @@ func.func @FuseRMSNormForReduceMean(%arg0: tensor<1x1x3072xf16>, %arg1: tensor<1
     // CHECK: [[CONVERT0:%.+]] = IE.Convert([[ARG0]]) {dstElemType = f32} : tensor<1x1x3072xf16> -> tensor<1x1x3072xf32>
     // CHECK: [[CONVERT1:%.+]] = IE.Convert([[ARG1]]) {dstElemType = f32} : tensor<1x1x3072xf16> -> tensor<1x1x3072xf32>
     // CHECK: [[ADD:%.+]] = IE.Add([[CONVERT0]], [[CONVERT1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x3072xf32> -> tensor<1x1x3072xf32>
-    // CHECK: [[RMS:%.+]] = IE.RMS([[ADD]], [[CST]]) {epsilon = 1.0013580322265625E-5 : f64} : tensor<1x1x3072xf32>, tensor<3072xf32> -> tensor<1x1x3072xf32>
+    // CHECK: [[RMS:%.+]] = IE.RMS([[ADD]], [[CST]]) {eps = 1.0013580322265625E-5 : f64} : tensor<1x1x3072xf32>, tensor<3072xf32> -> tensor<1x1x3072xf32>
     // CHECK: [[CONVERT2:%.+]] = IE.Convert([[RMS]]) {dstElemType = f16} : tensor<1x1x3072xf32> -> tensor<1x1x3072xf16>
     // CHECK: return [[CONVERT2]] : tensor<1x1x3072xf16>
 }
@@ -38,63 +38,71 @@ func.func @FuseRMSNormForReduceMean(%arg0: tensor<1x1x3072xf16>, %arg1: tensor<1
 // -----
 
 // CHECK-LABEL: @FuseRMSNormForReduceMeanMaximumSqrt
-// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x1x3072xf16>, [[ARG1:%.+]]: tensor<1x1x3072xf16>)
-func.func @FuseRMSNormForReduceMeanMaximumSqrt(%arg0: tensor<1x1x3072xf16>, %arg1: tensor<1x1x3072xf16>) -> tensor<1x1x3072xf16> {
-    %cst = const.Declare tensor<1x1x1xf32> = dense<1.00135803E-5> : tensor<1x1x1xf32>
-    %cst_0 = const.Declare tensor<1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1xf32>
-    %cst_1 = const.Declare tensor<1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1xf32>
-    %cst_2 = const.Declare tensor<1x1x3072xf32> = dense<1.000000e+00> : tensor<1x1x3072xf32>
-    %0 = IE.Convert(%arg0) {dstElemType = f32} : tensor<1x1x3072xf16> -> tensor<1x1x3072xf32>
-    %1 = IE.Convert(%arg1) {dstElemType = f32} : tensor<1x1x3072xf16> -> tensor<1x1x3072xf32>
-    %2 = IE.Add(%0, %1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x3072xf32> -> tensor<1x1x3072xf32>
-    %3 = IE.Power(%2, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x1xf32> -> tensor<1x1x3072xf32>
-    %4 = IE.ReduceMean(%3) {axes_value = [2], keep_dims} : tensor<1x1x3072xf32> -> tensor<1x1x1xf32>
-    %5 = IE.Maximum(%4, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x1x1xf32>
-    %6 = IE.Sqrt(%5) : tensor<1x1x1xf32> -> tensor<1x1x1xf32>
-    %7 = IE.Divide(%cst_1, %6) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x1x1xf32>
-    %8 = IE.Multiply(%2, %7) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x1xf32> -> tensor<1x1x3072xf32>
-    %9 = IE.Multiply(%8, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x3072xf32> -> tensor<1x1x3072xf32>
-    %10 = IE.Convert(%9) {dstElemType = f16} : tensor<1x1x3072xf32> -> tensor<1x1x3072xf16>
-    return %10 : tensor<1x1x3072xf16>
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x1x3072xf32>)
+func.func @FuseRMSNormForReduceMeanMaximumSqrt(%arg0: tensor<1x1x3072xf32>) -> tensor<1x1x3072xf32> {
+    %epsilon_cst = const.Declare tensor<1x1x1xf32> = dense<1.00135803E-5> : tensor<1x1x1xf32>
+    %power_cst = const.Declare tensor<1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1xf32>
+    %divide_cst = const.Declare tensor<1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1xf32>
+    %multiply_cst = const.Declare tensor<1x1x3072xf32> = dense<1.000000e+00> : tensor<1x1x3072xf32>
 
-    // CHECK-DAG: [[CST:%.+]] = const.Declare tensor<3072xf32> = dense<1.000000e+00> : tensor<1x1x3072xf32>, [#const.Reshape<[3072]>]
-    // CHECK: [[CONVERT0:%.+]] = IE.Convert([[ARG0]]) {dstElemType = f32} : tensor<1x1x3072xf16> -> tensor<1x1x3072xf32>
-    // CHECK: [[CONVERT1:%.+]] = IE.Convert([[ARG1]]) {dstElemType = f32} : tensor<1x1x3072xf16> -> tensor<1x1x3072xf32>
-    // CHECK: [[ADD:%.+]] = IE.Add([[CONVERT0]], [[CONVERT1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x3072xf32> -> tensor<1x1x3072xf32>
-    // CHECK: [[RMS:%.+]] = IE.RMS([[ADD]], [[CST]]) {epsilon = 1.0013580322265625E-5 : f64} : tensor<1x1x3072xf32>, tensor<3072xf32> -> tensor<1x1x3072xf32>
-    // CHECK: [[CONVERT2:%.+]] = IE.Convert([[RMS]]) {dstElemType = f16} : tensor<1x1x3072xf32> -> tensor<1x1x3072xf16>
-    // CHECK: return [[CONVERT2]] : tensor<1x1x3072xf16>
+    %0 = IE.Power(%arg0, %power_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x1xf32> -> tensor<1x1x3072xf32>
+    %1 = IE.ReduceMean(%0) {axes_value = [2], keep_dims} : tensor<1x1x3072xf32> -> tensor<1x1x1xf32>
+    %2 = IE.Maximum(%1, %epsilon_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x1x1xf32>
+    %3 = IE.Sqrt(%2) : tensor<1x1x1xf32> -> tensor<1x1x1xf32>
+    %4 = IE.Divide(%divide_cst, %3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x1x1xf32>
+    %5 = IE.Multiply(%arg0, %4) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x1xf32> -> tensor<1x1x3072xf32>
+    %6 = IE.Multiply(%5, %multiply_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x3072xf32> -> tensor<1x1x3072xf32>
+    return %6 : tensor<1x1x3072xf32>
+
+    // CHECK-DAG: [[GAMMA_CST:%.+]] = const.Declare tensor<3072xf32> = dense<1.000000e+00> : tensor<1x1x3072xf32>, [#const.Reshape<[3072]>]
+    // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[GAMMA_CST]]) {eps = 1.0013580322265625E-5 : f64} : tensor<1x1x3072xf32>, tensor<3072xf32> -> tensor<1x1x3072xf32>
+    // CHECK: return [[RMS]] : tensor<1x1x3072xf32>
 }
 
 // -----
 
-// CHECK-LABEL: @FuseRMSNormForReduceMeanFixSmallEpsilon
-// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x1x3072xf16>, [[ARG1:%.+]]: tensor<1x1x3072xf16>)
-func.func @FuseRMSNormForReduceMeanFixSmallEpsilon(%arg0: tensor<1x1x3072xf16>, %arg1: tensor<1x1x3072xf16>) -> tensor<1x1x3072xf16> {
-    %cst = const.Declare tensor<1x1x1xf32> = dense<1.0000000E-12> : tensor<1x1x1xf32>
-    %cst_0 = const.Declare tensor<1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1xf32>
-    %cst_1 = const.Declare tensor<1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1xf32>
-    %cst_2 = const.Declare tensor<1x1x3072xf32> = dense<1.000000e+00> : tensor<1x1x3072xf32>
-    %0 = IE.Convert(%arg0) {dstElemType = f32} : tensor<1x1x3072xf16> -> tensor<1x1x3072xf32>
-    %1 = IE.Convert(%arg1) {dstElemType = f32} : tensor<1x1x3072xf16> -> tensor<1x1x3072xf32>
-    %2 = IE.Add(%0, %1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x3072xf32> -> tensor<1x1x3072xf32>
-    %3 = IE.Power(%2, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x1xf32> -> tensor<1x1x3072xf32>
-    %4 = IE.ReduceMean(%3) {axes_value = [2], keep_dims} : tensor<1x1x3072xf32> -> tensor<1x1x1xf32>
-    %5 = IE.Add(%4, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x1x1xf32>
-    %6 = IE.Sqrt(%5) : tensor<1x1x1xf32> -> tensor<1x1x1xf32>
-    %7 = IE.Divide(%cst_1, %6) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x1x1xf32>
-    %8 = IE.Multiply(%2, %7) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x1xf32> -> tensor<1x1x3072xf32>
-    %9 = IE.Multiply(%8, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x3072xf32> -> tensor<1x1x3072xf32>
-    %10 = IE.Convert(%9) {dstElemType = f16} : tensor<1x1x3072xf32> -> tensor<1x1x3072xf16>
-    return %10 : tensor<1x1x3072xf16>
+// CHECK-LABEL: @FuseRMSNormForReduceMeanSmallEpsilon
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x1x3072xf32>)
+func.func @FuseRMSNormForReduceMeanSmallEpsilon(%arg0: tensor<1x1x3072xf32>) -> tensor<1x1x3072xf32> {
+    %add_cst = const.Declare tensor<1x1x1xf32> = dense<1.0000000E-12> : tensor<1x1x1xf32>
+    %power_cst = const.Declare tensor<1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1xf32>
+    %divide_cst = const.Declare tensor<1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1xf32>
+    %multiply_cst = const.Declare tensor<1x1x3072xf32> = dense<1.000000e+00> : tensor<1x1x3072xf32>
 
-    // CHECK-DAG: [[CST:%.+]] = const.Declare tensor<3072xf32> = dense<1.000000e+00> : tensor<1x1x3072xf32>, [#const.Reshape<[3072]>]
-    // CHECK: [[CONVERT0:%.+]] = IE.Convert([[ARG0]]) {dstElemType = f32} : tensor<1x1x3072xf16> -> tensor<1x1x3072xf32>
-    // CHECK: [[CONVERT1:%.+]] = IE.Convert([[ARG1]]) {dstElemType = f32} : tensor<1x1x3072xf16> -> tensor<1x1x3072xf32>
-    // CHECK: [[ADD:%.+]] = IE.Add([[CONVERT0]], [[CONVERT1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x3072xf32> -> tensor<1x1x3072xf32>
-    // CHECK: [[RMS:%.+]] = IE.RMS([[ADD]], [[CST]]) {epsilon = 9.9999997171806853E-10 : f64} : tensor<1x1x3072xf32>, tensor<3072xf32> -> tensor<1x1x3072xf32>
-    // CHECK: [[CONVERT2:%.+]] = IE.Convert([[RMS]]) {dstElemType = f16} : tensor<1x1x3072xf32> -> tensor<1x1x3072xf16>
-    // CHECK: return [[CONVERT2]] : tensor<1x1x3072xf16>
+    %0 = IE.Power(%arg0, %power_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x1xf32> -> tensor<1x1x3072xf32>
+    %1 = IE.ReduceMean(%0) {axes_value = [2], keep_dims} : tensor<1x1x3072xf32> -> tensor<1x1x1xf32>
+    %2 = IE.Add(%1, %add_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x1x1xf32>
+    %3 = IE.Sqrt(%2) : tensor<1x1x1xf32> -> tensor<1x1x1xf32>
+    %4 = IE.Divide(%divide_cst, %3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x1x1xf32>
+    %5 = IE.Multiply(%arg0, %4) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x1xf32> -> tensor<1x1x3072xf32>
+    %6 = IE.Multiply(%5, %multiply_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x3072xf32> -> tensor<1x1x3072xf32>
+    return %6 : tensor<1x1x3072xf32>
+
+    // CHECK-DAG: [[GAMMA:%.+]] = const.Declare tensor<3072xf32> = dense<1.000000e+00> : tensor<1x1x3072xf32>, [#const.Reshape<[3072]>]
+    // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[GAMMA]]) {eps = 9.999999960041972E-13 : f64} : tensor<1x1x3072xf32>, tensor<3072xf32> -> tensor<1x1x3072xf32>
+    // CHECK: return [[RMS]] : tensor<1x1x3072xf32>
+}
+
+// -----
+
+// CHECK-LABEL: @FuseRMSNormForReduceMeanMissingEpsilon
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x1x3072xf32>)
+func.func @FuseRMSNormForReduceMeanMissingEpsilon(%arg0: tensor<1x1x3072xf32>) -> tensor<1x1x3072xf32> {
+    %power_cst = const.Declare tensor<1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1xf32>
+    %divide_cst = const.Declare tensor<1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1xf32>
+    %multiply_cst = const.Declare tensor<1x1x3072xf32> = dense<1.000000e+00> : tensor<1x1x3072xf32>
+
+    %0 = IE.Power(%arg0, %power_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x1xf32> -> tensor<1x1x3072xf32>
+    %1 = IE.ReduceMean(%0) {axes_value = [2], keep_dims} : tensor<1x1x3072xf32> -> tensor<1x1x1xf32>
+    %2 = IE.Sqrt(%1) : tensor<1x1x1xf32> -> tensor<1x1x1xf32>
+    %3 = IE.Divide(%divide_cst, %2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x1x1xf32>
+    %4 = IE.Multiply(%arg0, %3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x1xf32> -> tensor<1x1x3072xf32>
+    %5 = IE.Multiply(%4, %multiply_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x3072xf32> -> tensor<1x1x3072xf32>
+    return %5 : tensor<1x1x3072xf32>
+
+    // CHECK-DAG: [[GAMMA:%.+]] = const.Declare tensor<3072xf32> = dense<1.000000e+00> : tensor<1x1x3072xf32>, [#const.Reshape<[3072]>]
+    // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[GAMMA]]) {eps = 9.9999997171806853E-10 : f64} : tensor<1x1x3072xf32>, tensor<3072xf32> -> tensor<1x1x3072xf32>
+    // CHECK: return [[RMS]] : tensor<1x1x3072xf32>
 }
 
 // -----
@@ -120,7 +128,7 @@ func.func @FuseRMSNormForReduceMeanConvert(%arg0: tensor<1x1x3072xf16>, %arg1: t
     // CHECK-DAG: [[CST:%.+]] = const.Declare tensor<3072xf16> = dense<1.000000e+00> : tensor<1x1x3072xf16>, [#const.Reshape<[3072]>]
     // CHECK: [[ADD:%.+]] = IE.Add
     // CHECK-NOT: IE.Convert
-    // CHECK: [[RMS:%.+]] = IE.RMS([[ADD]], [[CST]]) {epsilon = 1.0013580322265625E-5 : f64} : tensor<1x1x3072xf16>, tensor<3072xf16> -> tensor<1x1x3072xf16>
+    // CHECK: [[RMS:%.+]] = IE.RMS([[ADD]], [[CST]]) {eps = 1.0013580322265625E-5 : f64} : tensor<1x1x3072xf16>, tensor<3072xf16> -> tensor<1x1x3072xf16>
     // CHECK: return [[RMS]] : tensor<1x1x3072xf16>
 }
 
@@ -148,7 +156,7 @@ func.func @FuseRMSNormForReduceMeanConstInput(%arg0: tensor<1x1xf16>) -> tensor<
     // CHECK-DAG: [[CST:%.+]] = const.Declare tensor<3584xf32> = dense<1.000000e+00> : tensor<1x1x3584xf32>, [#const.Reshape<[3584]>]
     // CHECK: [[CONVERT0:%.+]] = IE.Convert([[ARG0]]) {dstElemType = f32} : tensor<1x1xf16> -> tensor<1x1xf32>
     // CHECK: [[RESHAPE:%.+]] = IE.Reshape([[CONVERT0]]) {shape_value = [1, 1, 3584]} : tensor<1x1xf32> -> tensor<1x1x3584xf32>
-    // CHECK: [[RMS:%.+]] = IE.RMS([[RESHAPE]], [[CST]]) {epsilon = 9.9999999747524271E-7 : f64} : tensor<1x1x3584xf32>, tensor<3584xf32> -> tensor<1x1x3584xf32>
+    // CHECK: [[RMS:%.+]] = IE.RMS([[RESHAPE]], [[CST]]) {eps = 9.9999999747524271E-7 : f64} : tensor<1x1x3584xf32>, tensor<3584xf32> -> tensor<1x1x3584xf32>
     // CHECK: [[CONVERT1:%.+]] = IE.Convert([[RMS]]) {dstElemType = f16} : tensor<1x1x3584xf32> -> tensor<1x1x3584xf16>
     // CHECK: return [[CONVERT1]] : tensor<1x1x3584xf16>
 }
@@ -174,7 +182,7 @@ func.func @FuseRMSNormForReduceMeanPrefill(%arg0: tensor<1x1024x3072xf32>, %arg1
 
   // CHECK:  [[CST:%.+]] = const.Declare tensor<3072xf32> = dense<1.000000e+00> : tensor<1x1x3072xf32>, [#const.Reshape<[3072]>]
   // CHECK:  [[ADD:%.+]] = IE.Add([[ARG1]], [[ARG0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1024x3072xf32>, tensor<1x1024x3072xf32> -> tensor<1x1024x3072xf32>
-  // CHECK:  [[RMS:%.+]] = IE.RMS([[ADD]], [[CST]]) {epsilon = 1.0013580322265625E-5 : f64} : tensor<1x1024x3072xf32>, tensor<3072xf32> -> tensor<1x1024x3072xf32>
+  // CHECK:  [[RMS:%.+]] = IE.RMS([[ADD]], [[CST]]) {eps = 1.0013580322265625E-5 : f64} : tensor<1x1024x3072xf32>, tensor<3072xf32> -> tensor<1x1024x3072xf32>
   // CHECK:  return [[RMS]] : tensor<1x1024x3072xf32>
 }
 
@@ -202,7 +210,7 @@ func.func @FuseRMSNormForReduceMeanCreateGama(%arg0: tensor<1x1x3072xf16>, %arg1
     // CHECK: [[CONVERT0:%.+]] = IE.Convert([[ARG0]]) {dstElemType = f32} : tensor<1x1x3072xf16> -> tensor<1x1x3072xf32>
     // CHECK: [[CONVERT1:%.+]] = IE.Convert([[ARG1]]) {dstElemType = f32} : tensor<1x1x3072xf16> -> tensor<1x1x3072xf32>
     // CHECK: [[ADD:%.+]] = IE.Add([[CONVERT0]], [[CONVERT1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x3072xf32> -> tensor<1x1x3072xf32>
-    // CHECK: [[RMS:%.+]] = IE.RMS([[ADD]], [[CST]]) {epsilon = 1.0013580322265625E-5 : f64} : tensor<1x1x3072xf32>, tensor<3072xf32> -> tensor<1x1x3072xf32>
+    // CHECK: [[RMS:%.+]] = IE.RMS([[ADD]], [[CST]]) {eps = 1.0013580322265625E-5 : f64} : tensor<1x1x3072xf32>, tensor<3072xf32> -> tensor<1x1x3072xf32>
     // CHECK: [[CONVERT2:%.+]] = IE.Convert([[RMS]]) {dstElemType = f16} : tensor<1x1x3072xf32> -> tensor<1x1x3072xf16>
     // CHECK: return [[CONVERT2]] : tensor<1x1x3072xf16>
 }
@@ -257,7 +265,7 @@ func.func @FuseRMSNormForReduceSumPSU(%arg0: tensor<1x1x512x3072xf32>) -> tensor
   return %4 : tensor<1x1x512x3072xf32>
 
   // CHECK: [[CST:%.+]] = const.Declare tensor<3072xf32> = dense<1.000000e+00> : tensor<3072xf32>
-  // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[CST]]) {epsilon = 9.9999997171806853E-10 : f64} : tensor<1x1x512x3072xf32>, tensor<3072xf32> -> tensor<1x1x512x3072xf32>
+  // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[CST]]) {eps = 9.9999997171806853E-10 : f64} : tensor<1x1x512x3072xf32>, tensor<3072xf32> -> tensor<1x1x512x3072xf32>
   // CHECK: return [[RMS]] : tensor<1x1x512x3072xf32>
 }
 
@@ -279,7 +287,7 @@ func.func @FuseRMSNormForReduceSumPSUUnstripped(%arg0: tensor<1x1x512x3072xf32>)
 
   // CHECK: [[CST:%.+]] = const.Declare tensor<3072xf32> = dense<1.000000e+00> : tensor<3072xf32>
   // CHECK: [[CST_0:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1x1xf32>
-  // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[CST]]) {epsilon = 9.9999997171806853E-10 : f64} : tensor<1x1x512x3072xf32>, tensor<3072xf32> -> tensor<1x1x512x3072xf32>
+  // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[CST]]) {eps = 9.9999997171806853E-10 : f64} : tensor<1x1x512x3072xf32>, tensor<3072xf32> -> tensor<1x1x512x3072xf32>
   // CHECK: [[FQ:%.+]] = IE.FakeQuantize([[RMS]], [[CST_0]], [[CST_0]], [[CST_0]], [[CST_0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x1x512x3072xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x512x3072xf32>
   // CHECK: return [[FQ]] : tensor<1x1x512x3072xf32>
 }
@@ -302,7 +310,7 @@ func.func @FuseRMSNormForReduceMeanExtendedPattern(%arg0: tensor<1x1x2048xf32>) 
     return %5 : tensor<1x1x2048xf32>
 
     // CHECK-DAG: [[CST:%.+]] = const.Declare tensor<2048xf32> = dense<2.000000e+00> : tensor<1x1x2048xf32>, [#const.Reshape<[2048]>]
-    // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[CST]]) {epsilon = 1.0013580322265625E-5 : f64} : tensor<1x1x2048xf32>, tensor<2048xf32> -> tensor<1x1x2048xf32>
+    // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[CST]]) {eps = 1.0013580322265625E-5 : f64} : tensor<1x1x2048xf32>, tensor<2048xf32> -> tensor<1x1x2048xf32>
     // CHECK: return [[RMS]] : tensor<1x1x2048xf32>
 }
 
@@ -350,7 +358,7 @@ func.func @FuseRMSNormExtendedPatternWithReduceSum(%arg0: tensor<1x1x512x3072xf3
   return %4 : tensor<1x1x512x3072xf32>
 
   // CHECK: [[CST:%.+]] = const.Declare tensor<3072xf32> = dense<1.000000e+00> : tensor<3072xf32>
-  // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[CST]]) {epsilon = 9.9999997171806853E-10 : f64} : tensor<1x1x512x3072xf32>, tensor<3072xf32> -> tensor<1x1x512x3072xf32>
+  // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[CST]]) {eps = 9.9999997171806853E-10 : f64} : tensor<1x1x512x3072xf32>, tensor<3072xf32> -> tensor<1x1x512x3072xf32>
   // CHECK: return [[RMS]] : tensor<1x1x512x3072xf32>
 }
 
@@ -368,7 +376,7 @@ func.func @FuseRMSNormWithReduceSumArbitraryScaleMult(%arg0: tensor<1x1x512x3072
   return %4 : tensor<1x1x512x3072xf32>
 
   // CHECK: [[CST:%.+]] = const.Declare tensor<3072xf32> = dense<0.14656499> : tensor<3072xf32>
-  // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[CST]]) {epsilon = 9.9999997171806853E-10 : f64} : tensor<1x1x512x3072xf32>, tensor<3072xf32> -> tensor<1x1x512x3072xf32>
+  // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[CST]]) {eps = 9.9999997171806853E-10 : f64} : tensor<1x1x512x3072xf32>, tensor<3072xf32> -> tensor<1x1x512x3072xf32>
   // CHECK: return [[RMS]] : tensor<1x1x512x3072xf32>
 }
 
@@ -387,7 +395,7 @@ func.func @FuseRMSNormWithReduceSumSkipFoldingNonSplatScaleMult(%arg0: tensor<1x
 
   // CHECK-DAG: [[GAMMA:%.+]] = const.Declare tensor<10xf32> = dense<0.316227764> : tensor<10xf32>
   // CHECK-DAG: [[SCALE:%.+]] = const.Declare tensor<1x1x1x10xf32> = dense<{{\[\[\[\[}}1.000000e-01, 2.000000e-01, 3.000000e-01, 4.000000e-01, 5.000000e-01, 6.000000e-01, 0.699999988, 8.000000e-01, 0.899999976, 1.000000e+00{{\]\]\]\]}}> : tensor<1x1x1x10xf32>
-  // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[GAMMA]]) {epsilon = 9.9999997171806853E-10 : f64} : tensor<1x1x30x10xf32>, tensor<10xf32> -> tensor<1x1x30x10xf32>
+  // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[GAMMA]]) {eps = 9.9999997171806853E-10 : f64} : tensor<1x1x30x10xf32>, tensor<10xf32> -> tensor<1x1x30x10xf32>
   // CHECK: [[MULT:%.+]] = IE.Multiply([[RMS]], [[SCALE]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x30x10xf32>, tensor<1x1x1x10xf32> -> tensor<1x1x30x10xf32>
   // CHECK: return [[MULT]] : tensor<1x1x30x10xf32>
 }
@@ -410,7 +418,7 @@ func.func @FuseRMSNormForReduceSumPatternUpdateEpsilon(%arg0: tensor<1x1x512x307
   return %5 : tensor<1x1x512x3072xf32>
 
   // CHECK: [[CST:%.+]] = const.Declare tensor<3072xf32> = dense<1.000000e+00> : tensor<3072xf32>
-  // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[CST]]) {epsilon = 9.9999999392252903E-9 : f64} : tensor<1x1x512x3072xf32>, tensor<3072xf32> -> tensor<1x1x512x3072xf32>
+  // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[CST]]) {eps = 9.9999999392252903E-9 : f64} : tensor<1x1x512x3072xf32>, tensor<3072xf32> -> tensor<1x1x512x3072xf32>
 
   // CHECK: return [[RMS]] : tensor<1x1x512x3072xf32>
 }
@@ -433,7 +441,7 @@ func.func @FuseRMSNormForReduceSumPatternWithDivideOne(%arg0: tensor<1x1x512x307
   return %5 : tensor<1x1x512x3072xf32>
 
   // CHECK: [[CST:%.+]] = const.Declare tensor<3072xf32> = dense<1.000000e+00> : tensor<3072xf32>
-  // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[CST]]) {epsilon = 9.9999997171806853E-10 : f64} : tensor<1x1x512x3072xf32>, tensor<3072xf32> -> tensor<1x1x512x3072xf32>
+  // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[CST]]) {eps = 9.9999997171806853E-10 : f64} : tensor<1x1x512x3072xf32>, tensor<3072xf32> -> tensor<1x1x512x3072xf32>
 
   // CHECK: return [[RMS]] : tensor<1x1x512x3072xf32>
 }
@@ -451,7 +459,7 @@ func.func @FuseRMSNormForReduceSumPatternWithoutScale(%arg0: tensor<1x1x512x3072
   return %3 : tensor<1x1x512x3072xf32>
 
   // CHECK: [[CST:%.+]] = const.Declare tensor<3072xf32> = dense<0.0180421956> : tensor<3072xf32>
-  // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[CST]]) {epsilon = 9.9999997171806853E-10 : f64} : tensor<1x1x512x3072xf32>, tensor<3072xf32> -> tensor<1x1x512x3072xf32>
+  // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[CST]]) {eps = 9.9999997171806853E-10 : f64} : tensor<1x1x512x3072xf32>, tensor<3072xf32> -> tensor<1x1x512x3072xf32>
 
   // CHECK: return [[RMS]] : tensor<1x1x512x3072xf32>
 }
@@ -476,7 +484,7 @@ func.func @FuseRMSNormForReduceSumComplexPattern(%arg0: tensor<1x512x512x3x3xf32
 
   // CHECK: [[CST:%.+]] = const.Declare tensor<4608xf32> = dense<0.0147313923> : tensor<4608xf32>
   // CHECK: [[AFFINERESHAPE_IN:%.+]] = IE.AffineReshape([[ARG0]])
-  // CHECK: [[RMS:%.+]] = IE.RMS([[AFFINERESHAPE_IN]], [[CST]]) {epsilon = 9.9999999392252903E-9 : f64} : tensor<1x1x512x4608xf32>, tensor<4608xf32> -> tensor<1x1x512x4608xf32>
+  // CHECK: [[RMS:%.+]] = IE.RMS([[AFFINERESHAPE_IN]], [[CST]]) {eps = 9.9999999392252903E-9 : f64} : tensor<1x1x512x4608xf32>, tensor<4608xf32> -> tensor<1x1x512x4608xf32>
   // CHECK: [[AFFINERESHAPE_OUT:%.+]] = IE.AffineReshape([[RMS]])
 
   // CHECK: return [[AFFINERESHAPE_OUT]] : tensor<1x512x512x3x3xf32>
@@ -579,7 +587,7 @@ func.func @FuseRMSNormForReduceMeanEndsWithDivide(%arg0: tensor<1x1024x1792xf32>
   return %4 : tensor<1x1024x1792xf32>
 
   // CHECK: [[CST:%.+]] = const.Declare tensor<1792xf32> = dense<1.000000e+00> : tensor<1792xf32>
-  // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[CST]]) {epsilon = 1.000000e+00 : f64} : tensor<1x1024x1792xf32>, tensor<1792xf32> -> tensor<1x1024x1792xf32>
+  // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[CST]]) {eps = 1.000000e+00 : f64} : tensor<1x1024x1792xf32>, tensor<1792xf32> -> tensor<1x1024x1792xf32>
 
   // CHECK: return [[RMS]] : tensor<1x1024x1792xf32>
 }
@@ -604,7 +612,7 @@ func.func @FuseRMSNormForReduceMeanEndsWithDivideMultiUser(%arg0: tensor<1x1024x
   return %5, %6 : tensor<1x1024x1x128xf32>, tensor<1x1024x1x128xf32>
 
   // CHECK: [[CST:%.+]] = const.Declare tensor<256xf32> = dense<1.000000e+00> : tensor<256xf32>
-  // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[CST]]) {epsilon = 1.000000e+00 : f64} : tensor<1x1024x1x256xf32>, tensor<256xf32> -> tensor<1x1024x1x256xf32>
+  // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[CST]]) {eps = 1.000000e+00 : f64} : tensor<1x1024x1x256xf32>, tensor<256xf32> -> tensor<1x1024x1x256xf32>
 
   // CHECK: [[USER_0:%.+]] = IE.StridedSlice([[RMS]])
   // CHECK: [[USER_1:%.+]] = IE.StridedSlice([[RMS]])
@@ -614,9 +622,9 @@ func.func @FuseRMSNormForReduceMeanEndsWithDivideMultiUser(%arg0: tensor<1x1024x
 
 // -----
 
-// CHECK-LABEL: @FuseRMSNormForReduceSumModelF2
+// CHECK-LABEL: @FuseRMSNormForTwoConnectedNormalizationSubgraphs
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x1x40x64xf32>, [[ARG1:%.+]]: tensor<1x1x40x64xf32>, [[ARG2:%.+]]: tensor<1x100x40x64xf32>)
-func.func @FuseRMSNormForReduceSumModelF2(%arg0: tensor<1x1x40x64xf32>, %arg1: tensor<1x1x40x64xf32>, %arg2: tensor<1x100x40x64xf32>) -> tensor<1x101x40x64xf32> {
+func.func @FuseRMSNormForTwoConnectedNormalizationSubgraphs(%arg0: tensor<1x1x40x64xf32>, %arg1: tensor<1x1x40x64xf32>, %arg2: tensor<1x100x40x64xf32>) -> tensor<1x101x40x64xf32> {
   %cst_73 = const.Declare tensor<1x1x1x1xf32> = dense<-52.0> : tensor<1x1x1x1xf32>
   %cst_74 = const.Declare tensor<1x1x1x1xf32> = dense<51.0> : tensor<1x1x1x1xf32>
   %cst_76 = const.Declare tensor<1x1x1x1xf32> = dense<-0.4> : tensor<1x1x1x1xf32>
@@ -630,24 +638,24 @@ func.func @FuseRMSNormForReduceSumModelF2(%arg0: tensor<1x1x40x64xf32>, %arg1: t
   %cst_137 = const.Declare tensor<1x1x1x1xf32> = dense<-0.6> : tensor<1x1x1x1xf32>
   %cst_138 = const.Declare tensor<1x1x1x1xf32> = dense<0.7> : tensor<1x1x1x1xf32>
 
-  %166 = IE.FakeQuantize(%arg0, %cst_73, %cst_74, %cst_73, %cst_74) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
-  %167 = IE.Power(%166, %cst_75) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
-  %168 = IE.ReduceSum(%167) {axes_value = [3], keep_dims} : tensor<1x1x40x64xf32> -> tensor<1x1x40x1xf32>
-  %169 = IE.Sqrt(%168) : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
-  %170 = IE.Divide(%166, %169) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x64xf32>
-  %171 = IE.FakeQuantize(%170, %cst_76, %cst_77, %cst_76, %cst_77) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
+  %0 = IE.FakeQuantize(%arg0, %cst_73, %cst_74, %cst_73, %cst_74) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
+  %1 = IE.Power(%0, %cst_75) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
+  %2 = IE.ReduceSum(%1) {axes_value = [3], keep_dims} : tensor<1x1x40x64xf32> -> tensor<1x1x40x1xf32>
+  %3 = IE.Sqrt(%2) : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
+  %4 = IE.Divide(%0, %3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x64xf32>
+  %5 = IE.FakeQuantize(%4, %cst_76, %cst_77, %cst_76, %cst_77) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
 
-  %238 = IE.FakeQuantize(%arg1, %cst_133, %cst_134, %cst_133, %cst_134) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
-  %239 = IE.Power(%238, %cst_75) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
-  %240 = IE.ReduceSum(%239) {axes_value = [3], keep_dims} : tensor<1x1x40x64xf32> -> tensor<1x1x40x1xf32>
-  %241 = IE.Sqrt(%240) : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
-  %242 = IE.Divide(%238, %241) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x64xf32>
-  %243 = IE.FakeQuantize(%242, %cst_135, %cst_136, %cst_135, %cst_136) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
-  %244 = IE.Concat(%arg2, %243) {static_offsets = [[0, 0, 0, 0], [0, 100, 0, 0]]} : tensor<1x100x40x64xf32>, tensor<1x1x40x64xf32> -> tensor<1x101x40x64xf32>
-  %245 = IE.FakeQuantize(%244, %cst_137, %cst_138, %cst_137, %cst_138) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x101x40x64xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x101x40x64xf32>
+  %6 = IE.FakeQuantize(%arg1, %cst_133, %cst_134, %cst_133, %cst_134) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
+  %7 = IE.Power(%6, %cst_75) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
+  %8 = IE.ReduceSum(%7) {axes_value = [3], keep_dims} : tensor<1x1x40x64xf32> -> tensor<1x1x40x1xf32>
+  %9 = IE.Sqrt(%8) : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
+  %10 = IE.Divide(%6, %9) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x64xf32>
+  %11 = IE.FakeQuantize(%10, %cst_135, %cst_136, %cst_135, %cst_136) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
+  %12 = IE.Concat(%arg2, %11) {static_offsets = [[0, 0, 0, 0], [0, 100, 0, 0]]} : tensor<1x100x40x64xf32>, tensor<1x1x40x64xf32> -> tensor<1x101x40x64xf32>
+  %13 = IE.FakeQuantize(%12, %cst_137, %cst_138, %cst_137, %cst_138) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x101x40x64xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x101x40x64xf32>
 
-  %246 = IE.Multiply(%171, %245) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x101x40x64xf32> -> tensor<1x101x40x64xf32>
-  return %246 : tensor<1x101x40x64xf32>
+  %14 = IE.Multiply(%5, %13) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x101x40x64xf32> -> tensor<1x101x40x64xf32>
+  return %14 : tensor<1x101x40x64xf32>
 
   // CHECK-DAG: [[GAMMA:%.+]] = const.Declare tensor<64xf32> = dense<1.250000e-01> : tensor<64xf32>
   // CHECK-DAG: const.Declare tensor<1x1x1x1xf32>
@@ -661,10 +669,10 @@ func.func @FuseRMSNormForReduceSumModelF2(%arg0: tensor<1x1x40x64xf32>, %arg1: t
   // CHECK-DAG: const.Declare tensor<1x1x1x1xf32>
   // CHECK-DAG: const.Declare tensor<1x1x1x1xf32>
   // CHECK:  [[FQ1:%.+]] = IE.FakeQuantize([[ARG0]]
-  // CHECK:  [[RMS1:%.+]] = IE.RMS([[FQ1]], [[GAMMA]]) {epsilon = 9.9999997171806853E-10 : f64} : tensor<1x1x40x64xf32>, tensor<64xf32> -> tensor<1x1x40x64xf32>
+  // CHECK:  [[RMS1:%.+]] = IE.RMS([[FQ1]], [[GAMMA]]) {eps = 9.9999997171806853E-10 : f64} : tensor<1x1x40x64xf32>, tensor<64xf32> -> tensor<1x1x40x64xf32>
   // CHECK:  [[FQ2:%.+]] = IE.FakeQuantize([[RMS1]]
   // CHECK:  [[FQ3:%.+]] = IE.FakeQuantize([[ARG1]]
-  // CHECK:  [[RMS2:%.+]] = IE.RMS([[FQ3]], [[GAMMA]]) {epsilon = 9.9999997171806853E-10 : f64} : tensor<1x1x40x64xf32>, tensor<64xf32> -> tensor<1x1x40x64xf32>
+  // CHECK:  [[RMS2:%.+]] = IE.RMS([[FQ3]], [[GAMMA]]) {eps = 9.9999997171806853E-10 : f64} : tensor<1x1x40x64xf32>, tensor<64xf32> -> tensor<1x1x40x64xf32>
   // CHECK:  [[FQ4:%.+]] = IE.FakeQuantize([[RMS2]]
   // CHECK:  [[CONCAT:%.+]] = IE.Concat([[ARG2]], [[FQ4]])
   // CHECK:  [[FQ5:%.+]] = IE.FakeQuantize([[CONCAT]]
@@ -677,25 +685,25 @@ func.func @FuseRMSNormForReduceSumModelF2(%arg0: tensor<1x1x40x64xf32>, %arg1: t
 // CHECK-LABEL: @FuseRMSNormForReduceSumDivideHasMultipleUsers
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x1x40x64xf32>, [[ARG1:%.+]]: tensor<1x1x40x64xf32>, [[ARG2:%.+]]: tensor<1x100x40x64xf32>)
 func.func @FuseRMSNormForReduceSumDivideHasMultipleUsers(%arg0: tensor<1x1x40x64xf32>, %arg1: tensor<1x1x40x64xf32>, %arg2: tensor<1x100x40x64xf32>) -> (tensor<1x1x40x64xf32>, tensor<1x101x40x64xf32>) {
-  %cst_0 = const.Declare tensor<1x1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1x1xf32>
+  %power_cst = const.Declare tensor<1x1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1x1xf32>
 
-  %167 = IE.Power(%arg0, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
-  %168 = IE.ReduceSum(%167) {axes_value = [3], keep_dims} : tensor<1x1x40x64xf32> -> tensor<1x1x40x1xf32>
-  %169 = IE.Sqrt(%168) : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
-  %170 = IE.Divide(%arg0, %169) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x64xf32>
+  %0 = IE.Power(%arg0, %power_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
+  %1 = IE.ReduceSum(%0) {axes_value = [3], keep_dims} : tensor<1x1x40x64xf32> -> tensor<1x1x40x1xf32>
+  %2 = IE.Sqrt(%1) : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
+  %3 = IE.Divide(%arg0, %2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x64xf32>
 
-  %239 = IE.Power(%arg1, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
-  %240 = IE.ReduceSum(%239) {axes_value = [3], keep_dims} : tensor<1x1x40x64xf32> -> tensor<1x1x40x1xf32>
-  %241 = IE.Sqrt(%240) : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
-  %242 = IE.Divide(%arg1, %241) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x64xf32>
-  %244 = IE.Concat(%arg2, %242) {static_offsets = [[0, 0, 0, 0], [0, 100, 0, 0]]} : tensor<1x100x40x64xf32>, tensor<1x1x40x64xf32> -> tensor<1x101x40x64xf32>
+  %4 = IE.Power(%arg1, %power_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
+  %5 = IE.ReduceSum(%4) {axes_value = [3], keep_dims} : tensor<1x1x40x64xf32> -> tensor<1x1x40x1xf32>
+  %6 = IE.Sqrt(%5) : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
+  %7 = IE.Divide(%arg1, %6) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x64xf32>
+  %8 = IE.Concat(%arg2, %7) {static_offsets = [[0, 0, 0, 0], [0, 100, 0, 0]]} : tensor<1x100x40x64xf32>, tensor<1x1x40x64xf32> -> tensor<1x101x40x64xf32>
 
-  %246 = IE.Multiply(%170, %244) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x101x40x64xf32> -> tensor<1x101x40x64xf32>
-  return %242, %246 : tensor<1x1x40x64xf32>, tensor<1x101x40x64xf32>
+  %9 = IE.Multiply(%3, %8) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x101x40x64xf32> -> tensor<1x101x40x64xf32>
+  return %7, %9 : tensor<1x1x40x64xf32>, tensor<1x101x40x64xf32>
 
   // CHECK-DAG: [[GAMMA:%.+]] = const.Declare tensor<64xf32> = dense<1.250000e-01> : tensor<64xf32>
-  // CHECK:  [[RMS1:%.+]] = IE.RMS([[ARG0]], [[GAMMA]]) {epsilon = 9.9999997171806853E-10 : f64} : tensor<1x1x40x64xf32>, tensor<64xf32> -> tensor<1x1x40x64xf32>
-  // CHECK:  [[RMS2:%.+]] = IE.RMS([[ARG1]], [[GAMMA]]) {epsilon = 9.9999997171806853E-10 : f64} : tensor<1x1x40x64xf32>, tensor<64xf32> -> tensor<1x1x40x64xf32>
+  // CHECK:  [[RMS1:%.+]] = IE.RMS([[ARG0]], [[GAMMA]]) {eps = 9.9999997171806853E-10 : f64} : tensor<1x1x40x64xf32>, tensor<64xf32> -> tensor<1x1x40x64xf32>
+  // CHECK:  [[RMS2:%.+]] = IE.RMS([[ARG1]], [[GAMMA]]) {eps = 9.9999997171806853E-10 : f64} : tensor<1x1x40x64xf32>, tensor<64xf32> -> tensor<1x1x40x64xf32>
   // CHECK:  [[CONCAT:%.+]] = IE.Concat([[ARG2]], [[RMS2]])
   // CHECK:  [[OUT:%.+]] = IE.Multiply([[RMS1]], [[CONCAT]])
   // CHECK:  return [[RMS2]], [[OUT]] : tensor<1x1x40x64xf32>, tensor<1x101x40x64xf32>
@@ -703,32 +711,32 @@ func.func @FuseRMSNormForReduceSumDivideHasMultipleUsers(%arg0: tensor<1x1x40x64
 
 // -----
 
-// CHECK-LABEL: @FuseRMSNormForReduceSumWithAddFixSmallEpsilon
+// CHECK-LABEL: @FuseRMSNormForReduceSumWithAddSmallEpsilon
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x1x40x64xf32>, [[ARG1:%.+]]: tensor<1x1x40x64xf32>, [[ARG2:%.+]]: tensor<1x100x40x64xf32>)
-func.func @FuseRMSNormForReduceSumWithAddFixSmallEpsilon(%arg0: tensor<1x1x40x64xf32>, %arg1: tensor<1x1x40x64xf32>, %arg2: tensor<1x100x40x64xf32>) -> (tensor<1x1x40x64xf32>, tensor<1x101x40x64xf32>) {
-  %cst_0 = const.Declare tensor<1x1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1x1xf32>
-  %epsilon_0 = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e-12> : tensor<1x1x1x1xf32>
-  %epsilon_1 = const.Declare tensor<1x1x1x1xf32> = dense<3.700000e-07> : tensor<1x1x1x1xf32>
+func.func @FuseRMSNormForReduceSumWithAddSmallEpsilon(%arg0: tensor<1x1x40x64xf32>, %arg1: tensor<1x1x40x64xf32>, %arg2: tensor<1x100x40x64xf32>) -> (tensor<1x1x40x64xf32>, tensor<1x101x40x64xf32>) {
+  %power_cst = const.Declare tensor<1x1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1x1xf32>
+  %small_epsilon_cst = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e-12> : tensor<1x1x1x1xf32>
+  %medium_epsilon_cst = const.Declare tensor<1x1x1x1xf32> = dense<3.700000e-07> : tensor<1x1x1x1xf32>
 
-  %167 = IE.Power(%arg0, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
-  %168 = IE.ReduceSum(%167) {axes_value = [3], keep_dims} : tensor<1x1x40x64xf32> -> tensor<1x1x40x1xf32>
-  %171 = IE.Add(%168, %epsilon_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x1xf32>
-  %169 = IE.Sqrt(%171) : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
-  %170 = IE.Divide(%arg0, %169) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x64xf32>
+  %0 = IE.Power(%arg0, %power_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
+  %1 = IE.ReduceSum(%0) {axes_value = [3], keep_dims} : tensor<1x1x40x64xf32> -> tensor<1x1x40x1xf32>
+  %2 = IE.Add(%1, %small_epsilon_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x1xf32>
+  %3 = IE.Sqrt(%2) : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
+  %4 = IE.Divide(%arg0, %3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x64xf32>
 
-  %239 = IE.Power(%arg1, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
-  %240 = IE.ReduceSum(%239) {axes_value = [3], keep_dims} : tensor<1x1x40x64xf32> -> tensor<1x1x40x1xf32>
-  %245 = IE.Add(%240, %epsilon_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x1xf32>
-  %241 = IE.Sqrt(%245) : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
-  %242 = IE.Divide(%arg1, %241) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x64xf32>
-  %244 = IE.Concat(%arg2, %242) {static_offsets = [[0, 0, 0, 0], [0, 100, 0, 0]]} : tensor<1x100x40x64xf32>, tensor<1x1x40x64xf32> -> tensor<1x101x40x64xf32>
+  %5 = IE.Power(%arg1, %power_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
+  %6 = IE.ReduceSum(%5) {axes_value = [3], keep_dims} : tensor<1x1x40x64xf32> -> tensor<1x1x40x1xf32>
+  %7 = IE.Add(%6, %medium_epsilon_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x1xf32>
+  %8 = IE.Sqrt(%7) : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
+  %9 = IE.Divide(%arg1, %8) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x64xf32>
+  %10 = IE.Concat(%arg2, %9) {static_offsets = [[0, 0, 0, 0], [0, 100, 0, 0]]} : tensor<1x100x40x64xf32>, tensor<1x1x40x64xf32> -> tensor<1x101x40x64xf32>
 
-  %246 = IE.Multiply(%170, %244) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x101x40x64xf32> -> tensor<1x101x40x64xf32>
-  return %242, %246 : tensor<1x1x40x64xf32>, tensor<1x101x40x64xf32>
+  %11 = IE.Multiply(%4, %10) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x101x40x64xf32> -> tensor<1x101x40x64xf32>
+  return %9, %11 : tensor<1x1x40x64xf32>, tensor<1x101x40x64xf32>
 
   // CHECK-DAG: [[GAMMA:%.+]] = const.Declare tensor<64xf32> = dense<1.250000e-01> : tensor<64xf32>
-  // CHECK:  [[RMS1:%.+]] = IE.RMS([[ARG0]], [[GAMMA]]) {epsilon = 9.9999997171806853E-10 : f64} : tensor<1x1x40x64xf32>, tensor<64xf32> -> tensor<1x1x40x64xf32>
-  // CHECK:  [[RMS2:%.+]] = IE.RMS([[ARG1]], [[GAMMA]]) {epsilon = 3.700000092976552E-7 : f64} : tensor<1x1x40x64xf32>, tensor<64xf32> -> tensor<1x1x40x64xf32>
+  // CHECK:  [[RMS1:%.+]] = IE.RMS([[ARG0]], [[GAMMA]]) {eps = 9.999999960041972E-13 : f64} : tensor<1x1x40x64xf32>, tensor<64xf32> -> tensor<1x1x40x64xf32>
+  // CHECK:  [[RMS2:%.+]] = IE.RMS([[ARG1]], [[GAMMA]]) {eps = 3.700000092976552E-7 : f64} : tensor<1x1x40x64xf32>, tensor<64xf32> -> tensor<1x1x40x64xf32>
   // CHECK:  [[CONCAT:%.+]] = IE.Concat([[ARG2]], [[RMS2]])
   // CHECK:  [[OUT:%.+]] = IE.Multiply([[RMS1]], [[CONCAT]])
   // CHECK:  return [[RMS2]], [[OUT]] : tensor<1x1x40x64xf32>, tensor<1x101x40x64xf32>
@@ -736,32 +744,32 @@ func.func @FuseRMSNormForReduceSumWithAddFixSmallEpsilon(%arg0: tensor<1x1x40x64
 
 // -----
 
-// CHECK-LABEL: @FuseRMSNormForReduceSumWithMaximumFixSmallEpsilon
+// CHECK-LABEL: @FuseRMSNormForReduceSumWithMaximumSmallEpsilon
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x1x40x64xf32>, [[ARG1:%.+]]: tensor<1x1x40x64xf32>, [[ARG2:%.+]]: tensor<1x100x40x64xf32>)
-func.func @FuseRMSNormForReduceSumWithMaximumFixSmallEpsilon(%arg0: tensor<1x1x40x64xf32>, %arg1: tensor<1x1x40x64xf32>, %arg2: tensor<1x100x40x64xf32>) -> (tensor<1x1x40x64xf32>, tensor<1x101x40x64xf32>) {
-  %cst_0 = const.Declare tensor<1x1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1x1xf32>
-  %epsilon_0 = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e-12> : tensor<1x1x1x1xf32>
-  %epsilon_1 = const.Declare tensor<1x1x1x1xf32> = dense<3.700000e-07> : tensor<1x1x1x1xf32>
+func.func @FuseRMSNormForReduceSumWithMaximumSmallEpsilon(%arg0: tensor<1x1x40x64xf32>, %arg1: tensor<1x1x40x64xf32>, %arg2: tensor<1x100x40x64xf32>) -> (tensor<1x1x40x64xf32>, tensor<1x101x40x64xf32>) {
+  %power_cst = const.Declare tensor<1x1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1x1xf32>
+  %small_epsilon_cst = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e-12> : tensor<1x1x1x1xf32>
+  %medium_epsilon_cst = const.Declare tensor<1x1x1x1xf32> = dense<3.700000e-07> : tensor<1x1x1x1xf32>
 
-  %167 = IE.Power(%arg0, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
-  %168 = IE.ReduceSum(%167) {axes_value = [3], keep_dims} : tensor<1x1x40x64xf32> -> tensor<1x1x40x1xf32>
-  %171 = IE.Maximum(%168, %epsilon_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x1xf32>
-  %169 = IE.Sqrt(%171) : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
-  %170 = IE.Divide(%arg0, %169) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x64xf32>
+  %3 = IE.Power(%arg0, %power_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
+  %4 = IE.ReduceSum(%3) {axes_value = [3], keep_dims} : tensor<1x1x40x64xf32> -> tensor<1x1x40x1xf32>
+  %5 = IE.Maximum(%4, %small_epsilon_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x1xf32>
+  %6 = IE.Sqrt(%5) : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
+  %7 = IE.Divide(%arg0, %6) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x64xf32>
 
-  %239 = IE.Power(%arg1, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
-  %240 = IE.ReduceSum(%239) {axes_value = [3], keep_dims} : tensor<1x1x40x64xf32> -> tensor<1x1x40x1xf32>
-  %245 = IE.Maximum(%240, %epsilon_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x1xf32>
-  %241 = IE.Sqrt(%245) : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
-  %242 = IE.Divide(%arg1, %241) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x64xf32>
-  %244 = IE.Concat(%arg2, %242) {static_offsets = [[0, 0, 0, 0], [0, 100, 0, 0]]} : tensor<1x100x40x64xf32>, tensor<1x1x40x64xf32> -> tensor<1x101x40x64xf32>
+  %8 = IE.Power(%arg1, %power_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
+  %9 = IE.ReduceSum(%8) {axes_value = [3], keep_dims} : tensor<1x1x40x64xf32> -> tensor<1x1x40x1xf32>
+  %10 = IE.Maximum(%9, %medium_epsilon_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x1xf32>
+  %11 = IE.Sqrt(%10) : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
+  %12 = IE.Divide(%arg1, %11) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x64xf32>
+  %13 = IE.Concat(%arg2, %12) {static_offsets = [[0, 0, 0, 0], [0, 100, 0, 0]]} : tensor<1x100x40x64xf32>, tensor<1x1x40x64xf32> -> tensor<1x101x40x64xf32>
 
-  %246 = IE.Multiply(%170, %244) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x101x40x64xf32> -> tensor<1x101x40x64xf32>
-  return %242, %246 : tensor<1x1x40x64xf32>, tensor<1x101x40x64xf32>
+  %14 = IE.Multiply(%7, %13) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x101x40x64xf32> -> tensor<1x101x40x64xf32>
+  return %12, %14 : tensor<1x1x40x64xf32>, tensor<1x101x40x64xf32>
 
   // CHECK-DAG: [[GAMMA:%.+]] = const.Declare tensor<64xf32> = dense<1.250000e-01> : tensor<64xf32>
-  // CHECK:  [[RMS1:%.+]] = IE.RMS([[ARG0]], [[GAMMA]]) {epsilon = 9.9999997171806853E-10 : f64} : tensor<1x1x40x64xf32>, tensor<64xf32> -> tensor<1x1x40x64xf32>
-  // CHECK:  [[RMS2:%.+]] = IE.RMS([[ARG1]], [[GAMMA]]) {epsilon = 3.700000092976552E-7 : f64} : tensor<1x1x40x64xf32>, tensor<64xf32> -> tensor<1x1x40x64xf32>
+  // CHECK:  [[RMS1:%.+]] = IE.RMS([[ARG0]], [[GAMMA]]) {eps = 9.999999960041972E-13 : f64} : tensor<1x1x40x64xf32>, tensor<64xf32> -> tensor<1x1x40x64xf32>
+  // CHECK:  [[RMS2:%.+]] = IE.RMS([[ARG1]], [[GAMMA]]) {eps = 3.700000092976552E-7 : f64} : tensor<1x1x40x64xf32>, tensor<64xf32> -> tensor<1x1x40x64xf32>
   // CHECK:  [[CONCAT:%.+]] = IE.Concat([[ARG2]], [[RMS2]])
   // CHECK:  [[OUT:%.+]] = IE.Multiply([[RMS1]], [[CONCAT]])
   // CHECK:  return [[RMS2]], [[OUT]] : tensor<1x1x40x64xf32>, tensor<1x101x40x64xf32>
@@ -772,25 +780,25 @@ func.func @FuseRMSNormForReduceSumWithMaximumFixSmallEpsilon(%arg0: tensor<1x1x4
 // CHECK-LABEL: @FuseRMSNormForReduceSumMultiplyHasMultipleUsers
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<40x64xf32>)
 func.func @FuseRMSNormForReduceSumMultiplyHasMultipleUsers(%arg0: tensor<40x64xf32>) -> (tensor<1x1x40x64xf32>, tensor<1x1x40x64xf32>) {
-  %cst_0 = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
-  %cst_1 = const.Declare tensor<1x1x1x1xf32> = dense<0.500000e+00> : tensor<1x1x1x1xf32>
-  %epsilon_0 = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e-12> : tensor<1x1x1x1xf32>
+  %multiply_cst = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
+  %add_cst = const.Declare tensor<1x1x1x1xf32> = dense<0.500000e+00> : tensor<1x1x1x1xf32>
+  %small_epsilon_cst = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e-12> : tensor<1x1x1x1xf32>
 
-  %55 = IE.AffineReshape(%arg0) {dim_mapping = [[0, 1, 2], [3]], shape_value = [1, 1, 40, 64]} : tensor<40x64xf32> -> tensor<1x1x40x64xf32>
-  %56 = IE.Multiply(%55, %55) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x64xf32> -> tensor<1x1x40x64xf32>
-  %57 = IE.ReduceSum(%56) {axes_value = [3], keep_dims} : tensor<1x1x40x64xf32> -> tensor<1x1x40x1xf32>
-  %58 = IE.Maximum(%57, %epsilon_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x1xf32>
-  %59 = IE.Sqrt(%58) : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
-  %60 = IE.Divide(%cst_0, %59) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x1xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
-  %61 = IE.Multiply(%55, %60) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x64xf32>
-  %62 = IE.Add(%61, %cst_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
+  %0 = IE.AffineReshape(%arg0) {dim_mapping = [[0, 1, 2], [3]], shape_value = [1, 1, 40, 64]} : tensor<40x64xf32> -> tensor<1x1x40x64xf32>
+  %1 = IE.Multiply(%0, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x64xf32> -> tensor<1x1x40x64xf32>
+  %2 = IE.ReduceSum(%1) {axes_value = [3], keep_dims} : tensor<1x1x40x64xf32> -> tensor<1x1x40x1xf32>
+  %3 = IE.Maximum(%2, %small_epsilon_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x1xf32>
+  %4 = IE.Sqrt(%3) : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
+  %5 = IE.Divide(%multiply_cst, %4) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x1xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
+  %6 = IE.Multiply(%0, %5) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x64xf32>
+  %7 = IE.Add(%6, %add_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
 
-  return %62, %61 : tensor<1x1x40x64xf32>, tensor<1x1x40x64xf32>
+  return %7, %6 : tensor<1x1x40x64xf32>, tensor<1x1x40x64xf32>
 
   // CHECK-DAG: [[GAMMA:%.+]] = const.Declare tensor<64xf32> = dense<1.250000e-01> : tensor<64xf32>
   // CHECK-DAG: [[CST_0:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<5.000000e-01> : tensor<1x1x1x1xf32>
   // CHECK:  [[RESHAPE:%.+]] = IE.AffineReshape([[ARG0]])
-  // CHECK:  [[RMS:%.+]] = IE.RMS([[RESHAPE]], [[GAMMA]]) {epsilon = 9.9999997171806853E-10 : f64} : tensor<1x1x40x64xf32>, tensor<64xf32> -> tensor<1x1x40x64xf32>
+  // CHECK:  [[RMS:%.+]] = IE.RMS([[RESHAPE]], [[GAMMA]]) {eps = 9.999999960041972E-13 : f64} : tensor<1x1x40x64xf32>, tensor<64xf32> -> tensor<1x1x40x64xf32>
   // CHECK:  [[ADD:%.+]] = IE.Add([[RMS]], [[CST_0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
   // CHECK:  return [[ADD]], [[RMS]] : tensor<1x1x40x64xf32>, tensor<1x1x40x64xf32>
 }
@@ -800,24 +808,24 @@ func.func @FuseRMSNormForReduceSumMultiplyHasMultipleUsers(%arg0: tensor<40x64xf
 // CHECK-LABEL: @FuseRMSNormForReduceSumWithClamp
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<40x64xf32>)
 func.func @FuseRMSNormForReduceSumWithClamp(%arg0: tensor<40x64xf32>) -> (tensor<1x1x40x64xf32>, tensor<1x1x40x64xf32>) {
-  %cst_0 = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
-  %cst_1 = const.Declare tensor<1x1x1x1xf32> = dense<0.500000e+00> : tensor<1x1x1x1xf32>
+  %multiply_cst = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
+  %add_cst = const.Declare tensor<1x1x1x1xf32> = dense<0.500000e+00> : tensor<1x1x1x1xf32>
 
-  %55 = IE.AffineReshape(%arg0) {dim_mapping = [[0, 1, 2], [3]], shape_value = [1, 1, 40, 64]} : tensor<40x64xf32> -> tensor<1x1x40x64xf32>
-  %56 = IE.Multiply(%55, %55) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x64xf32> -> tensor<1x1x40x64xf32>
-  %57 = IE.ReduceSum(%56) {axes_value = [3], keep_dims} : tensor<1x1x40x64xf32> -> tensor<1x1x40x1xf32>
-  %58 = IE.Clamp(%57) {max = 6.550400e+04 : f64, min = 9.999999960041972E-13 : f64} : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
-  %59 = IE.Sqrt(%58) : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
-  %60 = IE.Divide(%cst_0, %59) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x1xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
-  %61 = IE.Multiply(%55, %60) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x64xf32>
-  %62 = IE.Add(%61, %cst_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
+  %0 = IE.AffineReshape(%arg0) {dim_mapping = [[0, 1, 2], [3]], shape_value = [1, 1, 40, 64]} : tensor<40x64xf32> -> tensor<1x1x40x64xf32>
+  %1 = IE.Multiply(%0, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x64xf32> -> tensor<1x1x40x64xf32>
+  %2 = IE.ReduceSum(%1) {axes_value = [3], keep_dims} : tensor<1x1x40x64xf32> -> tensor<1x1x40x1xf32>
+  %3 = IE.Clamp(%2) {max = 6.550400e+04 : f64, min = 9.999999960041972E-13 : f64} : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
+  %4 = IE.Sqrt(%3) : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
+  %5 = IE.Divide(%multiply_cst, %4) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x1xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
+  %6 = IE.Multiply(%0, %5) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x64xf32>
+  %7 = IE.Add(%6, %add_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
 
-  return %62, %61 : tensor<1x1x40x64xf32>, tensor<1x1x40x64xf32>
+  return %7, %6 : tensor<1x1x40x64xf32>, tensor<1x1x40x64xf32>
 
   // CHECK-DAG: [[GAMMA:%.+]] = const.Declare tensor<64xf32> = dense<1.250000e-01> : tensor<64xf32>
   // CHECK-DAG: [[CST_0:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<5.000000e-01> : tensor<1x1x1x1xf32>
   // CHECK:  [[RESHAPE:%.+]] = IE.AffineReshape([[ARG0]])
-  // CHECK:  [[RMS:%.+]] = IE.RMS([[RESHAPE]], [[GAMMA]]) {epsilon = 9.9999997171806853E-10 : f64} : tensor<1x1x40x64xf32>, tensor<64xf32> -> tensor<1x1x40x64xf32>
+  // CHECK:  [[RMS:%.+]] = IE.RMS([[RESHAPE]], [[GAMMA]]) {eps = 9.999999960041972E-13 : f64} : tensor<1x1x40x64xf32>, tensor<64xf32> -> tensor<1x1x40x64xf32>
   // CHECK:  [[ADD:%.+]] = IE.Add([[RMS]], [[CST_0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x40x64xf32>
   // CHECK:  return [[ADD]], [[RMS]] : tensor<1x1x40x64xf32>, tensor<1x1x40x64xf32>
 }
@@ -826,16 +834,16 @@ func.func @FuseRMSNormForReduceSumWithClamp(%arg0: tensor<40x64xf32>) -> (tensor
 
 // CHECK-LABEL: @SkipRMSFuseDueToClamp
 func.func @SkipRMSFuseDueToClamp(%arg0: tensor<1x1x40x64xf32>) -> tensor<1x1x40x64xf32> {
-  %cst_0 = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
+  %multiply_cst = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
 
-  %56 = IE.Multiply(%arg0, %arg0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x64xf32> -> tensor<1x1x40x64xf32>
-  %57 = IE.ReduceSum(%56) {axes_value = [3], keep_dims} : tensor<1x1x40x64xf32> -> tensor<1x1x40x1xf32>
-  %58 = IE.Clamp(%57) {max = 6.0 : f64, min = 0.0 : f64} : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
-  %59 = IE.Sqrt(%58) : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
-  %60 = IE.Divide(%cst_0, %59) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x1xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
-  %61 = IE.Multiply(%arg0, %60) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x64xf32>
+  %0 = IE.Multiply(%arg0, %arg0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x64xf32> -> tensor<1x1x40x64xf32>
+  %1 = IE.ReduceSum(%0) {axes_value = [3], keep_dims} : tensor<1x1x40x64xf32> -> tensor<1x1x40x1xf32>
+  %2 = IE.Clamp(%1) {max = 6.0 : f64, min = 0.0 : f64} : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
+  %3 = IE.Sqrt(%2) : tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
+  %4 = IE.Divide(%multiply_cst, %3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x1xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x1xf32>
+  %5 = IE.Multiply(%arg0, %4) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x40x64xf32>, tensor<1x1x40x1xf32> -> tensor<1x1x40x64xf32>
 
-  return %61 : tensor<1x1x40x64xf32>
+  return %5 : tensor<1x1x40x64xf32>
 
   // CHECK-NOT:  IE.RMS
 }

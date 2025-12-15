@@ -13,7 +13,7 @@ include "vpux/compiler/dialect/VPU/attributes.td"
 include "vpux/compiler/dialect/VPU/ops_interfaces.td"
 include "vpux/compiler/dialect/VPU/types.td"
 
-include "mlir/Dialect/Quant/QuantOpsBase.td"
+include "mlir/Dialect/Quant/IR/QuantBase.td"
 
 
 def VPU_DPUWorkloadOp :
@@ -476,6 +476,8 @@ def VPU_NCECompressConvolutionOp :
 
         bool fitIntoCMX(vpux::NDTypeInterface input, vpux::NDTypeInterface filter, vpux::NDTypeInterface output);
 
+        static bool isDeprecated(mlir::Operation* op);
+
         static bool isSupported(vpux::IE::ConvolutionOp origOp, vpux::LogCb logCb, bool checkLayout = false,
                                 bool checkChannelAlignment = false);
     }] # baseExtraClassDeclaration;
@@ -892,7 +894,7 @@ def VPU_NCEInterpolateOp :
                                 bool checkLayout = false, bool checkChannelAlignment = false, bool checkBatch = false);
         static bool isSupported(vpux::VPU::InterpolateOp origOp, vpux::LogCb logCb,
                                 bool checkLayout = false, bool checkChannelAlignment = false, bool checkBatch = false);
-                                
+
         static mlir::LogicalResult verifyKernel(IE::InterpolateOp origOp, Logger log = Logger::global());
 
         bool fitIntoCMX(vpux::NDTypeInterface input, vpux::NDTypeInterface filter, vpux::NDTypeInterface output, Byte reservedMem);

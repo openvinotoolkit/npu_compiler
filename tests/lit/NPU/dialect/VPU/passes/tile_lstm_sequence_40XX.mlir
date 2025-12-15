@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --tile-lstm-sequence %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --tile-lstm-sequence --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
 
 #NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
@@ -23,24 +23,23 @@ func.func @TileBidirectionalLSTMSequence(%arg0: tensor<1x2x640x512xf16>) -> (ten
 // CHECK-DAG:   [[VAL_2:%.+]] = const.Declare tensor<1x2x1x128xf16> = dense<1.000000e+00> : tensor<1x2x1x128xf16>
 // CHECK-DAG:   [[VAL_3:%.+]] = const.Declare tensor<2x4x128x128xf16, {order = #NWHC}> = dense<3.000000e+00> : tensor<2x4x128x128xf16, {order = #NWHC}>
 // CHECK-DAG:   [[VAL_33:%.+]] = const.Declare tensor<1x2x4x128xf16, {order = #NCWH}> = dense<1.000000e+00> : tensor<1x2x4x128xf16, {order = #NCWH}>
-// CHECK-DAG:   [[VAL_4:%.+]] = VPU.Slice [[VAL_0]] [0, 0, 0, 0] [1, 1, 640, 512] : tensor<1x2x640x512xf16> to tensor<1x1x640x512xf16>
-// CHECK-DAG:   [[VAL_5:%.+]] = VPU.Slice [[VAL_0]] [0, 1, 0, 0] [1, 1, 640, 512] : tensor<1x2x640x512xf16> to tensor<1x1x640x512xf16>
-// CHECK:   [[VAL_6:%.+]] = VPU.Slice [[VAL_4]] [0, 0, 0, 0] [1, 1, 320, 512] : tensor<1x1x640x512xf16> to tensor<1x1x320x512xf16>
-// CHECK:   [[VAL_7:%.+]] = VPU.Slice [[VAL_5]] [0, 0, 320, 0] [1, 1, 320, 512] : tensor<1x1x640x512xf16> to tensor<1x1x320x512xf16>
-// CHECK:   [[VAL_8:%.+]] = VPU.Concat([[VAL_6]], [[VAL_7]]) {per_axis = #IE.Concat<axis = 1 : i64>} : tensor<1x1x320x512xf16>, tensor<1x1x320x512xf16> -> tensor<1x2x320x512xf16>
+// CHECK-DAG:   [[VAL_4:%.+]] = VPU.Slice [[VAL_0]] [0, 0, 0, 0] [1, 1, 320, 512] : tensor<1x2x640x512xf16> to tensor<1x1x320x512xf16>
+// CHECK-DAG:   [[VAL_5:%.+]] = VPU.Slice [[VAL_0]] [0, 1, 320, 0] [1, 1, 320, 512] : tensor<1x2x640x512xf16> to tensor<1x1x320x512xf16>
+// CHECK:   [[VAL_8:%.+]] = VPU.Concat([[VAL_4]], [[VAL_5]])
+// CHECK-SAME{LITERAL}:   {static_offsets = [[0, 0, 0, 0], [0, 1, 0, 0]]} : tensor<1x1x320x512xf16>, tensor<1x1x320x512xf16> -> tensor<1x2x320x512xf16>
 // CHECK:   [[VAL_9:%.+]], [[VAL_10:.*]], [[VAL_11:.*]] = VPU.LSTMSequence([[VAL_8]], [[VAL_2]], [[VAL_2]], [[VAL_3]],  [[VAL_33]], [[VAL_1]]) {direction = #IE.rnn_seq_direction<BIDIRECTIONAL>, sequenceLength = 320 : i64} : tensor<1x2x320x512xf16>, tensor<1x2x1x128xf16>, tensor<1x2x1x128xf16>, tensor<2x4x128x128xf16, {order = #NWHC}>, tensor<1x2x4x128xf16, {order = #NCWH}>, tensor<1x1x1x2xsi32> -> tensor<1x2x320x128xf16>, tensor<1x2x1x128xf16>, tensor<1x2x1x128xf16>
 // CHECK:   [[VAL_12:%.+]] = VPU.Slice [[VAL_9]] [0, 0, 0, 0] [1, 1, 320, 128] : tensor<1x2x320x128xf16> to tensor<1x1x320x128xf16>
 // CHECK:   [[VAL_13:%.+]] = VPU.Slice [[VAL_9]] [0, 1, 0, 0] [1, 1, 320, 128] : tensor<1x2x320x128xf16> to tensor<1x1x320x128xf16>
-// CHECK:   [[VAL_14:%.+]] = VPU.Slice [[VAL_4]] [0, 0, 320, 0] [1, 1, 320, 512] : tensor<1x1x640x512xf16> to tensor<1x1x320x512xf16>
-// CHECK:   [[VAL_15:%.+]] = VPU.Slice [[VAL_5]] [0, 0, 0, 0] [1, 1, 320, 512] : tensor<1x1x640x512xf16> to tensor<1x1x320x512xf16>
-// CHECK:   [[VAL_16:%.+]] = VPU.Concat([[VAL_14]], [[VAL_15]]) {per_axis = #IE.Concat<axis = 1 : i64>} : tensor<1x1x320x512xf16>, tensor<1x1x320x512xf16> -> tensor<1x2x320x512xf16>
+// CHECK:   [[VAL_14:%.+]] = VPU.Slice [[VAL_0]] [0, 0, 320, 0] [1, 1, 320, 512] : tensor<1x2x640x512xf16> to tensor<1x1x320x512xf16>
+// CHECK:   [[VAL_15:%.+]] = VPU.Slice [[VAL_0]] [0, 1, 0, 0] [1, 1, 320, 512] : tensor<1x2x640x512xf16> to tensor<1x1x320x512xf16>
+// CHECK:   [[VAL_16:%.+]] = VPU.Concat([[VAL_14]], [[VAL_15]])
+// CHECK-SAME{LITERAL}:   {static_offsets = [[0, 0, 0, 0], [0, 1, 0, 0]]} : tensor<1x1x320x512xf16>, tensor<1x1x320x512xf16> -> tensor<1x2x320x512xf16>
 // CHECK:   [[VAL_17:%.+]], [[VAL_18:.*]], [[VAL_19:.*]] = VPU.LSTMSequence([[VAL_16]], [[VAL_10]], [[VAL_11]], [[VAL_3]], [[VAL_33]], [[VAL_1]]) {direction = #IE.rnn_seq_direction<BIDIRECTIONAL>, sequenceLength = 320 : i64} : tensor<1x2x320x512xf16>, tensor<1x2x1x128xf16>, tensor<1x2x1x128xf16>, tensor<2x4x128x128xf16, {order = #NWHC}>, tensor<1x2x4x128xf16, {order = #NCWH}>, tensor<1x1x1x2xsi32> -> tensor<1x2x320x128xf16>, tensor<1x2x1x128xf16>, tensor<1x2x1x128xf16>
 // CHECK:   [[VAL_20:%.+]] = VPU.Slice [[VAL_17]] [0, 0, 0, 0] [1, 1, 320, 128] : tensor<1x2x320x128xf16> to tensor<1x1x320x128xf16>
 // CHECK:   [[VAL_21:%.+]] = VPU.Slice [[VAL_17]] [0, 1, 0, 0] [1, 1, 320, 128] : tensor<1x2x320x128xf16> to tensor<1x1x320x128xf16>
-// CHECK:   [[VAL_22:%.+]] = VPU.Concat([[VAL_12]], [[VAL_20]]) {per_axis = #IE.Concat<axis = 2 : i64>} : tensor<1x1x320x128xf16>, tensor<1x1x320x128xf16> -> tensor<1x1x640x128xf16>
-// CHECK:   [[VAL_23:%.+]] = VPU.Concat([[VAL_21]], [[VAL_13]]) {per_axis = #IE.Concat<axis = 2 : i64>} : tensor<1x1x320x128xf16>, tensor<1x1x320x128xf16> -> tensor<1x1x640x128xf16>
-// CHECK:   [[VAL_24:%.+]] = VPU.Concat([[VAL_22]], [[VAL_23]]) {per_axis = #IE.Concat<axis = 1 : i64>} : tensor<1x1x640x128xf16>, tensor<1x1x640x128xf16> -> tensor<1x2x640x128xf16>
-// CHECK:   return [[VAL_24]], [[VAL_18]], [[VAL_19]] : tensor<1x2x640x128xf16>, tensor<1x2x1x128xf16>, tensor<1x2x1x128xf16>
+// CHECK:   [[VAL_22:%.+]] = VPU.Concat([[VAL_12]], [[VAL_20]], [[VAL_21]], [[VAL_13]])
+// CHECK-SAME{LITERAL}:   {static_offsets = [[0, 0, 0, 0], [0, 0, 320, 0], [0, 1, 0, 0], [0, 1, 320, 0]]} : tensor<1x1x320x128xf16>, tensor<1x1x320x128xf16>, tensor<1x1x320x128xf16>, tensor<1x1x320x128xf16> -> tensor<1x2x640x128xf16>
+// CHECK:   return [[VAL_22]], [[VAL_18]], [[VAL_19]] : tensor<1x2x640x128xf16>, tensor<1x2x1x128xf16>, tensor<1x2x1x128xf16>
 }
 
 // -----
@@ -66,7 +65,8 @@ func.func @TileForwardLSTMSequence(%arg0: tensor<1x1x1280x512xf16>) -> (tensor<1
 // CHECK:   [[VAL_5:%.+]], [[VAL_6:%.+]], [[VAL_7:%.+]] = VPU.LSTMSequence([[VAL_4]], [[VAL_2]], [[VAL_2]], [[VAL_3]], [[VAL_33]], [[VAL_1]]) {direction = #IE.rnn_seq_direction<FORWARD>, sequenceLength = 640 : i64} : tensor<1x1x640x512xf16>, tensor<1x1x1x128xf16>, tensor<1x1x1x128xf16>, tensor<1x4x128x128xf16, {order = #NWHC}>, tensor<1x1x4x128xf16, {order = #NCWH}>, tensor<1x1x1x2xsi32> -> tensor<1x1x640x128xf16>, tensor<1x1x1x128xf16>, tensor<1x1x1x128xf16>
 // CHECK:   [[VAL_8:%.+]] = VPU.Slice [[VAL_0]] [0, 0, 640, 0] [1, 1, 640, 512] : tensor<1x1x1280x512xf16> to tensor<1x1x640x512xf16>
 // CHECK:   [[VAL_9:%.+]], [[VAL_10:%.+]], [[VAL_11:%.+]] = VPU.LSTMSequence([[VAL_8]], [[VAL_6]], [[VAL_7]], [[VAL_3]], [[VAL_33]], [[VAL_1]]) {direction = #IE.rnn_seq_direction<FORWARD>, sequenceLength = 640 : i64} : tensor<1x1x640x512xf16>, tensor<1x1x1x128xf16>, tensor<1x1x1x128xf16>, tensor<1x4x128x128xf16, {order = #NWHC}>, tensor<1x1x4x128xf16, {order = #NCWH}>, tensor<1x1x1x2xsi32> -> tensor<1x1x640x128xf16>, tensor<1x1x1x128xf16>, tensor<1x1x1x128xf16>
-// CHECK:   [[VAL_12:%.+]] = VPU.Concat([[VAL_5]], [[VAL_9]]) {per_axis = #IE.Concat<axis = 2 : i64>} : tensor<1x1x640x128xf16>, tensor<1x1x640x128xf16> -> tensor<1x1x1280x128xf16>
+// CHECK:   [[VAL_12:%.+]] = VPU.Concat([[VAL_5]], [[VAL_9]])
+// CHECK-SAME{LITERAL}:   {static_offsets = [[0, 0, 0, 0], [0, 0, 640, 0]]} : tensor<1x1x640x128xf16>, tensor<1x1x640x128xf16> -> tensor<1x1x1280x128xf16>
 // CHECK:   return [[VAL_12]], [[VAL_10]], [[VAL_11]] : tensor<1x1x1280x128xf16>, tensor<1x1x1x128xf16>, tensor<1x1x1x128xf16>
 }
 
@@ -93,7 +93,8 @@ func.func @TileReverseLSTMSequence(%arg0: tensor<1x1x1280x512xf16>) -> (tensor<1
 // CHECK:   [[VAL_5:%.+]], [[VAL_6:%.+]], [[VAL_7:%.+]] = VPU.LSTMSequence([[VAL_4]], [[VAL_2]], [[VAL_2]], [[VAL_3]], [[VAL_33]], [[VAL_1]]) {direction = #IE.rnn_seq_direction<REVERSE>, sequenceLength = 640 : i64} : tensor<1x1x640x512xf16>, tensor<1x1x1x128xf16>, tensor<1x1x1x128xf16>, tensor<1x4x128x128xf16, {order = #NWHC}>, tensor<1x1x4x128xf16, {order = #NCWH}>, tensor<1x1x1x2xsi32> -> tensor<1x1x640x128xf16>, tensor<1x1x1x128xf16>, tensor<1x1x1x128xf16>
 // CHECK:   [[VAL_8:%.+]] = VPU.Slice [[VAL_0]] [0, 0, 0, 0] [1, 1, 640, 512] : tensor<1x1x1280x512xf16> to tensor<1x1x640x512xf16>
 // CHECK:   [[VAL_9:%.+]], [[VAL_10:%.+]], [[VAL_11:%.+]] = VPU.LSTMSequence([[VAL_8]], [[VAL_6]], [[VAL_7]], [[VAL_3]], [[VAL_33]], [[VAL_1]]) {direction = #IE.rnn_seq_direction<REVERSE>, sequenceLength = 640 : i64} : tensor<1x1x640x512xf16>, tensor<1x1x1x128xf16>, tensor<1x1x1x128xf16>, tensor<1x4x128x128xf16, {order = #NWHC}>, tensor<1x1x4x128xf16, {order = #NCWH}>, tensor<1x1x1x2xsi32> -> tensor<1x1x640x128xf16>, tensor<1x1x1x128xf16>, tensor<1x1x1x128xf16>
-// CHECK:   [[VAL_12:%.+]] = VPU.Concat([[VAL_9]], [[VAL_5]]) {per_axis = #IE.Concat<axis = 2 : i64>} : tensor<1x1x640x128xf16>, tensor<1x1x640x128xf16> -> tensor<1x1x1280x128xf16>
+// CHECK:   [[VAL_12:%.+]] = VPU.Concat([[VAL_9]], [[VAL_5]])
+// CHECK-SAME{LITERAL}:   {static_offsets = [[0, 0, 0, 0], [0, 0, 640, 0]]} : tensor<1x1x640x128xf16>, tensor<1x1x640x128xf16> -> tensor<1x1x1280x128xf16>
 // CHECK:   return [[VAL_12]], [[VAL_10]], [[VAL_11]] : tensor<1x1x1280x128xf16>, tensor<1x1x1x128xf16>, tensor<1x1x1x128xf16>
 }
 
@@ -166,24 +167,23 @@ func.func @TileBidirectionalLSTMSequenceSplitOverKernel(%arg0: tensor<1x2x962x51
 // CHECK-DAG:   [[VAL_2:%.+]] = const.Declare tensor<1x2x1x128xf16> = dense<1.000000e+00> : tensor<1x2x1x128xf16>
 // CHECK-DAG:   [[VAL_3:%.+]] = const.Declare tensor<2x4x128x128xf16, {order = #NWHC}> = dense<3.000000e+00> : tensor<2x4x128x128xf16, {order = #NWHC}>
 // CHECK-DAG:   [[VAL_33:%.+]] = const.Declare tensor<1x2x4x128xf16, {order = #NCWH}> = dense<1.000000e+00> : tensor<1x2x4x128xf16, {order = #NCWH}>
-// CHECK-DAG:   [[VAL_4:%.+]] = VPU.Slice [[VAL_0]] [0, 0, 0, 0] [1, 1, 962, 512] : tensor<1x2x962x512xf16> to tensor<1x1x962x512xf16>
-// CHECK-DAG:   [[VAL_5:%.+]] = VPU.Slice [[VAL_0]] [0, 1, 0, 0] [1, 1, 962, 512] : tensor<1x2x962x512xf16> to tensor<1x1x962x512xf16>
-// CHECK:   [[VAL_6:%.+]] = VPU.Slice [[VAL_4]] [0, 0, 0, 0] [1, 1, 481, 512] : tensor<1x1x962x512xf16> to tensor<1x1x481x512xf16>
-// CHECK:   [[VAL_7:%.+]] = VPU.Slice [[VAL_5]] [0, 0, 481, 0] [1, 1, 481, 512] : tensor<1x1x962x512xf16> to tensor<1x1x481x512xf16>
-// CHECK:   [[VAL_8:%.+]] = VPU.Concat([[VAL_6]], [[VAL_7]]) {per_axis = #IE.Concat<axis = 1 : i64>} : tensor<1x1x481x512xf16>, tensor<1x1x481x512xf16> -> tensor<1x2x481x512xf16>
+// CHECK-DAG:   [[VAL_4:%.+]] = VPU.Slice [[VAL_0]] [0, 0, 0, 0] [1, 1, 481, 512] : tensor<1x2x962x512xf16> to tensor<1x1x481x512xf16>
+// CHECK-DAG:   [[VAL_5:%.+]] = VPU.Slice [[VAL_0]] [0, 1, 481, 0] [1, 1, 481, 512] : tensor<1x2x962x512xf16> to tensor<1x1x481x512xf16>
+// CHECK:   [[VAL_8:%.+]] = VPU.Concat([[VAL_4]], [[VAL_5]])
+// CHECK-SAME{LITERAL}:    {static_offsets = [[0, 0, 0, 0], [0, 1, 0, 0]]} : tensor<1x1x481x512xf16>, tensor<1x1x481x512xf16> -> tensor<1x2x481x512xf16>
 // CHECK:   [[VAL_9:%.+]], [[VAL_10:.*]], [[VAL_11:.*]] = VPU.LSTMSequence([[VAL_8]], [[VAL_2]], [[VAL_2]], [[VAL_3]], [[VAL_33]], [[VAL_1]]) {direction = #IE.rnn_seq_direction<BIDIRECTIONAL>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, sequenceLength = 481 : i64} : tensor<1x2x481x512xf16>, tensor<1x2x1x128xf16>, tensor<1x2x1x128xf16>, tensor<2x4x128x128xf16, {order = #NWHC}>, tensor<1x2x4x128xf16, {order = #NCWH}>, tensor<1x1x1x2xsi32> -> tensor<1x2x481x128xf16>, tensor<1x2x1x128xf16>, tensor<1x2x1x128xf16>
 // CHECK:   [[VAL_12:%.+]] = VPU.Slice [[VAL_9]] [0, 0, 0, 0] [1, 1, 481, 128] : tensor<1x2x481x128xf16> to tensor<1x1x481x128xf16>
 // CHECK:   [[VAL_13:%.+]] = VPU.Slice [[VAL_9]] [0, 1, 0, 0] [1, 1, 481, 128] : tensor<1x2x481x128xf16> to tensor<1x1x481x128xf16>
-// CHECK:   [[VAL_14:%.+]] = VPU.Slice [[VAL_4]] [0, 0, 481, 0] [1, 1, 481, 512] : tensor<1x1x962x512xf16> to tensor<1x1x481x512xf16>
-// CHECK:   [[VAL_15:%.+]] = VPU.Slice [[VAL_5]] [0, 0, 0, 0] [1, 1, 481, 512] : tensor<1x1x962x512xf16> to tensor<1x1x481x512xf16>
-// CHECK:   [[VAL_16:%.+]] = VPU.Concat([[VAL_14]], [[VAL_15]]) {per_axis = #IE.Concat<axis = 1 : i64>} : tensor<1x1x481x512xf16>, tensor<1x1x481x512xf16> -> tensor<1x2x481x512xf16>
+// CHECK:   [[VAL_14:%.+]] = VPU.Slice [[VAL_0]] [0, 0, 481, 0] [1, 1, 481, 512] : tensor<1x2x962x512xf16> to tensor<1x1x481x512xf16>
+// CHECK:   [[VAL_15:%.+]] = VPU.Slice [[VAL_0]] [0, 1, 0, 0] [1, 1, 481, 512] : tensor<1x2x962x512xf16> to tensor<1x1x481x512xf16>
+// CHECK:   [[VAL_16:%.+]] = VPU.Concat([[VAL_14]], [[VAL_15]])
+// CHECK-SAME{LITERAL}:    {static_offsets = [[0, 0, 0, 0], [0, 1, 0, 0]]} : tensor<1x1x481x512xf16>, tensor<1x1x481x512xf16> -> tensor<1x2x481x512xf16>
 // CHECK:   [[VAL_17:%.+]], [[VAL_18:.*]], [[VAL_19:.*]] = VPU.LSTMSequence([[VAL_16]], [[VAL_10]], [[VAL_11]], [[VAL_3]], [[VAL_33]], [[VAL_1]]) {direction = #IE.rnn_seq_direction<BIDIRECTIONAL>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, sequenceLength = 481 : i64} : tensor<1x2x481x512xf16>, tensor<1x2x1x128xf16>, tensor<1x2x1x128xf16>, tensor<2x4x128x128xf16, {order = #NWHC}>, tensor<1x2x4x128xf16, {order = #NCWH}>, tensor<1x1x1x2xsi32> -> tensor<1x2x481x128xf16>, tensor<1x2x1x128xf16>, tensor<1x2x1x128xf16>
 // CHECK:   [[VAL_20:%.+]] = VPU.Slice [[VAL_17]] [0, 0, 0, 0] [1, 1, 481, 128] : tensor<1x2x481x128xf16> to tensor<1x1x481x128xf16>
 // CHECK:   [[VAL_21:%.+]] = VPU.Slice [[VAL_17]] [0, 1, 0, 0] [1, 1, 481, 128] : tensor<1x2x481x128xf16> to tensor<1x1x481x128xf16>
-// CHECK:   [[VAL_22:%.+]] = VPU.Concat([[VAL_12]], [[VAL_20]]) {per_axis = #IE.Concat<axis = 2 : i64>} : tensor<1x1x481x128xf16>, tensor<1x1x481x128xf16> -> tensor<1x1x962x128xf16>
-// CHECK:   [[VAL_23:%.+]] = VPU.Concat([[VAL_21]], [[VAL_13]]) {per_axis = #IE.Concat<axis = 2 : i64>} : tensor<1x1x481x128xf16>, tensor<1x1x481x128xf16> -> tensor<1x1x962x128xf16>
-// CHECK:   [[VAL_24:%.+]] = VPU.Concat([[VAL_22]], [[VAL_23]]) {per_axis = #IE.Concat<axis = 1 : i64>} : tensor<1x1x962x128xf16>, tensor<1x1x962x128xf16> -> tensor<1x2x962x128xf16>
-// CHECK:   return [[VAL_24]], [[VAL_18]], [[VAL_19]] : tensor<1x2x962x128xf16>, tensor<1x2x1x128xf16>, tensor<1x2x1x128xf16>
+// CHECK:   [[VAL_22:%.+]] = VPU.Concat([[VAL_12]], [[VAL_20]], [[VAL_21]], [[VAL_13]])
+// CHECK-SAME{LITERAL}:    {static_offsets = [[0, 0, 0, 0], [0, 0, 481, 0], [0, 1, 0, 0], [0, 1, 481, 0]]} : tensor<1x1x481x128xf16>, tensor<1x1x481x128xf16>, tensor<1x1x481x128xf16>, tensor<1x1x481x128xf16> -> tensor<1x2x962x128xf16>
+// CHECK:   return [[VAL_22]], [[VAL_18]], [[VAL_19]] : tensor<1x2x962x128xf16>, tensor<1x2x1x128xf16>, tensor<1x2x1x128xf16>
 }
 
 // -----
@@ -209,6 +209,7 @@ func.func @TileReverseLSTMSequenceSplitOverBatch(%arg0: tensor<3x1x990x512xf16>)
 // CHECK:   [[VAL_5:%.+]], [[VAL_6:%.+]], [[VAL_7:%.+]] = VPU.LSTMSequence([[VAL_4]], [[VAL_2]], [[VAL_2]], [[VAL_3]], [[VAL_33]], [[VAL_1]]) {direction = #IE.rnn_seq_direction<REVERSE>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverBatch>, sequenceLength = 495 : i64} : tensor<3x1x495x512xf16>, tensor<3x1x1x128xf16>, tensor<3x1x1x128xf16>, tensor<1x4x128x128xf16, {order = #NWHC}>, tensor<1x1x4x128xf16, {order = #NCWH}>, tensor<1x1x1x2xsi32> -> tensor<3x1x495x128xf16>, tensor<3x1x1x128xf16>, tensor<3x1x1x128xf16>
 // CHECK:   [[VAL_8:%.+]] = VPU.Slice [[VAL_0]] [0, 0, 0, 0] [3, 1, 495, 512] : tensor<3x1x990x512xf16> to tensor<3x1x495x512xf16>
 // CHECK:   [[VAL_9:%.+]], [[VAL_10:%.+]], [[VAL_11:%.+]] = VPU.LSTMSequence([[VAL_8]], [[VAL_6]], [[VAL_7]], [[VAL_3]], [[VAL_33]], [[VAL_1]]) {direction = #IE.rnn_seq_direction<REVERSE>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverBatch>, sequenceLength = 495 : i64} : tensor<3x1x495x512xf16>, tensor<3x1x1x128xf16>, tensor<3x1x1x128xf16>, tensor<1x4x128x128xf16, {order = #NWHC}>, tensor<1x1x4x128xf16, {order = #NCWH}>, tensor<1x1x1x2xsi32> -> tensor<3x1x495x128xf16>, tensor<3x1x1x128xf16>, tensor<3x1x1x128xf16>
-// CHECK:   [[VAL_12:%.+]] = VPU.Concat([[VAL_9]], [[VAL_5]]) {per_axis = #IE.Concat<axis = 2 : i64>} : tensor<3x1x495x128xf16>, tensor<3x1x495x128xf16> -> tensor<3x1x990x128xf16>
+// CHECK:   [[VAL_12:%.+]] = VPU.Concat([[VAL_9]], [[VAL_5]])
+// CHECK-SAME{LITERAL}:   {static_offsets = [[0, 0, 0, 0], [0, 0, 495, 0]]} : tensor<3x1x495x128xf16>, tensor<3x1x495x128xf16> -> tensor<3x1x990x128xf16>
 // CHECK:   return [[VAL_12]], [[VAL_10]], [[VAL_11]] : tensor<3x1x990x128xf16>, tensor<3x1x1x128xf16>, tensor<3x1x1x128xf16>
 }

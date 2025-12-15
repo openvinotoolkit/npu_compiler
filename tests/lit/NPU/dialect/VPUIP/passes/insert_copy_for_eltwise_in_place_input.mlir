@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --insert-copy-for-eltwise-in-place-input %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -33,7 +33,7 @@
 
 // CHECK-LABEL: InsertSpillingCopiesOnSecondInputWithCopyParent
 func.func @InsertSpillingCopiesOnSecondInputWithCopyParent(
-    %weights0 : memref<32x32x1x1xf16, #NHWC, @CMX_NN>, %weightsTable0 : memref<32x1x1x4xsi32, @CMX_NN>)
+    %weights0 : memref<32x32x1x1xf16, #NHWC, @CMX_NN>)
       -> (!DistributedType1, !DistributedType2, !DistributedType1) {
     %in1 = memref.alloc() : !qTypeDDR
     %in2 = memref.alloc() : !qTypeDDR
@@ -77,7 +77,6 @@ func.func @InsertSpillingCopiesOnSecondInputWithCopyParent(
       }
       input(%conv0InCMX : !DistributedType2)
       weights(%weights0 : memref<32x32x1x1xf16, #NHWC, @CMX_NN>)
-      weight_table(%weightsTable0 : memref<32x1x1x4xsi32, @CMX_NN>)
       parent_input(%conv0InCMX : !DistributedType2)
       parent_output(%convOutBuff0 : !DistributedType2)
       outputs(%convOutBuff0 : !DistributedType2)
@@ -110,7 +109,6 @@ func.func @InsertSpillingCopiesOnSecondInputWithCopyParent(
       }
       input(%eltwiseIn2CMX : !DistributedType1)
       weights(%weights0 : memref<32x32x1x1xf16, #NHWC, @CMX_NN>)
-      weight_table(%weightsTable0 : memref<32x1x1x4xsi32, @CMX_NN>)
       parent_input(%eltwiseIn2CMX : !DistributedType1)
       parent_output(%convOutBuff1 : !DistributedType1)
       outputs(%convOutBuff1 : !DistributedType1)
@@ -205,7 +203,7 @@ func.func @InsertSpillingCopiesOnSecondInputWithCopyParent(
 
 // CHECK-LABEL: InsertSpillingCopiesOnFirstInputWithViewParent
 func.func @InsertSpillingCopiesOnFirstInputWithViewParent(
-    %weights0 : memref<32x32x1x1xf16, #NHWC, @CMX_NN>, %weightsTable0 : memref<32x1x1x4xsi32, @CMX_NN>)
+    %weights0 : memref<32x32x1x1xf16, #NHWC, @CMX_NN>)
       -> (!DistributedTypeSubview, !DistributedType1) {
     %in1 = memref.alloc() : !qTypeDDR
     %in2 = memref.alloc() : !qTypeEltDDR
@@ -247,7 +245,6 @@ func.func @InsertSpillingCopiesOnFirstInputWithViewParent(
     }
     input(%eltwiseIn1CMX : !DistributedType1)
     weights(%weights0 : memref<32x32x1x1xf16, #NHWC, @CMX_NN>)
-    weight_table(%weightsTable0 : memref<32x1x1x4xsi32, @CMX_NN>)
     parent_input(%eltwiseIn1CMX : !DistributedType1)
     parent_output(%convOutBuff0 : !DistributedType1)
     outputs(%convOutBuff0 : !DistributedType1)
@@ -322,7 +319,7 @@ func.func @InsertSpillingCopiesOnFirstInputWithViewParent(
 
 // CHECK-LABEL: InsertSpillingCopiesOnFirstInputWithViewParentSingleCluster
 func.func @InsertSpillingCopiesOnFirstInputWithViewParentSingleCluster(
-    %weights0 : memref<32x32x1x1xf16, #NHWC, @CMX_NN>, %weightsTable0 : memref<32x1x1x4xsi32, @CMX_NN>)
+    %weights0 : memref<32x32x1x1xf16, #NHWC, @CMX_NN>)
       -> (!qTypeEltCMX, !qTypeCMX) {
     %in1 = memref.alloc() : !qTypeDDR
     %in2 = memref.alloc() : !qTypeEltDDR
@@ -364,7 +361,6 @@ func.func @InsertSpillingCopiesOnFirstInputWithViewParentSingleCluster(
       }
       input(%eltwiseIn1CMX : !qTypeCMX)
       weights(%weights0 : memref<32x32x1x1xf16, #NHWC, @CMX_NN>)
-      weight_table(%weightsTable0 : memref<32x1x1x4xsi32, @CMX_NN>)
       parent_input(%eltwiseIn1CMX : !qTypeCMX)
       parent_output(%convOutBuff0 : !qTypeCMX)
       outputs(%convOutBuff0 : !qTypeCMX)
@@ -442,7 +438,7 @@ func.func @InsertSpillingCopiesOnFirstInputWithViewParentSingleCluster(
 
 // CHECK-LABEL: DontInsertSpill
 func.func @DontInsertSpill(
-    %weights0 : memref<32x32x1x1xf16, #NHWC, @CMX_NN>, %weightsTable0 : memref<32x1x1x4xsi32, @CMX_NN>)
+    %weights0 : memref<32x32x1x1xf16, #NHWC, @CMX_NN>)
       -> (!DistributedType1, !DistributedType1) {
     %in = memref.alloc() : memref<1x32x206x512x!qElemType, #NHWC>
     %subview = VPUIP.SubView %in [0, 0, 0, 0] [1, 32, 103, 512] : memref<1x32x206x512x!qElemType, #NHWC> to !qTypeDDR
@@ -483,7 +479,6 @@ func.func @DontInsertSpill(
     }
     input(%eltwiseIn2CMX : !DistributedType1)
     weights(%weights0 : memref<32x32x1x1xf16, #NHWC, @CMX_NN>)
-    weight_table(%weightsTable0 : memref<32x1x1x4xsi32, @CMX_NN>)
     parent_input(%eltwiseIn2CMX : !DistributedType1)
     parent_output(%convOutBuff0 : !DistributedType1)
     outputs(%convOutBuff0 : !DistributedType1)

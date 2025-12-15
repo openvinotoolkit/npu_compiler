@@ -6,7 +6,7 @@
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --query-ws-info %s | FileCheck --check-prefix=CHECK-DEFAULT %s
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --query-ws-info="memory-limit=1000" %s | FileCheck --check-prefix=CHECK-BIG-LIMIT %s
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --query-ws-info="memory-limit=4" %s | FileCheck --check-prefix=CHECK-SMALL-LIMIT %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-DEFAULT: module @NoConstants attributes {{.*}}VPU.WsTotalInitPartCount = 0 : i64
 // CHECK-BIG-LIMIT: module @NoConstants attributes {{.*}}VPU.WsTotalInitPartCount = 0 : i64

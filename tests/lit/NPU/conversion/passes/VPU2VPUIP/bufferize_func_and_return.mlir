@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --one-shot-bufferize-VPU-to-VPUIP %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK: func.func @SingleInput({{[^:]+}}: memref<1x1x1x1000xf16>)
 func.func @SingleInput(%input: tensor<1x1x1x1000xf16>) -> tensor<1x1x1x1000xf16> {
@@ -262,4 +262,15 @@ module @BufferizeHost {
 // CHECK:       scf.yield [[ARG3]] : memref<1x720x1000x16xf16>
 
 // CHECK:   return [[FOR]] : memref<1x720x1000x16xf16>
+}
+
+// -----
+
+// CHECK: func.func @main() -> memref<128x256xf16, [@CMX_NN, 1]>
+func.func @main() -> tensor<128x256xf16, {mem_space = [@CMX_NN, 1]}> {
+    %tensor = tensor.empty() : tensor<128x256xf16, {mem_space = [@CMX_NN, 1]}>
+    return %tensor : tensor<128x256xf16, {mem_space = [@CMX_NN, 1]}>
+
+    // CHECK: [[ALLOC:%.+]] = memref.alloc() {alignment = 64 : i64} : memref<128x256xf16, [@CMX_NN, 1]>
+    // CHECK: return [[ALLOC]]
 }

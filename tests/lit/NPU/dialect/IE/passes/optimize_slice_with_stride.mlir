@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --optimize-slice-with-stride %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -16,6 +16,8 @@ func.func @ConvertSliceToConvFromConvert(%arg0: tensor<1x3x1088x1920xf32, {order
 
     return %SLICE : tensor<1x1x1088x1920xf16, {order = #NHWC}>
 
+    // CHECK:   [[CONVERT_INPUT:%.*]] = IE.Convert(%arg0) {dstElemType = f16} : tensor<1x3x1088x1920xf32, {order = #NHWC}> -> tensor<1x3x1088x1920xf16, {order = #NHWC}>
+    // CHECK:   [[RESHAPE_INPUT:%.*]] = IE.ShapeCast {shape = [1, 48, 1088, 120]} inputs([[CONVERT_INPUT]] : tensor<1x3x1088x1920xf16, {order = #NHWC}>) -> tensor<1x48x1088x120xf16, {order = #NHWC}>
     // CHECK:   [[WEIGHTS:%.*]] = const.Declare tensor<16x48x1x1xf16, {order = #NHWC}> = dense<"0x
     // CHECK-SAME:      0000003C{{([0]{181})}}
     // CHECK-SAME:      0000003C{{([0]{181})}}
@@ -33,8 +35,6 @@ func.func @ConvertSliceToConvFromConvert(%arg0: tensor<1x3x1088x1920xf32, {order
     // CHECK-SAME:      0000003C{{([0]{181})}}
     // CHECK-SAME:      0000003C{{([0]{181})}}
     // CHECK-SAME:      0000003C0000"> : tensor<16x48x1x1xf16>, [#const.Reorder<#NHWC>]
-    // CHECK:   [[CONVERT_INPUT:%.*]] = IE.Convert(%arg0) {dstElemType = f16} : tensor<1x3x1088x1920xf32, {order = #NHWC}> -> tensor<1x3x1088x1920xf16, {order = #NHWC}>
-    // CHECK:   [[RESHAPE_INPUT:%.*]] = IE.ShapeCast {shape = [1, 48, 1088, 120]} inputs([[CONVERT_INPUT]] : tensor<1x3x1088x1920xf16, {order = #NHWC}>) -> tensor<1x48x1088x120xf16, {order = #NHWC}>
     // CHECK:   [[CONV:%.*]] = IE.Convolution([[RESHAPE_INPUT]], [[WEIGHTS]]) {
     // CHECK-SAME:      dilations = [1, 1],
     // CHECK-SAME:      pads_begin = [0, 0],
@@ -61,6 +61,9 @@ func.func @ConvertSliceWithSmallChannel(%arg0: tensor<1x2x272x480xf32, {order = 
 
     return %SLICE : tensor<1x1x272x480xf16, {order = #NHWC}>
 
+
+    // CHECK:   [[CONVERT_INPUT:%.+]] = IE.Convert([[INPUT0]]) {dstElemType = f16} : tensor<1x2x272x480xf32, {order = #NHWC}> -> tensor<1x2x272x480xf16, {order = #NHWC}>
+    // CHECK:   [[RESHAPE_INPUT:%.+]] = IE.ShapeCast {shape = [1, 32, 272, 30]} inputs([[CONVERT_INPUT]] : tensor<1x2x272x480xf16, {order = #NHWC}>) -> tensor<1x32x272x30xf16, {order = #NHWC}>
     // CHECK:   [[WEIGHTS:%.+]] = const.Declare tensor<16x32x1x1xf16, {order = #NHWC}> = dense<"0x
     // CHECK-SAME:      0000003C{{([0]{128})}}
     // CHECK-SAME:      0000003C{{([0]{128})}}
@@ -78,9 +81,6 @@ func.func @ConvertSliceWithSmallChannel(%arg0: tensor<1x2x272x480xf32, {order = 
     // CHECK-SAME:      0000003C{{([0]{128})}}
     // CHECK-SAME:      0000003C{{([0]{128})}}
     // CHECK-SAME:      0000003C"> : tensor<16x32x1x1xf16>, [#const.Reorder<#NHWC>]
-
-    // CHECK:   [[CONVERT_INPUT:%.+]] = IE.Convert([[INPUT0]]) {dstElemType = f16} : tensor<1x2x272x480xf32, {order = #NHWC}> -> tensor<1x2x272x480xf16, {order = #NHWC}>
-    // CHECK:   [[RESHAPE_INPUT:%.+]] = IE.ShapeCast {shape = [1, 32, 272, 30]} inputs([[CONVERT_INPUT]] : tensor<1x2x272x480xf16, {order = #NHWC}>) -> tensor<1x32x272x30xf16, {order = #NHWC}>
     // CHECK:   [[CONV:%.+]] = IE.Convolution([[RESHAPE_INPUT]], [[WEIGHTS]]) {
     // CHECK-SAME:      dilations = [1, 1],
     // CHECK-SAME:      pads_begin = [0, 0],
@@ -127,6 +127,8 @@ func.func @ConvertSliceToConvFromPermuteCast(%arg0: tensor<1x1088x1920x3xf16>)
 
     return %SLICE : tensor<1x1x1088x1920xf16, {order = #NHWC}>
 
+    // CHECK:   [[PERMUTECAST_INPUT:%.*]]  = IE.PermuteCast(%arg0) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x1088x1920x3xf16> -> tensor<1x3x1088x1920xf16, {order = #NHWC}>
+    // CHECK:   [[RESHAPE_INPUT:%.*]] = IE.ShapeCast {shape = [1, 48, 1088, 120]} inputs([[PERMUTECAST_INPUT]] : tensor<1x3x1088x1920xf16, {order = #NHWC}>) -> tensor<1x48x1088x120xf16, {order = #NHWC}>
     // CHECK:   [[WEIGHTS:%.*]] = const.Declare tensor<16x48x1x1xf16, {order = #NHWC}> = dense<"0x
     // CHECK-SAME:      0000003C{{([0]{196})}}
     // CHECK-SAME:      0000003C{{([0]{196})}}
@@ -143,8 +145,6 @@ func.func @ConvertSliceToConvFromPermuteCast(%arg0: tensor<1x1088x1920x3xf16>)
     // CHECK-SAME:      0000003C{{([0]{196})}}
     // CHECK-SAME:      0000003C{{([0]{196})}}
     // CHECK-SAME:      0000003C{{([0]{196})}}
-    // CHECK:   [[PERMUTECAST_INPUT:%.*]]  = IE.PermuteCast(%arg0) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x1088x1920x3xf16> -> tensor<1x3x1088x1920xf16, {order = #NHWC}>
-    // CHECK:   [[RESHAPE_INPUT:%.*]] = IE.ShapeCast {shape = [1, 48, 1088, 120]} inputs([[PERMUTECAST_INPUT]] : tensor<1x3x1088x1920xf16, {order = #NHWC}>) -> tensor<1x48x1088x120xf16, {order = #NHWC}>
     // CHECK:   [[CONV:%.*]] = IE.Convolution([[RESHAPE_INPUT]], [[WEIGHTS]]) {
     // CHECK-SAME:      dilations = [1, 1],
     // CHECK-SAME:      pads_begin = [0, 0],
@@ -259,10 +259,10 @@ func.func @OptimizeSliceConcat(%arg0: tensor<1x1024x32x32xf16, {order = #NHWC}>)
     return %CONV_OUT : tensor<1x512x32x32xf16, {order = #NHWC}>
 
     // CHECK-DAG:   [[WEIGHTS:%.+]] = const.Declare tensor<512x1024x3x3xf16, {order = #NHWC}> = dense<1.250000e-01> : tensor<512x1024x3x3xf16>, [#const.SubView<[0, 0, 0, 0], [511, 1024, 3, 3]>, #const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [1, 0, 0, 0]>]
-    // CHECK-DAG:   [[CST_0:%.+]] = const.Declare tensor<1x512x32x32xf16, {order = #NHWC}> = dense<1.250000e-01> : tensor<1x1x32x32xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>, #const.PadWithZero<[0, 511, 0, 0], [0, 0, 0, 0]>]
     // CHECK-DAG:   [[WEIGHTS2:%.+]] = const.Declare tensor<512x512x3x3xf16, {order = #NHWC}> = dense<1.250000e-01> : tensor<512x512x3x3xf16>, [#const.Reorder<#NHWC>]
     // CHECK:   [[CONV_IN:%.+]] = IE.Convolution(%arg0, [[WEIGHTS]]) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} :
     // CHECK-SAME:      tensor<1x1024x32x32xf16, {order = #NHWC}>, tensor<512x1024x3x3xf16, {order = #NHWC}> -> tensor<1x512x32x32xf16, {order = #NHWC}>
+    // CHECK:   [[CST_0:%.+]] = const.Declare tensor<1x512x32x32xf16, {order = #NHWC}> = dense<1.250000e-01> : tensor<1x1x32x32xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>, #const.PadWithZero<[0, 511, 0, 0], [0, 0, 0, 0]>]
     // CHECK:   [[ADD:%.+]] = IE.Add([[CONV_IN]], [[CST_0]]) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} :
     // CHECK-SAME:      tensor<1x512x32x32xf16, {order = #NHWC}>, tensor<1x512x32x32xf16, {order = #NHWC}> -> tensor<1x512x32x32xf16, {order = #NHWC}>
     // CHECK:   [[CONV_OUT:%.+]] = IE.Convolution([[ADD]], [[WEIGHTS2]]) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} :
@@ -552,8 +552,8 @@ func.func @ConvertSliceOC3ToConvsWithFactor16(%arg0: tensor<1x4x640x640xf16, {or
 
     return %SLICE : tensor<1x3x640x640xf16, {order = #NHWC}>
 
-    // CHECK:       [[WEIGHTS:%.*]] = const.Declare tensor<48x64x1x1xf16, {order = #NHWC}>
     // CHECK:       [[IN_SHAPECAST:%.*]] = IE.ShapeCast {shape = [1, 64, 640, 40]} inputs([[INPUT]] : tensor<1x4x640x640xf16, {order = #NHWC}>) -> tensor<1x64x640x40xf16, {order = #NHWC}>
+    // CHECK:       [[WEIGHTS:%.*]] = const.Declare tensor<48x64x1x1xf16, {order = #NHWC}>
     // CHECK:       [[CONV:%.*]] = IE.Convolution([[IN_SHAPECAST]], [[WEIGHTS]]) {
     // CHECK-SAME:          dilations = [1, 1],
     // CHECK-SAME:          pads_begin = [0, 0],
@@ -577,8 +577,8 @@ func.func @ConvertSliceOC1ToConvsWithFactor16(%arg0: tensor<1x4x640x640xf16, {or
 
     return %SLICE : tensor<1x1x640x640xf16, {order = #NHWC}>
 
-    // CHECK:       [[WEIGHTS:%.*]] = const.Declare tensor<16x64x1x1xf16, {order = #NHWC}>
     // CHECK:       [[IN_SHAPECAST:%.*]] = IE.ShapeCast {shape = [1, 64, 640, 40]} inputs(%arg0 : tensor<1x4x640x640xf16, {order = #NHWC}>) -> tensor<1x64x640x40xf16, {order = #NHWC}>
+    // CHECK:       [[WEIGHTS:%.*]] = const.Declare tensor<16x64x1x1xf16, {order = #NHWC}>
     // CHECK:       [[CONV:%.*]] = IE.Convolution([[IN_SHAPECAST]], [[WEIGHTS]]) {
     // CHECK-SAME:          dilations = [1, 1],
     // CHECK-SAME:          pads_begin = [0, 0],
@@ -659,14 +659,16 @@ func.func @InsertIdentityConvOptimizeSliceConcat(%arg0: tensor<1x32x32x32xf16, {
 
     return %CONCAT : tensor<1x48x32x32xf16, {order = #NHWC}>
 
-    // CHECK:   [[CST:%.+]] = const.Declare tensor<1x48x32x32xf16, {order = #NHWC}> = dense<1.250000e-01> : tensor<1x1x32x1xf16>, [#const.Broadcast<3 : i64, 32 : i64>, #const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [0, 23, 0, 0]>, #const.PadWithZero<[0, 24, 0, 0], [0, 0, 0, 0]>]
+
+
+    // CHECK:   [[CST_1:%.+]] = const.Declare tensor<1x32x32x32xf16, {order = #NHWC}> = dense<1.250000e-01> : tensor<1x32x32x32xf16>, [#const.Reorder<#NHWC>]
+    // CHECK:   [[ADD:%.+]] = IE.Add([[INPUT0]], [[CST_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x32x32xf16, {order = #NHWC}>, tensor<1x32x32x32xf16, {order = #NHWC}> -> tensor<1x32x32x32xf16, {order = #NHWC}>
     // CHECK:   [[CST_0:%.+]] = const.Declare tensor<48x32x1x1xf16, {order = #NHWC}> = dense<"0x
     // CHECK-SAME:              {{([003C00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000]{32})}}
     // CHECK-SAME:              {{([00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000]{15})}}
     // CHECK-SAME:              "> : tensor<48x32x1x1xf16>, [#const.SubView<[0, 0, 0, 0], [24, 32, 1, 1]>, #const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [24, 0, 0, 0]>]
-    // CHECK:   [[CST_1:%.+]] = const.Declare tensor<1x32x32x32xf16, {order = #NHWC}> = dense<1.250000e-01> : tensor<1x32x32x32xf16>, [#const.Reorder<#NHWC>]
-    // CHECK:   [[ADD:%.+]] = IE.Add([[INPUT0]], [[CST_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x32x32xf16, {order = #NHWC}>, tensor<1x32x32x32xf16, {order = #NHWC}> -> tensor<1x32x32x32xf16, {order = #NHWC}>
     // CHECK:   [[CONV:%.+]] = IE.Convolution([[ADD]], [[CST_0]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x32x32x32xf16, {order = #NHWC}>, tensor<48x32x1x1xf16, {order = #NHWC}> -> tensor<1x48x32x32xf16, {order = #NHWC}>
+    // CHECK:   [[CST:%.+]] = const.Declare tensor<1x48x32x32xf16, {order = #NHWC}> = dense<1.250000e-01> : tensor<1x1x32x1xf16>, [#const.Broadcast<3 : i64, 32 : i64>, #const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [0, 23, 0, 0]>, #const.PadWithZero<[0, 24, 0, 0], [0, 0, 0, 0]>]
     // CHECK:   [[ADD_OUT:%.+]] = IE.Add([[CONV]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} : tensor<1x48x32x32xf16, {order = #NHWC}>, tensor<1x48x32x32xf16, {order = #NHWC}> -> tensor<1x48x32x32xf16, {order = #NHWC}>
 
     // CHECK:   return [[ADD_OUT]] : tensor<1x48x32x32xf16, {order = #NHWC}>
@@ -786,12 +788,11 @@ func.func @OptimizeInnermostSliceMultiple(%arg0: tensor<1x256x2048x4xf16>) -> (t
 
     return %0, %1 : tensor<1x256x2048x1xf16>, tensor<1x256x2048x1xf16>
 
-    // CHECK-DAG:   [[WEIGHTS_0:%.+]] = const.Declare tensor<16x64x1x1xf16, {order = #NHWC}>
-    // CHECK-DAG:   [[WEIGHTS_1:%.+]] = const.Declare tensor<16x64x1x1xf16, {order = #NHWC}>
 
     // First slice path (offset [0, 0, 0, 0])
     // CHECK:   [[PERMUTE_CAST_0:%.+]] = IE.PermuteCast([[INPUT]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x256x2048x4xf16> -> tensor<1x4x256x2048xf16, {order = #NHWC}>
     // CHECK:   [[SHAPE_CAST_IN_0:%.+]] = IE.ShapeCast {shape = [1, 64, 256, 128]} inputs([[PERMUTE_CAST_0]] : tensor<1x4x256x2048xf16, {order = #NHWC}>) -> tensor<1x64x256x128xf16, {order = #NHWC}>
+    // CHECK:   [[WEIGHTS_1:%.+]] = const.Declare tensor<16x64x1x1xf16, {order = #NHWC}>
     // CHECK:   [[CONV_0:%.+]] = IE.Convolution([[SHAPE_CAST_IN_0]], [[WEIGHTS_1]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x64x256x128xf16, {order = #NHWC}>, tensor<16x64x1x1xf16, {order = #NHWC}> -> tensor<1x16x256x128xf16, {order = #NHWC}>
     // CHECK:   [[SHAPE_CAST_OUT_0:%.+]] = IE.ShapeCast {shape = [1, 1, 256, 2048]} inputs([[CONV_0]] : tensor<1x16x256x128xf16, {order = #NHWC}>) -> tensor<1x1x256x2048xf16, {order = #NHWC}>
     // CHECK:   [[PERMUTE_CAST_OUT_0:%.+]] = IE.PermuteCast([[SHAPE_CAST_OUT_0]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x1x256x2048xf16, {order = #NHWC}> -> tensor<1x256x2048x1xf16>
@@ -799,9 +800,29 @@ func.func @OptimizeInnermostSliceMultiple(%arg0: tensor<1x256x2048x4xf16>) -> (t
     // Second slice path (offset [0, 0, 0, 1])
     // CHECK:   [[PERMUTE_CAST_1:%.+]] = IE.PermuteCast([[INPUT]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x256x2048x4xf16> -> tensor<1x4x256x2048xf16, {order = #NHWC}>
     // CHECK:   [[SHAPE_CAST_IN_1:%.+]] = IE.ShapeCast {shape = [1, 64, 256, 128]} inputs([[PERMUTE_CAST_1]] : tensor<1x4x256x2048xf16, {order = #NHWC}>) -> tensor<1x64x256x128xf16, {order = #NHWC}>
+    // CHECK:   [[WEIGHTS_0:%.+]] = const.Declare tensor<16x64x1x1xf16, {order = #NHWC}>
     // CHECK:   [[CONV_1:%.+]] = IE.Convolution([[SHAPE_CAST_IN_1]], [[WEIGHTS_0]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x64x256x128xf16, {order = #NHWC}>, tensor<16x64x1x1xf16, {order = #NHWC}> -> tensor<1x16x256x128xf16, {order = #NHWC}>
     // CHECK:   [[SHAPE_CAST_OUT_1:%.+]] = IE.ShapeCast {shape = [1, 1, 256, 2048]} inputs([[CONV_1]] : tensor<1x16x256x128xf16, {order = #NHWC}>) -> tensor<1x1x256x2048xf16, {order = #NHWC}>
     // CHECK:   [[PERMUTE_CAST_OUT_1:%.+]] = IE.PermuteCast([[SHAPE_CAST_OUT_1]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x1x256x2048xf16, {order = #NHWC}> -> tensor<1x256x2048x1xf16>
 
     // CHECK:   return [[PERMUTE_CAST_OUT_0]], [[PERMUTE_CAST_OUT_1]] : tensor<1x256x2048x1xf16>, tensor<1x256x2048x1xf16>
+}
+
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @NotFuseForCompressConv
+// CHECK-SAME:        [[INPUT0:%arg[0-9]]]: tensor<1x4x320000x4xf16, {order = #NHWC}>
+func.func @NotFuseForCompressConv(%arg0: tensor<1x4x320000x4xf16, {order = #NHWC}>) -> tensor<1x1x320000x4xf16, {order = #NHWC}> {
+    %cst = const.Declare tensor<16x4x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<1x4x1x1xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [15, 0, 0, 0]>]
+    %0 = IE.Convolution(%arg0, %cst) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x4x320000x4xf16, {order = #NHWC}>, tensor<16x4x1x1xf16, {order = #NHWC}> -> tensor<1x16x320000x4xf16, {order = #NHWC}>
+    %1 = IE.Slice %0 [0, 0, 0, 0] [1, 1, 320000, 4] : tensor<1x16x320000x4xf16, {order = #NHWC}> to tensor<1x1x320000x4xf16, {order = #NHWC}>
+
+    return %1 : tensor<1x1x320000x4xf16, {order = #NHWC}>
+
+    // CHECK:       [[CONV:%.+]] = IE.Convolution
+    // CHECK:       [[SLICE:%.+]] = IE.Slice
+    // CHECK:       return [[SLICE]]
 }

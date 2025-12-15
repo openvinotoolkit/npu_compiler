@@ -95,31 +95,22 @@ void ActShaveProfilingPass::safeRunOnModule() {
         return;
     }
 
-    std::unique_ptr<BaseActShaveProfiler> profiler;
     const auto tileCount = static_cast<unsigned>(config::getTileExecutor(module).getCount());
-    auto nameUniqifier = std::make_shared<NameUniqifier>(_log);
-    if (isClusteredActShavePresent) {
-        // If at least 1 ActShave task is tiled use approach where profiling buffer is distributed between clusters
-        profiler = std::make_unique<NCETiledActShaveProfiler>(tileCount, builder, ctx, memKindAttr, netFunc, _log,
-                                                              nameUniqifier);
-    } else {
-        // In case no ActShave task is tiled use simpler profiling handling which uses just single cluster
-        profiler = std::make_unique<UniformNonTiledActShaveProfiler>(1, builder, ctx, memKindAttr, netFunc, _log,
-                                                                     nameUniqifier);
-    }
+    ActShaveProfiler profiler(isClusteredActShavePresent ? tileCount : 1, builder, ctx, memKindAttr, netFunc, _log,
+                              std::make_shared<NameUniqifier>(_log));
 
     for (auto& swTask : swTasks) {
-        profiler->scheduleTask(swTask);
+        profiler.scheduleTask(swTask);
     }
 
     // Declare and create additional output from network
-    const unsigned outputDdrSize = profiler->getRequiredDdrMemory();
+    const unsigned outputDdrSize = profiler.getRequiredDdrMemory();
     const auto outputResultDdr = mlir::MemRefType::get({outputDdrSize}, getUInt32Type(ctx));
     auto profilingResult =
             addNewProfilingOutput(ctx, netFunc, netInfo, outputResultDdr, profiling::ExecutorType::ACTSHAVE);
 
     SmallVector<mlir::Value> concatResults;
-    profiler->addProfilingOps(profilingResult, concatResults);
+    profiler.addProfilingOps(profilingResult, concatResults);
 
     mlir::func::ReturnOp returnOp =
             mlir::dyn_cast_or_null<mlir::func::ReturnOp>(netFunc.getBody().front().getTerminator());
@@ -135,7 +126,7 @@ void ActShaveProfilingPass::safeRunOnModule() {
     for (auto& swTask : swTasks) {
         swTask.erase();
     }
-    BaseActShaveProfiler::resetBufferIdCounter();
+    ActShaveProfiler::resetBufferIdCounter();
 }
 
 //

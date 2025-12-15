@@ -4,9 +4,10 @@
 //
 
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 
 namespace vpux::VPU {
 #define GEN_PASS_DECL_LEGALIZEDYNAMICSHAPECONCATFORSWLAYERS
@@ -90,7 +91,7 @@ void LegalizeDynamicShapeConcatForSWLayers::safeRunOnFunc() {
     mlir::FrozenRewritePatternSet frozenPatterns(std::move(patterns));
 
     func.walk([&](VPU::ConcatOp concatOp) {
-        if (mlir::failed(mlir::applyOpPatternsAndFold(concatOp.getOperation(), frozenPatterns))) {
+        if (mlir::failed(mlir::applyOpPatternsGreedily(concatOp.getOperation(), frozenPatterns))) {
             signalPassFailure();
         }
     });

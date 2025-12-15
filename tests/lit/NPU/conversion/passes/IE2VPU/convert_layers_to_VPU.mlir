@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --verify-diagnostics --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --convert-layers-to-VPU %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @SingleLayer
 func.func @SingleLayer(%arg0: tensor<1x1000xf16>) -> tensor<1x1000xf16> {
@@ -317,18 +317,6 @@ func.func @NormalizeL2(%arg0: tensor<1x128x50x85xf16>) -> tensor<1x128x50x85xf16
     // CHECK: return [[VAR0]] : tensor<1x128x50x85xf16>
 }
 
-
-// -----
-
-// CHECK-LABEL: @NormalizeL2FixSmallEpsilon
-func.func @NormalizeL2FixSmallEpsilon(%arg0: tensor<1x1x40x64xf16>) -> tensor<1x1x40x64xf16> {
-    %0 = IE.NormalizeL2(%arg0) {axes_value = [3], eps = 9.999999960041972E-13 : f64, eps_mode = #IE.eps_mode<MAX>} : tensor<1x1x40x64xf16> -> tensor<1x1x40x64xf16>
-    return %0 : tensor<1x1x40x64xf16>
-
-    // CHECK: [[VAR0:%.+]] = VPU.NormalizeL2(%arg0) {axes_value = [3], eps = 9.9999997171806853E-10 : f64, eps_mode = #IE.eps_mode<MAX>} : tensor<1x1x40x64xf16> -> tensor<1x1x40x64xf16>
-    // CHECK: return [[VAR0]] : tensor<1x1x40x64xf16>
-}
-
 // -----
 
 // CHECK-LABEL: @GRUCell
@@ -444,12 +432,37 @@ func.func @CumSum(%arg0: tensor<1x9xf16>) -> tensor<1x9xf16> {
 // -----
 
 // CHECK-LABEL: @NonMaxSuppression
-func.func @NonMaxSuppression(%arg0: tensor<3x100x4xf16>, %arg1: tensor<3x5x100xf16>) -> (tensor<300x3xsi32>, tensor<300x3xf16>, tensor<1xsi32>) {
-    %0, %1, %2 = IE.NonMaxSuppression(%arg0, %arg1) {box_encoding = #IE.box_encoding_type<CENTER>, iou_threshold_value = 0.300048828125 : f64, max_output_boxes_per_class_value = 20 : i64, operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>, score_threshold_value = 0.300048828125 : f64, soft_nms_sigma_value = 0.000000e+00 : f64} : tensor<3x100x4xf16>, tensor<3x5x100xf16> -> tensor<300x3xsi32>, tensor<300x3xf16>, tensor<1xsi32>
+// CHECK-SAME:  ([[IN_BOX_COORDS:%.+]]: tensor<3x100x4xf16>, [[IN_BOX_SCORES:%.+]]: tensor<3x5x100xf16>)
+func.func @NonMaxSuppression(%in_box_coords: tensor<3x100x4xf16>, %in_box_scores: tensor<3x5x100xf16>) -> (tensor<300x3xsi32>, tensor<300x3xf16>, tensor<1xsi32>) {
+    %0, %1, %2 = IE.NonMaxSuppression(%in_box_coords, %in_box_scores) {box_encoding = #IE.box_encoding_type<CENTER>, iou_threshold_value = 0.300048828125 : f64, max_output_boxes_per_class_value = 20 : i64, operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>, score_threshold_value = 0.300048828125 : f64, soft_nms_sigma_value = 0.000000e+00 : f64} : tensor<3x100x4xf16>, tensor<3x5x100xf16> -> tensor<300x3xsi32>, tensor<300x3xf16>, tensor<1xsi32>
     return %0, %1, %2 : tensor<300x3xsi32>, tensor<300x3xf16>, tensor<1xsi32>
 
-    // CHECK: [[VAR0:%.+]], [[VAR1:%.+]], [[VAR2:%.+]] = VPU.NonMaxSuppression(%arg0, %arg1) {box_encoding = #IE.box_encoding_type<CENTER>, iou_threshold_value = 0.300048828125 : f64, max_output_boxes_per_class_value = 20 : i64, score_threshold_value = 0.300048828125 : f64, soft_nms_sigma_value = 0.000000e+00 : f64} : tensor<3x100x4xf16>, tensor<3x5x100xf16> -> tensor<300x3xsi32>, tensor<300x3xf16>, tensor<1xsi32>
+    // CHECK: [[AUX:%.+]] = const.Declare tensor<1x1x1x1400xui8> = dense<0> : tensor<1x1x1x1400xui8>
+    // CHECK: [[VAR0:%.+]], [[VAR1:%.+]], [[VAR2:%.+]] = VPU.NonMaxSuppression([[IN_BOX_COORDS]], [[IN_BOX_SCORES]], [[AUX]]) {box_encoding = #IE.box_encoding_type<CENTER>, iou_threshold_value = 0.300048828125 : f64, max_output_boxes_per_class_value = 20 : i64, score_threshold_value = 0.300048828125 : f64, soft_nms_sigma_value = 0.000000e+00 : f64} : tensor<3x100x4xf16>, tensor<3x5x100xf16>, tensor<1x1x1x1400xui8> -> tensor<300x3xsi32>, tensor<300x3xf16>, tensor<1xsi32>
     // CHECK: return [[VAR0:%.+]], [[VAR1:%.+]], [[VAR2:%.+]] : tensor<300x3xsi32>, tensor<300x3xf16>, tensor<1xsi32>
+}
+
+// -----
+
+// CHECK-LABEL: @Proposal
+// CHECK-SAME:  ([[CLASS_PROBS:%.+]]: tensor<7x4x28x28xf16>, [[BBOX_DELTAS:%.+]]: tensor<7x8x28x28xf16>, [[IMAGE_SHAPE:%.+]]: tensor<3xf16>)
+func.func @Proposal(%class_probs: tensor<7x4x28x28xf16>, %bbox_deltas: tensor<7x8x28x28xf16>, %image_shape: tensor<3xf16>) -> (tensor<7000x5xf16>, tensor<7000xf16>) {
+    %output, %probs = IE.Proposal(%class_probs, %bbox_deltas, %image_shape) {
+        proposal_attrs = #IE.Proposal<
+            baseSize = 16 : i64, preNmsTopN = 1000 : i64, postNmsTopN = 1000 : i64, nmsThresh = 1.0 : f64,
+            featStride = 8 : i64, minSize = 16 : i64, ratio = [1], scale = [1, 2], clipBeforeNms = true, clipAfterNms = false,
+            normalize = false, boxSizeScale = 1.0 : f64, boxCoordinateScale = 1.0 : f64, framework = "", inferProbs = true
+        >
+    } : tensor<7x4x28x28xf16>, tensor<7x8x28x28xf16>, tensor<3xf16> -> tensor<7000x5xf16>, tensor<7000xf16>
+    return %output, %probs : tensor<7000x5xf16>, tensor<7000xf16>
+
+    // CHECK:       [[AUX:%.+]] = const.Declare tensor<15715xui8> = dense<0> : tensor<15715xui8>
+    // CHECK:       [[OUTPUT:%.+]], [[PROBS:%.+]] = VPU.Proposal([[CLASS_PROBS]], [[BBOX_DELTAS]], [[IMAGE_SHAPE]], [[AUX]]) {
+    // CHECK-SAME:      proposal_attrs = #IE.Proposal<baseSize = 16 : i64, preNmsTopN = 1000 : i64, postNmsTopN = 1000 : i64, nmsThresh = 1.000000e+00 : f64,
+    // CHECK-SAME:      featStride = 8 : i64, minSize = 16 : i64, ratio = [1], scale = [1, 2], clipBeforeNms = true, clipAfterNms = false,
+    // CHECK-SAME:      normalize = false, boxSizeScale = 1.000000e+00 : f64, boxCoordinateScale = 1.000000e+00 : f64, framework = "", inferProbs = true>
+    // CHECK-SAME:  } : tensor<7x4x28x28xf16>, tensor<7x8x28x28xf16>, tensor<3xf16>, tensor<15715xui8> -> tensor<7000x5xf16>, tensor<7000xf16>
+    // CHECK:       return [[OUTPUT]], [[PROBS]]
 }
 
 // -----
@@ -605,22 +618,23 @@ func.func @InterpolateQuantized(%arg0: tensor<1x16x3x3x!qElemType>) -> tensor<1x
 // -----
 
 // CHECK-LABEL: @TopKWithKValue
-// CHECK-SAME: (%arg0: tensor<1x64x128x128xf32>) -> tensor<1x1x128x128xsi32>
+// CHECK-SAME: ([[INPUT:%.+]]: tensor<1x64x128x128xf32>) -> tensor<1x1x128x128xsi32>
 func.func @TopKWithKValue(%arg0: tensor<1x64x128x128xf32>) -> tensor<1x1x128x128xsi32> {
     %output_values, %target_shape = IE.TopK(%arg0) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>}
             : tensor<1x64x128x128xf32> -> tensor<1x1x128x128xf32>, tensor<1x1x128x128xsi32>
     return %target_shape : tensor<1x1x128x128xsi32>
 
-    // CHECK: [[VALUES:%.*]], [[SHAPE:%.*]] = VPU.TopK(%arg0)
-    // CHECK-SAME:         {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 0, 0>, sort = #IE.topk_sort_type<SORT_INDICES>}
-    // CHECK-SAME:         : tensor<1x64x128x128xf32> -> tensor<1x1x128x128xf32>, tensor<1x1x128x128xsi32>
-    // CHECK: return [[SHAPE]] : tensor<1x1x128x128xsi32>
+    // CHECK:      [[AUX:%.+]] = const.Declare tensor<1x1x1x1024xui8> = dense<0> : tensor<1x1x1x1024xui8>
+    // CHECK:      [[VALUES:%.*]], [[SHAPE:%.*]] = VPU.TopK([[INPUT]], [[AUX]])
+    // CHECK-SAME:         {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>}
+    // CHECK-SAME:         : tensor<1x64x128x128xf32>, tensor<1x1x1x1024xui8> -> tensor<1x1x128x128xf32>, tensor<1x1x128x128xsi32>
+    // CHECK:      return [[SHAPE]]
 }
 
 // -----
 
 // CHECK-LABEL: @TopKWithKConst
-// CHECK-SAME: (%arg0: tensor<1x64x128x128xf32>) -> tensor<1x1x128x128xsi32>
+// CHECK-SAME: ([[INPUT:%.+]]: tensor<1x64x128x128xf32>) -> tensor<1x1x128x128xsi32>
 func.func @TopKWithKConst(%arg0: tensor<1x64x128x128xf32>) -> tensor<1x1x128x128xsi32> {
     %cst_K = const.Declare tensor<si32> = dense<1> : tensor<si32>
     %output_values, %target_shape = IE.TopK(%arg0, %cst_K) {axis = 1 : i64, element_type = si32, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>}
@@ -628,10 +642,11 @@ func.func @TopKWithKConst(%arg0: tensor<1x64x128x128xf32>) -> tensor<1x1x128x128
     return %target_shape : tensor<1x1x128x128xsi32>
 
     // CHECK-DAG:   [[CST_K:%.*]] = const.Declare tensor<si32> = dense<1> : tensor<si32>
-    // CHECK: [[VALUES:%.*]], [[SHAPE:%.*]] = VPU.TopK(%arg0, [[CST_K]])
-    // CHECK-SAME:         {axis = 1 : i64, element_type = si32, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 1, 0>, sort = #IE.topk_sort_type<SORT_INDICES>}
-    // CHECK-SAME:         : tensor<1x64x128x128xf32>, tensor<si32> -> tensor<1x1x128x128xf32>, tensor<1x1x128x128xsi32>
-    // CHECK: return [[SHAPE]] : tensor<1x1x128x128xsi32>
+    // CHECK:       [[AUX:%.+]] = const.Declare tensor<1x1x1x1024xui8> = dense<0> : tensor<1x1x1x1024xui8>
+    // CHECK:       [[VALUES:%.*]], [[SHAPE:%.*]] = VPU.TopK([[INPUT]], [[CST_K]], [[AUX]])
+    // CHECK-SAME:         {axis = 1 : i64, element_type = si32, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>}
+    // CHECK-SAME:         : tensor<1x64x128x128xf32>, tensor<si32>, tensor<1x1x1x1024xui8> -> tensor<1x1x128x128xf32>, tensor<1x1x128x128xsi32>
+    // CHECK:       return [[SHAPE]]
 }
 
 // -----
@@ -876,12 +891,12 @@ func.func @PermuteCastWithPerAxisQuantizeType(%arg0: tensor<1x128x1x32x!qElemTyp
 // CHECK-SAME: ([[INPUT:%.+]]: tensor<1x2x6xf32>) -> tensor<1x2x6xf32>
 func.func @RMSNormTest(%arg0: tensor<1x2x6xf32>) -> tensor<1x2x6xf32> {
     %cst = const.Declare tensor<6xf32> = dense<[2.900000e-02, 1.400000e-02, 3.000000e-03, 1.300000e-02, 1.500000e-02, 0.00899999961]> : tensor<6xf32>
-    %0 = IE.RMS(%arg0, %cst) {epsilon = 9.9999997473787516E-6 : f64} : tensor<1x2x6xf32>, tensor<6xf32> -> tensor<1x2x6xf32>
+    %0 = IE.RMS(%arg0, %cst) {eps = 9.9999997473787516E-6 : f64} : tensor<1x2x6xf32>, tensor<6xf32> -> tensor<1x2x6xf32>
     return %0 : tensor<1x2x6xf32>
 
     // CHECK:       [[CST:%.*]] = const.Declare tensor<6xf32> = dense<[2.900000e-02, 1.400000e-02, 3.000000e-03, 1.300000e-02, 1.500000e-02, 0.00899999961]> : tensor<6xf32>
     // CHECK:       [[RMS:%.+]] = VPU.RMS([[INPUT]], [[CST]])
-    // CHECK-SAME:         {epsilon = 9.9999997473787516E-6 : f64} : tensor<1x2x6xf32>, tensor<6xf32> -> tensor<1x2x6xf32>
+    // CHECK-SAME:         {eps = 9.9999997473787516E-6 : f64} : tensor<1x2x6xf32>, tensor<6xf32> -> tensor<1x2x6xf32>
     // CHECK:       return [[RMS]] : tensor<1x2x6xf32>
 }
 
@@ -1019,7 +1034,7 @@ func.func @MaxPool8(%arg0: tensor<1x3x30x30xf16>) -> (tensor<1x3x13x26xf16>, ten
     %output, %output_index = IE.MaxPool8(%arg0) {axis = 0 : i64, dilations = [2, 2], index_element_type = si32, kernel_size = [3, 5], pads_begin = [0, 2], pads_end = [0, 2], rounding_type = #IE.rounding_type<FLOOR>, strides = [2, 1]} : tensor<1x3x30x30xf16> -> tensor<1x3x13x26xf16>, tensor<1x3x13x26xsi32>
     return %output, %output_index : tensor<1x3x13x26xf16>, tensor<1x3x13x26xsi32>
 
-    // CHECK:   [[MAXPOOL8:%.+]], [[INDICES:%.+]] = VPU.MaxPool8([[ARG0]]) {axis = 0 : i64, dilations = [2, 2], index_element_type = si32, kernel_size = [3, 5], pads_begin = [0, 2], pads_end = [0, 2], rounding_type = #IE.rounding_type<FLOOR>, strides = [2, 1]} : tensor<1x3x30x30xf16> -> tensor<1x3x13x26xf16>, tensor<1x3x13x26xsi32>
+    // CHECK:   [[MAXPOOL8:%.+]], [[INDICES:%.+]] = VPU.MaxPool8([[ARG0]]) {axis = 0 : i64, dilations = [2, 2], index_element_type = si32, initial_input_dims_attr = [1, 3, 30, 30], initial_output_dims_attr = [1, 3, 13, 26], kernel_size = [3, 5], pads_begin = [0, 2], pads_end = [0, 2], rounding_type = #IE.rounding_type<FLOOR>, strides = [2, 1]} : tensor<1x3x30x30xf16> -> tensor<1x3x13x26xf16>, tensor<1x3x13x26xsi32>
     // CHECK:   return [[MAXPOOL8]], [[INDICES]] : tensor<1x3x13x26xf16>, tensor<1x3x13x26xsi32>
 }
 
@@ -1164,9 +1179,16 @@ func.func @ExperimentalDetectronROIFeatureExtractor(%arg0: tensor<100x4xf32>, %a
     return %output, %outputROIs : tensor<100x64x14x14xf32>, tensor<100x4xf32>
 
     // CHECK-NOT:    IE.ExperimentalDetectronROIFeatureExtractor
-    // CHECK:        [[OUT_FEATURES:%.+]], [[OUT_ROIS:%.+]] = VPU.ExperimentalDetectronROIFeatureExtractor([[INPUT_ROIS]], [[INPUT_FEATURE0]], [[INPUT_FEATURE1]], [[INPUT_FEATURE2]])
-    // CHECK-SAME:   {attr = #IE.ExperimentalDetectronROIFeatureExtractor<output_size = 14 : i64, sampling_ratio = 2 : i64, aligned = false, pyramid_scales = [4, 8, 16]>, operandSegmentSizes = array<i32: 4, 0, 0, 0, 0>}
-    // CHECK-SAME:   : tensor<100x4xf32>, tensor<1x64x192x320xf32>, tensor<1x64x96x160xf32>, tensor<1x64x48x80xf32> -> tensor<100x64x14x14xf32>, tensor<100x4xf32>
+    // CHECK:        [[AUX_REORDERED_ROIS:%.+]] = const.Declare tensor<400xf32> = dense<0.000000e+00> : tensor<400xf32>
+    // CHECK:        [[AUX_ORIGINAL_ROI_MAP:%.+]] = const.Declare tensor<100xui32> = dense<0> : tensor<100xui32>
+    // CHECK:        [[AUX_OUTPUT_ROIS_FEATURES:%.+]] = const.Declare tensor<1254400xf32> = dense<0.000000e+00> : tensor<1254400xf32>
+    // CHECK:        [[AUX_LEVELS:%.+]] = const.Declare tensor<100xui32> = dense<0> : tensor<100xui32>
+    // CHECK:        [[OUT_FEATURES:%.+]], [[OUT_ROIS:%.+]] = VPU.ExperimentalDetectronROIFeatureExtractor
+    // CHECK-SAME:     ([[INPUT_ROIS]], [[INPUT_FEATURE0]], [[INPUT_FEATURE1]], [[INPUT_FEATURE2]],
+    // CHECK-SAME:      [[AUX_REORDERED_ROIS]], [[AUX_ORIGINAL_ROI_MAP]], [[AUX_OUTPUT_ROIS_FEATURES]], [[AUX_LEVELS]]) {
+    // CHECK-SAME:        attr = #IE.ExperimentalDetectronROIFeatureExtractor<output_size = 14 : i64, sampling_ratio = 2 : i64, aligned = false, pyramid_scales = [4, 8, 16]>
+    // CHECK-SAME:   } : tensor<100x4xf32>, tensor<1x64x192x320xf32>, tensor<1x64x96x160xf32>, tensor<1x64x48x80xf32>, tensor<400xf32>, tensor<100xui32>, tensor<1254400xf32>, tensor<100xui32>
+    // CHECK-SAME:     -> tensor<100x64x14x14xf32>, tensor<100x4xf32>
 }
 
 // -----
@@ -1217,12 +1239,13 @@ func.func @DynamicQuantize(%arg0: tensor<1x1x6000x400xf32>, %arg1: tensor<1x1x1x
 // -----
 
 // CHECK-LABEL: @SDPA
-// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x32x1x96xf16>, [[ARG1:%.+]]: tensor<1x32x1024x96xf16>, [[ARG2:%.+]]: tensor<1x32x96x1024xf16>, [[ARG3:%.+]]: tensor<1x1x1x1024xf16>)
-func.func @SDPA(%arg0: tensor<1x32x1x96xf16>, %arg1: tensor<1x32x1024x96xf16>, %arg2: tensor<1x32x96x1024xf16>, %arg3: tensor<1x1x1x1024xf16>) -> (tensor<1x32x1x96xf16>){
-    %0 = IE.SDPA(%arg0, %arg1, %arg2, %arg3) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 0>} : tensor<1x32x1x96xf16>, tensor<1x32x1024x96xf16>, tensor<1x32x96x1024xf16>, tensor<1x1x1x1024xf16> -> tensor<1x32x1x96xf16>
+// CHECK-SAME:  ([[INPUT_Q:%.+]]: tensor<1x32x1x96xf16>, [[INPUT_K:%.+]]: tensor<1x32x1024x96xf16>, [[INPUT_V:%.+]]: tensor<1x32x96x1024xf16>, [[INPUT_MASK:%.+]]: tensor<1x1x1x1024xf16>)
+func.func @SDPA(%input_q: tensor<1x32x1x96xf16>, %input_k: tensor<1x32x1024x96xf16>, %input_v: tensor<1x32x96x1024xf16>, %input_mask: tensor<1x1x1x1024xf16>) -> (tensor<1x32x1x96xf16>) {
+    %0 = IE.SDPA(%input_q, %input_k, %input_v, %input_mask) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 0>} : tensor<1x32x1x96xf16>, tensor<1x32x1024x96xf16>, tensor<1x32x96x1024xf16>, tensor<1x1x1x1024xf16> -> tensor<1x32x1x96xf16>
     return %0 : tensor<1x32x1x96xf16>
 
-    // CHECK:   [[SDPA:%.+]] = VPU.SDPA([[ARG0]], [[ARG1]], [[ARG2]], [[ARG3]]) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 0, 0>} : tensor<1x32x1x96xf16>, tensor<1x32x1024x96xf16>, tensor<1x32x96x1024xf16>, tensor<1x1x1x1024xf16> -> tensor<1x32x1x96xf16>
+    // CHECK:   [[AUX:%.+]] = const.Declare tensor<1x32x1x4096xui8> = dense<0> : tensor<1x32x1x4096xui8>
+    // CHECK:   [[SDPA:%.+]] = VPU.SDPA([[INPUT_Q]], [[INPUT_K]], [[INPUT_V]], [[INPUT_MASK]], [[AUX]]) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 0, 1>} : tensor<1x32x1x96xf16>, tensor<1x32x1024x96xf16>, tensor<1x32x96x1024xf16>, tensor<1x1x1x1024xf16>, tensor<1x32x1x4096xui8> -> tensor<1x32x1x96xf16>
     // CHECK:   return [[SDPA]] : tensor<1x32x1x96xf16>
 }
 
@@ -1261,28 +1284,6 @@ func.func @dynamicD2S(%input: !inputDynamicType) -> !outputDynamicType {
     // CHECK-SAME:      -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 3200, 5120]> : tensor<4xsi64>, order = #NHWC}>
 
     // CHECK:       return [[D2S]]
-}
-
-// -----
-
-// CHECK-LABEL: @FlashSDPA
-// CHECK-SAME: [[QUERY:%[^, ]+]]: tensor<1x8x64x64xf16>,
-// CHECK-SAME: [[KEY:%[^, ]+]]: tensor<1x8x32x64xf16>,
-// CHECK-SAME: [[VALUE:%[^, ]+]]: tensor<1x8x32x128xf16>
-func.func @FlashSDPA(%arg0: tensor<1x8x64x64xf16>, %arg1: tensor<1x8x32x64xf16>, %arg2: tensor<1x8x32x128xf16>) -> tensor<1x8x64x128xf16> {
-    %0 = IE.FlashSDPA(%arg0, %arg1, %arg2) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 0>} : tensor<1x8x64x64xf16>, tensor<1x8x32x64xf16>, tensor<1x8x32x128xf16> -> tensor<1x8x64x128xf16>
-    return %0 : tensor<1x8x64x128xf16>
-
-    // CHECK:   [[IN_OUT:%.+]] = const.Declare tensor<1x8x64x128xf16> = dense<0.000000e+00> : tensor<1x8x64x128xf16>
-    // CHECK:   [[IN_MAX:%.+]] = const.Declare tensor<1x8x64x1xf32> = dense<0xFF800000> : tensor<1x8x64x1xf32>
-    // CHECK:   [[IN_SUM:%.+]] = const.Declare tensor<1x8x64x1xf32> = dense<0.000000e+00> : tensor<1x8x64x1xf32>
-    // CHECK:   [[AUX_BUF:%.+]] = const.Declare tensor<1x8x64x32xf16> = dense<0.000000e+00> : tensor<1x8x64x32xf16>
-
-    // CHECK:   [[RES_OUT:%.+]], [[RES_MAX:%.+]], [[RES_SUM:%.+]], [[RES_QUERY:%.+]] = VPU.FlashSDPA([[QUERY]], [[KEY]], [[VALUE]], [[AUX_BUF]], [[IN_OUT]], [[IN_MAX]], [[IN_SUM]])
-    // CHECK-SAME:      is_head = true, is_tail = true
-    // CHECK-SAME:      -> tensor<1x8x64x128xf16>, tensor<1x8x64x1xf32>, tensor<1x8x64x1xf32>, tensor<1x8x64x64xf16>
-
-    // CHECK:   return [[RES_OUT]]
 }
 
 // -----

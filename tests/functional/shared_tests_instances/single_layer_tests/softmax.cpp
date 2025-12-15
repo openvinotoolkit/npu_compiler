@@ -59,6 +59,21 @@ TEST_P(SoftMaxLayerTestCommon, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
+TEST_P(SoftMaxLayerTestCommon, NPU5010_SW) {
+    setSkipCompilationCallback(SkipDynamicShapes(GetParam()));
+
+    abs_threshold = 1e-3;
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(SoftMaxLayerTestCommon, NPU5010_HW) {
+    setSkipCompilationCallback(SkipDynamicShapes(GetParam()));
+
+    abs_threshold = 1e-3;
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
 }  // namespace ov::test
 
 using ov::test::SoftMaxLayerTestCommon;

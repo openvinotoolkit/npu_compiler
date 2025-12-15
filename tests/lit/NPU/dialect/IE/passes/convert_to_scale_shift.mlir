@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-to-scale-shift %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @ConvertAddToScaleShift
 func.func @ConvertAddToScaleShift(%arg0: tensor<1x3x300x300xf16>) -> tensor<1x3x300x300xf16> {

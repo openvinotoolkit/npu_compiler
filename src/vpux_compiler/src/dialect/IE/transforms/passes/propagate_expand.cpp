@@ -792,7 +792,7 @@ void PropagateExpandPass::safeRunOnFunc() {
     patterns.add<DepthToSpaceSliceRewriter>(&ctx, _log);
     patterns.add<SpaceToDepthSliceRewriter>(&ctx, _log);
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

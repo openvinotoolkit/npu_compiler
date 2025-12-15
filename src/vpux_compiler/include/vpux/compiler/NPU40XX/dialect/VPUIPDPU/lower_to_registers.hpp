@@ -86,6 +86,8 @@ uint64_t getTensorMode(mlir::Type type) {
             return static_cast<uint64_t>(nn_public::VpuInputTensorDType::BIN);
         } else if (mlir::isa<mlir::Float8E5M2Type>(type)) {
             return static_cast<uint64_t>(nn_public::VpuInputTensorDType::FP8);
+        } else if (mlir::isa<mlir::Float8E4M3FNType>(type)) {
+            return static_cast<uint64_t>(nn_public::VpuInputTensorDType::HF8);
         }
         VPUX_THROW("Invalid tensor type for DPU configuration {0}", type);
     } else if (std::is_same<REG_TYPE, NPUReg40XX::RegField_dma_acc_info_compress_dtypeType>::value ||
@@ -289,6 +291,12 @@ void lowerToRegIDUWeightsOp(VPUIPDPU::IDUWeightsOp op, DpuInvariantDescriptorTyp
             } else if (wmode == static_cast<uint64_t>(nn_public::VpuInputTensorDType::BF16)) {
                 vpux::type::bfloat16 bf16(value);
                 return bf16.to_bits();
+            } else if (wmode == static_cast<uint64_t>(nn_public::VpuInputTensorDType::FP8)) {
+                vpux::type::float8_e5m2 bf8(value);
+                return bf8.to_bits();
+            } else if (wmode == static_cast<uint64_t>(nn_public::VpuInputTensorDType::HF8)) {
+                vpux::type::float8_e4m3 hf8(value);
+                return hf8.to_bits();
             } else {
                 VPUX_THROW("getPalletModeBitValue: Unsupported wmode for palletization table {0}", wmode);
             }

@@ -39,6 +39,10 @@ class PadFqSubGraphTest : public VpuOv2LayerTest {
     }
 };
 
+TEST_F(PadFqSubGraphTest, NPU5010_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
 TEST_F(PadFqSubGraphTest, NPU4000_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);

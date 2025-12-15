@@ -5,7 +5,7 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values=true" --introduce-init-function="ws-extraction-mode=gen-init init-part=0 memory-limit=1000" --verify-diagnostics %s | FileCheck --check-prefix=CHECK-BIG-LIMIT %s
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values=true" --introduce-init-function="ws-extraction-mode=gen-init init-part=0 memory-limit=4" --verify-diagnostics %s | FileCheck --check-prefix=CHECK-SMALL-LIMIT %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // Note: these tests verify init schedule slicing. They are not supposed to test
 // everything but rather test the bare minimum, focusing on the slicing logic.

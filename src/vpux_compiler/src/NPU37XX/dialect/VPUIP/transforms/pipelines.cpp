@@ -24,7 +24,7 @@ void vpux::VPUIP::arch37xx::buildMemoryAllocationPipeline(mlir::OpPassManager& p
     pm.addPass(VPUIP::createFeasibleAllocationPass(
             VPU::getMemKind<VPU::MemoryKind::CMX_NN>, VPU::getMemKind<VPU::MemoryKind::DDR>, options.linearizeSchedule,
             options.enablePipelining, options.enablePrefetching, options.optimizeFragmentation,
-            options.optimizeDynamicSpilling, log));
+            options.optimizeDynamicSpilling, options.enableMultiScheduleHeuristic, log));
 
     if (options.enableGroupAsyncExecuteOps) {
         pm.addPass(VPUIP::createGroupAsyncExecuteOpsPass(log));
@@ -67,7 +67,8 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     if (options.enableWeightsSparsity) {
         pm.addPass(VPUIP::createPropagateSparsityCompressionPass(log));
     }
-    if (options.enableWeightsSparsity || VPU::isActSparsityEnabled(options.enableActivationSparsity)) {
+    if (options.enableWeightsSparsity || VPU::isActSparsityEnabled(options.enableActivationSparsity) ||
+        options.enableSEPtrsOperations || options.enableExperimentalSEPtrsOperations) {
         pm.addPass(VPUIP::createUngroupSparseBuffersPass(log));
     }
 
@@ -160,7 +161,7 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     }
 
     if (!options.linearizeSchedule) {
-        pm.addPass(VPUIP::createDMABarrierOptimizationPass(log));
+        pm.addPass(VPUIP::createDMABarrierOptimizationPass(std::nullopt, log));
     }
 
     if (options.enableSimpleSchedule) {
@@ -193,7 +194,7 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
 
     pm.addPass(VPURT::createAssignPhysicalBarriersPass(options.enableColorBinPhysicalBarrierAssignment, std::nullopt,
                                                        std::nullopt, log));
-    pm.addPass(VPURT::createBarrierSimulationPass(log));
+    pm.addPass(VPURT::createBarrierSimulationPass(false, log));
     pm.addPass(VPUIP::createUpdateSwKernelParamsPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
     pm.addPass(Const::createConstantFoldingPass());
@@ -261,7 +262,7 @@ void vpux::VPUIP::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
 
     pm.addPass(VPURT::createAssignPhysicalBarriersPass(options.enableColorBinPhysicalBarrierAssignment, std::nullopt,
                                                        std::nullopt, log));
-    pm.addPass(VPURT::createBarrierSimulationPass(log));
+    pm.addPass(VPURT::createBarrierSimulationPass(false, log));
     pm.addPass(VPUIP::createUpdateSwKernelParamsPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
     pm.addPass(Const::createConstantFoldingPass());

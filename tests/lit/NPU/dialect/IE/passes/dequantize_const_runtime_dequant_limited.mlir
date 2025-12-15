@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --dequantize-const="enable-runtime-dequant=true runtime-dequantization-limit=600000" %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 
 #NHCW = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>

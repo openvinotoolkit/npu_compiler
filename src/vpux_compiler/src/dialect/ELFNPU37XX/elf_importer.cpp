@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/ELFNPU37XX/elf_importer.hpp"
+#include "vpux/compiler/dialect/VPURegMapped/types.hpp"
 
 #include <vpux_elf/accessor.hpp>
 #include "vpux/compiler/dialect/ELFNPU37XX/attributes.hpp"

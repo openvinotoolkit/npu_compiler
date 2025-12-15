@@ -20,7 +20,7 @@ include "vpux/compiler/dialect/VPUIP/ops_interfaces.td"
 include "vpux/compiler/dialect/VPUIP/types.td"
 include "vpux/compiler/dialect/VPURT/types.td"
 
-include "mlir/Dialect/Quant/QuantOpsBase.td"
+include "mlir/Dialect/Quant/IR/QuantBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/ViewLikeInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
@@ -235,7 +235,6 @@ def VPUIP_GatherDMAOp :
 
         OptionalAttr<IntAttr>:$port,
 
-        OptionalAttr<VPUIP_DmaChannelType>:$channelType,
         UnitAttr:$isOutOfOrder,
         UnitAttr:$isCritical,
 
@@ -801,7 +800,8 @@ def VPUIP_NCEClusterTaskOp :
         OptionalAttr<VPUIP_DpuProfilingMetadataAttr>:$profilingMetadata,
         OptionalAttr<VPU_MPEEngineAttr>:$mpe_engine,
         OptionalAttr<VPUIP_DynamicScaleConfigAttr>:$dynamic_scale_config,
-        OptionalAttr<VPUIP_LocalRegionAttr>:$local_region
+        OptionalAttr<VPUIP_LocalRegionAttr>:$local_region,
+        OptionalAttr<VPUIP_S2DConfigAttr>:$s2d_config
     );
 
     let results = (outs
@@ -960,7 +960,8 @@ def VPUIP_NCEClusterTaskOp :
             CArg<"VPU::MPEEngineAttr", "nullptr">:$mpe_engine,
             CArg<"VPU::EltwiseTypeAttr", "nullptr">:$eltwise_type,
             CArg<"VPUIP::DynamicScaleConfigAttr", "nullptr">:$dynamic_scale_config,
-            CArg<"VPUIP::LocalRegionAttr", "nullptr">:$local_region
+            CArg<"VPUIP::LocalRegionAttr", "nullptr">:$local_region,
+            CArg<"VPUIP::S2DConfigAttr", "nullptr">:$s2d_config
         )>,
 
         OpBuilder<(ins
@@ -994,7 +995,8 @@ def VPUIP_NCEClusterTaskOp :
             CArg<"VPU::MPEEngineAttr", "nullptr">:$mpe_engine,
             CArg<"VPU::EltwiseTypeAttr", "nullptr">:$eltwise_type,
             CArg<"VPUIP::DynamicScaleConfigAttr", "nullptr">:$dynamic_scale_config,
-            CArg<"VPUIP::LocalRegionAttr", "nullptr">:$local_region
+            CArg<"VPUIP::LocalRegionAttr", "nullptr">:$local_region,
+            CArg<"VPUIP::S2DConfigAttr", "nullptr">:$s2d_config
         )>,
 
         OpBuilder<(ins
@@ -1027,7 +1029,8 @@ def VPUIP_NCEClusterTaskOp :
             CArg<"VPU::MPEEngineAttr", "nullptr">:$mpe_engine,
             CArg<"VPU::EltwiseTypeAttr", "nullptr">:$eltwise_type,
             CArg<"VPUIP::DynamicScaleConfigAttr", "nullptr">:$dynamic_scale_config,
-            CArg<"VPUIP::LocalRegionAttr", "nullptr">:$local_region
+            CArg<"VPUIP::LocalRegionAttr", "nullptr">:$local_region,
+            CArg<"VPUIP::S2DConfigAttr", "nullptr">:$s2d_config
         )>
     ];
 

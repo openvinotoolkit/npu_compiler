@@ -133,7 +133,7 @@ void unrollDistributedOpsCommon40XXPlus(mlir::func::FuncOp funcOp,
 
 mlir::Value patchSETableValue(mlir::Location loc, Const::DeclareOp constOp,
                               VPUIP::DistributedBufferType nceInputDistType, const int64_t targetClusterId,
-                              mlir::OpBuilder& builder);
+                              mlir::OpBuilder& builder, bool resetBasePtrs);
 
 }  // namespace VPUIP
 }  // namespace vpux

@@ -15,7 +15,6 @@
 
 using namespace vpux;
 using operationIdxType = FeasibleMemoryScheduler::operationIdxType;
-
 //
 // Feasible Memory Scheduler
 //
@@ -37,7 +36,8 @@ FeasibleMemoryScheduler::FeasibleMemoryScheduler(VPU::MemoryKind memKind, VPU::M
                                                  LinearScan<mlir::Value, LinearScanHandler>& scan,
                                                  config::ArchKind arch, std::shared_ptr<VPUNN::VPUCostModel> costModel,
                                                  int64_t nceClusterCount, int64_t dmaCount,
-                                                 bool enableScheduleStatistics, bool optimizeFragmentation)
+                                                 bool enableScheduleStatistics, bool optimizeFragmentation,
+                                                 bool activelySpillForPrefetching)
         : _log(log),
           _memKind(memKind),
           _secondLvlMemKind(secondLvlMemKind),
@@ -49,7 +49,8 @@ FeasibleMemoryScheduler::FeasibleMemoryScheduler(VPU::MemoryKind memKind, VPU::M
           _nceClusterCount(nceClusterCount),
           _numDMAPorts(dmaCount),
           _enableScheduleStatistics(enableScheduleStatistics),
-          _optimizeFragmentation(optimizeFragmentation) {
+          _optimizeFragmentation(optimizeFragmentation),
+          _activelySpillForPrefetching(activelySpillForPrefetching) {
     _log.setName("feasible-memory-scheduler-allocator");
 
     auto dmaChannels = getDMAChannelsWithIndependentLinkAgents(arch);
@@ -60,6 +61,51 @@ FeasibleMemoryScheduler::FeasibleMemoryScheduler(VPU::MemoryKind memKind, VPU::M
         _executorPipelines[queueType].assign(dmaCount, 1);
     }
 }
+
+struct FeasibleMemoryScheduler::ScheduleStateSnapshot {
+    FeasibleMemoryScheduler& scheduler;
+    bool captured = false;
+    bool finalized = false;
+
+    // Captured state variables from the scheduler.
+    decltype(scheduler._readyComputeOps) readyComputeOps;
+    LinearScan<mlir::Value, LinearScanHandler> scan;
+    decltype(scheduler._executorPipelines) executorPipelines;
+    decltype(scheduler._cycleBeginHeap) cycleBeginHeap;
+    decltype(scheduler._readyDataOps) readyDataOps;
+    decltype(scheduler._readySpilledOps) readySpilledOps;
+    decltype(scheduler._spillBufferMap) spillBufferMap;
+
+    // Constructor to optionally capture the scheduler's state.
+    ScheduleStateSnapshot(FeasibleMemoryScheduler& sched, bool needCapture): scheduler(sched), scan(sched._scan) {
+        if (!needCapture) {
+            return;
+        }
+        captured = true;  // Mark the state as captured.
+        readyComputeOps = scheduler._readyComputeOps;
+        scan = scheduler._scan;
+        executorPipelines = scheduler._executorPipelines;
+        cycleBeginHeap = scheduler._cycleBeginHeap;
+        readyDataOps = scheduler._readyDataOps;
+        readySpilledOps = scheduler._readySpilledOps;
+        spillBufferMap = scheduler._spillBufferMap;
+    }
+
+    // Restores the scheduler's state to the captured snapshot.
+    void rollback() {
+        if (!captured || finalized) {
+            return;  // If the state was not captured or already finalized, do nothing.
+        }
+        scheduler._readyComputeOps = std::move(readyComputeOps);
+        scheduler._scan = std::move(scan);
+        scheduler._executorPipelines = std::move(executorPipelines);
+        scheduler._cycleBeginHeap = std::move(cycleBeginHeap);
+        scheduler._readyDataOps = std::move(readyDataOps);
+        scheduler._readySpilledOps = std::move(readySpilledOps);
+        scheduler._spillBufferMap = std::move(spillBufferMap);
+        finalized = true;
+    }
+};
 
 bool compareHeapOrderWhenCycleMatch(const FeasibleMemoryScheduler::HeapElement& a,
                                     const FeasibleMemoryScheduler::HeapElement& b) {
@@ -95,14 +141,28 @@ void FeasibleMemoryScheduler::updateBufferCycleUseAndProducer(size_t opIdx, size
                                                               bool isNewProducer) {
     // update buffer producer
     if (isNewProducer) {
+        if (_bufferProducer.find(buffer) == _bufferProducer.end()) {
+            _newBufferProducersFromScheduleComputeOps.insert(buffer);
+        }
+
+        if (_originalBufferProducersFromScheduleComputeOps.find(buffer) ==
+            _originalBufferProducersFromScheduleComputeOps.end()) {
+            _originalBufferProducersFromScheduleComputeOps[buffer] = _bufferProducer[buffer];
+        }
+
         _bufferProducer[buffer] = opIdx;
     }
     // update last cycle use of buffer
     auto bufferUseCycleEnd = _bufferLastCycleUse.find(buffer);
     if (bufferUseCycleEnd != _bufferLastCycleUse.end()) {
+        if (_originalBufferLastCycleUseFromScheduleComputeOps.find(buffer) ==
+            _originalBufferLastCycleUseFromScheduleComputeOps.end()) {
+            _originalBufferLastCycleUseFromScheduleComputeOps[buffer] = bufferUseCycleEnd->second;
+        }
         bufferUseCycleEnd->second = std::max(bufferUseCycleEnd->second, opCycleEnd);
     } else {
         _bufferLastCycleUse[buffer] = opCycleEnd;
+        _newBufferLastCycleUsesFromScheduleComputeOps.insert(buffer);
     }
 }
 
@@ -759,8 +819,32 @@ size_t FeasibleMemoryScheduler::getOperationLevel(operationIdxType opIdx, bool i
     return minRemainingConsumerLevel;
 }
 
+size_t calculateTotalBuffersSize(const mlir::DenseSet<mlir::Value>& buffers,
+                                 LinearScan<mlir::Value, LinearScanHandler>& scan) {
+    size_t totalSize = 0;
+    auto& handler = scan.handler();
+    for (const auto& buffer : buffers) {
+        totalSize += handler.getSize(buffer);
+    }
+    return totalSize;
+}
+
+// Check if the total size of the buffers fits into the available free CMX memory
+bool fitsIntoFreeCMX(LinearScan<mlir::Value, LinearScanHandler>& scan, const mlir::DenseSet<mlir::Value>& buffers,
+                     size_t freeCmx) {
+    size_t totalSize = calculateTotalBuffersSize(buffers, scan);
+    return totalSize <= freeCmx;
+}
+
+// Get CMX demand of operation including all its dependencies
+size_t FeasibleMemoryScheduler::getOpCmxDemand(operationIdxType opIdx) {
+    auto buffers = getBuffersToAllocateForOp(opIdx);
+    return calculateTotalBuffersSize(buffers, _scan);
+}
+
 void FeasibleMemoryScheduler::prefetchOps(ArrayRef<std::pair<operationIdxType, size_t>> scheduledOps,
-                                          mlir::DenseSet<mlir::Value>& buffersToAllocate) {
+                                          mlir::DenseSet<mlir::Value>& buffersToAllocate,
+                                          bool checkMemoryFragmentation) {
     // consider barrier limitations
     std::set<operationIdxType> aliveOperations;
     for (auto& aliveBuffer : _scan.handler().getAliveValues()) {
@@ -874,6 +958,18 @@ void FeasibleMemoryScheduler::prefetchOps(ArrayRef<std::pair<operationIdxType, s
             operationBuffers.insert(buffersToAllocate.begin(), buffersToAllocate.end());
             if (!canAllocBuffers(operationBuffers)) {
                 _log.nest(2).trace("Can not fit: '{0}'", opIdx);
+
+                if (checkMemoryFragmentation) {
+                    // save the failed prefetch buffer set for later allocation
+                    // will try to resolve the fragment by actively spilling
+                    if (fitsIntoFreeCMX(_scan, operationBuffers, _scan.totalFreeSize())) {
+                        _log.nest(2).trace("Prefetch fails due to memory fragmentation");
+                        _prefetchFailedDueToFragmentation = true;
+                        ++_prefetchFragmentationFailureCount;
+                        _fragmentedBuffers = std::move(operationBuffers);
+                    }
+                }
+
                 return;
             }
 
@@ -927,6 +1023,16 @@ void FeasibleMemoryScheduler::sortAndAllocateBuffers(mlir::DenseSet<mlir::Value>
     }
 }
 
+void FeasibleMemoryScheduler::resetScheduleComputeOpsDeltas() {
+    _prefetchFailedDueToFragmentation = false;
+    _originalBufferProducersFromScheduleComputeOps.clear();
+    _newBufferProducersFromScheduleComputeOps.clear();
+    _originalOpIdxEndCycleMapFromScheduleComputeOps.clear();
+    _newOpsFromScheduleComputeOps.clear();
+    _originalBufferLastCycleUseFromScheduleComputeOps.clear();
+    _newBufferLastCycleUsesFromScheduleComputeOps.clear();
+}
+
 void FeasibleMemoryScheduler::scheduleComputeOps() {
     SmallVector<std::pair<operationIdxType, size_t>> scheduledOps;
     mlir::DenseSet<mlir::Value> buffersToAllocate;
@@ -936,6 +1042,11 @@ void FeasibleMemoryScheduler::scheduleComputeOps() {
     SmallVector<std::pair<operationIdxType, FeasibleMemoryScheduler::QueueType>> computeOps;
     // Ops which depend on constants or function inputs have lower priority
     SmallVector<std::pair<operationIdxType, FeasibleMemoryScheduler::QueueType>> noInputDepComputeOps;
+
+    // Prepare status and snapshots for active spilling and fragmentation optimization
+
+    ScheduleStateSnapshot snap(*this, _activelySpillForPrefetching);
+    resetScheduleComputeOpsDeltas();
 
     // find compute ops to schedule
     for (auto& queue : _computeOpOrder) {
@@ -962,6 +1073,8 @@ void FeasibleMemoryScheduler::scheduleComputeOps() {
         }
     }
 
+    SmallVector<std::pair<operationIdxType, FeasibleMemoryScheduler::QueueType>> computeOpsToErase;
+
     // Check if compute ops satisfy buffer allocation constraints and select them for scheduling
     auto selectOpsToSchedule = [&](SmallVector<std::pair<operationIdxType, FeasibleMemoryScheduler::QueueType>>& ops) {
         for (auto opIter = ops.begin(); opIter != ops.end();) {
@@ -977,8 +1090,7 @@ void FeasibleMemoryScheduler::scheduleComputeOps() {
             buffersToAllocate = std::move(operationBuffers);
             computeOpIdxToSchedule.push_back(opIter->first);
             _log.trace("Compute op to schedule: '{0}'", opIter->first);
-            auto& scheduledQueue = _computeOpOrder[opIter->second];
-            scheduledQueue.erase(scheduledQueue.begin());
+            computeOpsToErase.push_back(*opIter);
             opIter = ops.erase(opIter);
         }
     };
@@ -999,12 +1111,96 @@ void FeasibleMemoryScheduler::scheduleComputeOps() {
         scheduledOps.push_back(std::make_pair(computeOpIdx, opCycleEnd));
     }
 
+    // Return true if an alive buffer can be found to spill to support prefetching
+    // and set _evictionCandidateToSupportPrefetch
+    auto foundProperSpillCandidateToSupportPrefetch = [&]() {
+        auto aliveBuffers = snap.scan.handler().getAliveValues();
+        if (aliveBuffers.empty()) {
+            return false;
+        }
+
+        // `originalBufferProducer` is the stage before running the current `scheduleComputeOps`.
+        // So the changes in `_bufferProducer` is reverted.
+        // And eviction candidate need to be selected in the alive buffers before the current scheduling
+        // because the current scheduling will be redone with the eviction
+        auto originalBufferProducer = _bufferProducer;
+        for (auto& val : _originalBufferProducersFromScheduleComputeOps) {
+            originalBufferProducer[val.first] = val.second;
+        }
+
+        for (auto& val : _newBufferProducersFromScheduleComputeOps) {
+            originalBufferProducer.erase(val);
+        }
+
+        _evictionCandidateToSupportPrefetch =
+                chooseCandidateForEvictionToSupportPrefetch(aliveBuffers, originalBufferProducer, snap.scan);
+        if (!_evictionCandidateToSupportPrefetch.has_value()) {
+            return false;
+        }
+
+        return true;
+    };
+
+    auto restoreStateBeforeScheduling = [&]() {
+        // restore state before scheduling compute ops
+        snap.rollback();
+
+        for (auto& val : _originalBufferProducersFromScheduleComputeOps) {
+            _bufferProducer[val.first] = val.second;
+        }
+
+        for (auto& val : _newBufferProducersFromScheduleComputeOps) {
+            _bufferProducer.erase(val);
+        }
+
+        for (auto& val : _originalOpIdxEndCycleMapFromScheduleComputeOps) {
+            _opIdxEndCycleMap[val.first] = val.second;
+        }
+
+        for (auto& val : _newOpsFromScheduleComputeOps) {
+            _opIdxEndCycleMap.erase(val);
+        }
+
+        for (auto& val : _originalBufferLastCycleUseFromScheduleComputeOps) {
+            _bufferLastCycleUse[val.first] = val.second;
+        }
+
+        for (auto& val : _newBufferLastCycleUsesFromScheduleComputeOps) {
+            _bufferLastCycleUse.erase(val);
+        }
+    };
+
     // prefetch data ops
     if (!computeOpIdxToSchedule.empty()) {
-        prefetchOps(scheduledOps, buffersToAllocate);
+        // If fragmentation is detected, _prefetchFailedDueToFragmentation is changed to true
+        // And the active spilling logic will be triggered to find an eviction candidate to support prefetching
+        prefetchOps(scheduledOps, buffersToAllocate, _activelySpillForPrefetching);
+        if (_prefetchFailedDueToFragmentation) {
+            // If prefetchOps failed due to fragmentation, try to find a proper spill candidate
+            // If candidate found (_prefetchFailedDueToFragmentation is still true),
+            // the candidate is saved in `_evictionCandidateToSupportPrefetch`
+            _prefetchFailedDueToFragmentation = foundProperSpillCandidateToSupportPrefetch();
+        }
+
+        if (_prefetchFailedDueToFragmentation) {
+            // If prefetchOps failed due to fragmentation, but successfully found a spill candidate,
+            // restore state before scheduling compute ops and early return
+            // so the spilling can be performed by `forceSpillingForPrefetch` on `_evictionCandidateToSupportPrefetch`
+            // and prefetching should work after that
+
+            ++_prefetchFragmentationFailureFixedCount;
+            restoreStateBeforeScheduling();
+            return;
+        }
+
         for (auto& val : buffersToAllocate) {
             _scan.handler().markAsAlive(val);
         }
+    }
+
+    for (auto opIter = computeOpsToErase.begin(); opIter != computeOpsToErase.end(); opIter++) {
+        auto& scheduledQueue = _computeOpOrder[opIter->second];
+        scheduledQueue.erase(scheduledQueue.begin());
     }
 
     // find DMA ops to schedule
@@ -1039,7 +1235,7 @@ void FeasibleMemoryScheduler::scheduleComputeOps() {
 
     // prefetch data ops - activation reads
     if (!DMAOpIdxToSchedule.empty()) {
-        prefetchOps(scheduledOps, buffersToAllocate);
+        prefetchOps(scheduledOps, buffersToAllocate, false);
     }
 
     // TODO: E93150 gather all ops to schedule and sort by which-ever can be scheduled earlier
@@ -1089,7 +1285,17 @@ void FeasibleMemoryScheduler::scheduleNonComputeOps() {
 
 void FeasibleMemoryScheduler::insertInOpIdxCycleEndMap(const operationIdxType& opIdx, const size_t& endCycle) {
     auto mapItr = _opIdxEndCycleMap.find(opIdx);
-    if (mapItr == _opIdxEndCycleMap.end() || mapItr->second < endCycle) {
+    if (mapItr == _opIdxEndCycleMap.end()) {
+        _opIdxEndCycleMap[opIdx] = endCycle;
+        _newOpsFromScheduleComputeOps.insert(opIdx);
+        return;
+    }
+
+    if (mapItr->second < endCycle) {
+        if (_originalOpIdxEndCycleMapFromScheduleComputeOps.find(opIdx) ==
+            _originalOpIdxEndCycleMapFromScheduleComputeOps.end()) {
+            _originalOpIdxEndCycleMapFromScheduleComputeOps[opIdx] = mapItr->second;
+        }
         _opIdxEndCycleMap[opIdx] = endCycle;
     }
 }
@@ -1164,6 +1370,107 @@ size_t FeasibleMemoryScheduler::getOpBufferOutputIdx(operationIdxType opIdx, mli
     VPUX_THROW("Unable to find async.execOp (opIdx - '{0}') result corresponding to buffer '{1}'", opIdx, buffer);
 }
 
+operationIdxType FeasibleMemoryScheduler::getEarliestConsumerIdx(operationIdxType opIdx) {
+    auto earliestConsumerIdx = std::numeric_limits<operationIdxType>::max();
+    for (const auto& consumerIdx : _depsInfo.getConsumerOps(opIdx)) {
+        if (!VPUIP::VPUIPDialect::isComputeExecutorKind(getExecutorType(consumerIdx))) {
+            continue;
+        }
+        if (_opIdxEndCycleMap.find(consumerIdx) != _opIdxEndCycleMap.end()) {
+            continue;
+        }
+
+        earliestConsumerIdx = std::min(earliestConsumerIdx, consumerIdx);
+    }
+    return earliestConsumerIdx;
+}
+
+// Choose the best candidate for eviction to support prefetching
+// The candidate should be the smallest buffer that is not currently in use
+// and whose eviction would free enough memory to allow prefetching
+// For example, next buffer size to prefetch is 100, but there are only 80 continuous free memory due to fragmentation
+//      Total cmx size is 200. The alive buffers are:
+//          A [0, 100], B [180, 190], C [210, 215], D [220, 300]
+//      Gaps are:
+//          80: [100, 180], 20: [190, 210], 5: [215, 220]
+//      Buffer size of 100 can't be prefetched due to fragmentation, so C, B, D, A are evicted in order to see if
+//      the eviction could fix the fragmentation Eviction of B succeed so B is chosen to be eviction candidate for
+//      prefetch
+std::optional<FeasibleMemoryScheduler::EvictionCandidate>
+FeasibleMemoryScheduler::chooseCandidateForEvictionToSupportPrefetch(
+        mlir::DenseSet<mlir::Value>& aliveBuffers, mlir::DenseMap<mlir::Value, operationIdxType>& bufferProducer,
+        LinearScan<mlir::Value, LinearScanHandler>& scan) {
+    std::optional<FeasibleMemoryScheduler::EvictionCandidate> evictionCandidate = std::nullopt;
+
+    // Sort active buffers by priority (lower priority evicted first)
+    auto sortedAliveBuffers = sortUsedBuffers(aliveBuffers);
+
+    // Record the smallest eviction candidate
+    size_t evictionCandidateSize = 0;
+
+    // Iterate over all alive buffers to find the best candidate for eviction
+    for (const auto buffer : llvm::reverse(sortedAliveBuffers)) {
+        // Ensure the buffer has been scheduled
+        VPUX_THROW_UNLESS(bufferProducer.find(buffer) != bufferProducer.end(),
+                          "Buffer not scheduled yet, invalid eviction candidate");
+
+        auto executeOpIdx = bufferProducer[buffer];
+        // Check if the buffer is in use
+        bool bufferInUse = false;
+        for (auto& nextOp : llvm::make_early_inc_range(_cycleEndHeap)) {
+            if (nextOp.op_ == executeOpIdx) {
+                bufferInUse = true;
+                break;
+            }
+        }
+
+        if (bufferInUse) {
+            // Skip buffers that are currently in use
+            continue;
+        }
+
+        auto size = scan.handler().getSize(buffer);
+        if (evictionCandidate.has_value() && (evictionCandidateSize <= size)) {
+            // Skip larger or equal sized buffers if a smaller candidate is already found
+            continue;
+        }
+
+        // Create a temporary scan and mark the current buffer as dead
+        // In tempScan the aliveBuffer and liveRange is temporarily changed to simulate the prefetching with eviction
+        // The original scan shouldn't be changed so it can be roll back to the stage
+        auto tempScan = scan;
+        // Simulate the eviction by marking the buffer as dead in tempScan
+        tempScan.handler().markAsDead(buffer);
+        tempScan.freeNonAlive();
+
+        // Create a temporary set of operation buffers including the current buffer
+        auto tempOperationBuffers = _fragmentedBuffers;
+        tempOperationBuffers.insert(buffer);
+
+        auto canAllocBuffers = [&]() {
+            if (_optimizeFragmentation) {
+                // sort to minimize fragmentation
+                auto sortedBuffers = sortUsedBuffers(tempOperationBuffers);
+                // are resources available and can be allocated
+                return tempScan.canAlloc(sortedBuffers);
+            }
+            return tempScan.canAlloc(tempOperationBuffers);
+        };
+        // Check if resources are available and can be allocated with eviction
+        // If yes, record the eviction candidate with smaller size
+        if (canAllocBuffers()) {
+            auto priority = evictionPriority(executeOpIdx, buffer);
+            auto earliestConsumerIdx = getEarliestConsumerIdx(executeOpIdx);
+            // in special case of multiple output buffers store output idx
+            auto outputIdx = getOpBufferOutputIdx(executeOpIdx, buffer);
+            evictionCandidate = EvictionCandidate(priority, earliestConsumerIdx, size, executeOpIdx, outputIdx, buffer);
+            evictionCandidateSize = size;
+        }
+    }
+
+    return evictionCandidate;
+}
+
 FeasibleMemoryScheduler::EvictionCandidate FeasibleMemoryScheduler::chooseCandidateForEviction(
         const mlir::DenseSet<mlir::Value>& aliveBuffers) {
     // Check if last scheduled op was a SPILL-WRITE. If yes then this is a direct subsequent spill
@@ -1174,22 +1481,6 @@ FeasibleMemoryScheduler::EvictionCandidate FeasibleMemoryScheduler::chooseCandid
         _evictionCandidatesCache.erase(_evictionCandidatesCache.begin());
         return evictionCandidate;
     }
-
-    auto getEarliestConsumerIdx = [&](operationIdxType opIdx) {
-        auto earliestConsumerIdx = std::numeric_limits<unsigned int>::max();
-        for (const auto& consumerIdx : _depsInfo.getConsumerOps(opIdx)) {
-            if (!VPUIP::VPUIPDialect::isComputeExecutorKind(getExecutorType(consumerIdx))) {
-                continue;
-            }
-            if (_opIdxEndCycleMap.find(consumerIdx) != _opIdxEndCycleMap.end()) {
-                continue;
-            }
-
-            earliestConsumerIdx = std::min(earliestConsumerIdx, static_cast<unsigned>(consumerIdx));
-        }
-        return earliestConsumerIdx;
-    };
-
     _evictionCandidatesCache.clear();
     // sort buffers using eviction priority
     for (const auto& buffer : aliveBuffers) {
@@ -1213,23 +1504,7 @@ FeasibleMemoryScheduler::EvictionCandidate FeasibleMemoryScheduler::chooseCandid
     return evictionCandidate;
 }
 
-void FeasibleMemoryScheduler::forceScheduleActiveOpEviction() {
-    _log.trace("Unable to schedule an operation, forcing dynamic spill");
-
-    auto getOpCmxDemand = [&](operationIdxType opIdx) {
-        // Calculate total size needed to allocate all required buffers for op
-        size_t nextFreeOffset = 0;
-        for (auto buf : getBuffersToAllocateForOp(opIdx)) {
-            auto offsetAlignment = _scan.handler().getAlignment(buf);
-            if (nextFreeOffset % offsetAlignment) {
-                nextFreeOffset += offsetAlignment - nextFreeOffset % offsetAlignment;
-            }
-            nextFreeOffset += _scan.handler().getSize(buf);
-        }
-
-        return nextFreeOffset;
-    };
-
+void FeasibleMemoryScheduler::performEvictionAndScheduling(const EvictionCandidate& evictionCandidate) {
     auto spillType = EOpType::IMPLICIT_SPILL_WRITE_OP;
 
     // Understand if spilling happened due to fragmentation
@@ -1266,6 +1541,43 @@ void FeasibleMemoryScheduler::forceScheduleActiveOpEviction() {
         // TODO: In future scheduler could try to reorder buffers to make necessary
         // space for next operation in case spilling happened due to CMX fragmentation
     }
+
+    _log.nest().trace("Candidate selected for eviction '{0}' '{1}'", evictionCandidate.bufferWriterIdx_,
+                      evictionCandidate.buffer_);
+
+    // free the memory space by freeing the op output buffer
+    evictActiveOp(evictionCandidate);
+    _log.nest().trace("Candidate evicted and spilled");
+
+    // consider spilling operation cycle end
+    // TODO: consider last used cycle and next available cycle for spill to avoid stall
+    const auto depEndCycle = _bufferLastCycleUse[evictionCandidate.buffer_];
+    const auto queueAndCycle =
+            getCurrentCycleAndExecutorInstanceMaskForSpill(evictionCandidate.buffer_, spillType, depEndCycle);
+    // find operation end cycle
+    const auto opCycleCost = spilledOperationCycleCost(evictionCandidate.buffer_);
+    const auto nextAvailableCycle = queueAndCycle.cycle + opCycleCost;
+
+    // add with a spilled write state
+    pushToCycleBeginHeap(HeapElement(evictionCandidate.bufferWriterIdx_, queueAndCycle, opCycleCost, spillType,
+                                     evictionCandidate.buffer_));
+    // update current cycle directly
+    updateCurrentCycleForExecutor(queueAndCycle.queueType, queueAndCycle.execMask, nextAvailableCycle);
+
+    // memory resource freed, need to align executors to only allocate in future cycles
+    alignExecutors(nextAvailableCycle);
+}
+
+void FeasibleMemoryScheduler::forceSpillingForPrefetch() {
+    _log.trace("Unable to prefetch due to fragmentation, forcing dynamic spill");
+    // select a candidate op to be spilled
+    VPUX_THROW_UNLESS(_evictionCandidateToSupportPrefetch.has_value(), "Failed to find eviction candidate");
+    auto evictionCandidateValue = _evictionCandidateToSupportPrefetch.value();
+    performEvictionAndScheduling(evictionCandidateValue);
+}
+
+void FeasibleMemoryScheduler::forceScheduleActiveOpEviction() {
+    _log.trace("Unable to schedule an operation, forcing dynamic spill");
 
     // retrieve the alive buffers
     auto aliveBuffers = _scan.handler().getAliveValues();
@@ -1305,36 +1617,13 @@ void FeasibleMemoryScheduler::forceScheduleActiveOpEviction() {
                     readyOp, opTotalSize, freeCmx, execOp.getLoc(), execOp);
         }
 
+        // select a candidate op to be spilled
         cleanUpAndLogSchedule(_scheduledOps);
         VPUX_THROW("Scheduler failure, cannot schedule anything and there is no buffer to spill");
     }
 
-    // select a candidate op to be spilled
     auto evictionCandidate = chooseCandidateForEviction(aliveBuffers);
-    _log.nest().trace("Candidate selected for eviction '{0}' '{1}'", evictionCandidate.bufferWriterIdx_,
-                      evictionCandidate.buffer_);
-
-    // free the memory space by freeing the op output buffer
-    evictActiveOp(evictionCandidate);
-    _log.nest().trace("Candidate evicted and spilled");
-
-    // consider spilling operation cycle end
-    // TODO: consider last used cycle and next available cycle for spill to avoid stall
-    const auto depEndCycle = _bufferLastCycleUse[evictionCandidate.buffer_];
-    const auto queueAndCycle =
-            getCurrentCycleAndExecutorInstanceMaskForSpill(evictionCandidate.buffer_, spillType, depEndCycle);
-    // find operation end cycle
-    const auto opCycleCost = spilledOperationCycleCost(evictionCandidate.buffer_);
-    const auto nextAvailableCycle = queueAndCycle.cycle + opCycleCost;
-
-    // add with a spilled write state
-    pushToCycleBeginHeap(HeapElement(evictionCandidate.bufferWriterIdx_, queueAndCycle, opCycleCost, spillType,
-                                     evictionCandidate.buffer_));
-    // update current cycle directly
-    updateCurrentCycleForExecutor(queueAndCycle.queueType, queueAndCycle.execMask, nextAvailableCycle);
-
-    // memory resource freed, need to align executors to only allocate in future cycles
-    alignExecutors(nextAvailableCycle);
+    performEvictionAndScheduling(evictionCandidate);
 }
 
 void FeasibleMemoryScheduler::createBufferAsyncIdxMap() {
@@ -1509,6 +1798,14 @@ void FeasibleMemoryScheduler::schedulingLoop() {
             // 2.2 schedule compute operations
             scheduleComputeOps();
 
+            if (_prefetchFailedDueToFragmentation) {
+                // optional 2.3 only enabled when _activelySpillForPrefetching is true
+                // if prefetch failed due to fragmentation and `_evictionCandidateToSupportPrefetch` was found
+                // force spilling of the candidate and try to prefetch again
+                _log.nest().trace("DYNAMIC SPILL REQUIRED FOR PREFETCH");
+                forceSpillingForPrefetch();
+            }
+
             // 3. if no operation was added to cycle begin heap after scheduling
             //  - unable to schedule an operation, perform dynamic spill
             if (_cycleBeginHeap.empty() && _cycleEndHeap.empty()) {
@@ -1660,4 +1957,9 @@ bool FeasibleMemoryScheduler::canAllocBuffers(mlir::DenseSet<mlir::Value>& buffe
         return _scan.canAlloc(sortedBuffers);
     }
     return _scan.canAlloc(buffersToAllocate);
+}
+
+void FeasibleMemoryScheduler::printFragmentFixCountLog() const {
+    _log.info("[FeasibleAllocation statistics] fragmentation prefetch count {0}, fixed count {1}",
+              _prefetchFragmentationFailureCount, _prefetchFragmentationFailureFixedCount);
 }

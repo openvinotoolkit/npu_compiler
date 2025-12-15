@@ -92,10 +92,12 @@ private:
 
 struct DebatchCoeffDescription {
     Dim batchPositionIndex = Dims4D::Act::N;
-    size_t desiredBatchValue = 1;
+    int64_t desiredBatchValue = 1;
 
     static DebatchCoeffDescription createFromString(std::string_view descr);
+    static DebatchCoeffDescription createFromShapes(ShapeRef inShape, ShapeRef outShape);
     Shape apply(ShapeRef shape) const;
+    Shape applyProportionFromShape(ShapeRef fromShape, ShapeRef toShape) const;
     std::string to_string() const;
 };
 
@@ -107,6 +109,7 @@ struct DebatchCoefficients {
     size_t size() const;
     std::optional<DebatchCoeffDescription> getCoefficient(size_t index) const;
     std::optional<DebatchCoeffDescription> getCoefficient(const std::string& nodeName) const;
+    std::string to_string(bool includeNodeNames = false) const;
 
 private:
     std::multimap<std::string, DebatchCoeffDescription> orderedInputCoefficients;

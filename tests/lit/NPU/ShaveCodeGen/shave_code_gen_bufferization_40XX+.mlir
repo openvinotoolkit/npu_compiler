@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --one-shot-bufferize-VPU-to-VPUIP %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 module @SingleCosLayer {
@@ -49,22 +49,12 @@ module @SingleCosLayer {
   // CHECK-SAME: [[ARG0:%.+]]: memref<1x1x1x1000xf16>
   // CHECK-SAME: -> memref<1x1x1x1000xf16>
 
-  // CHECK: [[ALLOC_CMX_INPUT:%.+]] = memref.alloc() : memref<1x1x1x1000xf16, [@CMX_NN, 0]>
-  // CHECK: [[CMX_INPUT:%.+]] = VPUIP.Copy
-  // CHECK-SAME: inputs([[ARG0]] : memref<1x1x1x1000xf16>)
-  // CHECK-SAME: outputs([[ALLOC_CMX_INPUT]] : memref<1x1x1x1000xf16, [@CMX_NN, 0]>)
-
-  // CHECK: [[ALLOC_CMX_OUTPUT:%.+]] = memref.alloc() : memref<1x1x1x1000xf16, [@CMX_NN, 0]>
+  // CHECK: [[ALLOC:%.+]] = memref.alloc() : memref<1x1x1x1000xf16>
 
   // CHECK: [[SHAVE_RES:%.+]] = VPUIP.SW.Kernel
   // CHECK-SAME: @VPU.SW::@generated_0
-  // CHECK-SAME: inputs([[CMX_INPUT]] as [[KERNEL_INPUT:%.+]]: memref<1x1x1x1000xf16, [@CMX_NN, 0]>) outputs([[ALLOC_CMX_OUTPUT]] as [[KERNEL_OUTPUT:%.+]]: memref<1x1x1x1000xf16, [@CMX_NN, 0]>)
-  // CHECK-SAME: -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
+  // CHECK-SAME: inputs([[ARG0]] as [[KERNEL_INPUT:%.+]]: memref<1x1x1x1000xf16>) outputs([[ALLOC]] as [[KERNEL_OUTPUT:%.+]]: memref<1x1x1x1000xf16>)
+  // CHECK-SAME: -> memref<1x1x1x1000xf16>
   // CHECK-NEXT: VPUIP.SW.Kernel.run([[KERNEL_INPUT]], [[KERNEL_OUTPUT]])
 
-  // CHECK: [[DDR_OUTOUT_ALLOC:%.+]] = memref.alloc() : memref<1x1x1x1000xf16>
-  // CHECK: [[DDR_OUTPUT:%.+]] = VPUIP.Copy
-  // CHECK-SAME: inputs([[SHAVE_RES]] : memref<1x1x1x1000xf16, [@CMX_NN, 0]>)
-  // CHECK-SAME: outputs([[DDR_OUTOUT_ALLOC]] : memref<1x1x1x1000xf16>)
-
-  // CHECK: return [[DDR_OUTPUT]] : memref<1x1x1x1000xf16>
+  // CHECK: return [[SHAVE_RES]] : memref<1x1x1x1000xf16>

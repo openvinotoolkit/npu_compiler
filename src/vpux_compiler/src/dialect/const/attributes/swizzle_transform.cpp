@@ -42,6 +42,11 @@ void AddressTransform::setStaggerBits(uint32_t bits) {
     _shift = LOG2_RAM_CUT_BYTES - _staggerAddressBits;
 
     switch (_archKind) {
+    case config::ArchKind::NPU50XX:  // NPU50XX - NN CMX ram cut data width = 32B
+        _shift++;
+        _log2RamCutDataWidth++;
+        _ramCutAddressMask = (1u << (LOG2_RAM_CUT_BYTES + 1)) - 1u;
+        break;
     case config::ArchKind::NPU40XX:  // NPU40XX - NN CMX ram cut data width = 32B
         _shift++;
         _log2RamCutDataWidth++;

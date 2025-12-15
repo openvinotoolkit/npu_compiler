@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
@@ -29,13 +29,15 @@ mlir::LogicalResult vpux::VPU::SelectOp::inferReturnTypes(mlir::MLIRContext* ctx
     const auto outShapeRes =
             IE::broadcastEltwiseShape({in1Type.getShape().raw(), in2Type.getShape().raw(), in3Type.getShape().raw()},
                                       select.getAutoBroadcast(), loc);
-
     if (mlir::failed(outShapeRes)) {
         return mlir::failure();
     }
 
-    auto outputType = mlir::RankedTensorType::get(outShapeRes.value(), in2Type.getElementType(),
-                                                  createTensorAttrFromType(in2Type));
+    const auto tensorAttr = createOutTensorAttrFromType(in2Type, outShapeRes.value().size());
+    if (mlir::failed(tensorAttr)) {
+        return mlir::failure();
+    }
+    auto outputType = mlir::RankedTensorType::get(outShapeRes.value(), in2Type.getElementType(), tensorAttr.value());
 
     inferredReturnTypes.push_back(outputType);
 

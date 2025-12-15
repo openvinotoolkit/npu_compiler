@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values=true" --tiling-strategy-assignment %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -41,7 +41,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -76,7 +77,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -97,7 +99,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -118,7 +121,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -183,7 +187,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -216,7 +221,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -240,7 +246,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -261,7 +268,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -353,7 +361,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -393,7 +402,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -478,7 +488,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -510,7 +521,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -653,7 +665,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -674,7 +687,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
     #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
@@ -697,7 +711,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -718,7 +733,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -738,7 +754,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -758,7 +775,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -779,7 +797,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -800,7 +819,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -821,7 +841,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -842,7 +863,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -863,7 +885,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -884,7 +907,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -905,7 +929,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -926,7 +951,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -947,9 +973,10 @@ module @executors {
     }
 
 }
-    // -----
 
-    #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -970,7 +997,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -991,9 +1019,10 @@ module @executors {
     }
 
 }
-    // -----
 
-    #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -1014,7 +1043,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -1035,7 +1065,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -1056,7 +1087,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -1077,7 +1109,7 @@ module @executors {
     }
 
 }
-    // -----
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -1098,7 +1130,7 @@ module @executors {
     }
 
 }
-    // -----
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -1120,7 +1152,7 @@ module @executors {
 
 }
 
-    // -----
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -1143,7 +1175,7 @@ module @executors {
 
 }
 
-    // -----
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -1164,7 +1196,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -1185,7 +1218,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -1206,7 +1240,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -1217,19 +1252,20 @@ module @executors {
     // CHECK-LABEL: @SplitTopK
     // CHECK-SAME:      [[INPUT_0:%arg[0-9]]]: tensor<1x5x512x384xf16>) -> (tensor<1x1x512x384xf32>, tensor<1x1x512x384xsi32>)
     func.func @SplitTopK(%arg0: tensor<1x5x512x384xf16>) -> (tensor<1x1x512x384xf32>, tensor<1x1x512x384xsi32>) {
-        %cst = const.Declare tensor<1x1x1x16xui8> = dense<0> : tensor<1x1x1x16xui8>
-        %output_values, %target_shape = VPU.TopK(%arg0, %cst) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 0, 1>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x5x512x384xf16>, tensor<1x1x1x16xui8> -> tensor<1x1x512x384xf16>, tensor<1x1x512x384xsi32>
+        %aux = const.Declare tensor<1x1x1x80xui8> = dense<0> : tensor<1x1x1x80xui8>
+        %output_values, %target_shape = VPU.TopK(%arg0, %aux) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x5x512x384xf16>, tensor<1x1x1x80xui8> -> tensor<1x1x512x384xf16>, tensor<1x1x512x384xsi32>
         %0 = VPU.Convert(%output_values) {dstElemType = f32} : tensor<1x1x512x384xf16> -> tensor<1x1x512x384xf32>
         return %0, %target_shape : tensor<1x1x512x384xf32>, tensor<1x1x512x384xsi32>
 
-        // CHECK: [[CST:%.+]] = const.Declare tensor<1x1x1x16xui8> = dense<0> : tensor<1x1x1x16xui8>
-        // CHECK: [[OUTPUT_VALUE:%.+]], [[TARGET_SHAPE:%.+]] = VPU.TopK([[INPUT_0]], [[CST]]) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 0, 1>, sort = #IE.topk_sort_type<SORT_INDICES>, tilingStrategy = [1, 1, 3, 1]} : tensor<1x5x512x384xf16>, tensor<1x1x1x16xui8> -> tensor<1x1x512x384xf16>, tensor<1x1x512x384xsi32>
+        // CHECK: [[AUX:%.+]] = const.Declare tensor<1x1x1x80xui8> = dense<0> : tensor<1x1x1x80xui8>
+        // CHECK: [[OUTPUT_VALUE:%.+]], [[TARGET_SHAPE:%.+]] = VPU.TopK([[INPUT_0]], [[AUX]]) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>, tilingStrategy = [1, 1, 3, 1]} : tensor<1x5x512x384xf16>, tensor<1x1x1x80xui8> -> tensor<1x1x512x384xf16>, tensor<1x1x512x384xsi32>
         // CHECK: [[OUTPUT_VALUE_CONV:%.+]] = VPU.Convert([[OUTPUT_VALUE]]) {dstElemType = f32} : tensor<1x1x512x384xf16> -> tensor<1x1x512x384xf32>
         // CHECK: return [[OUTPUT_VALUE_CONV]], [[TARGET_SHAPE]] : tensor<1x1x512x384xf32>, tensor<1x1x512x384xsi32>
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -1250,7 +1286,8 @@ module @executors {
     }
 
 }
-    // -----
+
+// -----
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {

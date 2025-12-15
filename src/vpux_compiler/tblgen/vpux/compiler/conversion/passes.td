@@ -355,6 +355,26 @@ def ConvertVPUASM2NPUReg40XX : PassBase<"convert-VPUASM-to-NPUReg40XX", "vpux::M
         "vpux::ELF::ELFDialect"
     ];
 }
+// ConvertVPUASM2NPUReg50XX
+//
+
+def ConvertVPUASM2NPUReg50XX : PassBase<"convert-VPUASM-to-NPUReg50XX", "vpux::ModulePass"> {
+    let summary = "Convert VPUASM dialect to NPUReg50XX";
+
+    let description = [{
+        VPUASM -> NPUReg50XX lowering that happens before relocation passes. Intended to be exapanded
+        with more operations gradually over time. Eventually, planned to be replaced with regular
+        VPUASM -> NPUReg50XX lowering.
+    }];
+
+    let constructor = "vpux::createConvertVPUASM2NPUReg50XXPass()";
+    let dependentDialects = [
+        "vpux::VPURegMapped::VPURegMappedDialect",
+        "vpux::VPUASM::VPUASMDialect",
+        "vpux::NPUReg50XX::NPUReg50XXDialect",
+        "vpux::ELF::ELFDialect"
+    ];
+}
 //
 // ConvertVPUIPDPU2NPUReg40XX
 //
@@ -383,6 +403,37 @@ def ConvertVPUIPDPU2NPUReg40XX : PassBase<"convert-VPUIPDPU-to-NPUReg40XX", "vpu
         >
     ];
 
+}
+// ConvertVPUASM2NPUReg50XX
+//
+
+def ConvertVPUIPDPU2NPUReg50XX : PassBase<"convert-VPUIPDPU-to-NPUReg50XX", "vpux::ModulePass"> {
+    let summary = "Convert VPUIPDPU dialect to NPUReg50XX";
+
+    let description = [{
+        VPUIPDPU is a logical representation of the DPU config., following the HW functionality specific for each architecture generation.
+        NPUReg50XX dialect represents ops in terms of hardware registers.
+    }];
+
+    let constructor = "vpux::createConvertVPUIPDPU2NPUReg50XXPass()";
+    let dependentDialects = [
+        "vpux::VPURegMapped::VPURegMappedDialect",
+        "vpux::VPUIPDPU::VPUIPDPUDialect",
+        "vpux::NPUReg50XX::NPUReg50XXDialect",
+        "vpux::ELF::ELFDialect"
+    ];
+
+    let options = [
+        Option<
+            "npu5PPEBackwardsCompatibilityModeOpt", "npu5-ppe-backwards-compatibility-mode",
+            "vpux::VPURegMapped::NPU5PPEBackwardsCompatibilityMode", "",
+            "Flag which controls NPU5 PPE Backwards compatibility mode",
+            [{::llvm::cl::values(
+            clEnumValN(vpux::VPURegMapped::NPU5PPEBackwardsCompatibilityMode::DISABLED, "DISABLED", "NPU5 PPE Backwards Compatibility Mode DISABLED"),
+            clEnumValN(vpux::VPURegMapped::NPU5PPEBackwardsCompatibilityMode::ENABLED, "ENABLED", "NPU5 PPE Backwards Compatibility Mode ENABLED")
+          )}]
+        >
+    ];
 }
 //
 // ConvertLayers2VPU

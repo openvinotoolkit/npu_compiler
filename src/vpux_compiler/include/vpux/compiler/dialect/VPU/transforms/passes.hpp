@@ -118,6 +118,9 @@ struct TilingOptions : mlir::PassPipelineOptions<TilingOptions> {
             llvm::cl::desc("Threshold for outlining vertical fusion regions with accumulated number of tiles"),
             llvm::cl::init(10)};
 
+    BoolOption enableVFScheduleTrace{*this, "enable-vf-schedule-trace",
+                                     llvm::cl::desc("Enable vertical fusion scheduling trace"), llvm::cl::init(false)};
+
     BoolOption enableVerticalFusionOutlining{*this, "vf-outlining", llvm::cl::desc("Enable vertical fusion outlining"),
                                              llvm::cl::init(true)};
 
@@ -176,7 +179,12 @@ struct TilingOptions : mlir::PassPipelineOptions<TilingOptions> {
 
 struct InitCompilerOptions : mlir::PassPipelineOptions<InitCompilerOptions> {
     // InitResources pass options
-    StrOption arch{*this, "vpu-arch", ::llvm::cl::desc("VPU architecture to compile for")};
+
+    // 'platform' represent the compilation target and supersedes 'arch'.
+    // 'arch' is used in test scenarios where specific target might not be relevant
+    // Either 'platform' or 'vpu-arch' shall be set.
+    StrOption platform{*this, "platform", ::llvm::cl::desc("Target NPU platform")};
+    StrOption arch{*this, "vpu-arch", ::llvm::cl::desc("Target NPU architecture")};
     StrOption compilationMode{*this, "compilation-mode",
                               ::llvm::cl::desc("[Optional] Set compilation mode as `ReferenceSW` or `DefaultHW`"),
                               ::llvm::cl::init("DefaultHW")};
@@ -207,6 +215,9 @@ struct InitCompilerOptions : mlir::PassPipelineOptions<InitCompilerOptions> {
     // SetupChannelsAutoPadding pass options
     BoolOption enableAutoPaddingIDU{*this, "enable-auto-padding-idu",
                                     llvm::cl::desc("Enable auto padding for output channels"), llvm::cl::init(false)};
+
+    // SetupSprLUT pass options
+    BoolOption enableSprLUT{*this, "enable-sprlut", llvm::cl::desc("Enable sprLUT"), llvm::cl::init(false)};
 
     // SetupIsReduceSupported pass options
     BoolOption enableIsReduceSupported{*this, "enable-is-reduce-supported",
@@ -281,7 +292,17 @@ struct InitCompilerOptions : mlir::PassPipelineOptions<InitCompilerOptions> {
 
     InitCompilerOptions() = default;
 
-    // options setup and lit-tests
+    // options setup
+    template <class OtherOptions>
+    InitCompilerOptions(config::Platform platformParam, config::CompilationMode compilationModeParam,
+                        const OtherOptions& options) {
+        platform = std::string(config::stringifyEnum(platformParam));
+        compilationMode = std::string(config::stringifyEnum(compilationModeParam));
+
+        this->matchAndCopyOptionValuesFrom(options);
+    }
+
+    // lit-tests
     template <class OtherOptions>
     InitCompilerOptions(config::ArchKind archParam, config::CompilationMode compilationModeParam,
                         const OtherOptions& options) {
@@ -391,7 +412,6 @@ std::unique_ptr<mlir::Pass> createManualStrategyUtilsPass(
         std::string contextId = "default", Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createDetectionOutputDecompositionPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSplitGRUSequencePass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createAddSwOpAuxiliaryBufferPass(const Logger& log = Logger::global());
 std::unique_ptr<mlir::Pass> createTileLSTMSequencePass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAdjustLSTMCellInputsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createComputeInterpolateCoordinatesPass(bool enableExplicitDistributionInfoAttr = false,
@@ -477,7 +497,7 @@ std::unique_ptr<mlir::Pass> createMergeVfSubgraphsPass(
         const WorkloadManagementMode workloadManagementMode = WorkloadManagementMode::PWLM_V0_LCA,
         Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createVfTilingPass(
-        bool enableVerticalFusionPipelining = false,
+        bool enableVerticalFusionPipelining = false, bool enableVFScheduleTrace = false,
         const WorkloadManagementMode workloadManagementMode = WorkloadManagementMode::PWLM_V0_LCA,
         Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createVerticalFusionOutliningPass();
@@ -513,7 +533,8 @@ void buildTilingPipeline(mlir::OpPassManager& pm, const VPU::TilingOptions& opti
 // Scf Compute Ops outlining Pipeline
 //
 
-void buildScfComputeOpsOutliningPipeline(mlir::OpPassManager& pm, Logger log = Logger::global());
+void buildScfComputeOpsOutliningPipeline(mlir::OpPassManager& pm, const vpux::StrOption& loopUnrollFactor,
+                                         Logger log = Logger::global());
 
 //
 // Strategy Pipeline
@@ -631,6 +652,12 @@ struct DefaultHWOptionsDialectBase : public virtual vpux::DefaultHWOptionsBase {
 };
 
 //
+// ShaveCodeGen pipeline
+//
+
+void buildShaveCodeGenPipeline(mlir::OpPassManager& pm);
+
+//
 // Host compilation pipeline passes
 //
 
@@ -640,6 +667,7 @@ std::unique_ptr<mlir::Pass> createConvertDynamicToStaticKernelsPass(Logger log =
 std::unique_ptr<mlir::Pass> createConvertVPUOpsToUpstreamOpsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createRestorePadAttrAfterSCFTilingPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAdjustBlockSizeForScfTilingPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createUnrollSCFLoopPass(StringRef loopUnrollFactor = "", Logger log = Logger::global());
 
 //
 // Registration

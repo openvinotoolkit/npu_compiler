@@ -13,6 +13,7 @@
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/utils/core/range.hpp"
 
+#include <mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
 #include <mlir/IR/BuiltinOps.h>
 
@@ -52,7 +53,7 @@ static mlir::LogicalResult checkFunctionPrototype(net::NetworkInfoOp cnnOp, mlir
     auto argsEnd = args.begin() + netFuncArgsCounts;
 
     const auto isArgsTensorized = std::all_of(args.begin(), argsEnd, [](mlir::Type type) {
-        return mlir::isa<mlir::RankedTensorType>(type);
+        return mlir::isa<mlir::bufferization::TensorLikeType>(type);
     });
     const auto isTensorized = (netFuncArgsCounts == inputsInfo.size()) && isArgsTensorized;
     if (isTensorized) {
@@ -60,7 +61,7 @@ static mlir::LogicalResult checkFunctionPrototype(net::NetworkInfoOp cnnOp, mlir
     }
 
     const auto isArgsBufferized = std::all_of(args.begin(), argsEnd, [](mlir::Type type) {
-        return mlir::isa<mlir::BaseMemRefType>(type);
+        return mlir::isa<mlir::bufferization::BufferLikeType>(type);
     });
 
     const auto isSemiBufferized = (netFuncArgsCounts == inputsInfo.size()) && isArgsBufferized;
@@ -187,7 +188,7 @@ mlir::LogicalResult net::NetworkInfoOp::verifySymbolUses(mlir::SymbolTableCollec
     if (!resultVerificationDisabled) {
         const auto args = netFunc.getArgumentTypes();
         const auto isArgsBufferized = std::all_of(args.begin(), args.end(), [](mlir::Type type) {
-            return mlir::isa<mlir::BaseMemRefType>(type);
+            return mlir::isa<mlir::bufferization::BufferLikeType>(type);
         });
 
         size_t argOffset = 0;

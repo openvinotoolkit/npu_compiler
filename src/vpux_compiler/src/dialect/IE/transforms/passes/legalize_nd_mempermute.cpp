@@ -134,6 +134,7 @@ private:
 mlir::LogicalResult LegalizeNDMemPermute::matchAndRewrite(IE::MemPermuteOp origOp,
                                                           mlir::PatternRewriter& rewriter) const {
     // Only enabled for NPU37XX, NPU40XX
+    // and NPU50XX
     // where Tiling for SW kernels is limited to 4D ops.
     // ToDo: Remove pass after limitation.
 
@@ -242,7 +243,7 @@ void LegalizeNDMemPermutePass::safeRunOnFunc() {
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<LegalizeNDMemPermute>(&ctx, _log);
 
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

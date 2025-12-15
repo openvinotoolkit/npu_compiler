@@ -1000,7 +1000,7 @@ func.func @SplitQuantNCEConvOverOC(%arg0: tensor<1x32x64x64x!qElemType, {order =
 	// CHECK-SAME:        {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [512, 32, 3, 3], strides = [1, 1]}
 	// CHECK-SAME:        -> tensor<1x512x32x64x!qElemType1, {order = #NHWC}>
     // CHECK:        [[CONCAT:%.+]] = VPU.Concat(%1, %3)
-	// CHECK-LITERAL:        {static_offsets = [[0, 0, 0, 0], [0, 0, 32, 0]]}
+	// CHECK{LITERAL}:        {static_offsets = [[0, 0, 0, 0], [0, 0, 32, 0]]}
 	// CHECK-SAME:        tensor<1x512x32x64x!qElemType1, {order = #NHWC}>, tensor<1x512x32x64x!qElemType1, {order = #NHWC}> -> tensor<1x512x64x64x!qElemType1, {order = #NHWC}>
     // CHECK:        return [[CONCAT]] : tensor<1x512x64x64x!qElemType1, {order = #NHWC}>
 }

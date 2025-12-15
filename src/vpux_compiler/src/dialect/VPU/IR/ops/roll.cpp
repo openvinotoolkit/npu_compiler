@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 #include "vpux/compiler/dialect/IE/utils/roll_utils.hpp"
-#include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
@@ -32,6 +32,9 @@ mlir::LogicalResult vpux::VPU::RollOp::inferReturnTypes(mlir::MLIRContext* ctx, 
         if (auto unrollOp = value.getDefiningOp<VPU::UnrolledTypeOp>()) {
             value = unrollOp.getInput();
         }
+        while (auto parentOp = value.getDefiningOp<VPU::CopyOp>()) {
+            value = parentOp->getOperand(0);
+        }
         return value.getDefiningOp<Const::DeclareOp>();
     };
     auto constShiftSource = getConstSource(roll.getShift());
@@ -48,12 +51,12 @@ mlir::LogicalResult vpux::VPU::RollOp::inferReturnTypes(mlir::MLIRContext* ctx, 
         const auto inShapeShift = shiftAndAxes.shift;
 
         if (!shiftContentIsSplat && inShapeShift.size() == 1) {
-            auto shiftData = IE::constInputToData(loc, roll.getShift());
+            auto shiftData = VPU::extractConstData(loc, roll.getShift());
             if (mlir::failed(shiftData)) {
                 return mlir::failure();
             }
 
-            auto axesData = IE::constInputToData(loc, roll.getAxes());
+            auto axesData = VPU::extractConstData(loc, roll.getAxes());
             if (mlir::failed(axesData)) {
                 return mlir::failure();
             }

@@ -8,7 +8,7 @@
 #include "vpux/compiler/dialect/const/attr_interfaces.hpp"
 #include "vpux/compiler/dialect/const/constant_transformations_control.hpp"
 
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/IR/MLIRContext.h>
 #include <mlir/IR/PatternMatch.h>
 

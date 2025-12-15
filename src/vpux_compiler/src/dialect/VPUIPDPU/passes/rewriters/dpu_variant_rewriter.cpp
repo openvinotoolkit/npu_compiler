@@ -9,8 +9,13 @@
 
 namespace vpux {
 namespace VPUIPDPU {
-DPUVariantRewriter::DPUVariantRewriter(mlir::MLIRContext* ctx, Logger log, ELF::SymbolReferenceMap& symRefMap)
-        : mlir::OpRewritePattern<VPUASM::DPUVariantOp>(ctx), _log(log), _symRefMap(symRefMap) {
+DPUVariantRewriter::DPUVariantRewriter(
+        mlir::MLIRContext* ctx, Logger log, ELF::SymbolReferenceMap& symRefMap,
+        VPURegMapped::NPU5PPEBackwardsCompatibilityMode npu5PPEBackwardsCompatibilityMode)
+        : mlir::OpRewritePattern<VPUASM::DPUVariantOp>(ctx),
+          _log(log),
+          _symRefMap(symRefMap),
+          _npu5PPEBackwardsCompatibilityMode(npu5PPEBackwardsCompatibilityMode) {
     setDebugName("DPUInvariant_VPUIPDPURewriter");
 }
 mlir::LogicalResult DPUVariantRewriter::matchAndRewrite(VPUASM::DPUVariantOp op,
@@ -38,11 +43,13 @@ mlir::LogicalResult DPUVariantRewriter::matchAndRewrite(VPUASM::DPUVariantOp op,
         if (dpuVariantExpandIface.expandGeneralConfig(rewriter, _log).failed()) {
             return mlir::failure();
         }
-        if (dpuVariantExpandIface.expandIDUConfig(rewriter, _log, _symRefMap).failed()) {
+        if (dpuVariantExpandIface.expandIDUConfig(rewriter, _log, _symRefMap, _npu5PPEBackwardsCompatibilityMode)
+                    .failed()) {
             return mlir::failure();
         }
 
-        if (dpuVariantExpandIface.expandPPEConfig(rewriter, _log, _symRefMap).failed()) {
+        if (dpuVariantExpandIface.expandPPEConfig(rewriter, _log, _symRefMap, _npu5PPEBackwardsCompatibilityMode)
+                    .failed()) {
             return mlir::failure();
         }
         if (dpuVariantExpandIface.expandODUConfig(rewriter, _log, varBlock, _symRefMap).failed()) {

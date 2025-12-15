@@ -97,9 +97,21 @@ const std::vector<AvgPoolWithActivationTestParams> activations = {
         {utils::Swish, ErrorType::ABSOLUTE, 0.00014f, 1.0f},
         {utils::Swish, ErrorType::ABSOLUTE, 0.00014f, 1.7f},
         {utils::Swish, ErrorType::ABSOLUTE, 0.00014f, 10.0f},
-        {utils::Exp, ErrorType::RELATIVE, 0.003f}
+        {utils::Exp, ErrorType::RELATIVE, 0.003f},
+        {utils::HSwish, ErrorType::ABSOLUTE, 0.0002f}
 
 };
+
+TEST_P(AvgPoolWithActivationTest, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(AvgPoolWithActivationTest, NPU5010_HW_1Tile) {
+    configuration["NPU_TILES"] = "1";
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
 
 INSTANTIATE_TEST_SUITE_P(smoke_AvgPoolWithActivation, AvgPoolWithActivationTest, ::testing::ValuesIn(activations),
                          AvgPoolWithActivationTest::getTestCaseName);

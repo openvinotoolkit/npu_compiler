@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --propagate-affine-reshape %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 #CNHW = affine_map<(d0, d1, d2, d3) -> (d1, d0, d2, d3)>
 
@@ -622,6 +622,25 @@ func.func @SwapAffineReshapeMultiply(%arg0: tensor<4096x2560x1x1xf16>, %arg1: te
     // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1, 2], [3], [3], [3]], shape_value = [1, 1, 4096, 2560]}
     // CHECK-SAME:          tensor<4096x2560x1x1xf16> -> tensor<1x1x4096x2560xf16>
     // CHECK: return [[AFFINERESHAPE]] : tensor<1x1x4096x2560xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @SwapAffineReshapeMultiplyF32
+// CHECK-SAME:    ([[INPUT0:%.+]]: tensor<4096x2560x1x1xf16>,
+// CHECK-SAME:     [[INPUT1:%.+]]: tensor<4096x2560x1x1xf16>)
+func.func @SwapAffineReshapeMultiplyF32(%arg0: tensor<4096x2560x1x1xf16>, %arg1: tensor<4096x2560x1x1xf16>) -> tensor<1x1x4096x2560xf32> {
+     %0 = IE.AffineReshape(%arg0) {dim_mapping = [[0, 1, 2], [3], [3], [3]], shape_value = [1, 1, 4096, 2560]} : tensor<4096x2560x1x1xf16> -> tensor<1x1x4096x2560xf16>
+    %1 = IE.AffineReshape(%arg1) {dim_mapping = [[0, 1, 2], [3], [3], [3]], shape_value = [1, 1, 4096, 2560]} : tensor<4096x2560x1x1xf16> -> tensor<1x1x4096x2560xf16>
+
+    %2 = IE.Multiply(%0, %1) { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } : tensor<1x1x4096x2560xf16>, tensor<1x1x4096x2560xf16> -> tensor<1x1x4096x2560xf32>
+    return %2 : tensor<1x1x4096x2560xf32>
+
+    // CHECK: [[MULTIPLY:%.+]] = IE.Multiply([[INPUT0]], [[INPUT1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4096x2560x1x1xf16>, tensor<4096x2560x1x1xf16> -> tensor<4096x2560x1x1xf32>
+    // CHECK: [[AFFINERESHAPE:%.+]] = IE.AffineReshape([[MULTIPLY]])
+    // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1, 2], [3], [3], [3]], shape_value = [1, 1, 4096, 2560]}
+    // CHECK-SAME:          tensor<4096x2560x1x1xf32> -> tensor<1x1x4096x2560xf32>
+    // CHECK: return [[AFFINERESHAPE]] : tensor<1x1x4096x2560xf32>
 }
 
 // -----

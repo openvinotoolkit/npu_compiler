@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-eltwise-layers-to-math %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 // CHECK: [[NCHW:#.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 // CHECK: SingleCosLayer
@@ -1424,5 +1424,253 @@ module @PReluLargeSlope {
     // CHECK:   [[MUL:%.+]] = arith.mulf [[MIN]], %[[SLOPE]] : f16
     // CHECK:   [[ADD:%.+]] = arith.addf [[MAX]], [[MUL]] : f16
     // CHECK:   linalg.yield [[ADD]] : f16
+  }
+}
+
+// -----
+// IE.SoftPlus (FP16)
+
+module @SingleSoftPlusHalfLayer {
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+    DataInfo "input" : tensor<1x1x1x1000xf16>
+  } outputsInfo : {
+    DataInfo "output" : tensor<1x1x1x1000xf16>
+  }
+
+  func.func @main(%arg0: tensor<1x1x1x1000xf16>) -> tensor<1x1x1x1000xf16> {
+    %0 = IE.CodeGenCapsule inputs(%arg0 as %arg1: tensor<1x1x1x1000xf16>) {
+      %1 = IE.SoftPlus(%arg1) : tensor<1x1x1x1000xf16> -> tensor<1x1x1x1000xf16>
+    IE.CGCYield %1 : tensor<1x1x1x1000xf16>
+    } -> tensor<1x1x1x1000xf16>
+    return %0 : tensor<1x1x1x1000xf16>
+
+    // CHECK-NOT: IE.SoftPlus
+    // CHECK: [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [#NCHW, #NCHW], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG0:%.+]] : tensor<1x1x1x1000xf16>) outs({{%.+}} : tensor<1x1x1x1000xf16>) {
+    // CHECK: ^bb0([[IN:%.+]]: f16, {{%.+}}: f16):
+
+    // CHECK: [[EXT:%.+]] = arith.extf [[IN]] : f16 to f32
+
+    // CHECK: [[THRESHOLD:%.+]] = arith.constant 1.100000e+01 : f32
+    // CHECK: [[ONE:%.+]] = arith.constant 1.000000e+00 : f32
+
+    // SoftPlus computation: log(1 + exp(input)) in FP32
+    // CHECK: [[EXP:%.+]] = math.exp [[EXT]] fastmath<{{.*}}afn{{.*}}> : f32
+    // CHECK: [[ONE_PLUS_EXP:%.+]] = arith.addf [[ONE]], [[EXP]] : f32
+    // CHECK: [[SOFTPLUS_RESULT:%.+]] = math.log [[ONE_PLUS_EXP]] fastmath<{{.*}}afn{{.*}}> : f32
+
+    // CHECK: [[USE_LINEAR:%.+]] = arith.cmpf olt, [[EXT]], [[THRESHOLD]] : f32
+    // CHECK: [[RESULT_F32:%.+]] = arith.select [[USE_LINEAR]], [[SOFTPLUS_RESULT]], [[EXT]] : f32
+
+    // CHECK: [[TRUNC:%.+]] = arith.truncf [[RESULT_F32]] : f32 to f16
+    // CHECK: linalg.yield [[TRUNC]] : f16
+    // CHECK: }
+    // CHECK: IE.CGCYield [[LINALG_OP]] : tensor<1x1x1x1000xf16>
+  }
+}
+
+// -----
+// IE.SoftPlus (FP32)
+
+module @SingleSoftPlusFloat32Layer {
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+    DataInfo "input" : tensor<1x1x1x1000xf32>
+  } outputsInfo : {
+    DataInfo "output" : tensor<1x1x1x1000xf32>
+  }
+
+  func.func @main(%arg0: tensor<1x1x1x1000xf32>) -> tensor<1x1x1x1000xf32> {
+    %0 = IE.CodeGenCapsule inputs(%arg0 as %arg1: tensor<1x1x1x1000xf32>) {
+      %1 = IE.SoftPlus(%arg1) : tensor<1x1x1x1000xf32> -> tensor<1x1x1x1000xf32>
+    IE.CGCYield %1 : tensor<1x1x1x1000xf32>
+    } -> tensor<1x1x1x1000xf32>
+    return %0 : tensor<1x1x1x1000xf32>
+
+    // CHECK-NOT: IE.SoftPlus
+    // CHECK: [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [#NCHW, #NCHW], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG0:%.+]] : tensor<1x1x1x1000xf32>) outs({{%.+}} : tensor<1x1x1x1000xf32>) {
+    // CHECK: ^bb0([[IN:%.+]]: f32, {{%.+}}: f32):
+
+    // CHECK: [[THRESHOLD:%.+]] = arith.constant 2.000000e+01 : f32
+    // CHECK: [[ONE:%.+]] = arith.constant 1.000000e+00 : f32
+
+    // SoftPlus computation: log(1 + exp(input))
+    // CHECK: [[EXP:%.+]] = math.exp [[IN]] fastmath<{{.*}}afn{{.*}}> : f32
+    // CHECK: [[ONE_PLUS_EXP:%.+]] = arith.addf [[ONE]], [[EXP]] : f32
+    // CHECK: [[SOFTPLUS_RESULT:%.+]] = math.log [[ONE_PLUS_EXP]] fastmath<{{.*}}afn{{.*}}> : f32
+
+    // CHECK: [[USE_LINEAR:%.+]] = arith.cmpf olt, [[IN]], [[THRESHOLD]] : f32
+    // CHECK: [[RESULT:%.+]] = arith.select [[USE_LINEAR]], [[SOFTPLUS_RESULT]], [[IN]] : f32
+
+    // CHECK: linalg.yield [[RESULT]] : f32
+    // CHECK: }
+    // CHECK: IE.CGCYield [[LINALG_OP]] : tensor<1x1x1x1000xf32>
+  }
+}
+
+// -----
+// IE.SoftPlus (FP16 big values)
+
+module @SingleSoftPlusBigValuesLayer {
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+    DataInfo "input" : tensor<16x128x256x512xf16>
+  } outputsInfo : {
+    DataInfo "output" : tensor<16x128x256x512xf16>
+  }
+
+  func.func @main(%arg0: tensor<16x128x256x512xf16>) -> tensor<16x128x256x512xf16> {
+    %0 = IE.CodeGenCapsule inputs(%arg0 as %arg1: tensor<16x128x256x512xf16>) {
+      %1 = IE.SoftPlus(%arg1) : tensor<16x128x256x512xf16> -> tensor<16x128x256x512xf16>
+    IE.CGCYield %1 : tensor<16x128x256x512xf16>
+    } -> tensor<16x128x256x512xf16>
+    return %0 : tensor<16x128x256x512xf16>
+
+    // CHECK-NOT: IE.SoftPlus
+    // CHECK: linalg.generic
+    // CHECK: [[EXT:%.+]] = arith.extf {{%.+}} : f16 to f32
+    // CHECK: [[THRESHOLD:%.+]] = arith.constant 1.100000e+01 : f32
+    // CHECK: [[ONE:%.+]] = arith.constant 1.000000e+00 : f32
+    // CHECK: [[EXP:%.+]] = math.exp [[EXT]] fastmath<{{.*}}afn{{.*}}> : f32
+    // CHECK: [[ONE_PLUS_EXP:%.+]] = arith.addf [[ONE]], [[EXP]] : f32
+    // CHECK: [[SOFTPLUS_RESULT:%.+]] = math.log [[ONE_PLUS_EXP]] fastmath<{{.*}}afn{{.*}}> : f32
+    // CHECK: [[USE_LINEAR:%.+]] = arith.cmpf olt, [[EXT]], [[THRESHOLD]] : f32
+    // CHECK: [[RESULT_F32:%.+]] = arith.select [[USE_LINEAR]], [[SOFTPLUS_RESULT]], [[EXT]] : f32
+    // CHECK: [[TRUNC:%.+]] = arith.truncf [[RESULT_F32]] : f32 to f16
+  }
+}
+
+// -----
+// IE.Mish
+
+module @SingleMishFloatLayer {
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+    DataInfo "input" : tensor<1x1x1x1000xf16>
+  } outputsInfo : {
+    DataInfo "output" : tensor<1x1x1x1000xf16>
+  }
+
+  func.func @main(%arg0: tensor<1x1x1x1000xf16>) -> tensor<1x1x1x1000xf16> {
+    %0 = IE.CodeGenCapsule inputs(%arg0 as %arg1: tensor<1x1x1x1000xf16>) {
+      %1 = IE.Mish(%arg1) : tensor<1x1x1x1000xf16> -> tensor<1x1x1x1000xf16>
+    IE.CGCYield %1 : tensor<1x1x1x1000xf16>
+    } -> tensor<1x1x1x1000xf16>
+    return %0 : tensor<1x1x1x1000xf16>
+
+    // CHECK-NOT: IE.Mish
+    // CHECK: [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [#NCHW, #NCHW], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG0:%.+]] : tensor<1x1x1x1000xf16>) outs({{%.+}} : tensor<1x1x1x1000xf16>) {
+    // CHECK: ^bb0([[IN:%.+]]: f16, {{%.+}}: f16):
+
+    // CHECK: [[ONE:%.+]] = arith.constant 1.000000e+00 : f16
+
+    // Computation steps for Mish(x) = x * tanh(ln(1 + exp(x)))
+    // CHECK: [[EXP:%.+]] = math.exp [[IN]] fastmath<afn> : f16
+    // CHECK: [[ONE_PLUS_EXP:%.+]] = arith.addf [[ONE]], [[EXP]] : f16
+    // CHECK: [[LOG:%.+]] = math.log [[ONE_PLUS_EXP]] fastmath<afn> : f16
+    // CHECK: [[TANH:%.+]] = math.tanh [[LOG]] fastmath<afn> : f16
+    // CHECK: [[RESULT:%.+]] = arith.mulf [[IN]], [[TANH]] : f16
+
+    // CHECK: linalg.yield [[RESULT]] : f16
+    // CHECK: }
+    // CHECK: IE.CGCYield [[LINALG_OP]] : tensor<1x1x1x1000xf16>
+  }
+}
+
+// -----
+// IE.Mish with f32
+
+module @SingleMishFloat32Layer {
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+    DataInfo "input" : tensor<1x2x3x4xf32>
+  } outputsInfo : {
+    DataInfo "output" : tensor<1x2x3x4xf32>
+  }
+
+  func.func @main(%arg0: tensor<1x2x3x4xf32>) -> tensor<1x2x3x4xf32> {
+    %0 = IE.CodeGenCapsule inputs(%arg0 as %arg1: tensor<1x2x3x4xf32>) {
+      %1 = IE.Mish(%arg1) : tensor<1x2x3x4xf32> -> tensor<1x2x3x4xf32>
+    IE.CGCYield %1 : tensor<1x2x3x4xf32>
+    } -> tensor<1x2x3x4xf32>
+    return %0 : tensor<1x2x3x4xf32>
+
+    // CHECK-NOT: IE.Mish
+    // CHECK: [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [#NCHW, #NCHW], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG0:%.+]] : tensor<1x2x3x4xf32>) outs({{%.+}} : tensor<1x2x3x4xf32>) {
+    // CHECK: ^bb0([[IN:%.+]]: f32, {{%.+}}: f32):
+
+    // CHECK: [[ONE:%.+]] = arith.constant 1.000000e+00 : f32
+    // CHECK: [[EXP:%.+]] = math.exp [[IN]] fastmath<afn> : f32
+    // CHECK: [[ONE_PLUS_EXP:%.+]] = arith.addf [[ONE]], [[EXP]] : f32
+    // CHECK: [[LOG:%.+]] = math.log [[ONE_PLUS_EXP]] fastmath<afn> : f32
+    // CHECK: [[TANH:%.+]] = math.tanh [[LOG]] fastmath<afn> : f32
+    // CHECK: [[RESULT:%.+]] = arith.mulf [[IN]], [[TANH]] : f32
+
+    // CHECK: linalg.yield [[RESULT]] : f32
+    // CHECK: }
+    // CHECK: IE.CGCYield [[LINALG_OP]] : tensor<1x2x3x4xf32>
+  }
+}
+
+// -----
+// IE.Mish with 2D tensor
+
+module @SingleMish2DLayer {
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+    DataInfo "input" : tensor<10x20xf16>
+  } outputsInfo : {
+    DataInfo "output" : tensor<10x20xf16>
+  }
+
+  func.func @main(%arg0: tensor<10x20xf16>) -> tensor<10x20xf16> {
+    %0 = IE.CodeGenCapsule inputs(%arg0 as %arg1: tensor<10x20xf16>) {
+      %1 = IE.Mish(%arg1) : tensor<10x20xf16> -> tensor<10x20xf16>
+    IE.CGCYield %1 : tensor<10x20xf16>
+    } -> tensor<10x20xf16>
+    return %0 : tensor<10x20xf16>
+
+    // CHECK-NOT: IE.Mish
+    // CHECK: [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [#[[MAP:.+]], #[[MAP]]], iterator_types = ["parallel", "parallel"]} ins([[ARG0:%.+]] : tensor<10x20xf16>) outs({{%.+}} : tensor<10x20xf16>) {
+    // CHECK: ^bb0([[IN:%.+]]: f16, {{%.+}}: f16):
+
+    // CHECK: [[ONE:%.+]] = arith.constant 1.000000e+00 : f16
+    // CHECK: [[EXP:%.+]] = math.exp [[IN]] fastmath<afn> : f16
+    // CHECK: [[ONE_PLUS_EXP:%.+]] = arith.addf [[ONE]], [[EXP]] : f16
+    // CHECK: [[LOG:%.+]] = math.log [[ONE_PLUS_EXP]] fastmath<afn> : f16
+    // CHECK: [[TANH:%.+]] = math.tanh [[LOG]] fastmath<afn> : f16
+    // CHECK: [[RESULT:%.+]] = arith.mulf [[IN]], [[TANH]] : f16
+
+    // CHECK: linalg.yield [[RESULT]] : f16
+    // CHECK: }
+    // CHECK: IE.CGCYield [[LINALG_OP]] : tensor<10x20xf16>
+  }
+}
+
+// -----
+// IE.Mish with 5D tensor
+
+module @SingleMish5DLayer {
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+    DataInfo "input" : tensor<2x3x4x5x6xf16>
+  } outputsInfo : {
+    DataInfo "output" : tensor<2x3x4x5x6xf16>
+  }
+
+  func.func @main(%arg0: tensor<2x3x4x5x6xf16>) -> tensor<2x3x4x5x6xf16> {
+    %0 = IE.CodeGenCapsule inputs(%arg0 as %arg1: tensor<2x3x4x5x6xf16>) {
+      %1 = IE.Mish(%arg1) : tensor<2x3x4x5x6xf16> -> tensor<2x3x4x5x6xf16>
+    IE.CGCYield %1 : tensor<2x3x4x5x6xf16>
+    } -> tensor<2x3x4x5x6xf16>
+    return %0 : tensor<2x3x4x5x6xf16>
+
+    // CHECK-NOT: IE.Mish
+    // CHECK: [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [#[[MAP:.+]], #[[MAP]]], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel"]} ins([[ARG0:%.+]] : tensor<2x3x4x5x6xf16>) outs({{%.+}} : tensor<2x3x4x5x6xf16>) {
+    // CHECK: ^bb0([[IN:%.+]]: f16, {{%.+}}: f16):
+
+    // CHECK: [[ONE:%.+]] = arith.constant 1.000000e+00 : f16
+    // CHECK: [[EXP:%.+]] = math.exp [[IN]] fastmath<afn> : f16
+    // CHECK: [[ONE_PLUS_EXP:%.+]] = arith.addf [[ONE]], [[EXP]] : f16
+    // CHECK: [[LOG:%.+]] = math.log [[ONE_PLUS_EXP]] fastmath<afn> : f16
+    // CHECK: [[TANH:%.+]] = math.tanh [[LOG]] fastmath<afn> : f16
+    // CHECK: [[RESULT:%.+]] = arith.mulf [[IN]], [[TANH]] : f16
+
+    // CHECK: linalg.yield [[RESULT]] : f16
+    // CHECK: }
+    // CHECK: IE.CGCYield [[LINALG_OP]] : tensor<2x3x4x5x6xf16>
   }
 }

@@ -208,25 +208,26 @@ mlir::LogicalResult QuantizeWithNCERewriter::matchAndRewrite(IE::QuantizeOp orig
     const auto isOutputPerAxisQuant = isPerAxisQuant(origOp.getOutput());
     const auto maybeNCETask = origOp.getInput().getDefiningOp();
     if (maybeNCETask == nullptr) {
-        return matchFailed(rewriter, origOp, "Producer is a block argument");
+        return matchFailed(_log, rewriter, origOp, "Producer is a block argument");
     }
     if (!maybeNCETask->getResult(0).hasOneUse()) {
-        return matchFailed(rewriter, origOp, "NCE task has more than one consumer");
+        return matchFailed(_log, rewriter, origOp, "NCE task has more than one consumer");
     }
     if (mlir::isa<IE::MaxPoolOp>(maybeNCETask)) {
-        return matchFailed(rewriter, origOp,
+        return matchFailed(_log, rewriter, origOp,
                            "{0} is a quantization-agnostic operation, mixed precision is not supported",
                            maybeNCETask->getName());
     }
     if (!_isPerAxesSupported && isOutputPerAxisQuant &&
         mlir::isa<IE::AddOp, IE::SubtractOp, IE::MultiplyOp, IE::AvgPoolOp>(maybeNCETask)) {
-        return matchFailed(rewriter, origOp, "IE.AvgPool and Eltwise do not support per-channel quantized output");
+        return matchFailed(_log, rewriter, origOp,
+                           "IE.AvgPool and Eltwise do not support per-channel quantized output");
     }
 
     auto layerWithPostOp = mlir::dyn_cast_or_null<IE::LayerWithPostOpInterface>(maybeNCETask);
     if (layerWithPostOp != nullptr && layerWithPostOp.getPostOp() != nullptr &&
         !_checkPostOp(layerWithPostOp, isOutputPerAxisQuant, /*isFloatInput=*/true)) {
-        return matchFailed(rewriter, origOp, "Layer with PostOp not supported");
+        return matchFailed(_log, rewriter, origOp, "Layer with PostOp not supported");
     }
 
     // NCE tasks with float input and quant output support LeakyReLU only per-tensor quantize output.
@@ -235,7 +236,7 @@ mlir::LogicalResult QuantizeWithNCERewriter::matchAndRewrite(IE::QuantizeOp orig
     // So for the negative values we'd have to combine the prelu alpha parameter and the requant scale into the per
     // tensor param for prelu scale. This explains why we can't have prelu with per axis quant in fp mode
     if (!_isMixPrecisionSupported(maybeNCETask, !isOutputPerAxisQuant, _log)) {
-        return matchFailed(rewriter, origOp, "Producer {0} is not supported", maybeNCETask->getName());
+        return matchFailed(_log, rewriter, origOp, "Producer {0} is not supported", maybeNCETask->getName());
     }
 
     auto* newNCETask = rewriter.clone(*maybeNCETask);
@@ -276,7 +277,7 @@ void ConvertToMixedPrecisionPass::safeRunOnFunc() {
     mlir::RewritePatternSet patterns(&ctx);
     strategy->addPatterns(patterns, _log);
 
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

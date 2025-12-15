@@ -101,6 +101,11 @@ TEST_P(DecomposeSTFTTest, NPU4000_HW) {
     run(Platform::NPU4000);
 }
 
+TEST_P(DecomposeSTFTTest, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
 const std::vector<STFTParams> stftTestParams = {{
                                                         {1024},           // signal: [1024] samples
                                                         {512},            // window: [512]

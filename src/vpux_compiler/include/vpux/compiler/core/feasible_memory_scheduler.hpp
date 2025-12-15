@@ -329,16 +329,20 @@ public:
         }
     };
 
+    // Represents a snapshot of the scheduler's state, allowing rollback to a previous state
+    struct ScheduleStateSnapshot;
+
 public:
     FeasibleMemoryScheduler(VPU::MemoryKind memKind, VPU::MemoryKind secondLvlMemKind, MemLiveRangeInfo& liveRangeInfo,
                             AsyncDepsInfo& depsInfo, Logger log, LinearScan<mlir::Value, LinearScanHandler>& scan,
                             config::ArchKind arch, std::shared_ptr<VPUNN::VPUCostModel> costModel,
                             int64_t nceClusterCount, int64_t dmaCount, bool enableScheduleStatistics,
-                            bool optimizeFragmentation);
+                            bool optimizeFragmentation, bool activelySpillForPrefetching);
 
 public:
     ScheduledOpInfoVec generateSchedule();
     void cleanUpAndLogSchedule(ScheduledOpInfoVec& scheduledOps);
+    void printFragmentFixCountLog() const;
 
 private:
     bool init();
@@ -405,19 +409,36 @@ private:
     void unscheduleAllCompletingOps();
     size_t getOperationLevel(operationIdxType opIdx, bool isSpilled = false);
     void prefetchOps(ArrayRef<std::pair<operationIdxType, size_t>> scheduledOps,
-                     mlir::DenseSet<mlir::Value>& buffersToAllocate);
+                     mlir::DenseSet<mlir::Value>& buffersToAllocate, bool checkMemoryFragmentation);
     void scheduleNonComputeOps();
     void scheduleComputeOps();
 
     // eviction utility
     void evictActiveOp(EvictionCandidate evictionCandidate);
     size_t evictionPriority(operationIdxType writerOpIdx, mlir::Value buffer);
+    operationIdxType getEarliestConsumerIdx(operationIdxType opIdx);
     EvictionCandidate chooseCandidateForEviction(const mlir::DenseSet<mlir::Value>& aliveBuffers);
     void forceScheduleActiveOpEviction();
     size_t getOpBufferOutputIdx(operationIdxType opIdx, mlir::Value buffer);
 
     // reporting and schedule generation
     void populateScheduledOps(const HeapElement& scheduledOp);
+
+    // Actively spill for aggressive prefetch to resolve memory fragmentation
+    // When detected prefetching failure due to memory fragmentation, this scheduler actively spill out eviction
+    // candidates until enough memory is available for prefetching
+    // If no eviction candidate could resolve the fragmentation, the scheduler will roll back to the state before
+    // prefetching and memory fragmentation happens
+    std::optional<EvictionCandidate> chooseCandidateForEvictionToSupportPrefetch(
+            mlir::DenseSet<mlir::Value>& aliveBuffers, mlir::DenseMap<mlir::Value, operationIdxType>& bufferProducer,
+            LinearScan<mlir::Value, LinearScanHandler>& scan);
+    void forceSpillingForPrefetch();
+    // Prepare the variables to track the big-container changes/deltas during scheduling compute ops
+    // This is needed to be able to rollback the changes when prefetching fails due to fragmentation
+    void resetScheduleComputeOpsDeltas();
+    // Spill the eviction candidate that is selected by `chooseCandidateForEvictionToSupportPrefetch`
+    void performEvictionAndScheduling(const EvictionCandidate& evictionCandidate);
+    size_t getOpCmxDemand(operationIdxType opIdx);
 
 private:
     Logger _log;
@@ -508,6 +529,46 @@ private:
     std::set<EvictionCandidate, EvictionPriority> _evictionCandidatesCache;
 
     llvm::BitVector _isDataOp;
+
+    //
+    // Actively spilling
+    // To resolve memory fragmentation, the scheduler can actively spill out eviction candidates
+    // to make more consecutive memory for prefetching
+    //
+    // option to enable actively spilling
+    bool _activelySpillForPrefetching;
+    // flag to indicate if prefetching failed due to memory fragmentation
+    // this flag is set true during prefetching if memory fragment is detected and used to trigger active spilling
+    bool _prefetchFailedDueToFragmentation = false;
+    size_t _prefetchFragmentationFailureCount = 0;
+    size_t _prefetchFragmentationFailureFixedCount = 0;
+
+    // track buffers fragmented during prefetching
+    mlir::DenseSet<mlir::Value> _fragmentedBuffers;
+    // actively spilled eviction candidate
+    std::optional<FeasibleMemoryScheduler::EvictionCandidate> _evictionCandidateToSupportPrefetch;
+
+    /**
+     * @brief Snapshot related members for actively spilling
+     *
+     * Store the stages before and after the current compute ops scheduling to be able to roll back if actively spilling
+     * is needed. Everytime `scheduleComputeOps` is called, these variables are reset. And during `scheduleComputeOps`
+     * execution, the changes made to these variables are tracked. The reason of not saving _bufferProducer,
+     * _bufferLastCycleUse and _opIdxEndCycleMap to snapshot is to save the compilation time. Saving the whole maps is
+     * more time-consuming than using the deltas to revert the changes.
+     * `_new*` variables store newly added buffers/ops during `scheduleComputeOps`
+     * `_original*` variables store previous scheduled but changed buffers/ops during `scheduleComputeOps`
+     */
+
+    // _bufferProducer deltas
+    mlir::DenseSet<mlir::Value> _newBufferProducersFromScheduleComputeOps;
+    mlir::DenseMap<mlir::Value, operationIdxType> _originalBufferProducersFromScheduleComputeOps;
+    // _bufferLastCycleUse deltas
+    mlir::DenseSet<mlir::Value> _newBufferLastCycleUsesFromScheduleComputeOps;
+    mlir::DenseMap<mlir::Value, size_t> _originalBufferLastCycleUseFromScheduleComputeOps;
+    // _opIdxEndCycleMap deltas
+    mlir::DenseMap<operationIdxType, size_t> _originalOpIdxEndCycleMapFromScheduleComputeOps;
+    mlir::DenseSet<operationIdxType> _newOpsFromScheduleComputeOps;
 };
 
 }  // namespace vpux

@@ -252,6 +252,7 @@ void splitOntoWorkloads(mlir::OpBuilder& builder, VPU::NCEOpInterface origOp, VP
             costParams.outputShape = outputSubTensorShapes[clusterId];
             costParams.numTiles = distributionAttr.getNumClusters().getInt();
             // #E129156 once with the update of VPUNN to provide MPE mode explicitly
+
             if (costParams.arch != config::ArchKind::NPU40XX &&
                 mlir::isa<VPU::NCEConvolutionOp, VPU::NCECompressConvolutionOp, VPU::NCEInterpolateOp>(origOp)) {
                 mpeMode = origOp.getMpeMode(nullptr, nullptr, outputSubTensorShapes[clusterId]);

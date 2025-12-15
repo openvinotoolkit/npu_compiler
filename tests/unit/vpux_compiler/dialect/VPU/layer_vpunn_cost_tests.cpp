@@ -5,7 +5,10 @@
 
 #include "common/utils.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+
+#include "vpux/compiler/dialect/VPU/IR/ops/activation.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/factories/cost_model_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/layer_vpunn_cost.hpp"
@@ -155,10 +158,10 @@ TEST_F(MLIR_VPU_LayerVPUNNCost, SWKernel_LayerCost) {
 
 #loc0 = loc(unknown)
     module @main {
-        func.func @main(%arg0: tensor<1x8x4x76xf16, {order = #NHWC}>) -> tensor<1x8x4x76xf16, {order = #NHWC}> {
-        %0 = VPU.SoftMax(%arg0) {axisInd = 3} : tensor<1x8x4x76xf16, {order = #NHWC}> -> tensor<1x8x4x76xf16, {order = #NHWC}>
+        func.func @main(%arg0: tensor<1x80x4000x76xf16, {order = #NHWC}>) -> tensor<1x80x4000x76xf16, {order = #NHWC}> {
+        %0 = VPU.SoftMax(%arg0) {axisInd = 3} : tensor<1x80x4000x76xf16, {order = #NHWC}> -> tensor<1x80x4000x76xf16, {order = #NHWC}>
 
-        return %0 : tensor<1x8x4x76xf16, {order = #NHWC}>
+        return %0 : tensor<1x80x4000x76xf16, {order = #NHWC}>
     }
     }
     )";

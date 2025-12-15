@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --encapsulate-codegen-ops --early-codegen-capsule-fusion %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 module @SingleCosNoChange {
   net.NetworkInfo entryPoint : @main inputsInfo : {

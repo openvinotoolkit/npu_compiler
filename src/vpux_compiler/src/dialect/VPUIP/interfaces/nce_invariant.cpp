@@ -10,11 +10,12 @@
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/image.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
-#include "vpux/compiler/utils/VPU/tile_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
@@ -355,6 +356,31 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyChannels(IE::SDPAExtendedOp
     const auto dimS = inputShapeV[Dim(inputTypeV.getRank() - 1)];
     if (dimS % inputChannelAlignment != 0) {
         log.trace("[{0}] SDPAExtended input channels '{1}' are not aligned", loc, dimS);
+        return mlir::failure();
+    }
+
+    return mlir::success();
+}
+
+mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyChannels(IE::FlashSDPAOp origOp, Logger log) {
+    log.setName("NCEInvariant");
+
+    const auto keyType = mlir::cast<NDTypeInterface>(origOp.getKey().getType());
+    const auto elemType = keyType.getElementType();
+    const auto alignment = vpux::VPU::NCEInvariant::getAlignment(elemType);
+
+    const auto keyShape = keyType.getShape();
+    const auto qkEmbedding = *std::prev(keyShape.end(), 1);
+    const auto sourceSeqLen = *std::prev(keyShape.end(), 2);
+
+    if (qkEmbedding % alignment != 0) {
+        log.trace("[{0}] '{1}' input channels '{2}' are not aligned", origOp->getLoc(), origOp->getName(), qkEmbedding);
+        return mlir::failure();
+    }
+
+    if (sourceSeqLen % alignment != 0) {
+        log.trace("[{0}] '{1}' input channels '{2}' are not aligned", origOp->getLoc(), origOp->getName(),
+                  sourceSeqLen);
         return mlir::failure();
     }
 

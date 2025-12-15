@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/NPU37XX/dialect/VPU/impl/wlm_register_config.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPU/impl/wlm_register_config.hpp"
+#include "vpux/compiler/NPU50XX/dialect/VPU/impl/wlm_register_config.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/wlm_register_config.hpp"
 
 #include "vpux/utils/core/error.hpp"
@@ -18,6 +19,9 @@ VPU::RegisterConfig VPU::getRegisterConfig(config::ArchKind arch) {
     }
     case config::ArchKind::NPU40XX: {
         return VPU::arch40xx::RegisterConfig{};
+    }
+    case config::ArchKind::NPU50XX: {
+        return VPU::arch50xx::RegisterConfig{};
     }
     default: {
     }

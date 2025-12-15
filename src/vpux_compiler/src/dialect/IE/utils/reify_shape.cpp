@@ -46,22 +46,23 @@ IE::ConcatOp vpux::buildConcat(const mlir::Location loc, mlir::OpBuilder& builde
     size_t dynamicOpIdx = 0;
     for (const auto& dim : producerShape) {
         if (dim == mlir::ShapedType::kDynamic) {
-            auto toI64 = builder.create<mlir::arith::IndexCastOp>(appendLoc(loc, "to_i64_{0}", dim),
+            auto dynOpLoc = dynamicOperands[dynamicOpIdx].getLoc();
+            auto toI64 = builder.create<mlir::arith::IndexCastOp>(appendLoc(dynOpLoc, "to_i64_{0}", dim),
                                                                   getInt64Type(builder.getContext()),
                                                                   dynamicOperands[dynamicOpIdx]);
             auto tensorI64Type = mlir::RankedTensorType::get({1}, getInt64Type(builder.getContext()));
-            auto toTensor = builder.create<mlir::tensor::FromElementsOp>(appendLoc(loc, "to_tensor_{0}", dim),
+            auto toTensor = builder.create<mlir::tensor::FromElementsOp>(appendLoc(dynOpLoc, "to_tensor_{0}", dim),
                                                                          tensorI64Type, toI64->getResult(0));
             auto tensorSI64Type = mlir::RankedTensorType::get({1}, getSInt64Type(builder.getContext()));
-            auto toSI64 = builder.create<mlir::tensor::BitcastOp>(appendLoc(loc, "to_si64_{0}", dim), tensorSI64Type,
-                                                                  toTensor->getResult(0));
+            auto toSI64 = builder.create<mlir::tensor::BitcastOp>(appendLoc(dynOpLoc, "to_si64_{0}", dim),
+                                                                  tensorSI64Type, toTensor->getResult(0));
             concatInputs.push_back(toSI64->getResult(0));
             dynamicOpIdx++;
         } else {
             const SmallVector<int64_t> dimValues{dim};
             auto tensorType = mlir::RankedTensorType::get({1}, getSInt64Type(builder.getContext()));
             concatInputs.push_back(
-                    Const::createConst(builder, appendLoc(loc, "_dim_{0}", dim), tensorType, ArrayRef(dimValues)));
+                    Const::createConst(builder, appendLoc(loc, "dim_{0}", dim), tensorType, ArrayRef(dimValues)));
         }
     }
 

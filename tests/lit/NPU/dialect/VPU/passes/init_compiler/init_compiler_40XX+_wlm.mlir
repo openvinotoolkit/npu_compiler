@@ -5,7 +5,7 @@
 
 
 // RUN: vpux-opt --init-compiler="vpu-arch=%arch%" %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 module @mainModule {
 }

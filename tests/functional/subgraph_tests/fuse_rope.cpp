@@ -178,6 +178,10 @@ TEST_P(FuseRoPETestCommon, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
+TEST_P(FuseRoPETestCommon, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
 
 const std::vector<RoPEParams> precommit_testValues = {{{1, 32, 32, 96}, {1, 1, 32, 96}, {1, 1, 32, 96}, false},
                                                       {{1, 1, 256, 80}, {1, 1, 256, 80}, {1, 1, 256, 80}, true}};

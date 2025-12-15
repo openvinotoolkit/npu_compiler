@@ -7,7 +7,7 @@
 
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/recurrent.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 
 #include <mlir/Transforms/DialectConversion.h>
@@ -41,7 +41,7 @@ bool fitInCMXAfterSplit(VPU::GRUSequenceOp op, Logger log) {
     const auto firstPartOutputSize = batchSize * numDirection * seqLength * 3 * hiddenSize;
     const auto firstPartSize = (inputDataSize + weightsSize + firstPartOutputSize) * byteSize;
     if (firstPartSize > cmxAvailableBytes) {
-        log.trace("Does not fit into CMX. FirstPartGRUSequence required CMX size {0}", "max available CMX {1}",
+        log.trace("Does not fit into CMX. FirstPartGRUSequence required CMX size {0}, max available CMX {1}",
                   firstPartSize, cmxAvailableBytes);
         return false;
     }
@@ -60,7 +60,7 @@ bool fitInCMXAfterSplit(VPU::GRUSequenceOp op, Logger log) {
                                middleHiddenStateSize + outputHiddenStateSize) *
                               byteSize;
     if (lastPartSize > cmxAvailableBytes) {
-        log.trace("Does not fit into CMX. LastPartGRUSequence required CMX size {0}", "max available CMX {1}",
+        log.trace("Does not fit into CMX. LastPartGRUSequence required CMX size {0}, max available CMX {1}",
                   lastPartSize, cmxAvailableBytes);
         return false;
     }

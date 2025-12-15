@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/comparison.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
@@ -17,24 +17,13 @@ mlir::LogicalResult vpux::VPU::GreaterEqualOp::inferReturnTypes(
         mlir::SmallVectorImpl<mlir::Type>& inferredReturnTypes) {
     const auto loc = optLoc.value_or(mlir::UnknownLoc::get(ctx));
 
-    VPU::GreaterEqualOpAdaptor greatereq(operands, attrs, prop);
-    if (mlir::failed(greatereq.verify(loc))) {
+    VPU::GreaterEqualOpAdaptor greaterEq(operands, attrs, prop);
+    if (mlir::failed(greaterEq.verify(loc))) {
         return mlir::failure();
     }
 
-    const auto in1Type = mlir::cast<vpux::NDTypeInterface>(greatereq.getInput1().getType());
-    const auto in2Type = mlir::cast<vpux::NDTypeInterface>(greatereq.getInput2().getType());
-
-    const auto outShapeRes = IE::broadcastEltwiseShape(in1Type.getShape().raw(), in2Type.getShape().raw(),
-                                                       greatereq.getAutoBroadcast(), loc);
-
-    if (mlir::succeeded(outShapeRes)) {
-        const auto outType = mlir::RankedTensorType::get(outShapeRes.value(), in1Type.getElementType(),
-                                                         createTensorAttrFromType(in1Type));
-        inferredReturnTypes.push_back(outType);
-    }
-
-    return mlir::success();
+    return inferEltwiseReturnTypes(inferredReturnTypes, loc, greaterEq.getInput1(), greaterEq.getInput2(),
+                                   greaterEq.getAutoBroadcast());
 }
 
 void vpux::VPU::GreaterEqualOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState,

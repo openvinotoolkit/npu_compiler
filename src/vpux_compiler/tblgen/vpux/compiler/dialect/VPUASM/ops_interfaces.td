@@ -97,6 +97,7 @@ def VPUASM_DPUInvariantExpandOpInterface : OpInterface<"DPUInvariantExpandOpInte
                               "mlir::Block*":$invBlock,
                               "const std::unordered_map<VPUIPDPU::BlockArg, size_t>&":$invBlockArgsPos,
                               "ELF::SymbolReferenceMap&":$symRefMap
+                              , "vpux::VPURegMapped::NPU5PPEBackwardsCompatibilityMode":$npu5PPEBackwardsCompatibilityMode
                               )
         >,
         InterfaceMethod<
@@ -116,6 +117,7 @@ def VPUASM_DPUInvariantExpandOpInterface : OpInterface<"DPUInvariantExpandOpInte
                               "mlir::Block*":$invBlock,
                               "const std::unordered_map<VPUIPDPU::BlockArg, size_t>&":$invBlockArgsPos,
                               "ELF::SymbolReferenceMap&":$symRefMap
+                              , "vpux::VPURegMapped::NPU5PPEBackwardsCompatibilityMode":$npu5PPEBackwardsCompatibilityMode
                               )
         >,
         InterfaceMethod<
@@ -148,6 +150,7 @@ def VPUASM_DPUVariantExpandOpInterface : OpInterface<"DPUVariantExpandOpInterfac
             "expandIDUConfig", (ins "mlir::OpBuilder&":$builder,
                               "const Logger&":$log,
                               "ELF::SymbolReferenceMap&":$symRefMap
+                              , "vpux::VPURegMapped::NPU5PPEBackwardsCompatibilityMode":$npu5PPEBackwardsCompatibilityMode
                               )
         >,
         InterfaceMethod<
@@ -156,6 +159,7 @@ def VPUASM_DPUVariantExpandOpInterface : OpInterface<"DPUVariantExpandOpInterfac
             "expandPPEConfig", (ins "mlir::OpBuilder&":$builder,
                               "const Logger&":$log,
                               "ELF::SymbolReferenceMap&":$symRefMap
+                              , "vpux::VPURegMapped::NPU5PPEBackwardsCompatibilityMode":$npu5PPEBackwardsCompatibilityMode
                               )
         >,
         InterfaceMethod<

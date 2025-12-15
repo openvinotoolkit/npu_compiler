@@ -25,55 +25,6 @@
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/Format.h>
 
-namespace {
-
-class LoggerTimingOutputStrategy final : public mlir::OutputStrategy {
-public:
-    explicit LoggerTimingOutputStrategy(llvm::raw_ostream& os): mlir::OutputStrategy(os) {
-    }
-
-    void printHeader(const mlir::TimeRecord& total) override {
-        static constexpr llvm::StringLiteral kTimingDescription = "... Execution time report ...";
-        const auto padding = (80U - kTimingDescription.size()) / 2U;
-        os << "===" << std::string(73, '-') << "===\n";
-        os.indent(padding) << kTimingDescription << '\n';
-        os << "===" << std::string(73, '-') << "===\n";
-
-        os << llvm::format("  Total Execution Time: %.4f seconds\n\n", total.wall);
-        if (total.user != total.wall) {
-            os << "  ----User Time----";
-        }
-        os << "  ----Wall Time----  ----Name----\n";
-    }
-
-    void printFooter() override {
-        os.flush();
-    }
-
-    void printTime(const mlir::TimeRecord& time, const mlir::TimeRecord& total) override {
-        if (total.user != total.wall) {
-            os << llvm::format("  %8.4f (%5.1f%%)", time.user, 100.0 * time.user / total.user);
-        }
-        os << llvm::format("  %8.4f (%5.1f%%)  ", time.wall, 100.0 * time.wall / total.wall);
-    }
-
-    void printListEntry(llvm::StringRef name, const mlir::TimeRecord& time, const mlir::TimeRecord& total,
-                        bool /*lastEntry*/) override {
-        printTime(time, total);
-        os << name << "\n";
-    }
-
-    void printTreeEntry(unsigned indent, llvm::StringRef name, const mlir::TimeRecord& time,
-                        const mlir::TimeRecord& total) override {
-        printTime(time, total);
-        os.indent(indent) << name << "\n";
-    }
-
-    void printTreeEntryEnd(unsigned /*indent*/, bool /*lastEntry*/) override {
-    }
-};
-
-}  // namespace
 namespace vpux {
 
 DeveloperConfig::DeveloperConfig(Logger log): _log(log) {
@@ -145,7 +96,8 @@ void DeveloperConfig::setup(mlir::DefaultTimingManager& tm) const {
     if (_log.isActive(LogLevel::Info)) {
         tm.setEnabled(true);
         tm.setDisplayMode(mlir::DefaultTimingManager::DisplayMode::Tree);
-        tm.setOutput(std::make_unique<LoggerTimingOutputStrategy>(Logger::getBaseStream()));
+        tm.setOutput(
+                mlir::createOutputStrategy(mlir::DefaultTimingManager::OutputFormat::Text, Logger::getBaseStream()));
     } else {
         tm.setEnabled(false);
     }

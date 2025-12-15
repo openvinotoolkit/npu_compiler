@@ -5,7 +5,7 @@
 
 #include "vpux/compiler/NPU40XX/dialect/VPUIP/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+
 #include "vpux/compiler/dialect/VPU/interfaces/workload_splitter.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/sparsity_constraint.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"

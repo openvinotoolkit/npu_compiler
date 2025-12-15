@@ -68,7 +68,7 @@ private:
         void resolveSpillBufferUsage();
 
     private:
-        mlir::Operation* getViewOpForMasterBuffer(mlir::Value asyncResult);
+        SmallVector<mlir::Operation*> getViewOpsForMasterBuffer(mlir::Value asyncResult);
         SmallVector<mlir::async::ExecuteOp> getUsersOfSpilledOpThatNeedUpdate(mlir::Value opThatWasSpilledResult);
         unsigned int getOperandIndexForSpillResultUser(mlir::async::ExecuteOp spillResultUser,
                                                        mlir::Value spilledAsyncResult);

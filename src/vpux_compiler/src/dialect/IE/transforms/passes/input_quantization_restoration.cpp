@@ -176,7 +176,7 @@ public:
                     createAndReplaceFakeQuantize(rewriter, multiplyOp->getLoc(), multiplyOp,
                                                  lastPreProcOp->getResult(0), scaleValue, zeroPoint, inputShape);
                     return mlir::success();
-                } else if (isInputQuantizationUsecase(subtractOp)) {
+                } else if (isInputQuantizationUsecase(subtractOp) && multiplyOp == nullptr) {
                     // Case 1 fallback: lastPreProcOp -> Subtract, Subtract has multiple uses or not only Multiply
                     createAndReplaceFakeQuantize(rewriter, subtractOp->getLoc(), subtractOp,
                                                  lastPreProcOp->getResult(0), 1.0f, zeroPoint, inputShape);
@@ -272,7 +272,7 @@ void InputQuantizationRestoration::safeRunOnFunc() {
     mlir::RewritePatternSet patterns(func.getContext());
     patterns.add<InputFakeQuantizeInsertionPattern>(func.getContext(), _log);
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns)))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns)))) {
         signalPassFailure();
     }
 }

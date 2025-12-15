@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-m2i-ops --canonicalize %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @convertM2iColorConvert
 func.func @convertM2iColorConvert(%arg0: tensor<1x360x320x1xui8>) -> tensor<1x240x320x3xui8> {

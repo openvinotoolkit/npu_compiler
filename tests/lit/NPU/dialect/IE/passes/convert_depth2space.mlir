@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --convert-depthToSpace %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @Depth2SpaceConvertToNNDMAs
 func.func @Depth2SpaceConvertToNNDMAs(%arg0: tensor<1x4x512x8xf16>) -> tensor<1x1x1024x16xf16> {

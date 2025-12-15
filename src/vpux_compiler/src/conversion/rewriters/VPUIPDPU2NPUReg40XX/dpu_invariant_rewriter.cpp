@@ -187,7 +187,7 @@ void DPUInvariantRewriter::fillODUCfg(mlir::Region& DPURegion, DpuInvariantDescr
         // TODO: E#81883 need to figure this out why it's always set to 1?
         descriptor.write<Fields::rst_ctxt>(1);
 
-        // TODO: E#82814 should it be a  defailt value? this is hardcoded and directly copied from POC runtime...
+        // TODO: E#82814 should it be a default value? this is hardcoded and directly copied from POC runtime...
         descriptor.write<Fields::base_offset_a>(0x200);
 
         for (auto& ODUOp : ODUCfgOp.getRegion().getOps()) {

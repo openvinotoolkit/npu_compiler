@@ -88,7 +88,9 @@ void traverseDynamicSubgraph(mlir::Operation* op) {
 
                 builder.setInsertionPointAfter(producer);
                 SmallVector<mlir::Value> dynamicOperands{};
-                mlir::bufferization::populateDynamicDimSizes(builder, op->getLoc(), operand.value(), dynamicOperands);
+                mlir::bufferization::populateDynamicDimSizes(
+                        builder, takeOpLoc(op, StringLiteral("operand_{0}"), operand.index()), operand.value(),
+                        dynamicOperands);
                 auto newShapeValue = buildConcat(
                         appendLoc(op->getLoc(), "clear_dyn_garbage_{0}_operand_{1}", op->getName(), operand.index()),
                         builder, getShape(operand.value()), dynamicOperands);

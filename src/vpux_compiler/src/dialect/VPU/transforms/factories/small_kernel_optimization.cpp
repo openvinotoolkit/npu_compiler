@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/VPU/transforms/factories/small_kernel_optimization.hpp"
 #include "vpux/compiler/NPU37XX/dialect/VPU/impl/small_kernel_optimization.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPU/impl/small_kernel_optimization.hpp"
+#include "vpux/compiler/NPU50XX/dialect/VPU/impl/small_kernel_optimization.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 
 using namespace vpux;
@@ -18,6 +19,8 @@ bool VPU::isSmallKernelOptimizationSupported(mlir::Operation* op, const config::
         return VPU::arch37xx::isSmallKernelOptimizationSupported();
     case config::ArchKind::NPU40XX:
         return VPU::arch40xx::isSmallKernelOptimizationSupported(op, KX, SX, workloads);
+    case config::ArchKind::NPU50XX:
+        return VPU::arch50xx::isSmallKernelOptimizationSupported(op, KX, KY, SX, workloads);
     case config::ArchKind::UNKNOWN:
     default:
         VPUX_THROW("Unexpected architecture {0}", arch);
@@ -32,6 +35,8 @@ bool VPU::doesWorkloadSupportSmallKernelOpt([[maybe_unused]] config::ArchKind ar
         return VPU::arch37xx::doesWorkloadSupportSmallKernelOpt();
     case config::ArchKind::NPU40XX:
         return VPU::arch40xx::doesWorkloadSupportSmallKernelOpt(KX, SX, workloadOutSz, isFp16Input);
+    case config::ArchKind::NPU50XX:
+        return VPU::arch50xx::doesWorkloadSupportSmallKernelOpt(KX, SX, workloadOutSz, isFp16Input, KY, padLeft);
     case config::ArchKind::UNKNOWN:
     default:
         VPUX_THROW("Unexpected architecture {0}", arch);

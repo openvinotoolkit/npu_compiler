@@ -550,6 +550,52 @@ module {
 // -----
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+!qElemType = !quant.uniform<u8:f16, 0.003751185828564214>
+module {
+  net.NetworkInfo entryPoint : @PPE_U8_U8_ELTWISE_QUANT_SCALE inputsInfo : {
+    DataInfo "input_0" : tensor<1x64x16x16xui8>
+  } outputsInfo : {
+    DataInfo "output_0" : tensor<1x64x8x8xui8>
+  }
+
+  func.func @PPE_U8_U8_ELTWISE_QUANT_SCALE() {
+    ELF.Main @ELFMain {
+      ELF.CreateLogicalSection @program.metadata.cmx aligned(32) secType(VPU_SHT_CMX_METADATA) secFlags("SHF_NONE") secLocation(<CMX_NN>) {
+        VPUASM.DeclareTaskBuffer @DeclareTaskBuffer_DPUInvariant_0_0_0 idx(!VPURegMapped.Index<0:0:0>) <DPUInvariant>
+      }
+      ELF.CreateLogicalSection @buffer.CMX_NN.0 aligned(1) secType(VPU_SHT_CMX_WORKSPACE) secFlags("SHF_NONE") secLocation(<CMX_NN>) {
+        VPUASM.DeclareBuffer @DeclareBuffer_ActIn !VPUASM.Buffer< "CMX_NN"[0] <49152> : memref<1x64x48x16x!qElemType, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
+        VPUASM.DeclareBuffer @DeclareBuffer_ActIn2 !VPUASM.Buffer< "CMX_NN"[0] <49152> : memref<1x64x48x16x!qElemType, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
+        VPUASM.DeclareBuffer @DeclareBuffer_ActOut !VPUASM.Buffer< "CMX_NN"[0] <176128> : memref<1x64x48x16x!qElemType, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
+      }
+
+      ELF.CreateSection @task.dpu.invariant.0.0 aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
+        VPUASM.DPUInvariant @DPUInvariant_0_0 idx(!VPURegMapped.Index<0:0:0>) taskLocation(@program.metadata.cmx::@DeclareTaskBuffer_DPUInvariant_0_0_0) input(@buffer.CMX_NN.0::@DeclareBuffer_ActIn) weights(@buffer.CMX_NN.0::@DeclareBuffer_ActIn2) output(@buffer.CMX_NN.0::@DeclareBuffer_ActOut) waits([0 : ui8]) updates([1 : ui8]) {clean_after = 1 : ui64, first_variant_index = 0 : ui32, is_permute_quantize, last_variant_index = 0 : ui32, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<ELTWISE>, start_after = 0 : ui64, variant_count = 1 : ui64} PPE : {
+          VPUASM.PPETask {ppe = #VPU.PPEInt<mode = <ADD>, clamp_low = 0 : i64, clamp_high = 255 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [5.000000e-01], fp_prelu_alpha = 1.000000e+00 : f64>}
+        }
+      }
+    // CHECK:       VPUIPDPU.DPUInvariant
+    // CHECK:       VPUIPDPU.PPECfg {
+    // CHECK-NEXT:    VPUIPDPU.PPEFpAddMultBypass bypass_mode(ON)
+    // CHECK-NEXT:    VPUIPDPU.PPEFpConvert convert_mode(NONE)
+    // CHECK-NEXT:    VPUIPDPU.PPEIntBiasAdd bias_static(0)
+    // CHECK-NEXT:    VPUIPDPU.PPEIntScaleMult scale_static(16384)
+    // CHECK-NEXT:    VPUIPDPU.PPEIntScaleShift shift_static(15)
+    // CHECK-NEXT:    VPUIPDPU.PPEIntPreluMult prelu_mult_static(1)
+    // CHECK-NEXT:    VPUIPDPU.PPEIntPreluShift prelu_shift_static(0)
+    // CHECK-NEXT:    VPUIPDPU.PPEIntRound round_mode(RNE)
+    // CHECK-NEXT:    VPUIPDPU.PPEIntZeroPointOffset zero_point_static(0)
+    // CHECK-NEXT:    VPUIPDPU.PPEIntClamp clamp_low(0) clamp_high(255)
+    // CHECK-NEXT:    VPUIPDPU.PPEIntConvert convert_mode(NONE)
+    // CHECK-NEXT:  }
+    }
+    return
+  }
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 !qElemType = !quant.uniform<u8:f32, 1.600000e+01:10>
 module {
   net.NetworkInfo entryPoint : @PPE_U8_U8_AVEPOOL inputsInfo : {

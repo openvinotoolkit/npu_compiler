@@ -16,8 +16,9 @@
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
-#include <mlir/Dialect/Quant/QuantOps.h>
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <llvm/ADT/SetVector.h>
+#include <mlir/Dialect/Quant/IR/Quant.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
@@ -210,7 +211,7 @@ bool isValidToPropagateQuantize(mlir::Operation* op, bool seOpsEnabled, mlir::Ty
         // check is here to prevent the propagation of output quantization through both the ElemTypeInfoOp and its
         // post-op. (At this time MaxPool seems to be the only operation which is both a IE::ElemTypeInfoOpInterface
         // and a IE::LayerWithPostOpInterface)
-        log.trace("Operation {0} does not support quantization params propagation", elemTypeInfoOp);
+        log.trace("Operation {0} does not support quantization params propagation: layer has post op", elemTypeInfoOp);
         return false;
     }
 
@@ -228,7 +229,8 @@ bool isValidToPropagateQuantize(mlir::Operation* op, bool seOpsEnabled, mlir::Ty
     elemTypeInfoOp.inferElemTypeInfoUp(elemTypeInfo);
 
     if (!mlir::isa<mlir::quant::QuantizedType>(elemTypeInfo.getInput(0))) {
-        log.trace("Operation {0} does not support quantization params propagation", elemTypeInfoOp);
+        log.trace("Operation {0} does not support quantization params propagation: input cannot be quantized",
+                  elemTypeInfoOp);
         return false;
     }
     for (size_t outputInd = 0; outputInd < layer->getNumResults(); outputInd++) {
@@ -273,15 +275,9 @@ mlir::LogicalResult PropagateQuantize::matchAndRewrite(IE::QuantizeOp origOp, ml
 
     // 1. Create new Quantize ops, place them on each input of current operation.
     auto firstElemTypeInfoOp = mlir::dyn_cast<IE::ElemTypeInfoOpInterface>(firstUser);
-    auto elemTypeInfo = firstElemTypeInfoOp.getElemTypeInfo();
-    auto firstLayer = mlir::cast<IE::LayerOpInterface>(firstUser);
-    for (size_t outputInd = 0; outputInd < firstLayer->getNumResults(); outputInd++) {
-        elemTypeInfo.setOutput(outputInd, quantizedElemType);
-    }
-    firstElemTypeInfoOp.inferElemTypeInfoUp(elemTypeInfo);
     for (auto [idx, operand] : llvm::enumerate(firstElemTypeInfoOp->getOpOperands())) {
         auto newLoc = appendLoc(firstElemTypeInfoOp->getLoc(), "_propagated_Quantize '{0}'", idx);
-        auto newQuantize = rewriter.create<IE::QuantizeOp>(newLoc, operand.get(), elemTypeInfo.getInput(0));
+        auto newQuantize = rewriter.create<IE::QuantizeOp>(newLoc, operand.get(), quantizedElemType);
         // Update input of Operation. NewQuant -> current Op.
         operand.set(newQuantize.getOutput());
     }
@@ -321,6 +317,7 @@ mlir::LogicalResult PropagateQuantize::matchAndRewrite(IE::QuantizeOp origOp, ml
     }
     // Rewrite done.
     rewriter.finalizeOpModification(lastElemTypeInfoOp);
+    _log.trace("Successfully propagated QuantizeOp.");
     return mlir::success();
 }
 
@@ -430,7 +427,8 @@ mlir::LogicalResult PropagateDequantize::matchAndRewrite(IE::DequantizeOp origOp
     auto origDstElemType = origOp.getDstElemType();
     auto quantizedElemType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType()).getElementType();
     // store orig users for DequantizeOp to avoid update missing and duplicate same users
-    std::unordered_set<mlir::Operation*> origUsers;
+    // SetVector preserves insertion order while keeping uniqueness
+    llvm::SetVector<mlir::Operation*> origUsers;
     if (origOp->hasOneUse()) {
         // DequantizeOp -> Op1 -> Op2 -> Op3, find Op3
         mlir::Operation* nextUser = *(users.begin());
@@ -455,7 +453,7 @@ mlir::LogicalResult PropagateDequantize::matchAndRewrite(IE::DequantizeOp origOp
             }
         }
     }
-    if (!origUsers.size()) {
+    if (origUsers.empty()) {
         return mlir::failure();
     }
 
@@ -547,7 +545,7 @@ void PropagateAndFuseQuantizeDequantizePass::safeRunOnFunc() {
 
     mlir::RewritePatternSet pqPatterns(&ctx);
     pqPatterns.add<PropagateQuantize>(&ctx, _log.nest(), _seOpsEnabled);
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(pqPatterns), config))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(pqPatterns), config))) {
         signalPassFailure();
     }
 
@@ -555,7 +553,7 @@ void PropagateAndFuseQuantizeDequantizePass::safeRunOnFunc() {
     patterns.add<FuseDequantizeWithMultiplier>(&ctx, _log);
     patterns.add<PropagateDequantize>(&ctx, _log.nest(), _seOpsEnabled);
 
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), config))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), config))) {
         signalPassFailure();
     }
 }

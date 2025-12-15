@@ -123,6 +123,7 @@ vcl_result_t getVclCompiler(const std::map<std::string, std::string>& buildConfi
     static const supported_platform supported_platforms = {
             {"3720", 0x7D1D},
             {"4000", 0x643E},
+            {"5010", 0xB03E},
     };
 
     const auto supportPlatform = supported_platforms.find(buildConfig.at("NPU_PLATFORM"));

@@ -7,7 +7,7 @@
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sw_utils.hpp"
@@ -15,6 +15,7 @@
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
 
 #include <mlir/IR/BuiltinAttributes.h>
@@ -386,9 +387,7 @@ void TileLSTMSequencePass::safeRunOnFunc() {
 
     mlir::RewritePatternSet greedyPatterns(&ctx);
     greedyPatterns.add<TileLSTMSequence>(&ctx, _log);
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(greedyPatterns), getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
-    }
+    collectOpsAndApplyPatterns(func, std::move(greedyPatterns));
 }
 
 }  // namespace

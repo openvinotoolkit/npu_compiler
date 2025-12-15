@@ -1195,8 +1195,8 @@ void OptimizeParallelLayers::safeRunOnFunc() {
     patternsWithSlice.add<MoveReshapeBeforeSlice>(&ctx, _log);
     patternsWithSlice.add<MoveFCBeforeSlice>(&ctx, _log);
     patternsWithSlice.add<MoveTanhBeforeSlice>(&ctx, _log);
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patternsWithSlice),
-                                                        getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(
+                mlir::applyPatternsGreedily(func, std::move(patternsWithSlice), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 
@@ -1205,8 +1205,8 @@ void OptimizeParallelLayers::safeRunOnFunc() {
     patternsWithConcat.add<MoveFCAfterConcat>(&ctx, _log);
     patternsWithConcat.add<MoveSoftmaxAfterConcat>(&ctx, _log);
     patternsWithConcat.add<MoveAddAfterConcat>(&ctx, _log);
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patternsWithConcat),
-                                                        getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(
+                mlir::applyPatternsGreedily(func, std::move(patternsWithConcat), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

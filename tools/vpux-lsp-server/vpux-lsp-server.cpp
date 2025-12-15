@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/NPU40XX/dialect/VPUIP/transforms/passes.hpp"
+#include "vpux/compiler/NPU50XX/dialect/NPUReg50XX/passes.hpp"
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/dialect/ELF/transforms/passes.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/passes.hpp"
@@ -19,6 +20,7 @@
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/passes.hpp"
+#include "vpux/compiler/dialect/config/constraints_initializer.hpp"
 #include "vpux/compiler/dialect/const/passes.hpp"
 #include "vpux/compiler/dialect/core/transforms/passes.hpp"
 #include "vpux/compiler/init.hpp"
@@ -53,6 +55,8 @@ int main(int argc, char* argv[]) {
         const auto passsesRegistery = vpux::createPassesRegistry(archKind);
         passsesRegistery->registerPasses();
 
+        vpux::config::registerConstraints(registry, archKind);
+
         vpux::Core::registerPasses();
         vpux::Const::registerPasses();
         vpux::IE::registerPasses();
@@ -73,6 +77,7 @@ int main(int argc, char* argv[]) {
         vpux::VPUIPDPU::registerPasses();
         vpux::registerConversionPasses();
         vpux::registerConversionPipelines();
+        vpux::NPUReg50XX::registerPasses();
 
         mlir::registerTransformsPasses();
         mlir::func::registerFuncPasses();

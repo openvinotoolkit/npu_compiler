@@ -11,6 +11,7 @@
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/types.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/IR/PatternMatch.h>
@@ -101,7 +102,7 @@ void replaceConstantsWithFusedConstant(vpux::ConstantFusing::ConstantVector& con
 }
 
 // For a given layer type we need to determine the constant fusing order given the presence (or not) of weights,
-// weights sparsity map, weight table and activation window. In certain cases it might not be possible to fuse
+// weights sparsity map, weight table. In certain cases it might not be possible to fuse
 // the constants e.g for case when layer weights are not constants and are in graphfile or if the declare or copyop
 // couldn't be found in such case matchFailed is returned with the error message
 // E#45170 - Update the logic to make constant selection generic
@@ -294,9 +295,7 @@ void FuseConstantsPass::safeRunOnFunc() {
     patterns.insert<FuseConstants>(&ctx, _log);
 
     auto func = getOperation();
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
-    }
+    collectOpsAndApplyPatterns(func, std::move(patterns));
 }
 
 }  // namespace

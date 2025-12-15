@@ -9,6 +9,9 @@
 using namespace vpux::VPU::arch40xx;
 
 constexpr uint32_t FIFO_BARRIERS_NCE_FILL_BARRIER_FIFO_ADR = 0x2F010000U;
+// Although the HW barrier FIFO depth is 32, we use only 4 entries.
+// This allows configuration with a single register write and helps reduce preemption time.
+constexpr uint32_t BARRIER_FIFO_DEPTH = 4;
 
 llvm::SmallVector<uint32_t> RegisterConfig::getSHVRegisterAddrs() {
     // SHV FIFO true addresses (assuming 2 shaves per tile -> 12 entries total)
@@ -23,4 +26,8 @@ llvm::SmallVector<uint32_t> RegisterConfig::getDPURegisterAddrs() {
 
 uint32_t RegisterConfig::getNCEBarrierFifoAddr() {
     return FIFO_BARRIERS_NCE_FILL_BARRIER_FIFO_ADR;
+}
+
+uint32_t RegisterConfig::getNCEBarrierFifoDepth() {
+    return BARRIER_FIFO_DEPTH;
 }

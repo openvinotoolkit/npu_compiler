@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @FoldMultiplyNonSplat
 func.func @FoldMultiplyNonSplat() -> tensor<1x1x2x2xf32> {
@@ -16,8 +16,8 @@ func.func @FoldMultiplyNonSplat() -> tensor<1x1x2x2xf32> {
   return %2 : tensor<1x1x2x2xf32>
 
   // CHECK: [[CST:%.+]] = const.Declare tensor<1x1x2x2xf32> =
-  // CHECK-LITERAL{LITERAL}:        dense<[[[[1.000000e+00, 2.000000e+00], [3.000000e+00, 4.000000e+00]]]]> : tensor<1x1x2x2xf32>,
-  // CHECK-LITERAL{LITERAL}:       [#const.Rescale<Content<dense<[[[[5.000000e+00, 6.000000e+00], [7.000000e+00, 8.000000e+00]]]]> : tensor<1x1x2x2xf32>, [#const.Add<1.000000e+00 : f64>]>>]
+  // CHECK{LITERAL}:        dense<[[[[1.000000e+00, 2.000000e+00], [3.000000e+00, 4.000000e+00]]]]> : tensor<1x1x2x2xf32>,
+  // CHECK{LITERAL}:       [#const.Rescale<Content<dense<[[[[5.000000e+00, 6.000000e+00], [7.000000e+00, 8.000000e+00]]]]> : tensor<1x1x2x2xf32>, [#const.Add<1.000000e+00 : f64>]>>]
 
   // CHECK-NEXT: return [[CST]]
 }

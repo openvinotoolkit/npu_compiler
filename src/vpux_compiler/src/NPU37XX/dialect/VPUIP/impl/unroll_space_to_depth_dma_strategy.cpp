@@ -333,14 +333,18 @@ void SingleClusterSpaceToDepthDMARewriter::createSpaceToDepthDMASubOp(VPUIP::Spa
             origOp.getProfilingMetadataAttr(), /*internalDataFlow= */ nullptr);
 }
 
-UnrollSpaceToDepthDMAStrategy::UnrollSpaceToDepthDMAStrategy(int64_t dmaPortCount): _dmaPortCount(dmaPortCount) {
+UnrollSpaceToDepthDMAStrategy::UnrollSpaceToDepthDMAStrategy(mlir::MLIRContext* ctx, int64_t dmaPortCount)
+        : _ctx(ctx), _dmaPortCount(dmaPortCount) {
 }
 
-void UnrollSpaceToDepthDMAStrategy::addPatterns(mlir::RewritePatternSet& patterns, Logger& log) const {
-    auto ctx = patterns.getContext();
-
-    patterns.add<vpux::VPUIP::arch37xx::SingleClusterSpaceToDepthDMARewriter>(ctx, _dmaPortCount, log);
-    patterns.add<vpux::VPUIP::MultiClusterSpaceToDepthDMARewriter>(ctx, _dmaPortCount, log);
+void UnrollSpaceToDepthDMAStrategy::addPatterns(llvm::SmallVector<mlir::RewritePatternSet>& patterns,
+                                                Logger& log) const {
+    mlir::RewritePatternSet patternSet1(_ctx);
+    patternSet1.add<vpux::VPUIP::MultiClusterSpaceToDepthDMARewriter>(_ctx, _dmaPortCount, log);
+    mlir::RewritePatternSet patternSet2(_ctx);
+    patternSet2.add<vpux::VPUIP::arch37xx::SingleClusterSpaceToDepthDMARewriter>(_ctx, _dmaPortCount, log);
+    patterns.push_back(std::move(patternSet1));
+    patterns.push_back(std::move(patternSet2));
 }
 
 }  // namespace vpux::VPUIP::arch37xx

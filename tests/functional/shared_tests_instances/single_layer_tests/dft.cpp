@@ -48,6 +48,11 @@ TEST_P(DftLayerTestCommon, NPU4000) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
+TEST_P(DftLayerTestCommon, NPU5010) {
+    abs_threshold = 0.2;
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
 }  // namespace test
 }  // namespace ov
 

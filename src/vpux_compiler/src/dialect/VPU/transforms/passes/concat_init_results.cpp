@@ -4,12 +4,12 @@
 //
 
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/weights_separation.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
+#include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
 #include "vpux/compiler/utils/func_dialect.hpp"
-#include "vpux/compiler/utils/net/network_info_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/error.hpp"
 #include "vpux/utils/core/scope_exit.hpp"

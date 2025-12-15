@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --fuse-m2i-ops %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @fuseCscConvertInterpPerm
 func.func @fuseCscConvertInterpPerm(%arg0: tensor<1x288x256x1xui8>) -> tensor<1x3x168x224xf16> {

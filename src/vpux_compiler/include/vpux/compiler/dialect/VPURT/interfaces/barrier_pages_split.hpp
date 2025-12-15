@@ -47,7 +47,8 @@ constexpr StringLiteral barProgDmaAtPageAttrName = "BarProgDmaAtPage";
 class BarrierPagesSplitHandler {
 public:
     BarrierPagesSplitHandler() = delete;
-    BarrierPagesSplitHandler(BarrierInfo& barrierInfo, size_t numPhysBarriers, Logger log = Logger::global());
+    BarrierPagesSplitHandler(mlir::func::FuncOp func, BarrierInfo& barrierInfo, size_t numPhysBarriers,
+                             Logger log = Logger::global());
     // Below constructor is meant to be used only for unit testing purpose
     BarrierPagesSplitHandler(BarrierInfoTest& barrierInfoTest,
                              std::map<VPURT::TaskQueueType, SmallVector<uint32_t>>& taskQueueTypeMap, size_t pageSize,
@@ -80,13 +81,14 @@ public:
     void assignPagesToTasksInIr();
     void readTaskPageAssignmentFromIr();
 
-    struct PagesWithNoTaskData {
+    struct DummyDmaDataForPagesWithNoTasks {
         size_t pageInd;
-        size_t pageLastBar;
-        size_t nextPageFirstBar;
+        size_t waitBar;
+        size_t updateBar;
+        size_t insertBefore;
     };
 
-    SmallVector<PagesWithNoTaskData> getPagesWithNoTasksData();
+    SmallVector<DummyDmaDataForPagesWithNoTasks> getDummyDmaDataForPagesWithNoTasks();
 
     void legalizeLongDependenciesForBarrierPagesSplit();
     void legalizeBoundaryTasksForBarrierPagesSplit();

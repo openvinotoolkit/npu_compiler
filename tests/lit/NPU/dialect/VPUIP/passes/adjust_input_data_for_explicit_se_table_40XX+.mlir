@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --adjust-input-data-for-explicit-se-table %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -13,7 +13,6 @@ func.func @SparseConvSETable() -> memref<1x16x80x288xf16, #NHWC, [@CMX_NN, 0]> {
     %input_sm = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x73x289xi1, #NHWC, [@CMX_NN, 0]>
     %input_se = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1x73x289xi32, #NHWC, [@CMX_NN, 0]>
     %weights = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<16x16x2x2xf16, #NHWC, [@CMX_NN, 0]>
-    %weights_table = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<16x1x1x4xsi32, [@CMX_NN, 0]>
     %output = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x80x288xf16, #NHWC, [@CMX_NN, 0]>
     %parent_input = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x36x144xf16, #NHWC, [@CMX_NN, 0]>
     %parent_input_sm = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x73x289xi1, #NHWC, [@CMX_NN, 0]>
@@ -26,7 +25,6 @@ func.func @SparseConvSETable() -> memref<1x16x80x288xf16, #NHWC, [@CMX_NN, 0]> {
               input_sparsity_map(%input_sm : memref<1x16x73x289xi1, #NHWC, [@CMX_NN, 0]>)
               input_storage_element_table(%input_se : memref<1x1x73x289xi32, #NHWC, [@CMX_NN, 0]>)
               weights(%weights : memref<16x16x2x2xf16, #NHWC, [@CMX_NN, 0]>)
-              weight_table(%weights_table : memref<16x1x1x4xsi32, [@CMX_NN, 0]>)
               parent_input(%parent_input : memref<1x16x36x144xf16, #NHWC, [@CMX_NN, 0]>)
               parent_input_sparsity_map(%parent_input_sm : memref<1x16x73x289xi1, #NHWC, [@CMX_NN, 0]>)
               parent_input_storage_element_table(%parent_input_se : memref<1x1x73x289xi32, #NHWC, [@CMX_NN, 0]>)

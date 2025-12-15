@@ -15,8 +15,7 @@
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/dma_limits.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
-
-#include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+#include "vpux/compiler/utils/walk_utils.hpp"
 
 namespace vpux::VPUIP {
 #define GEN_PASS_DECL_UNROLLGATHERDMA
@@ -129,7 +128,6 @@ mlir::LogicalResult GatherDMARewriter::matchAndRewrite(VPUIP::GatherDMAOp gather
                 rewriter, vpurtTask.getWaitBarriers(), vpurtTask.getUpdateBarriers(), newLoc, inputBuffers[clusterId],
                 indicesBuffers[clusterId], outputBuffers[clusterId], gatherDmaOp.getElementSize(),
                 gatherDmaOp.getPadding(), gatherDmaOp.getPort().value());
-        newGatherDMAOp.setChannelType(gatherDmaOp.getChannelType());
         dmaPort = (dmaPort + 1) % _dmaPortCount;
 
         _log.nest().trace("Insert new newGatherDMAOp: '{0}'", newGatherDMAOp);
@@ -168,10 +166,7 @@ void UnrollGatherDMAPass::safeRunOnFunc() {
     mlir::RewritePatternSet patterns(&ctx);
     patterns.insert<GatherDMARewriter>(&ctx, dmaPortCount, _log);
 
-    if (mlir::failed(
-                mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), vpux::getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
-    }
+    collectOpsAndApplyPatterns(func, std::move(patterns));
 }
 
 }  // namespace

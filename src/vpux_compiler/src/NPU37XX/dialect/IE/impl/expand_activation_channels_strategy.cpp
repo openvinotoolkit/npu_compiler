@@ -39,6 +39,7 @@ void ExpandActivationChannelsStrategy::addPatterns(mlir::RewritePatternSet& patt
     patterns.add<IE::MatMulRewriter>(ctx, _log);
     patterns.add<IE::SoftMaxRewriter>(ctx, _log);
     patterns.add<IE::SDPAExtendedRewriter>(ctx, _log);
+    patterns.add<IE::FlashSDPARewriter>(ctx, _log);
 
     if (_seOpsEnabled) {
         patterns.add<IE::InterpolateRewriter>(ctx, _log);

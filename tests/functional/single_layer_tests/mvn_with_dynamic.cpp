@@ -82,6 +82,11 @@ TEST_P(DynamicMVNLayerTest, NPU4000) {
     run(Platform::NPU4000);
 }
 
+TEST_P(DynamicMVNLayerTest, NPU5010) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
 INSTANTIATE_TEST_SUITE_P(DynamicMVN, DynamicMVNLayerTest,
                          ::testing::ValuesIn(generateDynamicMVNParams(inShapesMvnDynamicUnknownTargetShape,
                                                                       normalizeVarianceValues, epsValues,

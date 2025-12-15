@@ -14,25 +14,15 @@ namespace test {
 class InterpolateLayerTestCommon : public InterpolateLayerTest, virtual public VpuOv2LayerTest {};
 class InterpolateLayerTest_NPU3720 : public InterpolateLayerTestCommon {};
 class InterpolateLayerTest_NPU4000 : public InterpolateLayerTestCommon {};
+class InterpolateLayerTest_NPU5010 : public InterpolateLayerTestCommon {};
+// [Tracking number: E#154456] Interpolate odd tiling for linear asymmetric does not work
+class InterpolateLayerTest_NPU5010_Asymmetric : public InterpolateLayerTestCommon {};
 
 class InterpolateSELayerTest_NPU3720 : public InterpolateLayerTestCommon {
     void configure_model() override {
         configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-se-ptrs-operations=true";
     }
 };
-
-class InterpolateM2ILayerTest_NPU4000 : public InterpolateLayerTestCommon {
-    void configure_model() override {
-        // TODO: E129229
-        configuration[ov::intel_npu::compilation_mode_params.name()] =
-                "enable-m2i=true workload-management-enable=false";
-    }
-};
-
-class InterpolateM2ILayerTestU8Nearest_NPU4000 : public InterpolateM2ILayerTest_NPU4000 {};
-class InterpolateM2ILayerTestU8LinearPL_NPU4000 : public InterpolateM2ILayerTest_NPU4000 {};
-class InterpolateM2ILayerTestU8LinearIL_NPU4000 : public InterpolateM2ILayerTest_NPU4000 {};
-class InterpolateM2ILayerTestFP16Linear_NPU4000 : public InterpolateM2ILayerTest_NPU4000 {};
 
 TEST_P(InterpolateLayerTest_NPU3720, HW) {
     setDefaultHardwareMode();
@@ -48,36 +38,15 @@ TEST_P(InterpolateLayerTest_NPU4000, HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
-TEST_P(InterpolateM2ILayerTest_NPU4000, HW) {
+TEST_P(InterpolateLayerTest_NPU5010, HW) {
     setDefaultHardwareMode();
-    run(Platform::NPU4000);
+    run(Platform::NPU5010);
 }
 
-TEST_P(InterpolateM2ILayerTestU8Nearest_NPU4000, HW) {
+TEST_P(InterpolateLayerTest_NPU5010_Asymmetric, HW) {
     setDefaultHardwareMode();
-    run(Platform::NPU4000);
+    run(Platform::NPU5010);
 }
-
-TEST_P(InterpolateM2ILayerTestU8LinearPL_NPU4000, HW) {
-    rel_threshold = 1.0f;
-    abs_threshold = 1.0f;
-    setDefaultHardwareMode();
-    run(Platform::NPU4000);
-}
-
-TEST_P(InterpolateM2ILayerTestU8LinearIL_NPU4000, HW) {
-    rel_threshold = 1.0f;
-    abs_threshold = 1.0f;
-    setDefaultHardwareMode();
-    run(Platform::NPU4000);
-}
-
-TEST_P(InterpolateM2ILayerTestFP16Linear_NPU4000, HW) {
-    rel_threshold = 0.035f;
-    setDefaultHardwareMode();
-    run(Platform::NPU4000);
-}
-
 }  // namespace test
 }  // namespace ov
 
@@ -202,48 +171,6 @@ auto interpolateCasesAllAxes = [](auto scales) {
                               ::testing::ValuesIn(pads), ::testing::ValuesIn(pads), ::testing::ValuesIn(cubeCoefs),
                               ::testing::ValuesIn(allAxes), ::testing::ValuesIn(scales));
 };
-
-const auto interpolateM2IModeLinearIL =
-        ::testing::Combine(::testing::Values(linearModes[0]), ::testing::Values(InterpolateBase::ShapeCalcMode::SIZES),
-                           ::testing::Values(InterpolateBase::CoordinateTransformMode::HALF_PIXEL),
-                           ::testing::Values(defaultNearestMode[0]),
-                           ::testing::Values(false),                            // antialias
-                           ::testing::Values(std::vector<size_t>{0, 0, 0, 0}),  // pads_begin
-                           ::testing::Values(std::vector<size_t>{0, 0, 0, 0}),  // pads_end
-                           ::testing::Values(0.0),                              // cube_coeff
-                           ::testing::Values(std::vector<int64_t>{1, 2}),       // axes
-                           ::testing::Values(std::vector<float>{0.0f, 0.0f}));  // scales
-
-const auto interpolateM2IModeLinearPL =
-        ::testing::Combine(::testing::Values(linearModes[0]), ::testing::Values(InterpolateBase::ShapeCalcMode::SIZES),
-                           ::testing::Values(InterpolateBase::CoordinateTransformMode::HALF_PIXEL),
-                           ::testing::Values(defaultNearestMode[0]),
-                           ::testing::Values(false),                            // antialias
-                           ::testing::Values(std::vector<size_t>{0, 0, 0, 0}),  // pads_begin
-                           ::testing::Values(std::vector<size_t>{0, 0, 0, 0}),  // pads_end
-                           ::testing::Values(0.0),                              // cube_coeff
-                           ::testing::Values(std::vector<int64_t>{2, 3}),       // axes
-                           ::testing::Values(std::vector<float>{0.0f, 0.0f}));  // scales
-
-const auto interpolateM2IModeNearest = ::testing::Combine(
-        ::testing::Values(nearestMode[0]), ::testing::Values(InterpolateBase::ShapeCalcMode::SIZES),
-        ::testing::Values(coordinateTransformModeAsymmetric[0]), ::testing::Values(defaultNearestModeFloor[0]),
-        ::testing::Values(false),                            // antialias
-        ::testing::Values(std::vector<size_t>{0, 0, 0, 0}),  // pads_begin
-        ::testing::Values(std::vector<size_t>{0, 0, 0, 0}),  // pads_end
-        ::testing::Values(0.0),                              // cube_coeff
-        ::testing::Values(std::vector<int64_t>{2, 3}),       // axes
-        ::testing::Values(std::vector<float>{0.0f, 0.0f}));  // scales
-
-const auto interpCminorM2IMode = ::testing::Combine(
-        ::testing::Values(nearestMode[0]), ::testing::Values(InterpolateBase::ShapeCalcMode::SIZES),
-        ::testing::Values(coordinateTransformModeAsymmetric[0]), ::testing::Values(defaultNearestModeFloor[0]),
-        ::testing::Values(false),                            // antialias
-        ::testing::Values(std::vector<size_t>{0, 0, 0, 0}),  // pads_begin
-        ::testing::Values(std::vector<size_t>{0, 0, 0, 0}),  // pads_end
-        ::testing::Values(0.0),                              // cube_coeff
-        ::testing::Values(std::vector<int64_t>{1, 2}),       // axes
-        ::testing::Values(std::vector<float>{0.0f, 0.0f}));  // scales
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Interpolate_nearest_mode, InterpolateLayerTest_NPU3720,
                          ::testing::Combine(interpolateCasesNearestMode(defaultScales), ::testing::ValuesIn(modelTypes),
@@ -400,62 +327,6 @@ INSTANTIATE_TEST_SUITE_P(
         InterpolateLayerTest_NPU3720::getTestCaseName);
 
 const std::vector<ov::AxisSet> axes = {{2, 3}};
-
-// NPU4000 M2I
-const std::vector<std::vector<ov::Shape>> m2iInShapesNHWC = {{{1, 32, 32, 3}},   {{1, 48, 64, 3}},
-                                                             {{1, 128, 144, 3}}, {{1, 192, 208, 3}},
-                                                             {{1, 224, 240, 3}}, {{1, 256, 112, 3}}};
-
-const std::vector<std::vector<ov::Shape>> m2iInShapesNCHW = {{{1, 3, 32, 32}},   {{1, 3, 48, 64}},
-                                                             {{1, 3, 128, 144}}, {{1, 3, 192, 208}},
-                                                             {{1, 3, 224, 240}}, {{1, 3, 256, 112}}};
-
-const std::vector<ov::Shape> m2iInOutImgShapes = {{32, 32}, {48, 64}, {128, 144}, {192, 208}, {224, 240}, {256, 112}};
-
-INSTANTIATE_TEST_SUITE_P(
-        smoke_Interpolate_M2I_u8_lin_IL, InterpolateM2ILayerTestU8LinearIL_NPU4000,
-        ::testing::Combine(interpolateM2IModeLinearIL, ::testing::Values(ov::element::u8),
-                           ::testing::ValuesIn(static_shapes_to_test_representation(m2iInShapesNHWC)),  // in-Shape
-                           ::testing::ValuesIn(m2iInOutImgShapes),  // out-Shape for given axes
-                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(additional_config)),
-        InterpolateM2ILayerTestU8LinearIL_NPU4000::getTestCaseName);
-
-INSTANTIATE_TEST_SUITE_P(
-        smoke_Interpolate_M2I_u8_lin_PL, InterpolateM2ILayerTestU8LinearPL_NPU4000,
-        ::testing::Combine(interpolateM2IModeLinearPL, ::testing::Values(ov::element::u8),
-                           ::testing::ValuesIn(static_shapes_to_test_representation(m2iInShapesNCHW)),  // in-Shape
-                           ::testing::ValuesIn(m2iInOutImgShapes),  // out-Shape for given axes
-                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(additional_config)),
-        InterpolateM2ILayerTestU8LinearPL_NPU4000::getTestCaseName);
-
-// M2I Nearest Neighbour tests are disabled because due to a precision difference in the calculation of the NN indices,
-// the choice of input->output mapping of neighbouring pixels can be different between m2i and OV implementation
-// [Tracking number: E#93574]
-INSTANTIATE_TEST_SUITE_P(
-        DISABLED_TMP_smoke_Interpolate_M2I_u8_nearest, InterpolateM2ILayerTestU8Nearest_NPU4000,
-        ::testing::Combine(interpolateM2IModeNearest, ::testing::Values(ov::element::u8),
-                           ::testing::ValuesIn(static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>{
-                                   {{1, 3, 256, 256}}})),           // in-Shape
-                           ::testing::Values(ov::Shape{224, 224}),  // out-Shape for given axes
-                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(additional_config)),
-        InterpolateM2ILayerTestU8Nearest_NPU4000::getTestCaseName);
-
-INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_M2I_fp16, InterpolateM2ILayerTestFP16Linear_NPU4000,
-                         ::testing::Combine(interpolateM2IModeLinearPL, ::testing::Values(ov::element::f16),
-                                            ::testing::ValuesIn(static_shapes_to_test_representation(m2iInShapesNCHW)),
-                                            ::testing::ValuesIn(m2iInOutImgShapes),
-                                            ::testing::Values(test_utils::TARGET_DEVICE),
-                                            ::testing::Values(additional_config)),
-                         InterpolateM2ILayerTestFP16Linear_NPU4000::getTestCaseName);
-
-INSTANTIATE_TEST_SUITE_P(
-        smoke_Interpolate_M2I_u8_Cminor, InterpolateM2ILayerTest_NPU4000,
-        ::testing::Combine(interpCminorM2IMode, ::testing::Values(ov::element::u8),
-                           ::testing::ValuesIn(static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>{
-                                   {{1, 256, 256, 3}}})),           // in-Shape
-                           ::testing::Values(ov::Shape{224, 224}),  // out-Shape for given axes
-                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(additional_config)),
-        InterpolateM2ILayerTest_NPU4000::getTestCaseName);
 
 const std::vector<std::vector<ov::Shape>> inShapesLargeNHWC = {
         {{1, 112, 112, 3}},
@@ -877,6 +748,9 @@ INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Linear_Asymmetric_2x, InterpolateLaye
 INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Linear_Asymmetric_2x, InterpolateLayerTest_NPU4000,
                          interpolateCasesLinearOnnxModeAsymmtricInstantiateParams2x,
                          InterpolateLayerTest_NPU4000::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Linear_Asymmetric_2x, InterpolateLayerTest_NPU5010_Asymmetric,
+                         interpolateCasesLinearOnnxModeAsymmtricInstantiateParams2x,
+                         InterpolateLayerTest_NPU5010_Asymmetric::getTestCaseName);
 
 const auto interpolateCasesLinearOnnxModeAsymmtricInstantiateParams4x = ::testing::Combine(
         interpolateCasesLinearOnnxModeAsymmtric(makeScales(1.f)), ::testing::ValuesIn(modelTypes),
@@ -890,6 +764,9 @@ INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Linear_Asymmetric_4x, InterpolateLaye
 INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Linear_Asymmetric_4x, InterpolateLayerTest_NPU4000,
                          interpolateCasesLinearOnnxModeAsymmtricInstantiateParams4x,
                          InterpolateLayerTest_NPU4000::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Linear_Asymmetric_4x, InterpolateLayerTest_NPU5010_Asymmetric,
+                         interpolateCasesLinearOnnxModeAsymmtricInstantiateParams4x,
+                         InterpolateLayerTest_NPU5010_Asymmetric::getTestCaseName);
 
 auto interpolateCasesWithoutNearestLinearModeLargerNHWC = [](auto scales) {
     return ::testing::Combine(::testing::Values(linearModes[0]), ::testing::ValuesIn(shapeCalculationMode),
@@ -1066,6 +943,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Nearest_Asymmtric_2x, InterpolateLaye
 
 INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Nearest_Asymmtric_2x, InterpolateLayerTest_NPU4000,
                          interpolateNearestAsymmetric2x, InterpolateLayerTest_NPU4000::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Nearest_Asymmtric_2x, InterpolateLayerTest_NPU5010,
+                         interpolateNearestAsymmetric2x, InterpolateLayerTest_NPU5010::getTestCaseName);
 const auto interpolateNearestAsymmetricWH = ::testing::Combine(
         interpolateNearestAsymmetric, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
@@ -1078,6 +957,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Nearest_Asymmtric_WH, InterpolateLaye
 
 INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Nearest_Asymmtric_WH, InterpolateLayerTest_NPU4000,
                          interpolateNearestAsymmetricWH, InterpolateLayerTest_NPU4000::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Nearest_Asymmtric_WH, InterpolateLayerTest_NPU5010,
+                         interpolateNearestAsymmetricWH, InterpolateLayerTest_NPU5010::getTestCaseName);
 //
 // Interpolate nearest align corner mode with tilling
 //
@@ -1098,6 +979,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Tiling_Nearest_Align_Corner, Interpol
 
 INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Tiling_Nearest_Align_Corner, InterpolateLayerTest_NPU4000,
                          interpolateNearestTilingAlignCorner, InterpolateLayerTest_NPU4000::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Tiling_Nearest_Align_Corner, InterpolateLayerTest_NPU5010,
+                         interpolateNearestTilingAlignCorner, InterpolateLayerTest_NPU5010::getTestCaseName);
 const std::vector<std::vector<int64_t>> axesInput5D = {
         {2, 3, 4},
 };
@@ -1123,6 +1006,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_3axes_5D, InterpolateLayerTest_NPU372
                          InterpolateLayerTest_NPU3720::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_3axes_5D, InterpolateLayerTest_NPU4000, interpolate5D_3axes,
                          InterpolateLayerTest_NPU4000::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_3axes_5D, InterpolateLayerTest_NPU5010, interpolate5D_3axes,
+                         InterpolateLayerTest_NPU5010::getTestCaseName);
 
 // --------------------------------------------------
 // ------ NPU3720 NoTiling Interpolate Testing ------
@@ -1393,6 +1278,14 @@ INSTANTIATE_TEST_SUITE_P(
                            ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU4000::getTestCaseName);
 
+INSTANTIATE_TEST_SUITE_P(
+        smoke_Interpolate_bilinearInterpolateToConv, InterpolateLayerTest_NPU5010,
+        ::testing::Combine(bilinearInterpolateParamsLinear(), ::testing::ValuesIn(modelTypes),
+                           ::testing::ValuesIn(static_shapes_to_test_representation(bilinearInterpolateInputShapes)),
+                           ::testing::ValuesIn(bilinearInterpolateTargetShapes),
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(additional_config)),
+        InterpolateLayerTest_NPU5010::getTestCaseName);
+
 //
 // MapInterpolateOnDPU
 //
@@ -1637,4 +1530,58 @@ INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Tiling_NCHW_Downscale_axes12_tileH, I
                          interpolateLinearNCHWDownscaleAxes12TileH, InterpolateLayerTest_NPU4000::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Tiling_NHWC_Downscale_axes12_tileW, InterpolateLayerTest_NPU4000,
                          interpolateLinearNHWCDownscaleAxes12TileW, InterpolateLayerTest_NPU4000::getTestCaseName);
+// --------------------------------------------------
+// ------ NPU5010 NoTiling Interpolate Testing ------
+// --------------------------------------------------
+
+// Mode NEAREST | Axes {1,2} & {2,3} | Coord Transform Mode: ALL | Nearest Mode: ALL | Layouts: NCHW and NHWC
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_NoTiling_Nearest_NCHW_Upscale, InterpolateLayerTest_NPU5010,
+                         interpolateNearestNCHWUpscale, InterpolateLayerTest_NPU5010::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_NoTiling_Nearest_NHWC_Upscale, InterpolateLayerTest_NPU5010,
+                         interpolateNearestNHWCUpscale, InterpolateLayerTest_NPU5010::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_NoTiling_Nearest_NCHW_Downscale, InterpolateLayerTest_NPU5010,
+                         interpolateNearestNCHWDownscale, InterpolateLayerTest_NPU5010::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_NoTiling_Nearest_NHWC_Downscale, InterpolateLayerTest_NPU5010,
+                         interpolateNearestNHWCDownscale, InterpolateLayerTest_NPU5010::getTestCaseName);
+
+// Mode LINEAR | Axes {1,2} & {2,3} | Coord Transform Mode: ALL | Layouts: NCHW and NHWC
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_NoTiling_Linear_NCHW_Upscale, InterpolateLayerTest_NPU5010,
+                         interpolateLinearNCHWUpscale, InterpolateLayerTest_NPU5010::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_NoTiling_Linear_NHWC_Upscale, InterpolateLayerTest_NPU5010,
+                         interpolateLinearNHWCUpscale, InterpolateLayerTest_NPU5010::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_NoTiling_Linear_NCHW_Downscale, InterpolateLayerTest_NPU5010,
+                         interpolateLinearNCHWDownscale, InterpolateLayerTest_NPU5010::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_NoTiling_Linear_NHWC_Downscale, InterpolateLayerTest_NPU5010,
+                         interpolateLinearNHWCDownscale, InterpolateLayerTest_NPU5010::getTestCaseName);
+
+// Mode LINEAR_ONNX | Axes {2,3} | Coord Transform Mode: ALL | Layouts: NCHW and NHWC
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_NoTiling_LinearONNX_NCHW_Upscale, InterpolateLayerTest_NPU5010,
+                         interpolateLinearONNXNCHWUpscale, InterpolateLayerTest_NPU5010::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_NoTiling_LinearONNX_NHWC_Upscale, InterpolateLayerTest_NPU5010,
+                         interpolateLinearONNXNHWCUpscale, InterpolateLayerTest_NPU5010::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_NoTiling_LinearONNX_NCHW_Downscale, InterpolateLayerTest_NPU5010,
+                         interpolateLinearONNXNCHWDownscale, InterpolateLayerTest_NPU5010::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_NoTiling_LinearONNX_NHWC_Downscale, InterpolateLayerTest_NPU5010,
+                         interpolateLinearONNXNHWCDownscale, InterpolateLayerTest_NPU5010::getTestCaseName);
+
+// Mode CUBIC | Axes {1,2} & {2,3} | Coord Transform Mode: ALL | Layouts: NCHW and NHWC
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_NoTiling_Cubic_NCHW_Upscale, InterpolateLayerTest_NPU5010,
+                         interpolateCubicNCHWUpscale, InterpolateLayerTest_NPU5010::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_NoTiling_Cubic_NHWC_Upscale, InterpolateLayerTest_NPU5010,
+                         interpolateCubicNHWCUpscale, InterpolateLayerTest_NPU5010::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_NoTiling_Cubic_NCHW_Downscale, InterpolateLayerTest_NPU5010,
+                         interpolateCubicNCHWDownscale, InterpolateLayerTest_NPU5010::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_NoTiling_Cubic_NHWC_Downscale, InterpolateLayerTest_NPU5010,
+                         interpolateCubicNHWCDownscale, InterpolateLayerTest_NPU5010::getTestCaseName);
+
+// NoTiling Precommit NPU5010
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_Interpolate_NoTiling_Nearest, InterpolateLayerTest_NPU5010,
+                         interpolateNearestNCHWUpscale, InterpolateLayerTest_NPU5010::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_Interpolate_NoTiling_Linear, InterpolateLayerTest_NPU5010,
+                         interpolateLinearNCHWUpscale, InterpolateLayerTest_NPU5010::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_Interpolate_NoTiling_LinearONNX, InterpolateLayerTest_NPU5010,
+                         interpolateLinearONNXNCHWUpscale, InterpolateLayerTest_NPU5010::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_Interpolate_NoTiling_Cubic, InterpolateLayerTest_NPU5010,
+                         interpolateCubicNCHWUpscale, InterpolateLayerTest_NPU5010::getTestCaseName);
+
 }  // namespace

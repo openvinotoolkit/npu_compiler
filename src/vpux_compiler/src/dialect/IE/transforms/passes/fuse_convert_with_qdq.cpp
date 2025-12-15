@@ -8,7 +8,7 @@
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
@@ -97,7 +97,7 @@ mlir::LogicalResult DequantizeConvertRewriter::matchAndRewrite(IE::ConvertOp con
         return mlir::failure();
     }
 
-    _log.trace("Fusing operations: '{1}' and '{2}'", dequantizeOp->getName(), convertOp->getName());
+    _log.trace("Fusing operations: '{0}' and '{1}'", dequantizeOp->getName(), convertOp->getName());
 
     auto originDstType = convertOp.getDstElemType();
 
@@ -128,7 +128,7 @@ void FuseConvertWithQDQPass::safeRunOnFunc() {
     patterns.add<DequantizeConvertRewriter>(&ctx, _log);
 
     auto func = getOperation();
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

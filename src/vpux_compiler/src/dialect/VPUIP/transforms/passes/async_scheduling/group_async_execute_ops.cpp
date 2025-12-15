@@ -303,8 +303,8 @@ void GroupAsyncExecuteOpsPass::safeRunOnFunc() {
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<GroupAsyncExecuteOps>(&ctx, _log);
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(getOperation(), std::move(patterns),
-                                                        getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(
+                mlir::applyPatternsGreedily(getOperation(), std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 

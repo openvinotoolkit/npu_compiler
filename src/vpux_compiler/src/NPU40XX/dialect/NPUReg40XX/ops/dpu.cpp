@@ -6,8 +6,8 @@
 #include <mlir/IR/BuiltinTypes.h>
 
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/ops.hpp"
+#include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/attributes.hpp"
-#include "vpux/compiler/utils/ELF/utils.hpp"
 #include "vpux/utils/core/error.hpp"
 
 #include <cstdint>
@@ -128,13 +128,18 @@ std::vector<ELF::RelocationInfo> DPUInvariantOp::getRelocationInfo(ELF::SymbolRe
                 ELF::RelocationType::R_VPU_LO_21, addend,
                 "Weights (wt_offset) in DPU invariant reloc");  // Using input as source just as a placeholder
     }
+    //
+    // Tensor2 Relocs
+    //
+    // tensor2_start needs to be set for dual elops (ELTWISE with 2 input tensors) in case of per output channel
+    // scaling, i.e. when weightTable is provided
     if (getWeightTable().has_value() && opType == VPUIP::NCETaskType::ELTWISE) {
         if (auto weights = getWeights().value_or(nullptr)) {
             auto addend = ELF::getOffsetOfSymRef(symRefMap, weights);
             relocs.emplace_back(weights, targetSection,
-                                regsOffset + offsetof(nn_public::VpuDPUInvariantRegisters, reserved1),
+                                regsOffset + offsetof(nn_public::VpuDPUInvariantRegisters, tensor2_start),
                                 ELF::RelocationType::R_VPU_LO_21_RSHIFT_4, addend,
-                                "Weights (for ELTWISE, reserved1) in DPU invariant reloc");
+                                "Weights (for ELTWISE, tensor2_start) in DPU invariant reloc");
         }
     }
 
@@ -144,9 +149,9 @@ std::vector<ELF::RelocationInfo> DPUInvariantOp::getRelocationInfo(ELF::SymbolRe
     if (auto sprLookupTable = getSprLookupTable().value_or(nullptr)) {
         auto addend = ELF::getOffsetOfSymRef(symRefMap, sprLookupTable);
         relocs.emplace_back(sprLookupTable, targetSection,
-                            regsOffset + offsetof(nn_public::VpuDPUInvariantRegisters, reserved2),
+                            regsOffset + offsetof(nn_public::VpuDPUInvariantRegisters, ppe_lut_ptr),
                             ELF::RelocationType::R_VPU_16_LSB_21_RSHIFT_5, addend,
-                            "Spr lookup table (reserved2) in DPU invariant reloc");
+                            "Spr lookup table (ppe_lut_ptr) in DPU invariant reloc");
     }
 
     //

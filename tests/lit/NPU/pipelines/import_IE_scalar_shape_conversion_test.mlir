@@ -5,7 +5,7 @@
 
 // RUN: vpux-translate --vpu-arch=%arch% --import-IE %S/IR/scalar_conversion_test.xml -o %t
 // RUN: FileCheck %s --input-file %t
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // This test validates that the updateModuleInfo function correctly handles scalar shape conversions
 // When nGraph scalars (shape=[]) are converted to MLIR scalars (shape=[1]) during import,

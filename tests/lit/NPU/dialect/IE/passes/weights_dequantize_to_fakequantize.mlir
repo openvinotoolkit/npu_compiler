@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --weights-dequantize-to-fake-quantize --mlir-print-elementsattrs-with-hex-if-larger -1 %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @WeightsMultToFakeQuantize
 // CHECK-SAME:      [[INPUT:%.+]]: tensor<1x4x28x28xf32>
@@ -806,11 +806,11 @@ func.func @WeightsMultToFakeQuantizeNegativeScales(%arg0: tensor<1x3xf16>) -> te
   // CHECK:  [[IN_LOW:%.+]] = const.Declare tensor<1x1xf16> = dense<-1.280000e+02> : tensor<1x1xf16>
   // CHECK:  [[IN_HIGH:%.+]] = const.Declare tensor<1x1xf16> = dense<1.270000e+02> : tensor<1x1xf16>
   // CHECK:  [[OUT_LOW:%.+]] = const.Declare tensor<3x1xf16>
-  // CHECK-SAME-LITERAL: dense<[[1.386720e-01], [-8.593750e-02], [8.154300e-02]]> : tensor<3x1xf16>
+  // CHECK-SAME{LITERAL}: dense<[[1.386720e-01], [-8.593750e-02], [8.154300e-02]]> : tensor<3x1xf16>
   // CHECK:  [[OUT_HIGH:%.+]] = const.Declare tensor<3x1xf16>
-  // CHECK-SAME-LITERAL: dense<[[-1.375730e-01], [8.526610e-02], [-8.093260e-02]]> : tensor<3x1xf16>
+  // CHECK-SAME{LITERAL}: dense<[[-1.375730e-01], [8.526610e-02], [-8.093260e-02]]> : tensor<3x1xf16>
   // CHECK:  [[WT:%.+]] = const.Declare tensor<3x3xf16>
-  // CHECK-SAME-LITERAL: dense<[[64, 63, 112], [-8, 62, -8], [8, 63, 16]]> : tensor<3x3xsi8>, [#const.CastElemType<f16>]
+  // CHECK-SAME{LITERAL}: dense<[[64, 63, 112], [-8, 62, -8], [8, 63, 16]]> : tensor<3x3xsi8>, [#const.CastElemType<f16>]
   // CHECK:  [[FQ:%.+]] = IE.FakeQuantize([[WT]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<3x3xf16>, tensor<1x1xf16>, tensor<1x1xf16>, tensor<3x1xf16>, tensor<3x1xf16> -> tensor<3x3xf16>
   // CHECK:  [[FC:%.+]] = IE.FullyConnected([[INPUT]], [[FQ]]) : tensor<1x3xf16>, tensor<3x3xf16> -> tensor<1x3xf16>
   // CHECK:  return [[FC]] : tensor<1x3xf16>

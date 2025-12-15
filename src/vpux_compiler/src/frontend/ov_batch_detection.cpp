@@ -66,13 +66,15 @@ bool isExplicitCfgBatchMethodOptionRequested(const intel_npu::Config& config, vp
         return false;
     }
 
-    if (BatchUnrollOptions::isAvailable(batchingAdapterView->get())) {
+    if (BatchUnrollOptions::isExplicitlySpecified(batchingAdapterView->get())) {
         logger.debug("Skip batch-network auto detection as \"{0}\" requested",
                      batchingAdapterView->get().batchCompileMethod);
         return true;
     }
 
-    if (auto debatcherOptionPtr = DebatcherOptions::create(batchingAdapterView->get())) {
+    if (DebatcherOptions::isExplicitlySpecified(batchingAdapterView->get())) {
+        auto debatcherOptionPtr = DebatcherOptions::create(batchingAdapterView->get());
+        VPUX_THROW_WHEN(debatcherOptionPtr == nullptr, "Options must be create-able when it has been set explicitly");
         if (debatcherOptionPtr->debatcherIntputCoeffPartitions !=
             DebatcherOptions::getDefaultDebatchInputCoeffPartitionsValue()) {
             logger.debug("Skip batch-network auto detection as \"{0}\" has been set explicitly: {1}, ",
@@ -205,8 +207,8 @@ bool isModelSuitableForDebatching(const std::shared_ptr<ov::Model>& model, const
         const std::string& compilationModeParams = config.get<intel_npu::BATCH_COMPILER_MODE_SETTINGS>();
         auto batchingAdapterView = BatchCompilerOptionsAdapterView::tryExtractFromString(compilationModeParams);
         if (batchingAdapterView.has_value()) {
-            if (DebatcherOptions::isAvailable(batchingAdapterView->get())) {
-                auto debatcherOptionPtr = DebatcherOptions::create(batchingAdapterView->get());
+            if (auto debatcherOptionPtr = DebatcherOptions::create(batchingAdapterView->get());
+                debatcherOptionPtr != nullptr) {
                 VPUX_THROW_UNLESS(debatcherOptionPtr, "Being available, DebatcherOptions must have been created");
                 if (debatcherOptionPtr->modelOpsNumberEnableThreshold.hasValue()) {
                     modelOpsNumberEnableThreshold = debatcherOptionPtr->modelOpsNumberEnableThreshold;
@@ -292,7 +294,7 @@ std::tuple<intel_npu::Config, bool> autoDetectBatchedModelIfPossible(const std::
 
         std::map<std::string, std::string> toUpdate;
         toUpdate[ov::intel_npu::batch_compiler_mode_settings.name()] =
-                autoDebatcherOptions->inject(config.get<intel_npu::BATCH_COMPILER_MODE_SETTINGS>());
+                autoDebatcherOptions->injectInto(config.get<intel_npu::BATCH_COMPILER_MODE_SETTINGS>());
 
         intel_npu::Config newConfig = config;
         newConfig.update(toUpdate, intel_npu::OptionMode::CompileTime);

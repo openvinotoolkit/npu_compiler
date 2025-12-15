@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/convolution.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
@@ -26,8 +27,8 @@ mlir::LogicalResult vpux::VPU::TransposedConvolutionOp::inferReturnTypes(
 
     const auto featureType = mlir::cast<vpux::NDTypeInterface>(convBackpropData.getInput().getType());
     const auto featureShape = featureType.getShape().raw();
-    const auto outputShape = convBackpropData.getOutputShape();
     const auto filterShape = mlir::cast<vpux::NDTypeInterface>(convBackpropData.getFilter().getType()).getShape().raw();
+    auto outputShape = convBackpropData.getOutputShape();
 
     const auto dataPaddingBelow = parseIntArrayAttr<int64_t>(convBackpropData.getPadsEnd());
     const auto dataPaddingAbove = parseIntArrayAttr<int64_t>(convBackpropData.getPadsBegin());
@@ -36,6 +37,9 @@ mlir::LogicalResult vpux::VPU::TransposedConvolutionOp::inferReturnTypes(
     const auto outputPadding = parseIntArrayAttr<int64_t>(convBackpropData.getSpatialOutputPadding());
 
     if (outputShape != nullptr) {
+        while (auto parentOp = outputShape.getDefiningOp<VPU::CopyOp>()) {
+            outputShape = parentOp->getOperand(0);
+        }
         auto outputShapeConst = outputShape.getDefiningOp<Const::DeclareOp>();
         if (outputShapeConst == nullptr) {
             return errorAt(loc, "Only constant input is supported for output_shape");

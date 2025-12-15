@@ -5,9 +5,11 @@
 
 #include "vpux/compiler/NPU37XX/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPU/transforms/passes.hpp"
+#include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/dialect/core/transforms/passes.hpp"
 
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
+#include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Pass/PassManager.h>
@@ -38,18 +40,20 @@ void vpux::VPU::arch40xx::buildIncrementalPipeline(mlir::OpPassManager& pm, cons
     VPU::buildTilingPipeline(pm, VPU::TilingOptions(options), log);
 
     if (options.enableScfComputeOpsOutlining) {
-        VPU::buildScfComputeOpsOutliningPipeline(pm, log);
+        VPU::buildScfComputeOpsOutliningPipeline(pm, options.loopUnrollFactor, log);
     }
 
-    pm.addPass(VPU::createBoundedTensorsToDynamicDimsMaskPass(log));
-    pm.addPass(VPU::createMakeOpsWithDistributedTensorPass(options.enableExplicitDistributionInfoAttr, log));
+    auto& nestedPm = options.enableScfComputeOpsOutlining ? pm.nest<mlir::ModuleOp>() : pm;
 
-    pm.addPass(VPU::createComputeInterpolateCoordinatesPass(options.enableExplicitDistributionInfoAttr, log));
+    nestedPm.addPass(VPU::createBoundedTensorsToDynamicDimsMaskPass(log));
+    nestedPm.addPass(VPU::createMakeOpsWithDistributedTensorPass(options.enableExplicitDistributionInfoAttr, log));
+
+    nestedPm.addPass(VPU::createComputeInterpolateCoordinatesPass(options.enableExplicitDistributionInfoAttr, log));
     // E#183249 - reintroduce RemoveOutputSparseToAvoidSuboptimalDPUWorkloads pass after perf regression
     // is investigated
 
-    pm.addPass(VPU::createMakeDistributedCopiesPass(log));
-    pm.addPass(VPU::createAdjustDistributedTensorAroundOpsPass(log));
+    nestedPm.addPass(VPU::createMakeDistributedCopiesPass(log));
+    nestedPm.addPass(VPU::createAdjustDistributedTensorAroundOpsPass(log));
 }
 
 //
@@ -96,7 +100,6 @@ void vpux::VPU::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     pm.addPass(VPU::createAdjustForOptimizedLayersPass(log));
     pm.addPass(VPU::createDetectionOutputDecompositionPass(log));
     pm.addPass(VPU::createSplitRealDFTOpsPass(log));
-    pm.addPass(VPU::createAddSwOpAuxiliaryBufferPass(log));
     pm.addPass(VPU::createAdjustLSTMCellInputsPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
 
@@ -130,37 +133,38 @@ void vpux::VPU::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
         pm.addPass(VPU::createDetectInPlaceEltwisePass(log));
     }
 
-    if (options.enableM2I) {
-        pm.addPass(VPU::createFuseM2IOpsPass(log));
-        pm.addPass(VPU::createConvertM2IOpsPass(log));
-    }
-
     pm.addPass(VPU::createCostModelAnalysisConstructPass(log));
     if (options.enableSMPipeline) {
         VPU::buildSMPipeline(pm, vpux::MCAndTilingOptionsBase(options), log);
     } else {
         VPU::arch40xx::buildIncrementalPipeline(pm, vpux::MCAndTilingOptionsBase(options), log);
     }
+    auto& nestedPm = options.enableScfComputeOpsOutlining ? pm.nest<mlir::ModuleOp>() : pm;
 
-    pm.addPass(VPU::createAdjustMemorySpacePass(log));
-    pm.addPass(VPU::createOptimizeSharedInputCopyForConcatPass(log));
-    pm.addPass(VPU::createOptimizeConcatPass(/*optimizeOnlyOuterConcat*/ false,
-                                             options.disablePassOnEntryFunctionForHostCompile, log));
-    pm.addPass(mlir::createCanonicalizerPass(grc));
+    nestedPm.addPass(VPU::createAdjustMemorySpacePass(log));
+    nestedPm.addPass(VPU::createOptimizeSharedInputCopyForConcatPass(log));
+    nestedPm.addPass(VPU::createOptimizeConcatPass(/*optimizeOnlyOuterConcat*/ false,
+                                                   options.disablePassOnEntryFunctionForHostCompile, log));
+    nestedPm.addPass(mlir::createCanonicalizerPass(grc));
 
-    pm.addPass(VPU::createCMXConcatPass(log));
-    pm.addPass(mlir::createCanonicalizerPass(grc));
-    pm.addPass(VPU::createMoveReflectPadToCMXPass(log));
+    nestedPm.addPass(VPU::createCMXConcatPass(log));
+    nestedPm.addPass(mlir::createCanonicalizerPass(grc));
+    nestedPm.addPass(VPU::createMoveReflectPadToCMXPass(log));
 
-    pm.addPass(VPU::createSplitNCEOpsOntoWorkloadsPass(log));
-    pm.addPass(VPU::createCorrectNCEWorkloadsPass(log));
-    pm.addPass(VPU::createResolveEltwiseWithZTiledWorkloadsPass(log));
-    pm.addPass(VPU::createComputeNCEInputWorkloadsPass(log));
-    pm.addPass(VPU::createShiftOutputWorkloadsForHaloPass(log));
-    if (options.enableEntireMainContentOutlining && canOutlineFromProfilingPerspective(options)) {
-        pm.addPass(VPU::createOutlineEntireMainContentPass(log));
+    nestedPm.addPass(VPU::createSplitNCEOpsOntoWorkloadsPass(log));
+    nestedPm.addPass(VPU::createCorrectNCEWorkloadsPass(log));
+    nestedPm.addPass(VPU::createComputeNCEInputWorkloadsPass(log));
+    nestedPm.addPass(VPU::createShiftOutputWorkloadsForHaloPass(log));
+    if (options.enableShaveCodeGen) {
+        VPU::buildShaveCodeGenPipeline(nestedPm);
     }
-    pm.addPass(mlir::createCanonicalizerPass(grc));
+    nestedPm.addPass(mlir::createCanonicalizerPass(grc));
+    nestedPm.addPass(createAdjustDynamicOpsBeforeBufferizationPass());
+    nestedPm.addPass(VPU::createLegalizeDynamicShapeConcatForSWLayersPass(log));
+    nestedPm.addPass(VPU::createAdjustMemorySpaceForSHVOpsPass(log));
+    if (options.enableEntireMainContentOutlining && canOutlineFromProfilingPerspective(options)) {
+        nestedPm.addPass(VPU::createOutlineEntireMainContentPass(log));
+    }
 }
 
 void vpux::VPU::arch40xx::registerVPUPipelines() {

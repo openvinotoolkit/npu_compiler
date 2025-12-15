@@ -117,8 +117,8 @@ void OptimizeMemRefCopiesPass::safeRunOnFunc() {
         for (mlir::Region* region : indexSwitchOp.getRegions()) {
             auto& block = region->front();
             for (auto& op : llvm::make_early_inc_range(block)) {
-                if (auto callOp = mlir::dyn_cast<mlir::func::CallOp>(op)) {
-                    for (auto operand : callOp.getOperands()) {
+                if (auto callOp = mlir::dyn_cast<mlir::CallOpInterface>(op)) {
+                    for (auto operand : callOp.getArgOperands()) {
                         auto allocOp = operand.getDefiningOp<mlir::memref::AllocOp>();
                         if (allocOp) {
                             builder.setInsertionPointAfter(allocOp);

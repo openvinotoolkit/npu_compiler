@@ -14,19 +14,20 @@
 
 using namespace vpux;
 
-std::unique_ptr<IGreedilyPassStrategy> VPUIP::createUnrollSpaceToDepthDMAStrategy(mlir::func::FuncOp funcOp) {
+std::unique_ptr<IIterativeWalkPassStrategy> VPUIP::createUnrollSpaceToDepthDMAStrategy(mlir::func::FuncOp funcOp) {
     const auto arch = config::getArch(funcOp);
 
     auto module = funcOp->getParentOfType<mlir::ModuleOp>();
     auto dmaOp = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
     auto dmaPortCount = dmaOp.getCount();
 
+    auto* ctx = funcOp->getContext();
     switch (arch) {
     case config::ArchKind::NPU37XX:
-        return std::make_unique<VPUIP::arch37xx::UnrollSpaceToDepthDMAStrategy>(dmaPortCount);
+        return std::make_unique<VPUIP::arch37xx::UnrollSpaceToDepthDMAStrategy>(ctx, dmaPortCount);
         break;
     default:
-        return std::make_unique<VPUIP::arch40xx::UnrollSpaceToDepthDMAStrategy>(dmaPortCount);
+        return std::make_unique<VPUIP::arch40xx::UnrollSpaceToDepthDMAStrategy>(ctx, dmaPortCount);
         break;
     }
 }

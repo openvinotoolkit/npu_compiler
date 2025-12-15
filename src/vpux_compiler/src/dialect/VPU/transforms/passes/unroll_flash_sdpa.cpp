@@ -5,11 +5,14 @@
 
 #include <mlir/IR/BuiltinAttributes.h>
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/utils/core/numeric.hpp"
 
 namespace vpux::VPU {
 #define GEN_PASS_DECL_UNROLLFLASHSDPA
@@ -33,10 +36,6 @@ public:
 private:
     Logger _log;
 };
-
-int64_t align(int64_t value, int64_t alignment) {
-    return (value + alignment - 1) / alignment * alignment;
-}
 
 mlir::Value createSlice(mlir::PatternRewriter& rewriter, mlir::Location loc, mlir::Value value, Dim dimension,
                         int64_t beginOffset, int64_t endOffset, const Logger& log) {
@@ -78,20 +77,25 @@ mlir::LogicalResult FlashSDPARewrite::matchAndRewrite(VPU::FlashSDPAOp origOp, m
 
     // Tiling parameters
     const auto keyShape = getShape(origOp.getKey());
-    const auto heightIndex = static_cast<int64_t>(keyShape.size() - 2);
-    const auto heightDim = Dim(heightIndex);
-    const auto sourceSeqLen = keyShape[heightDim];  // key and value share the same height value
-    const auto alignment = 1;                       // TODO: might affect performance
+    const auto sourceSeqLen = keyShape[Dims4D::Act::H];
 
-    // Using the same tile size is mandatory to avoid FeasibleAllocation spilling due to
-    // memory fragmentation. When Query in-place tensor is chosen to be spilled,
-    // compilation is failing. E#187251
-    const auto tileSize = align((sourceSeqLen + kvNumBlocks - 1) / kvNumBlocks, alignment);
+    // MatMul computed as DPU DWConv from SHAVE that requires channel alignment
+    // Because we use NCHW layout for the input tensors, the channel dimension is actually the width
+    // Second MatMul has Attention scores and Values tensors as an input, with "channels" == sourceSeqLen
+    // So we must align SourceSeqLen dimension to have a correct WeightsTable
+    const auto keyType = mlir::cast<NDTypeInterface>(origOp.getKey().getType());
+    const auto elemType = keyType.getElementType();
+    const auto alignment = vpux::VPU::NCEInvariant::getAlignment(elemType);
+
+    const auto tileSize = alignValUp(divUp(sourceSeqLen, kvNumBlocks), alignment);
 
     // Partial values that are chained through FlashSDPAOp
     auto out = origOp.getInputRunningOutput();
     auto max = origOp.getInputRunningMax();
     auto sum = origOp.getInputRunningSum();
+
+    // Padding on SequenceLength is 0 for all operations except the last one
+    auto zeroPadAttr = getIntAttr(rewriter, 0);
 
     // Initial Query tensor slice that will be scaled by the first FlashSDPAOp
     auto query = origOp.getQuery();
@@ -103,9 +107,9 @@ mlir::LogicalResult FlashSDPARewrite::matchAndRewrite(VPU::FlashSDPAOp origOp, m
         auto endOffset = std::min(beginOffset + tileSize, sourceSeqLen);
 
         auto keySlice = createSlice(rewriter, appendLoc(origOp->getLoc(), "key_slice_{0}", i), origOp.getKey(),
-                                    heightDim, beginOffset, endOffset, log);
+                                    Dims4D::Act::H, beginOffset, endOffset, log);
         auto valueSlice = createSlice(rewriter, appendLoc(origOp->getLoc(), "value_slice_{0}", i), origOp.getValue(),
-                                      heightDim, beginOffset, endOffset, log);
+                                      Dims4D::Act::W, beginOffset, endOffset, log);
 
         auto attentionMaskSlice = mlir::Value{nullptr};
         if (origOp.getAttentionMask() != nullptr) {
@@ -116,10 +120,13 @@ mlir::LogicalResult FlashSDPARewrite::matchAndRewrite(VPU::FlashSDPAOp origOp, m
         auto isHeadAttr = mlir::BoolAttr::get(ctx, i == 0);
         auto isTailAttr = mlir::BoolAttr::get(ctx, i + 1 == kvNumBlocks);
 
+        auto sourceSeqLenPadSize = (i + 1 == kvNumBlocks) ? origOp.getSourceSeqLenPadSizeAttr() : zeroPadAttr;
+
         auto tileLoc = appendLoc(origOp->getLoc(), "flash_sdpa_kv_tile_{0}", i);
-        auto tiledOp = rewriter.create<VPU::FlashSDPAOp>(
-                tileLoc, query, keySlice, valueSlice, out, max, sum, attentionMaskSlice, origOp.getScale(), isHeadAttr,
-                isTailAttr, /*kvNumBlocksAttr*/ nullptr, origOp.getMultiClusterStrategyAttr());
+        auto tiledOp = rewriter.create<VPU::FlashSDPAOp>(tileLoc, query, keySlice, valueSlice, out, max, sum,
+                                                         attentionMaskSlice, origOp.getScale(), sourceSeqLenPadSize,
+                                                         isHeadAttr, isTailAttr, /*kvNumBlocksAttr*/ nullptr,
+                                                         origOp.getMultiClusterStrategyAttr());
 
         log.trace("Unrolled {0} - {1}", tiledOp->getName(), tiledOp->getResult(0));
 

@@ -73,6 +73,10 @@ TEST_P(MaxPoolV14LayerTestCommon, NPU4000_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU4000);
 }
+TEST_P(MaxPoolV14LayerTestCommon, NPU5010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
 }  // namespace ov::test
 
 using ov::Shape;

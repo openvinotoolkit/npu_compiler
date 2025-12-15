@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // -----
 
@@ -260,6 +260,45 @@ func.func @FuseConcatWithTwoConsumers(%arg0: tensor<1x64x250x250xf16, {order = #
     // CHECK-SAME:          -> tensor<1x96x250x250xf16, {order = #NHWC}>
 
     // CHECK:   return %0, %1 : tensor<1x96x250x250xf16, {order = #NHWC}>, tensor<1x96x250x250xf16, {order = #NHWC}>
+}
+
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @SkipDynamicConcats
+// CHECK-SAME:      ([[INPUT0:%[^:]+]]: tensor<1x32x125x250xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, order = #NCHW}>,
+// CHECK-SAME:       [[INPUT1:%[^:]+]]: tensor<1x32x125x250xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, order = #NCHW}>,
+// CHECK-SAME:       [[INPUT2:%[^:]+]]: tensor<1x64x250x250xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, order = #NCHW}>)
+func.func @SkipDynamicConcats(%input0: tensor<1x32x125x250xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, order = #NCHW}>,
+                              %input1: tensor<1x32x125x250xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, order = #NCHW}>,
+                              %input2: tensor<1x64x250x250xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, order = #NCHW}>)
+    -> tensor<1x96x250x250xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, order = #NCHW}> {
+
+    %concat0 = VPU.Concat(%input0, %input1) {
+        static_offsets = [
+            [0, 0, 0, 0],
+            [0, 0, 125, 0]
+        ]
+    } : tensor<1x32x125x250xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, order = #NCHW}>,
+        tensor<1x32x125x250xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, order = #NCHW}>
+      -> tensor<1x32x250x250xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, order = #NCHW}>
+
+    %concat1 = VPU.Concat(%concat0, %input2) {
+        static_offsets = [
+            [0, 0, 0, 0],
+            [0, 32, 0, 0]
+        ]
+    } : tensor<1x32x250x250xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, order = #NCHW}>,
+        tensor<1x64x250x250xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, order = #NCHW}>
+      -> tensor<1x96x250x250xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, order = #NCHW}>
+
+    return %concat1 : tensor<1x96x250x250xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, order = #NCHW}>
+
+    // CHECK:   [[CONCAT0:%.+]] = VPU.Concat([[INPUT0]], [[INPUT1]])
+    // CHECK:   [[CONCAT1:%.+]] = VPU.Concat([[CONCAT0]], [[INPUT2]])
+    // CHECK:   return [[CONCAT1]]
 }
 
 // -----

@@ -39,10 +39,17 @@ struct DefaultHWOptions : public VPU::DefaultHWOptionsDialectBase, virtual vpux:
                                         llvm::cl::init(true)};
     BoolOption enableVPUNNPreSplit{*this, "enable-vpunn-pre-split", llvm::cl::desc("Enable VPUNN LayersPreSplit API"),
                                    llvm::cl::init(false)};
+
+    DefaultHWOptions() = default;
+
+    template <class OtherOptions>
+    explicit DefaultHWOptions(const OtherOptions& options) {
+        this->matchAndCopyOptionValuesFrom(options);
+    }
 };
 
 void buildDefaultHWPipeline(mlir::OpPassManager& pm, const DefaultHWOptions& options, Logger log = Logger::global());
-void buildReferenceSWPipeline(mlir::OpPassManager& pm, Logger log = Logger::global());
+void buildReferenceSWPipeline(mlir::OpPassManager& pm, const DefaultHWOptions& options, Logger log = Logger::global());
 
 //
 // Registration

@@ -19,7 +19,7 @@ include "vpux/compiler/dialect/VPUIP/attributes.td"
 include "vpux/compiler/dialect/VPURegMapped/types.td"
 include "vpux/compiler/dialect/VPURegMapped/ops_interfaces.td"
 
-include "mlir/Dialect/Quant/QuantOpsBase.td"
+include "mlir/Dialect/Quant/IR/QuantBase.td"
 include "mlir/IR/RegionKindInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
@@ -793,7 +793,8 @@ def VPUMI40XX_DPUInvariantOp :
         Optional<VPURegMapped_IndexType>:$enqueueBarrier,
         OptionalAttr<IntAttr>:$wlmPage,
         OptionalAttr<VPUIP_DynamicScaleConfigAttr>:$dynamic_scale_config,
-        OptionalAttr<VPUIP_LocalRegionAttr>:$local_region
+        OptionalAttr<VPUIP_LocalRegionAttr>:$local_region,
+        OptionalAttr<VPUIP_S2DConfigAttr>:$s2d_config
     );
 
     let results = (outs
@@ -886,74 +887,6 @@ def VPUMI40XX_ProfilingMetadataOp :
 
     let assemblyFormat = [{
         attr-dict `->` type(results)
-    }];
-}
-
-//
-// M2IOp
-//
-
-def VPUMI40XX_M2IOp :
-        VPUMI40XX_ExecutableTaskOp<"M2I",
-            [
-                DeclareOpInterfaceMethods<VPUMI40XX_ExecutableTaskOpInterface>,
-                AttrSizedOperandSegments
-            ]
-        > {
-    let summary = "M2I task op";
-
-    let arguments = (ins
-        Optional<VPURegMapped_IndexType>:$taskLocation,
-        Optional<VPURegMapped_IndexType>:$previousTask,
-        MemRefOf<[UI8, F16]>:$input,
-        MemRefOf<[UI8, F16]>:$output_buff,
-        Optional<MemRefOf<[UI8]>>:$profiling_data,
-
-        UnitAttr:$do_csc,
-        UnitAttr:$do_norm,
-        VPU_M2iColorFmtAttr:$inFmt,
-        VPU_M2iColorFmtAttr:$outFmt,
-        UnitAttr:$chroma_in_reverse_channels,
-        UnitAttr:$chroma_out_reverse_channels,
-        UnitAttr:$luma_in_reverse_channels,
-        UnitAttr:$luma_out_reverse_channels,
-        UI32Attr:$scale_factor_x,
-        UI32Attr:$scale_factor_y,
-        OptionalAttr<F64ArrayAttr>:$norm,
-        OptionalAttr<UI32Attr>:$tile_offset_x,
-        OptionalAttr<UI32Attr>:$tile_offset_y,
-        OptionalAttr<VPUIP_M2IProfilingMetadataAttr>:$profilingMetadata,
-        DefaultValuedAttr<VPU_M2iInterpAttr, "vpux::VPU::M2iInterp::NEAREST">:$interp,
-
-        Variadic<VPURegMapped_IndexType>:$waitBarriers,
-        Variadic<VPURegMapped_IndexType>:$updateBarriers,
-        UI64Attr:$start_after,
-        UI64Attr:$clean_after,
-        Optional<VPURegMapped_IndexType>:$enqueueBarrier,
-        OptionalAttr<IntAttr>:$wlmPage
-    );
-
-    let results = (outs
-        VPURegMapped_IndexType:$index
-    );
-
-    let assemblyFormat = [{
-        attr-dict
-        (`taskLocation` `(` $taskLocation^ `:` type($taskLocation) `)`)?
-        (`previousTask` `(` $previousTask^ `:` type($previousTask) `)`)?
-        `inputs` `(` $input `:` type($input) `)`
-        `outputs` `(` $output_buff `:` type($output_buff) `)`
-        (`profiling_data` `(` $profiling_data^ `:` type($profiling_data) `)`)?
-        (`waits` `(` $waitBarriers^ `:` type($waitBarriers) `)`)?
-        (`updates` `(` $updateBarriers^ `:` type($updateBarriers) `)`)?
-        (`enqueueBarrier` `(` $enqueueBarrier^ `:` type($enqueueBarrier) `)`)?
-        `->` type(results)
-    }];
-
-    let extraClassDefinition = [{
-        vpux::VPURegMapped::TaskType vpux::VPUMI40XX::M2IOp::getTaskType() {
-            return vpux::VPURegMapped::TaskType::M2I;
-        }
     }];
 }
 

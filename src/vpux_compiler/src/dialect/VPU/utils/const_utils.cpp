@@ -8,7 +8,9 @@
 #include "vpux/compiler/core/attributes/dims_order.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -384,6 +386,24 @@ vpux::TensorAttr createTensorAttrFromType(vpux::NDTypeInterface inType, mlir::ML
     }
 
     return getTensorAttr(inType.getContext(), inType.getDimsOrder().toAffineMap(ctx), inType.getMemSpace());
+}
+
+mlir::FailureOr<SmallVector<int64_t>> extractConstData(mlir::Location loc, mlir::Value value) {
+    if (value == nullptr) {
+        return errorAt(loc, "Target shape was not provided");
+    }
+
+    while (auto parentOp = value.getDefiningOp<VPU::CopyOp>()) {
+        value = parentOp->getOperand(0);
+    }
+
+    auto valueConst = value.getDefiningOp<Const::DeclareOp>();
+    if (valueConst == nullptr) {
+        return mlir::failure();
+    }
+
+    const auto valueContent = valueConst.getContent();
+    return to_small_vector(valueContent.getValues<int64_t>());
 }
 
 }  // namespace VPU

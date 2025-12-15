@@ -11,6 +11,9 @@
 
 namespace ov {
 namespace intel_npu {
-namespace Platform {}  // namespace Platform
+namespace Platform {
+constexpr std::string_view NPU5000 = "5000";
+constexpr std::string_view NPU5010 = "5010";
+}  // namespace Platform
 }  // namespace intel_npu
 }  // namespace ov

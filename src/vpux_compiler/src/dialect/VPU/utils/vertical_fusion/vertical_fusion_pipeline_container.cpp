@@ -17,23 +17,67 @@ VPU::ExecutorKind getExecutorByOperation(mlir::Operation* operation) {
     return mlir::isa<SWOpInterface>(operation) ? ExecutorKind::SHAVE_ACT : ExecutorKind::DPU;
 }
 
-TimelineInterval::TimelineInterval(StrategyCost begin, StrategyCost end, mlir::Operation* operation, int64_t index,
-                                   bool isLastInPipeline /*false*/)
-        : _mBegin(begin), _mEnd(end), _mOperation(operation), _mIndex(index), _mIsLastInPipeline(isLastInPipeline) {
+TimelineInterval::TimelineInterval(StrategyCost begin, StrategyCost end, mlir::Location location,
+                                   mlir::Operation* operation, int64_t index, bool isLastInPipeline /*false*/)
+        : _mBegin(begin),
+          _mEnd(end),
+          _mLoc(location),
+          _mOperation(operation),
+          _mIndex(index),
+          _mIsLastInPipeline(isLastInPipeline) {
     _mExecutor = getExecutorByOperation(operation);
+}
+
+void VFLinearContainer::addOperation(mlir::Operation* operation, int64_t index, const StrategyCost& begin,
+                                     const StrategyCost& duration) {
+    setPlaceInTimeline(operation, index, begin, duration, false);
+}
+
+void VFLinearContainer::addDMA(mlir::Operation* operation, int64_t index, const StrategyCost begin,
+                               const StrategyCost& duration) {
+    setPlaceInTimeline(operation, index, begin, duration, true);
+}
+
+void VFLinearContainer::setPlaceInTimeline(mlir::Operation* operation, int64_t index, const StrategyCost& begin,
+                                           const StrategyCost& duration, bool isDMA) {
+    _containerMapper.emplace_back(begin, begin + duration, operation->getLoc(), isDMA ? nullptr : operation, index,
+                                  isDMA);
+    if (!_lastInterval.has_value() || _lastInterval.value()._mEnd < begin + duration) {
+        _lastInterval = _containerMapper.back();
+    }
+}
+
+StrategyCost VFLinearContainer::maxCost() const {
+    if (!_lastInterval.has_value()) {
+        return 0;
+    }
+    return _lastInterval.value()._mEnd;
+}
+
+bool VFLinearContainer::isEmpty() const {
+    return _containerMapper.empty();
+}
+
+void VFLinearContainer::invalidate() {
+    _containerMapper.clear();
+    _lastInterval = std::nullopt;
+}
+
+SmallVector<TimelineInterval> VFLinearContainer::getAllIntervals() const {
+    return _containerMapper;
 }
 
 VFPipelineContainer::VFPipelineContainer() {
 }
 
-bool VFPipelineContainer::setPlaceInTimeline(mlir::Operation* operation, int64_t index, const StrategyCost& cost,
-                                             const bool isLast) {
+bool VFPipelineContainer::setPlaceInTimeline(mlir::Location location, mlir::Operation* operation, int64_t index,
+                                             const StrategyCost& cost, const bool isLast) {
     if (cost == 0) {
         return false;
     }
 
     if (_containerMapper.empty()) {
-        _containerMapper.emplace_back(0, cost, operation, index, isLast);
+        _containerMapper.emplace_back(0, cost, location, operation, index, isLast);
         _lastInterval = _containerMapper.back();
         return true;
     }
@@ -45,7 +89,7 @@ bool VFPipelineContainer::setPlaceInTimeline(mlir::Operation* operation, int64_t
     if (_lastInterval.value()._mIndex == index) {
         // add further to the timeline
         auto lastEnd = _lastInterval.value()._mEnd;
-        _containerMapper.emplace_back(lastEnd, lastEnd + cost, operation, index, isLast);
+        _containerMapper.emplace_back(lastEnd, lastEnd + cost, location, operation, index, isLast);
         _lastInterval = _containerMapper.back();
         return true;
     }
@@ -82,12 +126,12 @@ bool VFPipelineContainer::setPlaceInTimeline(mlir::Operation* operation, int64_t
     }
 
     if (lastEnd + cost >= _lastInterval.value()._mEnd) {
-        _containerMapper.emplace_back(lastEnd, lastEnd + cost, operation, index, isLast);
+        _containerMapper.emplace_back(lastEnd, lastEnd + cost, location, operation, index, isLast);
         _lastInterval = _containerMapper.back();
         return true;
     }
 
-    _containerMapper.emplace_back(lastEnd, lastEnd + cost, operation, index, isLast);
+    _containerMapper.emplace_back(lastEnd, lastEnd + cost, location, operation, index, isLast);
     return true;
 }
 
@@ -140,6 +184,10 @@ bool VFPipelineContainer::isPipelineAvailable(int64_t index, mlir::Operation* op
     return foundExecutor->_mEnd + cost <= _lastInterval.value()._mEnd;
 }
 
+SmallVector<TimelineInterval> VFPipelineContainer::getAllIntervals() const {
+    return _containerMapper;
+}
+
 StrategyCost VFPipelineContainer::getPrefetchAvailability() const {
     if (!_lastInterval.has_value()) {
         return 0;
@@ -159,11 +207,12 @@ StrategyCost VFPipelineContainer::getPrefetchAvailability() const {
 }
 
 bool VFPipelineContainer::addOperation(mlir::Operation* operation, int64_t index, const StrategyCost& cost) {
-    return setPlaceInTimeline(operation, index, cost);
+    return setPlaceInTimeline(operation->getLoc(), operation, index, cost);
 }
 
-bool VFPipelineContainer::addDMA(int64_t index, const StrategyCost& cost, const bool isLast) {
-    return setPlaceInTimeline(nullptr, index, cost, isLast);
+bool VFPipelineContainer::addDMA(mlir::Operation* operation, int64_t index, const StrategyCost& cost,
+                                 const bool isLast) {
+    return setPlaceInTimeline(operation->getLoc(), nullptr, index, cost, isLast);
 }
 
 StrategyCost VFPipelineContainer::maxCost() const {

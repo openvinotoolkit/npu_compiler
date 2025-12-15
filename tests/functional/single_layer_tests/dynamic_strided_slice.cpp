@@ -75,23 +75,23 @@ public:
 protected:
     void SetUp() override {
         const auto& [Inputs, type, sliceSize] = this->GetParam();
-        const auto& InputShape = Inputs.first;
-        const auto& ConstSize = Inputs.second;
-        ov::Shape inputConstShape(ConstSize.begin(), ConstSize.end());
+        const auto& inputShape = Inputs.first;
+        const auto& constSize = Inputs.second;
+        ov::Shape inputConstShape(constSize.begin(), constSize.end());
 
-        init_input_shapes({InputShape});
+        init_input_shapes({inputShape});
         ov::ParameterVector inputParams;
         for (auto&& shape : inputDynamicShapes) {
-            inputParams.push_back(std::make_shared<ov::op::v0::Parameter>(type, shape));
+            inputParams.push_back(std::make_shared<ov::op::v0::Parameter>(type.value(), shape));
         }
 
         std::vector<int64_t> randomInput = generateConst(inputConstShape);
         auto inputConst = ov::op::v0::Constant::create(ov::element::i64, inputConstShape, randomInput);
 
-        const auto paramsShape = std::get<0>(InputShape).to_shape();
+        const auto paramsShape = std::get<0>(inputShape).to_shape();
         const auto inputShapeRank = inputConstShape.size();
         const std::vector<int64_t> strides(inputShapeRank, 1);
-        std::vector<int64_t> ends(ConstSize.begin(), ConstSize.end());
+        std::vector<int64_t> ends(constSize.begin(), constSize.end());
         // Slice the tensor by width
         ends.back() = sliceSize;
         auto endParam = ov::op::v0::Constant::create(ov::element::i64, paramsShape, ends);
@@ -115,6 +115,12 @@ TEST_P(DynamicStridedSliceLayerTest, NPU4000_HW) {
     abs_threshold = 0.0f;
     setDefaultHardwareMode();
     run(Platform::NPU4000);
+}
+
+TEST_P(DynamicStridedSliceLayerTest, NPU5010_HW) {
+    abs_threshold = 0.0f;
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
 }
 
 const std::vector<InputType> inputPrecision = {ov::element::i32};
@@ -149,11 +155,11 @@ public:
 
         auto type = std::get<InputType>(GetParam());
         auto& dataStaticShape = staticShapes[0];
-        auto dataTensor = utils::create_and_fill_tensor(type, dataStaticShape);
+        auto dataTensor = utils::create_and_fill_tensor(type.value(), dataStaticShape);
 
         inputs.insert({funcInputs[0].get_node_shared_ptr(), dataTensor});
 
-        auto endsValues = static_cast<std::vector<int64_t>>(std::get<EndsValues>(GetParam()));
+        auto endsValues = std::get<EndsValues>(GetParam()).value();
         // Clamp ends values by data static shape
         for (auto i = 0; i < static_cast<int64_t>(endsValues.size()); i++) {
             endsValues[i] = std::min(endsValues[i], static_cast<int64_t>(dataStaticShape[i]));
@@ -168,29 +174,26 @@ public:
 
 protected:
     void SetUp() override {
-        auto dataTestShape = ov::test::InputShape{};
-        auto endsValues = std::vector<int64_t>{};
-        auto type = ov::element::Type{};
-        std::tie(dataTestShape, endsValues, type) = this->GetParam();
+        const auto& [dataTestShape, endsValues, type] = this->GetParam();
 
-        auto endsShape = ov::Shape{endsValues.size()};
-        init_input_shapes({dataTestShape, generateTestShape(endsShape)});
+        auto endsShape = ov::Shape{endsValues.value().size()};
+        init_input_shapes({dataTestShape.value(), generateTestShape(endsShape)});
 
         VPUX_THROW_UNLESS(inputDynamicShapes.size() == 2, "Expected to have 2 input shapes, got {0}",
                           inputDynamicShapes.size());
 
         auto inputParams = ov::ParameterVector{
-                std::make_shared<ov::op::v0::Parameter>(type, inputDynamicShapes.at(0)),
+                std::make_shared<ov::op::v0::Parameter>(type.value(), inputDynamicShapes.at(0)),
                 std::make_shared<ov::op::v0::Parameter>(ov::element::i64, inputDynamicShapes.at(1))};
 
         inputParams[0]->set_friendly_name("data");
         inputParams[1]->set_friendly_name("ends");
 
-        const auto dataShape = dataTestShape.first.get_max_shape();
+        const auto dataShape = dataTestShape.value().first.get_max_shape();
         const auto dataRank = dataShape.size();
-        VPUX_THROW_UNLESS(dataRank == endsValues.size(),
+        VPUX_THROW_UNLESS(dataRank == endsValues.value().size(),
                           "Input shape rank '{0}' and the size of 'ends' input '{1}' must be equal", dataRank,
-                          endsValues.size());
+                          endsValues.value().size());
 
         const auto begins = std::vector<int64_t>(dataRank, 0);
         const auto strides = std::vector<int64_t>(dataRank, 1);
@@ -217,6 +220,12 @@ TEST_P(DynamicStridedSliceDynamicEndsLayerTest, NPU4000_HW) {
     abs_threshold = 0.0f;
     setDefaultHardwareMode();
     run(Platform::NPU4000);
+}
+
+TEST_P(DynamicStridedSliceDynamicEndsLayerTest, NPU5010_HW) {
+    abs_threshold = 0.0f;
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
 }
 
 // dynamic shape inputs will cause the test to fail because a strided slice layer
@@ -269,6 +278,12 @@ TEST_F(StridedSliceWithDynamicInputLayerTest, NPU4000_HW) {
     abs_threshold = 0.0f;
     setDefaultHardwareMode();
     run(Platform::NPU4000);
+}
+
+TEST_F(StridedSliceWithDynamicInputLayerTest, NPU5010_HW) {
+    abs_threshold = 0.0f;
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
 }
 
 }  // namespace ov::test

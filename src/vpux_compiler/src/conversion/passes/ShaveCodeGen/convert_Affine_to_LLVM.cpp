@@ -3,11 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/ShaveCodeGen/utils.hpp"
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/core/aliases_info.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
-#include "vpux/compiler/utils/ShaveCodeGen/utils.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
 #include <llvm/ADT/SmallBitVector.h>

@@ -84,8 +84,16 @@ void Decoder::Impl::verify_config() {
         if (config_.mode_fp16_enable) {
             throw std::logic_error{"FP16 is not supported when using NPU27"};
         }
+        if (config_.sparse_mode_enable) {
+            throw std::logic_error{"NPU27 doesn't support sparse mode"};
+        }
         if (!config_.weight_compress_enable) {
             throw std::logic_error{"NPU27 doesn't support activation compression"};
+        }
+    }
+    if (config_.arch_type == ArchType::NPU4) {
+        if (config_.sparse_mode_enable) {
+            throw std::logic_error{"NPU4 doesn't suport sparse mode"};
         }
     }
 }

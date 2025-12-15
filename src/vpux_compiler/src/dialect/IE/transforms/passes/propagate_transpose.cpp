@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/normalization.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/transforms/rewriters/propagate_transpose_affine_reshape_common.hpp"
 #include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
@@ -457,6 +458,56 @@ mlir::LogicalResult MoveThroughOneInputEltwise::matchAndRewrite(mlir::Operation*
 }
 
 //
+// MoveTransposeThroughRMS
+//
+
+class MoveTransposeThroughRMS final : public mlir::OpRewritePattern<IE::RMSOp> {
+public:
+    MoveTransposeThroughRMS(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::RMSOp>(ctx), _log(log) {
+        this->setDebugName("MoveTransposeThroughRMS");
+    }
+
+private:
+    mlir::LogicalResult matchAndRewrite(IE::RMSOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult MoveTransposeThroughRMS::matchAndRewrite(IE::RMSOp origOp, mlir::PatternRewriter& rewriter) const {
+    _log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
+
+    auto transposeOp = origOp.getInput().getDefiningOp<IE::TransposeOp>();
+    if (transposeOp == nullptr || !transposeOp->hasOneUse()) {
+        return matchFailed(_log, rewriter, origOp, "TransposeOp not found or has multiple uses");
+    }
+
+    const auto orderAttr = transposeOp.getOrderValueAttr();
+    if (orderAttr == nullptr) {
+        return matchFailed(_log, rewriter, origOp, "TransposeOp missing order value");
+    }
+
+    const auto orderMap = orderAttr.getValue();
+    if (!orderMap.isPermutation()) {
+        return matchFailed(_log, rewriter, origOp, "Transpose order is not a permutation");
+    }
+
+    const auto rank = mlir::cast<vpux::NDTypeInterface>(transposeOp.getInput().getType()).getRank();
+    const auto lastExpr = llvm::dyn_cast<mlir::AffineDimExpr>(orderMap.getResult(rank - 1));
+    if (!lastExpr || lastExpr.getPosition() != static_cast<int64_t>(rank - 1)) {
+        return matchFailed(_log, rewriter, origOp, "Transpose changes the last dimension");
+    }
+
+    auto newRmsOp = rewriter.create<IE::RMSOp>(origOp->getLoc(), transposeOp.getInput(), origOp.getGamma(),
+                                               origOp.getEpsAttr());
+
+    rewriter.replaceOpWithNewOp<IE::TransposeOp>(origOp, newRmsOp.getOutput(), transposeOp.getOrder(), orderAttr);
+    _log.trace("Successfully moved Transpose through RMS.");
+
+    return mlir::success();
+}
+
+//
 // PropagateTransposePass
 //
 
@@ -503,8 +554,9 @@ void PropagateTransposePass::safeRunOnFunc() {
     patterns.add<IE::MoveTransposeAffineReshapeThroughAdd>(&ctx, vpux::benefitHigh, _log);
     patterns.add<MoveTransposeThroughMultiply>(&ctx, _log);
     patterns.add<MoveThroughOneInputEltwise>(&ctx, _log);
+    patterns.add<MoveTransposeThroughRMS>(&ctx, _log);
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

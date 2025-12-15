@@ -129,12 +129,16 @@ def VPU_MaxPoolOp :
 
 def VPU_MaxPool8Op :
         VPU_LayerOp<
-            "MaxPool8"
+            "MaxPool8",
+            [
+                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>
+            ]
         > {
     let summary = "MaxPool8 VPU layer";
 
     let arguments = (ins
-        RankedTensorOf<[F16, F32, SI32, SI8, UI8]>:$input,
+        AnyTypeOf<[RankedTensorOf<[F16, F32, SI32, SI8, UI8]>, VPU_DistributedTensor]>:$input,
 
         I64ArrayAttr:$kernel_size,
         I64ArrayAttr:$strides,
@@ -143,14 +147,26 @@ def VPU_MaxPool8Op :
         I64ArrayAttr:$pads_end,
         IE_RoundingTypeAttr:$rounding_type,
         TypeAttr:$index_element_type,
+        IntAttr:$axis,
 
-        IntAttr:$axis
+        OptionalAttr<I64ArrayAttr>:$initial_input_dims_attr,
+        OptionalAttr<I64ArrayAttr>:$initial_output_dims_attr,
+        OptionalAttr<I64ArrayAttr>:$initial_input_offset_attr,
+        OptionalAttr<I64ArrayAttr>:$initial_output_offset_attr,
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
     let results = (outs
-        RankedTensorOf<[F16, F32, SI32, SI8, UI8]>:$output,
-        RankedTensorOf<[SI32, SI64]>:$output_index
+        AnyTypeOf<[RankedTensorOf<[F16, F32, SI32, SI8, UI8]>, VPU_DistributedTensor]>:$output,
+        AnyTypeOf<[RankedTensorOf<[SI32, SI64]>, VPU_DistributedTensor]>:$output_index
     );
+
+    let extraClassDeclaration = [{
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
+
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+        OutputTiling getOutputTiling(const vpux::TileInfo& outputTile, vpux::Logger log);
+    }] # baseExtraClassDeclaration;
 }
 
 #endif

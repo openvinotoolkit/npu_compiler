@@ -21,14 +21,12 @@ void vpux::VPURT::buildBarrierLegalizationPipeline(mlir::OpPassManager& pm,
                                                    std::optional<int> virtualBarrierThresholdForWlm,
                                                    std::optional<WorkloadManagementMode> workloadManagementMode,
                                                    const bool unevenVariantSplitFlag, Logger log) {
-    if (!workloadManagementMode.has_value() ||
-        workloadManagementMode.value() <= WorkloadManagementMode::PWLM_V2_PAGES) {
+    if (!workloadManagementMode.has_value() || workloadManagementMode.value() < WorkloadManagementMode::FWLM_V1_PAGES) {
         pm.addPass(VPURT::createSplitExceedingBarrierSlotCountPass(log));
     }
     pm.addPass(VPURT::createSatisfyOneWaitBarrierPerTaskPass(virtualBarrierThresholdForWlm, unevenVariantSplitFlag,
                                                              workloadManagementMode, log));
-    if (!workloadManagementMode.has_value() ||
-        workloadManagementMode.value() <= WorkloadManagementMode::PWLM_V2_PAGES) {
+    if (!workloadManagementMode.has_value() || workloadManagementMode.value() < WorkloadManagementMode::FWLM_V1_PAGES) {
         pm.addPass(VPURT::createReduceExceedingActiveCountBarriersPass(
                 virtualBarrierThresholdForWlm, workloadManagementMode, unevenVariantSplitFlag, log));
     }

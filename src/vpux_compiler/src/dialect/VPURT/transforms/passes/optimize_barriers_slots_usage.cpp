@@ -36,21 +36,16 @@ void OptimizeBarriersSlotsUsagePass::safeRunOnFunc() {
 
     auto& barrierInfo = getAnalysis<BarrierInfo>();
 
-    mlir::DenseSet<vpux::VPU::ExecutorKind> executorsKind{VPU::ExecutorKind::DMA_NN, VPU::ExecutorKind::DPU};
-
-    if (config::isFifoPerShaveEngineEnabled(func)) {
-        executorsKind.insert(VPU::ExecutorKind::SHAVE_ACT);
-    }
-
-    barrierInfo.initializeTaskQueueTypeMap(executorsKind);
     barrierInfo.buildTaskQueueTypeMap();
 
-    barrierInfo.removeRedundantBarrierProducersAndConsumers(true);
+    barrierInfo.removeRedundantBarrierProducersAndConsumers(/* considerTaskFifoDependency */ true);
 
     barrierInfo.updateIR();
     barrierInfo.clearAttributes();
 
     VPUX_THROW_UNLESS(VPURT::verifyBarrierSlots(func, _log), "Barrier slot count check failed");
+    VPUX_THROW_UNLESS(barrierInfo.verifyBarriersUsersCount(VPURT::countIndependentTaskExecutors(func)),
+                      "Encountered unexpected number of barrier users.");
 }
 }  // namespace
 

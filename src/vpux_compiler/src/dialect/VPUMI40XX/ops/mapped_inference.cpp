@@ -219,9 +219,6 @@ size_t vpux::VPUMI40XX::MappedInferenceOp::getTaskCount(vpux::VPURegMapped::Task
         auto dpuVariantCounts = parseIntArrayAttr<int64_t>(getVariantCount());
         return tileIdx > dpuVariantCounts.size() ? 0 : dpuVariantCounts[tileIdx];
     }
-    case vpux::VPURegMapped::TaskType::M2I: {
-        return tileIdx > 0 ? 0 : getMediaCount();
-    }
     default: {
         VPUX_THROW("Unrecognized task type");
         break;
@@ -292,9 +289,6 @@ size_t vpux::VPUMI40XX::MappedInferenceOp::getMaxTaskTile(vpux::VPURegMapped::Ta
     case vpux::VPURegMapped::TaskType::DPUVariant: {
         auto dpuVariantCounts = parseIntArrayAttr<int64_t>(getVariantCount());
         return getMaxUsedTile(dpuVariantCounts);
-    }
-    case vpux::VPURegMapped::TaskType::M2I: {
-        return getMediaCount() > 0;
     }
     default: {
         VPUX_THROW("Unrecognized task type");

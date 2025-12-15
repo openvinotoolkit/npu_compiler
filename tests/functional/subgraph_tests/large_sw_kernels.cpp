@@ -54,6 +54,11 @@ TEST_P(LargeMishTestCommon, NPU4000_HW) {
     run(Platform::NPU4000);
 }
 
+TEST_P(LargeMishTestCommon, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
 INSTANTIATE_TEST_SUITE_P(smoke_LargeMishInDDR, LargeMishTestCommon,
                          ::testing::Values(LargeMishTestParams{
                                  {1, 64, 32, 514}  // in_shape
@@ -112,6 +117,19 @@ INSTANTIATE_TEST_SUITE_P(smoke_TwoMishInDDR, TwoMishTest_NPU4000,
                                  {1, 32, 32, 514}  // in_shape
                          }),
                          TwoMishTest_NPU3720::getTestCaseName);
+class TwoMishTest_NPU5010 : public TwoMishTest_NPU3720 {};
+
+TEST_P(TwoMishTest_NPU5010, HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
+INSTANTIATE_TEST_SUITE_P(smoke_TwoMishInDDR, TwoMishTest_NPU5010,
+                         ::testing::Values(LargeMishTestParams{
+                                 {1, 32, 32, 514}  // in_shape
+                         }),
+                         TwoMishTest_NPU5010::getTestCaseName);
+
 class TwoScatterUpdateTestCommon : public VpuOv2LayerTest, public testing::WithParamInterface<LargeMishTestParams> {
     void SetUp() override {
         auto inputShape = std::get<ov::Shape>(GetParam());
@@ -155,6 +173,11 @@ TEST_P(TwoScatterUpdateTestCommon, NPU3720_SW) {
 TEST_P(TwoScatterUpdateTestCommon, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
+}
+
+TEST_P(TwoScatterUpdateTestCommon, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
 }
 
 INSTANTIATE_TEST_SUITE_P(smoke_TwoScatterUpdateInDDR, TwoScatterUpdateTestCommon,

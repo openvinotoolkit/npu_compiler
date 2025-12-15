@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/conversion/factories/convert_IE_to_VPU_NCE_strategy_getter.hpp"
 #include "vpux/compiler/NPU37XX/conversion/passes/convert_IE_to_VPU_NCE_strategy.hpp"
+#include "vpux/compiler/NPU50XX/conversion/passes/convert_IE_to_VPU_NCE_strategy.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 
 namespace vpux {
@@ -16,6 +17,7 @@ std::unique_ptr<IConvertIEToVPUNCEStrategy> createConvertIEToVPUNCEStrategy(mlir
     case config::ArchKind::NPU40XX:
         return std::make_unique<arch37xx::ConvertIEToVPUNCEStrategy>(log, arch);
     default: {
+        return std::make_unique<arch50xx::ConvertIEToVPUNCEStrategy>(log, arch);
     }
     }
     VPUX_THROW("Unable to get ConvertIEToVPUNCEStrategy for arch {0}", arch);

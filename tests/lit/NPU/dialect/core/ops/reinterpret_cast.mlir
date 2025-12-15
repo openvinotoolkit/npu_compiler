@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize --verify-diagnostics %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK: func.func @Roundtrip([[ARG0:%.+]]: tensor<1x1xf16>) -> tensor<1x1xf16>
 func.func @Roundtrip(%arg0: tensor<1x1xf16>) -> tensor<1x1xf16> {

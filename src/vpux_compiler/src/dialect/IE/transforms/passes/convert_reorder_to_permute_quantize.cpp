@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
@@ -130,7 +131,15 @@ bool ConvertReorderToPermuteQuantizePass::isSupportedReorder(IE::ReorderOp reord
         log.trace("Can not convert to PermuteQuantize");
         return false;
     }
-
+    // Add quant type
+    // TODO: If consumer is convolution op we can support quantized input.
+    // E#-183528 is to address some regressions caused by pass MovePermutePostEltwise after dropping the WA.
+    auto consumer = *reorder.getResult().getUsers().begin();
+    auto inElemType = inType.getElementType();
+    if (mlir::isa<mlir::quant::QuantizedType>(inElemType) && !mlir::isa<IE::ConvolutionOp>(consumer)) {
+        _log.trace("Cannot convert MemPermute with quantized input to PermuteQuantize when consumer is not a conv");
+        return false;
+    }
     if (hasQuantizedAvgPoolUserToPropagate(reorder)) {
         log.trace("PermuteQuantize can not be propagated through avgpool");
         return false;

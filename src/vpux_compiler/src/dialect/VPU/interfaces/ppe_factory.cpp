@@ -5,7 +5,7 @@
 
 #include "vpux/compiler/dialect/VPU/interfaces/ppe_factory.hpp"
 
-#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 
 using namespace vpux::VPU;
 

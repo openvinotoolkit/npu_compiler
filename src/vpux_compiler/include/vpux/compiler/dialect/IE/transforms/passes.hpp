@@ -279,6 +279,7 @@ std::unique_ptr<mlir::Pass> createConvertToMixedPrecision(bool enableFloatInQuan
 std::unique_ptr<mlir::Pass> createOptimizeSliceExpandPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createLoadExternalKernelResourcesPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createFuseD2SExpandChannelsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createLegalizeEpsilonUsagePass(Logger log = Logger::global());
 
 struct MemPermutePositioningOptions : mlir::PassPipelineOptions<MemPermutePositioningOptions> {
     BoolOption enableGroupedMatMul{*this, "enable-grouped-matmul",
@@ -477,6 +478,10 @@ struct ExpandActivationChannelsOptions : mlir::PassPipelineOptions<ExpandActivat
     BoolOption enableExpandActivationChannels{*this, "expand-activation-channels",
                                               llvm::cl::desc("Enable expand-activation-channels pass"),
                                               llvm::cl::init(true)};
+
+    BoolOption enableAdjustInputShapePass{*this, "adjust-input-shape", llvm::cl::desc("Enable adjust-input-shape pass"),
+                                          llvm::cl::init(true)};
+
     BoolOption enableAdjustConvShapePass{*this, "adjust-convolution-shape",
                                          llvm::cl::desc("Enable adjust-convolution-shape pass"), llvm::cl::init(true)};
 
@@ -669,6 +674,7 @@ std::unique_ptr<mlir::Pass> createBroadcastInputForAddPass(Logger log = Logger::
 std::unique_ptr<mlir::Pass> createBroadcastInputForMultiplyPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvertReorderToPermuteQuantizePass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createFuseMemPermutePass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createAdaptODUPermutePass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createOptimizeInnermostConcatPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createRemoveViewLikeOpsChainPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createHandleLargePadsPass(Logger log = Logger::global());
@@ -747,6 +753,9 @@ struct DefaultHWOptionsDialectBase : public virtual vpux::DefaultHWOptionsBase {
     BoolOption enableExpandActivationChannels{*this, "expand-activation-channels",
                                               llvm::cl::desc("Enable expand-activation-channels pass"),
                                               llvm::cl::init(true)};
+
+    BoolOption enableAdjustInputShapePass{*this, "adjust-input-shape", llvm::cl::desc("Enable adjust-input-shape pass"),
+                                          llvm::cl::init(true)};
 
     BoolOption enableAdjustConvShapePass{*this, "adjust-convolution-shape",
                                          llvm::cl::desc("Enable adjust-convolution-shape pass"), llvm::cl::init(true)};
@@ -886,6 +895,10 @@ struct DefaultHWOptionsDialectBase : public virtual vpux::DefaultHWOptionsBase {
             llvm::cl::desc("Lower limit on weight size for runtime dequantization"
                            "Weights smaller than the limit will be statically dequantized"),
             llvm::cl::init(524'288)};  // 512kb
+
+    BoolOption enableDecomposeSDPA{*this, "enable-decompose-sdpa",
+                                   llvm::cl::desc("Enable ngraph passes decomposing SDPA like ops"),
+                                   llvm::cl::init(true)};
 };
 
 //

@@ -151,9 +151,9 @@ void vpux::AsyncDepsInfo::optimizeDepsMap() {
     // Algorithm is divided into two steps:
     //  step 1 - transitive closure
     //  step 2 - transitive reduction
-    // Worst case complexity is O(N^3) but expected time will be proportional to ~N*E^2
-    // so in case of sparse graphs which is a usual case for NN models expected time shouldn't
-    // be as bad as N^3
+    // Worst case complexity is O(N^3) but expected time will be proportional to ~N*E*k, where k represents the size of
+    // _curDeps, E denotes the size of _depsMapClosure, and N is the number of operations. So in case of sparse graphs
+    // which is a usual case for NN models expected time shouldn't be as bad as N^3
 
     // Step 1: Transitive closure
     // Update all dependencies in a new depsMapClosure to represent transitive closure
@@ -191,8 +191,13 @@ void vpux::AsyncDepsInfo::optimizeDepsMap() {
 
         for (auto curDepInd : llvm::DenseSet<size_t>(curDeps)) {
             const auto& depOfDeps = depsMapClosure[curDepInd];
-            for (auto dep : depOfDeps) {
-                curDeps.erase(dep);
+            // In the context of neural network (NN) models, the size of the _depsMapClosure (E) significantly surpasses
+            // that of _curDeps (k). By strategically constraining the traversal of _curDeps to a maximum of k edges per
+            // operation, we have achieved a refined computational complexity of ~N×E×k.
+            for (auto dep : llvm::DenseSet<size_t>(curDeps)) {
+                if (depOfDeps.count(dep) == 1) {
+                    curDeps.erase(dep);
+                }
             }
         }
     }

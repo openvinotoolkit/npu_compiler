@@ -5,7 +5,7 @@
 
 #include "vpux/compiler/dialect/IE/utils/convert_op_types.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
-#include "vpux/compiler/utils/IE/locations.hpp"
+#include "vpux/compiler/utils/locations.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
@@ -74,7 +74,7 @@ void vpux::IE::setupConvertPrecision(mlir::TypeConverter& typeConverter,
         // precision and location of source is more useful
         VPUX_THROW_UNLESS(inputs.size() == 1, "Got wrong number of inputs : {0}", inputs.size());
         const auto dstType = mlir::TypeAttr::get(type.getElementType());
-        const auto baseLoc = IE::getValueLocation(inputs[0]);
+        const auto baseLoc = getValueLocation(inputs[0]);
         const auto newLocation = appendLoc(baseLoc, "converted_to_{0}", dstType);
         return builder.createOrFold<IE::ConvertOp>(newLocation, inputs[0], dstType);
     };

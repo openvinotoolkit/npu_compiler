@@ -7,6 +7,8 @@
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 
+#include <mlir/IR/PatternMatch.h>
+
 using namespace vpux;
 
 mlir::LogicalResult vpux::IE::MaxPool8Op::inferReturnTypeComponents(
@@ -38,4 +40,47 @@ mlir::LogicalResult vpux::IE::MaxPool8Op::inferReturnTypeComponents(
     inferredReturnShapes.emplace_back(outputShape.shape, maxPool8.getIndexElementType());
 
     return mlir::success();
+}
+
+mlir::LogicalResult vpux::IE::MaxPool8Op::verify() {
+    const auto inRank = mlir::cast<mlir::ShapedType>(getInput().getType()).getRank();
+    auto axis = getAxis();
+
+    axis = axis < 0 ? axis + inRank : axis;
+
+    if (axis >= 0 && axis < inRank) {
+        return mlir::success();
+    }
+
+    return mlir::failure();
+}
+
+//
+// Canonicalizer
+//
+namespace {
+class NormalizeAxisToPositive final : public mlir::OpRewritePattern<IE::MaxPool8Op> {
+public:
+    using mlir::OpRewritePattern<IE::MaxPool8Op>::OpRewritePattern;
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::MaxPool8Op origOp, mlir::PatternRewriter& rewriter) const final;
+};
+
+mlir::LogicalResult NormalizeAxisToPositive::matchAndRewrite(IE::MaxPool8Op origOp, mlir::PatternRewriter&) const {
+    auto axis = origOp.getAxis();
+    if (axis < 0) {
+        axis += origOp.getInput().getType().getRank();
+        origOp.setAxis(axis);
+    } else {
+        return mlir::failure();
+    }
+
+    return mlir::success();
+}
+
+}  // namespace
+
+void vpux::IE::MaxPool8Op::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns, mlir::MLIRContext* context) {
+    patterns.add<NormalizeAxisToPositive>(context);
 }

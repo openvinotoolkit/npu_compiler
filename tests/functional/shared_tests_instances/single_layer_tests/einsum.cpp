@@ -21,6 +21,10 @@ TEST_P(EinsumLayerTestCommon, NPU4000) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
+TEST_P(EinsumLayerTestCommon, NPU5010) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
 }  // namespace test
 }  // namespace ov
 

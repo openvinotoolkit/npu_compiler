@@ -4,12 +4,13 @@
 //
 
 #include <benchmark/benchmark.h>
-#include <mlir/Dialect/Quant/QuantOps.h>
 
 #include "vpux/compiler/dialect/IE/utils/permute_infer.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
 #include "vpux/compiler/dialect/const/utils/content.hpp"
 #include "vpux/compiler/init.hpp"
+
+#include <mlir/Dialect/Quant/IR/Quant.h>
 
 namespace {
 void getValues(const double scale, const int64_t zeroPoint, vpux::Const::Content& input, vpux::Const::Content& output) {
@@ -63,7 +64,7 @@ void fuseMulAddDtype(const float scale, const int zeroPoint, vpux::Const::Conten
 static void BM_GetValues(benchmark::State& state) {
     auto registry = vpux::createDialectRegistry();
     mlir::MLIRContext ctx(registry);
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
     ctx.loadDialect<vpux::Const::ConstDialect>();
 
     const std::vector<int64_t> shape{1024, 2048, 3, 3};
@@ -83,7 +84,7 @@ static void BM_GetValues(benchmark::State& state) {
 static void BM_GetTmpBuff(benchmark::State& state) {
     auto registry = vpux::createDialectRegistry();
     mlir::MLIRContext ctx(registry);
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
     ctx.loadDialect<vpux::Const::ConstDialect>();
 
     const std::vector<int64_t> shape{1024, 2048, 3, 3};
@@ -103,7 +104,7 @@ static void BM_GetTmpBuff(benchmark::State& state) {
 static void BM_FuseMulAdd(benchmark::State& state) {
     auto registry = vpux::createDialectRegistry();
     mlir::MLIRContext ctx(registry);
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
     ctx.loadDialect<vpux::Const::ConstDialect>();
 
     const std::vector<int64_t> shape{1024, 2048, 3, 3};
@@ -123,7 +124,7 @@ static void BM_FuseMulAdd(benchmark::State& state) {
 static void BM_FuseMulAddDtype(benchmark::State& state) {
     auto registry = vpux::createDialectRegistry();
     mlir::MLIRContext ctx(registry);
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
     ctx.loadDialect<vpux::Const::ConstDialect>();
 
     const std::vector<int64_t> shape{1024, 2048, 3, 3};

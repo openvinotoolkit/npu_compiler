@@ -4,7 +4,8 @@
 //
 
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
 
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/affine_reshape.hpp"
@@ -34,7 +35,11 @@ mlir::FailureOr<SmallVector<int64_t>> getOutShape(VPU::ReshapeOpAdaptor reshape,
         return parseIntArrayAttr<int64_t>(reshape.getShapeValue().value());
     }
 
-    auto shapeConst = reshape.getShape().getDefiningOp<Const::DeclareOp>();
+    auto shapeValue = reshape.getShape();
+    while (auto parentOp = shapeValue.getDefiningOp<VPU::CopyOp>()) {
+        shapeValue = parentOp->getOperand(0);
+    }
+    auto shapeConst = shapeValue.getDefiningOp<Const::DeclareOp>();
     if (shapeConst == nullptr) {
         return errorAt(loc, "Only constant input is supported for shape");
     }

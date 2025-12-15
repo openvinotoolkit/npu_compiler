@@ -5,9 +5,10 @@
 
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/conversion/passes/ShaveCodeGen/conversions.hpp"
+#include "vpux/compiler/conversion/passes/ShaveCodeGen/linalg_type_conversion.hpp"
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
-#include "vpux/compiler/utils/ShaveCodeGen/linalg_type_conversion.hpp"
+#include "vpux/compiler/dialect/IE/utils/type_padding.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 
 using namespace vpux;
@@ -82,6 +83,62 @@ mlir::Value emitLinalgRegion<IE::ReduceL2Op>(IE::ReduceL2Op op, mlir::ValueRange
     return rewriter.create<mlir::arith::AddIOp>(loc, accum.getType(), accum, in);
 }
 
+template <>
+mlir::Value emitLinalgRegion<IE::ReduceL1Op>(IE::ReduceL1Op op, mlir::ValueRange args,
+                                             llvm::ArrayRef<mlir::Type> resultTypes, mlir::PatternRewriter& rewriter) {
+    VPUX_UNUSED(resultTypes);
+    auto in = args[0];
+    auto accum = args[1];
+    auto loc = op.getLoc();
+    auto inTy = in.getType();
+    if (mlir::isa<mlir::FloatType>(inTy)) {
+        in = rewriter.create<mlir::math::AbsFOp>(loc, in.getType(), in);
+        if (inTy != accum.getType()) {
+            in = rewriter.create<mlir::arith::ExtFOp>(loc, accum.getType(), in);
+        }
+        // We need the reassoc flag for auto-vectorization.
+        return rewriter.create<mlir::arith::AddFOp>(loc, accum.getType(), accum, in,
+                                                    mlir::arith::FastMathFlags::reassoc);
+    }
+
+    auto elTy = mlir::cast<NDTypeInterface>(op->getOperand(0).getType()).getElementType();
+    if (elTy.isSignedInteger()) {
+        in = rewriter.create<mlir::math::AbsIOp>(loc, in.getType(), in);
+    }
+    if (inTy != accum.getType()) {
+        in = rewriter.create<mlir::arith::ExtUIOp>(loc, accum.getType(), in);
+    }
+    return rewriter.create<mlir::arith::AddIOp>(loc, accum.getType(), accum, in);
+}
+
+template <>
+mlir::Value emitLinalgRegion<IE::ReduceSumOp>(IE::ReduceSumOp op, mlir::ValueRange args,
+                                              llvm::ArrayRef<mlir::Type> resultTypes, mlir::PatternRewriter& rewriter) {
+    VPUX_UNUSED(resultTypes);
+    auto in = args[0];
+    auto accum = args[1];
+    auto loc = op.getLoc();
+    auto inTy = in.getType();
+    if (mlir::isa<mlir::FloatType>(inTy)) {
+        if (inTy != accum.getType()) {
+            in = rewriter.create<mlir::arith::ExtFOp>(loc, accum.getType(), in);
+        }
+        // We need the reassoc flag for auto-vectorization.
+        return rewriter.create<mlir::arith::AddFOp>(loc, accum.getType(), accum, in,
+                                                    mlir::arith::FastMathFlags::reassoc);
+    }
+
+    auto elTy = mlir::cast<NDTypeInterface>(op->getOperand(0).getType()).getElementType();
+    if (inTy != accum.getType()) {
+        if (elTy.isSignedInteger()) {
+            in = rewriter.create<mlir::arith::ExtSIOp>(loc, accum.getType(), in);
+        } else {
+            in = rewriter.create<mlir::arith::ExtUIOp>(loc, accum.getType(), in);
+        }
+    }
+    return rewriter.create<mlir::arith::AddIOp>(loc, accum.getType(), accum, in);
+}
+
 // Infrastructure for reduce ops.
 
 static mlir::Value getNullScalar(mlir::Operation* op, mlir::Type resultTy, mlir::PatternRewriter& rewriter) {
@@ -111,7 +168,7 @@ static mlir::Value getNullScalar(mlir::Operation* op, mlir::Type resultTy, mlir:
         } else {
             constAttr = rewriter.getIntegerAttr(resultTy, llvm::APSInt::getZero(resultTy.getIntOrFloatBitWidth()));
         }
-    } else if (mlir::isa<IE::ReduceLogicalAndOp>(op)) {
+    } else if (mlir::isa<IE::ReduceLogicalAndOp>(op) || mlir::isa<IE::ReduceProdOp>(op)) {
         if (mlir::isa<mlir::FloatType>(elTy)) {
             constAttr = rewriter.getFloatAttr(
                     resultTy, llvm::APFloat::getOne(mlir::cast<mlir::FloatType>(resultTy).getFloatSemantics()));
@@ -136,7 +193,29 @@ static mlir::AffineMap dropZeroResults(mlir::AffineMap& map) {
         }
     }
     return mlir::AffineMap::get(map.getNumDims(), map.getNumSymbols(), newExprs, map.getContext());
-};
+}
+
+std::optional<mlir::ArrayAttr> getInputPadAttr(mlir::Operation* op) {
+    if (auto sum = mlir::dyn_cast<IE::ReduceSumOp>(op)) {
+        return sum.getInputPadding();
+    }
+
+    if (auto mean = mlir::dyn_cast<IE::ReduceMeanOp>(op)) {
+        return mean.getInputPadding();
+    }
+    return std::nullopt;
+}
+
+std::optional<mlir::ArrayAttr> getOutputPadAttr(mlir::Operation* op) {
+    if (auto sum = mlir::dyn_cast<IE::ReduceSumOp>(op)) {
+        return sum.getOutputPadding();
+    }
+
+    if (auto mean = mlir::dyn_cast<IE::ReduceMeanOp>(op)) {
+        return mean.getOutputPadding();
+    }
+    return std::nullopt;
+}
 
 using EmitBodyCallback = std::function<mlir::Value(mlir::Operation*, mlir::ValueRange, llvm::ArrayRef<mlir::Type>,
                                                    mlir::PatternRewriter&)>;
@@ -158,22 +237,32 @@ static mlir::LogicalResult emitLinalgReduceHelper(mlir::Operation* op, EmitBodyC
     //    any of the dropped reduced dimensions if necessary.
     auto input = op->getOperands().front();
     auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
+    auto inputRank = inputType.getRank();
+    auto inputPad = getInputPadAttr(op);
+
+    inputType = ShaveCodeGen::getUnpaddedTensorType(inputType, op->getLoc(), inputPad);
+
     auto result = op->getResult(0);
     auto resultType = mlir::cast<mlir::RankedTensorType>(result.getType());
     auto resultRank = resultType.getRank();
+    mlir::RankedTensorType resultPaddedType = ShaveCodeGen::normalizeType(resultType);
+    auto outputPad = getOutputPadAttr(op);
+    resultType = ShaveCodeGen::getUnpaddedTensorType(resultType, op->getLoc(), outputPad);
+
     // Element type from the output of the normalization stage
     auto postNormElTy = ShaveCodeGen::getLinalgElementType(resultType, rewriter.getContext());
     auto forceF32ForReductionOutput = (accumNeedsF32Precision && mlir::isa<mlir::FloatType>(postNormElTy) &&
                                        postNormElTy.getIntOrFloatBitWidth() < 32);
     // Element type from the output of the reduction stage
-    auto reduceResultElTy = forceF32ForReductionOutput ? mlir::FloatType::getF32(rewriter.getContext()) : postNormElTy;
-    auto inputRank = inputType.getRank();
+    auto reduceResultElTy = forceF32ForReductionOutput ? mlir::Float32Type::get(rewriter.getContext()) : postNormElTy;
     auto inputMemMap = mlir::cast<vpux::NDTypeInterface>(op->getOperandTypes().front())
                                .getDimsOrder()
                                .toAffineMap(rewriter.getContext());
     auto outputMemMap =
             mlir::cast<vpux::NDTypeInterface>(result.getType()).getDimsOrder().toAffineMap(rewriter.getContext());
-    auto inputLogicalShape = mlir::cast<vpux::NDTypeInterface>(input.getType()).getShape();
+    auto inputLogicalShape = mlir::cast<vpux::NDTypeInterface>(inputType).getShape();
+
+    bool hasNorm = normalizeCallback != nullptr || postNormElTy != reduceResultElTy || keepDims;
 
     // Reject the dynamic input type, at least for now.
     if (inputLogicalShape.isDynamic()) {
@@ -211,17 +300,21 @@ static mlir::LogicalResult emitLinalgReduceHelper(mlir::Operation* op, EmitBodyC
         reduceShape = outMap.compose(logicalShape);
     }
 
-    auto outputEmptyTensor = rewriter.create<mlir::tensor::EmptyOp>(op->getLoc(), reduceShape, reduceResultElTy);
+    mlir::Value outputEmptyTensor = nullptr;
+    mlir::Value padded = nullptr;
+    if (outputPad && !hasNorm) {
+        std::tie(outputEmptyTensor, padded) =
+                ShaveCodeGen::emitTensorSlice(op->getLoc(), reduceShape, resultPaddedType, rewriter);
+    } else {
+        outputEmptyTensor = rewriter.create<mlir::tensor::EmptyOp>(op->getLoc(), reduceShape, reduceResultElTy);
+    }
     auto nullScalar = getNullScalar(op, reduceResultElTy, rewriter);
     auto outputTensor = rewriter.create<mlir::linalg::FillOp>(op->getLoc(), mlir::ValueRange{nullScalar},
                                                               mlir::ValueRange{outputEmptyTensor})
                                 .result();
 
     // Phase 2, emit the linalg reduce operation.
-
-    auto linalgOperands = llvm::map_to_vector(op->getOperands(), [&](mlir::Value operand) {
-        return ShaveCodeGen::convertToLinalgValue(operand, rewriter);
-    });
+    auto linalgOperands = SmallVector<mlir::Value>(1, ShaveCodeGen::convertToLinalgValue(input, rewriter, inputPad));
 
     // Compute the affine map for the linalg output operand.
     // This is a composition of the output memory order permutation, the operations
@@ -271,7 +364,7 @@ static mlir::LogicalResult emitLinalgReduceHelper(mlir::Operation* op, EmitBodyC
 
     // Phase 3, post-reduction element-wise normalization
 
-    if (normalizeCallback != nullptr || postNormElTy != reduceResultElTy || keepDims) {
+    if (hasNorm) {
         // The normalization stage element-wise so all loop attributes are parallel.
         SmallVector<mlir::utils::IteratorType> normalizeLoopAttrs(resultRank, mlir::utils::IteratorType::parallel);
         SmallVector<mlir::AffineMap, 2> normalizeAffineMaps;
@@ -287,9 +380,17 @@ static mlir::LogicalResult emitLinalgReduceHelper(mlir::Operation* op, EmitBodyC
         // We'll need a new empty tensor if the normalization operation results either
         // changes shape or has e different element type.
         bool needsTruncate = (postNormElTy != reduceResultElTy);
-        auto normalizeOutputTensor = (needsTruncate || keepDims) ? rewriter.create<mlir::tensor::EmptyOp>(
-                                                                           op->getLoc(), finalMemoryShape, postNormElTy)
-                                                                 : linalgOp.getResult(0);
+        mlir::Value normalizeOutputTensor = nullptr;
+        if (outputPad) {
+            std::tie(normalizeOutputTensor, padded) =
+                    ShaveCodeGen::emitTensorSlice(op->getLoc(), finalMemoryShape, resultPaddedType, rewriter);
+        } else if (needsTruncate || keepDims) {
+            normalizeOutputTensor =
+                    rewriter.create<mlir::tensor::EmptyOp>(op->getLoc(), finalMemoryShape, postNormElTy);
+        } else {
+            normalizeOutputTensor = linalgOp.getResult(0);
+        }
+
         linalgOp = rewriter.create<mlir::linalg::GenericOp>(
                 op->getLoc(), normalizeOutputTensor.getType(), mlir::ValueRange{linalgOp.getResult(0)},
                 normalizeOutputTensor, normalizeAffineMaps, normalizeLoopAttrs,
@@ -302,6 +403,21 @@ static mlir::LogicalResult emitLinalgReduceHelper(mlir::Operation* op, EmitBodyC
                     }
                     opBuilder.create<mlir::linalg::YieldOp>(loc, opResult);
                 });
+    }
+
+    if (outputPad) {
+        SmallVector<mlir::OpFoldResult> zeros(resultRank, rewriter.getIndexAttr(0));
+        SmallVector<mlir::OpFoldResult> ones(resultRank, rewriter.getIndexAttr(1));
+        SmallVector<mlir::OpFoldResult> sizes =
+                mlir::tensor::getMixedSizes(rewriter, op->getLoc(), linalgOp->getResult(0));
+
+        auto insertSliceOp = rewriter.create<mlir::tensor::InsertSliceOp>(op->getLoc(), linalgOp->getResult(0), padded,
+                                                                          zeros, sizes, ones);
+
+        rewriter.replaceOp(op, ShaveCodeGen::convertFromLinalgValue(insertSliceOp->getResult(0),
+                                                                    op->getResult(0).getType(), rewriter)
+                                       .getDefiningOp());
+        return mlir::success();
     }
 
     rewriter.replaceOp(
@@ -322,9 +438,9 @@ EmitBodyCallback getNormalizationCallback() {
             bool isFloat = mlir::isa<mlir::FloatType>(args[0].getType());
             auto origTy = argVal.getType();
             if (!isFloat) {
-                auto fpType = mlir::FloatType::getF32(rewriter.getContext());
+                mlir::FloatType fpType = mlir::Float32Type::get(rewriter.getContext());
                 if (args[0].getType().getIntOrFloatBitWidth() > 32) {
-                    fpType = mlir::FloatType::getF64(rewriter.getContext());
+                    fpType = mlir::Float64Type::get(rewriter.getContext());
                 }
                 // We don't have to look at the signdness, this should be positive or we'll get a NAN
                 // from the sqrt.
@@ -378,4 +494,5 @@ void ShaveCodeGen::populateIEReduceToLinalgPatterns(mlir::RewritePatternSet& pat
     auto& ctx = *patternSet.getContext();
     patternSet.add<IEReduceToLinalg<IE::ReduceMaxOp>, IEReduceToLinalg<IE::ReduceMinOp>,
                    IEReduceToLinalg<IE::ReduceL2Op>>(&ctx);
+    patternSet.add<IEReduceToLinalg<IE::ReduceSumOp>, IEReduceToLinalg<IE::ReduceL1Op>>(&ctx);
 }

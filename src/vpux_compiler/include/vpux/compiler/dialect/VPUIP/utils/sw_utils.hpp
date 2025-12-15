@@ -112,6 +112,7 @@ const SmallVector<StringLiteral> SW_KERNELS_SUPPORTING_TILING = {"mvn1",
                                                                  "activation_mish",
                                                                  "dynamic_dequantize",
                                                                  "reverse",
+                                                                 "reverse_sequence",
                                                                  "rms_norm",
                                                                  "rope",
                                                                  "rope_ilv",
@@ -125,31 +126,34 @@ const SmallVector<StringLiteral> SW_KERNELS_SUPPORTING_TILING = {"mvn1",
                                                                  "eltwise_logical_not",
                                                                  "cum_sum",
                                                                  "sdpa_extended",
+                                                                 "flash_sdpa",
                                                                  "nv12_to_rgb",
-                                                                 "i420_to_rgb"};
+                                                                 "i420_to_rgb",
+                                                                 "activation_relu"};
 
 const SmallVector<StringLiteral> SW_KERNELS_SUPPORTING_STRIDE = {"mvn1",     "lstm_cell", "lstm_sequence",
                                                                  "lstm_dpu", "reorder",   "sdpa_extended"};
 
 const SmallVector<std::string_view> SW_KERNELS_SUPPORTING_SHAVE_BALANCING = {
-        "softmax",          "eltwise_mul",         "activation_sin",     "activation_cos",
-        "activation_swish", "activation_softplus", "activation_clamp",   "convert",
-        "eltwise_min",      "eltwise_max",         "round_fp16",         "activation_exp",
-        "eltwise_div",      "prelu_fp16",          "eltwise_logical_not"};
+        "softmax",          "eltwise_mul",         "activation_sin",      "activation_cos",
+        "activation_swish", "activation_softplus", "activation_clamp",    "convert",
+        "eltwise_min",      "eltwise_max",         "round_fp16",          "activation_exp",
+        "eltwise_div",      "prelu_fp16",          "eltwise_logical_not", "activation_relu"};
 
 const SmallVector<StringLiteral> SW_KERNELS_LAYOUT_AGNOSTIC = {
-        "activation_swish", "activation_gelu",     "activation_hswish",  "activation_hardsigmoid",
-        "activation_tanh",  "activation_sigmoid",  "activation_clamp",   "activation_sin",
-        "activation_cos",   "activation_exp",      "activation_abs",     "activation_log",
-        "activation_sqrt",  "hswish_fp16",         "round_fp16",         "eltwise_mul",
-        "activation_mish",  "activation_softplus", "eltwise_logical_not"};
+        "activation_swish", "activation_gelu",     "activation_hswish",   "activation_hardsigmoid",
+        "activation_tanh",  "activation_sigmoid",  "activation_clamp",    "activation_sin",
+        "activation_cos",   "activation_exp",      "activation_abs",      "activation_log",
+        "activation_sqrt",  "hswish_fp16",         "round_fp16",          "eltwise_mul",
+        "activation_mish",  "activation_softplus", "eltwise_logical_not", "activation_relu"};
 
 // TODO: E#117136, use heuristic for tile dim
 const SmallVector<StringLiteral> SW_ACTIVATION_KERNELS = {
         "activation_swish",   "activation_gelu",  "activation_hardsigmoid", "activation_tanh",
         "activation_sigmoid", "activation_clamp", "activation_abs",         "activation_floor",
         "activation_sin",     "activation_cos",   "activation_exp",         "hswish_fp16",
-        "prelu_fp16",         "activation_mish",  "activation_softplus",    "activation_negative"};
+        "prelu_fp16",         "activation_mish",  "activation_softplus",    "activation_negative",
+        "activation_relu"};
 
 constexpr StringLiteral SW_KERNEL_NAME_PREFIX = "builtin_";
 
@@ -193,9 +197,10 @@ const SmallVector<StringLiteral> SW_KERNELS_NEED_TILING_ALIGNMENT = {"mvn1",
                                                                      "activation_mish",
                                                                      "eltwise_logical_not",
                                                                      "nv12_to_rgb",
-                                                                     "i420_to_rgb"};
+                                                                     "i420_to_rgb",
+                                                                     "activation_relu"};
 
-const SmallVector<StringLiteral> SW_KERNELS_USE_DPU = {"lstm_dpu", "sdpa_extended"};
+const SmallVector<StringLiteral> SW_KERNELS_USE_DPU = {"lstm_dpu", "sdpa_extended", "flash_sdpa"};
 
 SmallVector<mlir::Attribute> kernelArgsRange(VPUIP::SwKernelOp swKernelOp);
 

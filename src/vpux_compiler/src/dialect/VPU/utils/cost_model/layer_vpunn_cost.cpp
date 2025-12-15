@@ -5,14 +5,15 @@
 
 #include "vpux/compiler/dialect/VPU/utils/cost_model/layer_vpunn_cost.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/utils/multi_cluster_strategy_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
-#include "vpux/compiler/utils/VPU/tile_utils.hpp"
 #include "vpux/compiler/utils/sparsity.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
@@ -43,6 +44,10 @@ bool isTiledOnLowestDim(ShapeRef tileAxis, DimsOrder dimOrder) {
 
 constexpr int64_t SW_COST_CORRECTION_FACTOR_FOR_MEM_PERMUTE = 10;
 
+// E#154343: Inaccurate VPUNN cost. For some small SW ops, the cost model usually underestimates the actual cost. This
+// experimental value is set as the minimum cost for those ops
+constexpr StrategyCost SMALL_SW_COST_THRESHOLD = 12000;
+
 StrategyCost vpux::VPU::correctSwOpCost(VPU::SWOpInterface swOp, ArrayRef<vpux::NDTypeInterface> tiledInputTypes,
                                         StrategyCost cost) {
     if (auto memPermute = mlir::dyn_cast<VPU::MemPermuteOp>(swOp.getOperation())) {
@@ -58,6 +63,9 @@ StrategyCost vpux::VPU::correctSwOpCost(VPU::SWOpInterface swOp, ArrayRef<vpux::
                 cost *= SW_COST_CORRECTION_FACTOR_FOR_MEM_PERMUTE;
             }
         }
+    } else if (mlir::isa<VPU::MultiplyOp, VPU::SoftMaxOp, VPU::ConvertOp>(swOp.getOperation())) {
+        // E#154343: Inaccurate VPUNN cost for those ops when the size is small. So we set a minimum cost for them.
+        cost = std::max(SMALL_SW_COST_THRESHOLD, cost);
     }
     return cost;
 }

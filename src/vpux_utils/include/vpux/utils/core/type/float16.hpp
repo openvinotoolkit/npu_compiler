@@ -38,6 +38,7 @@ public:
     size_t size() const;
     template <typename T>
     bool operator==(const T& other) const;
+    bool operator==(const float16& other) const;
     template <typename T>
     bool operator!=(const T& other) const {
         return !(*this == other);
@@ -159,6 +160,9 @@ template <typename T>
 float16 float16::operator/=(const T& other) {
     return *this = *this / other;
 }
+
+bool iszero(float16 x);
+
 #if defined(_MSC_VER)
 #pragma warning(pop)
 #endif
@@ -234,5 +238,19 @@ public:
     static constexpr bool traps = false;
     static constexpr bool tinyness_before = false;
     static constexpr float_round_style round_style = round_to_nearest;
+
+    // This is the minimum safe epsilon value to use for fused low-precision normalization
+    // layers that utilize float32 internal computation but have float16 inputs and outputs.
+    // In order to prevent divide-by-zero and NaNs in the output of such layers when the
+    // input is all or mostly zeros, epsilon must be > (1/FLOAT16_MAX)^2. A safety factor
+    // has been added due to varying implementations of Sqrt and Reciprocal functions.
+    static constexpr float smallest_mixed_precision_eps = 0.000000001f;
+
+    // This is the minimum safe epsilon value to use for unfused low-precision normalization
+    // subgraphs. Here all intermediate steps in the normalization process are conducted in
+    // float16 and care must be taken to ensure the epsilon value successfully prevents the
+    // injection of Inf and/or NaNs in the full subgraph. A safety factor has been added.
+    // (Empirical testing shows 0.8E-4 works while 0.6E-4 does not).
+    static constexpr float nearest_non_zero_positive_value = 0.0001f;
 };
 }  // namespace std

@@ -1132,7 +1132,7 @@ mlir::quant::QuantizedType vpux::getQuantizedType(const Const::ContentAttr& lowC
             });
 
             if (hasUnsupportedZP) {
-                innerLog.warning("HW unsupported zero point (!= 0) for storage type '{1}'", storageType);
+                innerLog.warning("HW unsupported zero point (!= 0) for storage type '{0}'", storageType);
                 return nullptr;
             }
 

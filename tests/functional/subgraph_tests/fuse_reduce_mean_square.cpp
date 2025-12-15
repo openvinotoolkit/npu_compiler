@@ -67,6 +67,11 @@ TEST_P(FuseReduceMeanSquareTestCommon, NPU4000_HW) {
     run(Platform::NPU4000);
 }
 
+TEST_P(FuseReduceMeanSquareTestCommon, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
 const std::vector<ReduceMeanSquareParams> testValues = {{{1, 32, 32, 96}}, {{1, 512, 18, 80}}};
 
 INSTANTIATE_TEST_SUITE_P(precommit_FuseReduceMeanSquare, FuseReduceMeanSquareTestCommon,

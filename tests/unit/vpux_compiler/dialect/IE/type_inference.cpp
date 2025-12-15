@@ -19,17 +19,17 @@ using namespace vpux;
 
 namespace {
 
-class MLIR_TypeInferenceTest : public MLIR_UnitBase {
+class MLIR_IETypeInferenceTest : public MLIR_UnitBase {
 public:
-    MLIR_TypeInferenceTest(): MLIR_UnitBase() {
+    MLIR_IETypeInferenceTest(): MLIR_UnitBase() {
         ctx.appendDialectRegistry(registry);
         ctx.loadDialect<Const::ConstDialect, mlir::func::FuncDialect, IE::IEDialect, mlir::tensor::TensorDialect>();
         listener = std::make_unique<mlir::OpBuilder::Listener>();
         builder = std::make_unique<mlir::OpBuilder>(&ctx, listener.get());
     }
 
-    MLIR_TypeInferenceTest(const MLIR_TypeInferenceTest&) = delete;
-    MLIR_TypeInferenceTest& operator=(const MLIR_TypeInferenceTest&) = delete;
+    MLIR_IETypeInferenceTest(const MLIR_IETypeInferenceTest&) = delete;
+    MLIR_IETypeInferenceTest& operator=(const MLIR_IETypeInferenceTest&) = delete;
 
     mlir::OwningOpRef<mlir::tensor::EmptyOp> createOperand(ArrayRef<int64_t> shape, DimsOrder order) {
         return builder->create<mlir::tensor::EmptyOp>(builder->getUnknownLoc(), shape, mlir::Float32Type::get(&ctx),
@@ -53,7 +53,7 @@ public:
 
 }  // namespace
 
-TEST_F(MLIR_TypeInferenceTest, PadOp) {
+TEST_F(MLIR_IETypeInferenceTest, PadOp) {
     SmallVector<int64_t> shape{2, 2, 2, 2};
     auto operand = createOperand({2, 2, 2, 2}, DimsOrder::NHCW);
 
@@ -86,7 +86,7 @@ SmallVector<BinaryOpTestParams> getBinaryOpTestCases() {
             BinaryOpTestParams{{9, 9, 9, 9}, vpux::DimsOrder::HWCN, {9, 9, 9, 9}, vpux::DimsOrder::NCWH}};
 }
 
-TEST_F(MLIR_TypeInferenceTest, MultiplyOp) {
+TEST_F(MLIR_IETypeInferenceTest, MultiplyOp) {
     for (auto [lhsShape, lhsOrder, rhsShape, rhsOrder] : getBinaryOpTestCases()) {
         bool takeLeft = lhsShape.size() >= rhsShape.size();
         auto expectedDims = takeLeft ? lhsShape : rhsShape;
@@ -111,7 +111,7 @@ TEST_F(MLIR_TypeInferenceTest, MultiplyOp) {
     }
 }
 
-TEST_F(MLIR_TypeInferenceTest, MultiplyOp_DynamicSecondInput) {
+TEST_F(MLIR_IETypeInferenceTest, MultiplyOp_DynamicSecondInput) {
     mlir::OwningOpRef<mlir::arith::ConstantOp> dyn1 = builder->create<mlir::arith::ConstantOp>(
             builder->getUnknownLoc(), builder->getIndexType(), builder->getIndexAttr(800));
     mlir::OwningOpRef<mlir::arith::ConstantOp> dyn2 = builder->create<mlir::arith::ConstantOp>(
@@ -139,9 +139,9 @@ TEST_F(MLIR_TypeInferenceTest, MultiplyOp_DynamicSecondInput) {
     ASSERT_EQ(typeComponents[0].getDims(), ArrayRef<int64_t>(expectedDims));
 }
 
-TEST_F(MLIR_TypeInferenceTest, DivideOp) {
+TEST_F(MLIR_IETypeInferenceTest, DivideOp) {
     for (auto [lhsShape, lhsOrder, rhsShape, rhsOrder] : getBinaryOpTestCases()) {
-        bool takeLeft = lhsShape.size() >= rhsShape.size();
+        bool takeLeft = lhsShape.size() > rhsShape.size();
         auto expectedDims = takeLeft ? lhsShape : rhsShape;
         auto expectedOrder = mlir::AffineMapAttr::get((takeLeft ? lhsOrder : rhsOrder).toAffineMap(&ctx));
 

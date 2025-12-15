@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --init-compiler="vpu-arch=%arch%" --unroll-gather-dma  %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
+// REQUIRES: arch-NPU40XX || arch-NPU50XX
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
@@ -68,21 +68,21 @@ func.func @UnrollGatherDMA() -> !OutputDistributed {
     //CHECK:    [[OUTPUT_BUFF_2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <24960> -> memref<1x1x1024x682xf16, [@CMX_NN, 2]>
 
     //CHECK:    VPURT.Task waits([[BARRIER_0]] : !VPURT.Barrier) updates([[BARRIER_1]] : !VPURT.Barrier) {
-    //CHECK:      VPUIP.GatherDMA {channelType = 0 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}
+    //CHECK:      VPUIP.GatherDMA {elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}
     //CHECK-SAME:   inputs([[INPUT_BUFF_0]] : memref<1x1x128256x683xf16, {order = #NCHW, strides = [262668288, 262668288, 2048, 1]}, @DDR>)
     //CHECK-SAME:   indices([[INDICES_BUFF_0]] : memref<1x1x1024x1xi64, [@CMX_NN, 0]>)
     //CHECK-SAME:   outputs([[OUTPUT_BUFF_0]] : memref<1x1x1024x683xf16, [@CMX_NN, 0]>)
     //CHECK-SAME:   -> memref<1x1x1024x683xf16, [@CMX_NN, 0]>
     //CHECK:    }
     //CHECK:    VPURT.Task waits([[BARRIER_0]] : !VPURT.Barrier) updates([[BARRIER_1]] : !VPURT.Barrier) {
-    //CHECK:      VPUIP.GatherDMA {channelType = 0 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}
+    //CHECK:      VPUIP.GatherDMA {elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}
     //CHECK-SAME:   inputs([[INPUT_BUFF_1]] : memref<1x1x128256x683xf16, {order = #NCHW, strides = [262668288, 262668288, 2048, 1]}, @DDR>)
     //CHECK-SAME:   indices([[INDICES_BUFF_1]] : memref<1x1x1024x1xi64, [@CMX_NN, 1]>)
     //CHECK-SAME:   outputs([[OUTPUT_BUFF_1]] : memref<1x1x1024x683xf16, [@CMX_NN, 1]>)
     //CHECK-SAME:   -> memref<1x1x1024x683xf16, [@CMX_NN, 1]>
     //CHECK:    }
     //CHECK:    VPURT.Task waits([[BARRIER_0]] : !VPURT.Barrier) updates([[BARRIER_1]] : !VPURT.Barrier) {
-    //CHECK:      VPUIP.GatherDMA {channelType = 0 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}
+    //CHECK:      VPUIP.GatherDMA {elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}
     //CHECK-SAME:   inputs([[INPUT_BUFF_2]] : memref<1x1x128256x682xf16, {order = #NCHW, strides = [262668288, 262668288, 2048, 1]}, @DDR>)
     //CHECK-SAME:   indices([[INDICES_BUFF_2]] : memref<1x1x1024x1xi64, [@CMX_NN, 2]>)
     //CHECK-SAME:   outputs([[OUTPUT_BUFF_2]] : memref<1x1x1024x682xf16, [@CMX_NN, 2]>)

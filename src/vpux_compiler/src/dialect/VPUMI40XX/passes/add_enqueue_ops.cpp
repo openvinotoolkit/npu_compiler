@@ -368,10 +368,11 @@ mlir::LogicalResult addEnqusForTasksWithFetch(VPUMI40XX::MappedInferenceOp mpi, 
                 if (localPreviousEnqu) {
                     auto previousEnquBarrier = localPreviousEnqu.getBarrier();
 
-                    enqueueTarget = std::max(previousEnquBarrier, enqueueTarget, [](mlir::Value lhs, mlir::Value rhs) {
-                        return mlir::cast<VPURegMapped::IndexType>(lhs.getType()).getValue() <
-                               mlir::cast<VPURegMapped::IndexType>(rhs.getType()).getValue();
-                    });
+                    enqueueTarget = std::max<mlir::Value>(
+                            previousEnquBarrier, enqueueTarget, [](mlir::Value lhs, mlir::Value rhs) {
+                                return mlir::cast<VPURegMapped::IndexType>(lhs.getType()).getValue() <
+                                       mlir::cast<VPURegMapped::IndexType>(rhs.getType()).getValue();
+                            });
                 }
 
                 // check we don't enqueue too late = after task should start executing
@@ -494,8 +495,8 @@ mlir::LogicalResult addEnqusForDmas(VPUMI40XX::MappedInferenceOp mpi, const int6
 
                         if (localPreviousEnqu) {
                             auto previousEnquBarrier = localPreviousEnqu.getBarrier();
-                            enqueueTarget =
-                                    std::max(previousEnquBarrier, enqueueTarget, [](mlir::Value lhs, mlir::Value rhs) {
+                            enqueueTarget = std::max<mlir::Value>(
+                                    previousEnquBarrier, enqueueTarget, [](mlir::Value lhs, mlir::Value rhs) {
                                         return mlir::cast<VPURegMapped::IndexType>(lhs.getType()).getValue() <
                                                mlir::cast<VPURegMapped::IndexType>(rhs.getType()).getValue();
                                     });

@@ -1628,6 +1628,110 @@ TEST_F(MLIR_BarrierInfoTests, optimizeBarriersWithFIFOdependencies4NPU40XX) {
                      /* checkProducersAndConsumers */ false);
 }
 
+/**
+ * Graph for testing barriers merge functionality.
+ * A = DMA0
+ * B = DMA1
+ * C = DPU1
+ * D = DPU2
+ *
+ *     0A      1B
+ *       \   /
+ *  2A     b0
+ *  |     /  \
+ *  |    3C   4D
+ *  |     \  /
+ *  b1     b2
+ *  /\    /  \
+ * 5C 6D 5C   6D   7B
+ *        \  /     |
+ *         b3      b4
+ *        /  \  x  |
+ *       8A  9C   10D
+ *       |
+ *       b5
+ *       |
+ *       11A
+ *
+ */
+BarrierInfoMaps graphToCheckMergingBarriers() {
+    BarrierInfoMaps barrierMapsConfig;
+
+    barrierMapsConfig.taskUpdateBarriers = {
+            {0},  // task 0
+            {0},  // task 1
+            {1},  // task 2
+            {2},  // task 3
+            {2},  // task 4
+            {3},  // task 5
+            {3},  // task 6
+            {4},  // task 7
+            {5},  // task 8
+            {},   // task 9
+            {},   // task 10
+            {},   // task 11
+    };
+
+    barrierMapsConfig.taskWaitBarriers = {
+            {},      // task 0
+            {},      // task 1
+            {},      // task 2
+            {0},     // task 3
+            {0},     // task 4
+            {1, 2},  // task 5
+            {1, 2},  // task 6
+            {},      // task 7
+            {3},     // task 8
+            {3},     // task 9
+            {4},     // task 10
+            {5},     // task 11
+    };
+
+    fillProducersAndConsumers(barrierMapsConfig);
+
+    const VPURT::TaskQueueType dma0Type{VPU::ExecutorKind::DMA_NN, 0};
+    const VPURT::TaskQueueType dma1Type{VPU::ExecutorKind::DMA_NN, 1};
+    const VPURT::TaskQueueType dpu0Type{VPU::ExecutorKind::DPU, 0};
+    const VPURT::TaskQueueType dpu1Type{VPU::ExecutorKind::DPU, 1};
+    barrierMapsConfig.taskQueueTypeMap[dma0Type] = {0, 2, 8, 11};
+    barrierMapsConfig.taskQueueTypeMap[dma1Type] = {1, 7};
+    barrierMapsConfig.taskQueueTypeMap[dpu0Type] = {3, 5, 9};
+    barrierMapsConfig.taskQueueTypeMap[dpu1Type] = {4, 6, 10};
+
+    return barrierMapsConfig;
+}
+
+/**
+ * Test BarrierInfo::canBarriersBeMerged
+ *
+ */
+TEST_F(BarrierInfoTests, mergeBarriers) {
+    auto barrierMapsConfig = graphToCheckMergingBarriers();
+    BarrierInfoTest barrierInfoTest(barrierMapsConfig);
+
+    auto canBarriersBeMerged = [&](size_t barrierA, size_t barrierB) {
+        const auto waitBarriersMap = barrierInfoTest.getWaitBarriersMap();
+        auto barrierProducersA = barrierInfoTest.getBarrierProducers(barrierA);
+        auto barrierConsumersA = barrierInfoTest.getBarrierConsumers(barrierA);
+        auto barrierProducersB = barrierInfoTest.getBarrierProducers(barrierB);
+        auto barrierConsumersB = barrierInfoTest.getBarrierConsumers(barrierB);
+
+        return barrierInfoTest.canBarriersBeMerged(barrierProducersA, barrierConsumersA, barrierProducersB,
+                                                   barrierConsumersB, waitBarriersMap);
+    };
+    // cannot merge barriers that link linear sequence of tasks
+    EXPECT_FALSE(canBarriersBeMerged(0, 2));
+    EXPECT_FALSE(canBarriersBeMerged(3, 5));
+
+    // cannot merge barriers where producers of one barrier can run in parallel with consumers of the other
+    EXPECT_FALSE(canBarriersBeMerged(0, 1));
+    EXPECT_FALSE(canBarriersBeMerged(3, 4));
+    EXPECT_FALSE(canBarriersBeMerged(4, 5));
+
+    // can merge barriers that have common consumers
+    EXPECT_TRUE(canBarriersBeMerged(1, 2));
+}
+
 TEST_F(MLIR_BarrierInfoTests, variableGraphSplitBlockSizeNPU40XX) {
     mlir::MLIRContext ctx(registry);
     mlir::OwningOpRef<mlir::ModuleOp> module;

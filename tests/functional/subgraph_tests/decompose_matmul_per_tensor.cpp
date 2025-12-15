@@ -126,6 +126,13 @@ TEST_P(MatMulWithAsymZeroPointPerTensor, NPU4000_HW) {
     run(Platform::NPU4000);
 }
 
+TEST_P(MatMulWithAsymZeroPointPerTensor, NPU5010_HW) {
+    setDefaultHardwareMode();
+    configuration[ov::intel_npu::compilation_mode_params.name()] =
+            "enable-matmul-mixed-precision-decomposition=true matmul-mixed-precision-decomposition-ratio=0.5";
+    run(Platform::NPU5010);
+}
+
 }  // namespace ov::test::subgraph
 
 namespace {

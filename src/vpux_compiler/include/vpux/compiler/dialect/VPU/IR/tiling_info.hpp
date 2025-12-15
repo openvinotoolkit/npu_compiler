@@ -25,5 +25,7 @@ OutputTiling DynamicQuantizeOutputTiling(const vpux::TileInfo& firstOutputTile);
 
 OutputTiling FlashSDPAOpOutputTiling(const vpux::TileInfo& firstOutputTile, int64_t qkEmbedding);
 InputTiling FlashSDPAOpInputTiling(const vpux::TileInfo& firstOutputTile, ShapeRef keyShape,
-                                   std::optional<ShapeRef> attentionMaskShape, std::optional<ShapeRef> scaleShape);
+                                   std::optional<ShapeRef> attentionMaskShape, std::optional<ShapeRef> scaleShape,
+                                   ShapeRef dpuDescriptorBufferShape, ShapeRef weightsTable0Shape,
+                                   ShapeRef weightsTable1Shape);
 }  // namespace vpux::VPU

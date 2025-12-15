@@ -63,6 +63,9 @@ void ConvertPaddingsToFloorModePass::safeRunOnFunc() {
                 .Case<IE::MaxPoolOp>([this](IE::MaxPoolOp op) {
                     updatePoolOperation<IE::MaxPoolOp>(op);
                 })
+                .Case<IE::MaxPool8Op>([this](IE::MaxPool8Op op) {
+                    updatePoolOperation<IE::MaxPool8Op>(op);
+                })
                 .Case<IE::AvgPoolOp>([this](IE::AvgPoolOp op) {
                     updateAvgPoolOperation<IE::AvgPoolOp>(op);
                 })
@@ -129,7 +132,10 @@ void ConvertPaddingsToFloorModePass::updatePoolOperation(ConcreteOp op) {
 
     const auto kernel = parseIntArrayAttr<int64_t>(op.getKernelSize());
     const auto strides = parseIntArrayAttr<int64_t>(op.getStrides());
-    const SmallVector<int64_t> dilatation(kernel.size(), 1);
+    SmallVector<int64_t> dilatation(kernel.size(), 1);
+    if (auto maxPool8 = mlir::dyn_cast<IE::MaxPool8Op>(op.getOperation())) {
+        dilatation = parseIntArrayAttr<int64_t>(maxPool8.getDilations());
+    }
     auto padsBegin = parseIntArrayAttr<int64_t>(op.getPadsBegin());
     auto padsEnd = parseIntArrayAttr<int64_t>(op.getPadsEnd());
 

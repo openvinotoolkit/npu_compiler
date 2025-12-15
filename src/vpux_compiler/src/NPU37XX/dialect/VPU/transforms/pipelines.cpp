@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/NPU37XX/dialect/VPU/transforms/passes.hpp"
 
+#include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Pass/PassManager.h>
@@ -78,7 +79,6 @@ void vpux::VPU::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
 
     pm.addPass(VPU::createDetectionOutputDecompositionPass(log));
     pm.addPass(VPU::createSplitRealDFTOpsPass(log));
-    pm.addPass(VPU::createAddSwOpAuxiliaryBufferPass(log));
 
     if (options.enableSEPtrsOperations || options.enableExperimentalSEPtrsOperations) {
         pm.addPass(VPU::createSplitSEOpsPass(
@@ -129,11 +129,20 @@ void vpux::VPU::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     pm.addPass(VPU::createSplitNCEOpsOntoWorkloadsPass(log));
     pm.addPass(VPU::createCorrectNCEWorkloadsPass(log));
     pm.addPass(VPU::createResolveEltwiseWithZTiledWorkloadsPass(log));
-    pm.addPass(VPU::createOutlineEntireMainContentPass(log));
+    if (options.enableShaveCodeGen) {
+        VPU::buildShaveCodeGenPipeline(pm);
+    }
     pm.addPass(mlir::createCanonicalizerPass(grc));
+    pm.addPass(createAdjustDynamicOpsBeforeBufferizationPass());
+    pm.addPass(VPU::createLegalizeDynamicShapeConcatForSWLayersPass(log));
+    pm.addPass(VPU::createAdjustMemorySpaceForSHVOpsPass(log));
+    pm.addPass(VPU::createOutlineEntireMainContentPass(log));
 }
 
-void vpux::VPU::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm, Logger log) {
+void vpux::VPU::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
+                                                   const VPU::arch37xx::DefaultHWOptions& options, Logger log) {
+    const auto grc = getDefaultGreedyRewriteConfig();
+
     // Create DMA HWP scratch buffer
     pm.addPass(VPU::createDMATaskProfilingReserveMemPass("false", log));
     pm.addPass(VPU::createSWKernelDataPrefetchReserveMemPass(log));
@@ -141,7 +150,6 @@ void vpux::VPU::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm, Logg
     pm.addPass(VPU::createSplitRealDFTOpsPass(log));
     pm.addPass(VPU::createSplitGRUSequencePass(log));
     pm.addPass(VPU::createDecomposeMVNPass(log));
-    pm.addPass(VPU::createAddSwOpAuxiliaryBufferPass(log));
 
     pm.addPass(VPU::createFlashSDPATilingStrategyEstimationPass(log));
     pm.addPass(VPU::createTilingStrategyAssignmentPass(
@@ -153,6 +161,13 @@ void vpux::VPU::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm, Logg
 
     pm.addPass(VPU::createUnrollFlashSDPAPass(log));
     pm.addPass(VPU::createBoundedTensorsToDynamicDimsMaskPass(log));
+    if (options.enableShaveCodeGen) {
+        VPU::buildShaveCodeGenPipeline(pm);
+    }
+    pm.addPass(mlir::createCanonicalizerPass(grc));
+    pm.addPass(createAdjustDynamicOpsBeforeBufferizationPass());
+    pm.addPass(VPU::createLegalizeDynamicShapeConcatForSWLayersPass(log));
+    pm.addPass(VPU::createAdjustMemorySpaceForSHVOpsPass(log));
 }
 
 void vpux::VPU::arch37xx::registerVPUPipelines() {
@@ -176,7 +191,7 @@ void vpux::VPU::arch37xx::registerVPUPipelines() {
 
     mlir::PassPipelineRegistration<VPU::arch37xx::DefaultHWOptions>(
             "reference-sw-mode-vpu", "VPU dialect part of Reference SW pipeline",
-            [](mlir::OpPassManager& pm, const VPU::arch37xx::DefaultHWOptions&) {
-                VPU::arch37xx::buildReferenceSWPipeline(pm);
+            [](mlir::OpPassManager& pm, const VPU::arch37xx::DefaultHWOptions& options) {
+                VPU::arch37xx::buildReferenceSWPipeline(pm, options);
             });
 }

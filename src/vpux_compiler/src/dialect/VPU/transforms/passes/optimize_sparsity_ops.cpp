@@ -4,12 +4,14 @@
 //
 
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/nce_sparsity_converters.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
 #include "vpux/compiler/dialect/core/dialect.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 
 #include <mlir/Dialect/Linalg/IR/Linalg.h>
 #include <mlir/Dialect/Math/IR/Math.h>
@@ -198,11 +200,16 @@ void OptimizeSparsityOpsPass::safeRunOnFunc() {
         }
     }
 
-    mlir::RewritePatternSet greedyPatterns(&ctx);
-    greedyPatterns.add<RemoveDuplicatedSparsifyOps>(&ctx, _log);
-    greedyPatterns.add<RemoveExtraDesparsifyOp>(&ctx, _log);
-    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(greedyPatterns), getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
+    {
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.add<RemoveDuplicatedSparsifyOps>(&ctx, _log);
+        collectOpsAndApplyPatterns(func, std::move(patterns));
+    }
+
+    {
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.add<RemoveExtraDesparsifyOp>(&ctx, _log);
+        collectOpsAndApplyPatterns(func, std::move(patterns));
     }
 }
 

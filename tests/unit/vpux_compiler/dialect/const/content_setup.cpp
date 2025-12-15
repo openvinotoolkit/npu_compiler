@@ -21,7 +21,8 @@
 
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
-#include <mlir/Dialect/Quant/QuantOps.h>
+
+#include <mlir/Dialect/Quant/IR/Quant.h>
 #include <mlir/IR/BuiltinAttributes.h>
 
 using namespace vpux;
@@ -435,7 +436,7 @@ public:
         ExpectedQuantCastChangeShapeAndElemTypeAndSubView expectedParams;
         std::tie(_baseContentShape, inputParams, expectedParams) = this->GetParam();
 
-        ctx.loadDialect<mlir::quant::QuantizationDialect>();
+        ctx.loadDialect<mlir::quant::QuantDialect>();
         auto getZeroPoints = [](size_t N) {
             return SmallVector<int64_t>(N, 128);
         };
@@ -512,7 +513,7 @@ public:
         QuantCastChangeShapeAndElemTypeAndSubView inputParams;
         std::tie(_baseContentShape, inputParams) = this->GetParam();
 
-        ctx.loadDialect<mlir::quant::QuantizationDialect>();
+        ctx.loadDialect<mlir::quant::QuantDialect>();
         auto getZeroPoints = [](size_t N) {
             return SmallVector<int64_t>(N, 128);
         };
@@ -589,7 +590,7 @@ public:
         QuantizeCastAndChangeTypeParams quantizeCastAndChangeTypeParams;
         std::tie(_baseContentShape, _reshapeShape, quantizeCastAndChangeTypeParams) = this->GetParam();
 
-        ctx.loadDialect<mlir::quant::QuantizationDialect>();
+        ctx.loadDialect<mlir::quant::QuantDialect>();
         auto getZeroPoints = [](size_t N) {
             return SmallVector<int64_t>(N, 128);
         };
@@ -958,7 +959,7 @@ TEST_F(MLIR_ContentSetupTest, FuseCastElemType) {
 }
 
 TEST_F(MLIR_ContentSetupTest, FuseCastElemType_Quantized) {
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     const int64_t IC = 4;
     const int64_t IH = 8;
@@ -1416,7 +1417,7 @@ TEST_F(MLIR_ContentSetupTest_MoveSubViewAfter, CastElemType) {
     auto baseContentAttrSetup = getContentSetup(ArrayRef<int64_t>{IC, IH, IW}, mlir::Float32Type::get(&ctx));
 
     // first CastElemType
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
     auto perAxisQType = mlir::quant::UniformQuantizedPerAxisType::get(
             0, getUInt8Type(&ctx), mlir::Float32Type::get(&ctx), {2, 0.5, 2, 0.5}, {127, 127, 127, 127}, 0, 0, 255);
     auto contentAttrSetup = baseContentAttrSetup.castElemType(perAxisQType);
@@ -1452,7 +1453,7 @@ TEST_F(MLIR_ContentSetupTest_MoveSubViewAfter, PerAxisCastElemTypeWhenQuantizedA
     auto contentAttrSetup = baseContentAttrSetup.subview(ShapeRef(expectedOffset), ShapeRef(expectedShape));
 
     // second CastElemType
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
     auto perAxisQType = mlir::quant::UniformQuantizedPerAxisType::get(
             0, getUInt8Type(&ctx), mlir::Float32Type::get(&ctx), {2, 0.5, 2, 0.5}, {127, 127, 127, 127}, 0, 0, 255);
     contentAttrSetup = contentAttrSetup.castElemType(perAxisQType);
@@ -1478,7 +1479,7 @@ TEST_F(MLIR_ContentSetupTest_MoveSubViewAfter, DoNotMoveSubViewWhenChangingQuant
     auto contentAttrSetup = baseContentAttrSetup.subview(ShapeRef(expectedOffset), ShapeRef(expectedShape));
 
     // second CastElemType
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
     auto perAxisQType = mlir::quant::UniformQuantizedPerAxisType::get(
             0, getUInt8Type(&ctx), mlir::Float32Type::get(&ctx), {2, 0.5}, {127, 127}, 0, 0, 255);
     contentAttrSetup = contentAttrSetup.castElemType(perAxisQType);
@@ -1548,7 +1549,7 @@ TEST_F(MLIR_ContentSetupTest, SwapConvertElemTypeAndSubView_Quantized) {
     const int64_t IH = 8;
     const int64_t IW = 3;
 
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
     auto perTensorQType = mlir::quant::UniformQuantizedType::get(0, getUInt8Type(&ctx), mlir::Float32Type::get(&ctx),
                                                                  0.078, 128, 0, 255);
     auto perTensorQType2 =
@@ -1596,7 +1597,7 @@ TEST_F(MLIR_ContentSetupTest, SwapCastElemTypeAndSubView_Quantized) {
     const int64_t IH = 8;
     const int64_t IW = 3;
 
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
     auto perTensorQType = mlir::quant::UniformQuantizedType::get(0, getUInt8Type(&ctx), mlir::Float32Type::get(&ctx),
                                                                  0.078, 128, 0, 255);
 
@@ -1870,7 +1871,7 @@ TEST_F(MLIR_ContentSetupTest_SwapAttributeAndLayoutTransformations, QuantizeAndM
     const auto memPerm = DimsOrder::NWCH;
     contentAttrSetup = contentAttrSetup.memPermute(dstOrder, memPerm);  // 1x4x5x5
 
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
     auto perAxisQType = mlir::quant::UniformQuantizedPerAxisType::get(
             0, getUInt8Type(&ctx), mlir::Float32Type::get(&ctx), {2, 0.5, 2, 0.5}, {127, 127, 127, 127}, 1, 0, 255);
     contentAttrSetup = contentAttrSetup.quantize(perAxisQType);
@@ -2011,7 +2012,7 @@ SmallVector<SwapQuantizeAndLayoutTransformationsParams> getSwapQuantizeAndLayout
 }
 
 TEST_F(MLIR_ContentSetupTest_SwapAttributeAndLayoutTransformations, QuantizeMemPermAndReorder) {
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     for (auto [inputOrder, destinationOrder, permutation, qDim, inShape, expectedQDim] :
          getSwapQuantizeAndLayoutTransformationsParams()) {
@@ -2207,7 +2208,7 @@ TEST_F(MLIR_ContentSetupTest, SwapPerTensorQuantizeTransformationsAndReshape) {
     SmallVector<int64_t> baseContentShape = {16, 32, 1, 1};
     auto baseContentAttrSetup = getContentSetup(ArrayRef(baseContentShape), getUInt8Type(&ctx));
 
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
     auto perTensorQType = mlir::quant::UniformQuantizedType::get(0, getUInt8Type(&ctx), mlir::Float32Type::get(&ctx),
                                                                  0.078, 128, 0, 255);
     // first QuantCast

@@ -8,9 +8,7 @@
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 
-namespace {
-
-using namespace VPUIPDPU;
+namespace vpux::VPUIPDPU::arch40xx::ODU {
 
 mlir::LogicalResult buildODUOutSubtensor(mlir::OpBuilder& builder, const mlir::Location& loc, const Logger& log,
                                          const SmallVector<int64_t>&& start, const SmallVector<int64_t>&& end) {
@@ -73,7 +71,9 @@ mlir::LogicalResult buildODUHaloRegionOp(mlir::OpBuilder& builder, const mlir::L
     return mlir::success();
 }
 
-}  // namespace
+}  // namespace vpux::VPUIPDPU::arch40xx::ODU
+
+using namespace vpux::VPUIPDPU::arch40xx::ODU;
 
 mlir::LogicalResult vpux::VPUIPDPU::arch40xx::buildDPUVariantODU(VPUASM::DPUVariantOp origVarOp,
                                                                  mlir::OpBuilder& builder, const Logger& log,

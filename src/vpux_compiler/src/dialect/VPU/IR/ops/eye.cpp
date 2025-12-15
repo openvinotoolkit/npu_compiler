@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 
 using namespace vpux;
 
@@ -31,7 +32,11 @@ mlir::LogicalResult vpux::VPU::EyeOp::inferReturnTypes(mlir::MLIRContext* ctx, s
     }
 
     const auto inType = mlir::cast<vpux::NDTypeInterface>(eye.getDiagonalIndex().getType());
-    const auto outType = mlir::RankedTensorType::get(outShape, eye.getOutputType(), createTensorAttrFromType(inType));
+    const auto tensorAttr = createOutTensorAttrFromType(inType, outShape.size());
+    if (mlir::failed(tensorAttr)) {
+        return mlir::failure();
+    }
+    const auto outType = mlir::RankedTensorType::get(outShape, eye.getOutputType(), tensorAttr.value());
     inferredReturnTypes.push_back(outType);
     return mlir::success();
 }

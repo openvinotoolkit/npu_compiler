@@ -3,9 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
-
-#include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 
 using namespace vpux;
 
@@ -53,7 +52,7 @@ mlir::LogicalResult vpux::VPU::BroadcastOp::inferReturnTypes(mlir::MLIRContext* 
     auto inShape = to_small_vector(inType.getShape().raw());
     const auto broadcastMode = broadcast.getMode().value();
 
-    auto outShape = IE::constInputToData(loc, broadcast.getTargetShape()).value();
+    auto outShape = VPU::extractConstData(loc, broadcast.getTargetShape()).value();
     if (broadcastMode == IE::BroadcastType::BIDIRECTIONAL) {
         outShape = getResultShapeBidirectional(inShape, outShape);
     }

@@ -136,6 +136,11 @@ TEST_P(FuseMvn6ScaleBiasTestCommon, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
+TEST_P(FuseMvn6ScaleBiasTestCommon, NPU5010_HW) {
+    rel_threshold = 0.01;
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
 }  // namespace ov::test::subgraph
 
 using namespace ov::test::subgraph;

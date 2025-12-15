@@ -19,6 +19,13 @@ namespace vpux {
 using llvm::ArrayRef;
 using llvm::MutableArrayRef;
 
+template <typename Type>
+bool checkAllElementsIfEqualTo(llvm::ArrayRef<Type> array, const Type& value) {
+    return llvm::all_of(array, [&](const auto& elem) {
+        return elem == value;
+    });
+}
+
 }  // namespace vpux
 
 //

@@ -19,16 +19,19 @@ class GRUCellLayerTest_NPU3720 : public GRUCellLayerTestCommon {
         GRUCellTest::SetUp();
     }
 };
-class GRUCellLayerTest_NPU4000 : public GRUCellLayerTestCommon {};
 
 TEST_P(GRUCellLayerTest_NPU3720, HW) {
     setDefaultHardwareMode();
     run(Platform::NPU3720);
 }
 
-TEST_P(GRUCellLayerTest_NPU4000, SW) {
+TEST_P(GRUCellLayerTestCommon, NPU4000_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU4000);
+}
+TEST_P(GRUCellLayerTestCommon, NPU5010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
 }
 }  // namespace test
 }  // namespace ov
@@ -57,6 +60,6 @@ const auto gruCellParams = testing::Combine(
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_GRUCell, GRUCellLayerTest_NPU3720, gruCellParams,
                          GRUCellTest::getTestCaseName);
 
-INSTANTIATE_TEST_SUITE_P(smoke_precommit_GRUCell, GRUCellLayerTest_NPU4000, gruCellParams,
-                         GRUCellTest::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_GRUCell, GRUCellLayerTestCommon, gruCellParams, GRUCellTest::getTestCaseName);
+
 }  // namespace

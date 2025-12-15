@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW allow-custom-values=true" --dpu-profiling %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -13,7 +13,6 @@
 !Input_CMX = memref<1x16x62x62xf16, #NHWC, @CMX_NN>
 !Output_CMX = memref<1x48x60x60xf16, #NHWC, @CMX_NN>
 !Weights_CMX = memref<48x16x3x3xf16, #NHWC, @CMX_NN>
-!WeightsTable_CMX = memref<48x1x1x4xsi32, #NHWC, @CMX_NN>
 
 // CHECK-LABEL: @DpuProfiling
 module @DpuProfiling  {
@@ -21,13 +20,12 @@ module @DpuProfiling  {
   net.NetworkInfo entryPoint : @main inputsInfo :  {
     DataInfo "input" : tensor<1x16x62x62xf16>
     DataInfo "weights" : tensor<48x16x3x3xf16>
-    DataInfo "weightsTable" : tensor<48x1x1x4xsi32>
   } outputsInfo :  {
     DataInfo "output" : tensor<1x48x60x60xf16>
   } profilingOutputsInfo :  {
   }
 
-  func.func @main(%arg0: !Input_CMX, %arg1: !Weights_CMX, %arg2: !WeightsTable_CMX, %arg3: !Output_DDR) -> !Output_DDR {
+  func.func @main(%arg0: !Input_CMX, %arg1: !Weights_CMX, %arg3: !Output_DDR) -> !Output_DDR {
 
     %0 = memref.alloc() : !Output_CMX
     %1 = VPUIP.NCEClusterTask {
@@ -37,7 +35,6 @@ module @DpuProfiling  {
             task_type = #VPUIP.nce_task_type<CONV>
         }  input(%arg0 : !Input_CMX)
             weights(%arg1 : !Weights_CMX)
-            weight_table(%arg2 : !WeightsTable_CMX)
             parent_input(%arg0 : !Input_CMX)
             parent_output(%0 : !Output_CMX)
             outputs(%0 : !Output_CMX)
@@ -58,7 +55,7 @@ module @DpuProfiling  {
 
     //CHECK:        profilingOutputsInfo
     //CHECK-NEXT:   DataInfo "dpu" : tensor<[[PROFDATA_INFO_TENSOR_SIZE:.*]]x[[PROFDATA_INFO_TENSOR_TYPE:.*]]>
-    //CHECK:        func.func @main(%arg0: memref<1x16x62x62xf16, #NHWC, @CMX_NN>, %arg1: memref<48x16x3x3xf16, #NHWC, @CMX_NN>, %arg2: memref<48x1x1x4xsi32, #NHWC, @CMX_NN>, %arg3: memref<1x48x60x60xf16, #NHWC, @DDR>, %arg4: memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>) -> (memref<1x48x60x60xf16, #NHWC, @DDR>, memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
+    //CHECK:        func.func @main([[ARG0:%.+]]: memref<1x16x62x62xf16, #NHWC, @CMX_NN>, [[ARG1:%.+]]: memref<48x16x3x3xf16, #NHWC, @CMX_NN>, [[ARG2:%.+]]: memref<1x48x60x60xf16, #NHWC, @DDR>, [[ARG3:%.+]]: memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>) -> (memref<1x48x60x60xf16, #NHWC, @DDR>, memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
 
     //CHECK:        [[OUTPUT_BUF_CMX:%.+]] = memref.alloc() : memref<1x48x60x60xf16, #NHWC, @CMX_NN>
     //CHECK:        [[PROF_BUF_CMX:%.+]] = memref.alloc()
@@ -69,15 +66,15 @@ module @DpuProfiling  {
     //CHECK-SAME:   profilingMetadata = #VPUIP.DpuProfilingMetadataAttr<bufferId = 0 : i64, taskId = 1 : i64, maxVariants = 1 : i64, numVariants = 1 : i64, clusterId = 0 : i64>
     //CHECK-SAME:   profiling_data([[PROF_VIEW]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]], [@CMX_NN, 0]>)
 
-    //CHECK:        [[PROF_OUTPUT_VIEW:%.*]] = VPUIP.SubView %arg4 [0] [[[PROFDATA_INFO_TENSOR_SIZE]]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]> to memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>
+    //CHECK:        [[PROF_OUTPUT_VIEW:%.*]] = VPUIP.SubView [[ARG3]] [0] [[[PROFDATA_INFO_TENSOR_SIZE]]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]> to memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>
     //CHECK:        [[PROF_CONCAT:%.*]] = VPUIP.ConcatView inputs([[NCE_RES]]#1 : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]], [@CMX_NN, 0]>) outputs([[PROF_BUF_CMX]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]], [@CMX_NN, 0]>) -> memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]], [@CMX_NN, 0]>
     //CHECK:        [[COPY_PROF_TO_DDR:%.*]] = VPUIP.NNDMA {profiling_buffer_mgmt} inputs([[PROF_CONCAT]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]], [@CMX_NN, 0]>) outputs([[PROF_OUTPUT_VIEW]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
 
     //CHECK:        [[OUTPUT_BUF_DDR:%.+]] = memref.alloc() : memref<1x48x60x60xf16, #NHWC, @DDR>
     //CHECK:        [[COPY_OUTPUT_TO_DDR:%.*]] = VPUIP.NNDMA inputs([[NCE_RES]]#0 : memref<1x48x60x60xf16, #NHWC, @CMX_NN>) outputs([[OUTPUT_BUF_DDR]] : memref<1x48x60x60xf16, #NHWC, @DDR>)
-    //CHECK:        [[COPY_OUTPUT_TO_RESULT:%.*]] = VPUIP.NNDMA inputs([[COPY_OUTPUT_TO_DDR]] : memref<1x48x60x60xf16, #NHWC, @DDR>) outputs(%arg3 : memref<1x48x60x60xf16, #NHWC, @DDR>)
+    //CHECK:        [[COPY_OUTPUT_TO_RESULT:%.*]] = VPUIP.NNDMA inputs([[COPY_OUTPUT_TO_DDR]] : memref<1x48x60x60xf16, #NHWC, @DDR>) outputs([[ARG2]] : memref<1x48x60x60xf16, #NHWC, @DDR>)
 
-    //CHECK:        [[PROF_RES:%.*]] = VPUIP.ConcatView inputs([[COPY_PROF_TO_DDR]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>) outputs(%arg4 : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
+    //CHECK:        [[PROF_RES:%.*]] = VPUIP.ConcatView inputs([[COPY_PROF_TO_DDR]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>) outputs([[ARG3]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
 
     //CHECK:        return [[COPY_OUTPUT_TO_RESULT]], [[PROF_RES]] : memref<1x48x60x60xf16, #NHWC, @DDR>, memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>
 }
@@ -98,7 +95,6 @@ module @DpuProfiling  {
 !Input_CMX = memref<1x16x62x62xf16, #NHWC, @CMX_NN>
 !Output_CMX = memref<1x48x60x60xf16, #NHWC, @CMX_NN>
 !Weights_CMX = memref<48x16x3x3xf16, #NHWC, @CMX_NN>
-!WeightsTable_CMX = memref<48x1x1x4xsi32, #NHWC, @CMX_NN>
 
 // CHECK-LABEL: @DpuProfilingWithMulticlustering
 module @DpuProfilingWithMulticlustering  {
@@ -106,13 +102,12 @@ module @DpuProfilingWithMulticlustering  {
   net.NetworkInfo entryPoint : @main inputsInfo :  {
     DataInfo "input" : tensor<1x16x62x62xf16>
     DataInfo "weights" : tensor<48x16x3x3xf16>
-    DataInfo "weightsTable" : tensor<48x1x1x4xsi32>
   } outputsInfo :  {
     DataInfo "output" : tensor<1x48x60x60xf16>
   } profilingOutputsInfo :  {
   }
 
-  func.func @main(%arg0: !Input_CMX, %arg1: !Weights_CMX, %arg2: !WeightsTable_CMX, %arg3: !Output_DDR) -> !Output_DDR {
+  func.func @main(%arg0: !Input_CMX, %arg1: !Weights_CMX, %arg3: !Output_DDR) -> !Output_DDR {
 
     %0 = VPURT.AllocDistributed -> !OutputDistributed
     %1 = VPUIP.NCEClusterTask {
@@ -122,7 +117,6 @@ module @DpuProfilingWithMulticlustering  {
           task_type = #VPUIP.nce_task_type<CONV>
         } input(%arg0 : !Input_CMX)
           weights(%arg1 : !Weights_CMX)
-          weight_table(%arg2 : !WeightsTable_CMX)
           parent_input(%arg0 : !Input_CMX)
           parent_output(%0 : !OutputDistributed)
           outputs(%0 : !OutputDistributed)
@@ -140,7 +134,7 @@ module @DpuProfilingWithMulticlustering  {
 
     //CHECK:        profilingOutputsInfo
     //CHECK-NEXT:   DataInfo "dpu" : tensor<[[PROFDATA_INFO_TENSOR_SIZE:.*]]x[[PROFDATA_INFO_TENSOR_TYPE:.*]]>
-    //CHECK:        func.func @main(%arg0: memref<1x16x62x62xf16, #NHWC, @CMX_NN>, %arg1: memref<48x16x3x3xf16, #NHWC, @CMX_NN>, %arg2: memref<48x1x1x4xsi32, #NHWC, @CMX_NN>, %arg3: memref<1x48x60x60xf16, #NHWC, @DDR>, %arg4: memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>) -> (memref<1x48x60x60xf16, #NHWC, @DDR>, memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
+    //CHECK:        func.func @main([[ARG0:%.+]]: memref<1x16x62x62xf16, #NHWC, @CMX_NN>, [[ARG1:%.+]]: memref<48x16x3x3xf16, #NHWC, @CMX_NN>, [[ARG3:%.+]]: memref<1x48x60x60xf16, #NHWC, @DDR>, [[ARG4:%.+]]: memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>) -> (memref<1x48x60x60xf16, #NHWC, @DDR>, memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
 
     //CHECK:        [[OUTPUT_BUF_CMX:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x48x60x60xf16, #NHWC, @CMX_NN
     //CHECK:        [[PROF_BUF_CMX:%.+]] =   VPURT.AllocDistributed {alignment = [[PROF_BUF_CMX_ALIGN_ATTR:.*]]} -> !VPUIP.DistributedBuffer<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]], #C, @CMX_NN, {mode = "SEGMENTED", num_tiles = [4], num_clusters = 4 : i64, uniform_distributed_segments}>
@@ -148,13 +142,12 @@ module @DpuProfilingWithMulticlustering  {
 
     //CHECK:        [[NCE_RES:%[0-9]+]]:2 = VPUIP.NCEClusterTask
     //CHECK-SAME:   profilingMetadata = #VPUIP.DpuProfilingMetadataAttr<bufferId = 0 : i64, taskId = 1 : i64, maxVariants = 1 : i64>
-    //CHECK-SAME:   input(%arg0 : memref<1x16x62x62xf16, #NHWC, @CMX_NN>)
-    //CHECK-SAME:   weights(%arg1 : memref<48x16x3x3xf16, #NHWC, @CMX_NN>)
-    //CHECK-SAME:   weight_table(%arg2 : memref<48x1x1x4xsi32, #NHWC, @CMX_NN>)
+    //CHECK-SAME:   input([[ARG0]] : memref<1x16x62x62xf16, #NHWC, @CMX_NN>)
+    //CHECK-SAME:   weights([[ARG1]] : memref<48x16x3x3xf16, #NHWC, @CMX_NN>)
     //CHECK-SAME:   outputs([[OUTPUT_BUF_CMX]] : !VPUIP.DistributedBuffer<1x48x60x60xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 4, 1], num_clusters = 4 : i64}>)
     //CHECK-SAME:   profiling_data([[PROF_BUF_VIEW_CMX]] : !VPUIP.DistributedBuffer<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]], #C, @CMX_NN
 
-    //CHECK:        [[PROF_OUTPUT_VIEW:%.*]] = VPUIP.SubView %arg4 [0] [[[PROFDATA_INFO_TENSOR_SIZE]]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>
+    //CHECK:        [[PROF_OUTPUT_VIEW:%.*]] = VPUIP.SubView [[ARG4]] [0] [[[PROFDATA_INFO_TENSOR_SIZE]]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>
     //CHECK:        [[PROF_VIEW_CMX_CONCAT:%.*]] = VPUIP.ConcatView inputs([[NCE_RES]]#1
     //CHECK-SAME:       outputs([[PROF_BUF_CMX]]
 
@@ -168,8 +161,8 @@ module @DpuProfilingWithMulticlustering  {
     //CHECK-SAME:       inputs([[NCE_RES]]#0 : !VPUIP.DistributedBuffer<1x48x60x60xf16, #NHWC, @CMX_NN
     //CHECK-SAME:       outputs([[OUTPUT_BUF_DDR]] : memref<1x48x60x60xf16, #NHWC, @DDR>)
 
-    //CHECK:        [[COPY_OUTPUT_TO_RESULT:%.*]] = VPUIP.NNDMA inputs([[COPY_OUTPUT_TO_DDR]] : memref<1x48x60x60xf16, #NHWC, @DDR>) outputs(%arg3 : memref<1x48x60x60xf16, #NHWC, @DDR>)
-    //CHECK:        [[PROF_RES:%.*]] = VPUIP.ConcatView inputs([[COPY_PROF_TO_DDR]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>) outputs(%arg4 : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
+    //CHECK:        [[COPY_OUTPUT_TO_RESULT:%.*]] = VPUIP.NNDMA inputs([[COPY_OUTPUT_TO_DDR]] : memref<1x48x60x60xf16, #NHWC, @DDR>) outputs([[ARG3]] : memref<1x48x60x60xf16, #NHWC, @DDR>)
+    //CHECK:        [[PROF_RES:%.*]] = VPUIP.ConcatView inputs([[COPY_PROF_TO_DDR]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>) outputs([[ARG4]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
 
     //CHECK:        return [[COPY_OUTPUT_TO_RESULT]], [[PROF_RES]] : memref<1x48x60x60xf16, #NHWC, @DDR>, memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>
 }
@@ -183,10 +176,8 @@ module @DpuProfilingWithMulticlustering  {
 !Input0_CMX = memref<1x16x224x224xf16, #NHWC, [@CMX_NN, 0]>
 !Output0_CMX = memref<1x48x222x222xf16, #NHWC, [@CMX_NN, 0]>
 !Weights0_CMX = memref<48x16x3x3xf16, #NHWC, [@CMX_NN, 0]>
-!WeightsTable0_CMX = memref<48x1x1x4xsi32, [@CMX_NN, 0]>
 
 !Weights1_CMX = memref<32x48x3x3xf16, #NHWC, [@CMX_NN, 0]>
-!WeightsTable1_CMX = memref<32x1x1x4xsi32, [@CMX_NN, 0]>
 !Output1_CMX = memref<1x32x55x55xf16, #NHWC, [@CMX_NN, 0]>
 !Output2_CMX = memref<1x32x55x55xf16, #NHWC, @CMX_NN>
 
@@ -221,7 +212,6 @@ module @DpuProfilingMultipleOps  {
     %0 = memref.alloc() : !Input0_CMX
     %1 = memref.alloc() : !Output0_CMX
     %2 = memref.alloc() : !Weights0_CMX
-    %3 = memref.alloc() : !WeightsTable0_CMX
     %4 = VPUIP.NCEClusterTask {
           kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
           kernel_size = [3, 3],
@@ -229,7 +219,6 @@ module @DpuProfilingMultipleOps  {
           task_type = #VPUIP.nce_task_type<CONV>
         } input(%0 : !Input0_CMX)
           weights(%2 : !Weights0_CMX)
-          weight_table(%3 : !WeightsTable0_CMX)
           parent_input(%0 : !Input0_CMX)
           parent_output(%1 : !Output0_CMX)
           outputs(%1 : !Output0_CMX)
@@ -279,7 +268,6 @@ module @DpuProfilingMultipleOps  {
     //CHECK-SAME:   profiling_data([[PROF_VIEW_OP_1]] : memref<[[VIEW_SIZE_0]]x[[PROFDATA_INFO_TENSOR_TYPE]], [@CMX_NN, 0]>)
 
     %7 = memref.alloc() : !Weights1_CMX
-    %8 = memref.alloc() : !WeightsTable1_CMX
     %9 = memref.alloc() : !Output1_CMX
     %10 = VPUIP.NCEClusterTask {
         kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
@@ -288,7 +276,6 @@ module @DpuProfilingMultipleOps  {
         task_type = #VPUIP.nce_task_type<CONV>
         } input(%6 : !Output0_CMX)
           weights(%7 : !Weights1_CMX)
-          weight_table(%8 : !WeightsTable1_CMX)
           parent_input(%6 : !Output0_CMX)
           parent_output(%9 : !Output1_CMX)
           outputs(%9 : !Output1_CMX)
@@ -416,7 +403,6 @@ module @DpuProfilingMultipleOps  {
 !Output_CMX = memref<1x48x60x60xf16, #NHWC, @CMX_NN>
 !Output_CMX_SM = memref<1x48x60x60xi1, #NHWC, @CMX_NN>
 !Weights_CMX = memref<48x16x3x3xf16, #NHWC, @CMX_NN>
-!WeightsTable_CMX = memref<48x1x1x4xsi32, #NHWC, @CMX_NN>
 
 // CHECK-LABEL: @DpuProfilingSparse
 module @DpuProfilingSparse  {
@@ -424,13 +410,12 @@ module @DpuProfilingSparse  {
   net.NetworkInfo entryPoint : @main inputsInfo :  {
     DataInfo "input" : tensor<1x16x62x62xf16>
     DataInfo "weights" : tensor<48x16x3x3xf16>
-    DataInfo "weightsTable" : tensor<48x1x1x4xsi32>
   } outputsInfo :  {
     DataInfo "output" : tensor<1x48x60x60xf16>
   } profilingOutputsInfo :  {
   }
 
-  func.func @main(%arg0: !Input_CMX, %arg1: !Weights_CMX, %arg2: !WeightsTable_CMX, %arg3: !Output_DDR) -> !Output_DDR {
+  func.func @main(%arg0: !Input_CMX, %arg1: !Weights_CMX, %arg3: !Output_DDR) -> !Output_DDR {
 
     %0 = memref.alloc() : !Output_CMX
     %sm = memref.alloc() : !Output_CMX_SM
@@ -442,7 +427,6 @@ module @DpuProfilingSparse  {
             task_type = #VPUIP.nce_task_type<CONV>
         }  input(%arg0 : !Input_CMX)
             weights(%arg1 : !Weights_CMX)
-            weight_table(%arg2 : !WeightsTable_CMX)
             parent_input(%arg0 : !Input_CMX)
             parent_output(%0 : !Output_CMX)
             parent_output_sparsity_map(%sm : !Output_CMX_SM)
@@ -467,7 +451,7 @@ module @DpuProfilingSparse  {
 
   //CHECK:        profilingOutputsInfo
   //CHECK-NEXT:   DataInfo "dpu" : tensor<[[PROFDATA_INFO_TENSOR_SIZE:.*]]x[[PROFDATA_INFO_TENSOR_TYPE:.*]]>
-  //CHECK:        func.func @main(%arg0: memref<1x16x62x62xf16, #NHWC, @CMX_NN>, %arg1: memref<48x16x3x3xf16, #NHWC, @CMX_NN>, %arg2: memref<48x1x1x4xsi32, #NHWC, @CMX_NN>, %arg3: memref<1x48x60x60xf16, #NHWC, @DDR>, %arg4: memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>) -> (memref<1x48x60x60xf16, #NHWC, @DDR>, memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
+  //CHECK:        func.func @main([[ARG0:%.+]]: memref<1x16x62x62xf16, #NHWC, @CMX_NN>, [[ARG1:%.+]]: memref<48x16x3x3xf16, #NHWC, @CMX_NN>, [[ARG3:%.+]]: memref<1x48x60x60xf16, #NHWC, @DDR>, [[ARG4:%.+]]: memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>) -> (memref<1x48x60x60xf16, #NHWC, @DDR>, memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
 
   //CHECK:        [[OUTPUT_BUF_CMX:%.+]] = memref.alloc() : memref<1x48x60x60xf16, #NHWC, @CMX_NN>
   //CHECK:        [[PROF_BUF_CMX:%.+]] = memref.alloc() {alignment = [[PROF_BUF_CMX_ALIGN_ATTR:.*]]} : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]], [@CMX_NN, 0]>
@@ -479,17 +463,17 @@ module @DpuProfilingSparse  {
   //CHECK-SAME:   output_sparsity_map([[SPARSITY_MAP_BUF_CMX]] : memref<1x48x60x60xi1, #NHWC, @CMX_NN>)
   //CHECK-SAME:   profiling_data([[PROF_VIEW]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]], [@CMX_NN, 0]>)
 
-  //CHECK:        [[PROF_OUTPUT_VIEW:%.*]] = VPUIP.SubView %arg4 [0] [[[PROFDATA_INFO_TENSOR_SIZE]]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]> to memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>
+  //CHECK:        [[PROF_OUTPUT_VIEW:%.*]] = VPUIP.SubView [[ARG4]] [0] [[[PROFDATA_INFO_TENSOR_SIZE]]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]> to memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>
   //CHECK:        [[PROF_CONCAT:%.*]] = VPUIP.ConcatView inputs([[NCE_RES]]#2 : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]], [@CMX_NN, 0]>) outputs([[PROF_BUF_CMX]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]], [@CMX_NN, 0]>) -> memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]], [@CMX_NN, 0]>
   //CHECK:        [[COPY_PROF_TO_DDR:%.*]] = VPUIP.NNDMA {profiling_buffer_mgmt} inputs([[PROF_CONCAT]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]], [@CMX_NN, 0]>) outputs([[PROF_OUTPUT_VIEW]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
 
   //CHECK:        [[OUTPUT_BUF_DDR:%.+]] = memref.alloc() : memref<1x48x60x60xf16, #NHWC, @DDR>
   //CHECK:        [[OUTPUT_SPARSITY_MAP_DDR:%.+]] = memref.alloc() : memref<1x48x60x60xi1, #NHWC, @DDR>
   //CHECK:        [[COPY_OUTPUT_TO_DDR:%.*]] = VPUIP.NNDMA inputs([[NCE_RES]]#0 : memref<1x48x60x60xf16, #NHWC, @CMX_NN>) outputs([[OUTPUT_BUF_DDR]] : memref<1x48x60x60xf16, #NHWC, @DDR>)
-  //CHECK:        [[COPY_OUTPUT_TO_RESULT:%.*]] = VPUIP.NNDMA inputs([[COPY_OUTPUT_TO_DDR]] : memref<1x48x60x60xf16, #NHWC, @DDR>) outputs(%arg3 : memref<1x48x60x60xf16, #NHWC, @DDR>)
+  //CHECK:        [[COPY_OUTPUT_TO_RESULT:%.*]] = VPUIP.NNDMA inputs([[COPY_OUTPUT_TO_DDR]] : memref<1x48x60x60xf16, #NHWC, @DDR>) outputs([[ARG3]] : memref<1x48x60x60xf16, #NHWC, @DDR>)
   //CHECK:        [[COPY_SPARSITY_MAP_TO_DDR:%.*]] = VPUIP.NNDMA inputs([[NCE_RES]]#1 : memref<1x48x60x60xi1, #NHWC, @CMX_NN>) outputs([[OUTPUT_SPARSITY_MAP_DDR]] : memref<1x48x60x60xi1, #NHWC, @DDR>)
 
-  //CHECK:        [[PROF_RES:%.*]] = VPUIP.ConcatView inputs([[COPY_PROF_TO_DDR]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>) outputs(%arg4 : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
+  //CHECK:        [[PROF_RES:%.*]] = VPUIP.ConcatView inputs([[COPY_PROF_TO_DDR]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>) outputs([[ARG4]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
 
   //CHECK:        return [[COPY_OUTPUT_TO_RESULT]], [[PROF_RES]] : memref<1x48x60x60xf16, #NHWC, @DDR>, memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>
 }
@@ -520,7 +504,6 @@ module @DpuProfilingSparse  {
 !Output_CMX = memref<1x48x60x60xf16, #NHWC, @CMX_NN>
 !Output_CMX_SM = memref<1x48x60x60xi1, #NHWC, @CMX_NN>
 !Weights_CMX = memref<48x16x3x3xf16, #NHWC, @CMX_NN>
-!WeightsTable_CMX = memref<48x1x1x4xsi32, #NHWC, @CMX_NN>
 
 // CHECK-LABEL: @DpuProfilingSparseWithMulticlustering
 module @DpuProfilingSparseWithMulticlustering  {
@@ -528,13 +511,12 @@ module @DpuProfilingSparseWithMulticlustering  {
   net.NetworkInfo entryPoint : @main inputsInfo :  {
     DataInfo "input" : tensor<1x16x62x62xf16>
     DataInfo "weights" : tensor<48x16x3x3xf16>
-    DataInfo "weightsTable" : tensor<48x1x1x4xsi32>
   } outputsInfo :  {
     DataInfo "output" : tensor<1x48x60x60xf16>
   } profilingOutputsInfo :  {
   }
 
-  func.func @main(%arg0: !Input_CMX, %arg1: !Weights_CMX, %arg2: !WeightsTable_CMX, %arg3: !Output_DDR) -> !Output_DDR {
+  func.func @main(%arg0: !Input_CMX, %arg1: !Weights_CMX, %arg3: !Output_DDR) -> !Output_DDR {
 
     %0 = VPURT.AllocDistributed -> !OutputDistributed
     %sm = VPURT.AllocDistributed -> !OutputDistributed_SM
@@ -545,7 +527,6 @@ module @DpuProfilingSparseWithMulticlustering  {
           task_type = #VPUIP.nce_task_type<CONV>
       } input(%arg0 : !Input_CMX)
         weights(%arg1 : !Weights_CMX)
-        weight_table(%arg2 : !WeightsTable_CMX)
         parent_input(%arg0 : !Input_CMX)
         parent_output(%0 : !OutputDistributed)
         parent_output_sparsity_map(%sm : !OutputDistributed_SM)
@@ -568,7 +549,7 @@ module @DpuProfilingSparseWithMulticlustering  {
 
   //CHECK:        profilingOutputsInfo
   //CHECK-NEXT:   DataInfo "dpu" : tensor<[[PROFDATA_INFO_TENSOR_SIZE:.*]]x[[PROFDATA_INFO_TENSOR_TYPE:.*]]>
-  //CHECK:        func.func @main(%arg0: memref<1x16x62x62xf16, #NHWC, @CMX_NN>, %arg1: memref<48x16x3x3xf16, #NHWC, @CMX_NN>, %arg2: memref<48x1x1x4xsi32, #NHWC, @CMX_NN>, %arg3: memref<1x48x60x60xf16, #NHWC, @DDR>, %arg4: memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>) -> (memref<1x48x60x60xf16, #NHWC, @DDR>, memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
+  //CHECK:        func.func @main([[ARG0:%.+]]: memref<1x16x62x62xf16, #NHWC, @CMX_NN>, [[ARG1:%.+]]: memref<48x16x3x3xf16, #NHWC, @CMX_NN>, [[ARG3:%.+]]: memref<1x48x60x60xf16, #NHWC, @DDR>, [[ARG4:%.+]]: memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>) -> (memref<1x48x60x60xf16, #NHWC, @DDR>, memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
 
   //CHECK:        [[OUTPUT_BUF_CMX:%.+]]   = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x48x60x60xf16, #NHWC, @CMX_NN
   //CHECK:        [[PROF_BUF_CMX:%.+]]     = VPURT.AllocDistributed {alignment = [[PROF_BUF_CMX_ALIGN_ATTR:.*]]} -> !VPUIP.DistributedBuffer<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]], #C, @CMX_NN, {mode = "SEGMENTED", num_tiles = [4], num_clusters = 4 : i64, uniform_distributed_segments}>
@@ -577,14 +558,13 @@ module @DpuProfilingSparseWithMulticlustering  {
 
   //CHECK:        [[NCE_RES:%[0-9]+]]:3 = VPUIP.NCEClusterTask
   //CHECK-SAME:   #VPUIP.DpuProfilingMetadataAttr<bufferId = 0 : i64, taskId = 1 : i64, maxVariants = 1 : i64>
-  //CHECK-SAME:   input(%arg0 : memref<1x16x62x62xf16, #NHWC, @CMX_NN>)
-  //CHECK-SAME:   weights(%arg1 : memref<48x16x3x3xf16, #NHWC, @CMX_NN>)
-  //CHECK-SAME:   weight_table(%arg2 : memref<48x1x1x4xsi32, #NHWC, @CMX_NN>)
+  //CHECK-SAME:   input([[ARG0]] : memref<1x16x62x62xf16, #NHWC, @CMX_NN>)
+  //CHECK-SAME:   weights([[ARG1]] : memref<48x16x3x3xf16, #NHWC, @CMX_NN>)
   //CHECK-SAME:   outputs([[OUTPUT_BUF_CMX]] : !VPUIP.DistributedBuffer<1x48x60x60xf16, #NHWC, @CMX_NN
   //CHECK-SAME:   output_sparsity_map([[SPARSITY_MAP_BUF_CMX]] : !VPUIP.DistributedBuffer<1x48x60x60xi1, #NHWC, @CMX_NN
   //CHECK-SAME:   profiling_data([[PROF_BUF_VIEW_CMX]] : !VPUIP.DistributedBuffer<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]], #C, @CMX_NN
 
-  //CHECK:        [[PROF_OUTPUT_VIEW:%.*]] = VPUIP.SubView %arg4 [0] [[[PROFDATA_INFO_TENSOR_SIZE]]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>
+  //CHECK:        [[PROF_OUTPUT_VIEW:%.*]] = VPUIP.SubView [[ARG4]] [0] [[[PROFDATA_INFO_TENSOR_SIZE]]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>
   //CHECK:        [[PROF_VIEW_CMX_CONCAT:%.*]] = VPUIP.ConcatView inputs([[NCE_RES]]#2
   //CHECK-SAME:       outputs([[PROF_BUF_CMX]]
 
@@ -598,14 +578,14 @@ module @DpuProfilingSparseWithMulticlustering  {
   //CHECK-SAME:       inputs([[NCE_RES]]#0 : !VPUIP.DistributedBuffer<1x48x60x60xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 4, 1], num_clusters = 4 : i64}>)
   //CHECK-SAME:       outputs([[OUTPUT_BUF_DDR]] : memref<1x48x60x60xf16, #NHWC, @DDR>)
 
-  //CHECK:        [[COPY_OUTPUT_TO_RESULT:%.*]] = VPUIP.NNDMA inputs([[COPY_OUTPUT_TO_DDR]] : memref<1x48x60x60xf16, #NHWC, @DDR>) outputs(%arg3 : memref<1x48x60x60xf16, #NHWC, @DDR>)
+  //CHECK:        [[COPY_OUTPUT_TO_RESULT:%.*]] = VPUIP.NNDMA inputs([[COPY_OUTPUT_TO_DDR]] : memref<1x48x60x60xf16, #NHWC, @DDR>) outputs([[ARG3]] : memref<1x48x60x60xf16, #NHWC, @DDR>)
 
   //CHECK:        [[SPARSITY_MAP_BUF_DDR:%.+]] = memref.alloc() : memref<1x48x60x60xi1, #NHWC, @DDR>
   //CHECK:        [[COPY_SPARSITY_MAP_TO_DDR:%.+]] = VPUIP.NNDMA
   //CHECK-SAME:       inputs([[NCE_RES]]#1 : !VPUIP.DistributedBuffer<1x48x60x60xi1, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 4, 1], num_clusters = 4 : i64}>)
   //CHECK-SAME:       outputs([[SPARSITY_MAP_BUF_DDR]] : memref<1x48x60x60xi1, #NHWC, @DDR>)
 
-  //CHECK:        [[PROF_RES:%.*]] = VPUIP.ConcatView inputs([[COPY_PROF_TO_DDR]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>) outputs(%arg4 : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
+  //CHECK:        [[PROF_RES:%.*]] = VPUIP.ConcatView inputs([[COPY_PROF_TO_DDR]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>) outputs([[ARG4]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
 
   //CHECK:        return [[COPY_OUTPUT_TO_RESULT]], [[PROF_RES]] : memref<1x48x60x60xf16, #NHWC, @DDR>, memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>
 

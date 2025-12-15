@@ -191,8 +191,7 @@ void ConvertBroadcastToTilePass::safeRunOnFunc() {
 
     mlir::RewritePatternSet tilePatterns(&ctx);
     IE::TileOp::getCanonicalizationPatterns(tilePatterns, &ctx);
-    if (mlir::failed(
-                mlir::applyPatternsAndFoldGreedily(func, std::move(tilePatterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(tilePatterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

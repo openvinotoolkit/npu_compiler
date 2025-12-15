@@ -183,7 +183,7 @@ void HandleEltwiseWithSmallHeightPass::safeRunOnFunc() {
     auto numClusters = config::getTileExecutor(func).getCount();
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<HandleEltwiseWithSmallHeight>(&ctx, numClusters, _log);
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

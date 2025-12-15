@@ -8,11 +8,11 @@
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/function_outlining_splitter.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/core/transforms/passes.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 
-#include "vpux/compiler/utils/VPUIP/function_outlining_splitter.hpp"
 #include "vpux/compiler/utils/allocate_buffers_for_net_results.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/logging.hpp"

@@ -26,12 +26,19 @@ public:
                          const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction) const override;
 
     /*
-      Dependend checks
+      Get all time intervals
+    */
+    virtual SmallVector<TimelineInterval> getTimeIntervals(
+            VFConfig& config, int64_t tilesNumber, const TilingOperationStorage::UPtr& tilingInfo,
+            const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction) const;
+
+    /*
+      Dependent checks
     */
     const std::deque<std::shared_ptr<IVFScheduling<VFConfig>>>& nextChecks() const override;
 
     /*
-      Add dependend check
+      Add dependent check
     */
     void addNext(std::shared_ptr<IVFScheduling<VFConfig>> check) override;
 
@@ -79,10 +86,11 @@ protected:
                                const DenseMap<mlir::Operation*, StrategyCost>& isolatedOperCost) const;
 
     /*
-      Get cost of common case
+      calculate related timeline interval of common case
     */
-    StrategyCost getLinearCost(VFConfig& config, int64_t tilesNumber, const TilingOperationStorage::UPtr& tilingInfo,
-                               const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction) const;
+    VFLinearContainer calculateLinearTimeIntervals(VFConfig& config, int64_t tilesNumber,
+                                                   const TilingOperationStorage::UPtr& tilingInfo,
+                                                   const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction) const;
 
     /*
       Get input dmas cost

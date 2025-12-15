@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --convert-extract-image-patches %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @ConvertExtractImagePatchesTransposeAffineReshapeToSliceConcat
 func.func @ConvertExtractImagePatchesTransposeAffineReshapeToSliceConcat(%arg0: tensor<1x1x6x5xf16>) -> tensor<1x4x3x5xf16> {

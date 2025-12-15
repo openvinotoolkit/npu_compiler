@@ -21,6 +21,7 @@ class ConvolutionLayerTestLatency_NPU3720 : public ConvolutionLayerTestCommon {}
 
 class ConvolutionLayerTest_NPU4000_SW : public ConvolutionLayerTestCommon {};
 class ConvolutionLayerTest_NPU4000_HW : public ConvolutionLayerTestCommon {};
+class ConvolutionLayerTest_NPU5010_SW : public ConvolutionLayerTestCommon {};
 
 class ConvolutionLayerTest_FP32_SW : public ConvolutionLayerTestCommon {
     void configure_model() override {
@@ -38,6 +39,12 @@ class ConvolutionLayerTest_MULTI_BATCH_HW : public ConvolutionLayerTestCommon {
     void configure_model() override {
         configuration[ov::intel_npu::batch_compiler_mode_settings.name()] =
                 "batch-compile-method=unroll batch-unroll-settings={skip-unroll-batch=true}";
+    }
+};
+
+class ConvolutionLayerTest_SCF_Unroll : public ConvolutionLayerTestCommon {
+    void configure_model() override {
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "loop-unroll-factor=1,1,2,1";
     }
 };
 
@@ -113,6 +120,56 @@ TEST_P(ConvolutionLayerTest_HostCompile, NPU4000_HC) {
     run(Platform::NPU4000);
 }
 
+TEST_P(ConvolutionLayerTest_SCF_Unroll, NPU4000_HC) {
+    rel_threshold = 0.02;
+    setSkipInferenceCallback([](std::stringstream& skip) {
+        skip << "Host Pipeline does not support inference yet: C#164943";
+    });
+
+    setHostCompileMode();
+    setMLIRCompilerType();
+    run(Platform::NPU4000);
+}
+
+// NPU5010
+TEST_P(ConvolutionLayerTest_NPU5010_SW, SW) {
+    rel_threshold = 0.02;
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(ConvolutionLayerTest_FP32_SW, NPU5010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(ConvolutionLayerTest_MULTI_BATCH_HW, NPU5010_HW) {
+    rel_threshold = 0.02;
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(ConvolutionLayerTest_HostCompile, NPU5010_HC) {
+    rel_threshold = 0.02;
+    setSkipInferenceCallback([](std::stringstream& skip) {
+        skip << "Host Pipeline does not support inference yet: C#164943";
+    });
+
+    setHostCompileMode();
+    setMLIRCompilerType();
+    run(Platform::NPU5010);
+}
+
+TEST_P(ConvolutionLayerTest_SCF_Unroll, NPU5010_HC) {
+    rel_threshold = 0.02;
+    setSkipInferenceCallback([](std::stringstream& skip) {
+        skip << "Host Pipeline does not support inference yet: C#164943";
+    });
+
+    setHostCompileMode();
+    setMLIRCompilerType();
+    run(Platform::NPU5010);
+}
 }  // namespace test
 }  // namespace ov
 
@@ -141,6 +198,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution1D, ConvolutionLayerTest_NPU3720_SW, c
                          ConvolutionLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_Convolution1D, ConvolutionLayerTest_NPU4000_SW, conv1D,
+                         ConvolutionLayerTest::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Convolution1D, ConvolutionLayerTest_NPU5010_SW, conv1D,
                          ConvolutionLayerTest::getTestCaseName);
 /* ============= 1D Convolution / LargeKernel ============= */
 const auto conv1DParams_LargeKernel =
@@ -189,6 +248,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_AutoPadValid, ConvolutionLayerTest_
 
 INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_AutoPadValid, ConvolutionLayerTest_NPU4000_SW, conv2D_AutoPadValid,
                          ConvolutionLayerTest::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_AutoPadValid, ConvolutionLayerTest_NPU5010_SW, conv2D_AutoPadValid,
+                         ConvolutionLayerTest::getTestCaseName);
 /* ============= 2D Convolution / CMajorCompatible ============= */
 
 const auto conv2DParams_CMajorCompatible =
@@ -211,6 +272,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_CMajorCompatible, ConvolutionLayerT
                          ConvolutionLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_CMajorCompatible, ConvolutionLayerTest_NPU4000_SW, conv2D_CMajorCompatible,
+                         ConvolutionLayerTest::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_CMajorCompatible, ConvolutionLayerTest_NPU5010_SW, conv2D_CMajorCompatible,
                          ConvolutionLayerTest::getTestCaseName);
 /* ============= 3D Convolution / 3x2x2 Kernel ============= */
 
@@ -352,6 +415,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_AsymmetricPadding, ConvolutionLayer
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Convolution2D_AsymmetricPadding, ConvolutionLayerTest_NPU4000_SW,
                          conv2D_AsymmetricPadding, ConvolutionLayerTest::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_Convolution2D_AsymmetricPadding, ConvolutionLayerTest_NPU5010_SW,
+                         conv2D_AsymmetricPadding, ConvolutionLayerTest::getTestCaseName);
 /* ============= 2D Convolution / AsymmetricKernel ============= */
 
 const auto conv2DParams_AsymmetricKernel =
@@ -374,6 +439,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_AsymmetricKernel, ConvolutionLayerT
                          ConvolutionLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_AsymmetricKernel, ConvolutionLayerTest_NPU4000_SW, conv2D_AsymmetricKernel,
+                         ConvolutionLayerTest::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_AsymmetricKernel, ConvolutionLayerTest_NPU5010_SW, conv2D_AsymmetricKernel,
                          ConvolutionLayerTest::getTestCaseName);
 /* ============= 2D Convolution / AsymmetricStrides ============= */
 
@@ -478,6 +545,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_Dilated, ConvolutionLayerTest_NPU37
                          ConvolutionLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_Dilated, ConvolutionLayerTest_NPU4000_SW, conv2D_Dilated,
+                         ConvolutionLayerTest::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_Dilated, ConvolutionLayerTest_NPU5010_SW, conv2D_Dilated,
                          ConvolutionLayerTest::getTestCaseName);
 /* ============= 2D Convolution / LargeSize ============= */
 
@@ -782,11 +851,21 @@ const std::vector<std::vector<ov::test::InputShape>> in2DShape = {{generateTestS
                                                                   {generateTestShape(1, 3, 1280_Dyn, 1280)},
                                                                   {generateTestShape(1, 3, 1280_Dyn, 1280_Dyn)}};
 
-const auto DynamicShapesHostCompile_Conv_params =
+const auto DynamicShapesHostCompileConvParams =
         ::testing::Combine(conv2DParams_2DynDims,                //
                            ::testing::Values(ov::element::f16),  // netPrc
                            ::testing::ValuesIn(in2DShape), ::testing::Values(test_utils::TARGET_DEVICE));
 
-INSTANTIATE_TEST_SUITE_P(smoke_DynamicShapes, ConvolutionLayerTest_HostCompile, DynamicShapesHostCompile_Conv_params,
+INSTANTIATE_TEST_SUITE_P(smoke_DynamicShapes, ConvolutionLayerTest_HostCompile, DynamicShapesHostCompileConvParams,
                          ConvolutionLayerTest::getTestCaseName);
+
+// Conv 2D with dynamic dimensions for SCF Unroll test
+const std::vector<std::vector<ov::test::InputShape>> in2DShapeForUnroll = {{generateTestShape(1, 16, 1280_Dyn, 1280)}};
+
+const auto DynamicShapesHostCompileConvParamsUnroll =
+        ::testing::Combine(conv2DParams_2DynDims, ::testing::Values(ov::element::f16),
+                           ::testing::ValuesIn(in2DShapeForUnroll), ::testing::Values(test_utils::TARGET_DEVICE));
+
+INSTANTIATE_TEST_SUITE_P(smoke_DynamicShapes_SCF_Unroll, ConvolutionLayerTest_SCF_Unroll,
+                         DynamicShapesHostCompileConvParamsUnroll, ConvolutionLayerTest::getTestCaseName);
 }  // namespace

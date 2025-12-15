@@ -344,11 +344,10 @@ size_t vpux::BarrierInfo::getNumOfSlotsUsed(VPURT::TaskOp op) {
     // Until NPU4 each variant updates the barrier to signal that it is complete but starting with NPU4 (with single DPU
     // per tile), only first/last variant of any given invariant will consume/produce a barrier in which case the
     // required slot count will be 1 as all variants of the invariant use the same FIFO. A DMA does not have variants,
-    // therefore they always just require 1 producer slot to a barrier.
+    // therefore they always utilize a single barrier slot.
 
     if (op.getExecutorKind() == VPU::ExecutorKind::DPU) {
-        const auto module = op->getParentOfType<mlir::ModuleOp>();
-        if (VPUIP::supportsPerVariantBarrierConfiguration(module)) {
+        if (VPUIP::supportsPerVariantBarrierConfiguration(op)) {
             return 1;
         }
         auto nceOp = mlir::dyn_cast<VPUIP::NCEClusterTaskOp>(op.getInnerTaskOp());
@@ -517,60 +516,48 @@ std::optional<size_t> vpux::BarrierInfo::getControlGraphSyncPointForBlock(size_t
 }
 
 //
-//  producersControlsAllConsumers
+//  canBarProducersControlBarConsumers
 //
 
-bool vpux::BarrierInfo::producersControlsAllConsumers(const TaskSet& origProducers, const TaskSet& newConsumers,
-                                                      const TaskSet& origConsumers,
-                                                      ArrayRef<TaskSet> origWaitBarriersMap) {
-    // Get new consumers not in original consumers
-
-    auto consumersWithoutDirectControl = llvm::set_difference(newConsumers, origConsumers);
-    if (consumersWithoutDirectControl.empty()) {
+bool vpux::BarrierInfo::canBarProducersControlBarConsumers(const TaskSet& producers, const TaskSet& consumers,
+                                                           ArrayRef<TaskSet> origWaitBarriersMap) {
+    if (consumers.empty()) {
         return true;
     }
-    if (origProducers.empty()) {
+    if (producers.empty()) {
         return false;
     }
 
-    auto consumerHasImplicitTaskQueueType = inImplicitQueueTypeDependencyList(consumersWithoutDirectControl);
-    if (!consumerHasImplicitTaskQueueType) {
+    auto haveDmaExecutorType = [&](const TaskSet& tasks) {
+        auto tasksExecutorKind = haveSameExecutorKind(tasks);
+        return tasksExecutorKind.has_value() && tasksExecutorKind == VPU::ExecutorKind::DMA_NN;
+    };
+
+    // Just because none of the producers do not share any wait barrier with some of the consumers, does not mean that
+    // no producer-consumer pair cannot run in parallel. This simplification can lead to merging more barriers and
+    // sometimes can cause serialization of the graph. However, the resulting schedule will have less
+    // barriers and may perform faster even though DMA-DPU or DMA-SW tasks overlap can be smaller due to the
+    // serialization. This likely stems from fact that DMAs can be very fast and merging barriers associated with them
+    // can be beneficial even at a cost of increased serialization, thus we allow for such merges. The strategy can be
+    // revisited with full-WLM enabled where there will be no overhead related with handling barriers.
+    if (!haveDmaExecutorType(consumers)) {
         return false;
     }
-    auto producerHasImplicitTaskQueueType = inImplicitQueueTypeDependencyList(origProducers);
-    if (!producerHasImplicitTaskQueueType) {
+    if (!haveDmaExecutorType(producers)) {
         return false;
     }
 
-    if (*std::max_element(origProducers.begin(), origProducers.end()) >=
-        *std::min_element(consumersWithoutDirectControl.begin(), consumersWithoutDirectControl.end())) {
+    if (*std::max_element(producers.begin(), producers.end()) >=
+        *std::min_element(consumers.begin(), consumers.end())) {
         return false;
     }
 
-    auto anyProducerCanRunParallelWithConsumer = llvm::any_of(origProducers, [&](const auto& producer) {
-        return llvm::any_of(consumersWithoutDirectControl, [&](const auto& consumer) {
+    auto anyProducerCanRunParallelWithConsumer = llvm::any_of(producers, [&](const auto& producer) {
+        return llvm::any_of(consumers, [&](const auto& consumer) {
             return origWaitBarriersMap[producer] == origWaitBarriersMap[consumer];
         });
     });
     return !anyProducerCanRunParallelWithConsumer;
-}
-
-//
-// inImplicitQueueTypeDependencyList
-//
-
-bool vpux::BarrierInfo::inImplicitQueueTypeDependencyList(const TaskSet& taskList) {
-    // ensure that _taskQueueTypeMap is build at given time with buildTaskQueueTypeMap()
-    VPUX_THROW_WHEN(_taskQueueTypeMap.empty(), "Task queue map not initialized");
-    auto allTasksAreInImplicitQueueTypeDependencyList = llvm::all_of(taskList, [&](const auto& taskInd) {
-        for (const auto& item : _taskQueueTypeMap) {
-            if (item.second.test(static_cast<unsigned>(taskInd))) {
-                return true;
-            }
-        }
-        return false;
-    });
-    return allTasksAreInImplicitQueueTypeDependencyList;
 }
 
 //
@@ -1104,7 +1091,7 @@ void vpux::BarrierInfo::splitControlGraphToBlocks(const size_t blockSize) {
             break;
         }
 
-        _log.trace("Bar {0} needs a split, bar block id - {0}", barInd, barBlockId);
+        _log.trace("Bar {0} needs a split, bar block id - {1}", barInd, barBlockId);
 
         // Remove tasks from this barrier which do not belong to this block
         for (const auto& barProdBlockTasksPair : barProdBlockTasksMap) {
@@ -1570,6 +1557,21 @@ bool vpux::BarrierInfo::verifyControlGraphSplit() {
         _taskQueueTypeMap = std::move(taskQueueTypeMapOrig);
     }
     return true;
+}
+
+bool BarrierInfo::verifyBarriersUsersCount(size_t maxUsersCount) {
+    auto checkBarrierUsersCount = [&](const auto& barrierMap, bool producers) {
+        for (auto barIdx : irange(getNumOfBarrierOps())) {
+            if (barrierMap[barIdx].size() > maxUsersCount) {
+                _log.warning("Barrier '{0}' has {1} {2}. The maximal number of {2} is expected to be: {3}", barIdx,
+                             barrierMap[barIdx].size(), producers ? "producers" : "consumers", maxUsersCount);
+                return false;
+            }
+        }
+        return true;
+    };
+
+    return checkBarrierUsersCount(_barrierProducerMap, true) && checkBarrierUsersCount(_barrierConsumerMap, false);
 }
 
 bool BarrierInfo::verifyBarriersForTaskDescriptorFetch(const ExecutionGroupListMap& executionGroups, bool wlmEnabled) {
@@ -2124,7 +2126,8 @@ SmallVector<std::set<size_t>> vpux::BarrierInfo::findParallelTasksWithBarrierDep
 //
 // optimizeBarriers
 //
-void vpux::BarrierInfo::optimizeBarriers(bool checkValidSlotCount, bool considerTaskFifoDependency) {
+void vpux::BarrierInfo::optimizeBarriers(bool checkValidSlotCount, bool considerTaskFifoDependency,
+                                         mlir::DenseSet<vpux::VPU::ExecutorKind> executors) {
     if (considerTaskFifoDependency) {
         buildTaskQueueTypeMap();
     }
@@ -2153,8 +2156,7 @@ void vpux::BarrierInfo::optimizeBarriers(bool checkValidSlotCount, bool consider
 
         if (considerTaskFifoDependency) {
             // TODO: E#126579
-            auto newDepsCount = createBarrierDependenciesImpliedByFIFO(
-                    taskBlockIndex, mlir::DenseSet<vpux::VPU::ExecutorKind>({VPU::ExecutorKind::DMA_NN}));
+            auto newDepsCount = createBarrierDependenciesImpliedByFIFO(taskBlockIndex, executors);
             _log.trace("Created {0} temporary dependencies", newDepsCount);
         }
 
@@ -2955,9 +2957,6 @@ void vpux::BarrierInfo::setBarrierMask(llvm::BitVector& mask, const BarrierInfo:
     }
 }
 
-//
-// buildTaskQueueTypeMap
-//
 void vpux::BarrierInfo::initializeTaskQueueTypeMap(const mlir::DenseSet<vpux::VPU::ExecutorKind>& executorKind) {
     for (auto execKind : executorKind) {
         const auto module = _func->getParentOfType<mlir::ModuleOp>();
@@ -3024,7 +3023,11 @@ void vpux::BarrierInfo::clearTaskQueueTypeMap() {
 
 void vpux::BarrierInfo::buildTaskQueueTypeMap() {
     if (_taskQueueTypeMap.empty()) {
-        initializeTaskQueueTypeMap({VPU::ExecutorKind::DMA_NN});
+        mlir::DenseSet<vpux::VPU::ExecutorKind> executors = {VPU::ExecutorKind::DMA_NN, VPU::ExecutorKind::DPU};
+        if (config::isFifoPerShaveEngineEnabled(_func)) {
+            executors.insert(VPU::ExecutorKind::SHAVE_ACT);
+        }
+        initializeTaskQueueTypeMap(executors);
     }
 
     for (const auto& taskOp : _allTaskOps | reversed) {
@@ -3420,6 +3423,39 @@ std::optional<VPURT::TaskQueueType> vpux::BarrierInfo::haveSameImplicitDependenc
     return std::nullopt;
 }
 
+std::optional<VPU::ExecutorKind> vpux::BarrierInfo::haveSameExecutorKind(const TaskSet& taskInds) {
+    if (taskInds.empty()) {
+        return std::nullopt;
+    }
+
+    if (_func == nullptr) {
+        // for test purposes, use information from _taskQueueTypeMap
+        std::set<VPU::ExecutorKind> executors;
+        for (const auto& item : _taskQueueTypeMap) {
+            for (const auto& taskInd : taskInds) {
+                if (item.second.test(static_cast<unsigned>(taskInd))) {
+                    executors.insert(item.first.type);
+                    if (executors.size() > 1) {
+                        return std::nullopt;
+                    }
+                }
+            }
+        }
+        if (executors.empty()) {
+            return std::nullopt;
+        }
+        return *executors.begin();
+    }
+
+    auto firstTaskExecKind = getTaskOpAtIndex(*taskInds.begin()).getExecutorKind();
+    for (const auto& taskInd : taskInds) {
+        if (getTaskOpAtIndex(taskInd).getExecutorKind() != firstTaskExecKind) {
+            return std::nullopt;
+        }
+    }
+    return firstTaskExecKind;
+}
+
 //
 // canBarriersBeMerged
 //
@@ -3427,14 +3463,21 @@ std::optional<VPURT::TaskQueueType> vpux::BarrierInfo::haveSameImplicitDependenc
 bool vpux::BarrierInfo::canBarriersBeMerged(const TaskSet& barrierProducersA, const TaskSet& barrierConsumersA,
                                             const TaskSet& barrierProducersB, const TaskSet& barrierConsumersB,
                                             ArrayRef<TaskSet> origWaitBarriersMap) {
-    // two barriers A and B can be merged if
-    // 1. any producer of barrier A controls any consumer of barrier B
-    if (!producersControlsAllConsumers(barrierProducersA, barrierConsumersB, barrierConsumersA, origWaitBarriersMap)) {
+    // Barriers A and B can be merged if
+    // 1. producers of barrier A collectively control consumers of barrier B (it is enough to only consider consumers of
+    // B not present in A).
+    // The current implementation takes a simplified approach that does not thoroughly check whether some producers of A
+    // can run in parallel with some of the consumers of B and it also relies on a heuristics that differentiate
+    // between different executor types. Approach to be revisited in E#190087 in the context of FWLM.
+    if (!canBarProducersControlBarConsumers(
+                barrierProducersA, llvm::set_difference(barrierConsumersB, barrierConsumersA), origWaitBarriersMap)) {
         return false;
     }
 
-    // 2. any producer of barrier B controls any consumer of barrier A
-    if (!producersControlsAllConsumers(barrierProducersB, barrierConsumersA, barrierConsumersB, origWaitBarriersMap)) {
+    // 2. producers of barrier B collectively control consumers of barrier A (it is enough to only consider consumers of
+    // A not present in B)
+    if (!canBarProducersControlBarConsumers(
+                barrierProducersB, llvm::set_difference(barrierConsumersA, barrierConsumersB), origWaitBarriersMap)) {
         return false;
     }
 
@@ -3525,6 +3568,90 @@ void vpux::BarrierInfo::removeRedundantBarrierProducersAndConsumers(bool conside
             const auto consumersToRemove =
                     findRedundantDependencies(taskControlMap, controlMapOffset, barrierConsumers, false);
             removeConsumers(barrierIdx, consumersToRemove);
+        }
+    }
+}
+
+// Remove barrier dependence between producer and consumer
+// 1) if a barrier only has OPs using same queue as its producer,
+//    remove all OPs using the same queue from its consumers.
+/*
+  OP[{FIFO}][<opIndex>]
+  OP[A][0] OP[A][1]    OP[A][0] OP[A][1]
+       \   /               \   /
+        Bar         =>      Bar
+       /   \                 |
+  OP[A][2] OP[B][0]       OP[B][0]
+*/
+// 2) if a barrier only has OPs using same queue as its consumer,
+//    remove all OPs using the same queue from its producers.
+/*
+ OP[A][0] OP[B][0]        OP[B][0]
+       \   /                 |
+        Bar         =>      Bar
+       /   \               /   \
+ OP[A][1] OP[A][2]    OP[A][1] OP[A][2]
+*/
+void vpux::BarrierInfo::removeExplicitDependencies() {
+    const auto findExplicitDependencies = [&](const BarrierInfo::TaskSet& dependencies,
+                                              const VPURT::TaskQueueType& type) {
+        BarrierInfo::TaskSet dependenciesToRemove;
+        for (auto& taskInd : dependencies) {
+            if (isSyncPoint(taskInd)) {
+                continue;
+            }
+            if (type == VPURT::getTaskQueueType(getTaskOpAtIndex(taskInd), false)) {
+                dependenciesToRemove.insert(taskInd);
+            }
+        }
+        return dependenciesToRemove;
+    };
+
+    // Perform optimization in tasks blocks matching the distribution of synchronization points.
+    for (size_t taskBlockIndex = 0; taskBlockIndex < getControlGraphBlockCount(); ++taskBlockIndex) {
+        // get update barriers range for current block
+        auto blockUpdateBarriers = getBarriersForTaskBlock(taskBlockIndex, /* blockStartSyncPoint */ true,
+                                                           /* blockEndSyncPoint */ false, /* updateBarriers */ true);
+
+        for (auto barrierIdx : blockUpdateBarriers) {
+            // try to optimize consumers (1)
+            const auto& barrierProducers = getBarrierProducers(barrierIdx);
+            auto producerTaskQueueType = haveSameImplicitDependencyTaskQueueType(barrierProducers);
+            if (producerTaskQueueType.has_value()) {
+                // barrier produced by tasks with same type
+                auto consumersToRemove =
+                        findExplicitDependencies(getBarrierConsumers(barrierIdx), producerTaskQueueType.value());
+                // remove consumers
+                removeConsumers(barrierIdx, consumersToRemove);
+            }
+
+            // try to optimize producers (2)
+            const auto& barrierConsumers = getBarrierConsumers(barrierIdx);
+            auto consumerTaskQueueType = haveSameImplicitDependencyTaskQueueType(barrierConsumers);
+            if (consumerTaskQueueType.has_value() || barrierConsumers.empty()) {
+                // barrier consumed by tasks with same type
+                BarrierInfo::TaskSet producersToRemove;
+                // find producers to remove
+                if (barrierConsumers.empty()) {
+                    for (const auto& barProd : barrierProducers) {
+                        if (isSyncPoint(barProd)) {
+                            continue;
+                        }
+                        producersToRemove.insert(barProd);
+                    }
+                } else {
+                    producersToRemove = findExplicitDependencies(barrierProducers, consumerTaskQueueType.value());
+                }
+
+                // remove producers
+                removeProducers(barrierIdx, producersToRemove);
+            }
+
+            bool invalidOptimization =
+                    getBarrierConsumers(barrierIdx).empty() ^ getBarrierProducers(barrierIdx).empty();
+            VPUX_THROW_WHEN(invalidOptimization,
+                            "Invalid optimization : Only barrier {0} became empty for barrier '{1}'",
+                            barrierProducers.empty() ? "producers" : "consumers", getBarrierOpAtIndex(barrierIdx));
         }
     }
 }

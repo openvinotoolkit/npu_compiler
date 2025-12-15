@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
@@ -17,8 +18,10 @@
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/factors.hpp"
+#include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+#include <mlir/IR/AffineMap.h>
 #include <mlir/Support/LLVM.h>
 
 namespace vpux::IE {
@@ -70,9 +73,9 @@ Converts to:
     [1, HWC, 1, 1]#NCHW    [1, HWC, 1, 1]#NCHW
           |                      |
         Reshape               Reshape
-    [1, C, H, W]#NCHW      [1, C, H, W]#NCHW
+    [1, H, W, C]#NCHW      [1, H, W, C]#NCHW
           |                     |
-       LayoutCast            LayoutCast
+    PermuteCast            PermuteCast
     [1, C, H, W]#NHWC    [1, C, H, W]#NHWC
              \                 /
                     Concat
@@ -81,8 +84,8 @@ Converts to:
                     Conv with Kernel[2C, C, H+1, 1]
                [1, 2C, H, W]#NHWC
                      |
-                 LayoutCast
-               [1, 2C, H, W] #NCHW
+                 PermuteCast
+               [1, H, W, 2C] #NCHW
                      |
                   Reshape
                [1, H*W*C, 2, 1] #NCHW
@@ -147,27 +150,36 @@ mlir::LogicalResult OptimizeConcat::matchAndRewrite(IE::ConcatOp origOp, mlir::P
         return matchFailed(_log, rewriter, origOp, "concat inputs have different shapes at '{0}'", origOp->getLoc());
     }
 
-    const auto ctx = rewriter.getContext();
-    _log.trace("process concat op at {0}", origOp->getLoc());
-
     // create new concat on outer most dimension
     SmallVector<mlir::Value> inputs;
-    Shape newConcatInShape = {1, C, H, concatInShape.totalSize() / (H * C)};
+    const Shape reshapeOutShape = {1, H, concatInShape.totalSize() / (H * C), C};
+    const Shape permuteCastOutShape = {1, C, H, concatInShape.totalSize() / (H * C)};
+    const auto newInputType = mlir::cast<NDTypeInterface>(concatInputs.front().getType()).changeShape(reshapeOutShape);
+
+    const auto ctx = rewriter.getContext();
+    const auto maybeMemPerm =
+            vpux::tryToFindPermutationForPermuteCast(newInputType, DimsOrder::NHWC, permuteCastOutShape, ctx);
+    if (!maybeMemPerm.has_value()) {
+        return matchFailed(_log, rewriter, origOp,
+                           "Cannot use permute cast, no valid mem_perm could be found: input type = {0}, perm cast out "
+                           "shape = {1}, dst_order = NHWC",
+                           newInputType, permuteCastOutShape);
+    }
+
+    _log.trace("Process concat op at {0}", origOp->getLoc());
+
     for (auto input : concatInputs) {
         auto newInReshape = rewriter.create<IE::ReshapeOp>(appendLoc(input.getLoc(), "_reshape"), input, nullptr, false,
-                                                           getIntArrayAttr(ctx, newConcatInShape.raw()));
-        auto layoutCastOp = rewriter.create<IE::LayoutCastOp>(appendLoc(newInReshape.getLoc(), "_layout_cast"),
-                                                              newInReshape, DimsOrder::NHWC.toAffineMap(ctx));
-        inputs.push_back(layoutCastOp);
+                                                           getIntArrayAttr(ctx, reshapeOutShape.raw()));
+        auto permuteCastOp =
+                rewriter.create<IE::PermuteCastOp>(appendLoc(newInReshape.getLoc(), "_permute_cast"), newInReshape,
+                                                   DimsOrder::NHWC.toAffineMap(ctx), maybeMemPerm.value());
+        inputs.push_back(permuteCastOp);
     }
     auto newConcat =
             rewriter.create<IE::ConcatOp>(appendLoc(origOp.getLoc(), "_input_concat"), inputs, concatAxis.value());
 
     // create conv to do the permute
-    SmallVector<int64_t> padBegin(2, 0);
-    SmallVector<int64_t> padEnd(2, 0);
-    SmallVector<int64_t> strides(2, 1);
-    SmallVector<int64_t> dilations(2, 1);
 
     /*
      create weights with shape[2C, C, H+1, 1] for the new concat conv
@@ -193,7 +205,7 @@ mlir::LogicalResult OptimizeConcat::matchAndRewrite(IE::ConcatOp origOp, mlir::P
                 checked_cast<vpux::type::float16>(1.f);
     }
 
-    Shape weightsShape = {2 * C, C, H + 1, 1};
+    const Shape weightsShape = {2 * C, C, H + 1, 1};
     const auto weightStorageType = mlir::RankedTensorType::get(weightsShape.raw(), mlir::Float16Type::get(ctx));
     const auto weightStorageAttr = Const::createConstContent(weightStorageType, ArrayRef(weightsVals));
     const auto weightContentAttr = Const::ContentAttr::get(weightStorageAttr);
@@ -204,6 +216,7 @@ mlir::LogicalResult OptimizeConcat::matchAndRewrite(IE::ConcatOp origOp, mlir::P
     const auto weightExpressedType = mlir::RankedTensorType::get(weightsShape.raw(), weightExpressedElemType);
     auto targetContentAttr = weightContentAttr.transform().castElemType(weightExpressedElemType).get();
     auto weightsConst = rewriter.create<Const::DeclareOp>(declLoc, weightExpressedType, std::move(targetContentAttr));
+
     const auto reorderLoc = appendLoc(weightsConst.getLoc(), "reorder_weights_for_DPU_concat");
     const auto weightTypeNCHW = mlir::cast<vpux::NDTypeInterface>(weightsConst.getOutput().getType());
     const auto reorderType = weightTypeNCHW.changeDimsOrder(DimsOrder::NHWC);
@@ -211,21 +224,27 @@ mlir::LogicalResult OptimizeConcat::matchAndRewrite(IE::ConcatOp origOp, mlir::P
     auto weightsReorder =
             rewriter.createOrFold<IE::ReorderOp>(reorderLoc, reorderType, weightsConst.getOutput(), orderMap);
 
-    auto newConv = rewriter.create<IE::ConvolutionOp>(origOp.getLoc(), newConcat, weightsReorder,
-                                                      /*bias=*/nullptr, getIntArrayAttr(ctx, strides),
-                                                      getIntArrayAttr(ctx, padBegin), getIntArrayAttr(ctx, padEnd),
-                                                      getIntArrayAttr(ctx, dilations),
-                                                      /*postOp=*/nullptr, /*clamp=*/nullptr, /*staticScale=*/nullptr,
-                                                      /*outputPadding=*/nullptr, /*inputPadding=*/nullptr);
-    _log.trace("create new conv {0}", newConv);
-    auto newOutLayoutCast = rewriter.create<IE::LayoutCastOp>(appendLoc(newConv.getLoc(), "_layout_cast_"),
-                                                              newConv.getOutput(), DimsOrder::NCHW.toAffineMap(ctx));
+    const SmallVector<int64_t> neutralPadBeginEnd(2, 0);
+    const SmallVector<int64_t> neutralStridesDilations(2, 1);
+    auto newConv = rewriter.create<IE::ConvolutionOp>(
+            origOp.getLoc(), newConcat, weightsReorder,
+            /*bias=*/nullptr, getIntArrayAttr(ctx, neutralStridesDilations), getIntArrayAttr(ctx, neutralPadBeginEnd),
+            getIntArrayAttr(ctx, neutralPadBeginEnd), getIntArrayAttr(ctx, neutralStridesDilations),
+            /*postOp=*/nullptr, /*clamp=*/nullptr, /*staticScale=*/nullptr,
+            /*outputPadding=*/nullptr, /*inputPadding=*/nullptr);
+    _log.trace("Create new conv.");
+
+    const auto outMemPerm = mlir::inversePermutation(maybeMemPerm.value());
+    auto newOutPermuteCast =
+            rewriter.create<IE::PermuteCastOp>(appendLoc(newConv.getLoc(), "_perm_cast_"), newConv.getOutput(),
+                                               DimsOrder::NCHW.toAffineMap(ctx), outMemPerm);
 
     auto concatOutShape = getShape(origOp);
     auto newOutReshape =
-            rewriter.create<IE::ReshapeOp>(appendLoc(newOutLayoutCast.getLoc(), "_reshape_"), newOutLayoutCast, nullptr,
-                                           false, getIntArrayAttr(ctx, concatOutShape.raw()));
+            rewriter.create<IE::ReshapeOp>(appendLoc(newOutPermuteCast.getLoc(), "_reshape_"), newOutPermuteCast,
+                                           nullptr, false, getIntArrayAttr(ctx, concatOutShape.raw()));
     rewriter.replaceAllUsesWith(origOp, newOutReshape);
+    _log.trace("Successfully replaced concat with conv.");
     return mlir::success();
 }
 
@@ -279,7 +298,7 @@ mlir::LogicalResult OptimizeConcatWithConvAndAdd::matchAndRewrite(IE::ConcatOp c
     // Compose weights for the convolution, the new weights output channels are the same as the concat output channels
     // and those channels value are 1. And other channels are 0. And than those convolution ops' outputs can be added
     // together to get the final concat results.
-    auto composeWeights = [](int inChannels, int outChannels, int startChannel) {
+    auto composeWeights = [](int64_t inChannels, int64_t outChannels, int64_t startChannel) {
         SmallVector<float> weightsVals(inChannels * outChannels, checked_cast<vpux::type::float16>(0.f));
         for (int i = 0; i < inChannels; ++i) {
             auto targetChannel = startChannel + i;
@@ -293,9 +312,9 @@ mlir::LogicalResult OptimizeConcatWithConvAndAdd::matchAndRewrite(IE::ConcatOp c
 
     auto concatInputs = concatOp.getInputs();
     auto concatOutput = concatOp.getOutput();
-    auto concatOutShape = getShape(concatOutput);
-    auto totalOutChannels = concatOutShape[Dims4D::Act::C];
-    auto accumulateChannels = 0;
+    const auto concatOutShape = getShape(concatOutput);
+    const auto totalOutChannels = concatOutShape[Dims4D::Act::C];
+    int64_t accumulateChannels = 0;
 
     SmallVector<mlir::Value> convResults;
 
@@ -513,7 +532,7 @@ void OptimizeConcatWithConvPass::safeRunOnFunc() {
     patterns.add<OptimizeConcat>(&ctx, tileOp.getCount(), _log);
     patterns.add<OptimizeConcatWithConvAndAdd>(&ctx, _log);
 
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

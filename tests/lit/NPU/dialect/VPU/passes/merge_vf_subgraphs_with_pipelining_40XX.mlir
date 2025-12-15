@@ -236,3 +236,67 @@ func.func @VFTestCorrectTilingAxisWhenGetPrefetchingCost(
    // CHECK-SAME: scenario = #VPU.vf_scenario<VF_PIPELINING>, tilingStrategy = [1, 1, 29, 1]
 
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @MergeConvWithDepthToSpaceEltwise
+// CHECK-SAME:      [[INPUT0:%.+]]: tensor<1x256x56x56xf16, {order = #NHWC}>
+// CHECK-SAME:      [[INPUT1:%.+]]: tensor<1x1024x28x28xf16, {order = #NHWC}>
+func.func @MergeConvWithDepthToSpaceEltwise(%arg0: tensor<1x256x56x56xf16, {order = #NHWC}>, %arg1: tensor<1x1024x28x28xf16, {order = #NHWC}>) -> tensor<1x256x56x56xf16, {order = #NHWC}> {
+    %cst_weights = const.Declare tensor<256x256x3x3xf16, {order = #NHWC}> = dense<1.0> : tensor<256x256x3x3xf16>, [#const.Reorder<#NHWC>]
+    %cst_bias = const.Declare tensor<256x1x1x4xsi32> = dense<1> : tensor<256x1x1x4xsi32>
+
+    %0 = VPU.VerticalFusion (%arg0 as %arg2: tensor<1x256x56x56xf16, {order = #NHWC}>, %cst_weights as %arg3: tensor<256x256x3x3xf16, {order = #NHWC}>, %cst_bias as %arg4: tensor<256x1x1x4xsi32>) attributes {tilingStrategy = [1, 4, 1, 1]} -> tensor<1x256x56x56xf16, {order = #NHWC}> {
+      %3 = VPU.NCE.Convolution(%arg2, %arg3, %arg4) {
+          mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+          multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+          pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+          ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+          rawFilterShape = [256, 256, 3, 3], strides = [1, 1]
+      } : tensor<1x256x56x56xf16, {order = #NHWC}>, tensor<256x256x3x3xf16, {order = #NHWC}>, tensor<256x1x1x4xsi32> -> tensor<1x256x56x56xf16, {order = #NHWC}>
+      VPU.Yield %3
+    }
+
+    %1 = VPU.VerticalFusion (%arg1 as %arg2: tensor<1x1024x28x28xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 1, 1]} -> tensor<1x256x56x56xf16, {order = #NHWC}> {
+      %3 = VPU.DepthToSpace(%arg2) {
+          block_size = 2 : i64,
+          mode = #IE.depth_to_space_mode<BLOCKS_FIRST>,
+          multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+      } : tensor<1x1024x28x28xf16, {order = #NHWC}> -> tensor<1x256x56x56xf16, {order = #NHWC}>
+      VPU.Yield %3
+    }
+
+    %2 = VPU.VerticalFusion (%1 as %arg2: tensor<1x256x56x56xf16, {order = #NHWC}>, %0 as %arg3: tensor<1x256x56x56xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 1, 1]} -> tensor<1x256x56x56xf16, {order = #NHWC}> {
+      %3 = VPU.NCE.Eltwise(%arg2, %arg3) {
+          is_inplace = true,
+          multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+          op_type = #VPU.eltwise_type<ADD>,
+          ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.000000e+00], fp_prelu_alpha = 1.000000e+00 : f64>
+      } -> tensor<1x256x56x56xf16, {order = #NHWC}>
+      VPU.Yield %3
+    }
+
+    return %2 : tensor<1x256x56x56xf16, {order = #NHWC}>
+
+    // CHECK-DAG: [[CST:%.+]] = const.Declare tensor<256x256x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<256x256x3x3xf16>, [#const.Reorder<#NHWC>]
+    // CHECK-DAG: [[CST_0:%.+]] = const.Declare tensor<256x1x1x4xsi32> = dense<1> : tensor<256x1x1x4xsi32>
+
+    // CHECK: [[VF_0:%.+]] = VPU.VerticalFusion ([[INPUT0]] as [[ARG2:%.+]]: tensor<1x256x56x56xf16, {order = #NHWC}>,
+    // CHECK-SAME:                                [[CST]] as [[ARG3:%.+]]: tensor<256x256x3x3xf16, {order = #NHWC}>,
+    // CHECK-SAME:                                [[CST_0]] as [[ARG4:%.+]]: tensor<256x1x1x4xsi32>)
+    // CHECK-SAME:      attributes {tilingStrategy = [1, 4, 1, 1]}
+    // CHECK:       [[CONV:%.+]] = VPU.NCE.Convolution([[ARG2]], [[ARG3]], [[ARG4]])
+    // CHECK:       VPU.Yield [[CONV]]
+
+    // CHECK: [[VF_1:%.+]] = VPU.VerticalFusion ([[INPUT1]] as [[ARG2_1:%.+]]: tensor<1x1024x28x28xf16, {order = #NHWC}>,
+    // CHECK-SAME:                                [[VF_0]] as [[ARG3_1:%.+]]: tensor<1x256x56x56xf16, {order = #NHWC}>)
+    // CHECK-SAME:      attributes {scenario = #VPU.vf_scenario<FULL_PREFETCHING>, tilingStrategy = [1, 1, 1, 4]}
+    // CHECK:       [[D2S:%.+]] = VPU.DepthToSpace([[ARG2_1]])
+    // CHECK:       [[ELTWISE:%.+]] = VPU.NCE.Eltwise([[D2S]], [[ARG3_1]])
+    // CHECK-SAME:      is_inplace = true
+    // CHECK:       VPU.Yield [[ELTWISE]]
+
+    // CHECK: return [[VF_1]] : tensor<1x256x56x56xf16, {order = #NHWC}>
+}

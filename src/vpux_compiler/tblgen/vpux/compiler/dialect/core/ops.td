@@ -57,7 +57,7 @@ def Core_NestedCallOp : Core_Op<"NestedCall", [
 
         /// Set the callee for this operation.
         void setCalleeFromCallable(mlir::CallInterfaceCallable callee) {
-            setCalleeAttr(callee.get<mlir::SymbolRefAttr>());
+            setCalleeAttr(mlir::cast<mlir::SymbolRefAttr>(callee));
         }
     }];
 

@@ -11,7 +11,6 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
-#include <mlir/Transforms/BufferizationUtils.h>
 #include <mlir/Transforms/InliningUtils.h>
 
 using namespace vpux;

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
 
 // CHECK-LABEL: @ReverseSequenceConvertU8ToFP16
 // CHECK-SAME:     ([[ARG0:%.+]]: tensor<1x128xui8>, [[ARG1:%.+]]: tensor<1xsi32>)

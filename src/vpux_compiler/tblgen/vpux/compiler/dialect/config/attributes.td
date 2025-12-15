@@ -13,11 +13,6 @@ include "vpux/compiler/dialect/config/dialect.td"
 // Base classes
 //
 
-class Config_Attr<string name, list<Trait> traits = []> : AttrDef<Config_Dialect, name, traits> {
-    let mnemonic = name;
-    let assemblyFormat = "`<` struct(params) `>`";
-}
-
 class Config_I64EnumAttr <string name, string summary, list<I64EnumAttrCase> cases> :
         I64EnumAttr<name, summary, cases> {
     let cppNamespace = "vpux::config";
@@ -50,6 +45,25 @@ def Config_CompilationMode  :
 def Config_CompilationModeAttr : Config_EnumAttr<Config_CompilationMode, "compilation_mode">;
 
 //
+// Platform
+//
+
+def Config_Platform :
+        Config_I64EnumAttr<
+            "Platform",
+            "NPU target platform",
+            [
+                I64EnumAttrCase<"NPU3720", 3720>,
+                I64EnumAttrCase<"NPU4000", 4000>,
+                I64EnumAttrCase<"NPU5000", 5000>,
+                I64EnumAttrCase<"NPU5010", 5010>,
+            ]
+        > {
+}
+
+def Config_PlatformAttr : Config_EnumAttr<Config_Platform, "platform">;
+
+//
 // ArchKind
 //
 
@@ -61,6 +75,7 @@ def Config_ArchKind :
                 I64EnumAttrCase<"UNKNOWN", 0>,
                 I64EnumAttrCase<"NPU37XX", 3>,
                 I64EnumAttrCase<"NPU40XX", 4>,
+                I64EnumAttrCase<"NPU50XX", 5>,
             ]
         > {
 }
