@@ -33,7 +33,7 @@ namespace {
 
 static const SmallVector<StringLiteral> SW_DUMMY_KERNELS_PREFETCH_SUPPORTED = {
         "activation_swish", "eltwise_mul",   "softmax",        "convert",        "rms_norm", "activation_swish",
-        "activation_sin",   "eltwise_equal", "activation_cos", "eltwise_select", "topk"};
+        "activation_sin",   "eltwise_equal", "activation_cos", "eltwise_select"};
 
 //
 // AddSwKernelInstructionPrefetch
@@ -371,7 +371,7 @@ AddSwKernelInstructionPrefetch::getFirstSwTaskInIRAndBestUpdateBarrier(VPURT::In
     _log.trace("First SW kernel start time {0}, best barrier release time {1}", firstKernelTask.cycleStart,
                bestReleaseCycle);
     if (bestReleaseCycle < _minimumFreeCyclesForPrefetch) {
-        _log.info("bestReleaseCycle: {0} is smaller than _minimumFreeCyclesForPrefetch {1}, skipping prefetching",
+        _log.info("bestReleaseCycle: {0} is smaller than _minimumFreeCyclesForPrefetch {1}, try prefetching during execution",
                   bestReleaseCycle, _minimumFreeCyclesForPrefetch);
         return std::make_tuple(nullptr, nullptr, 0);
     }
@@ -647,12 +647,14 @@ void AddSwKernelInstructionPrefetch::safeRunOnFunc() {
     if (kernelsToPrefetch.empty()) {
         return;
     }
-    _log.trace("insertPoint: {0}, bestReleaseCycle: {1}", *firstShaveTaskInIR, bestReleaseCycle);
 
-    auto newPrefetchKernels =
-            (firstShaveTaskInIR == nullptr)
-                    ? insertPrefetchTasksDuringExec(funcOp, kernelsToPrefetch, allTasks)
-                    : insertPrefetchTasks(funcOp, kernelsToPrefetch, firstShaveTaskInIR, bestUpdateBarrier);
+    std::vector<VPUIP::SwKernelOp> newPrefetchKernels;
+    if (firstShaveTaskInIR) {
+        _log.trace("insertPoint: {0}, bestReleaseCycle: {1}", *firstShaveTaskInIR, bestReleaseCycle);
+        newPrefetchKernels = insertPrefetchTasks(funcOp, kernelsToPrefetch, firstShaveTaskInIR, bestUpdateBarrier);
+    } else {
+        newPrefetchKernels = insertPrefetchTasksDuringExec(funcOp, kernelsToPrefetch, allTasks);
+    }
 
     // Update dependencies for cache handling operations to meet requirements of control graph split.
     auto& barrierInfo = getAnalysis<BarrierInfo>();
