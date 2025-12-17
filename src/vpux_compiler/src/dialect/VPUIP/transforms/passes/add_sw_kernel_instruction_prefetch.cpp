@@ -32,8 +32,8 @@ using namespace vpux;
 namespace {
 
 static const SmallVector<StringLiteral> SW_DUMMY_KERNELS_PREFETCH_SUPPORTED = {
-        "activation_swish", "eltwise_mul",   "softmax",        "convert",        "rms_norm", "activation_swish",
-        "activation_sin",   "eltwise_equal", "activation_cos", "eltwise_select"};
+        "activation_swish", "eltwise_mul",    "softmax",       "convert",        "rms_norm",
+        "activation_swish", "activation_sin", "eltwise_equal", "activation_cos", "eltwise_select"};
 
 //
 // AddSwKernelInstructionPrefetch
@@ -371,7 +371,8 @@ AddSwKernelInstructionPrefetch::getFirstSwTaskInIRAndBestUpdateBarrier(VPURT::In
     _log.trace("First SW kernel start time {0}, best barrier release time {1}", firstKernelTask.cycleStart,
                bestReleaseCycle);
     if (bestReleaseCycle < _minimumFreeCyclesForPrefetch) {
-        _log.info("bestReleaseCycle: {0} is smaller than _minimumFreeCyclesForPrefetch {1}, try prefetching during execution",
+        _log.info("bestReleaseCycle: {0} is smaller than _minimumFreeCyclesForPrefetch {1}, try prefetching during "
+                  "execution",
                   bestReleaseCycle, _minimumFreeCyclesForPrefetch);
         return std::make_tuple(nullptr, nullptr, 0);
     }
