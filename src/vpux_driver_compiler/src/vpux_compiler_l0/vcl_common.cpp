@@ -443,9 +443,12 @@ vcl_result_t BuildInfo::prepareConfig(const std::string& descOptions) {
     /// Update maxtiles config with compiler desc
     ///  - If deviceDesc is valid, compare its tileCount with user config and use the smaller value
     ///  - If deviceDesc is empty, its tileCount is invalid, then just handle it according to the config
-    if (!pvc->isDeviceDescEmpty()) {
+    ///  - If deviceDesc's tileCount is invalid, then skip updating maxtiles
+    if (!pvc->isDeviceDescEmpty() && (deviceDesc.tileCount != static_cast<uint32_t>(-1))) {
         config[ov::intel_npu::max_tiles.name()] = getValidTileValue(config, deviceDesc);
         logger->debug("NPU_MAX_TILES is updated to {0}", config[ov::intel_npu::max_tiles.name()]);
+    } else {
+        logger->debug("DeviceDesc is empty or tileCount is invalid, skip updating NPU_MAX_TILES");
     }
 
     /// When we use LOG_INFO, show vcl level profiling log

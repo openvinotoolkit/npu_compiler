@@ -17,6 +17,7 @@ target_link_libraries(compilerTest
         npu_driver_compiler # VCL function
         npu_ov_utils # OV core function
         npu_llvm_utils # CL command line
+        openvino::npu_logger_utils # logging utils
 )
 ov_add_api_validator_post_build_step(TARGET compilerTest)
 

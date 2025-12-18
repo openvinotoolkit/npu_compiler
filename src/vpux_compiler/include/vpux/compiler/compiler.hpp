@@ -100,9 +100,16 @@ public:
     intel_npu::NetworkDescription compileWsIterative(const std::shared_ptr<ov::Model>& model,
                                                      const intel_npu::Config& config, size_t callIdx) const override;
 
-    // WS CiD-specific methods
+    // WS VCL-specific methods
 
-    /// @brief Sequentially compiles Init and Main schedules. The Main schedule is always last.
+    /// @brief Returns Init schedules and Main in a single call. The blobs are allocated using the provided allocator.
+    /// There is always exactly one Main schedule, placed at the back of the vector.
+    std::vector<std::shared_ptr<NetworkDescriptionView>> compileWsOneShot(const std::shared_ptr<ov::Model>& model,
+                                                                          const intel_npu::Config& config,
+                                                                          BlobAllocator& allocator) const;
+
+    /// @brief Sequentially compiles Init and Main schedules. The blob is allocated using the provided allocator. The
+    /// Main schedule is always last.
     NetworkDescriptionView compileWsIterative(const std::shared_ptr<ov::Model>& model, const intel_npu::Config& config,
                                               size_t callIdx, BlobAllocator& allocator) const;
 };

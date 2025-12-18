@@ -357,6 +357,32 @@ NetworkDescriptionView VPUXCompilerL0::importNetwork(BuildInfo& buildInfo, BlobA
     });
 }
 
+std::vector<std::shared_ptr<NetworkDescriptionView>> VPUXCompilerL0::importNetworkWSOneShot(BuildInfo& buildInfo,
+                                                                                            BlobAllocator& allocator) {
+    StopWatch stopWatch;
+    if (buildInfo.enableProfiling) {
+        // Output time cost on vcl level
+        stopWatch.start();
+    }
+
+    auto scoped = Scoped{[&stopWatch, &buildInfo, this]() {
+        if (buildInfo.enableProfiling) {
+            stopWatch.stop();
+            _logger->info("Compile net time: {0} ms", stopWatch.delta_ms());
+        }
+    }};
+
+    std::shared_ptr<ov::Model> model;
+
+    model = preprocessModel(buildInfo.model, buildInfo.inputPrecisions, buildInfo.outputPrecisions,
+                            buildInfo.inputLayouts, buildInfo.outputLayouts, _logger);
+
+    // Isolate the MLIR thread to safely destroy MLIR thread_local objects before CiD unload
+    return run_in_worker_thread_sync([&] {
+        return _compiler->compileWsOneShot(model, buildInfo.parsedConfig, allocator);
+    });
+}
+
 vcl_result_t VPUXCompilerL0::queryNetwork(const BuildInfo& buildInfo, VPUXQueryNetworkL0* pQueryNetwork) {
     _logger->info("Start to call query function from compiler to get supported layers!");
     ov::SupportedOpsMap queryNetworkResult;

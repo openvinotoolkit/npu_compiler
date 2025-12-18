@@ -1204,6 +1204,41 @@ std::vector<std::shared_ptr<intel_npu::NetworkDescription>> CompilerImpl::compil
     return networkDescrs;
 }
 
+std::vector<std::shared_ptr<NetworkDescriptionView>> CompilerImpl::compileWsOneShot(
+        const std::shared_ptr<ov::Model>& model, const intel_npu::Config& config, BlobAllocator& allocator) const {
+    OV_ITT_SCOPED_TASK(itt::domains::VPUXPlugin, "CompilerImpl::compileWsOneShot");
+    checkPlatformSupportedForCompilation(config.get<intel_npu::PLATFORM>());
+
+    Logger log("vpux-compiler", getLogLevel(config));
+    log.info("Start oneshot WS compilation");
+
+    auto setup = CompilerSetup::create(config);
+
+    using CompilationReturnType = std::vector<CompilationResult>;
+    auto getCompilationResult = [&](const std::shared_ptr<ov::Model>& debatchedModel,
+                                    const std::vector<std::shared_ptr<const ov::Node>>& originalParameters,
+                                    const std::vector<std::shared_ptr<const ov::Node>>& originalResults,
+                                    const intel_npu::Config& debatchedConfig) -> CompilationReturnType {
+        return ws::compileImplWsOneShot(setup, originalParameters, originalResults, debatchedModel, debatchedConfig,
+                                        log);
+    };
+    auto [compilationResults, compiledConfig] =
+            tryCompileDebatchedModel<CompilationReturnType>(model, config, log, getCompilationResult);
+
+    OV_ITT_TASK_CHAIN(COMPILER_IMPLEMENTATION, itt::domains::VPUXPlugin, "CompilerImpl::compileWsOneShot",
+                      "exportNetwork");
+    std::vector<std::shared_ptr<NetworkDescriptionView>> networkDescrs;
+    networkDescrs.reserve(compilationResults.size());
+    for (const auto& result : compilationResults) {
+        networkDescrs.emplace_back(std::make_shared<NetworkDescriptionView>(
+                exportNetwork(result.moduleOp.get(), compiledConfig, log, allocator)));
+    }
+    OV_ITT_TASK_SKIP(COMPILER_IMPLEMENTATION);
+
+    // Plugin will collect the compilation memory usage
+    return networkDescrs;
+}
+
 intel_npu::NetworkDescription CompilerImpl::compileWsIterative(const std::shared_ptr<ov::Model>& model,
                                                                const intel_npu::Config& config, size_t callIdx) const {
     OV_ITT_SCOPED_TASK(itt::domains::VPUXPlugin, "CompilerImpl::compileWsIterative");
