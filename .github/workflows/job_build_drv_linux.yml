@@ -71,7 +71,7 @@ jobs:
 
       - name: Checkout versions action
         if: ${{ !steps.cache-restore.outputs.cache-hit }}
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           path: ${{ env.NPU_ACTIONS_DIR }}
           sparse-checkout: |
@@ -85,7 +85,7 @@ jobs:
 
       - name: Clone Linux NPU Driver
         if: ${{ !steps.cache-restore.outputs.cache-hit }}
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         timeout-minutes: 15
         with:
           repository: ${{ steps.versions.outputs.npu-linux-driver-repository }}
@@ -95,7 +95,7 @@ jobs:
 
       - name: System info
         if: ${{ !steps.cache-restore.outputs.cache-hit }}
-        uses: openvinotoolkit/openvino/.github/actions/system_info@44526285f241251e9543276572676365fbe542a4 # 2025.3.0
+        uses: openvinotoolkit/openvino/.github/actions/system_info@7a975177ff432c687e5619e8fb22e4bf265e48b7 # 2025.4.0
 
       - name: Install system packages
         if: ${{ !steps.cache-restore.outputs.cache-hit }}

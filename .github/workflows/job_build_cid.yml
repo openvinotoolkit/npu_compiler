@@ -118,7 +118,7 @@ jobs:
           cmake -E make_directory "${CID_PACKAGE_ARTIFACTS_DIR}"
 
       - name: Checkout actions
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           path: ${{ env.NPU_ACTIONS_DIR }}
           sparse-checkout: |
@@ -184,7 +184,7 @@ jobs:
 
       - name: Clone OpenVINO
         if: ${{ !steps.cache-restore.outputs.cache-hit }}
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         timeout-minutes: 15
         with:
           repository: ${{ steps.versions.outputs.openvino-repository }}
@@ -194,7 +194,7 @@ jobs:
 
       - name: Checkout NPU Compiler
         if: ${{ !steps.cache-restore.outputs.cache-hit }}
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           path: ${{ env.NPU_COMPILER_REPO }}
           submodules: true
@@ -202,11 +202,11 @@ jobs:
 
       - name: System info
         if: ${{ !steps.cache-restore.outputs.cache-hit }}
-        uses: openvinotoolkit/openvino/.github/actions/system_info@44526285f241251e9543276572676365fbe542a4 # 2025.3.0
+        uses: openvinotoolkit/openvino/.github/actions/system_info@7a975177ff432c687e5619e8fb22e4bf265e48b7 # 2025.4.0
 
       - name: Setup python version
         if: ${{ !steps.cache-restore.outputs.cache-hit }}
-        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
         with:
           python-version: '3.13'
 
