@@ -100,6 +100,51 @@ vcl_result_t allocatedExecutableCreate(vcl_compiler_handle_t compiler, vcl_execu
     return VCL_RESULT_SUCCESS;
 }
 
+vcl_result_t allocatedExecutableCreateWSOneShot(vcl_compiler_handle_t compiler, vcl_executable_desc_t desc,
+                                                vcl_allocator2_t* allocator) {
+    if (!compiler || !allocator || !desc.modelIRData) {
+        return VCL_RESULT_ERROR_INVALID_ARGUMENT;
+    }
+
+    VPUXDriverCompiler::VPUXCompilerL0* pCompiler = reinterpret_cast<VPUXDriverCompiler::VPUXCompilerL0*>(compiler);
+    VPUXDriverCompiler::VCLLogger* vclLogger = pCompiler->getLogger();
+
+    /// To avoid access violation, need to convert to string
+    std::string descOptions(desc.options, desc.optionsSize);
+    vclLogger->info("config: {0}", descOptions);
+
+    /// Create info parser
+    VPUXDriverCompiler::BuildInfo buildInfo(pCompiler);
+    /// Parse user descriptions and store the input && output settings, compilation configs
+    if (auto ret = buildInfo.prepareBuildFlags(descOptions); ret != VCL_RESULT_SUCCESS) {
+        vclLogger->outputError(formatv("Failed to prepare io info and config! DescOptions: {0}", descOptions));
+        return ret;
+    }
+
+    /// Parse serialized model data and create the model container for compiler
+    if (auto ret = buildInfo.prepareModel(desc.modelIRData, desc.modelIRSize); ret != VCL_RESULT_SUCCESS) {
+        vclLogger->outputError("Failed to parse model info! Incorrect format!");
+        return ret;
+    }
+
+    try {
+        // NetworkMetadata is part of the result, but unused in VCL
+        // it'd just get destroyed at function call here
+        VCLBlobAllocator vcl_allocator{allocator};
+        auto result = pCompiler->importNetworkWSOneShot(buildInfo, vcl_allocator);
+        if (result.empty()) {
+            vclLogger->warning("Compiler successfully returned but the blob list is empty!");
+        }
+    } catch (const std::exception& error) {
+        vclLogger->outputError(formatv("Compiler returned msg:\n{0}", error.what()));
+        return VCL_RESULT_ERROR_INVALID_ARGUMENT;
+    } catch (...) {
+        vclLogger->outputError("Internal exception! Can't compile model!");
+        return VCL_RESULT_ERROR_INVALID_ARGUMENT;
+    }
+    return VCL_RESULT_SUCCESS;
+}
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -333,6 +378,11 @@ DLLEXPORT vcl_result_t vclAllocatedExecutableCreate2(vcl_compiler_handle_t compi
 DLLEXPORT vcl_result_t vclAllocatedExecutableCreate(vcl_compiler_handle_t compiler, vcl_executable_desc_t desc,
                                                     vcl_allocator_t const* allocator, uint8_t** blob, uint64_t* size) {
     return allocatedExecutableCreate(compiler, desc, allocator, blob, size);
+}
+
+DLLEXPORT vcl_result_t vclAllocatedExecutableCreateWSOneShot(vcl_compiler_handle_t compiler, vcl_executable_desc_t desc,
+                                                             vcl_allocator2_t* allocator) {
+    return allocatedExecutableCreateWSOneShot(compiler, desc, allocator);
 }
 
 DLLEXPORT vcl_result_t vclExecutableGetSerializableBlob(vcl_executable_handle_t executable, uint8_t* blobBuffer,

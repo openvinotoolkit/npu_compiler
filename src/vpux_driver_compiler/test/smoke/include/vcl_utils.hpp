@@ -14,9 +14,29 @@
 #include "npu_driver_compiler.h"
 #include "openvino/core/layout.hpp"
 #include "openvino/core/model.hpp"
+#include "openvino/core/rt_info/weightless_caching_attributes.hpp"
 #include "openvino/runtime/core.hpp"
-
 #include "serialize_utils.hpp"
+#include "vcl_metadata.hpp"
+
+void storeWeightlessCacheAttribute(const std::shared_ptr<ov::Model>& model) {
+    size_t constantId = 0;
+    for (auto&& node : model->get_ordered_ops()) {
+        if (ov::is_type<ov::op::v0::Constant>(node)) {
+            ov::RTMap& runtimeInfoMap = node->get_rt_info();
+            const auto& weightlessCacheAttrIt =
+                    runtimeInfoMap.find(ov::WeightlessCacheAttribute::get_type_info_static());
+
+            const std::string constantIdString = std::to_string(constantId++);
+            if (weightlessCacheAttrIt != runtimeInfoMap.end()) {
+                auto& weightlessCacheAttr = weightlessCacheAttrIt->second.as<ov::WeightlessCacheAttribute>();
+                model->set_rt_info(weightlessCacheAttr.bin_offset, "ws_bin_offset_" + constantIdString);
+                model->set_rt_info(weightlessCacheAttr.original_size, "ws_original_size_" + constantIdString);
+                model->set_rt_info(weightlessCacheAttr.original_dtype, "ws_original_dtype_" + constantIdString);
+            }
+        }
+    }
+}
 
 void printErrorMessage(vcl_result_t status) {
     const char* message = nullptr;
@@ -249,6 +269,158 @@ vcl_result_t saveVclAllocatorBlob(vcl_compiler_handle_t& compiler, vcl_executabl
     return ret;
 }
 
+struct vcl_allocator_vector_2 : vcl_allocator2_t {
+    vcl_allocator_vector_2(): vcl_allocator2_t{vector_allocate, vector_deallocate} {
+    }
+
+    static uint8_t* vector_allocate(vcl_allocator2_t* allocator, uint64_t size) {
+        vcl_allocator_vector_2* vecAllocator = static_cast<vcl_allocator_vector_2*>(allocator);
+        auto newVec = std::make_shared<std::vector<uint8_t>>();
+        newVec->resize(size);
+        uint8_t* ptr = newVec->data();
+        vecAllocator->m_vector.emplace_back(newVec);
+        return ptr;
+    }
+
+    static void vector_deallocate(vcl_allocator2_t* allocator, uint8_t* ptr) {
+        vcl_allocator_vector_2* vecAllocator = static_cast<vcl_allocator_vector_2*>(allocator);
+        auto it = std::find_if(vecAllocator->m_vector.begin(), vecAllocator->m_vector.end(),
+                               [ptr](const std::shared_ptr<std::vector<uint8_t>>& vec_ptr) {
+                                   return vec_ptr->data() == ptr;
+                               });
+
+        if (it != vecAllocator->m_vector.end()) {
+            vecAllocator->m_vector.erase(it);
+        }
+    }
+
+    std::vector<std::shared_ptr<std::vector<uint8_t>>> m_vector;
+};
+
+vcl_result_t saveVclAllocatorBlobWS(vcl_compiler_handle_t& compiler, vcl_executable_desc_t& exeDesc,
+                                    const char* blobFileName, const std::shared_ptr<ov::Model>& model) {
+    std::cout << "  VCL step: Save VCL allocator blob." << std::endl;
+    vcl_result_t ret = VCL_RESULT_SUCCESS;
+    vcl_allocator_vector_2 allocator;
+
+    ret = vclAllocatedExecutableCreateWSOneShot(compiler, exeDesc, &allocator);
+
+    if (ret != VCL_RESULT_SUCCESS) {
+        printErrorInfo("Failed to create executable handle with WS! Result: 0x", ret);
+        return ret;
+    }
+
+    if (allocator.m_vector.empty()) {
+        printErrorInfo("Executable creation with WS returned success but no blobs were allocated! Result: 0x", ret);
+        return VCL_RESULT_ERROR_UNKNOWN;
+    }
+
+    std::ofstream outFile(blobFileName, std::ios::binary);
+    if (!outFile) {
+        std::cerr << "Cannot open " << blobFileName << ", skip dump!" << std::endl;
+        return VCL_RESULT_ERROR_IO;
+    }
+
+    size_t blobIndex = 0;
+    // A prime number used as a seed for the hash calculation.
+    constexpr std::uint32_t HASH_SEED = 1171117u;
+    std::uint32_t totalResult = HASH_SEED;
+    totalResult = ((totalResult << 7) + totalResult);
+    uint64_t totalBlobSize = 0;
+
+    auto writeToStream = [&](const uint8_t* blobRawPtr, uint64_t blobSize) -> uint64_t {
+        if (blobSize > static_cast<decltype(blobSize)>(std::numeric_limits<std::streamsize>::max())) {
+            std::cerr << "Blob size is too large to be represented on a std::streamsize!" << std::endl;
+            return 0;
+        }
+        outFile.write(reinterpret_cast<const char*>(blobRawPtr), static_cast<std::streamsize>(blobSize));
+
+        if (!outFile) {
+            std::cerr << "Write blob to stream failed. Blob is broken!" << std::endl;
+            return 0;
+        }
+
+        std::uint32_t result = HASH_SEED;
+        for (const uint8_t* it = blobRawPtr; it != blobRawPtr + blobSize; ++it) {
+            result = ((result << 7) + result) + static_cast<uint32_t>(*it);
+        }
+        totalResult += result;
+
+        std::stringstream str;
+        if (blobIndex == 0) {
+            str << "Main blob size " << blobSize << ", hash " << std::hex << result;
+        } else {
+            str << "Init part " << blobIndex << " blob size " << blobSize << ", hash " << std::hex << result;
+        }
+        std::cout << str.str() << std::endl;
+
+        size_t alignedSize = vcl::utils::align_size_to_standard_page_size(blobSize);
+        size_t paddingSize = alignedSize - blobSize;
+        if (paddingSize > 0) {
+            std::vector<char> padding(paddingSize, 0);
+            outFile.write(padding.data(), paddingSize);
+            if (!outFile) {
+                std::cerr << "Write padding to " << blobFileName << " failed, the file is invalid!" << std::endl;
+                return 0;
+            }
+        }
+        return alignedSize;
+    };
+
+    // By convention, first write the main part
+    const auto& mainBlobPtr = allocator.m_vector.back();
+    uint64_t mainBlobSize = writeToStream(mainBlobPtr->data(), mainBlobPtr->size());
+    if (mainBlobSize == 0) {
+        outFile.close();
+        return VCL_RESULT_ERROR_IO;
+    }
+    totalBlobSize += mainBlobSize;
+    blobIndex++;
+
+    // Then the init schedules
+    std::optional<std::vector<uint64_t>> initBlobSizes;
+    if (allocator.m_vector.size() > 1) {
+        initBlobSizes = std::vector<uint64_t>();
+        for (size_t i = 0; i < allocator.m_vector.size() - 1; ++i) {
+            const auto& initBlobPtr = allocator.m_vector.at(i);
+            uint64_t initBlobSize = writeToStream(initBlobPtr->data(), initBlobPtr->size());
+            if (initBlobSize == 0) {
+                outFile.close();
+                return VCL_RESULT_ERROR_IO;
+            }
+            initBlobSizes->push_back(initBlobSize);
+            totalBlobSize += initBlobSize;
+            blobIndex++;
+        }
+    }
+
+    // Append metadata to the blob file
+    std::optional<std::vector<ov::Layout>> inputLayouts = std::vector<ov::Layout>();
+    std::optional<std::vector<ov::Layout>> outputLayouts = std::vector<ov::Layout>();
+    for (const auto& node : model->get_parameters()) {
+        inputLayouts->push_back(node->get_layout());
+    }
+    for (const auto& node : model->get_results()) {
+        outputLayouts->push_back(node->get_layout());
+    }
+
+    // The batch size is not available in this context, using a default value.
+    const std::optional<int64_t> batchSize = std::nullopt;
+
+    vcl::Metadata<vcl::CURRENT_METADATA_VERSION> metadata(totalBlobSize, vcl::CURRENT_OPENVINO_VERSION, initBlobSizes,
+                                                          batchSize, inputLayouts, outputLayouts);
+    metadata.write(outFile);
+
+    std::cout << "The output name: " << blobFileName << std::endl;
+    std::stringstream str;
+    str << "Total blob size (with padding): " << totalBlobSize << ", hash: " << std::hex << totalResult;
+    std::cout << str.str() << std::endl;
+
+    outFile.close();
+
+    return ret;
+}
+
 vcl_result_t simulateVclCompilerAllocator(std::map<std::string, std::string>& buildConfig,
                                           const std::shared_ptr<ov::Model>& model, const char* blobFileName) {
     vcl_result_t ret = VCL_RESULT_SUCCESS;
@@ -289,6 +461,10 @@ vcl_result_t simulateVclCompilerAllocator(std::map<std::string, std::string>& bu
     ret = getVclCompiler(buildConfig, &compiler.handle, &compilerProp, &logHandle);
     if (ret != VCL_RESULT_SUCCESS) {
         return ret;
+    }
+    auto it = buildConfig.find("NPU_WEIGHTLESS_BLOB");
+    if (it != buildConfig.end() && it->second == "YES") {
+        storeWeightlessCacheAttribute(model);
     }
 
     std::cout << "  VCL step: Serialize IR." << std::endl;
@@ -394,7 +570,13 @@ vcl_result_t simulateVclCompilerAllocator(std::map<std::string, std::string>& bu
                                      buildFlags.size()};
 
     /// Get compiled blob
-    ret = saveVclAllocatorBlob(compiler.handle, exeDesc, blobFileName);
+    if (it != buildConfig.end() && it->second == "YES") {
+        std::cout << "  VCL step: Compile Network with WS." << std::endl;
+        ret = saveVclAllocatorBlobWS(compiler.handle, exeDesc, blobFileName, model);
+    } else {
+        std::cout << "  VCL step: Compile Network without WS." << std::endl;
+        ret = saveVclAllocatorBlob(compiler.handle, exeDesc, blobFileName);
+    }
     if (ret != VCL_RESULT_SUCCESS) {
         getLastError(logHandle);
         printErrorInfo("Failed to save Blob! Result: 0x", ret);

@@ -106,6 +106,18 @@ public:
     vpux::NetworkDescriptionView importNetwork(BuildInfo& buildInfo, vpux::BlobAllocator& allocator);
 
     /**
+     * @brief Use VPUX MLIR compiler to create one shot weight-separated blob with user info
+     * @note Blob storage is allocated via given allocator
+     *
+     * @param buildInfo Include the model data, ioInfo, compilation configs
+     * @param allocator Allocator for blob storage allocation
+     * @return std::vector<std::shared_ptr<vpux::NetworkDescriptionView>> Include non-owning
+     * views into blobs and metadatas
+     */
+    std::vector<std::shared_ptr<vpux::NetworkDescriptionView>> importNetworkWSOneShot(BuildInfo& buildInfo,
+                                                                                      vpux::BlobAllocator& allocator);
+
+    /**
      * @brief Check if a model can be supported by current compiler
      *
      * @param buildInfo include the model data, default compilation config

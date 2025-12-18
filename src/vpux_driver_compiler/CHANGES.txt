@@ -1,5 +1,11 @@
 Change Log:
 -----------
+VPUXCompilerL0 7.6.0:
+  - Add new weightless compilation API:
+      vclAllocatedExecutableCreateWSOneShot
+      saveVclAllocatorBlobWS
+  - Update compilerTest to support the new weightless compilation API
+
 VPUXCompilerL0 7.5.0:
   - Added support for the "USE_BASE_MODEL_SERIALIZER" config option. A new deserializer has been implemented,
 one that matches the "no weights copy" serializer. This option can be used to switch between the two implementations.
