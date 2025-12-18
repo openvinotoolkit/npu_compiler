@@ -71,7 +71,7 @@ jobs:
 
       - name: Checkout versions action
         if: ${{ !steps.cache-restore.outputs.cache-hit }}
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           path: ${{ env.NPU_ACTIONS_DIR }}
           sparse-checkout: |
@@ -85,7 +85,7 @@ jobs:
 
       - name: Clone Linux NPU Driver
         if: ${{ !steps.cache-restore.outputs.cache-hit }}
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         timeout-minutes: 15
         with:
           repository: ${{ steps.versions.outputs.npu-linux-driver-repository }}
