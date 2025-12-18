@@ -95,7 +95,7 @@ jobs:
 
       - name: System info
         if: ${{ !steps.cache-restore.outputs.cache-hit }}
-        uses: openvinotoolkit/openvino/.github/actions/system_info@7a975177ff432c687e5619e8fb22e4bf265e48b7 # 2025.4.0
+        uses: openvinotoolkit/openvino/.github/actions/system_info@82bbf0292c5bd490bc25a383e63d6461d3ee05c5 # 2025.4.1
 
       - name: Install system packages
         if: ${{ !steps.cache-restore.outputs.cache-hit }}
