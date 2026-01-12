@@ -9,7 +9,7 @@
 accelerate==1.12.0 \
     --hash=sha256:3e2091cd341423207e2f084a6654b1efcd250dc326f2a37d6dde446e07cabb11 \
     --hash=sha256:70988c352feb481887077d2ab845125024b2a137a5090d6d7a32b57d03a45df6
-    # via -r .github/actions/compile-models/requirements.in
+    # via -r requirements.in
 certifi==2025.4.26 \
     --hash=sha256:0a816057ea3cdefcef70270d2c515e4506bbc954f417fa5ade2021213bb8f0c6 \
     --hash=sha256:30350364dfe371162649852c63336a15c70c6510c2ad5015b21c2345311805f3
@@ -108,10 +108,6 @@ charset-normalizer==3.4.2 \
     --hash=sha256:fcbe676a55d7445b22c10967bceaaf0ee69407fbe0ece4d032b6eb8d4565982a \
     --hash=sha256:fdb20a30fe1175ecabed17cbf7812f7b804b8a315a25f24678bcdf120a90077f
     # via requests
-colorama==0.4.6 \
-    --hash=sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44 \
-    --hash=sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6
-    # via tqdm
 coloredlogs==15.0.1 \
     --hash=sha256:612ee75c546f53e92e70049c9dbfcc18c935a2b9a53b66085ce9ef6a6e5c0934 \
     --hash=sha256:7c991aa71a4577af2f82600d8f8f3a89f936baeaf9b50a9c197da014e5bf16b0
@@ -122,7 +118,7 @@ filelock==3.20.1 \
     --hash=sha256:15d9e9a67306188a44baa72f569d2bfd803076269365fdea0934385da4dc361a \
     --hash=sha256:b8360948b351b80f420878d8516519a2204b07aefcdcfd24912a5d33127f188c
     # via
-    #   -r .github/actions/compile-models/requirements.in
+    #   -r requirements.in
     #   huggingface-hub
     #   torch
     #   transformers
@@ -159,12 +155,14 @@ hf-xet==1.2.0 \
     --hash=sha256:d06fa97c8562fb3ee7a378dd9b51e343bc5bc8190254202c9771029152f5e08c \
     --hash=sha256:e6584a52253f72c9f52f9e549d5895ca7a471608495c4ecaa6cc73dba2b24d69 \
     --hash=sha256:f182f264ed2acd566c514e45da9f2119110e48a87a327ca271027904c70c5832
-    # via -r .github/actions/compile-models/requirements.in
+    # via
+    #   -r requirements.in
+    #   huggingface-hub
 huggingface-hub==0.36.0 \
     --hash=sha256:47b3f0e2539c39bf5cde015d63b72ec49baff67b6931c3d97f3f84532e2b8d25 \
     --hash=sha256:7bcc9ad17d5b3f07b57c78e79d527102d08313caa278a641993acddcb894548d
     # via
-    #   -r .github/actions/compile-models/requirements.in
+    #   -r requirements.in
     #   accelerate
     #   tokenizers
     #   transformers
@@ -352,32 +350,32 @@ numpy==2.2.5 \
     #   onnxruntime-tools
     #   torchvision
     #   transformers
-onnx==1.20.0 \
-    --hash=sha256:00dc8ae2c7b283f79623961f450b5515bd2c4b47a7027e7a1374ba49cef27768 \
-    --hash=sha256:02e0d72ab09a983fce46686b155a5049898558d9f3bc6e8515120d6c40666318 \
-    --hash=sha256:1a93ec69996b4556062d552ed1aa0671978cfd3c17a40bf4c89a1ae169c6a4ad \
-    --hash=sha256:1d3d0308e2c194f4b782f51e78461b567fac8ce6871c0cf5452ede261683cc8f \
-    --hash=sha256:1ecca1f963d69e002c03000f15844f8cac3b6d7b6639a934e73571ee02d59c35 \
-    --hash=sha256:2241c85fdaa25a66565fcd1d327c7bcd8f55165420ebaee1e9563c3b9bf961c9 \
-    --hash=sha256:259b05758d41645f5545c09f887187662b350d40db8d707c33c94a4f398e1733 \
-    --hash=sha256:2d25a9e1fde44bc69988e50e2211f62d6afcd01b0fd6dfd23429fd978a35d32f \
-    --hash=sha256:31efe37d7d1d659091f34ddd6a31780334acf7c624176832db9a0a8ececa8fb5 \
-    --hash=sha256:392ca68b34b97e172d33b507e1e7bfdf2eea96603e6e7ff109895b82ff009dc7 \
-    --hash=sha256:3a6de7dda77926c323b0e5a830dc9c2866ce350c1901229e193be1003a076c25 \
-    --hash=sha256:3e941d0f3edd57e1d63e2562c74aec2803ead5b965e76ccc3d2b2bd4ae0ea054 \
-    --hash=sha256:6930ed7795912c4298ec8642b33c99c51c026a57edf17788b8451fe22d11e674 \
-    --hash=sha256:71177f8fd5c0dd90697bc281f5035f73707bdac83257a5c54d74403a1100ace9 \
-    --hash=sha256:7646e700c0a53770a86d5a9a582999a625a3173c4323635960aec3cba8441c6a \
-    --hash=sha256:7e706470f8b731af6d0347c4f01b8e0e1810855d0c71c467066a5bd7fa21704b \
-    --hash=sha256:9d1a4e02148b2a7a4b82796d0ecdb6e49ba7abd34bb5a9de22af86aad556fb76 \
-    --hash=sha256:afc4cf83ce5d547ebfbb276dae8eb0ec836254a8698d462b4ba5f51e717fd1ae \
-    --hash=sha256:d0bdfd22fe92b87bf98424335ec1191ed79b08cd0f57fe396fab558b83b2c868 \
-    --hash=sha256:d75da05e743eb9a11ff155a775cae5745e71f1cd0ca26402881b8f20e8d6e449 \
-    --hash=sha256:ee46cdc5abd851a007a4be81ee53e0e303cf9a0e46d74231d5d361333a1c9411 \
-    --hash=sha256:f62978ecfb8f320faba6704abd20253a5a79aacc4e5d39a9c061dd63d3b7574f \
-    --hash=sha256:f8424c95491de38ecc280f7d467b298cb0b7cdeb1cd892eb9b4b9541c00a600e
+onnx==1.20.1 \
+    --hash=sha256:0104bb2d4394c179bcea3df7599a45a2932b80f4633840896fcf0d7d8daecea2 \
+    --hash=sha256:0903e6088ed5e8f59ebd381ab2a6e9b2a60b4c898f79aa2fe76bb79cf38a5031 \
+    --hash=sha256:15c815313bbc4b2fdc7e4daeb6e26b6012012adc4d850f4e3b09ed327a7ea92a \
+    --hash=sha256:17483e59082b2ca6cadd2b48fd8dce937e5b2c985ed5583fefc38af928be1826 \
+    --hash=sha256:1d923bb4f0ce1b24c6859222a7e6b2f123e7bfe7623683662805f2e7b9e95af2 \
+    --hash=sha256:1f0371aa67f51917a09cc829ada0f9a79a58f833449e03d748f7f7f53787c43c \
+    --hash=sha256:21d747348b1c8207406fa2f3e12b82f53e0d5bb3958bcd0288bd27d3cb6ebb00 \
+    --hash=sha256:2297f428c51c7fc6d8fad0cf34384284dfeff3f86799f8e83ef905451348ade0 \
+    --hash=sha256:29197b768f5acdd1568ddeb0a376407a2817844f6ac1ef8c8dd2d974c9ab27c3 \
+    --hash=sha256:3fe243e83ad737637af6512708454e720d4b0864def2b28e6b0ee587b80a50be \
+    --hash=sha256:53426e1b458641e7a537e9f176330012ff59d90206cac1c1a9d03cdd73ed3095 \
+    --hash=sha256:564c35a94811979808ab5800d9eb4f3f32c12daedba7e33ed0845f7c61ef2431 \
+    --hash=sha256:63d9cbcab8c96841eadeb7c930e07bfab4dde8081eb76fb68e0dfb222706b81e \
+    --hash=sha256:9336b6b8e6efcf5c490a845f6afd7e041c89a56199aeda384ed7d58fb953b080 \
+    --hash=sha256:9fe7f9a633979d50984b94bda8ceb7807403f59a341d09d19342dc544d0ca1d5 \
+    --hash=sha256:be1e5522200b203b34327b2cf132ddec20ab063469476e1f5b02bb7bd259a489 \
+    --hash=sha256:ca7281f8c576adf396c338cf43fff26faee8d4d2e2577b8e73738f37ceccf945 \
+    --hash=sha256:d78cde72d7ca8356a2d99c5dc0dbf67264254828cae2c5780184486c0cd7b3bf \
+    --hash=sha256:ddc0b7d8b5a94627dc86c533d5e415af94cbfd103019a582669dad1f56d30281 \
+    --hash=sha256:ded16de1df563d51fbc1ad885f2a426f814039d8b5f4feb77febe09c0295ad67 \
+    --hash=sha256:e24e96b48f27e4d6b44cb0b195b367a2665da2d819621eec51903d575fc49d38 \
+    --hash=sha256:e2b0cf797faedfd3b83491dc168ab5f1542511448c65ceb482f20f04420cbf3a \
+    --hash=sha256:eb335d7bcf9abac82a0d6a0fda0363531ae0b22cfd0fc6304bff32ee29905def
     # via
-    #   -r .github/actions/compile-models/requirements.in
+    #   -r requirements.in
     #   onnxruntime-tools
 onnxruntime==1.23.2 \
     --hash=sha256:0be6a37a45e6719db5120e9986fcd30ea205ac8103fd1fb74b6c33348327a0cc \
@@ -402,11 +400,11 @@ onnxruntime==1.23.2 \
     --hash=sha256:bbfd2fca76c855317568c1b36a885ddea2272c13cb0e395002c402f2360429a6 \
     --hash=sha256:da44b99206e77734c5819aa2142c69e64f3b46edc3bd314f6a45a932defc0b3e \
     --hash=sha256:e2b9233c4947907fd1818d0e581c049c41ccc39b2856cc942ff6d26317cee145
-    # via -r .github/actions/compile-models/requirements.in
+    # via -r requirements.in
 onnxruntime-tools==1.7.0 \
     --hash=sha256:1dff888b5c482ac5bc627f12e108445fefcb3d600c43f63633975316fe617ad8 \
     --hash=sha256:6dbdcee49424e066bcd10357c37d51bc422ae26494e3c2f0c1970d534f967f6d
-    # via -r .github/actions/compile-models/requirements.in
+    # via -r requirements.in
 packaging==25.0 \
     --hash=sha256:29572ef2b1f17581046b3a2227d5c611fb25ec70ca1ba8554b24b0e69331a484 \
     --hash=sha256:d443872c98d677bf60f6a1f2f8c1cb748e8fe762d2bf9d3148b5599295b0fc4f
@@ -509,7 +507,7 @@ pillow==12.0.0 \
     --hash=sha256:fa3ed2a29a9e9d2d488b4da81dcb54720ac3104a20bf0bd273f1e4648aff5af9 \
     --hash=sha256:fb3096c30df99fd01c7bf8e544f392103d0795b9f98ba71a8054bcbf56b255f1
     # via
-    #   -r .github/actions/compile-models/requirements.in
+    #   -r requirements.in
     #   torchvision
 protobuf==6.31.1 \
     --hash=sha256:0414e3aa5a5f3ff423828e1e6a6e907d6c65c1d5b7e6e975793d5590bdeecc16 \
@@ -546,10 +544,6 @@ py3nvml==0.2.7 \
     --hash=sha256:09ee1d04598a6e664e24465f804ce3bfe119a6fdb5362df1c168f8aa929fbd73 \
     --hash=sha256:30101170d1f51419c8d21fd8ca6cdc333a552b4f8a945c2fc7d107d77e4220dd
     # via onnxruntime-tools
-pyreadline3==3.5.4 \
-    --hash=sha256:8d57d53039a1c75adba8e50dd3d992b28143480816187ea5efbd5c78e6c885b7 \
-    --hash=sha256:eaf8e6cc3c49bcccf145fc6067ba8643d1df34d604a1ec0eccbf7a18e6d3fae6
-    # via humanfriendly
 pyyaml==6.0.2 \
     --hash=sha256:01179a4a8559ab5de078078f37e5c1a30d76bb88519906844fd7bdea1b7729ff \
     --hash=sha256:0833f8694549e586547b576dcfaba4a6b55b9e96098b36cdc7ebefe667dfed48 \
@@ -708,7 +702,7 @@ requests==2.32.5 \
     --hash=sha256:2462f94637a34fd532264295e186976db0f5d453d1cdd31473c85a6a161affb6 \
     --hash=sha256:dbba0bac56e100853db0ea71b82b4dfd5fe2bf6d3754a8893c3af500cec7d7cf
     # via
-    #   -r .github/actions/compile-models/requirements.in
+    #   -r requirements.in
     #   huggingface-hub
     #   transformers
 safetensors==0.5.3 \
@@ -781,7 +775,7 @@ torch==2.8.0+cpu \
     --hash=sha256:e3c3fce24ebaac954b837d1498e36d484ad0d93e2a1ed5b6b0c55a02ea748fab \
     --hash=sha256:eac8b7ef5c7ca106daec5e829dfa8ca56ca47601db13b402d2608861ad3ab926
     # via
-    #   -r .github/actions/compile-models/requirements.in
+    #   -r requirements.in
     #   accelerate
     #   torchvision
 torchvision==0.23.0+cpu \
@@ -797,18 +791,18 @@ torchvision==0.23.0+cpu \
     --hash=sha256:d72ee52a73ca0a44f7d61729eb9de1b90b67230b71a496ff0d58b4255e6b88a9 \
     --hash=sha256:d83d8075db43b8ca89680bdeb2f100c832e2a3aa61ee42c038b1a146e5e511b6 \
     --hash=sha256:dea90a67d60a5366b0358a0b8d6bf267805278697d6fd950cf0e31139e56d1be
-    # via -r .github/actions/compile-models/requirements.in
+    # via -r requirements.in
 tqdm==4.67.1 \
     --hash=sha256:26445eca388f82e72884e0d580d5464cd801a3ea01e63e5601bdff9ba6a48de2 \
     --hash=sha256:f8aef9c52c08c13a65f30ea34f4e5aac3fd1a34959879d7e59e63027286627f2
     # via
-    #   -r .github/actions/compile-models/requirements.in
+    #   -r requirements.in
     #   huggingface-hub
     #   transformers
 transformers==4.57.3 \
     --hash=sha256:c77d353a4851b1880191603d36acb313411d3577f6e2897814f333841f7003f4 \
     --hash=sha256:df4945029aaddd7c09eec5cad851f30662f8bd1746721b34cc031d70c65afebc
-    # via -r .github/actions/compile-models/requirements.in
+    # via -r requirements.in
 typing-extensions==4.13.2 \
     --hash=sha256:a439e7c04b49fec3e5d3e2beaa21755cadbbdc391694e28ccdd36ca4a1408f8c \
     --hash=sha256:e6c81219bd689f51865d9e372991c540bda33a0379d5573cddb9a3a23f7caaef
@@ -820,7 +814,7 @@ urllib3==2.6.2 \
     --hash=sha256:016f9c98bb7e98085cb2b4b17b87d2c702975664e4f060c6532e64d1c1a5e797 \
     --hash=sha256:ec21cddfe7724fc7cb4ba4bea7aa8e2ef36f607a4bab81aa6ce42a13dc3f03dd
     # via
-    #   -r .github/actions/compile-models/requirements.in
+    #   -r requirements.in
     #   requests
 xmltodict==0.14.2 \
     --hash=sha256:201e7c28bb210e374999d1dde6382923ab0ed1a8a5faeece48ab525b7810a553 \
