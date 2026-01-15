@@ -97,7 +97,8 @@ private:
                                                        mlir::Value bestUpdateBarrier);
     std::optional<GapCandidate> findBestInsertionGapDuringExec(const std::string& kernelName,
                                                                uint64_t targetKernelGroupStartTime,
-                                                               VPURT::TaskConfigVec& allTasks, size_t numClusters);
+                                                               VPURT::TaskConfigVec& allTasks, size_t numClusters,
+                                                               size_t noOfShavesPerCluster);
     std::vector<VPUIP::SwKernelOp> insertPrefetchTasksDuringExec(
             mlir::Operation* funcOp, AddSwKernelInstructionPrefetch::SwKernelPrefetchVec& kernelsToPrefetch,
             VPURT::TaskConfigVec& allTasks);
@@ -117,9 +118,9 @@ private:
     size_t _minimumFreeCyclesForPrefetch = 250000;
     bool _useDummyKernelForInstructionPrefetch = false;
     size_t _dynamicPrefetchTileCounter = 0;
-    // Using Tile 1 as the target for insertion to enable prefetching only when the available tile count is larger
-    // than 1.
-    int64_t _targetInsertTileDuringExec = 1;
+    // Used as the reference tile for analyzing schedule availability (gaps).
+    // Index 1 ensures prefetching is only enabled for multi-tile (>=2) kernels.
+    int64_t _referenceTileForGapFindingDuringExec = 1;
     // The threshold of 50,000 cycles is empirically chosen to ensure there is a sufficient gap
     // to perform instruction prefetching without causing stalls.
     uint64_t _prefetchGapThresholdDuringExec = 50000;
@@ -482,11 +483,13 @@ uint64_t findNextSaturationStart(size_t startIndex, vpux::VPURT::TaskConfigVec& 
 
 std::optional<GapCandidate> AddSwKernelInstructionPrefetch::findBestInsertionGapDuringExec(
         const std::string& kernelName, uint64_t targetKernelGroupStartTime, VPURT::TaskConfigVec& allTasks,
-        size_t saturationThreshold) {
+        size_t numClusters, size_t noOfShavesPerCluster) {
     // <LookaheadGapSize, GapCandidate>
     std::map<uint64_t, GapCandidate, std::greater<uint64_t>> validGaps;
     std::map<uint64_t, size_t> swKernelCountsCache;  // local cache
 
+    // Saturation is defined as the total number of SHAVE cores (clusters * shaves per cluster)
+    const size_t saturationThreshold = numClusters * noOfShavesPerCluster;
     int64_t prevTargetTileTaskIndex = -1;
     uint64_t prevTargetTileTaskStartTime = 0;
 
@@ -500,14 +503,14 @@ std::optional<GapCandidate> AddSwKernelInstructionPrefetch::findBestInsertionGap
 
         bool isTargetTileTask = false;
         if (auto swOp = mlir::dyn_cast<VPUIP::SwKernelOp>(currentTaskConfig.taskOp.getInnerTaskOp())) {
-            isTargetTileTask = (swOp.getTileIndexAttr().getInt() == _targetInsertTileDuringExec);
+            isTargetTileTask = (swOp.getTileIndexAttr().getInt() == _referenceTileForGapFindingDuringExec);
+        }
+        if (!isTargetTileTask) {
+            continue;
         }
 
-        if (prevTargetTileTaskIndex != -1 && isTargetTileTask) {
-            auto& insertionPointTask = allTasks[prevTargetTileTaskIndex];
-            auto insertionPointStartTime = static_cast<uint64_t>(insertionPointTask.cycleStart);
-
-            size_t simultaneousSwKernels = getSwKernelCountAtTime(insertionPointStartTime, allTasks);
+        if (prevTargetTileTaskIndex != -1) {
+            size_t simultaneousSwKernels = getSwKernelCountAtTime(prevTargetTileTaskStartTime, allTasks);
 
             if (simultaneousSwKernels < saturationThreshold) {
                 uint64_t nextSaturationStart = findNextSaturationStart(prevTargetTileTaskIndex, allTasks,
@@ -526,11 +529,8 @@ std::optional<GapCandidate> AddSwKernelInstructionPrefetch::findBestInsertionGap
                 }
             }
         }
-
-        if (isTargetTileTask) {
-            prevTargetTileTaskIndex = static_cast<int64_t>(i);
-            prevTargetTileTaskStartTime = currentTaskStartTime;
-        }
+        prevTargetTileTaskIndex = static_cast<int64_t>(i);
+        prevTargetTileTaskStartTime = currentTaskStartTime;
     }
 
     if (validGaps.empty()) {
@@ -556,8 +556,6 @@ std::vector<VPUIP::SwKernelOp> AddSwKernelInstructionPrefetch::insertPrefetchTas
         std::string kernelName = std::get<0>(kernelInfo);
         size_t firstAppearanceIndex = std::get<2>(kernelInfo);
         auto targetKernelGroupStartTime = static_cast<uint64_t>(allTasks[firstAppearanceIndex].cycleStart);
-        // Saturation is defined as the total number of SHAVE cores (clusters * shaves per cluster)
-        const size_t saturationThreshold = numClusters * noOfShavesPerCluster;
 
         // Finds the best insertion point for prefetch by identifying non-saturated execution windows.
         // Scans for tasks on the target tile to serve as prefetch anchors. A valid "Gap" is the
@@ -568,8 +566,8 @@ std::vector<VPUIP::SwKernelOp> AddSwKernelInstructionPrefetch::insertPrefetchTas
         // 2. Ensure NPU is not saturated at that time.
         // 3. Calculate Gap = (Next Saturation or Target Start) - Insertion Time.
         // 4. Return the candidate with the largest Gap >= _prefetchGapThreshold.
-        auto bestGapOpt =
-                findBestInsertionGapDuringExec(kernelName, targetKernelGroupStartTime, allTasks, saturationThreshold);
+        auto bestGapOpt = findBestInsertionGapDuringExec(kernelName, targetKernelGroupStartTime, allTasks, numClusters,
+                                                         noOfShavesPerCluster);
 
         if (!bestGapOpt.has_value()) {
             _log.trace("Kernel '{0}': No valid gap found.", kernelName);
