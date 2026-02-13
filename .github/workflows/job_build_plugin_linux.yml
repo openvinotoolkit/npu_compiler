@@ -88,7 +88,7 @@ jobs:
       - name: Restore OpenVINO/NPU package from cache
         if: ${{ inputs.build-cache }}
         id: cache-restore
-        uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
         with:
           key: ${{ steps.cache-key.outputs.cache-key }}
           path: ${{ env.OPENVINO_INSTALL_DIR }}
@@ -277,7 +277,7 @@ jobs:
 
       - name: Cache artifacts
         if: ${{ inputs.build-cache && !steps.cache-restore.outputs.cache-hit }}
-        uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+        uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
         with:
           path: ${{ env.OPENVINO_INSTALL_DIR }}
           key: ${{ steps.cache-key.outputs.cache-key }}
