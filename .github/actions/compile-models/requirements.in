@@ -1,7 +1,7 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Core
-transformers==4.57.3
+transformers==4.57.6
 torch==2.8.0+cpu
 torchvision==0.23.0+cpu
 protobuf==6.33.5
