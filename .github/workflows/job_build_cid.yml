@@ -118,7 +118,7 @@ jobs:
           cmake -E make_directory "${CID_PACKAGE_ARTIFACTS_DIR}"
 
       - name: Checkout actions
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           path: ${{ env.NPU_ACTIONS_DIR }}
           sparse-checkout: |
@@ -184,7 +184,7 @@ jobs:
 
       - name: Clone OpenVINO
         if: ${{ !steps.cache-restore.outputs.cache-hit }}
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         timeout-minutes: 15
         with:
           repository: ${{ steps.versions.outputs.openvino-repository }}
@@ -194,7 +194,7 @@ jobs:
 
       - name: Checkout NPU Compiler
         if: ${{ !steps.cache-restore.outputs.cache-hit }}
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           path: ${{ env.NPU_COMPILER_REPO }}
           submodules: true
