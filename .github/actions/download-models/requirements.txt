@@ -113,17 +113,11 @@ click==8.3.0 \
     --hash=sha256:9b9f285302c6e3064f4330c05f05b81945b2a39544279343e6e7c5f27a9baddc \
     --hash=sha256:e7b8232224eba16f4ebe410c25ced9f7875cb5f3263ffc93cc3e8da705e229c4
     # via typer-slim
-colorama==0.4.6 \
-    --hash=sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44 \
-    --hash=sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6
+filelock==3.24.2 \
+    --hash=sha256:667d7dc0b7d1e1064dd5f8f8e80bdac157a6482e8d2e02cd16fd3b6b33bd6556 \
+    --hash=sha256:c22803117490f156e59fafce621f0550a7a853e2bbf4f87f112b11d469b6c81b
     # via
-    #   click
-    #   tqdm
-filelock==3.21.2 \
-    --hash=sha256:cfd218cfccf8b947fce7837da312ec3359d10ef2a47c8602edd59e0bacffb708 \
-    --hash=sha256:d6cd4dbef3e1bb63bc16500fc5aa100f16e405bbff3fb4231711851be50c1560
-    # via
-    #   -r .github/actions/download-models/requirements.in
+    #   -r requirements.in
     #   huggingface-hub
 fsspec==2025.3.2 \
     --hash=sha256:2daf8dc3d1dfa65b6aa37748d112773a7a08416f6c70d96b264c96476ecaf711 \
@@ -157,7 +151,7 @@ hf-xet==1.2.0 \
     --hash=sha256:e6584a52253f72c9f52f9e549d5895ca7a471608495c4ecaa6cc73dba2b24d69 \
     --hash=sha256:f182f264ed2acd566c514e45da9f2119110e48a87a327ca271027904c70c5832
     # via
-    #   -r .github/actions/download-models/requirements.in
+    #   -r requirements.in
     #   huggingface-hub
 httpcore==1.0.9 \
     --hash=sha256:2d400746a40668fc9dec9810239072b40b4484b640a8c38fd654a024c7a1bf55 \
@@ -170,7 +164,7 @@ httpx==0.28.1 \
 huggingface-hub==1.4.1 \
     --hash=sha256:9931d075fb7a79af5abc487106414ec5fba2c0ae86104c0c62fd6cae38873d18 \
     --hash=sha256:b41131ec35e631e7383ab26d6146b8d8972abc8b6309b963b306fbcca87f5ed5
-    # via -r .github/actions/download-models/requirements.in
+    # via -r requirements.in
 idna==3.10 \
     --hash=sha256:12f65c9b470abda6dc35cf8e63cc574b1c52b11df2c86030af0ac09b01b13ea9 \
     --hash=sha256:946d195a0d259cbba61165e88e65941f16e9b36ea6ddb97f00452bae8b1287d3
@@ -240,7 +234,7 @@ pyyaml==6.0.2 \
 requests==2.32.5 \
     --hash=sha256:2462f94637a34fd532264295e186976db0f5d453d1cdd31473c85a6a161affb6 \
     --hash=sha256:dbba0bac56e100853db0ea71b82b4dfd5fe2bf6d3754a8893c3af500cec7d7cf
-    # via -r .github/actions/download-models/requirements.in
+    # via -r requirements.in
 shellingham==1.5.4 \
     --hash=sha256:7ecfff8f2fd72616f7481040475a65b2bf8af90a56c89140852d1120324e8686 \
     --hash=sha256:8dbca0739d487e5bd35ab3ca4b36e11c4078f3a234bfce294b0a0291363404de
@@ -267,5 +261,5 @@ urllib3==2.6.3 \
     --hash=sha256:1b62b6884944a57dbe321509ab94fd4d3b307075e0c2eae991ac71ee15ad38ed \
     --hash=sha256:bf272323e553dfb2e87d9bfd225ca7b0f467b919d7bbd355436d3fd37cb0acd4
     # via
-    #   -r .github/actions/download-models/requirements.in
+    #   -r requirements.in
     #   requests
