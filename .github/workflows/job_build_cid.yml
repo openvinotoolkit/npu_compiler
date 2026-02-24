@@ -287,6 +287,15 @@ jobs:
             -S ${OPENVINO_REPO} \
             -B ${OPENVINO_BUILD_DIR}
 
+      - name: Get versions with build manifest
+        uses: ./npu_actions/.github/actions/versions
+        id: versions-with-manifest
+        if: ${{ !steps.cache-restore.outputs.cache-hit }}
+        with:
+          build-manifest-dir: ${{ env.CID_PACKAGE_ARTIFACTS_DIR }}
+          openvino-repo-path: ${{ env.OPENVINO_REPO }}
+          npu-compiler-repo-path: ${{ env.NPU_COMPILER_REPO }}
+
       - name: CMake build - CiD targets
         if: ${{ !steps.cache-restore.outputs.cache-hit }}
         run: |
@@ -306,7 +315,8 @@ jobs:
             -B "${CID_PACKAGE_ARTIFACTS_DIR}" \
             -D CPACK_COMPONENTS_ALL=CiD \
             -D CPACK_CMAKE_GENERATOR=Ninja \
-            -D CPACK_PACKAGE_FILE_NAME="${{ steps.package-name.outputs.cid-package-base-name }}"
+            -D CPACK_PACKAGE_FILE_NAME="${{ steps.package-name.outputs.cid-package-base-name }}" \
+            -D CPACK_INSTALL_COMMANDS="cp ${CID_PACKAGE_ARTIFACTS_DIR}/build_manifest.json \${CMAKE_INSTALL_PREFIX}/"
 
       - name: CiD Package renaming
         run: |
