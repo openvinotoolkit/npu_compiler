@@ -634,10 +634,7 @@ vcl_result_t BuildInfo::prepareModel(const uint8_t* modelIR, uint64_t modelIRSiz
             throw std::invalid_argument(error_message.str());
         }
 
-#ifdef VPUX_DEVELOPER_BUILD
-        // E#103359: WS is only available in developer builds
         restoreWeightsOffsets(model, logger);
-#endif  // VPUX_DEVELOPER_BUILD
 
         if (enableProfiling) {
             stopWatch.stop();

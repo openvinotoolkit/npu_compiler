@@ -426,30 +426,3 @@ vpux::VPU::SparsitySupport vpux::VPU::NCECompressConvolutionOp::sparsitySupport(
     }
     return VPU::SparsitySupport::SPARSE_OUTPUTS & excludeMode;
 }
-
-mlir::LogicalResult vpux::VPU::NCECompressConvolutionOp::reifyResultShapes(
-        mlir::OpBuilder& builder, mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
-    // Parse attributes
-    const auto strides = parseIntArrayAttr<int64_t>(getStrides());
-
-    const auto padTop = getPad().getTop().getValue().getSExtValue();
-    const auto padBottom = getPad().getBottom().getValue().getSExtValue();
-    const auto padLeft = getPad().getLeft().getValue().getSExtValue();
-    const auto padRight = getPad().getRight().getValue().getSExtValue();
-
-    const auto dataPaddingAbove = SmallVector<int64_t>({padTop, padLeft});
-    const auto dataPaddingBelow = SmallVector<int64_t>({padBottom, padRight});
-
-    const auto rawFilterShape = Shape(parseIntArrayAttr<int64_t>(getRawFilterShape()));
-    SmallVector<int64_t> kernelSize{rawFilterShape[Dims4D::Filter::KY], rawFilterShape[Dims4D::Filter::KX]};
-
-    // Compute output shape using utility
-    auto outShape = reifyConvPoolTensors(builder, getInput(), getOutput(), getFilter(), kernelSize, strides,
-                                         dataPaddingAbove, dataPaddingBelow, getLoc());
-    if (mlir::failed(outShape)) {
-        return outShape;
-    }
-
-    reifiedReturnShapes.emplace_back(std::move(outShape.value()));
-    return mlir::success();
-}

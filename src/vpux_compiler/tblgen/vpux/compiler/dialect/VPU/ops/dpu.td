@@ -425,9 +425,7 @@ def VPU_NCECompressConvolutionOp :
                                                                      "doesLayerFitIntoCMX",
                                                                      "doesLayerChangeOutputAlignmentFitIntoCMX",
                                                                      "getDistributedTypeForOpOperand"]>,
-                DeclareOpInterfaceMethods<VPU_SparseOpInterface>,
-                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<VPU_SparseOpInterface>
 ]
         > {
     let summary = "NCE version of Compressed Convolution layer";

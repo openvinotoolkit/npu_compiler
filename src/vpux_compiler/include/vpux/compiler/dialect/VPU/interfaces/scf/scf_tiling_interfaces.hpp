@@ -502,8 +502,6 @@ public:
 
 class SCFConvOpModel : public SCFTilingConvModelOp<SCFConvOpModel, NCEConvolutionOp> {};
 
-class SCFCompressConvOpModel : public SCFTilingConvModelOp<SCFCompressConvOpModel, NCECompressConvolutionOp> {};
-
 class SCFTilingDepthConvModelOp : public SCFTilingConvModelOp<SCFTilingDepthConvModelOp, NCEDepthConvolutionOp> {
 public:
     SCFTilingInfo backInferSCFTileInfo(mlir::Operation* operation, mlir::OpBuilder& builder,

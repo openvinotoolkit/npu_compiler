@@ -14,7 +14,6 @@ void vpux::VPU::arch40xx::registerSCFTilingOpsInterfaces(mlir::DialectRegistry& 
         VPU::NCEAveragePoolOp::attachInterface<vpux::VPU::SCFAvgPoolOpModel>(*ctx);
         VPU::NCEMaxPoolOp::attachInterface<vpux::VPU::SCFMaxPoolOpModel>(*ctx);
         VPU::NCEConvolutionOp::attachInterface<vpux::VPU::SCFConvOpModel>(*ctx);
-        VPU::NCECompressConvolutionOp::attachInterface<vpux::VPU::SCFCompressConvOpModel>(*ctx);
         VPU::NCEDepthConvolutionOp::attachInterface<vpux::VPU::SCFTilingDepthConvModelOp>(*ctx);
         VPU::NCEPermuteOp::attachInterface<vpux::VPU::SCFTilingPermuteModelOp>(*ctx);
 

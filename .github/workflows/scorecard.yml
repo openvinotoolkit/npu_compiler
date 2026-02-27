@@ -8,7 +8,7 @@ on:
   push:
     branches:
       - develop
-      - 'releases/*'
+      - releases/**
 
 permissions: read-all
 

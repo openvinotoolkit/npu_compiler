@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - develop
-      - 'releases/*'
+      - releases/**
 
 concurrency:
   group: windows-${{ github.event_name }}-${{ github.ref_name }}-2022

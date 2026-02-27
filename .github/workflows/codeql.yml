@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - develop
-      - 'releases/*'
+      - releases/**
   schedule:
     - cron: '24 8 * * 6'
 

@@ -56,7 +56,7 @@ jobs:
   Build:
     name: Build
     runs-on: ${{ inputs.build-runner }}
-    timeout-minutes: 240
+    timeout-minutes: 360
     permissions:
       actions: read
       contents: read

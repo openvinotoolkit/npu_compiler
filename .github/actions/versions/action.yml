@@ -1,6 +1,20 @@
 name: Versions
 description: Parse git versions from config files
 
+inputs:
+  build-manifest-dir:
+    description: 'Directory where build_manifest.json will be created (optional)'
+    required: false
+    default: ''
+  openvino-repo-path:
+    description: 'Path to OpenVINO repository (for TBB version detection)'
+    required: false
+    default: ''
+  npu-compiler-repo-path:
+    description: 'Path to NPU Compiler repository (for LLVM submodule SHA detection)'
+    required: false
+    default: ''
+
 outputs:
   openvino-repository:
     description: 'OpenVINO Repository full name: fork/openvino'
@@ -38,6 +52,15 @@ outputs:
   opencv-sha:
     description: 'OpenCV commit SHA'
     value: ${{ steps.read-ocv-sha.outputs.ocv-sha }}
+  llvm-sha:
+    description: 'LLVM SHA detected in NPU Compiler submodule'
+    value: ${{ steps.get-llvm-sha.outputs.llvm-sha }}
+  tbb-version:
+    description: 'TBB version detected from OpenVINO'
+    value: ${{ steps.get-tbb-version.outputs.tbb-version }}
+  build-manifest-path:
+    description: 'Absolute path to build_manifest.json file'
+    value: ${{ steps.create-build-manifest.outputs.build-manifest-path }}
 
 runs:
   using: 'composite'
@@ -179,3 +202,67 @@ runs:
         echo "OpenCV commit sha = $OCV_SHA"
         echo "ocv-repository=$OCV_ORG/opencv" >> $GITHUB_OUTPUT
         echo "ocv-sha=$OCV_SHA" >> $GITHUB_OUTPUT
+
+    - name: Get LLVM submodule commit sha
+      id: get-llvm-sha
+      shell: bash
+      run: |
+        LLVM_SHA="N/A"
+
+        if [[ -n "${{ inputs.npu-compiler-repo-path }}" ]]; then
+          LLVM_SHA=$(git -C "${{ inputs.npu-compiler-repo-path }}" ls-tree HEAD thirdparty/llvm-project | awk '{print $3}')
+          [[ -z "$LLVM_SHA" ]] && LLVM_SHA="N/A"
+        fi
+
+        echo "LLVM commit sha = $LLVM_SHA"
+        echo "llvm-sha=$LLVM_SHA" >> $GITHUB_OUTPUT
+
+    - name: Get TBB version from OpenVINO
+      id: get-tbb-version
+      shell: bash
+      run: |
+        TBB_VERSION="N/A"
+
+        if [[ -n "${{ inputs.openvino-repo-path }}" ]]; then
+          TBB_VERSION_FILES=$(find "${{ inputs.openvino-repo-path }}/temp" -name "TBBConfigVersion.cmake" 2>/dev/null)
+          
+          if [[ -n "$TBB_VERSION_FILES" ]]; then
+            TBB_VERSION=$(grep -h 'set(PACKAGE_VERSION' $TBB_VERSION_FILES | \
+              grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          fi
+          
+          [[ -z "$TBB_VERSION" ]] && TBB_VERSION="N/A"
+        fi
+
+        echo "TBB version = $TBB_VERSION"
+        echo "tbb-version=$TBB_VERSION" >> $GITHUB_OUTPUT
+
+    - name: Create build manifest
+      id: create-build-manifest
+      if: inputs.build-manifest-dir != ''
+      shell: bash
+      run: |
+        OUTPUT_DIR="${{ inputs.build-manifest-dir }}"
+
+        mkdir -p "$OUTPUT_DIR"
+
+        jq -n \
+          --arg openvino_sha "${{ steps.read-openvino-sha.outputs.openvino-sha }}" \
+          --arg npu_compiler_sha "${{ steps.get-npu-sha.outputs.npu-compiler-sha }}" \
+          --arg llvm_sha "${{ steps.get-llvm-sha.outputs.llvm-sha }}" \
+          --arg tbb_version "${{ steps.get-tbb-version.outputs.tbb-version }}" \
+          --arg opencv_sha "${{ steps.read-ocv-sha.outputs.ocv-sha }}" \
+          --arg omz_sha "${{ steps.read-omz-sha.outputs.omz-sha }}" \
+          '{
+            openvino_sha: $openvino_sha,
+            npu_compiler_sha: $npu_compiler_sha,
+            llvm_sha: $llvm_sha,
+            tbb_version: $tbb_version,
+            opencv_sha: $opencv_sha,
+            omz_sha: $omz_sha            
+          }' > "$OUTPUT_DIR/build_manifest.json"
+        
+        MANIFEST_PATH=$(cd "$OUTPUT_DIR" && pwd)/build_manifest.json
+        echo "Build manifest created at: $MANIFEST_PATH"
+        echo "build-manifest-path=$MANIFEST_PATH" >> $GITHUB_OUTPUT
+        cat "$MANIFEST_PATH"
