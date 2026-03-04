@@ -475,6 +475,24 @@ mlir::LogicalResult UnrollFullyConnected::matchAndRewrite(IE::FullyConnectedOp o
         return mlir::failure();
     }
 
+    // Defense-in-depth: reject FC ops with zero or negative dimensions in
+    // either operand.  Prevents degenerate shapes produced by multi-pass
+    // quantization decomposition from propagating into unrolled sub-FCs.
+    // See openvinotoolkit/openvino#34450.
+    if (lhsShape[Dim(0)] <= 0) {
+        nestedLog.debug("Zero or negative batch dimension at loc: {0}", opLoc);
+        return mlir::failure();
+    }
+    {
+        const auto wShape = getShape(origOp.getWeights());
+        for (auto idx : irange(wShape.size())) {
+            if (wShape[Dim(idx)] <= 0) {
+                nestedLog.debug("Zero or negative weight dimension at loc: {0}", opLoc);
+                return mlir::failure();
+            }
+        }
+    }
+
     const auto rhsChunks = reshapeTo2d(matMulInputs, rewriter);
     // Split left input into the number of chunks:
     const auto lhsChunks = splitLeftInput(origOp.getInput(), numChunks, opLoc, rewriter);
