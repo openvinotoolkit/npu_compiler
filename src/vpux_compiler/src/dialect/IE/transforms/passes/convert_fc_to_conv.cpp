@@ -62,12 +62,30 @@ private:
 mlir::LogicalResult ConvertFCToConvPass::FullyConnectedOpConverter::matchAndRewrite(
         IE::FullyConnectedOp origOp, mlir::PatternRewriter& rewriter) const {
     const auto inputShape = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType()).getShape().raw();
+    const auto weightsShape = mlir::cast<vpux::NDTypeInterface>(origOp.getWeights().getType()).getShape().raw();
+
+    // Defense-in-depth: reject FC ops with degenerate shapes.
+    // The addDynamicallyLegalOp predicate in safeRunOnFunc() already exempts
+    // these from conversion; this guard is belt-and-suspenders for robustness.
+    if (inputShape.size() != 2 || weightsShape.size() != 2) {
+        return mlir::failure();
+    }
+    for (auto dim : inputShape) {
+        if (dim <= 0) {
+            return mlir::failure();
+        }
+    }
+    for (auto dim : weightsShape) {
+        if (dim <= 0) {
+            return mlir::failure();
+        }
+    }
+
     const std::array<int64_t, 4> newInShape = {inputShape[0], inputShape[1], 1, 1};
     const auto inputShapeAttr = getIntArrayAttr(getContext(), newInShape);
     auto newInput =
             rewriter.create<IE::ReshapeOp>(takeOpLoc(origOp, "input_reshape"), origOp.getInput(), inputShapeAttr);
 
-    const auto weightsShape = mlir::cast<vpux::NDTypeInterface>(origOp.getWeights().getType()).getShape().raw();
     const std::array<int64_t, 4> newWeightsShape = {weightsShape[0], weightsShape[1], 1, 1};
     const auto filterShapeAttr = getIntArrayAttr(getContext(), newWeightsShape);
     auto newFilter =
@@ -105,7 +123,26 @@ void ConvertFCToConvPass::safeRunOnFunc() {
     auto& ctx = getContext();
 
     mlir::ConversionTarget target(ctx);
-    target.addIllegalOp<IE::FullyConnectedOp>();
+    // Mark zero-dim / non-rank-2 FC ops as dynamically legal so they survive
+    // the pass untouched.  Per-group INT4 quantization decomposition can
+    // produce FC ops with zero-sized channel dimensions that cannot be reshaped
+    // to 4-D convolution format (see openvinotoolkit/openvino#34450).
+    target.addDynamicallyLegalOp<IE::FullyConnectedOp>([](IE::FullyConnectedOp op) {
+        const auto inShape = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType()).getShape().raw();
+        const auto wShape = mlir::cast<vpux::NDTypeInterface>(op.getWeights().getType()).getShape().raw();
+        if (inShape.size() != 2 || wShape.size() != 2) {
+            return true;
+        }
+        for (auto d : inShape) {
+            if (d <= 0)
+                return true;
+        }
+        for (auto d : wShape) {
+            if (d <= 0)
+                return true;
+        }
+        return false;
+    });
     target.addLegalOp<IE::ConvolutionOp>();
     target.addLegalOp<IE::ReshapeOp>();
 
