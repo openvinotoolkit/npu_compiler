@@ -216,6 +216,22 @@ OPENVINO_EXTERN_C OPENVINO_CORE_EXPORTS void CreateNPUCompiler(std::shared_ptr<v
 static const char* COMPILER_VERSION =
         xstr(DRIVER_COMPILER_ID) "." xstr(VCL_COMPILER_VERSION_MAJOR) "." xstr(VCL_COMPILER_VERSION_MINOR);
 
+// This option is already defined in newer openvino version
+// Defining it here to avoid an openvino update in compiler
+struct ENABLE_WEIGHTLESS final : intel_npu::OptionBase<ENABLE_WEIGHTLESS, bool> {
+    static std::string_view key() {
+        return "ENABLE_WEIGHTLESS";
+    }
+
+    static bool defaultValue() {
+        return false;
+    }
+
+    static intel_npu::OptionMode mode() {
+        return intel_npu::OptionMode::CompileTime;
+    }
+};
+
 namespace VPUXDriverCompiler {
 
 VPUXCompilerL0::VPUXCompilerL0(vcl_compiler_desc_t* compilerDesc, vcl_device_desc_t* deviceDesc, VCLLogger* vclLogger)
@@ -261,13 +277,13 @@ VPUXCompilerL0::VPUXCompilerL0(vcl_compiler_desc_t* compilerDesc, vcl_device_des
         _options->add<intel_npu::ENABLE_STRIDES_FOR>();
     }
 
-#ifdef VPUX_DEVELOPER_BUILD
-    // E#103359: WS is only available in developer builds
+    _options->add<ENABLE_WEIGHTLESS>();
+    // WEIGHTLESS_BLOB is equivalent with ENABLE_WEIGHTLESS
+    // Accepting both to facilitate the transition to ENABLE_WEIGHTLESS
     _options->add<intel_npu::WEIGHTLESS_BLOB>();
     _options->add<intel_npu::SEPARATE_WEIGHTS_VERSION>();
     _options->add<intel_npu::WS_COMPILE_CALL_NUMBER>();
     _options->add<intel_npu::CACHE_MODE>();
-#endif  // VPUX_DEVELOPER_BUILD
 
     // Create compiler instance with the default config
     // COMPILER_TYPE DRIVER is assumed
@@ -318,7 +334,10 @@ std::pair<VPUXExecutableL0*, vcl_result_t> VPUXCompilerL0::importNetwork(BuildIn
 
         // Isolate the MLIR thread to safely destroy MLIR thread_local objects before CiD unload
         auto network = std::make_shared<const NetworkDescription>(run_in_worker_thread_sync([&] {
-            if (buildInfo.parsedConfig.get<intel_npu::WEIGHTLESS_BLOB>()) {
+            // WEIGHTLESS_BLOB is equivalent with ENABLE_WEIGHTLESS
+            // Accepting both to facilitate the transition to ENABLE_WEIGHTLESS
+            if (buildInfo.parsedConfig.get<ENABLE_WEIGHTLESS>() ||
+                buildInfo.parsedConfig.get<intel_npu::WEIGHTLESS_BLOB>()) {
                 return _compiler->compileWsIterative(model, buildInfo.parsedConfig,
                                                      buildInfo.parsedConfig.get<intel_npu::WS_COMPILE_CALL_NUMBER>());
             }
@@ -359,7 +378,10 @@ NetworkDescriptionView VPUXCompilerL0::importNetwork(BuildInfo& buildInfo, BlobA
 
     // Isolate the MLIR thread to safely destroy MLIR thread_local objects before CiD unload
     return run_in_worker_thread_sync([&] {
-        if (buildInfo.parsedConfig.get<intel_npu::WEIGHTLESS_BLOB>()) {
+        // WEIGHTLESS_BLOB is equivalent with ENABLE_WEIGHTLESS
+        // Accepting both to facilitate the transition to ENABLE_WEIGHTLESS
+        if (buildInfo.parsedConfig.get<ENABLE_WEIGHTLESS>() ||
+            buildInfo.parsedConfig.get<intel_npu::WEIGHTLESS_BLOB>()) {
             return _compiler->compileWsIterative(model, buildInfo.parsedConfig,
                                                  buildInfo.parsedConfig.get<intel_npu::WS_COMPILE_CALL_NUMBER>(),
                                                  allocator);
