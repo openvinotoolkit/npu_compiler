@@ -169,6 +169,10 @@ public:
     bool hasScale() const;
     bool hasShift() const;
     bool isKVcachedPattern() const;
+    // Returns true when the WD-chain's last op has exactly one use and that use is a GatherOp with i4/ui4 weights.
+    // The Gather accesses only a small subset of rows at inference time, so dequantizing the full table offline is
+    // wasteful. The WD chain is instead routed to DynamicDequantize so that dequantization happens after Gather.
+    bool isI4ConsumedByGather() const;
 
     mlir::Type getInputElemType() const;
     mlir::Type getLowPrecisionElemType() const;

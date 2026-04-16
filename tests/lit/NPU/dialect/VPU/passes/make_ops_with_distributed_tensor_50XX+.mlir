@@ -861,7 +861,7 @@ config.Resources 3 of @NCE at 1.700000e+03 MHz
 // CHECK-LABEL:   @RoPEAssignedSplitOverKernelSameK
 // CHECK-SAME:    [[INPUT0:%.+]]: tensor<1x32x1x64xf16>, [[INPUT1:%.+]]: tensor<1x32x1x64xf16>, [[INPUT2:%.+]]: tensor<1x32x1x64xf16>
 func.func @RoPEAssignedSplitOverKernelSameK(%arg0: tensor<1x32x1x64xf16>, %arg1: tensor<1x32x1x64xf16>, %arg2: tensor<1x32x1x64xf16>) -> tensor<1x32x1x64xf16> {
-    %0 = VPU.RoPE(%arg0, %arg1, %arg2) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>}
+  %0 = VPU.RoPE(%arg0, %arg1, %arg2) {mode = #IE.rope_mode<SPLIT_HALF>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>}
       : tensor<1x32x1x64xf16>, tensor<1x32x1x64xf16>, tensor<1x32x1x64xf16> -> tensor<1x32x1x64xf16>
     return %0 : tensor<1x32x1x64xf16>
 
@@ -889,7 +889,7 @@ func.func @RoPEAssignedSplitOverKernelSameK(%arg0: tensor<1x32x1x64xf16>, %arg1:
 // CHECK-SAME{LITERAL}:    memory_shapes = [[1, 11, 1, 64], [1, 11, 1, 64], [1, 10, 1, 64]],
 // CHECK-SAME{LITERAL}:    memory_offsets = [[0, 0, 0, 0], [0, 11, 0, 0], [0, 22, 0, 0]]}>
 
-// CHECK:     [[ROPE:%.+]] = VPU.RoPE([[INPUT]], [[COS]], [[SIN]])
+// CHECK:     [[ROPE:%.+]] = VPU.RoPE([[INPUT]], [[COS]], [[SIN]]) {mode = #IE.rope_mode<SPLIT_HALF>}
 // CHECK-SAME:   -> !VPU.DistributedTensor<1x32x1x64xf16, #NCHW, @CMX_NN,
 // CHECK-SAME:            {mode = "SEGMENTED", num_tiles = [1, 3, 1, 1], num_clusters = 3 : i64
 // CHECK-SAME{LITERAL}:    compute_shapes = [[1, 11, 1, 64], [1, 11, 1, 64], [1, 10, 1, 64]],
@@ -910,7 +910,7 @@ config.Resources 3 of @NCE at 1.700000e+03 MHz
 // CHECK-LABEL:   @RoPEAssignedSplitOverKernelDiffK
 // CHECK-SAME:    [[INPUT0:%.+]]: tensor<1x32x1x64xf16>, [[INPUT1:%.+]]: tensor<1x1x1x64xf16>, [[INPUT2:%.+]]: tensor<1x1x1x64xf16>
 func.func @RoPEAssignedSplitOverKernelDiffK(%arg0: tensor<1x32x1x64xf16>, %arg1: tensor<1x1x1x64xf16>, %arg2: tensor<1x1x1x64xf16>) -> tensor<1x32x1x64xf16> {
-    %0 = VPU.RoPE(%arg0, %arg1, %arg2) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>}
+  %0 = VPU.RoPE(%arg0, %arg1, %arg2) {mode = #IE.rope_mode<SPLIT_HALF>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>}
       : tensor<1x32x1x64xf16>, tensor<1x1x1x64xf16>, tensor<1x1x1x64xf16> -> tensor<1x32x1x64xf16>
     return %0 : tensor<1x32x1x64xf16>
 
@@ -938,7 +938,7 @@ func.func @RoPEAssignedSplitOverKernelDiffK(%arg0: tensor<1x32x1x64xf16>, %arg1:
 // CHECK-SAME{LITERAL}:    memory_shapes = [[1, 1, 1, 64], [1, 1, 1, 64], [1, 1, 1, 64]],
 // CHECK-SAME{LITERAL}:    memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
 
-// CHECK:     [[ROPE:%.+]] = VPU.RoPE([[INPUT]], [[COS]], [[SIN]])
+// CHECK:     [[ROPE:%.+]] = VPU.RoPE([[INPUT]], [[COS]], [[SIN]]) {mode = #IE.rope_mode<SPLIT_HALF>}
 // CHECK-SAME:   -> !VPU.DistributedTensor<1x32x1x64xf16, #NCHW, @CMX_NN,
 // CHECK-SAME:            {mode = "SEGMENTED", num_tiles = [1, 3, 1, 1], num_clusters = 3 : i64
 // CHECK-SAME{LITERAL}:    compute_shapes = [[1, 11, 1, 64], [1, 11, 1, 64], [1, 10, 1, 64]],
@@ -959,7 +959,7 @@ config.Resources 3 of @NCE at 1.700000e+03 MHz
 // CHECK-LABEL:   @RoPEAssignedSplitOverHeightSameH
 // CHECK-SAME:    [[INPUT0:%.+]]: tensor<1x32x64x64xf16>, [[INPUT1:%.+]]: tensor<1x1x64x64xf16>, [[INPUT2:%.+]]: tensor<1x1x64x64xf16>
 func.func @RoPEAssignedSplitOverHeightSameH(%arg0: tensor<1x32x64x64xf16>, %arg1: tensor<1x1x64x64xf16>, %arg2: tensor<1x1x64x64xf16>) -> tensor<1x32x64x64xf16> {
-    %0 = VPU.RoPE(%arg0, %arg1, %arg2) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>}
+  %0 = VPU.RoPE(%arg0, %arg1, %arg2) {mode = #IE.rope_mode<SPLIT_HALF>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>}
       : tensor<1x32x64x64xf16>, tensor<1x1x64x64xf16>, tensor<1x1x64x64xf16> -> tensor<1x32x64x64xf16>
     return %0 : tensor<1x32x64x64xf16>
 
@@ -987,7 +987,7 @@ func.func @RoPEAssignedSplitOverHeightSameH(%arg0: tensor<1x32x64x64xf16>, %arg1
 // CHECK-SAME{LITERAL}:    memory_shapes = [[1, 1, 22, 64], [1, 1, 21, 64], [1, 1, 21, 64]],
 // CHECK-SAME{LITERAL}:    memory_offsets = [[0, 0, 0, 0], [0, 0, 22, 0], [0, 0, 43, 0]]}>
 
-// CHECK:     [[ROPE:%.+]] = VPU.RoPE([[INPUT]], [[COS]], [[SIN]])
+// CHECK:     [[ROPE:%.+]] = VPU.RoPE([[INPUT]], [[COS]], [[SIN]]) {mode = #IE.rope_mode<SPLIT_HALF>}
 // CHECK-SAME:   -> !VPU.DistributedTensor<1x32x64x64xf16, #NCHW, @CMX_NN,
 // CHECK-SAME:            {mode = "SEGMENTED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64
 // CHECK-SAME{LITERAL}:    compute_shapes = [[1, 32, 22, 64], [1, 32, 21, 64], [1, 32, 21, 64]],
@@ -1008,7 +1008,7 @@ config.Resources 3 of @NCE at 1.700000e+03 MHz
 // CHECK-LABEL:   @RoPEAssignedSplitOverHeightDiffH
 // CHECK-SAME:    [[INPUT0:%.+]]: tensor<1x32x64x64xf16>, [[INPUT1:%.+]]: tensor<1x32x1x64xf16>, [[INPUT2:%.+]]: tensor<1x32x1x64xf16>
 func.func @RoPEAssignedSplitOverHeightDiffH(%arg0: tensor<1x32x64x64xf16>, %arg1: tensor<1x32x1x64xf16>, %arg2: tensor<1x32x1x64xf16>) -> tensor<1x32x64x64xf16> {
-    %0 = VPU.RoPE(%arg0, %arg1, %arg2) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>}
+  %0 = VPU.RoPE(%arg0, %arg1, %arg2) {mode = #IE.rope_mode<SPLIT_HALF>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>}
       : tensor<1x32x64x64xf16>, tensor<1x32x1x64xf16>, tensor<1x32x1x64xf16> -> tensor<1x32x64x64xf16>
     return %0 : tensor<1x32x64x64xf16>
 
@@ -1036,7 +1036,7 @@ func.func @RoPEAssignedSplitOverHeightDiffH(%arg0: tensor<1x32x64x64xf16>, %arg1
 // CHECK-SAME{LITERAL}:    memory_shapes = [[1, 32, 1, 64], [1, 32, 1, 64], [1, 32, 1, 64]],
 // CHECK-SAME{LITERAL}:    memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
 
-// CHECK:     [[ROPE:%.+]] = VPU.RoPE([[INPUT]], [[COS]], [[SIN]])
+// CHECK:     [[ROPE:%.+]] = VPU.RoPE([[INPUT]], [[COS]], [[SIN]]) {mode = #IE.rope_mode<SPLIT_HALF>}
 // CHECK-SAME:   -> !VPU.DistributedTensor<1x32x64x64xf16, #NCHW, @CMX_NN,
 // CHECK-SAME:            {mode = "SEGMENTED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64
 // CHECK-SAME{LITERAL}:    compute_shapes = [[1, 32, 22, 64], [1, 32, 21, 64], [1, 32, 21, 64]],

@@ -180,12 +180,17 @@ void vpux::VPU::SDPAOp::adjustAttrs(const TilingInfo& /*inputTiling*/, const Til
 }
 
 mlir::FailureOr<OutputTiling> vpux::VPU::SDPAOp::getTilingStrategy(TilingMode tilingMode, Logger log) {
+    return vpux::getSWLayerTilingStrategy(getOperation(), tilingMode, log);
+}
+
+SmallVector<int64_t> vpux::VPU::SDPAOp::getMaxNumTiles() {
     const auto op = getOperation();
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(getOutput().getType());
     const auto outputRank = outputType.getShape().size();
     SmallVector<int64_t> maxNumTiles;
     maxNumTiles = getMaxNumTilesWithAxesExclusion(op, /*axis:*/ {checked_cast<int64_t>(outputRank - 1)});
-    return vpux::getSWLayerTilingStrategy(op, tilingMode, log, maxNumTiles);
+
+    return vpux::getMaxNumTiles(op, false, false, maxNumTiles);
 }
 
 SmallVector<mlir::OpOperand*> VPU::SDPAOp::getAuxiliaryBuffers() {

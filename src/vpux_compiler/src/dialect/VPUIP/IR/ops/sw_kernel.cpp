@@ -2401,11 +2401,20 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 VPUX_THROW_UNLESS(iType.getRank() <= 4, "Supporting only 3D and 4D input, got {0}", iType.getRank());
 
                 mlir::MLIRContext* ctx = origOp->getContext();
-                const auto isInterleaved = static_cast<int64_t>(op.getIsInterleavedAttr() != nullptr);
-                const auto isInterleavedAttr = getIntAttr(ctx, isInterleaved);
-                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{isInterleavedAttr},
-                                         {isInterleaved ? "rope_ilv" : "rope"},
-                                         {isInterleaved ? "rope_ilv.cpp" : "rope.cpp"}};
+                const auto mode = static_cast<int64_t>(op.getModeAttr().getValue());
+                const auto modeAttr = getIntAttr(ctx, mode);
+                const auto modeValue = op.getModeAttr().getValue();
+                if (modeValue == IE::RoPEMode::INTERLEAVED) {
+                    return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{modeAttr}, {"rope_ilv"}, {"rope_ilv.cpp"}};
+                }
+
+                if (modeValue == IE::RoPEMode::PAIRWISE) {
+                    return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{modeAttr},
+                                             {"rope_pairwise"},
+                                             {"rope_pairwise.cpp"}};
+                }
+
+                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{modeAttr}, {"rope"}, {"rope.cpp"}};
             })
             .Case<VPU::DynamicDataMaskOp>([&](VPU::DynamicDataMaskOp) {
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{},

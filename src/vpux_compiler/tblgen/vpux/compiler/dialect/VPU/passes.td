@@ -1588,9 +1588,9 @@ def EnsureNCEOpsSizeRequirements : PassBase<"ensure-nce-ops-size-requirements", 
             "Skip ops where the weights are dequantized via an explicit operation before strategy is assigned"
         >,
         Option<
-            "skipNonConvOC", "skip-non-conv-oc",
+            "skipOC", "skip-oc",
             "bool", "false",
-            "Flag to skip checking the output channel of non-convolution op"
+            "Flag to skip checking the output channel of all ops"
         >
     ];
 

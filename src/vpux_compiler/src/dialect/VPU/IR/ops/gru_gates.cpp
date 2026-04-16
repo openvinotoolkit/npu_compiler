@@ -69,13 +69,18 @@ void vpux::VPU::GRUGatesOp::adjustAttrs(const TilingInfo& /*inputTiling*/, const
 }
 
 mlir::FailureOr<OutputTiling> vpux::VPU::GRUGatesOp::getTilingStrategy(TilingMode tilingMode, Logger log) {
+    return vpux::getSWLayerTilingStrategy(getOperation(), tilingMode, log);
+}
+
+SmallVector<int64_t> vpux::VPU::GRUGatesOp::getMaxNumTiles() {
+    auto op = getOperation();
     SmallVector<int64_t> maxNumTiles;
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(getResult().getType());
     const auto outputRank = outputType.getShape().size();
     SmallVector<int64_t> axes{checked_cast<int64_t>(outputRank - 1)};
-    maxNumTiles = getMaxNumTilesWithAxesExclusion(this->getOperation(), axes);
+    maxNumTiles = getMaxNumTilesWithAxesExclusion(op, axes);
 
-    return vpux::getSWLayerTilingStrategy(this->getOperation(), tilingMode, log, maxNumTiles);
+    return vpux::getMaxNumTiles(op, false, false, maxNumTiles);
 }
 
 //

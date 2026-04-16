@@ -521,8 +521,8 @@ std::unique_ptr<mlir::Pass> createVerticalFusionOutliningPass(const TilingOption
                                                               Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createUnrollUnusedVerticalFusionRegionPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createEnsureNCEOpsSizeRequirementsPass(
-        bool enableOutputEnsurance = true, bool enableDequantWeightEnsuranceBeforeStrategy = true,
-        bool skipNonConvOC = false, Logger log = Logger::global());
+        bool enableOutputEnsurance = true, bool enableDequantWeightEnsuranceBeforeStrategy = true, bool skipOC = false,
+        Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvolutionSplitOverInputChannelPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createFuseClampPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createFuseConvertPass(Logger log = Logger::global());

@@ -1433,3 +1433,62 @@ func.func @DynamicDequantantizeWithGather(%input: tensor<184320x2880x!qElemType>
 
   // CHECK: return [[DYN_DEQUANT]] : tensor<4x5760x2880xf16>
 }
+
+// -----
+
+// WD chain whose last op feeds a single GatherOp with i4 weights (isI4ConsumedByGather()).
+// ConsolidateWeightsDequantization routes through dynamicMatchAndRewrite even though the scale is
+// static. This produces a unit-scale QuantizeCastOp and a DynamicDequantizeOp with the scale
+// passed as a value input, avoiding a per-axis quant type that encodes all vocab-size scales —
+// which would be invalidated when swap-operation-with-gather later hoists Gather before QuantizeCast.
+
+// CHECK: !qElemType = !quant.uniform<i4:f32, 1.000000e+00>
+// CHECK-LABEL: @EmbeddingInt4ToDynamicDequantizeConstWeights
+// CHECK-SAME:      [[INDICES:%.+]]: tensor<3xsi32>
+// CHECK-SAME: -> tensor<3x4xf32>
+func.func @EmbeddingInt4ToDynamicDequantizeConstWeights(%indices: tensor<3xsi32>) -> tensor<3x4xf32> {
+  // int4 embedding table: 8 vocab rows, 4 hidden dims
+  %cst_wt = const.Declare tensor<8x4xf32> = dense<1> : tensor<8x4xsi4>,
+      [#const.ConvertElemType<si8>, #const.CastElemType<f32>]
+  // Per-row scale — multi-axis (8x1 != 1x1), so getSingleDim() fails in staticMatchAndRewrite
+  %cst_scale = const.Declare tensor<8x1xf32> = dense<3.921568e-3> : tensor<8x1xf32>
+  // Splat multiplier after Gather — confirms Gather output is an activation
+  %cst_splat = const.Declare tensor<1x1xf32> = dense<2.0> : tensor<1x1xf32>
+
+  // WD chain
+  %mul_wd = IE.Multiply(%cst_wt, %cst_scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+      : tensor<8x4xf32>, tensor<8x1xf32> -> tensor<8x4xf32>
+
+  // Token lookup
+  %gather = IE.Gather(%mul_wd, %indices) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64}
+      : tensor<8x4xf32>, tensor<3xsi32> -> tensor<3x4xf32>
+
+  // Post-embedding scale (splat -> DepthwiseConv later)
+  %mul_out = IE.Multiply(%gather, %cst_splat) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+      : tensor<3x4xf32>, tensor<1x1xf32> -> tensor<3x4xf32>
+
+  return %mul_out : tensor<3x4xf32>
+
+  // The WD chain (cst_wt + mul_wd) must be replaced by DynamicDequantize.
+  // The QuantizeCast is folded into the const transformation chain.
+  // Gather and splat Multiply must be updated to use the DynamicDequantize output.
+
+  // CHECK-NOT: IE.FakeQuantize
+  // CHECK-NOT: IE.QuantizeCast
+
+  // CHECK-DAG: [[SPLAT:%.+]]   = const.Declare tensor<1x1xf32>
+  // CHECK-DAG: [[SCALE:%.+]]   = const.Declare tensor<8x1xf32>
+  // CHECK-DAG: [[WT_QTYPE:%.+]] = const.Declare tensor<8x4x!qElemType>
+
+  // CHECK: [[DYN_DEQUANT:%.+]] = IE.DynamicDequantize([[WT_QTYPE]], [[SCALE]]) {dstElemType = f32}
+  // CHECK-SAME: tensor<8x4x!qElemType>, tensor<8x1xf32> -> tensor<8x4xf32>
+
+  // CHECK: [[GATHER:%.+]] = IE.Gather([[DYN_DEQUANT]], [[INDICES]])
+  // CHECK-SAME: {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64}
+  // CHECK-SAME: tensor<8x4xf32>, tensor<3xsi32> -> tensor<3x4xf32>
+
+  // CHECK: [[MUL_OUT:%.+]] = IE.Multiply([[GATHER]], [[SPLAT]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+  // CHECK-SAME: tensor<3x4xf32>, tensor<1x1xf32> -> tensor<3x4xf32>
+
+  // CHECK: return [[MUL_OUT]]
+}

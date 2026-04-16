@@ -537,18 +537,22 @@ DistributionMode vpux::VPU::getSWInputTensorDistributionMode(VPU::RoPEOp op, VPU
     auto cOperand = operandOrigShape[Dims4D::Act::C];
     auto cIn = inputOrigShape[Dims4D::Act::C];
     auto isSameChannelsSinCos = cOperand == cIn && isInputSinOrCosTensor;
+    auto isSingleChannelSinCos = cOperand == 1 && isInputSinOrCosTensor;
 
     auto hOperand = operandOrigShape[Dims4D::Act::H];
     auto hIn = inputOrigShape[Dims4D::Act::H];
     auto isSameHeightSinCos = hOperand == hIn && isInputSinOrCosTensor;
+    auto isSingleHeightSinCos = hOperand == 1 && isInputSinOrCosTensor;
 
     switch (strategy) {
     case VPU::MultiClusterStrategy::Clustering:
         return DistributionMode::DUPLICATED;
     case VPU::MultiClusterStrategy::SplitOverHeight:
-        return isInputTensor || isSameHeightSinCos ? DistributionMode::SEGMENTED : DistributionMode::DUPLICATED;
+        return isInputTensor || (isSameHeightSinCos && !isSingleHeightSinCos) ? DistributionMode::SEGMENTED
+                                                                              : DistributionMode::DUPLICATED;
     case VPU::MultiClusterStrategy::SplitOverKernel:
-        return isInputTensor || isSameChannelsSinCos ? DistributionMode::SEGMENTED : DistributionMode::DUPLICATED;
+        return isInputTensor || (isSameChannelsSinCos && !isSingleChannelSinCos) ? DistributionMode::SEGMENTED
+                                                                                 : DistributionMode::DUPLICATED;
     default:
         VPUX_THROW("{0} is an invalid multi-cluster strategy, unable to determine the distribution mode for the "
                    "activation tensor",

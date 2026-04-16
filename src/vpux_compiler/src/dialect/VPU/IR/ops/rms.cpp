@@ -104,10 +104,13 @@ void vpux::VPU::RMSOp::adjustAttrs(const TilingInfo& /*inputTiling*/, const Tile
 }
 
 mlir::FailureOr<OutputTiling> vpux::VPU::RMSOp::getTilingStrategy(TilingMode tilingMode, Logger log) {
-    const auto op = getOperation();
+    return vpux::getSWLayerTilingStrategy(getOperation(), tilingMode, log);
+}
+
+SmallVector<int64_t> vpux::VPU::RMSOp::getMaxNumTiles() {
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(getOutput().getType());
     const auto outputRank = outputType.getShape().size();
-    SmallVector<int64_t> maxNumTiles;
-    maxNumTiles = getMaxNumTilesWithAxesExclusion(op, /*axis:*/ {checked_cast<int64_t>(outputRank - 1)});
-    return vpux::getSWLayerTilingStrategy(op, tilingMode, log, maxNumTiles);
+    auto maxNumTilesPerDim =
+            getMaxNumTilesWithAxesExclusion(getOperation(), /*axes:*/ {checked_cast<int64_t>(outputRank - 1)});
+    return vpux::getMaxNumTiles(getOperation(), false, false, maxNumTilesPerDim);
 }

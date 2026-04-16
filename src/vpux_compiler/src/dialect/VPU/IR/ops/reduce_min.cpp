@@ -73,6 +73,10 @@ void vpux::VPU::ReduceMinOp::adjustAttrs(const TilingInfo& /*inputTiling*/, cons
 }
 
 mlir::FailureOr<OutputTiling> vpux::VPU::ReduceMinOp::getTilingStrategy(TilingMode tilingMode, Logger log) {
+    return vpux::getSWLayerTilingStrategy(getOperation(), tilingMode, log);
+}
+
+SmallVector<int64_t> vpux::VPU::ReduceMinOp::getMaxNumTiles() {
     const auto op = getOperation();
     const auto keepDims = getKeepDims();
     SmallVector<int64_t> maxNumTiles;
@@ -86,5 +90,5 @@ mlir::FailureOr<OutputTiling> vpux::VPU::ReduceMinOp::getTilingStrategy(TilingMo
         maxNumTiles = to_small_vector(outputShape);
     }
 
-    return vpux::getSWLayerTilingStrategy(op, tilingMode, log, maxNumTiles);
+    return vpux::getMaxNumTiles(op, false, false, maxNumTiles);
 }

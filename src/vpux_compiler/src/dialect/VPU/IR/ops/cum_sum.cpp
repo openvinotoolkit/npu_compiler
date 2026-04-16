@@ -39,6 +39,10 @@ void vpux::VPU::CumSumOp::adjustAttrs(const TilingInfo& /*inputTiling*/, const T
 }
 
 mlir::FailureOr<OutputTiling> vpux::VPU::CumSumOp::getTilingStrategy(TilingMode tilingMode, Logger log) {
+    return getSWLayerTilingStrategy(getOperation(), tilingMode, log);
+}
+
+SmallVector<int64_t> vpux::VPU::CumSumOp::getMaxNumTiles() {
     const auto op = getOperation();
     int64_t axisValue = 0;
 
@@ -49,8 +53,9 @@ mlir::FailureOr<OutputTiling> vpux::VPU::CumSumOp::getTilingStrategy(TilingMode 
     SmallVector<int64_t> axes{axisValue};
     SmallVector<int64_t> maxNumTiles = getMaxNumTilesWithAxesExclusion(op, axes);
 
-    return getSWLayerTilingStrategy(op, tilingMode, log, maxNumTiles);
+    return vpux::getMaxNumTiles(op, false, false, maxNumTiles);
 }
+
 //
 // ClusteredOpInterface
 //

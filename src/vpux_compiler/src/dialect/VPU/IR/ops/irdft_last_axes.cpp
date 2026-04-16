@@ -66,9 +66,13 @@ void vpux::VPU::IRDFTLastAxisOp::adjustAttrs(const TilingInfo& /*inputTiling*/, 
 }
 
 mlir::FailureOr<OutputTiling> vpux::VPU::IRDFTLastAxisOp::getTilingStrategy(TilingMode tilingMode, Logger log) {
+    return getSWLayerTilingStrategy(getOperation(), tilingMode, log);
+}
+
+SmallVector<int64_t> vpux::VPU::IRDFTLastAxisOp::getMaxNumTiles() {
     auto op = getOperation();
     // eliminate axes from possible tiling dims
     SmallVector<int64_t> axes = parseIntArrayAttr<int64_t>(getAxesAttr());
 
-    return getSWLayerTilingStrategy(op, tilingMode, log, getMaxNumTilesWithAxesExclusion(op, axes));
+    return vpux::getMaxNumTiles(op, false, false, getMaxNumTilesWithAxesExclusion(op, axes));
 }

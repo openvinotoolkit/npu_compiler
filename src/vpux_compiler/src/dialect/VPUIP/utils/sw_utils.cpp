@@ -829,26 +829,37 @@ InputTiling backInferRoPESwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const v
     // The Cosine and Sine operations offer flexibility in channel configuration:
     // - Channels: You can choose to match the input's number of channels or set it to 1
     // - Height: Unlike channels, the height for Cosine and Sine operations can differ from the input height
+    // - Width: For PAIRWISE mode, cos/sin have half the width of the input
     if (cosTile.shape[Dim(1)] > 1) {
-        if (cosTile.shape[Dim(2)] != inTile.shape[Dim(2)]) {
+        if (cosTile.shape[Dim(2)] != inTile.shape[Dim(2)] || cosTile.shape[Dim(3)] != inTile.shape[Dim(3)]) {
             cosTile.shape[Dim(1)] = inTile.shape[Dim(1)];
             sinTile.shape[Dim(1)] = inTile.shape[Dim(1)];
             sinTile.offsets[Dim(1)] = inTile.offsets[Dim(1)];
             cosTile.offsets[Dim(1)] = inTile.offsets[Dim(1)];
+            sinTile.axis[Dim(1)] = inTile.axis[Dim(1)];
+            cosTile.axis[Dim(1)] = inTile.axis[Dim(1)];
         } else {
             cosTile = inTile;
             sinTile = inTile;
         }
     } else {
-        cosTile.shape[Dim(2)] = inTile.shape[Dim(2)];
-        sinTile.shape[Dim(2)] = inTile.shape[Dim(2)];
-        sinTile.offsets[Dim(2)] = inTile.offsets[Dim(2)];
-        cosTile.offsets[Dim(2)] = inTile.offsets[Dim(2)];
+        if (cosTile.shape[Dim(2)] > 1) {
+            cosTile.shape[Dim(2)] = inTile.shape[Dim(2)];
+            sinTile.shape[Dim(2)] = inTile.shape[Dim(2)];
+            sinTile.offsets[Dim(2)] = inTile.offsets[Dim(2)];
+            cosTile.offsets[Dim(2)] = inTile.offsets[Dim(2)];
+            sinTile.axis[Dim(2)] = inTile.axis[Dim(2)];
+            cosTile.axis[Dim(2)] = inTile.axis[Dim(2)];
+        }
 
-        cosTile.shape[Dim(0)] = inTile.shape[Dim(0)];
-        sinTile.shape[Dim(0)] = inTile.shape[Dim(0)];
-        sinTile.offsets[Dim(0)] = inTile.offsets[Dim(0)];
-        cosTile.offsets[Dim(0)] = inTile.offsets[Dim(0)];
+        if (cosTile.shape[Dim(0)] > 1) {
+            cosTile.shape[Dim(0)] = inTile.shape[Dim(0)];
+            sinTile.shape[Dim(0)] = inTile.shape[Dim(0)];
+            sinTile.offsets[Dim(0)] = inTile.offsets[Dim(0)];
+            cosTile.offsets[Dim(0)] = inTile.offsets[Dim(0)];
+            sinTile.axis[Dim(0)] = inTile.axis[Dim(0)];
+            cosTile.axis[Dim(0)] = inTile.axis[Dim(0)];
+        }
     }
 
     return TilingInfo{{std::move(inTile), std::move(cosTile), std::move(sinTile)}};
@@ -2018,7 +2029,7 @@ InputTiling backInferSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const Small
         return backInferGatherElementsSwKernelInputTile(swKernelOp, outputTile, log);
     } else if (kernelEntryName == "rms_norm") {
         return backInferRMSSwKernelInputTile(swKernelOp, outputTile, log);
-    } else if (kernelEntryName == "rope") {
+    } else if (kernelEntryName == "rope" || kernelEntryName == "rope_ilv" || kernelEntryName == "rope_pairwise") {
         return backInferRoPESwKernelInputTile(swKernelOp, outputTile, log);
     } else if (kernelEntryName == "sdpa") {
         return backInferSDPASwKernelInputTile(swKernelOp, outputTile, log);
@@ -2257,7 +2268,7 @@ SmallVector<vpux::NDTypeInterface> getSwKernelTiledTypes(VPUIP::SwKernelOp swKer
         }
 
         return {inputType, outputType};
-    } else if (kernelEntryName == "rope") {
+    } else if (kernelEntryName == "rope" || kernelEntryName == "rope_ilv" || kernelEntryName == "rope_pairwise") {
         const auto inputType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getOperand(0).getType());
         const auto cosType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getOperand(1).getType());
         const auto sinType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getOperand(2).getType());

@@ -91,7 +91,7 @@ int64_t getTilingLimit(Dim axis, VFConfig& config, bool multiDimTiling) {
         auto limit = getMaxNumTiles(curOp)[curAxis.ind()];
         if (curAxis.ind() >= Dims4D::Act::getSpatialDim(0).ind()) {
             limit = multiDimTiling ? divUp(limit, (MINIMUM_LENGTH_TILING * MINIMUM_LENGTH_TILING))
-                                   : limit / MINIMUM_LENGTH_TILING;
+                                   : std::max(limit / MINIMUM_LENGTH_TILING, int64_t(1));
         } else if (curAxis.ind() == Dims4D::Act::C.ind() && multiDimTiling) {
             limit = divUp(limit, (MINIMUM_LENGTH_TILING * MINIMUM_LENGTH_TILING));
         }

@@ -120,6 +120,12 @@ public:
             _log.trace("Can't create FakeQuantize with dynamic scale");
             return mlir::failure();
         }
+        // Constant WD chains feeding a Gather are routed to DynamicDequantize.
+        // The Gather accesses a small subset of rows, so offline dequantization wastes blob size.
+        if (wdInfo.isI4ConsumedByGather()) {
+            _log.trace("WD chain feeds a Gather op with i4/ui4 weights; deferring to DynamicDequantize path.");
+            return mlir::failure();
+        }
         if (!wdInfo.isKVcachedPattern() && IE::getTrueElemType(origOp).isInteger(2)) {
             // Force to use DynamicDequantize for u2 WaC groupwise prefill model
             _log.trace("Got u2 weights-as-constant groupwise prefill pattern.");

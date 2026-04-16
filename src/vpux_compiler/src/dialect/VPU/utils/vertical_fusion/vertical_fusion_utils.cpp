@@ -183,7 +183,7 @@ int64_t vpux::VPU::getTilingLimit(Dim axis, ArrayRef<mlir::Operation*> operation
             if (tilingOnHW) {
                 limit = divUp(limit, (MINIMUM_LENGTH_TILING * MINIMUM_LENGTH_TILING));
             } else {
-                limit = limit / MINIMUM_LENGTH_TILING;
+                limit = std::max(limit / MINIMUM_LENGTH_TILING, int64_t(1));
             }
         }
         limit = std::min(limit, VPU::NCEInvariant::VPU_DIMENSION_LIMIT / MINIMUM_LENGTH_TILING);

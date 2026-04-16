@@ -39,12 +39,16 @@ void vpux::VPU::ReverseOp::adjustAttrs(const TilingInfo& /*inputTiling*/, const 
 }
 
 mlir::FailureOr<OutputTiling> vpux::VPU::ReverseOp::getTilingStrategy(TilingMode tilingMode, Logger log) {
+    return getSWLayerTilingStrategy(getOperation(), tilingMode, log);
+}
+
+SmallVector<int64_t> vpux::VPU::ReverseOp::getMaxNumTiles() {
     const auto op = getOperation();
 
     SmallVector<int64_t> axes = parseIntArrayAttr<int64_t>(getAxisValueAttr());
     SmallVector<int64_t> maxNumTiles = getMaxNumTilesWithAxesExclusion(op, axes);
 
-    return getSWLayerTilingStrategy(op, tilingMode, log, maxNumTiles);
+    return vpux::getMaxNumTiles(op, false, false, maxNumTiles);
 }
 
 // Return a list with all dims that can be tiled, meaning the dims that are not in 'axes' list.

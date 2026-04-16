@@ -211,7 +211,7 @@ def VPU_DFTOp :
         VPU_LayerOp<
             "DFT",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMaxNumTiles"]>
             ]
         > {
     let summary = "InferenceEngine DFT layer";
@@ -253,7 +253,7 @@ def VPU_IDFTOp :
         VPU_LayerOp<
             "IDFT",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMaxNumTiles"]>
             ]
         > {
     let summary = "InferenceEngine IDFT layer";
@@ -296,7 +296,7 @@ def VPU_RDFTUncutOp :
         VPU_LayerOp<
             "RDFTUncut",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMaxNumTiles"]>
             ]
         > {
     let summary = "RDFTUncut VPU layer";
@@ -323,7 +323,7 @@ def VPU_IRDFTLastAxisOp :
         VPU_LayerOp<
             "IRDFTLastAxis",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMaxNumTiles"]>
             ]
         > {
     let summary = "IRDFTLastAxis VPU layer";
@@ -465,7 +465,7 @@ def VPU_SDPAOp :
             "SDPA",
             [
                 AttrSizedOperandSegments,
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMaxNumTiles"]>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
                 DeclareOpInterfaceMethods<VPU_AuxiliaryBufferOpInterface>
@@ -565,7 +565,7 @@ def VPU_RoPEOp :
         VPU_LayerOp<
             "RoPE",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMaxNumTiles"]>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
             ]
@@ -576,7 +576,7 @@ def VPU_RoPEOp :
         AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$input,
         AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$input_cos,
         AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$input_sin,
-        UnitAttr:$is_interleaved,
+        IE_RoPEModeAttr:$mode,
 
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
@@ -596,7 +596,7 @@ def VPU_RoPEOp :
             "::mlir::Value":$input,
             "::mlir::Value":$input_cos,
             "::mlir::Value":$input_sin,
-            "::mlir::UnitAttr":$is_interleaved
+            "IE::RoPEModeAttr":$mode
         )>
     ];
 

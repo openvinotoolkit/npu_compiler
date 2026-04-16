@@ -761,7 +761,7 @@ def IE_RoPEOp :
         RankedTensorOf<[F16, F32, F64]>:$input_cos,
         RankedTensorOf<[F16, F32, F64]>:$input_sin,
 
-        UnitAttr:$is_interleaved
+        IE_RoPEModeAttr:$mode
      );
 
     let results = (outs

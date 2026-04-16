@@ -442,7 +442,7 @@ bool isTopKOpTileAtHighestDim(VPUIP::SwKernelOp swKernelOp) {
 bool isOpTileOverWidthDim(VPUIP::SwKernelOp swKernelOp) {
     auto kernelEntryName = getSwKernelEntryName(swKernelOp);
     VPUX_THROW_UNLESS(kernelEntryName == "rms_norm" || kernelEntryName == "rope" || kernelEntryName == "rope_ilv" ||
-                              kernelEntryName == "sdpa",
+                              kernelEntryName == "rope_pairwise" || kernelEntryName == "sdpa",
                       "This function was designed for RMSNorm, RoPE or SDPA operators");
 
     const auto outTileDimVal = getSwKernelTileDim(swKernelOp);

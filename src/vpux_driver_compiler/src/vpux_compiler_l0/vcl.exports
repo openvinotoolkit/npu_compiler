@@ -7,7 +7,7 @@
 {
   global:
       vcl*;
-      CreateNPUCompiler;
+      CreateNPUCompiler*;
   local:
       *;
 };

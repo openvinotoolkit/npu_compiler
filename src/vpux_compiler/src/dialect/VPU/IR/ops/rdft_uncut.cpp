@@ -63,6 +63,10 @@ void vpux::VPU::RDFTUncutOp::adjustAttrs(const TilingInfo& /*inputTiling*/, cons
 }
 
 mlir::FailureOr<OutputTiling> vpux::VPU::RDFTUncutOp::getTilingStrategy(TilingMode tilingMode, Logger log) {
+    return getSWLayerTilingStrategy(getOperation(), tilingMode, log);
+}
+
+SmallVector<int64_t> vpux::VPU::RDFTUncutOp::getMaxNumTiles() {
     auto op = getOperation();
     // eliminate axes from possible tiling dims
     auto axes = parseIntArrayAttr<int64_t>(getAxesAttr());
@@ -70,5 +74,6 @@ mlir::FailureOr<OutputTiling> vpux::VPU::RDFTUncutOp::getTilingStrategy(TilingMo
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType());
     const auto outputShape = outputType.getShape();
     axes.push_back(outputShape.size() - 1);
-    return getSWLayerTilingStrategy(op, tilingMode, log, getMaxNumTilesWithAxesExclusion(op, axes));
+
+    return vpux::getMaxNumTiles(op, false, false, getMaxNumTilesWithAxesExclusion(op, axes));
 }

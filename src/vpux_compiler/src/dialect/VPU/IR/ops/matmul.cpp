@@ -180,6 +180,10 @@ void vpux::VPU::MatMulOp::adjustAttrs(const TilingInfo& /*inputTiling*/, const T
 }
 
 mlir::FailureOr<OutputTiling> vpux::VPU::MatMulOp::getTilingStrategy(TilingMode tilingMode, Logger log) {
+    return vpux::getSWLayerTilingStrategy(getOperation(), tilingMode, std::move(log));
+}
+
+SmallVector<int64_t> vpux::VPU::MatMulOp::getMaxNumTiles() {
     auto op = this->getOperation();
     SmallVector<int64_t> maxNumTiles;
 
@@ -189,7 +193,7 @@ mlir::FailureOr<OutputTiling> vpux::VPU::MatMulOp::getTilingStrategy(TilingMode 
     SmallVector<int64_t> axes{checked_cast<int64_t>(outputRank - 2), checked_cast<int64_t>(outputRank - 1)};
     maxNumTiles = getMaxNumTilesWithAxesExclusion(op, axes);
 
-    return vpux::getSWLayerTilingStrategy(op, tilingMode, std::move(log), maxNumTiles);
+    return vpux::getMaxNumTiles(op, false, false, maxNumTiles);
 }
 
 //

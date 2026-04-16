@@ -2286,8 +2286,8 @@ def createRoPEOp :
 
 def RewriteRoPE :
         Pat<
-            (IE_RoPEOp $input, $input_cos, $input_sin, $is_interleaved),
-            (createRoPEOp $input, $input_cos, $input_sin, $is_interleaved)
+            (IE_RoPEOp $input, $input_cos, $input_sin, $mode),
+            (createRoPEOp $input, $input_cos, $input_sin, $mode)
         >;
 
 //

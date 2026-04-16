@@ -16,7 +16,7 @@ def VPU_ReduceL1Op :
         VPU_LayerOp<
             "ReduceL1",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMaxNumTiles"]>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
@@ -59,7 +59,7 @@ def VPU_ReduceL2Op :
         VPU_LayerOp<
             "ReduceL2",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMaxNumTiles"]>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
@@ -102,7 +102,7 @@ def VPU_ReduceLogicalAndOp :
         VPU_LayerOp<
             "ReduceLogicalAnd",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMaxNumTiles"]>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
@@ -145,7 +145,7 @@ def VPU_ReduceLogicalOrOp :
         VPU_LayerOp<
             "ReduceLogicalOr",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMaxNumTiles"]>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
@@ -188,7 +188,7 @@ def VPU_ReduceMaxOp :
         VPU_LayerOp<
             "ReduceMax",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMaxNumTiles"]>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
@@ -231,7 +231,7 @@ def VPU_ReduceMeanOp :
         VPU_LayerOp<
             "ReduceMean",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMaxNumTiles"]>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
@@ -274,7 +274,7 @@ def VPU_ReduceMinOp :
         VPU_LayerOp<
             "ReduceMin",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMaxNumTiles"]>,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
             ]
         > {
@@ -299,7 +299,7 @@ def VPU_ReduceProdOp :
         VPU_LayerOp<
             "ReduceProd",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMaxNumTiles"]>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
@@ -342,7 +342,7 @@ def VPU_ReduceSumOp :
         VPU_LayerOp<
             "ReduceSum",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMaxNumTiles"]>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
@@ -384,7 +384,7 @@ def VPU_ReduceSquareOp :
         VPU_LayerOp<
             "ReduceSquare",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMaxNumTiles"]>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>

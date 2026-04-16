@@ -88,13 +88,18 @@ void vpux::VPU::LSTMGatesOp::adjustAttrs(const TilingInfo& /*inputTiling*/, cons
 }
 
 mlir::FailureOr<OutputTiling> vpux::VPU::LSTMGatesOp::getTilingStrategy(TilingMode tilingMode, Logger log) {
+    return vpux::getSWLayerTilingStrategy(getOperation(), tilingMode, log);
+}
+
+SmallVector<int64_t> vpux::VPU::LSTMGatesOp::getMaxNumTiles() {
+    auto op = getOperation();
     SmallVector<int64_t> maxNumTiles;
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(getResult(0).getType());
     const auto outputRank = outputType.getShape().size();
     SmallVector<int64_t> axes{checked_cast<int64_t>(outputRank - 1)};
-    maxNumTiles = getMaxNumTilesWithAxesExclusion(this->getOperation(), axes);
+    maxNumTiles = getMaxNumTilesWithAxesExclusion(op, axes);
 
-    return vpux::getSWLayerTilingStrategy(this->getOperation(), tilingMode, log, maxNumTiles);
+    return vpux::getMaxNumTiles(op, false, false, maxNumTiles);
 }
 
 //

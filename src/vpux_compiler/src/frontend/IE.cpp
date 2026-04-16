@@ -3475,14 +3475,12 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     static_assert(std::is_same<std::decay<decltype(*origNode)>::type, ov::op::internal::RoPE>::value,
                   "opset operation mismatch");
     const auto inputs = getInputs(origNode);
-    const auto& ropeConfig = origNode->get_config();
-    const bool isInterleaved = ropeConfig.is_interleaved;
 
     VPUX_THROW_UNLESS(inputs.size() == 3, "nGraph RoPE node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    const auto interleavedAttr = isInterleaved ? mlir::UnitAttr::get(_ctx) : nullptr;
-    auto op = builder.create<IE::RoPEOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], interleavedAttr);
+    const auto modeAttr = importRoPEMode(origNode->get_config());
+    auto op = builder.create<IE::RoPEOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], modeAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -5016,6 +5014,17 @@ IE::OneHotModeAttr NGraphImporter::importOneHotMode(const ov::op::v16::OneHot::N
         VPUX_THROW("Unknown OneHotModeAttr");
     }
     return attr;
+}
+
+IE::RoPEModeAttr NGraphImporter::importRoPEMode(const ov::op::internal::RoPE::Config& cfg) {
+    if (cfg.is_interleaved) {
+        return IE::RoPEModeAttr::get(_ctx, IE::RoPEMode::INTERLEAVED);
+    }
+    const bool isPairwise = cfg.cos_sin_ndims > 0 && cfg.rotary_ndims == 2 * cfg.cos_sin_ndims;
+    if (isPairwise) {
+        return IE::RoPEModeAttr::get(_ctx, IE::RoPEMode::PAIRWISE);
+    }
+    return IE::RoPEModeAttr::get(_ctx, IE::RoPEMode::SPLIT_HALF);
 }
 
 IE::DetectionOutputCodeTypeAttr NGraphImporter::importDetectionOutputCodeType(const std::string& codeType) {

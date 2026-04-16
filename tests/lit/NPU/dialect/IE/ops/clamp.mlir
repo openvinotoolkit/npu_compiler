@@ -84,24 +84,36 @@ func.func @ConvertClampMinAttrToFP16(%arg0: tensor<1x30x30x30xf16>) -> tensor<1x
 
 // -----
 
-// CHECK-LABEL: @ConvertClampMinMaxAttrToFP16Max
+// CHECK-LABEL: @NotConvertClampMinMaxAttrToFP16Max
 // CHECK-SAME:      [[INPUT:%.+]]: tensor<1x1024x1xf32>
-func.func @ConvertClampMinMaxAttrToFP16Max(%arg0: tensor<1x1024x1xf32>) -> tensor<1x1024x1xf32> {
-    %0 = IE.Clamp(%arg0) {max = 8500000.00 : f64, min = 8454144.00 : f64} : tensor<1x1024x1xf32> -> tensor<1x1024x1xf32>
+func.func @NotConvertClampMinMaxAttrToFP16Max(%arg0: tensor<1x1024x1xf32>) -> tensor<1x1024x1xf32> {
+    %0 = IE.Clamp(%arg0) {max = 8500000.00 : f64, min = 8454140.00 : f64} : tensor<1x1024x1xf32> -> tensor<1x1024x1xf32>
     return %0 : tensor<1x1024x1xf32>
 
-    // CHECK:       [[CLAMP:%.+]] = IE.Clamp([[INPUT]]) {max = 6.550400e+04 : f64, min = 6.550400e+04 : f64} : tensor<1x1024x1xf32> -> tensor<1x1024x1xf32>
+    // CHECK:       [[CLAMP:%.+]] = IE.Clamp([[INPUT]]) {max = 8.500000e+06 : f64, min = 8.454140e+06 : f64} : tensor<1x1024x1xf32> -> tensor<1x1024x1xf32>
     // CHECK:       return [[CLAMP]]
 }
 
 // -----
 
-// CHECK-LABEL: @ConvertClampMinMaxAttrToFP16Lowest
+// CHECK-LABEL: @NotConvertClampMinMaxAttrToFP16Lowest
 // CHECK-SAME:      [[INPUT:%.+]]: tensor<1x1024x1xf32>
-func.func @ConvertClampMinMaxAttrToFP16Lowest(%arg0: tensor<1x1024x1xf32>) -> tensor<1x1024x1xf32> {
-    %0 = IE.Clamp(%arg0) {max = -8454144.00 : f64, min = -8500000.00 : f64} : tensor<1x1024x1xf32> -> tensor<1x1024x1xf32>
+func.func @NotConvertClampMinMaxAttrToFP16Lowest(%arg0: tensor<1x1024x1xf32>) -> tensor<1x1024x1xf32> {
+    %0 = IE.Clamp(%arg0) {max = -8454140.00 : f64, min = -8500000.00 : f64} : tensor<1x1024x1xf32> -> tensor<1x1024x1xf32>
     return %0 : tensor<1x1024x1xf32>
 
-    // CHECK:       [[CLAMP:%.+]] = IE.Clamp([[INPUT]]) {max = -6.550400e+04 : f64, min = -6.550400e+04 : f64} : tensor<1x1024x1xf32> -> tensor<1x1024x1xf32>
+    // CHECK:       [[CLAMP:%.+]] = IE.Clamp([[INPUT]]) {max = -8.454140e+06 : f64, min = -8.500000e+06 : f64} : tensor<1x1024x1xf32> -> tensor<1x1024x1xf32>
+    // CHECK:       return [[CLAMP]]
+}
+
+// -----
+
+// CHECK-LABEL: @NotConvertClampMinMaxAttrSI32
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x1xsi32>
+func.func @NotConvertClampMinMaxAttrSI32(%arg0: tensor<1x1xsi32>) -> tensor<1x1xsi32> {
+    %0 = IE.Clamp(%arg0) {max = 1.001590e+05 : f64, min = 0.000000e+00 : f64} : tensor<1x1xsi32> -> tensor<1x1xsi32>
+    return %0 : tensor<1x1xsi32>
+
+    // CHECK:       [[CLAMP:%.+]] = IE.Clamp([[INPUT]]) {max = 1.001590e+05 : f64, min = 0.000000e+00 : f64} : tensor<1x1xsi32> -> tensor<1x1xsi32>
     // CHECK:       return [[CLAMP]]
 }

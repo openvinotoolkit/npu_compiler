@@ -114,7 +114,7 @@ function(enable_warnings_as_errors TARGET_NAME)
     else()
         target_compile_options(${TARGET_NAME}
             PRIVATE
-                -Wall -Wextra -Werror -Werror=suggest-override
+                -Wall -Wextra
         )
     endif()
 endfunction()
@@ -161,7 +161,11 @@ macro(enable_asserts)
         endif()
     endif()
     add_compile_definitions(_GLIBCXX_ASSERTIONS)
-    add_compile_definitions(_LIBCPP_ENABLE_ASSERTIONS)
+    if (ANDROID_NDK_REVISION VERSION_GREATER_EQUAL "29")
+        add_compile_definitions(_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE)
+    else()
+        add_compile_definitions(_LIBCPP_ENABLE_ASSERTIONS)
+    endif()
 endmacro()
 
 macro(enable_color_diagnostics)

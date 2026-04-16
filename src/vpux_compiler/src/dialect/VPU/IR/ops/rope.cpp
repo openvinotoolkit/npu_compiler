@@ -37,8 +37,8 @@ bool vpux::VPU::RoPEOp::checkStrategyCompatibility(VPU::MultiClusterStrategy str
 }
 
 void vpux::VPU::RoPEOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState, ::mlir::Value input,
-                              ::mlir::Value input_cos, ::mlir::Value input_sin, ::mlir::UnitAttr is_interleaved) {
-    build(odsBuilder, odsState, input, input_cos, input_sin, is_interleaved, {});
+                              ::mlir::Value input_cos, ::mlir::Value input_sin, IE::RoPEModeAttr mode) {
+    build(odsBuilder, odsState, input, input_cos, input_sin, mode, {});
 }
 
 vpux::VPU::DistributionInfo vpux::VPU::RoPEOp::getExplicitDistributionInfoAttr(
@@ -91,8 +91,10 @@ InputTiling vpux::VPU::RoPEOp::backInferTileInfo(const vpux::TileInfo& outputTil
     // The Cosine and Sine operations offer flexibility in channel configuration:
     // - Channels: You can choose to match the input's number of channels or set it to 1
     // - Height: Unlike channels, the height for Cosine and Sine operations can differ from the input height
+    // - Width: For PAIRWISE mode, cos/sin have half the width of the input
     if (cosTile.shape[Dim(Dims4D::Act::C)] > 1) {
-        if (cosTile.shape[Dim(Dims4D::Act::H)] != inTile.shape[Dim(Dims4D::Act::H)]) {
+        if (cosTile.shape[Dim(Dims4D::Act::H)] != inTile.shape[Dim(Dims4D::Act::H)] ||
+            cosTile.shape[Dim(Dims4D::Act::W)] != inTile.shape[Dim(Dims4D::Act::W)]) {
             transferTilingInfo(sinTile, inTile, {Dim(Dims4D::Act::C)});
             transferTilingInfo(cosTile, inTile, {Dim(Dims4D::Act::C)});
         } else {
@@ -100,8 +102,15 @@ InputTiling vpux::VPU::RoPEOp::backInferTileInfo(const vpux::TileInfo& outputTil
             sinTile = inTile;
         }
     } else {
-        transferTilingInfo(sinTile, inTile, {Dim(Dims4D::Act::H), Dim(Dims4D::Act::N)});
-        transferTilingInfo(cosTile, inTile, {Dim(Dims4D::Act::H), Dim(Dims4D::Act::N)});
+        // Keep trig height/batch dimensions unchanged when they are 1
+        if (cosTile.shape[Dim(Dims4D::Act::H)] > 1) {
+            transferTilingInfo(sinTile, inTile, {Dim(Dims4D::Act::H)});
+            transferTilingInfo(cosTile, inTile, {Dim(Dims4D::Act::H)});
+        }
+        if (cosTile.shape[Dim(Dims4D::Act::N)] > 1) {
+            transferTilingInfo(sinTile, inTile, {Dim(Dims4D::Act::N)});
+            transferTilingInfo(cosTile, inTile, {Dim(Dims4D::Act::N)});
+        }
     }
 
     return TilingInfo{{std::move(inTile), std::move(cosTile), std::move(sinTile)}};
@@ -112,10 +121,15 @@ void vpux::VPU::RoPEOp::adjustAttrs(const TilingInfo& /*inputTiling*/, const Til
 }
 
 mlir::FailureOr<OutputTiling> vpux::VPU::RoPEOp::getTilingStrategy(TilingMode tilingMode, Logger log) {
+    return vpux::getSWLayerTilingStrategy(getOperation(), tilingMode, log);
+}
+
+SmallVector<int64_t> vpux::VPU::RoPEOp::getMaxNumTiles() {
     const auto op = getOperation();
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(getOutput().getType());
     const auto outputRank = outputType.getShape().size();
     SmallVector<int64_t> maxNumTiles;
     maxNumTiles = getMaxNumTilesWithAxesExclusion(op, /*axis:*/ {checked_cast<int64_t>(outputRank - 1)});
-    return vpux::getSWLayerTilingStrategy(op, tilingMode, log, maxNumTiles);
+
+    return vpux::getMaxNumTiles(op, false, false, maxNumTiles);
 }

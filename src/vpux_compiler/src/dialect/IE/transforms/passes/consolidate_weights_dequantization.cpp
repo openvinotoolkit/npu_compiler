@@ -282,6 +282,11 @@ mlir::LogicalResult WeightsDequantizeRewriter<ConcreteOp>::dynamicMatchAndRewrit
         } else if (auto gatherOp = mlir::dyn_cast_or_null<IE::GatherOp>(scale.getDefiningOp())) {
             rewriter.setInsertionPointAfter(gatherOp);
         }
+    } else {
+        // Static embedding table pattern: scale is a constant; use it as a value input so that
+        // a unit-scale QuantizeCastOp is produced. This allows swap-operation-with-gather to
+        // hoist Gather before QuantizeCast without breaking the per-axis type dimension constraint.
+        scale = wdInfo.getStaticScale();
     }
 
     auto inputValue = rewriter.create<IE::QuantizeCastOp>(loc, IE::getTrueInputValue(origOp, rewriter), quantElemType)
@@ -328,21 +333,29 @@ mlir::LogicalResult WeightsDequantizeRewriter<ConcreteOp>::matchAndRewrite(Concr
     }
 
     auto quantParamsAsInput = wdInfo.getDynamicScale() != nullptr || wdInfo.getDynamicShift() != nullptr;
-    // ...then split depending on dynamic/static quantization.
-    if (quantParamsAsInput) {
+
+    // Static constants with a per-row embedding pattern are routed through dynamicMatchAndRewrite
+    // to avoid baking per-row scales into a per-axis QuantizeCastOp type that
+    // swap-operation-with-gather would later invalidate.
+    const bool feedsGather =
+            !quantParamsAsInput && mlir::isa<Const::DeclareOp>(origOp) && wdInfo.isI4ConsumedByGather();
+
+    if (!quantParamsAsInput && !feedsGather) {
+        return staticMatchAndRewrite(wdInfo, origOp, rewriter);
+    }
+
+    // Dynamic scale path — reject static constants unless the WD chain feeds a Gather.
+    if (!feedsGather) {
         if (mlir::isa<Const::DeclareOp>(origOp)) {
             _log.trace("Match failed: Got dynamic scale but weights is a constant.");
             return mlir::failure();
         }
-
         if (!_enableWeightsDynamicDequantization) {
             _log.trace("Match failed: Got dynamic scale but dynamic dequantization is disabled.");
             return mlir::failure();
         }
-        return dynamicMatchAndRewrite(wdInfo, origOp, rewriter);
-    } else {
-        return staticMatchAndRewrite(wdInfo, origOp, rewriter);
     }
+    return dynamicMatchAndRewrite(wdInfo, origOp, rewriter);
 }
 
 }  // namespace vpux

@@ -14,15 +14,19 @@
 #include "openvino/op/reshape.hpp"
 #include "openvino/op/split.hpp"
 #include "openvino/op/strided_slice.hpp"
+#include "openvino/op/subtract.hpp"
 
 using namespace ov::test::utils;
 using namespace ov::test;
 namespace ov::test {
+
+enum RoPEModes { SPLIT_HALF, INTERLEAVED, PAIRWISE };
+
 struct RoPEParams {
     ov::Shape inputShape;
     ov::Shape inputCosShape;
     ov::Shape inputSinShape;
-    bool isInterleaved;
+    RoPEModes mode;
 };
 
 class FuseRoPETestCommon : public VpuOv2LayerTest, public testing::WithParamInterface<RoPEParams> {
@@ -36,7 +40,7 @@ public:
         result << "IS={" << params.inputShape << "}" << sep;
         result << "ICosS={" << params.inputCosShape << "}" << sep;
         result << "ISin={" << params.inputSinShape << "}" << sep;
-        result << "IsInterleaved=" << (params.isInterleaved ? "true" : "false");
+        result << "Mode=" << params.mode;
 
         return result.str();
     }
@@ -144,13 +148,54 @@ public:
         return multiply3;
     }
 
+    // Pattern: x0 = Slice(input, 0:W/2), x1 = Slice(input, W/2:W)
+    //          first = x0 * cos - x1 * sin
+    //          second = x0 * sin + x1 * cos
+    //          concat(first, second)
+    std::shared_ptr<ov::Node> buildRoPEPairwiseFusion(const ov::Output<ov::Node>& input,
+                                                      const ov::Output<ov::Node>& inputCos,
+                                                      const ov::Output<ov::Node>& inputSin,
+                                                      const ov::Shape& inputShape) {
+        std::vector<int64_t> beginMask{1, 1, 1, 0};
+        std::vector<int64_t> endMask{1, 1, 1, 0};
+        const size_t width = inputShape[3];
+        const size_t halfWidth = width / 2;
+
+        const auto stridesConst = ov::op::v0::Constant::create(ov::element::i64, ov::Shape{4}, {1});
+        const auto begin0 = ov::op::v0::Constant::create(ov::element::i64, ov::Shape{4}, {0, 0, 0, 0});
+        const auto end0 = ov::op::v0::Constant::create(
+                ov::element::i64, ov::Shape{4},
+                std::vector<int64_t>{static_cast<int64_t>(inputShape[0]), static_cast<int64_t>(inputShape[1]),
+                                     static_cast<int64_t>(inputShape[2]), static_cast<int64_t>(halfWidth)});
+        const auto begin1 = ov::op::v0::Constant::create(
+                ov::element::i64, ov::Shape{4}, std::vector<int64_t>{0, 0, 0, static_cast<int64_t>(halfWidth)});
+        const auto end1 = ov::op::v0::Constant::create(ov::element::i64, ov::Shape{4}, inputShape.data());
+
+        const auto firstHalf = std::make_shared<ov::op::v1::StridedSlice>(
+                input, begin0, end0, stridesConst, beginMask, endMask, std::vector<std::int64_t>{},
+                std::vector<std::int64_t>{}, std::vector<std::int64_t>{});
+        const auto secondHalf = std::make_shared<ov::op::v1::StridedSlice>(
+                input, begin1, end1, stridesConst, beginMask, endMask, std::vector<std::int64_t>{},
+                std::vector<std::int64_t>{}, std::vector<std::int64_t>{});
+
+        const auto firstHalfMulCos = std::make_shared<ov::op::v1::Multiply>(firstHalf, inputCos);
+        const auto secondHalfMulSin = std::make_shared<ov::op::v1::Multiply>(secondHalf, inputSin);
+        const auto first = std::make_shared<ov::op::v1::Subtract>(firstHalfMulCos, secondHalfMulSin);
+
+        const auto firstHalfMulSin = std::make_shared<ov::op::v1::Multiply>(firstHalf, inputSin);
+        const auto secondHalfMulCos = std::make_shared<ov::op::v1::Multiply>(secondHalf, inputCos);
+        const auto second = std::make_shared<ov::op::v1::Add>(firstHalfMulSin, secondHalfMulCos);
+
+        return std::make_shared<ov::op::v0::Concat>(ov::OutputVector{first, second}, -1);
+    }
+
     void SetUp() override {
         inType = outType = ov::element::f32;
         const auto testParams = GetParam();
         const auto inputShape = testParams.inputShape;
         const auto inputCosShape = testParams.inputCosShape;
         const auto inputSinShape = testParams.inputSinShape;
-        const auto isInterleaved = testParams.isInterleaved;
+        const auto mode = testParams.mode;
 
         init_input_shapes(ov::test::static_shapes_to_test_representation({inputShape, inputCosShape, inputSinShape}));
 
@@ -158,15 +203,17 @@ public:
         const auto inputCos = std::make_shared<ov::op::v0::Parameter>(inType, inputDynamicShapes.at(1));
         const auto inputSin = std::make_shared<ov::op::v0::Parameter>(inType, inputDynamicShapes.at(2));
 
-        // Input * cos
-        const auto multiply1 = std::make_shared<ov::opset1::Multiply>(input, inputCos);
+        std::shared_ptr<ov::Node> output = nullptr;
+        if (mode == RoPEModes::PAIRWISE) {
+            output = buildRoPEPairwiseFusion(input, inputCos, inputSin, inputShape);
+        } else {
+            const auto multiply1 = std::make_shared<ov::opset1::Multiply>(input, inputCos);
+            const auto multiply3 = mode == RoPEModes::INTERLEAVED ? buildRoPEInterleaved(input, inputSin, inputShape)
+                                                                  : buildRoPE(input, inputSin, inputShape);
+            output = std::make_shared<ov::op::v1::Add>(multiply1, multiply3);
+        }
 
-        // Concat * Sin
-        const auto multiply3 = isInterleaved ? buildRoPEInterleaved(input, inputSin, inputShape)
-                                             : buildRoPE(input, inputSin, inputShape);
-
-        const auto add = std::make_shared<ov::op::v1::Add>(multiply1, multiply3);
-        const ov::ResultVector results{std::make_shared<ov::op::v0::Result>(add)};
+        const ov::ResultVector results{std::make_shared<ov::op::v0::Result>(output)};
         function = std::make_shared<ov::Model>(results, ov::ParameterVector{input, inputCos, inputSin}, "FuseRoPETest");
     }
 };
@@ -189,14 +236,18 @@ TEST_P(FuseRoPETestCommon, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
-const std::vector<RoPEParams> precommit_testValues = {{{1, 32, 32, 96}, {1, 1, 32, 96}, {1, 1, 32, 96}, false},
-                                                      {{1, 1, 256, 80}, {1, 1, 256, 80}, {1, 1, 256, 80}, true}};
+const std::vector<RoPEParams> precommit_testValues = {
+        {{1, 32, 32, 96}, {1, 1, 32, 96}, {1, 1, 32, 96}, RoPEModes::SPLIT_HALF},
+        {{1, 32, 2, 64}, {1, 32, 1, 32}, {1, 32, 1, 32}, RoPEModes::PAIRWISE},
+        {{1, 1, 256, 80}, {1, 1, 256, 80}, {1, 1, 256, 80}, RoPEModes::INTERLEAVED}};
 
 INSTANTIATE_TEST_SUITE_P(precommit_FuseRoPE, FuseRoPETestCommon, ::testing::ValuesIn(precommit_testValues),
                          FuseRoPETestCommon::getTestCaseName);
 
-const std::vector<RoPEParams> smoke_testValues = {{{1, 512, 18, 80}, {1, 512, 1, 80}, {1, 512, 1, 80}, false},
-                                                  {{2, 1, 256, 64}, {2, 1, 256, 64}, {2, 1, 256, 64}, true}};
+const std::vector<RoPEParams> smoke_testValues = {
+        {{1, 512, 18, 80}, {1, 512, 1, 80}, {1, 512, 1, 80}, RoPEModes::SPLIT_HALF},
+        {{1, 256, 2, 256}, {1, 256, 1, 128}, {1, 256, 1, 128}, RoPEModes::PAIRWISE},
+        {{2, 1, 256, 64}, {2, 1, 256, 64}, {2, 1, 256, 64}, RoPEModes::INTERLEAVED}};
 INSTANTIATE_TEST_SUITE_P(smoke_FuseRoPE, FuseRoPETestCommon, ::testing::ValuesIn(smoke_testValues),
                          FuseRoPETestCommon::getTestCaseName);
 }  // namespace ov::test

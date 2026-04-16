@@ -226,11 +226,11 @@ class EnsureNCEOpsSizeRequirementsPass final :
         public VPU::impl::EnsureNCEOpsSizeRequirementsBase<EnsureNCEOpsSizeRequirementsPass> {
 public:
     explicit EnsureNCEOpsSizeRequirementsPass(bool enableOutputEnsurance,
-                                              bool enableDequantWeightEnsuranceBeforeStrategy, bool skipNonConvOC,
+                                              bool enableDequantWeightEnsuranceBeforeStrategy, bool skipOC,
                                               Logger log) {
         this->enableOutputEnsurance = enableOutputEnsurance;
         this->enableDequantWeightEnsuranceBeforeStrategy = enableDequantWeightEnsuranceBeforeStrategy;
-        this->skipNonConvOC = skipNonConvOC;
+        this->skipOC = skipOC;
         Base::initLogger(log, Base::getArgumentName());
     }
 
@@ -298,12 +298,6 @@ void EnsureNCEOpsSizeRequirementsPass::safeRunOnFunc() {
                 outputDimThresholds[(Dims4D::Act::C).ind()] = VPU::NCEInvariant::VPU_DIMENSION_LIMIT * numClusters;
             }
 
-            if (skipNonConvOC && !mlir::isa<VPU::NCEConvolutionOp>(op)) {
-                // OC limit will be handled in multi-cluster and tiling pass
-                // Limit to non-conv to avoid regression of memory fragmentation
-                return true;
-            }
-
             auto inSizeWrongDims = getDimsOverKHWLimit(inputShape, inputDimThresholds);
             if (!inSizeWrongDims.empty()) {
                 _log.nest(2).debug("Input size has dims greater than HW requirements: {0}", inSizeWrongDims);
@@ -337,6 +331,18 @@ void EnsureNCEOpsSizeRequirementsPass::safeRunOnFunc() {
                                        outSizeWrongDims.end());
             }
 
+            if (skipOC) {
+                _log.nest(2).debug("Skip checking OC dimension for op {0} at {1}", op->getName(), op->getLoc());
+                outSizeWrongDims.erase(std::remove(outSizeWrongDims.begin(), outSizeWrongDims.end(), Dims4D::Act::C),
+                                       outSizeWrongDims.end());
+                // For eltwise op, if OC is skipped, also skip C dimension check for input as well since they need to be
+                // the same
+                if (mlir::isa<VPU::NCEEltwiseOp>(op)) {
+                    inSizeWrongDims.erase(std::remove(inSizeWrongDims.begin(), inSizeWrongDims.end(), Dims4D::Act::C),
+                                          inSizeWrongDims.end());
+                }
+            }
+
             return inSizeWrongDims.empty() && outSizeWrongDims.empty();
         }
 
@@ -358,7 +364,7 @@ void EnsureNCEOpsSizeRequirementsPass::safeRunOnFunc() {
 //
 
 std::unique_ptr<mlir::Pass> vpux::VPU::createEnsureNCEOpsSizeRequirementsPass(
-        bool enableOutputEnsurance, bool enableDequantWeightEnsuranceBeforeStrategy, bool skipNonConvOC, Logger log) {
-    return std::make_unique<EnsureNCEOpsSizeRequirementsPass>(
-            enableOutputEnsurance, enableDequantWeightEnsuranceBeforeStrategy, skipNonConvOC, log);
+        bool enableOutputEnsurance, bool enableDequantWeightEnsuranceBeforeStrategy, bool skipOC, Logger log) {
+    return std::make_unique<EnsureNCEOpsSizeRequirementsPass>(enableOutputEnsurance,
+                                                              enableDequantWeightEnsuranceBeforeStrategy, skipOC, log);
 }

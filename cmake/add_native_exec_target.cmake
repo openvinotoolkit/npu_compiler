@@ -4,7 +4,7 @@
 #
 
 # For Android, we use the native tools from the prebuilt binaries.
-set(VPUX_DEFAULT_TOOL_DIR "${OUTPUT_ROOT}/bin/intel64/Release")
+set(VPUX_DEFAULT_TOOL_DIR "${OUTPUT_ROOT}/bin/intel64/${CMAKE_BUILD_TYPE}")
 
 function(add_native_exec_target NATIVE_TARGET_NAME)
     # Parse optional arguments

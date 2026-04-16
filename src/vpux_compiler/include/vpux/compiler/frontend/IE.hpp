@@ -336,6 +336,7 @@ private:
     IE::ProposalAttr importProposalAttrs(const ov::op::v0::Proposal::Attributes& val);
     IE::ReverseModeAttr importReverseMode(const ov::op::v1::Reverse::Mode mode);
     IE::OneHotModeAttr importOneHotMode(const ov::op::v16::OneHot::NegativeIndicesMode mode);
+    IE::RoPEModeAttr importRoPEMode(const ov::op::internal::RoPE::Config& cfg);
     IE::InterpolateAttr importInterpolateAttrs(const ov::opset4::Interpolate::InterpolateAttrs& val);
     IE::DetectionOutputAttr importDetectionOutputAttrs(const ov::op::v0::DetectionOutput::Attributes& val);
     IE::ExperimentalDetectronROIFeatureExtractorAttr importExpDetectronROIFeatureExtractAttrs(

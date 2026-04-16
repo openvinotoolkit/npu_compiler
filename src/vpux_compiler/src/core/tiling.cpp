@@ -2590,8 +2590,17 @@ SmallVector<int64_t> vpux::getMinNumTiles(mlir::Operation* op) {
 // 3. checkMinimalWidthAndHeight ensures each DPU processes at least 4 lines for efficiency.
 // 4. (Channel) No extra channel alignment - the output channel for each cluster should be larger than minChannelSize.
 SmallVector<int64_t> vpux::getMaxNumTiles(mlir::Operation* op, bool checkMinimalWidthAndHeight,
-                                          bool checkWorkloadEfficiency) {
+                                          bool checkWorkloadEfficiency, ArrayRef<int64_t> maxTilesPerDim) {
     const auto outputShape = getBoundedShape(op->getResult(0));
+    if (outputShape.size() != 4 && outputShape.size() != DimsGroups5D::Act::numDims) {
+        VPUX_THROW_WHEN(op->hasAttr(VPU::multiClusterStrategy),
+                        "Multi-cluster strategy is not supported for non 4D/5D output shape, while the output shape "
+                        "rank is {0}",
+                        outputShape.size());
+        if (!maxTilesPerDim.empty()) {
+            return SmallVector<int64_t>(maxTilesPerDim.begin(), maxTilesPerDim.end());
+        }
+    }
     // #E152765 - generic support for GNCHW
     const auto dimH = requiresDimsGroups5D(op) ? DimsGroups5D::Act::H : Dims4D::Act::H;
     const auto dimW = requiresDimsGroups5D(op) ? DimsGroups5D::Act::W : Dims4D::Act::W;
@@ -2638,8 +2647,7 @@ SmallVector<int64_t> vpux::getMaxNumTiles(mlir::Operation* op, bool checkMinimal
         if (mlir::isa<VPU::MemPermuteOp>(op)) {
             return maxNumTiles;
         }
-
-        VPUX_THROW("Unsupported shape rank: {0}", outputShape.size());
+        return SmallVector<int64_t>(outputShape.begin(), outputShape.end());
     }
 
     int64_t minChannelSize = subByteAlignmentFactor;
@@ -2764,8 +2772,12 @@ SmallVector<int64_t> vpux::getMaxNumTiles(mlir::Operation* op, bool checkMinimal
         maxNumTiles[dimW.ind()] = divUp(outputShape[dimW], minWidthSize);
     } else {
         // For other sw layers, ensure at least one line per cluster
-        maxNumTiles[dimH.ind()] = outputShape[dimH] / minHeightSize;
-        maxNumTiles[dimW.ind()] = outputShape[dimW] / minWidthSize;
+        maxNumTiles[dimH.ind()] = std::max(outputShape[dimH] / minHeightSize, int64_t(1));
+        maxNumTiles[dimW.ind()] = std::max(outputShape[dimW] / minWidthSize, int64_t(1));
+    }
+
+    for (size_t i = 0; i < maxTilesPerDim.size(); ++i) {
+        maxNumTiles[i] = std::min(maxTilesPerDim[i], maxNumTiles[i]);
     }
 
     return maxNumTiles;
@@ -2822,8 +2834,7 @@ SmallVector<Dim> getValidNonOneDim(ShapeRef inputShape, DimArrRef tileDimOrder) 
 
 mlir::FailureOr<OutputTiling> vpux::getSWLayerTilingStrategyWithTileDimOrder(mlir::Operation* op,
                                                                              TilingMode& tilingMode,
-                                                                             DimArrRef tileDimOrder, Logger log,
-                                                                             ArrayRef<int64_t> maxTilesPerDim) {
+                                                                             DimArrRef tileDimOrder, Logger log) {
     auto tilingInfo = mlir::dyn_cast<VPU::TilingInfoOpInterface>(op);
     VPUX_THROW_WHEN(tilingInfo == nullptr, "Operation '{0}' doesn't implement TilingInfoOpInterface", op->getName());
     auto tilingBuilder = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(op);
@@ -2862,10 +2873,7 @@ mlir::FailureOr<OutputTiling> vpux::getSWLayerTilingStrategyWithTileDimOrder(mli
         return tilingInfo.isSupportedTiling(tiles.value(), tilingMode, log);
     };
 
-    SmallVector<int64_t> maxNumTiles(maxTilesPerDim.begin(), maxTilesPerDim.end());
-    if (maxTilesPerDim.empty()) {
-        maxNumTiles = tilingBuilder.getMaxNumTiles();
-    }
+    const auto maxNumTiles = tilingBuilder.getMaxNumTiles();
 
     // Step1. get an feasible isolated tiling strategy
     auto optionalTilesOnDim = [&]() -> std::optional<vpux::Shape> {
@@ -2957,11 +2965,10 @@ mlir::FailureOr<OutputTiling> vpux::getSWLayerTilingStrategyWithTileDimOrder(mli
     return resultTiles;
 }
 
-mlir::FailureOr<OutputTiling> vpux::getSWLayerTilingStrategy(mlir::Operation* op, TilingMode tilingMode, Logger log,
-                                                             ArrayRef<int64_t> maxTilesPerDim) {
+mlir::FailureOr<OutputTiling> vpux::getSWLayerTilingStrategy(mlir::Operation* op, TilingMode tilingMode, Logger log) {
     const auto tileDimOrder = getTileDimOrder(op, tilingMode, log);
     log.nest(2).trace("Tile Dim order is {0}", tileDimOrder);
-    return getSWLayerTilingStrategyWithTileDimOrder(op, tilingMode, tileDimOrder, log, maxTilesPerDim);
+    return getSWLayerTilingStrategyWithTileDimOrder(op, tilingMode, tileDimOrder, log);
 }
 
 // Compute the maximum of tile number for each dimension with respect of not tile specified axes. No other
@@ -3435,7 +3442,7 @@ mlir::FailureOr<OutputTiling> vpux::getHWLayerTilingStrategyWithTileDimOrderForP
         //
         // If the number of tiles exceeds the maximum limit, we will fallback to isolated strategy.
         // Otherwise, this may lead to a timeout error during the compilation phase.
-        constexpr int64_t MAX_NUM_TILES = 1000;
+        constexpr int64_t MAX_NUM_TILES = 2000;
         if (nTilesOnDim.totalSize() > MAX_NUM_TILES) {
             log.nest(3).trace("Fallback to isolated strategy: {0}", nTilesOnDim);
             return mlir::failure();

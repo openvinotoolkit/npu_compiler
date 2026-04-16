@@ -1186,14 +1186,14 @@ func.func @RoPETest(%arg0: tensor<1x1x1024x128xf32>, %arg1: tensor<1x1x1024x128x
     %0 = IE.Convert(%arg0) {dstElemType = f16} : tensor<1x1x1024x128xf32> -> tensor<1x1x1024x128xf16>
     %1 = IE.Convert(%arg1) {dstElemType = f16} : tensor<1x1x1024x128xf32> -> tensor<1x1x1024x128xf16>
     %2 = IE.Convert(%arg2) {dstElemType = f16} : tensor<1x32x1024x128xf32> -> tensor<1x32x1024x128xf16>
-    %3 = IE.RoPE(%2, %1, %0) : tensor<1x32x1024x128xf16>, tensor<1x1x1024x128xf16>, tensor<1x1x1024x128xf16> -> tensor<1x32x1024x128xf16>
+    %3 = IE.RoPE(%2, %1, %0) {mode = #IE.rope_mode<SPLIT_HALF>} : tensor<1x32x1024x128xf16>, tensor<1x1x1024x128xf16>, tensor<1x1x1024x128xf16> -> tensor<1x32x1024x128xf16>
     %4 = IE.Convert(%3) {dstElemType = f32} : tensor<1x32x1024x128xf16> -> tensor<1x32x1024x128xf32>
     return %4 : tensor<1x32x1024x128xf32>
 
     //  CHECK: [[CONVERT_0:%.+]] = VPU.Convert([[ARG0]]) {dstElemType = f16} : tensor<1x1x1024x128xf32> -> tensor<1x1x1024x128xf16>
     //  CHECK: [[CONVERT_1:%.+]] = VPU.Convert([[ARG1]]) {dstElemType = f16} : tensor<1x1x1024x128xf32> -> tensor<1x1x1024x128xf16>
     //  CHECK: [[CONVERT_2:%.+]] = VPU.Convert([[ARG2]]) {dstElemType = f16} : tensor<1x32x1024x128xf32> -> tensor<1x32x1024x128xf16>
-    //  CHECK: [[ROPE:%.+]] = VPU.RoPE([[CONVERT_2]], [[CONVERT_1]], [[CONVERT_0]]) : tensor<1x32x1024x128xf16>, tensor<1x1x1024x128xf16>, tensor<1x1x1024x128xf16> -> tensor<1x32x1024x128xf16>
+    //  CHECK: [[ROPE:%.+]] = VPU.RoPE([[CONVERT_2]], [[CONVERT_1]], [[CONVERT_0]]) {mode = #IE.rope_mode<SPLIT_HALF>} : tensor<1x32x1024x128xf16>, tensor<1x1x1024x128xf16>, tensor<1x1x1024x128xf16> -> tensor<1x32x1024x128xf16>
 }
 
 // -----

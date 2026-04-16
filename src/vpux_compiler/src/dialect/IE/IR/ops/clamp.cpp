@@ -56,11 +56,17 @@ mlir::LogicalResult vpux::IE::ClampOp::inferReturnTypeComponents(
 
 namespace {
 
+template <typename T>
+std::pair<double, double> getTypeNumericRange() {
+    return {checked_cast<double>(std::numeric_limits<T>::lowest()),
+            checked_cast<double>(std::numeric_limits<T>::max())};
+}
+
 //
-// Convert Attr to FP16
+// Clamp Attr to Data Type Range
 //
 
-class ConvertAttrToFP16 final : public mlir::OpRewritePattern<IE::ClampOp> {
+class ClampAttrToDataTypeRange final : public mlir::OpRewritePattern<IE::ClampOp> {
 public:
     using mlir::OpRewritePattern<IE::ClampOp>::OpRewritePattern;
 
@@ -68,28 +74,51 @@ public:
     mlir::LogicalResult matchAndRewrite(IE::ClampOp origOp, mlir::PatternRewriter& rewriter) const final;
 };
 
-mlir::LogicalResult ConvertAttrToFP16::matchAndRewrite(IE::ClampOp origOp, mlir::PatternRewriter& rewriter) const {
+mlir::LogicalResult ClampAttrToDataTypeRange::matchAndRewrite(IE::ClampOp origOp,
+                                                              mlir::PatternRewriter& rewriter) const {
     const auto minVal = origOp.getMinAttr().getValueAsDouble();
     const auto maxVal = origOp.getMaxAttr().getValueAsDouble();
 
-    // There is a case when a Clamp operation has default min or max values.
-    // They are set to the numeric limits for FP32. But the NPU only supports FP16 precision.
-    const auto isOutOfFP16Range = [](double value) {
-        return std::abs(value) > std::numeric_limits<vpux::type::float16>::max();
-    };
-    if (!isOutOfFP16Range(minVal) && !isOutOfFP16Range(maxVal)) {
+    const auto inType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType());
+    const auto elemType = inType.getElementType();
+
+    double typeLowest = 0.0;
+    double typeMax = 0.0;
+
+    if (elemType.isF16()) {
+        std::tie(typeLowest, typeMax) = getTypeNumericRange<vpux::type::float16>();
+    } else if (elemType.isBF16()) {
+        std::tie(typeLowest, typeMax) = getTypeNumericRange<vpux::type::bfloat16>();
+    } else if (elemType.isF32()) {
+        std::tie(typeLowest, typeMax) = getTypeNumericRange<float>();
+    } else if (elemType.isSignedInteger(32)) {
+        std::tie(typeLowest, typeMax) = getTypeNumericRange<int32_t>();
+    } else if (elemType.isSignedInteger(16)) {
+        std::tie(typeLowest, typeMax) = getTypeNumericRange<int16_t>();
+    } else if (elemType.isUnsignedInteger(32)) {
+        std::tie(typeLowest, typeMax) = getTypeNumericRange<uint32_t>();
+    } else if (elemType.isUnsignedInteger(16)) {
+        std::tie(typeLowest, typeMax) = getTypeNumericRange<uint16_t>();
+    } else {
         return mlir::failure();
     }
 
-    const auto lowestF16 = checked_cast<double>(std::numeric_limits<vpux::type::float16>::lowest());
-    const auto maxF16 = checked_cast<double>(std::numeric_limits<vpux::type::float16>::max());
-    if (minVal > maxF16 || maxVal < lowestF16) {
-        Logger::global().warning("ClampOp operation at location {0} has a value range from {1} to {2}, which exceeds "
-                                 "the FP16 data range. The output values are adjusted to fp16_lowest or fp16_max.",
-                                 origOp.getLoc(), minVal, maxVal);
+    const auto isOutOfRange = [typeLowest, typeMax](double value) {
+        return value < typeLowest || value > typeMax;
+    };
+
+    if (!isOutOfRange(minVal) && !isOutOfRange(maxVal)) {
+        return mlir::failure();
     }
-    const auto newMin = std::clamp(minVal, lowestF16, maxF16);
-    const auto newMax = std::clamp(maxVal, lowestF16, maxF16);
+
+    if (minVal > typeMax || maxVal < typeLowest) {
+        Logger::global().warning("ClampOp operation at location {0} has a value range from {1} to {2}, which exceeds "
+                                 "the data type range [{3}, {4}]. The output values are adjusted.",
+                                 origOp.getLoc(), minVal, maxVal, typeLowest, typeMax);
+    }
+
+    const auto newMin = std::clamp(minVal, typeLowest, typeMax);
+    const auto newMax = std::clamp(maxVal, typeLowest, typeMax);
     const auto minAttr = getFPAttr(origOp.getContext(), newMin);
     const auto maxAttr = getFPAttr(origOp.getContext(), newMax);
 
@@ -140,5 +169,5 @@ mlir::LogicalResult FuseClamps::matchAndRewrite(IE::ClampOp origOp, mlir::Patter
 
 void vpux::IE::ClampOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns, mlir::MLIRContext* ctx) {
     patterns.add<FuseClamps>(ctx);
-    patterns.add<ConvertAttrToFP16>(ctx);
+    patterns.add<ClampAttrToDataTypeRange>(ctx);
 }

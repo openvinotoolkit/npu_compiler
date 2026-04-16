@@ -678,5 +678,17 @@ type::QuantileFloatType tryParsingNF4(Const::DeclareOp constOp) {
     return nullptr;
 }
 
+bool WeightsDequantizeStructureInfo::isI4ConsumedByGather() const {
+    auto* lastOp = getLastOp();
+    if (!lastOp->getResult(0).hasOneUse()) {
+        return false;
+    }
+    if (!mlir::isa<IE::GatherOp>(*lastOp->getResult(0).user_begin())) {
+        return false;
+    }
+    auto elemType = getLowPrecisionElemType();
+    return elemType.isInteger(4);
+}
+
 }  // namespace IE
 }  // namespace vpux

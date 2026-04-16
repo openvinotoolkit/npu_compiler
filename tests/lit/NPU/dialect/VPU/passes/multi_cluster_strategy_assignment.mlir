@@ -1287,11 +1287,10 @@ func.func @AddAssignedClustering(%arg0: tensor<1x1x1x64xf16, {order = #NWCH}>, %
 // CHECK-LABEL:   @RoPEAssignedSplitOverKernel
 // CHECK-SAME:    [[INPUT0:%.+]]: tensor<1x32x1x64xf16>, [[INPUT1:%.+]]: tensor<1x1x1x64xf16>, [[INPUT2:%.+]]: tensor<1x1x1x64xf16>
 func.func @RoPEAssignedSplitOverKernel(%arg0: tensor<1x32x1x64xf16>, %arg1: tensor<1x1x1x64xf16>, %arg2: tensor<1x1x1x64xf16>) -> tensor<1x32x1x64xf16> {
-    %0 = VPU.RoPE(%arg0, %arg1, %arg2) : tensor<1x32x1x64xf16>, tensor<1x1x1x64xf16>, tensor<1x1x1x64xf16> -> tensor<1x32x1x64xf16>
+    %0 = VPU.RoPE(%arg0, %arg1, %arg2) {mode = #IE.rope_mode<SPLIT_HALF>} : tensor<1x32x1x64xf16>, tensor<1x1x1x64xf16>, tensor<1x1x1x64xf16> -> tensor<1x32x1x64xf16>
     return %0 : tensor<1x32x1x64xf16>
 
-    // CHECK:       [[ROPE:%.+]] = VPU.RoPE([[INPUT0]], [[INPUT1]], [[INPUT2]])
-    // CHECK-SAME:         {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>}
+    // CHECK:       [[ROPE:%.+]] = VPU.RoPE([[INPUT0]], [[INPUT1]], [[INPUT2]]) {mode = #IE.rope_mode<SPLIT_HALF>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>}
     // CHECK:        return [[ROPE]] : tensor<1x32x1x64xf16>
 }
 
@@ -1300,11 +1299,10 @@ func.func @RoPEAssignedSplitOverKernel(%arg0: tensor<1x32x1x64xf16>, %arg1: tens
 // CHECK-LABEL:   @RoPEAssignedClustering
 // CHECK-SAME:    [[INPUT0:%.+]]: tensor<2x20x16x32xf16>, [[INPUT1:%.+]]: tensor<1x1x16x32xf16>, [[INPUT2:%.+]]: tensor<1x1x16x32xf16>
 func.func @RoPEAssignedClustering(%arg0: tensor<2x20x16x32xf16>, %arg1: tensor<1x1x16x32xf16>, %arg2: tensor<1x1x16x32xf16>) -> tensor<2x20x16x32xf16> {
-    %0 = VPU.RoPE(%arg0, %arg1, %arg2) : tensor<2x20x16x32xf16>, tensor<1x1x16x32xf16>, tensor<1x1x16x32xf16> -> tensor<2x20x16x32xf16>
+    %0 = VPU.RoPE(%arg0, %arg1, %arg2) {mode = #IE.rope_mode<SPLIT_HALF>} : tensor<2x20x16x32xf16>, tensor<1x1x16x32xf16>, tensor<1x1x16x32xf16> -> tensor<2x20x16x32xf16>
     return %0 : tensor<2x20x16x32xf16>
 
-    // CHECK:       [[ROPE:%.+]] = VPU.RoPE([[INPUT0]], [[INPUT1]], [[INPUT2]])
-    // CHECK-SAME:         {multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>}
+    // CHECK:       [[ROPE:%.+]] = VPU.RoPE([[INPUT0]], [[INPUT1]], [[INPUT2]]) {mode = #IE.rope_mode<SPLIT_HALF>, multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>}
     // CHECK:        return [[ROPE]] : tensor<2x20x16x32xf16>
 }
 
