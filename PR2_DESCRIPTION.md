@@ -27,7 +27,7 @@ The location trail from the original crash (`["fc_decomposed", "matmul_0", "as_c
 
 ## Testing
 
-- No dedicated LIT test: reaching the guard code path requires constructing a full `Concat→Reshape→Transpose` pattern with zero-dim tensors, which is fragile and tightly coupled to internal IR structure. The guard is defense-in-depth; the primary crash prevention is validated by the `ConvertFCToConv` LIT test.
+- **LIT test added**: `tests/lit/NPU/dialect/IE/passes/unroll_fully_connected_zero_dim_guard.mlir` — constructs a `FakeQuantize→Concat→AffineReshape→Transpose→FullyConnected` pattern with a zero batch dimension (`tensor<0x3072xf32>`). Verifies the guard catches `lhsShape[Dim(0)] <= 0` and preserves the FC unchanged.
 - Existing `unroll_fully_connected.mlir` regression test passes on all three architectures (NPU37XX, NPU40XX, NPU50XX) — no behavioral change for valid-shaped FC ops.
 
 ## Related
