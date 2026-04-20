@@ -1,5 +1,5 @@
 # Hugging Face Hub
-huggingface_hub==1.10.2
+huggingface_hub==1.11.0
 hf-xet==1.4.3
 
 # Utils
