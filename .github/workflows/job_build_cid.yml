@@ -202,7 +202,7 @@ jobs:
 
       - name: System info
         if: ${{ !steps.cache-restore.outputs.cache-hit }}
-        uses: openvinotoolkit/openvino/.github/actions/system_info@3687ccc8dab6a9ad5debfd9263414e6357c43d6f # 2026.1.1
+        uses: openvinotoolkit/openvino/.github/actions/system_info@f3a30a671d32c8e99cc496f0cc9d0089711fbb82 # 2026.1.2
 
       - name: Setup python version
         if: ${{ !steps.cache-restore.outputs.cache-hit }}
