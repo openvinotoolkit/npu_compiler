@@ -14,6 +14,13 @@ module @VerticalFusionOutlining attributes {config.compilationMode = #config.com
     func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 
+  config.Resources {activity_factor = 0.078934384661980161 : f64} 2 of @NCE at 1.700000e+03 MHz {
+    builtin.module @ReservedMemory {
+      module @DummySWKernelsForInstructionPrefetchReservedMemory {
+        config.MemoryResource 8 bytes of @CMX_NN offset 1473528
+      }
+    }
+  }
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "input" : tensor<1x16x128x128xf16, {order = #NHWC}>
   } outputsInfo : {

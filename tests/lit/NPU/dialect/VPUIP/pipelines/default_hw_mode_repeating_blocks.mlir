@@ -9,6 +9,14 @@
 !MemRef = memref<1x3x62x62xf16>
 
 module @ChainCalls {
+    config.Resources 2 of @NCE at 1.300000e+03 MHz {
+        builtin.module @ReservedMemory {
+        module @DummySWKernelsForInstructionPrefetchReservedMemory {
+            config.MemoryResource 8 bytes of @CMX_NN offset 0
+        }
+        }
+    }
+
     net.NetworkInfo entryPoint : @main inputsInfo : {
         DataInfo "input" : tensor<1x3x62x62xf16>
     } outputsInfo : {
@@ -61,6 +69,14 @@ module @ChainCalls {
 
 !MemRef = memref<1x1x2x64xf16>
 module @SwKernelsChainCalls {
+    config.Resources 2 of @NCE at 1.300000e+03 MHz {
+        builtin.module @ReservedMemory {
+        module @DummySWKernelsForInstructionPrefetchReservedMemory {
+            config.MemoryResource 8 bytes of @CMX_NN offset 0
+        }
+        }
+    }
+
     net.NetworkInfo entryPoint : @main inputsInfo : {
         DataInfo "input" : tensor<1x1x2x64xf16>
     } outputsInfo : {
@@ -146,6 +162,14 @@ module @SwKernelsChainCalls {
 
 !MemRef = memref<1x1x2x64xf16>
 module @SwKernelsIndependentCalls {
+    config.Resources 2 of @NCE at 1.300000e+03 MHz {
+        builtin.module @ReservedMemory {
+        module @DummySWKernelsForInstructionPrefetchReservedMemory {
+            config.MemoryResource 8 bytes of @CMX_NN offset 0
+        }
+        }
+    }
+
     net.NetworkInfo entryPoint : @main inputsInfo : {
         DataInfo "input" : tensor<1x1x2x64xf16>
     } outputsInfo : {

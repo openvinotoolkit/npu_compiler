@@ -9,6 +9,14 @@
 
 // CHECK-LABEL: @Gather
 module @Gather attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
+    config.Resources {activity_factor = 0.078934384661980161 : f64} 2 of @NCE at 1.700000e+03 MHz {
+        builtin.module @ReservedMemory {
+            module @DummySWKernelsForInstructionPrefetchReservedMemory {
+                config.MemoryResource 8 bytes of @CMX_NN offset 1473528
+            }
+        }
+    }
+
     VPURT.SW.Runtime
       entryPoint: @VPU.SW::@runtime
       stack_configuration: [4096, 4096, 4096, 4096]

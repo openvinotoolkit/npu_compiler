@@ -20,6 +20,14 @@
 
 // CHECK-LABEL: @SoftMax
 module @SoftMax attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
+    config.Resources {activity_factor = 0.078934384661980161 : f64} 6 of @NCE at 1.700000e+03 MHz {
+        builtin.module @ReservedMemory {
+            module @DummySWKernelsForInstructionPrefetchReservedMemory {
+                config.MemoryResource 8 bytes of @CMX_NN offset 1473528
+            }
+        }
+    }
+
     VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096]
     module @VPU.SW {
         func.func private @builtin_SoftMax(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i64, i64) attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.task_type = @COMPUTE}
@@ -166,6 +174,14 @@ module @SoftMax attributes {config.arch = #config.arch_kind<NPU40XX>, config.com
 
 // CHECK-LABEL: @TwoFunctions
 module @TwoFunctions attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
+    config.Resources {activity_factor = 0.078934384661980161 : f64} 6 of @NCE at 1.700000e+03 MHz {
+        builtin.module @ReservedMemory {
+            module @DummySWKernelsForInstructionPrefetchReservedMemory {
+                config.MemoryResource 8 bytes of @CMX_NN offset 1473528
+            }
+        }
+    }
+
     // CHECK-DAG: {{  }}config.Resources
 
     VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
