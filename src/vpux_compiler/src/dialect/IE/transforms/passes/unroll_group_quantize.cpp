@@ -28,8 +28,8 @@ public:
 public:
     mlir::LogicalResult matchAndRewrite(ConcreteOp origOp, mlir::PatternRewriter& rewriter) const final;
     mlir::Value getValue(const mlir::ValueRange values, const int64_t idx) const;
-    SmallVector<mlir::Value> splitValue(const mlir::Value val, const int64_t axis,
-                                        mlir::PatternRewriter& rewriter) const;
+    SmallVector<mlir::Value> splitValue(const mlir::Value val, const int64_t axis, mlir::PatternRewriter& rewriter,
+                                        mlir::Operation* consumerOp, StringRef operandTag) const;
 
 private:
     virtual SmallVector<mlir::Value> splitInputs(ConcreteOp origOp, const int64_t axis,
@@ -60,9 +60,21 @@ mlir::Value GenericUnrollBase<ConcreteOp>::getValue(const mlir::ValueRange value
 // 1x3x1x16 with axis 1 will be split in three 1x1x1x16 values
 // 1x1x2x16 with axis 2 will be split in two 1x1x1x16 values
 // 1x3x1x16 with axis 2 won't be split and will return a vector with only one 1x3x1x16 element
+//
+// The location of each produced slice is derived from the consuming op being unrolled (consumerOp) plus
+// operandTag (which input is being split), the split axis and the chunk index. Deriving it from the
+// consumer rather than from val.getLoc() keeps the slice locations unique when the same value is shared
+// by more than one unrolled consumer - e.g. a grouped-quantization weight scale that is the
+// dequantization scale of two DynamicDequantize ops. Naming every slice after the shared value made the
+// low indices collide across consumers and tripped StopLocationVerifierPass ("Found N duplicated names
+// after full verification"). The axis tag is carried over from the existing "slice_d{axis}_{idx}"
+// naming: it disambiguates one value split along several axes, which is orthogonal to - and does not
+// cover - the shared-consumer case handled here.
 template <typename ConcreteOp>
 SmallVector<mlir::Value> GenericUnrollBase<ConcreteOp>::splitValue(const mlir::Value val, const int64_t axis,
-                                                                   mlir::PatternRewriter& rewriter) const {
+                                                                   mlir::PatternRewriter& rewriter,
+                                                                   mlir::Operation* consumerOp,
+                                                                   StringRef operandTag) const {
     const auto valShape = getShape(val);
     VPUX_THROW_UNLESS(axis < checked_cast<int64_t>(valShape.size()), "Cannot split shape {0} by axis {1}", valShape,
                       axis);
@@ -75,7 +87,7 @@ SmallVector<mlir::Value> GenericUnrollBase<ConcreteOp>::splitValue(const mlir::V
     const auto staticSizesAttr = getIntArrayAttr(rewriter.getContext(), staticSizes);
     SmallVector<mlir::Value> inputChunks;
     for (const auto& idx : irange(groups)) {
-        const auto loc = appendLoc(val.getLoc(), "slice_d{0}_{1}", axis, idx);
+        const auto loc = takeOpLoc(consumerOp, "{0}_slice_d{1}_{2}", operandTag, axis, idx);
         SmallVector<int64_t> offsets(valShape.size(), 0);
         offsets[axis] = idx;
         const auto offsetsAttr = getIntArrayAttr(rewriter.getContext(), offsets);
@@ -148,15 +160,17 @@ private:
 // IE.FakeQuantize with data = 1x1x8x16, in_low = in_high = 1x1x1x1, out_low = out_high = 1x1x1x16
 SmallVector<mlir::Value> UnrollFakeQuantize::splitInputs(IE::FakeQuantizeOp fqOp, const int64_t axis,
                                                          mlir::PatternRewriter& rewriter) const {
-    const auto data = splitValue(fqOp.getInput(), axis, rewriter);
-    const auto inLow = splitValue(fqOp.getInputLow(), axis, rewriter);
-    const auto inHigh = splitValue(fqOp.getInputHigh(), axis, rewriter);
-    const auto outLow = splitValue(fqOp.getOutputLow(), axis, rewriter);
-    const auto outHigh = splitValue(fqOp.getOutputHigh(), axis, rewriter);
+    const auto data = splitValue(fqOp.getInput(), axis, rewriter, fqOp, "data");
+    const auto inLow = splitValue(fqOp.getInputLow(), axis, rewriter, fqOp, "in_low");
+    const auto inHigh = splitValue(fqOp.getInputHigh(), axis, rewriter, fqOp, "in_high");
+    const auto outLow = splitValue(fqOp.getOutputLow(), axis, rewriter, fqOp, "out_low");
+    const auto outHigh = splitValue(fqOp.getOutputHigh(), axis, rewriter, fqOp, "out_high");
     SmallVector<mlir::Value> fqResults;
     const auto groups = data.size();
     for (const auto& idx : irange(groups)) {
-        const auto loc = appendLoc(fqOp.getLoc(), "slice_{0}", idx);
+        // One reduced FakeQuantize per chunk on the consumer's own location - unique by construction
+        // (unlike the shared-input operand slices above, which carry an operand tag to stay unique).
+        const auto loc = takeOpLoc(fqOp, "slice_{0}", idx);
         auto reducedFq = rewriter.create<IE::FakeQuantizeOp>(
                 loc, data[idx], getValue(inLow, idx), getValue(inHigh, idx), getValue(outLow, idx),
                 getValue(outHigh, idx), fqOp.getLevelsAttr(), fqOp.getLowFpTypeAttr(), fqOp.getAutoBroadcast());
@@ -183,18 +197,20 @@ private:
 
 SmallVector<mlir::Value> UnrollDynamicDequantize::splitInputs(IE::DynamicDequantizeOp origOp, const int64_t axis,
                                                               mlir::PatternRewriter& rewriter) const {
-    const auto input = splitValue(origOp.getInput(), axis, rewriter);
-    const auto scale = splitValue(origOp.getScale(), axis, rewriter);
+    const auto input = splitValue(origOp.getInput(), axis, rewriter, origOp, "input");
+    const auto scale = splitValue(origOp.getScale(), axis, rewriter, origOp, "scale");
     bool hasZeroPoint = false;
     SmallVector<mlir::Value> zeroPoint;
     if (origOp.getZp() != nullptr) {
         hasZeroPoint = true;
-        zeroPoint = splitValue(origOp.getZp(), axis, rewriter);
+        zeroPoint = splitValue(origOp.getZp(), axis, rewriter, origOp, "zp");
     }
     SmallVector<mlir::Value> deQuantizeResults;
     const auto groups = input.size();
     for (const auto& idx : irange(groups)) {
-        const auto loc = appendLoc(origOp.getLoc(), "slice_{0}", idx);
+        // One reduced DynamicDequantize per chunk on the consumer's own location - unique by construction
+        // (unlike the shared-input operand slices above, which carry an operand tag to stay unique).
+        const auto loc = takeOpLoc(origOp, "slice_{0}", idx);
         auto reduceDequantize = rewriter.create<IE::DynamicDequantizeOp>(
                 loc, getValue(input, idx), getValue(scale, idx), hasZeroPoint ? getValue(zeroPoint, idx) : nullptr,
                 origOp.getDstElemType());
