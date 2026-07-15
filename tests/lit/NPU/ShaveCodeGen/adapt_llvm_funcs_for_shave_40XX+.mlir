@@ -9,7 +9,7 @@
 module @SingleCosLayer {
   VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096]
   module @VPU.SW {
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
     llvm.func @generated_0(%arg0: !llvm.ptr, %arg1: !llvm.ptr, %arg2: i32, %arg3: i32, %arg4: i32, %arg5: i32, %arg6: i32, %arg7: i32, %arg8: i32, %arg9: i32, %arg10: i32, %arg11: !llvm.ptr, %arg12: !llvm.ptr, %arg13: i32, %arg14: i32, %arg15: i32, %arg16: i32, %arg17: i32, %arg18: i32, %arg19: i32, %arg20: i32, %arg21: i32) -> !llvm.struct<(ptr, ptr, i32, array<4 x i32>, array<4 x i32>)> {
       %0 = llvm.mlir.constant(1000 : index) : i32
       %1 = llvm.mlir.constant(1 : index) : i32
@@ -89,11 +89,15 @@ module @SingleCosLayer {
     %alloc = memref.alloc() : memref<1x1x1x1000xf16, [@CMX_NN, 0]>
     %0 = VPUIP.Copy inputs(%arg0 : memref<1x1x1x1000xf16>) outputs(%alloc : memref<1x1x1x1000xf16, [@CMX_NN, 0]>) -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
     %alloc_0 = memref.alloc() : memref<1x1x1x1000xf16, [@CMX_NN, 0]>
-    %results = VPUIP.SW.Kernel {isJitCompiled, resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@generated_0 inputs(%0 as %arg2: memref<1x1x1x1000xf16, [@CMX_NN, 0]>) outputs(%alloc_0 as %arg3: memref<1x1x1x1000xf16, [@CMX_NN, 0]>) on tile 0 -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>{
+    %results_1 = VPUIP.SW.Kernel {isJitCompiled, resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@generated_0 inputs(%0 as %arg2: memref<1x1x1x1000xf16, [@CMX_NN, 0]>) outputs(%alloc_0 as %arg3: memref<1x1x1x1000xf16, [@CMX_NN, 0]>) on tile 0 -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>{
       VPUIP.SW.Kernel.run(%arg2, %arg3) : memref<1x1x1x1000xf16, [@CMX_NN, 0]>, memref<1x1x1x1000xf16, [@CMX_NN, 0]>
     }
-    %alloc_1 = memref.alloc() : memref<1x1x1x1000xf16>
-    %1 = VPUIP.Copy inputs(%results : memref<1x1x1x1000xf16, [@CMX_NN, 0]>) outputs(%alloc_1 : memref<1x1x1x1000xf16>) -> memref<1x1x1x1000xf16>
+    %alloc_1 = memref.alloc() : memref<1x1x1x1000xf16, [@CMX_NN, 0]>
+    %results_2 = VPUIP.SW.Kernel {isJitCompiled, resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@generated_0 inputs(%results_1 as %arg2: memref<1x1x1x1000xf16, [@CMX_NN, 0]>) outputs(%alloc_1 as %arg3: memref<1x1x1x1000xf16, [@CMX_NN, 0]>) on tile 0 -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>{
+      VPUIP.SW.Kernel.run(%arg2, %arg3) : memref<1x1x1x1000xf16, [@CMX_NN, 0]>, memref<1x1x1x1000xf16, [@CMX_NN, 0]>
+    }
+    %alloc_2 = memref.alloc() : memref<1x1x1x1000xf16>
+    %1 = VPUIP.Copy inputs(%results_2 : memref<1x1x1x1000xf16, [@CMX_NN, 0]>) outputs(%alloc_2 : memref<1x1x1x1000xf16>) -> memref<1x1x1x1000xf16>
     %2 = VPUIP.Copy inputs(%1 : memref<1x1x1x1000xf16>) outputs(%arg1 : memref<1x1x1x1000xf16>) -> memref<1x1x1x1000xf16>
     return %2 : memref<1x1x1x1000xf16>
   }
@@ -122,3 +126,11 @@ module @SingleCosLayer {
 
 // CHECK: [[OUTPUT_VALUE_PTR:%.+]] = llvm.getelementptr [[ARG12]][{{.+}}] : (!llvm.ptr, i32) -> !llvm.ptr, f16
 // CHECK: llvm.store [[COMPUTATION_RES]], [[OUTPUT_VALUE_PTR]] : f16, !llvm.ptr
+
+// CHECK: func.func @main(
+// CHECK: [[FIRST:%.+]] = VPUIP.SW.Kernel {isJitCompiled, resultSegmentSizes = array<i32: 1, 0, 0>}
+// CHECK-SAME: @VPU.SW::@generated_0
+
+// CHECK: VPUIP.SW.Kernel {isJitCompiled, resultSegmentSizes = array<i32: 1, 0, 0>}
+// CHECK-SAME: @VPU.SW::@generated_0
+// CHECK-SAME: inputs([[FIRST]] as {{%.+}}: memref<1x1x1x1000xf16, [@CMX_NN, 0]>)

@@ -6,7 +6,7 @@
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --optimize-memref-copies %s | FileCheck %s
 // REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
-func.func private @main_func0(%arg0: memref<1x90x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>,
+func.func nested @main_func0(%arg0: memref<1x90x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>,
                               %arg1: memref<1x90x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>,
                               %arg2: memref<1x90x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>)
                               -> memref<1x90x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>> {
@@ -50,7 +50,7 @@ func.func @main(%arg0: memref<1x720x1000x16xf16>, %arg1: memref<1x720x1000x16xf1
     return %arg2 : memref<1x720x1000x16xf16>
 }
 
-// CHECK: func.func private [[MAIN_FUNC0:@.+]]([[_:%.+]]: memref<1x90x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>, [[_:%.+]]: memref<1x90x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>, [[_:%.+]]: memref<1x90x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>) -> memref<1x90x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>> {
+// CHECK: func.func nested [[MAIN_FUNC0:@.+]]([[_:%.+]]: memref<1x90x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>, [[_:%.+]]: memref<1x90x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>, [[_:%.+]]: memref<1x90x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>) -> memref<1x90x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>> {
 
 // CHECK: func.func @main([[ARG0:%.+]]: memref<1x720x1000x16xf16>, [[ARG1:%.+]]: memref<1x720x1000x16xf16>, [[ARG2:%.+]]: memref<1x720x1000x16xf16>) -> memref<1x720x1000x16xf16> {
 // CHECK:   [[C90:%.+]] = arith.constant 90 : index
@@ -68,7 +68,7 @@ func.func @main(%arg0: memref<1x720x1000x16xf16>, %arg1: memref<1x720x1000x16xf1
 
 // -----
 
-func.func private @main_func0(%arg0: memref<1x90x1000x16xf16>, %arg1: memref<1x90x1000x16xf16>,
+func.func nested @main_func0(%arg0: memref<1x90x1000x16xf16>, %arg1: memref<1x90x1000x16xf16>,
                               %arg2: memref<1x90x1000x16xf16>) -> memref<1x90x1000x16xf16> {
     %0 = VPUIP.Copy inputs(%arg0 : memref<1x90x1000x16xf16>) outputs(%arg1 : memref<1x90x1000x16xf16>)
        -> memref<1x90x1000x16xf16>
@@ -214,8 +214,8 @@ module @ScheduleCopyAndEltwiseFunctions {
 
 // CHECK: module [[NESTED_CALL:@.+]] {
 module @NestedCall {
-  //CHECK: func.func private [[MAIN_FUNC0:@.+]]([[_:%.+]]: memref<1x90x1000x16xf16>, [[_:%.+]]: memref<1x90x1000x16xf16>, [[_:%.+]]: memref<1x90x1000x16xf16>) -> memref<1x90x1000x16xf16> {
-  func.func private @main_func0(%arg0: memref<1x90x1000x16xf16>, %arg1: memref<1x90x1000x16xf16>,
+  //CHECK: func.func nested [[MAIN_FUNC0:@.+]]([[_:%.+]]: memref<1x90x1000x16xf16>, [[_:%.+]]: memref<1x90x1000x16xf16>, [[_:%.+]]: memref<1x90x1000x16xf16>) -> memref<1x90x1000x16xf16> {
+  func.func nested @main_func0(%arg0: memref<1x90x1000x16xf16>, %arg1: memref<1x90x1000x16xf16>,
                                 %arg2: memref<1x90x1000x16xf16>) -> memref<1x90x1000x16xf16> {
       %0 = VPUIP.Copy inputs(%arg0 : memref<1x90x1000x16xf16>) outputs(%arg1 : memref<1x90x1000x16xf16>)
         -> memref<1x90x1000x16xf16>

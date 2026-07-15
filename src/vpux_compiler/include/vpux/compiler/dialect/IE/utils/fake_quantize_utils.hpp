@@ -130,8 +130,8 @@ private:
 
     [[nodiscard]] mlir::LogicalResult initializeStructure(IE::MultiplyOp& multiplyOp);
     [[nodiscard]] mlir::LogicalResult initializeStructure(IE::SubtractOp& subtractOp);
-    [[nodiscard]] mlir::LogicalResult initializeStructure(IE::ConvertOp& convertOp);
-    [[nodiscard]] mlir::LogicalResult initializeStructure(Const::DeclareOp& declareOp);
+    [[nodiscard]] mlir::LogicalResult initializeStructure(IE::ConvertOp& convertOp, mlir::Operation* opUser);
+    [[nodiscard]] mlir::LogicalResult initializeStructure(Const::DeclareOp& declareOp, mlir::Operation* opUser);
 
     mlir::LogicalResult checkAndSet(mlir::Value& out, mlir::Value value, bool allowConstant) const;
 
@@ -142,8 +142,10 @@ private:
 public:
     const Logger log;
 
-    static mlir::FailureOr<WeightsDequantizeStructureInfo> create(Const::DeclareOp origOp, const Logger& log);
-    static mlir::FailureOr<WeightsDequantizeStructureInfo> create(IE::ConvertOp origOp, const Logger& log);
+    static mlir::FailureOr<WeightsDequantizeStructureInfo> create(Const::DeclareOp origOp, const Logger& log,
+                                                                  mlir::Operation* opUser = nullptr);
+    static mlir::FailureOr<WeightsDequantizeStructureInfo> create(IE::ConvertOp origOp, const Logger& log,
+                                                                  mlir::Operation* opUser = nullptr);
 
     // Rewriting-related APIs:
     mlir::Operation* getLastOp() const;
@@ -169,10 +171,11 @@ public:
     bool hasScale() const;
     bool hasShift() const;
     bool isKVcachedPattern() const;
-    // Returns true when the WD-chain's last op has exactly one use and that use is a GatherOp with i4/ui4 weights.
-    // The Gather accesses only a small subset of rows at inference time, so dequantizing the full table offline is
-    // wasteful. The WD chain is instead routed to DynamicDequantize so that dequantization happens after Gather.
-    bool isI4ConsumedByGather() const;
+    // Returns true when the WD-chain's last op has exactly one use that is a GatherOp, and the weights are a
+    // supported low-precision integer type (SI4, I4, SI8, I8, or U2). Gathering at inference time accesses only a
+    // small subset of rows, so dequantizing the full table offline wastes blob size. The WD chain is instead
+    // routed to DynamicDequantize so that dequantization happens after Gather on only the fetched rows.
+    bool isQuantizedConsumedByGather() const;
 
     mlir::Type getInputElemType() const;
     mlir::Type getLowPrecisionElemType() const;

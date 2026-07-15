@@ -21,6 +21,8 @@
 #include "vpux/compiler/utils/llvm_to_binary.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 
+#include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/Module.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -471,9 +473,11 @@ void createComputeOpSwKernel(VPUIP::SwKernelOp swKernelOp, mlir::OpBuilder build
     auto paramsData = getIntArrayAttr(ctx, paramsVector);
     auto skipDescIds = swKernelOp.getSkipDescIds().value_or(nullptr);
 
+    bool usesDma = VPUIP::isIoDmaSwKernel(swKernelOp);
+
     auto kernelParamsOp = builder.create<VPUMI40XX::KernelParamsOp>(
             swKernelOp.getLoc(), indexType, swKernelOp.getInputs(), actKernalParamResults, dynInputShapesRange,
-            dynOutputShapesRange, swKernelELF, paramsData, isOutputBroadcasted, isJitCompiled, skipDescIds);
+            dynOutputShapesRange, swKernelELF, paramsData, isOutputBroadcasted, isJitCompiled, usesDma, skipDescIds);
 
     builder.create<VPUMI40XX::ActKernelInvocationOp>(swKernelOp.getLoc(), indexType,
                                                      nullptr,             // taskLocation
@@ -551,7 +555,7 @@ void createCacheOpSwKernel(VPUIP::SwKernelOp swKernelOp, mlir::OpBuilder builder
             SmallVector<mlir::ValueRange>(0),  // dynInputShapes
             SmallVector<mlir::ValueRange>(0),  // dynOutputShapes
             mlir::StringAttr::get(ctx, swKernelType), kernelParamsData, /*isOutputBroadcasted*/ false,
-            /*isJitCompiled*/ false, skipDescIds);
+            /*isJitCompiled*/ false, /*usesDma*/ false, skipDescIds);
 
     builder.create<VPUMI40XX::ActKernelInvocationOp>(swKernelOp.getLoc(), indexType,
                                                      nullptr,             // taskLocation

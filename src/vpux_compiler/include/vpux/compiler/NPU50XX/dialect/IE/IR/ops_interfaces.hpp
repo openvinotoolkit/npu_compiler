@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2026 Intel Corporation.
+// Copyright (C) 2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -9,5 +9,6 @@ namespace vpux::IE::arch50xx {
 
 void registerQuantizedLayerOpInterfaces(mlir::DialectRegistry& registry);
 void registerMPEEngineInfoOpInterfaces(mlir::DialectRegistry& registry);
+void registerAlignedChannelsOpInterfaces(mlir::DialectRegistry& registry);
 
 }  // namespace vpux::IE::arch50xx

@@ -5,12 +5,13 @@
 
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/attributes/stable_hash_storage.hpp"
+#include "vpux/compiler/dialect/const/constant_call_stack.hpp"
 #include "vpux/compiler/dialect/const/constant_transformations_control.hpp"
+#include "vpux/compiler/dialect/const/dialect.hpp"
 #include "vpux/compiler/dialect/const/utils/const_logger.hpp"
 #include "vpux/compiler/utils/stable_hash.hpp"
 
 #include "vpux/compiler/core/types/quantile_float/types.hpp"
-#include "vpux/compiler/dialect/const/dialect.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/constant_folding_cache.hpp"
 #include "vpux/compiler/dialect/const/utils/sub_byte.hpp"
@@ -27,6 +28,7 @@
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinDialect.h>
+#include <mlir/IR/BuiltinTypeInterfaces.h>
 #include <mlir/IR/Dialect.h>
 #include <mlir/IR/DialectImplementation.h>
 #include <mlir/IR/DialectInterface.h>
@@ -37,6 +39,7 @@
 #include <mlir/Support/LLVM.h>
 #include <mlir/Transforms/InliningUtils.h>
 
+#include <cassert>
 #include <cstring>
 #include <utility>
 
@@ -67,10 +70,9 @@ struct ConstInlinerInterface : public mlir::DialectInlinerInterface {
 /// @brief Caches splatness status for dense_resource<> blobs (for which it is
 /// expensive to calculate manually).
 class SplatnessCache final : public mlir::DialectInterface::Base<SplatnessCache> {
-    using ValueType = std::pair<mlir::ArrayRef<char>, bool>;
-    mlir::DenseMap<mlir::DenseResourceElementsAttr, ValueType> _cache;
-
 public:
+    using ValueType = std::optional<std::pair<mlir::ArrayRef<char>, bool>>;
+
     // required by MLIR's internal type-id infrastructure:
     MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(SplatnessCache)
 
@@ -81,6 +83,7 @@ public:
     ValueType getRawDataAndSplatness(mlir::DenseResourceElementsAttr denseResource);
 
 private:
+    mlir::DenseMap<mlir::DenseResourceElementsAttr, ValueType> _cache;
     std::recursive_mutex _cacheMutex{};  // Note: recursive because "get" can call "cache"
 };
 
@@ -110,6 +113,16 @@ public:
     }
 };
 
+size_t getByteSize(mlir::ShapedType type) {
+    if (isSubByteType(type)) {
+        return 1;
+    }
+
+    const auto bitWidth = getElemTypeSize(type.getElementType());
+    assert(bitWidth.count() % CHAR_BIT == 0 && "If a type is not a sub-byte, only byte-aligned types are supported");
+    return checked_cast<size_t>(Byte{bitWidth}.count());
+}
+
 }  // namespace
 
 //
@@ -136,6 +149,10 @@ void vpux::Const::ConstDialect::initialize() {
 
     addInterfaces<ConstInlinerInterface>();
     addInterfaces<SplatnessCache, LazyFoldingCache>();
+
+    if (isDeveloperBuild()) {
+        addInterfaces<CallStackCache>();
+    }
 }
 
 //
@@ -145,7 +162,7 @@ void vpux::Const::ConstDialect::initialize() {
 mlir::LogicalResult vpux::Const::ContentAttr::verify(FuncRef<mlir::InFlightDiagnostic()> emitError,
                                                      mlir::ElementsAttr baseContent,
                                                      vpux::Const::TransformAttrInterfaceArrayAttr transformations,
-                                                     vpux::NDTypeInterface, mlir::UnitAttr isSplat) {
+                                                     vpux::NDTypeInterface, mlir::UnitAttr) {
     if (baseContent == nullptr) {
         return printTo(emitError(), "Got NULL 'baseContent' in 'ContentAttr'");
     }
@@ -171,7 +188,7 @@ mlir::LogicalResult vpux::Const::ContentAttr::verify(FuncRef<mlir::InFlightDiagn
         auto blob = denseResource.getRawHandle().getBlob();
         // If blob is null we might be in the IR parsing scenario where ContentAttr is parsed before
         // dialect_resources section. For such case Const::DeclareOp::verify will verify dense resource content
-        if (blob != nullptr && mlir::failed(verifyDenseResource(emitError, denseResource, isSplat != nullptr))) {
+        if (blob != nullptr && mlir::failed(verifyDenseResource(emitError, denseResource))) {
             return mlir::failure();
         }
     }
@@ -187,36 +204,28 @@ mlir::LogicalResult vpux::Const::ContentAttr::verify(FuncRef<mlir::InFlightDiagn
 }
 
 mlir::LogicalResult vpux::Const::ContentAttr::verifyDenseResource(FuncRef<mlir::InFlightDiagnostic()> emitError,
-                                                                  mlir::DenseResourceElementsAttr denseResource,
-                                                                  bool isSplat) {
+                                                                  mlir::DenseResourceElementsAttr denseResource) {
     if (denseResource == nullptr) {
         return printTo(emitError(), "Got NULL 'denseResource' in 'ContentAttr'");
     }
-    auto blob = denseResource.getRawHandle().getBlob();
-    if (blob == nullptr) {
-        return printTo(emitError(), "Can't access constant content for verification, resource handle : {0}",
+
+    auto cacheEntry = ::getCache<SplatnessCache>(denseResource.getContext()).getRawDataAndSplatness(denseResource);
+    if (!cacheEntry.has_value()) {
+        return printTo(emitError(), "Can't access constant content cache for verification, resource handle : {0}",
                        denseResource.getRawHandle().getKey());
     }
+
+    auto [rawData, isSplat] = cacheEntry.value();
+
     // Note: manual checks required since dense resource blob is opaque and does not perform much validation itself
-    const auto bytes = blob->getData();
-    auto bitWidth = vpux::getElemTypeSize(denseResource.getShapedType().getElementType()).count();
-    if (vpux::Const::isSubByte(bitWidth)) {
-        const auto bufferSize = checked_cast<size_t>(bytes.size());
-        const auto numBytes = static_cast<size_t>(getExpectedBufferSize(denseResource.getShapedType()).count());
-        // Note: limit sub-byte data splats to 1 byte
-        const bool valid = (isSplat && bufferSize == 1) || (bufferSize == numBytes);
-        if (!valid) {
-            return printTo(emitError(),
-                           "Size of dense resource buffer '{0}' in 'baseContent' doesn't match its type '{1}'",
-                           bytes.size(), denseResource.getShapedType());
-        }
-    } else {
-        bool ignored = false;
-        if (!mlir::DenseElementsAttr::isValidRawBuffer(denseResource.getShapedType(), bytes, ignored)) {
-            return printTo(emitError(),
-                           "Size of dense resource buffer '{0}' in 'baseContent' doesn't match its type '{1}'",
-                           bytes.size(), denseResource.getShapedType());
-        }
+    const auto type = denseResource.getShapedType();
+    const auto splatSize = getByteSize(type);
+    const auto expectedSize = isSplat ? splatSize : getExpectedBufferSize(type).count();
+
+    const auto actualSize = rawData.size();
+    if (actualSize != checked_cast<size_t>(expectedSize)) {
+        return printTo(emitError(), "Size of dense resource buffer '{0}' in 'baseContent' doesn't match its type '{1}'",
+                       actualSize, type);
     }
 
     return mlir::success();
@@ -224,90 +233,97 @@ mlir::LogicalResult vpux::Const::ContentAttr::verifyDenseResource(FuncRef<mlir::
 
 namespace {
 
-std::pair<mlir::ArrayRef<char>, bool> detectSplatElementWise(mlir::ArrayRef<char> data, size_t bitWidth) {
-    const auto elemIsSplat = [&](size_t offset) {
-        const char* firstElemAddr = data.data();
-        for (size_t i = offset; i < data.size(); i += offset) {
-            if (std::memcmp(firstElemAddr + i, firstElemAddr, offset) != 0) {
+bool isSplat(mlir::ShapedType type, mlir::ArrayRef<char> data) {
+    if (data.empty()) {
+        return false;
+    }
+
+    const auto elementSizeInBytes = getByteSize(type);
+    const auto expectedBufferSize = static_cast<size_t>(getExpectedBufferSize(type).count());
+    const auto dataHasExpectedSize = data.size() == elementSizeInBytes || data.size() == expectedBufferSize;
+    if (!dataHasExpectedSize) {
+        // don't assert on this, tests expect verifier to catch this error
+        // verifier check is called after this function
+        return false;
+    }
+
+    // check `data` has all elements of the same value via shifted-equal
+    // store range now to skip last padded byte later in case of sub-byte data type
+    auto rangeForCompare = data;
+
+    if (isSubByteType(type)) {
+        const auto bitWidth = getElemTypeSize(type.getElementType());
+        if (CHAR_BIT % bitWidth.count() != 0) {
+            // splatness check is unsupported for non-power-of-2 sub-byte types
+            // PSS still triggers this, so assert is not an option here
+            // treat as non-splat buffer for safety
+            return false;
+        }
+
+        const auto numElements = type.getNumElements();
+        const auto elementsPerByte = CHAR_BIT / bitWidth.count();
+
+        // `splatByte` is one sub-byte element repeated until end of the byte
+        const auto splatByte = [&] {
+            const auto mask = (int64_t{1} << bitWidth.count()) - 1;
+            const auto firstElement = data.front() & mask;
+
+            char splat = 0;
+            for (auto i : irange(elementsPerByte)) {
+                splat |= static_cast<char>(firstElement << (i * bitWidth.count()));
+            }
+            return splat;
+        }();
+
+        // returns true iff `byte` is splat with `count` elements inside
+        const auto isSplatByte = [splatByte, bitWidth](char byte, size_t count) {
+            // use mask to ignore possible padding bits
+            const auto mask = (int64_t{1} << (count * bitWidth.count())) - 1;
+            return (byte & mask) == (splatByte & mask);
+        };
+
+        const auto elementsInFirstByte = std::min(numElements, elementsPerByte);
+        if (!isSplatByte(data.front(), elementsInFirstByte)) {
+            return false;
+        }
+
+        const auto elementsInLastByte = numElements % elementsPerByte;
+        // check data has more than one byte to avoid emptying rangeForCompare via drop_back;
+        // single-byte buffers are fully covered by the first-byte check above
+        if (data.size() > 1 && elementsInLastByte > 0) {
+            if (!isSplatByte(data.back(), elementsInLastByte)) {
                 return false;
             }
+            // skip last padded byte as it is legally not equal to other bytes
+            rangeForCompare = data.drop_back(1);
         }
-
-        return true;
-    };
-
-    if (vpux::Const::isSubByte(bitWidth)) {
-        const char firstByte = *data.data();
-
-        const auto elemPerByte = CHAR_BIT / bitWidth;
-        VPUX_THROW_UNLESS(vpux::isPowerOfTwo(elemPerByte), "Invalid number of elements per byte '{0}'", elemPerByte);
-        const size_t mask = checked_cast<uint8_t>(checked_cast<uint16_t>(std::pow(2, bitWidth)) - 1);
-        size_t shift = 0;
-        // Compare first byte.
-        for (size_t i = 0; i < elemPerByte - 1; i += 1) {
-            uint8_t preVal = (firstByte >> shift) & mask;
-            shift += bitWidth;
-            uint8_t nextVal = (firstByte >> shift) & mask;
-            if (preVal != nextVal) {
-                return {data, false};
-            }
-        }
-
-        if (!elemIsSplat(1)) {
-            return {data, false};
-        }
-
-        return {data.take_front(1), true};
     }
 
-    auto elementSizeBytes = bitWidth / CHAR_BIT;
-    VPUX_THROW_WHEN((data.size() < elementSizeBytes), "The data must contain at least one element");
-    VPUX_THROW_WHEN(((data.size() % elementSizeBytes) != 0), "The data array has unexpected length");
+    // shift the range for comparison, such that `equal` compares adjacent elements
+    // byte-wise; for multi-byte elements this means 'high byte' is compared
+    // to 'high byte', and 'low byte' is compared to 'low byte'
+    assert(!rangeForCompare.empty());
+    const auto shiftedRange = rangeForCompare.drop_front(elementSizeInBytes);
+    return std::equal(shiftedRange.begin(), shiftedRange.end(), rangeForCompare.begin());
+}
 
-    if (data.size() == elementSizeBytes) {
-        return {data, true};
-    }
-
-    if (!elemIsSplat(elementSizeBytes)) {
+std::pair<mlir::ArrayRef<char>, bool> detectSplatManually(mlir::ShapedType type, mlir::ArrayRef<char> data) {
+    if (!isSplat(type, data)) {
         return {data, false};
     }
 
-    return {data.take_front(elementSizeBytes), true};
-}
-
-// Returns whether the data is a splat, correcting the data array when it is.
-std::pair<mlir::ArrayRef<char>, bool> detectSplatManually(mlir::ShapedType type, mlir::ArrayRef<char> data) {
-    if (data.empty()) {
-        return {data, false};  // empty data is not a splat
-    }
-
-    const auto bitWidth = vpux::getElemTypeSize(type).count();
-
-    // Use isValidRawBuffer() for the side effects to detect whether a buffer is a splat.
-    // Because of the limitation of MLIR, we shouldn't use isValidRawBuffer() for sub byte type except i1.
-    // For example, 0x12 will return true but the byte actually contains two different I4 elements.
-    bool isSplat = false;
-    if (!vpux::Const::isSubByte(bitWidth)) {
-        std::ignore = mlir::DenseElementsAttr::isValidRawBuffer(type, data, isSplat);
-        if (isSplat) {
-            return {data, true};
-        }
-    }
-
-    // isValidRawBuffer() only checks single-element splats but if the data
-    // array has identical elements, a manual check is required
-    return detectSplatElementWise(data, static_cast<size_t>(bitWidth));
+    return {data.take_front(getByteSize(type)), true};
 }
 
 /// Returns pointer to baseContent's data and whether the data is splat.
-std::pair<mlir::ArrayRef<char>, bool> getRawDataAndSplatness(mlir::ElementsAttr baseContent) {
+SplatnessCache::ValueType getRawDataAndSplatness(mlir::ElementsAttr baseContent) {
     if (auto dense = mlir::dyn_cast<mlir::DenseElementsAttr>(baseContent)) {
-        return {dense.getRawData(), dense.isSplat()};
+        return std::pair{dense.getRawData(), dense.isSplat()};
     }
 
     // We cannot know if we have a splat value because we cannot dereference the symbol from here.
     if (mlir::isa<Const::SymElementsAttr>(baseContent)) {
-        return {mlir::ArrayRef<char>(), false};
+        return std::pair{mlir::ArrayRef<char>(), false};
     }
 
     auto denseResource = mlir::cast<mlir::DenseResourceElementsAttr>(baseContent);
@@ -324,7 +340,7 @@ void SplatnessCache::cacheRawDataAndSplatness(mlir::DenseResourceElementsAttr de
         // Note: In an unlikely but possible event, the same dense_resource<>
         // can already be cached (OV model is compressed). In this case, there
         // is no need to run the possibly expensive calculation again.
-        if (bool alreadyCached = (entry.first.data() != nullptr); alreadyCached) {
+        if (entry.has_value()) {
             return;
         }
 
@@ -339,7 +355,7 @@ typename SplatnessCache::ValueType SplatnessCache::getRawDataAndSplatness(
     if (it == _cache.end()) {
         cacheRawDataAndSplatness(denseResource);
         it = _cache.find(denseResource);
-        return it != _cache.end() ? it->second : std::make_pair(ArrayRef<char>{}, false);
+        return it != _cache.end() ? it->second : std::nullopt;
     }
     return it->second;
 }
@@ -349,10 +365,10 @@ typename SplatnessCache::ValueType SplatnessCache::getRawDataAndSplatness(
 //
 
 Const::Content wrapBaseContent(mlir::ElementsAttr baseContent) {
-    ArrayRef<char> data = {};
-    bool isSplat = false;
+    auto content = getRawDataAndSplatness(baseContent);
+    assert(content.has_value() && "ContentAttr verification should guarantee cache access");
 
-    std::tie(data, isSplat) = getRawDataAndSplatness(baseContent);
+    auto [data, isSplat] = content.value();
 
     return Const::Content::fromRawBuffer(mlir::cast<vpux::NDTypeInterface>(baseContent.getShapedType()), data,
                                          baseContent.getShapedType().getElementType(), isSplat);
@@ -594,14 +610,22 @@ vpux::Const::TransformAttrInterfaceArrayAttr vpux::Const::ContentAttr::getTransf
 }
 
 llvm::hash_code vpux::Const::ContentAttr::getTransformationHash() const {
-    return ContentAttr::getTransformationHash(getTransformations());
+    return ContentAttr::getTransformationHash(getBaseContent(), getTransformations());
 }
 
-llvm::hash_code vpux::Const::ContentAttr::getTransformationHash(ArrayRef<TransformAttrInterface> transformations) {
+llvm::hash_code vpux::Const::ContentAttr::getTransformationHash(mlir::ElementsAttr baseContent,
+                                                                ArrayRef<TransformAttrInterface> transformations) {
     const auto hashes = transformations | transformed([](TransformAttrInterface attr) {
                             return attr.getStableHashValue();
                         });
-    return llvm::hash_combine_range(hashes.begin(), hashes.end());
+    // Note: base content is a rather simple container that supports limited
+    // amount of information (unlike a generic tensor type); thus, it should
+    // generally be enough to just hash shape + element type to ensure stable
+    // hash with no conflicts (having e.g. an order attribute set on a tensor
+    // type of a base content is not expected).
+    const auto baseType = mlir::cast<vpux::NDTypeInterface>(baseContent.getType());
+    return llvm::hash_combine(baseType.getShape().raw(), getStableHash(baseType.getElementType()),
+                              llvm::hash_combine_range(hashes.begin(), hashes.end()));
 }
 
 void vpux::Const::printContentAttr(mlir::AsmPrinter& printer, const ContentAttr& content) {
@@ -621,13 +645,58 @@ vpux::NDTypeInterface vpux::Const::inferFinalType(vpux::NDTypeInterface contentT
 // if" applied to this content.
 std::pair<vpux::NDTypeInterface, bool> vpux::Const::inferFinalTypeAndSplat(
         mlir::ElementsAttr content, mlir::ArrayRef<vpux::Const::TransformAttrInterface> transformations) {
-    bool inferredSplat = getRawDataAndSplatness(content).second;
+    // empty optional might be returned in case of the call during LIT test parsing
+    // due to multi-stage parsing process of DenseResourceElementsAttr and
+    // buffer being unavailable at the initial stage
+    // assume non-splat in this case, splatness will be computed later during verification
+    // when buffer becomes available
+    auto inferredSplat = getRawDataAndSplatness(content).value_or(std::pair{mlir::ArrayRef<char>{}, false}).second;
     auto inferredType = mlir::cast<vpux::NDTypeInterface>(content.getType());
     for (const auto& attr : transformations) {
         inferredSplat = attr.inferOutputSplat(inferredSplat, inferredType);
         inferredType = attr.inferOutputType(inferredType);
     }
     return {inferredType, inferredSplat};
+}
+
+void vpux::Const::detail::ContentSetupTracingBase::updateConstantCallStack(
+        mlir::MLIRContext* ctx, mlir::ArrayRef<TransformAttrInterface> transformations) const {
+    if (id == nullptr) {
+        return;
+    }
+    auto& csCache = vpux::getCache<vpux::Const::CallStackCache, vpux::Const::ConstDialect>(ctx);
+    auto trace = vpux::Const::gatherTrace();
+
+    {
+        std::lock_guard<std::mutex> lock(csCache.callStackCacheMutex());
+        auto& callStack = csCache.getCallStack();
+        auto& currentTransformations = callStack[id];
+        auto tempTransformations = currentTransformations;
+
+        // Add new elements or update existing ones if changed
+        for (auto transformation : transformations) {
+            auto matchIt = std::find_if(tempTransformations.begin(), tempTransformations.end(),
+                                        [&](const vpux::Const::CallStackCache::TransformationTy& tEntry) {
+                                            return std::get<0>(tEntry) == transformation;
+                                        });
+            if (matchIt == tempTransformations.end()) {
+                currentTransformations.push_back(std::make_tuple(transformation, trace));
+            } else {
+                tempTransformations.erase(matchIt);
+            }
+        }
+
+        // Remove outdated elements
+        for (auto extra : tempTransformations) {
+            auto remIt = std::find_if(currentTransformations.begin(), currentTransformations.end(),
+                                      [&](const vpux::Const::CallStackCache::TransformationTy& tEntry) {
+                                          return std::get<0>(tEntry) == std::get<0>(extra);
+                                      });
+            if (remIt != currentTransformations.end()) {
+                currentTransformations.erase(remIt);
+            }
+        }
+    }
 }
 
 void vpux::Const::detail::ContentSetupBase::addTransformation(TransformAttrInterface newTransformation) {
@@ -667,6 +736,8 @@ void vpux::Const::detail::ContentSetupBase::addTransformation(TransformAttrInter
             _transformations.size() >= 2 &&
             (_transformations.end() - 2)->getPositionRequirement() == details::PositionRequirement::LAST;
     VPUX_THROW_WHEN(lastRequirementViolated, "At most 1 attribute with LAST requirement allowed!");
+
+    Base::updateConstantCallStack(getContext(), _transformations);
 }
 
 void vpux::Const::setLazyFoldingOptions(mlir::MLIRContext* ctx, const LazyFoldingOptions& options) {
@@ -805,6 +876,12 @@ llvm::hash_code StableHashStorage<GatherElementsAttrStorage>::calculateStableHas
     return llvm::hash_combine(GatherElementsAttr::getMnemonic(), this->axis.getValue(),
                               getStableHash(this->indices.getType()),
                               llvm::hash_combine_range(indicesRaw.begin(), indicesRaw.end()));
+}
+
+template <>
+llvm::hash_code StableHashStorage<CumSumAttrStorage>::calculateStableHash() const {
+    return llvm::hash_combine(CumSumAttr::getMnemonic(), this->axis.getValue(), this->exclusive.getValue(),
+                              this->reverse.getValue());
 }
 }  // namespace details
 

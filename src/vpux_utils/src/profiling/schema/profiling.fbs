@@ -118,7 +118,7 @@ table ProfilingSection {
 }
 
 table ProfilingBuffer {
-    sections: [ProfilingSection];
+    sections: [ProfilingSection] (required);
     size: uint;
 }
 
@@ -130,8 +130,8 @@ table Platform {
 table ProfilingMeta {
     majorVersion: uint;
     minorVersion: uint;
-    platform: Platform;
-    profilingBuffer: ProfilingBuffer;
+    platform: Platform (required);
+    profilingBuffer: ProfilingBuffer (required);
     dmaTasks: [DMATask];
     dpuTasks: [DPUTask];
     swTasks: [SWTask];

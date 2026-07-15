@@ -9,5 +9,6 @@ namespace vpux::VPU::arch40xx {
 
 void registerClusterBroadcastingOpInterfaces(mlir::DialectRegistry& registry);
 void registerSCFTilingOpsInterfaces(mlir::DialectRegistry& registry);
+void registerLayerWithDmaInterface(mlir::DialectRegistry& registry);
 
 }  // namespace vpux::VPU::arch40xx

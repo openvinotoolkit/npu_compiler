@@ -24,11 +24,12 @@ bool WeightsPrefetchingVFScheduling::validate(VFConfig& config, const TilingOper
     const auto index = 0;
     auto inputSize =
             getInputsSize(config, tilingInfo) - getSharedSizeByAllTiles(config.getInputs(), config, tilingInfo);
-    auto opTiling = tilingInfo->get(largest, index);
+    auto opTiling = tilingInfo->getRef(largest, index);
     VPUX_THROW_WHEN(!opTiling.has_value(), "There is no information about tile {0} of operation {1}", index, *largest);
+    const auto& opTilingValue = opTiling.value().get();
     auto sharedSize = getSharedSizeByAllTiles(config.getVFOperations().getArrayRef(), config, tilingInfo);
     auto largestOpSize = VPU::getRequiredCMX(
-            largest, config.getOperationTypes(largest, opTiling.value().second, opTiling.value().first.tiles));
+            largest, config.getOperationTypes(largest, opTilingValue.second, opTilingValue.first.tiles));
     largestOpSize -= getSharedSizeByAllTiles({largest}, config, tilingInfo);
 
     const auto thresholdCMXSize = getTotalCMXFragmentationAwareSize(largest);

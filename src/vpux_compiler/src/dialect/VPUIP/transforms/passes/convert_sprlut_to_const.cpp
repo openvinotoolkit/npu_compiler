@@ -53,7 +53,7 @@ mlir::Value SprLUTConverter::createLookupTableConst(VPUIP::NCEClusterTaskOp nceC
     const auto sprLUT = nceClusterTaskPPEAttr.getSprlut();
 
     const auto bufferType = vpux::getBufferType(sprLUT.getType());
-    Const::ContentSetup setup(mlir::cast<mlir::Type>(bufferType));
+    Const::ContentSetup setup(sprLUT, mlir::cast<mlir::Type>(bufferType));
     const auto contentAttr = Const::ContentAttr::get(sprLUT, setup);
     return rewriter.create<Const::DeclareOp>(nceClusterTask->getLoc(), bufferType, contentAttr).getOutput();
 }

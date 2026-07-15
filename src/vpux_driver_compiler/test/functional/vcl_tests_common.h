@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "npu_driver_compiler.h"
+#include "vcl_api.hpp"
 
 #include <gtest/gtest.h>
 #include <fstream>
@@ -27,7 +27,7 @@
 #include <sys/stat.h>
 #endif
 
-namespace VCLTestsUtils {
+namespace VCLTest {
 
 using IRInfoTestType = std::vector<std::unordered_map<std::string, std::string>>;
 using VCLTestsParams = std::tuple<std::unordered_map<std::string, std::string>>;
@@ -50,6 +50,7 @@ void deallocateBlob2(vcl_allocator2_t*, uint8_t* ptr);
 class VCLTestsCommon : public testing::WithParamInterface<VCLTestsParams>, public testing::Test {
 public:
     VCLTestsCommon(): modelIR(), modelIRSize(0) {
+        (void)VCLApi::getInstance();
     }
     virtual ~VCLTestsCommon() = default;
 
@@ -130,4 +131,4 @@ private:
     std::vector<uint8_t> modelIR;
     size_t modelIRSize;
 };
-}  // namespace VCLTestsUtils
+}  // namespace VCLTest

@@ -4,7 +4,6 @@
 //
 
 #include "vpux/compiler/conversion/rewriters/VPUMI40XX2VPUASM/dpu_invariant_rewriter.hpp"
-#include "vpux/compiler/NPU40XX/dialect/VPUIPDPU/ops.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 
@@ -14,14 +13,19 @@ using namespace vpux;
 
 mlir::Value extractValueForTile(mlir::ValueRange values, uint32_t tileIdx) {
     for (auto value : values) {
+        // Reject wrong-tile values before accessing the defining op
+        const auto valueType = mlir::cast<vpux::NDTypeInterface>(value.getType());
+        if (valueType.getMemSpace().getIndex().value_or(0) != tileIdx) {
+            continue;
+        }
+
         if (auto declBuffOp = value.getDefiningOp<VPURT::DeclareBufferOp>()) {
             if (declBuffOp.getSection() == VPURT::BufferSection::MAC_Accumulators) {
                 continue;
             }
         }
-        if (mlir::cast<vpux::NDTypeInterface>(value.getType()).getMemSpace().getIndex().value_or(0) == tileIdx) {
-            return value;
-        }
+
+        return value;
     }
 
     return nullptr;
@@ -34,6 +38,8 @@ namespace vpumi40xx2vpuasm {
 
 mlir::FailureOr<SymbolizationResult> DPUInvariantRewriter::symbolize(VPUMI40XX::DPUInvariantOp op, SymbolMapper&,
                                                                      mlir::ConversionPatternRewriter& rewriter) const {
+    constexpr auto variantCountBitWidth = 64;
+
     auto symName = findSym(op).getRootReference();
     auto taskLocation = findSym(op.getTaskLocation());
 
@@ -53,6 +59,7 @@ mlir::FailureOr<SymbolizationResult> DPUInvariantRewriter::symbolize(VPUMI40XX::
     auto weightTableSpPtrSym = optionalSym(op.getWeightTableSpPtr());
     auto weightTableScaleSym = optionalSym(op.getWeightTableScale());
     auto weightTableBiasSym = optionalSym(op.getWeightTableBias());
+    auto weightTableAlphaSym = optionalSym(op.getWeightTableAlpha());
     auto weightZeroPointsSym = optionalSym(op.getWeightZeroPoints());
     auto dynamicSequenceLengthSym = optionalSym(op.getDynamicSequenceLength());
 
@@ -94,33 +101,33 @@ mlir::FailureOr<SymbolizationResult> DPUInvariantRewriter::symbolize(VPUMI40XX::
 
     auto taskIdx = mlir::TypeAttr::get(op.getType());
 
-    auto invariantUsers = op.getIndex().getUsers();
-    llvm::SmallVector<mlir::Operation*> attachedVariants;
-    std::copy_if(invariantUsers.begin(), invariantUsers.end(), std::back_inserter(attachedVariants),
-                 [](mlir::Operation* op) {
-                     return mlir::isa<VPUMI40XX::DPUVariantOp>(op);
-                 });
+    size_t variantsInGroup = 0;
+    auto firstVariantIdx = std::numeric_limits<uint64_t>::max();
+    uint64_t lastVariantIdx = 0;
 
-    auto getTaskIndex = [](mlir::Operation* op) {
-        auto variantOp = mlir::cast<VPUMI40XX::DPUVariantOp>(op);
-        return variantOp.getIndexType().getValue();
-    };
+    for (auto user : op.getIndex().getUsers()) {
+        auto variantOp = mlir::dyn_cast<VPUMI40XX::DPUVariantOp>(user);
+        if (!variantOp) {
+            continue;
+        }
 
-    auto firstVariant = std::min_element(attachedVariants.begin(), attachedVariants.end(),
-                                         [&getTaskIndex](mlir::Operation* lhs, mlir::Operation* rhs) {
-                                             return getTaskIndex(lhs) < getTaskIndex(rhs);
-                                         });
+        ++variantsInGroup;
 
-    auto lastVariant = std::max_element(attachedVariants.begin(), attachedVariants.end(),
-                                        [&getTaskIndex](mlir::Operation* lhs, mlir::Operation* rhs) {
-                                            return getTaskIndex(lhs) < getTaskIndex(rhs);
-                                        });
+        auto variantIdx = variantOp.getIndexType().getValue();
+        if (variantIdx < firstVariantIdx) {
+            firstVariantIdx = variantIdx;
+        }
+        if (variantIdx > lastVariantIdx) {
+            lastVariantIdx = variantIdx;
+        }
+    }
 
-    auto variantsInGroupAttr = rewriter.getIntegerAttr(rewriter.getIntegerType(64, false), attachedVariants.size());
-    auto firstVariantAttr =
-            rewriter.getUI32IntegerAttr(mlir::cast<VPUMI40XX::DPUVariantOp>(*firstVariant).getIndexType().getValue());
-    auto lastVariantAttr =
-            rewriter.getUI32IntegerAttr(mlir::cast<VPUMI40XX::DPUVariantOp>(*lastVariant).getIndexType().getValue());
+    VPUX_THROW_WHEN(variantsInGroup == 0, "No DPU variants attached to invariant {0}", op.getOperationName());
+
+    auto variantsInGroupAttr = rewriter.getIntegerAttr(rewriter.getIntegerType(variantCountBitWidth, false),
+                                                       checked_cast<int64_t>(variantsInGroup));
+    auto firstVariantAttr = rewriter.getUI32IntegerAttr(firstVariantIdx);
+    auto lastVariantAttr = rewriter.getUI32IntegerAttr(lastVariantIdx);
 
     mlir::TypeAttr outTypeContAttr = nullptr;
     if (op.getIsContinued()) {
@@ -150,8 +157,8 @@ mlir::FailureOr<SymbolizationResult> DPUInvariantRewriter::symbolize(VPUMI40XX::
     auto invariant = rewriter.create<VPUASM::DPUInvariantOp>(
             op.getLoc(), symName, taskIdx, taskLocation, inputSym, inputSparsityMapSym, inputSETableSym, weightsSym,
             weightsSparsityMapSym, weightTableSym, weightTableDataPtrSym, weightTableSpPtrSym, weightTableScaleSym,
-            weightTableBiasSym, weightZeroPointsSym, sprLookupTableSym, palletLookupTableSym, outputSym,
-            outputSparsityMapSym, profilingDataSym, dynamicSequenceLengthSym, maxPerXYSym, minPerXYSym,
+            weightTableBiasSym, weightTableAlphaSym, weightZeroPointsSym, sprLookupTableSym, palletLookupTableSym,
+            outputSym, outputSparsityMapSym, profilingDataSym, dynamicSequenceLengthSym, maxPerXYSym, minPerXYSym,
             minMaxPerTensorAttr, outTypeContAttr, waitAttr, updateAttr, op.getNceTaskTypeAttr(),
             op.getEltwiseTypeAttr(), op.getMpeFrequentModeAttr(), op.getMpeEngineAttr(), op.getKernelSizeAttr(),
             op.getKernelStridesAttr(), op.getKernelPaddingAttr(), op.getIsContinued(), op.getCmSpPatternAttr(),

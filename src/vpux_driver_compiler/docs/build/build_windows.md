@@ -95,7 +95,7 @@ cmake ^
     %CommonBuildOptions% ^
     ..
 
-cmake --build . --config %CONFIG% --target npu_driver_compiler compilerTest profilingTest vpuxCompilerL0Test loaderTest --parallel %NUMBER_OF_PROCESSORS%
+cmake --build . --config %CONFIG% --target openvino_intel_npu_compiler openvino_intel_npu_compiler_loader compilerTest profilingTest vpuxCompilerL0Test loaderTest --parallel %NUMBER_OF_PROCESSORS%
 
 @REM Optional, compress and pack all CiD targets
 cpack -V -D CPACK_COMPONENTS_ALL=CiD -D CPACK_CMAKE_GENERATOR=Ninja -D CPACK_PACKAGE_FILE_NAME=%CONFIG% -G "ZIP"
@@ -142,9 +142,9 @@ cmake ^
 <summary>Commands</summary>
 
 ```bat
-ninja npu_driver_compiler compilerTest profilingTest vpuxCompilerL0Test loaderTest -j %NUMBER_OF_PROCESSORS%
+ninja openvino_intel_npu_compiler openvino_intel_npu_compiler_loader compilerTest profilingTest vpuxCompilerL0Test loaderTest -j %NUMBER_OF_PROCESSORS%
 @REM Or, if not using Ninja:
-@REM cmake --build . --target npu_driver_compiler compilerTest profilingTest vpuxCompilerL0Test loaderTest --parallel %NUMBER_OF_PROCESSORS%
+@REM cmake --build . --target openvino_intel_npu_compiler openvino_intel_npu_compiler_loader compilerTest profilingTest vpuxCompilerL0Test loaderTest --parallel %NUMBER_OF_PROCESSORS%
 ```
 </details>
 

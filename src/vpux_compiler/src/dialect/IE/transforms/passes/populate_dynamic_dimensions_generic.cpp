@@ -64,9 +64,10 @@ void populateDynamicResult(mlir::Operation* op, const unsigned resultIdx) {
     IE::DynamicDimOpBuilder builder(op);
     builder.setInsertionPointAfter(op);
 
-    mlir::bufferization::populateDynamicDimSizes(builder, op->getLoc(), result, dynamicResults);
+    mlir::bufferization::populateDynamicDimSizes(builder, appendLoc(op->getLoc(), "dynamic_dim_sizes"), result,
+                                                 dynamicResults);
 
-    auto concat = buildConcat(op->getLoc(), builder, resultShape, dynamicResults);
+    auto concat = buildConcat(appendLoc(op->getLoc(), "concat"), builder, resultShape, dynamicResults);
 
     auto newResult = [&]() -> mlir::Value {
         if (supportsStridedAccess(op)) {
@@ -76,7 +77,7 @@ void populateDynamicResult(mlir::Operation* op, const unsigned resultIdx) {
                               op->getResult(0).getLoc());
 
             auto reshape = builder.create<IE::DynamicReshapeOp>(
-                    appendLoc(op->getLoc(), "reshape"),
+                    appendLoc(op->getLoc(), "dynamic_reshape"),
                     /*data=*/op->getResult(0),
                     /*shape=*/concat.getOutput(),
                     /*output_shape=*/getIntArrayAttr(builder.getContext(), outputShape),

@@ -8,8 +8,7 @@
 
 namespace vpux {
 
-void setupParamsAccordingToOptimizationLevel(int optimizationLevel, DefaultHWOptions40XX& compilationOptions,
-                                             bool useWlm) {
+void setupParamsAccordingToOptimizationLevel(int optimizationLevel, DefaultHWOptions40XX& compilationOptions) {
     //
     // Non-WLM params
     //
@@ -36,30 +35,17 @@ void setupParamsAccordingToOptimizationLevel(int optimizationLevel, DefaultHWOpt
     //
     // WLM-related params
     //
-
-    if (!useWlm) {
-        compilationOptions.workloadManagementEnable = false;
-        return;
-    }
-    bool isworkloadManagementEnableSet = compilationOptions.workloadManagementEnable.hasValue() ? true : false;
-
-    if (!isworkloadManagementEnableSet) {
-        std::optional<int> originalValueBarrierCountThreshold = std::nullopt;
+    if (!compilationOptions.workloadManagementEnable.hasValue()) {
         std::optional<WorkloadManagementMode> originalValueWorkloadManagementMode = std::nullopt;
 
         if (compilationOptions.workloadManagementMode.hasValue()) {
             originalValueWorkloadManagementMode = compilationOptions.workloadManagementMode;
         }
 
-        if (compilationOptions.workloadManagementBarrierCountThreshold.hasValue()) {
-            originalValueBarrierCountThreshold = compilationOptions.workloadManagementBarrierCountThreshold;
-        }
-
         // we do not have default value for workloadManagementMode on NPU40XX. Need to set it explicitly
         // E166333
         compilationOptions.workloadManagementEnable = true;
         compilationOptions.workloadManagementMode = WorkloadManagementMode::PWLM_V0_1_PAGES;
-        compilationOptions.workloadManagementBarrierCountThreshold = std::numeric_limits<int>::max();
 
         switch (optimizationLevel) {
         case 0:
@@ -69,7 +55,6 @@ void setupParamsAccordingToOptimizationLevel(int optimizationLevel, DefaultHWOpt
         }
         case 3: {
             compilationOptions.workloadManagementEnable = true;
-            compilationOptions.workloadManagementBarrierCountThreshold = std::numeric_limits<int>::max();
             compilationOptions.workloadManagementMode = WorkloadManagementMode::FWLM_V1_PAGES;
             compilationOptions.workloadManagementDmaFifoType = DMAFifoType::HW;
             compilationOptions.enableSwKernelFifoPerShaveEngine = true;
@@ -86,10 +71,6 @@ void setupParamsAccordingToOptimizationLevel(int optimizationLevel, DefaultHWOpt
 
         if (originalValueWorkloadManagementMode.has_value()) {
             compilationOptions.workloadManagementMode = originalValueWorkloadManagementMode.value();
-        }
-
-        if (originalValueBarrierCountThreshold.has_value()) {
-            compilationOptions.workloadManagementBarrierCountThreshold = originalValueBarrierCountThreshold.value();
         }
     }
 }

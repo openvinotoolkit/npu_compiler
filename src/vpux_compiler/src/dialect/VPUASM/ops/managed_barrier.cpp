@@ -7,10 +7,7 @@
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 
-#include <npu_40xx_nnrt.hpp>
-
 using namespace vpux;
-using namespace npu40xx;
 
 //
 // ManagedBarrierOp

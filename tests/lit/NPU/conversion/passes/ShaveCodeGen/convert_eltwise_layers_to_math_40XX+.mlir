@@ -779,6 +779,84 @@ module @SingleAbsFloatLayer {
 }
 
 // -----
+
+module @SingleAbsSI8Layer {
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+    DataInfo "input" : tensor<1x1x1x1000xsi8>
+  } outputsInfo : {
+    DataInfo "output" : tensor<1x1x1x1000xsi8>
+  }
+
+  func.func @main(%arg0: tensor<1x1x1x1000xsi8>) -> tensor<1x1x1x1000xsi8> {
+    %0 = IE.CodeGenCapsule inputs(%arg0 as %arg1: tensor<1x1x1x1000xsi8>) {
+      %1 = IE.Abs(%arg1) : tensor<1x1x1x1000xsi8> -> tensor<1x1x1x1000xsi8>
+      IE.CGCYield %1 : tensor<1x1x1x1000xsi8>
+    } -> tensor<1x1x1x1000xsi8>
+    return %0 : tensor<1x1x1x1000xsi8>
+
+    // CHECK-NOT: IE.Abs
+    // CHECK: [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xi8>
+    // CHECK: [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [#NCHW, #NCHW], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins({{%.+}} : tensor<1x1x1x1000xi8>) outs([[EMPTY]] : tensor<1x1x1x1000xi8>) {
+    // CHECK: ^bb0([[IN:%.+]]: i8, [[OUT:%.+]]: i8):
+    // CHECK: [[ABS:%.+]] = math.absi [[IN]] : i8
+    // CHECK: linalg.yield [[ABS]] : i8
+    // CHECK: IE.CGCYield [[LINALG_OP]] : tensor<1x1x1x1000xi8>
+  }
+}
+
+// -----
+
+module @SingleAbsSI16Layer {
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+    DataInfo "input" : tensor<1x1x1x1000xsi16>
+  } outputsInfo : {
+    DataInfo "output" : tensor<1x1x1x1000xsi16>
+  }
+
+  func.func @main(%arg0: tensor<1x1x1x1000xsi16>) -> tensor<1x1x1x1000xsi16> {
+    %0 = IE.CodeGenCapsule inputs(%arg0 as %arg1: tensor<1x1x1x1000xsi16>) {
+      %1 = IE.Abs(%arg1) : tensor<1x1x1x1000xsi16> -> tensor<1x1x1x1000xsi16>
+      IE.CGCYield %1 : tensor<1x1x1x1000xsi16>
+    } -> tensor<1x1x1x1000xsi16>
+    return %0 : tensor<1x1x1x1000xsi16>
+
+    // CHECK-NOT: IE.Abs
+    // CHECK: [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xi16>
+    // CHECK: [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [#NCHW, #NCHW], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins({{%.+}} : tensor<1x1x1x1000xi16>) outs([[EMPTY]] : tensor<1x1x1x1000xi16>) {
+    // CHECK: ^bb0([[IN:%.+]]: i16, [[OUT:%.+]]: i16):
+    // CHECK: [[ABS:%.+]] = math.absi [[IN]] : i16
+    // CHECK: linalg.yield [[ABS]] : i16
+    // CHECK: IE.CGCYield [[LINALG_OP]] : tensor<1x1x1x1000xi16>
+  }
+}
+
+// -----
+
+module @SingleAbsSI32Layer {
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+    DataInfo "input" : tensor<1x1x1x1000xsi32>
+  } outputsInfo : {
+    DataInfo "output" : tensor<1x1x1x1000xsi32>
+  }
+
+  func.func @main(%arg0: tensor<1x1x1x1000xsi32>) -> tensor<1x1x1x1000xsi32> {
+    %0 = IE.CodeGenCapsule inputs(%arg0 as %arg1: tensor<1x1x1x1000xsi32>) {
+      %1 = IE.Abs(%arg1) : tensor<1x1x1x1000xsi32> -> tensor<1x1x1x1000xsi32>
+      IE.CGCYield %1 : tensor<1x1x1x1000xsi32>
+    } -> tensor<1x1x1x1000xsi32>
+    return %0 : tensor<1x1x1x1000xsi32>
+
+    // CHECK-NOT: IE.Abs
+    // CHECK: [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xi32>
+    // CHECK: [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [#NCHW, #NCHW], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins({{%.+}} : tensor<1x1x1x1000xi32>) outs([[EMPTY]] : tensor<1x1x1x1000xi32>) {
+    // CHECK: ^bb0([[IN:%.+]]: i32, [[OUT:%.+]]: i32):
+    // CHECK: [[ABS:%.+]] = math.absi [[IN]] : i32
+    // CHECK: linalg.yield [[ABS]] : i32
+    // CHECK: IE.CGCYield [[LINALG_OP]] : tensor<1x1x1x1000xi32>
+  }
+}
+
+// -----
 // IE.Negative
 
 // CHECK: module @SingleNegativeFloatLayer
@@ -1919,5 +1997,35 @@ module @QuantizeDequantizePerChannelOrderChanged {
     // CHECK:   linalg.yield [[MUL]] : f16
     // CHECK: IE.CGCYield [[DEQUANT_RESULT]] : tensor<1x8x32x3xf16>
 
+  }
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+!qElemType = !quant.uniform<u8:f16:1, {0.031372549019607843,0.030591299019607842,0.032935049019607844}>
+
+// CHECK: [[TY:!.+]] = !quant.uniform<u8:f16:3, {0.031372549019607843,0.030591299019607842,0.032935049019607844}>
+// CHECK: module @ConvertCapsuleSignatureWithQuantTypes
+module @ConvertCapsuleSignatureWithQuantTypes {
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+    DataInfo "input" : tensor<1x3x8x32xf16, {order = #NHWC}>
+  } outputsInfo : {
+    DataInfo "output" : tensor<1x3x8x32xf16, {order = #NHWC}>
+  }
+
+  func.func @main(%arg0: tensor<1x3x8x32xf16, {order = #NHWC}>) -> tensor<1x3x8x32xf16, {order = #NHWC}> {
+    %0 = IE.Quantize(%arg0) {dstElemType = !qElemType} : tensor<1x3x8x32xf16, {order = #NHWC}> -> tensor<1x3x8x32x!qElemType, {order = #NHWC}>
+    %1 = IE.CodeGenCapsule inputs(%0 as %arg1: tensor<1x3x8x32x!qElemType, {order = #NHWC}>) {
+      IE.CGCYield %arg1 : tensor<1x3x8x32x!qElemType, {order = #NHWC}>
+    } -> tensor<1x3x8x32x!qElemType, {order = #NHWC}>
+    %2 = IE.Dequantize(%1) {dstElemType = f16} : tensor<1x3x8x32x!qElemType, {order = #NHWC}> -> tensor<1x3x8x32xf16, {order = #NHWC}>
+    return %2 : tensor<1x3x8x32xf16, {order = #NHWC}>
+
+    // CHECK:  IE.CodeGenCapsule inputs({{%.+}} as [[ARG0:%.+]]: tensor<1x8x32x3xi8>) {
+    // CHECK:    [[ARGCAST:%.+]] = quant.scast [[ARG0]] : tensor<1x8x32x3xi8> to tensor<1x8x32x3x[[TY]]>
+    // CHECK:    [[YIELDCAST:%.+]] = quant.scast [[ARGCAST]] : tensor<1x8x32x3x[[TY]]> to tensor<1x8x32x3xi8>
+    // CHECK:    IE.CGCYield [[YIELDCAST]] : tensor<1x8x32x3xi8>
+    // CHECK:  } -> tensor<1x3x8x32x!qElemType, {order = #NHWC}>
   }
 }

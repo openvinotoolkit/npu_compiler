@@ -9,23 +9,9 @@
 
 #include <mlir/IR/DialectRegistry.h>
 
-namespace vpux {
-namespace VPU {
-
-//
-// DeviceVersion
-//
-
-struct DeviceVersion {
-    // This is optional because lit-tests do not contain platform information
-    std::optional<config::Platform> platform;
-
-    // This field is used in order to select correct singleton initializer
-    config::ArchKind arch{config::ArchKind::UNKNOWN};
-};
+namespace vpux::VPU {
 
 /** @brief Adds dialect extension in order to initialize singletons for the specified architecture. */
-void initializeSingletons(mlir::DialectRegistry& registry, const DeviceVersion& deviceVersion);
+void initializeSingletons(mlir::DialectRegistry& registry, config::Platform platform);
 
-}  // namespace VPU
-}  // namespace vpux
+}  // namespace vpux::VPU

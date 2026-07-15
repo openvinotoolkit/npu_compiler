@@ -14,12 +14,12 @@ module @InitAndWrapper {
         DataInfo "output" : tensor<f32>
     }
 
-    func.func private @init(%arg0: tensor<f32>, %arg1: tensor<f32>) -> (tensor<f32>, tensor<f32>)
+    func.func nested @init(%arg0: tensor<f32>, %arg1: tensor<f32>) -> (tensor<f32>, tensor<f32>)
     {
         return %arg0, %arg1 : tensor<f32>, tensor<f32>
     }
 
-    func.func private @main(%input: tensor<f32>, %cst_1: tensor<f32>, %cst_2: tensor<f32>) -> tensor<f32> attributes {do_not_nest}
+    func.func nested @main(%input: tensor<f32>, %cst_1: tensor<f32>, %cst_2: tensor<f32>) -> tensor<f32> attributes {do_not_nest}
 
     func.func @main_wrapper(%arg: tensor<f32>) -> tensor<f32> {
         %cst_1 = const.Declare tensor<f32> = dense<1.0> : tensor<f32>
@@ -41,15 +41,15 @@ module @InitAndWrapper {
     // CHECK:     config.Resources {{.+}} of @NCE at {{.+}} MHz
     // CHECK:     config.Resources {{.+}} of @global
     // CHECK:     net.NetworkInfo entryPoint : @init inputsInfo
-    // CHECK:       DataInfo "in_0" : tensor<f32>
-    // CHECK:       DataInfo "in_1" : tensor<f32>
+    // CHECK:       DataInfo "in_0" tensorNames = ["in_0"] : tensor<f32>
+    // CHECK:       DataInfo "in_1" tensorNames = ["in_1"] : tensor<f32>
     // CHECK:     } outputsInfo : {
-    // CHECK:       DataInfo "out_0" : tensor<f32>
-    // CHECK:       DataInfo "out_1" : tensor<f32>
+    // CHECK:       DataInfo "out_0" tensorNames = ["out_0"] : tensor<f32>
+    // CHECK:       DataInfo "out_1" tensorNames = ["out_1"] : tensor<f32>
 
-    // CHECK:     func.func private @init
+    // CHECK:     func.func nested @init
 
-    // CHECK: func.func private @main(tensor<f32>, tensor<f32>, tensor<f32>) -> tensor<f32> attributes {do_not_nest}
+    // CHECK: func.func nested @main(tensor<f32>, tensor<f32>, tensor<f32>) -> tensor<f32> attributes {do_not_nest}
     // CHECK: func.func @main_wrapper
     // CHECK:     [[CST_0:%.+]] = const.Declare tensor<f32> = dense<1.000000e+00> : tensor<f32>
     // CHECK:     [[CST_1:%.+]] = const.Declare tensor<f32> = dense<2.000000e+00> : tensor<f32>
@@ -71,11 +71,11 @@ module @MultipleSubModules {
         DataInfo "output" : tensor<f32>
     }
 
-    func.func private @foo_cluster1(%arg: tensor<f32>) -> tensor<f32> {
+    func.func nested @foo_cluster1(%arg: tensor<f32>) -> tensor<f32> {
         return %arg: tensor<f32>
     }
 
-    func.func private @bar_cluster2(tensor<f32> ) -> tensor<f32>
+    func.func nested @bar_cluster2(tensor<f32> ) -> tensor<f32>
 
     func.func @goo_cluster2(%arg: tensor<f32>) -> tensor<f32> {
         %0 = call @bar_cluster2(%arg): (tensor<f32>) -> tensor<f32>
@@ -99,17 +99,17 @@ module @MultipleSubModules {
     // CHECK:     config.Resources {{.+}} of @NCE at {{.+}} MHz
     // CHECK:     config.Resources {{.+}} of @global
     // CHECK:     net.NetworkInfo entryPoint : @foo_cluster1 inputsInfo : {
-    // CHECK:       DataInfo "in_0" : tensor<f32>
+    // CHECK:       DataInfo "in_0" tensorNames = ["in_0"] : tensor<f32>
     // CHECK:     } outputsInfo : {
-    // CHECK:       DataInfo "out_0" : tensor<f32>
-    // CHECK:     func.func private @foo_cluster1
+    // CHECK:       DataInfo "out_0" tensorNames = ["out_0"] : tensor<f32>
+    // CHECK:     func.func nested @foo_cluster1
     // CHECK: }
     // CHECK-LABEL: module @Module1 attributes {{.+}} {
     // CHECK-NOT:    config.PipelineOptions @Options
     // CHECK-NOT:    config.Resources {{.+}} of @NCE at {{.+}} MHz
     // CHECK-NOT:    config.Resources {{.+}} of @global
     // CHECK-NOT:    net.NetworkInfo entryPoint
-    // CHECK:  func.func private @bar_cluster2(tensor<f32>) -> tensor<f32>
+    // CHECK:  func.func nested @bar_cluster2(tensor<f32>) -> tensor<f32>
     // CHECK:  func.func @goo_cluster2
     // CHECK:  func.func @baz_cluster2
 
@@ -130,7 +130,7 @@ module @NoNesting {
         DataInfo "output" : tensor<f32>
     }
 
-    func.func private @foo(%arg: tensor<f32>) -> tensor<f32> attributes {do_not_nest}
+    func.func nested @foo(%arg: tensor<f32>) -> tensor<f32> attributes {do_not_nest}
 
     func.func @bar(%arg: tensor<f32>) -> tensor<f32> {
         %0 = call @foo(%arg): (tensor<f32>) -> tensor<f32>
@@ -144,7 +144,7 @@ module @NoNesting {
 
     // CHECK: module @NoNesting
     // CHECK-NOT: module
-    // CHECK:     func.func private @foo
+    // CHECK:     func.func nested @foo
 
     // CHECK:     func.func @bar
     // CHECK:         call @foo
@@ -163,7 +163,7 @@ module @VPUIP {
       DataInfo "output" : tensor<f16>
     }
 
-    func.func private @foo(%arg0: memref<f16, @DDR>, %arg1: memref<f16, @DDR>) -> memref<f16, @DDR>
+    func.func nested @foo(%arg0: memref<f16, @DDR>, %arg1: memref<f16, @DDR>) -> memref<f16, @DDR>
     {
         return %arg1 : memref<f16, @DDR>
     }
@@ -173,11 +173,11 @@ module @VPUIP {
     // CHECK:     config.Resources {{.+}} of @NCE at {{.+}} MHz
     // CHECK:     config.Resources {{.+}} of @global
     // CHECK:     net.NetworkInfo entryPoint : @foo inputsInfo : {
-    // CHECK:       DataInfo "in_0" : tensor<f16>
-    // CHECK:       DataInfo "in_1" : tensor<f16>
+    // CHECK:       DataInfo "in_0" tensorNames = ["in_0"] : tensor<f16>
+    // CHECK:       DataInfo "in_1" tensorNames = ["in_1"] : tensor<f16>
     // CHECK:     } outputsInfo : {
-    // CHECK:       DataInfo "out_0" : tensor<f16>
-    // CHECK:     func.func private @foo
+    // CHECK:       DataInfo "out_0" tensorNames = ["out_0"] : tensor<f16>
+    // CHECK:     func.func nested @foo
     // CHECK: }
 
     func.func @main(%arg0: memref<f16, @DDR>, %arg1: memref<f16, @DDR>) -> memref<f16, @DDR> {

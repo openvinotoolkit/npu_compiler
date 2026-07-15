@@ -146,6 +146,8 @@ struct NetworkMetadata final {
 
     size_t numStreams = 1;
 
+    std::string compatibilityString;
+
     /**
      * @brief Binds the (state input, state output) and (dynamic tensor, shape tensor) pairs using the
      * "relatedDescriptorIndex" attribute.

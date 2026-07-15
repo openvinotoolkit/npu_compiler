@@ -4,6 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --unroll-group-quantize %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --unroll-group-quantize --mlir-print-debuginfo %s | FileCheck %s --check-prefix=CHECK-LOC
 // REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
 // CHECK-LABEL: @UnrollHighValues
@@ -421,4 +422,67 @@ func.func @NotUnrollForWeightsOfPrefillMatmulWithTranpose(%arg0: tensor<12x2048x
     // CHECK:  [[TRANSPOSE1:%.+]] = IE.Transpose([[RESHAPE]])
     // CHECK:  [[FC:%.+]] = IE.FullyConnected([[INPUT_2]], [[TRANSPOSE1]]) : tensor<1024x1536xf16>, tensor<2048x1536xf16> -> tensor<1024x2048xf16>
     // CHECK:  return [[FC]] : tensor<1024x2048xf16>
+}
+
+// -----
+
+// Verify that when two DynamicDequantize ops share the same scale parameter but unroll along
+// different axes, the generated slice locations are unique (axis encoded in suffix).
+
+!qElemType = !quant.uniform<i4:f16, 1.000000e+00>
+
+// CHECK-LABEL: @UnrollSharedScaleDifferentAxes
+// CHECK-SAME:      [[INPUT_A:%[^:]+]]: tensor<2x2x128x!qElemType>
+// CHECK-SAME:      [[SCALE:%[^:]+]]: tensor<2x2x1xf16>
+// CHECK-SAME:      [[INPUT_B:%[^:]+]]: tensor<2x2x128x!qElemType>
+// CHECK-SAME:      [[ACT_A:%[^:]+]]: tensor<1x256xf16>
+// CHECK-SAME:      [[ACT_B:%[^:]+]]: tensor<1x128xf16>
+func.func @UnrollSharedScaleDifferentAxes(%arg0: tensor<2x2x128x!qElemType>, %arg1: tensor<2x2x1xf16>,
+        %arg2: tensor<2x2x128x!qElemType>, %arg3: tensor<1x256xf16>, %arg4: tensor<1x128xf16>)
+        -> (tensor<1x2xf16>, tensor<1x4xf16>) {
+    // DQ_A: scale 2x2x1, axes={0,1}. AffineReshape [2,2,128]->[2,256] keeps dim0 → unrolls axis=1
+    %0 = IE.DynamicDequantize(%arg0, %arg1) {dstElemType = f16} : tensor<2x2x128x!qElemType>, tensor<2x2x1xf16> -> tensor<2x2x128xf16>
+    %1 = IE.AffineReshape(%0) {dim_mapping = [[0], [1], [1]], shape_value = [2, 256]} : tensor<2x2x128xf16> -> tensor<2x256xf16>
+    %2 = IE.FullyConnected(%arg3, %1) : tensor<1x256xf16>, tensor<2x256xf16> -> tensor<1x2xf16>
+
+    // DQ_B: scale 2x2x1, axes={0,1}. AffineReshape [2,2,128]->[4,128] merges dim0&dim1 → unrolls axis=0
+    %3 = IE.DynamicDequantize(%arg2, %arg1) {dstElemType = f16} : tensor<2x2x128x!qElemType>, tensor<2x2x1xf16> -> tensor<2x2x128xf16>
+    %4 = IE.AffineReshape(%3) {dim_mapping = [[0], [0], [1]], shape_value = [4, 128]} : tensor<2x2x128xf16> -> tensor<4x128xf16>
+    %5 = IE.FullyConnected(%arg4, %4) : tensor<1x128xf16>, tensor<4x128xf16> -> tensor<1x4xf16>
+
+    return %2, %5 : tensor<1x2xf16>, tensor<1x4xf16>
+
+    // DQ_A unrolled along axis=1: scale sliced along dim1
+    // CHECK:   [[SLICE_IN_A0:%.+]] = IE.Slice [[INPUT_A]] [0, 0, 0] [2, 1, 128] : tensor<2x2x128x!qElemType> to tensor<2x1x128x!qElemType>
+    // CHECK:   [[SLICE_IN_A1:%.+]] = IE.Slice [[INPUT_A]] [0, 1, 0] [2, 1, 128] : tensor<2x2x128x!qElemType> to tensor<2x1x128x!qElemType>
+    // CHECK:   [[SLICE_SC_A0:%.+]] = IE.Slice [[SCALE]] [0, 0, 0] [2, 1, 1] : tensor<2x2x1xf16> to tensor<2x1x1xf16>
+    // CHECK:   [[SLICE_SC_A1:%.+]] = IE.Slice [[SCALE]] [0, 1, 0] [2, 1, 1] : tensor<2x2x1xf16> to tensor<2x1x1xf16>
+    // CHECK:   [[DQ_A0:%.+]] = IE.DynamicDequantize([[SLICE_IN_A0]], [[SLICE_SC_A0]]) {dstElemType = f16}
+    // CHECK:   [[DQ_A1:%.+]] = IE.DynamicDequantize([[SLICE_IN_A1]], [[SLICE_SC_A1]]) {dstElemType = f16}
+    // CHECK:   [[CONCAT_A:%.+]] = IE.Concat([[DQ_A0]], [[DQ_A1]]) {per_axis = #IE.Concat<axis = 1 : i64>}
+    // CHECK:   [[RESHAPE_A:%.+]] = IE.AffineReshape([[CONCAT_A]])
+    // CHECK-SAME{LITERAL}:       {dim_mapping = [[0], [1], [1]], shape_value = [2, 256]}
+    // CHECK:   [[FC_A:%.+]] = IE.FullyConnected([[ACT_A]], [[RESHAPE_A]]) : tensor<1x256xf16>, tensor<2x256xf16> -> tensor<1x2xf16>
+
+    // DQ_B unrolled along axis=0: scale sliced along dim0
+    // CHECK:   [[SLICE_IN_B0:%.+]] = IE.Slice [[INPUT_B]] [0, 0, 0] [1, 2, 128] : tensor<2x2x128x!qElemType> to tensor<1x2x128x!qElemType>
+    // CHECK:   [[SLICE_IN_B1:%.+]] = IE.Slice [[INPUT_B]] [1, 0, 0] [1, 2, 128] : tensor<2x2x128x!qElemType> to tensor<1x2x128x!qElemType>
+    // CHECK:   [[SLICE_SC_B0:%.+]] = IE.Slice [[SCALE]] [0, 0, 0] [1, 2, 1] : tensor<2x2x1xf16> to tensor<1x2x1xf16>
+    // CHECK:   [[SLICE_SC_B1:%.+]] = IE.Slice [[SCALE]] [1, 0, 0] [1, 2, 1] : tensor<2x2x1xf16> to tensor<1x2x1xf16>
+    // CHECK:   [[DQ_B0:%.+]] = IE.DynamicDequantize([[SLICE_IN_B0]], [[SLICE_SC_B0]]) {dstElemType = f16}
+    // CHECK:   [[DQ_B1:%.+]] = IE.DynamicDequantize([[SLICE_IN_B1]], [[SLICE_SC_B1]]) {dstElemType = f16}
+    // CHECK:   [[CONCAT_B:%.+]] = IE.Concat([[DQ_B0]], [[DQ_B1]]) {per_axis = #IE.Concat<axis = 0 : i64>}
+    // CHECK:   [[RESHAPE_B:%.+]] = IE.AffineReshape([[CONCAT_B]])
+    // CHECK-SAME{LITERAL}:       {dim_mapping = [[0], [0], [1]], shape_value = [4, 128]}
+    // CHECK:   [[FC_B:%.+]] = IE.FullyConnected([[ACT_B]], [[RESHAPE_B]]) : tensor<1x128xf16>, tensor<4x128xf16> -> tensor<1x4xf16>
+
+    // CHECK:   return [[FC_A]], [[FC_B]] : tensor<1x2xf16>, tensor<1x4xf16>
+
+    // Verify location suffixes encode the axis to prevent duplicates when the same
+    // scale is sliced along different dimensions (regression test for location clash).
+    // CHECK-LOC-LABEL: @UnrollSharedScaleDifferentAxes
+    // CHECK-LOC-DAG: loc("slice_d1_0")
+    // CHECK-LOC-DAG: loc("slice_d1_1")
+    // CHECK-LOC-DAG: loc("slice_d0_0")
+    // CHECK-LOC-DAG: loc("slice_d0_1")
 }

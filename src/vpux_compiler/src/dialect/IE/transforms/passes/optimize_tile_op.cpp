@@ -118,30 +118,36 @@ mlir::LogicalResult FoldTileOpRewriter::matchAndRewrite(IE::TileOp origOp, mlir:
         }
     }
 
+    // Determine the shape that will replace the TileOp's output in the eltwise after fold:
+    //   - large single channel: replace with the original TileOp input (e.g. 1x1xHxW)
+    //   - scalar: replace with an all-ones shape of the same rank as outputValue
+    const auto replacementShape =
+            hasLargeSingleChannelInput
+                    ? to_small_vector(getShape(origOp.getInput()))
+                    : SmallVector<int64_t>(mlir::cast<vpux::NDTypeInterface>(outputValue.getType()).getRank(), 1);
+
+    // Verify that substituting replacementShape preserves the eltwise output shape.
+    const auto existingOutShape = to_small_vector(getShape(outputUserOp->getResult(0)));
+    const auto lhsIsReplaced = outputUserOp->getOperand(0) == outputValue;
+    const auto newLhsShape = lhsIsReplaced ? replacementShape : to_small_vector(getShape(outputUserOp->getOperand(0)));
+    const auto newRhsShape = lhsIsReplaced ? to_small_vector(getShape(outputUserOp->getOperand(1))) : replacementShape;
+    const auto broadCastType = getBroadCastType(outputUserOp);
+    const auto newOutShape = IE::broadcastEltwiseShape(ArrayRef<int64_t>(newLhsShape), ArrayRef<int64_t>(newRhsShape),
+                                                       broadCastType, outputUserOp->getLoc());
+    if (mlir::failed(newOutShape) || newOutShape.value() != existingOutShape) {
+        return mlir::failure();
+    }
+
     _log.trace("Folding TileOp at '{0}'", origOp.getLoc());
 
     if (hasLargeSingleChannelInput) {
-        auto tileOutShape = getShape(origOp.getOutput());
-
-        auto lhsIsTileOp = outputUserOp->getOperand(0).getDefiningOp() == origOp;
-        auto lhsShape = lhsIsTileOp ? tileOutShape : getShape(outputUserOp->getOperand(0));
-        auto rhsShape = lhsIsTileOp ? getShape(outputUserOp->getOperand(1)) : tileOutShape;
-        auto broadCastType = getBroadCastType(outputUserOp);
-        const auto outShape = IE::broadcastEltwiseShape(lhsShape, rhsShape, broadCastType, outputUserOp->getLoc());
-        if (mlir::failed(outShape)) {
-            return mlir::failure();
-        }
-
-        rewriter.replaceAllUsesWith(origOp, origOp.getInput());
+        rewriter.replaceOp(origOp, origOp.getInput());
         return mlir::success();
     }
 
-    auto newShape = SmallVector<int64_t>(mlir::cast<vpux::NDTypeInterface>(outputValue.getType()).getRank(), 1);
-    auto newReshapeOp =
-            rewriter.createOrFold<IE::ReshapeOp>(origOp.getLoc(), origOp.getInput(), getIntArrayAttr(ctx, newShape));
-
-    outputValue.replaceAllUsesWith(newReshapeOp);
-
+    auto newReshapeOp = rewriter.createOrFold<IE::ReshapeOp>(origOp.getLoc(), origOp.getInput(),
+                                                             getIntArrayAttr(ctx, replacementShape));
+    rewriter.replaceAllUsesWith(outputValue, newReshapeOp);
     return mlir::success();
 }
 

@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2023-2025 Intel Corporation
+// Copyright (C) 2023-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -75,7 +75,7 @@ SmallVector<mlir::Value> GenericUnrollBase<ConcreteOp>::splitValue(const mlir::V
     const auto staticSizesAttr = getIntArrayAttr(rewriter.getContext(), staticSizes);
     SmallVector<mlir::Value> inputChunks;
     for (const auto& idx : irange(groups)) {
-        const auto loc = appendLoc(val.getLoc(), "slice_{0}", idx);
+        const auto loc = appendLoc(val.getLoc(), "slice_d{0}_{1}", axis, idx);
         SmallVector<int64_t> offsets(valShape.size(), 0);
         offsets[axis] = idx;
         const auto offsetsAttr = getIntArrayAttr(rewriter.getContext(), offsets);

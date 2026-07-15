@@ -70,8 +70,8 @@ mlir::LogicalResult SingleClusterDepthToSpaceDMARewriter::unroll(VPUIP::DepthToS
     auto srcType = mlir::cast<vpux::NDTypeInterface>(srcDeclBuff.getType());
     auto dstType = mlir::cast<vpux::NDTypeInterface>(dstDeclBuff.getType());
 
-    auto createSubDepthToSpaceDMAOp = [&](ShapeRef subShape, DimsOrder order, int64_t srcOffset, int64_t dstOffset,
-                                          VPUIP::DMADescriptorAttr dmaDescriptor, int64_t port) {
+    auto createSubDepthToSpaceDMAOp = [&](ShapeRef subShape, const DimsOrder& order, int64_t srcOffset,
+                                          int64_t dstOffset, VPUIP::DMADescriptorAttr dmaDescriptor, int64_t port) {
         SmallVector<vpux::Bit> newStrides;
         const auto dataBitSize = Bit(elemTypeSize).count();
         if (order == DimsOrder::NHWC) {

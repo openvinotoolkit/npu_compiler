@@ -18,10 +18,10 @@ module @ActShaveProfiling {
     VPURT.SW.Runtime entryPoint: @VPU.SW::@runtime stack_configuration: [4096, 4096, 4096, 4096]
 
     module @VPU.SW {
-        func.func private @builtin_SoftMax(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, i64) attributes {VPU.kernel_code = "softmaxx.cpp", VPU.kernel_entry = "softmax"}
-        func.func private @builtin_ConvertF32F16(memref<*xf32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>) attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert"}
-        func.func private @builtin_ConvertF16F32(memref<*xf32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>) attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert"}
-        func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+        func.func nested @builtin_SoftMax(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, i64) attributes {VPU.kernel_code = "softmaxx.cpp", VPU.kernel_entry = "softmax"}
+        func.func nested @builtin_ConvertF32F16(memref<*xf32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>) attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert"}
+        func.func nested @builtin_ConvertF16F32(memref<*xf32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>) attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert"}
+        func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
     }
 
     func.func @main(%arg0: memref<1x3x224x224xf32>, %arg1: memref<1x150528xf32>) -> memref<1x150528xf32> {
@@ -71,10 +71,10 @@ module @ActShaveProfiling {
 
 #NWHC = affine_map<(d0, d1, d2, d3) -> (d0, d3, d2, d1)>
 
-!type_CMX = memref<1x128x64x32xf16, #NWHC, [@CMX_NN, 0]>
+!type_CMX = memref<1x128x64x32xf16, {order = #NWHC}, [@CMX_NN, 0]>
 !type_CMX_subview = memref<1x64x64x32xf16, {order = #NWHC, strides = [262144, 1, 128, 8192]}, [@CMX_NN, 0]>
 
-!type_DDR = memref<1x128x64x32xf16, #NWHC, @DDR>
+!type_DDR = memref<1x128x64x32xf16, {order = #NWHC}, @DDR>
 
 // CHECK-LABEL: @ActShaveProfilingMultitile
 module @ActShaveProfilingMultitile {
@@ -86,8 +86,8 @@ module @ActShaveProfilingMultitile {
     }
 
     module @VPU.SW {
-        func.func private @builtin_MVN(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i1, i1, f64) attributes {VPU.kernel_code = "mvn1.cpp", VPU.kernel_entry = "mvn1"}
-        func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+        func.func nested @builtin_MVN(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i1, i1, f64) attributes {VPU.kernel_code = "mvn1.cpp", VPU.kernel_entry = "mvn1"}
+        func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
     }
 
     func.func @main(%arg0: !type_DDR, %arg5: !type_DDR) -> !type_DDR {
@@ -109,7 +109,7 @@ module @ActShaveProfilingMultitile {
 
     //CHECK:        profilingOutputsInfo
     //CHECK-NEXT:   DataInfo "actshave" : tensor<16xui32>
-    //CHECK:        func.func @main([[ARG_0:%[^:]+]]: memref<1x128x64x32xf16, #NWHC, @DDR>, [[ARG_1:%[^:]+]]: memref<1x128x64x32xf16, #NWHC, @DDR>, [[ARG_2:%[^:]+]]: memref<16xui32>) -> (memref<1x128x64x32xf16, #NWHC, @DDR>, memref<16xui32>)
+    //CHECK:        func.func @main([[ARG_0:%[^:]+]]: memref<1x128x64x32xf16, {order = #NWHC}, @DDR>, [[ARG_1:%[^:]+]]: memref<1x128x64x32xf16, {order = #NWHC}, @DDR>, [[ARG_2:%[^:]+]]: memref<16xui32>) -> (memref<1x128x64x32xf16, {order = #NWHC}, @DDR>, memref<16xui32>)
     //CHECK:        [[PROF_BUF:%.+]] = memref.alloc() : memref<16xui32, [@CMX_NN, 0]>
     //CHECK:        [[PROF_BUF_SLOT:%.+]] = VPUIP.SubView [[PROF_BUF]] [0] [16] : memref<16xui32, [@CMX_NN, 0]> to memref<16xui32, [@CMX_NN, 0]>
 
@@ -125,7 +125,7 @@ module @ActShaveProfilingMultitile {
     //CHECK:        [[PROF_BUF_COPY:%.+]] = VPUIP.NNDMA <{profiling_buffer_mgmt}> inputs([[CONCAT_PROF_RES]] : memref<16xui32, [@CMX_NN, 0]>) outputs([[PROF_OUTPUT]] : memref<16xui32>) -> memref<16xui32>
     //CHECK:        [[CONCAT_PROF_RES_FULL:%.+]] = VPUIP.ConcatView inputs([[PROF_BUF_COPY]] : memref<16xui32>) outputs([[ARG_2]] : memref<16xui32>) -> memref<16xui32>
 
-    //CHECK:        return [[R1:%.+]], [[CONCAT_PROF_RES_FULL]] : memref<1x128x64x32xf16, #NWHC, @DDR>, memref<16xui32>
+    //CHECK:        return [[R1:%.+]], [[CONCAT_PROF_RES_FULL]] : memref<1x128x64x32xf16, {order = #NWHC}, @DDR>, memref<16xui32>
 
 }
 
@@ -139,9 +139,9 @@ module @ActShaveProfilingMultitile {
     num_clusters = 2
 }>
 
-!type_CMX_memref = memref<1x4x512x1xf16, #NCWH, @CMX_NN>
+!type_CMX_memref = memref<1x4x512x1xf16, {order = #NCWH}, @CMX_NN>
 
-!type_DDR  = memref<1x4x512x1xf16, #NCWH, @DDR>
+!type_DDR  = memref<1x4x512x1xf16, {order = #NCWH}, @DDR>
 
 // CHECK-LABEL: @ActShaveProfilingMulticluster
 module @ActShaveProfilingMulticluster {
@@ -153,8 +153,8 @@ module @ActShaveProfilingMulticluster {
     }
 
     module @VPU.SW {
-        func.func private @builtin_MVN(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i1, i1, f64) attributes {VPU.kernel_code = "mvn1.cpp", VPU.kernel_entry = "mvn1"}
-        func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+        func.func nested @builtin_MVN(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i1, i1, f64) attributes {VPU.kernel_code = "mvn1.cpp", VPU.kernel_entry = "mvn1"}
+        func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
     }
 
     func.func @main(%arg0: !type_DDR, %arg5: !type_DDR) -> !type_DDR {
@@ -174,7 +174,7 @@ module @ActShaveProfilingMulticluster {
     }
     //CHECK:        profilingOutputsInfo
     //CHECK-NEXT:   DataInfo "actshave" : tensor<16xui32>
-    //CHECK:         @main([[ARG_0:%[^:]+]]: memref<1x4x512x1xf16, #NCWH, @DDR>, [[ARG_1:%[^:]+]]: memref<1x4x512x1xf16, #NCWH, @DDR>, [[ARG_2:%[^:]+]]: memref<16xui32>) -> (memref<1x4x512x1xf16, #NCWH, @DDR>, memref<16xui32>)
+    //CHECK:         @main([[ARG_0:%[^:]+]]: memref<1x4x512x1xf16, {order = #NCWH}, @DDR>, [[ARG_1:%[^:]+]]: memref<1x4x512x1xf16, {order = #NCWH}, @DDR>, [[ARG_2:%[^:]+]]: memref<16xui32>) -> (memref<1x4x512x1xf16, {order = #NCWH}, @DDR>, memref<16xui32>)
     //CHECK:        [[PROF_BUF:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<16xui32, #C, @CMX_NN, {mode = "SEGMENTED", num_tiles = [2], num_clusters = 2 : i64, uniform_distributed_segments}>
     //CHECK:        [[PROF_BUF_SLOT:%.+]] = VPUIP.SubView [[PROF_BUF]] [0] [16] : !VPUIP.DistributedBuffer<16xui32, #C, @CMX_NN, {mode = "SEGMENTED", num_tiles = [2], num_clusters = 2 : i64, uniform_distributed_segments}> to !VPUIP.DistributedBuffer<16xui32, #C, @CMX_NN, {mode = "SEGMENTED", num_tiles = [2], num_clusters = 2 : i64, uniform_distributed_segments}>
 
@@ -192,7 +192,7 @@ module @ActShaveProfilingMulticluster {
 
     //CHECK:        [[CONCAT_PROF_RES_FULL:%.+]] = VPUIP.ConcatView inputs([[NCE_RES_COPY]] : memref<16xui32>) outputs([[ARG_2]] : memref<16xui32>) -> memref<16xui32>
 
-    //CHECK:        return [[R1:%.+]], [[CONCAT_PROF_RES_FULL]] : memref<1x4x512x1xf16, #NCWH, @DDR>, memref<16xui32>
+    //CHECK:        return [[R1:%.+]], [[CONCAT_PROF_RES_FULL]] : memref<1x4x512x1xf16, {order = #NCWH}, @DDR>, memref<16xui32>
 
 }
 
@@ -212,11 +212,11 @@ module @ActShaveProfilingMulticluster {
     num_clusters = 2 : i64
 }>
 
-!type_CMX = memref<1x128x64x32xf16, #NWHC, @CMX_NN>
+!type_CMX = memref<1x128x64x32xf16, {order = #NWHC}, @CMX_NN>
 
 !type_CMX_subview = memref<1x64x64x32xf16, {order = #NWHC, strides = [262144, 1, 128, 8192]}, @CMX_NN>
 
-!type_DDR = memref<1x128x64x32xf16, #NWHC, @DDR>
+!type_DDR = memref<1x128x64x32xf16, {order = #NWHC}, @DDR>
 
 // CHECK-LABEL: @ActShaveProfilingMulticlusterMultitile
 module @ActShaveProfilingMulticlusterMultitile {
@@ -228,8 +228,8 @@ module @ActShaveProfilingMulticlusterMultitile {
     }
 
     module @VPU.SW {
-        func.func private @builtin_MVN(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i1, i1, f64) attributes {VPU.kernel_code = "mvn1.cpp", VPU.kernel_entry = "mvn1"}
-        func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+        func.func nested @builtin_MVN(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i1, i1, f64) attributes {VPU.kernel_code = "mvn1.cpp", VPU.kernel_entry = "mvn1"}
+        func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
     }
 
     func.func @main(%arg0: !type_DDR, %arg9: !type_DDR) -> !type_DDR {
@@ -252,7 +252,7 @@ module @ActShaveProfilingMulticlusterMultitile {
 
     //CHECK:        profilingOutputsInfo
     //CHECK-NEXT:   DataInfo "actshave" : tensor<32xui32>
-    //CHECK:         @main([[ARG_0:%[^:]+]]: memref<1x128x64x32xf16, #NWHC, @DDR>, [[ARG_1:%[^:]+]]: memref<1x128x64x32xf16, #NWHC, @DDR>, [[ARG_2:%[^:]+]]: memref<32xui32>) -> (memref<1x128x64x32xf16, #NWHC, @DDR>, memref<32xui32>)
+    //CHECK:         @main([[ARG_0:%[^:]+]]: memref<1x128x64x32xf16, {order = #NWHC}, @DDR>, [[ARG_1:%[^:]+]]: memref<1x128x64x32xf16, {order = #NWHC}, @DDR>, [[ARG_2:%[^:]+]]: memref<32xui32>) -> (memref<1x128x64x32xf16, {order = #NWHC}, @DDR>, memref<32xui32>)
     //CHECK:        [[PROF_BUF:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<32xui32, #C, @CMX_NN, {mode = "SEGMENTED", num_tiles = [2], num_clusters = 2 : i64, uniform_distributed_segments}>
     //CHECK:        [[PROF_BUF_SLOT:%.+]] = VPUIP.SubView [[PROF_BUF]] [0] [32] : !VPUIP.DistributedBuffer<32xui32, #C, @CMX_NN, {mode = "SEGMENTED", num_tiles = [2], num_clusters = 2 : i64, uniform_distributed_segments}> to !VPUIP.DistributedBuffer<32xui32, #C, @CMX_NN, {mode = "SEGMENTED", num_tiles = [2], num_clusters = 2 : i64, uniform_distributed_segments}>
 
@@ -271,7 +271,7 @@ module @ActShaveProfilingMulticlusterMultitile {
 
     //CHECK:        [[CONCAT_PROF_RES_FULL:%.+]] = VPUIP.ConcatView inputs([[NCE_RES_COPY]] : memref<32xui32>) outputs([[ARG_2]] : memref<32xui32>) -> memref<32xui32>
 
-    //CHECK:        return [[R1:%.+]], [[CONCAT_PROF_RES_FULL]] : memref<1x128x64x32xf16, #NWHC, @DDR>, memref<32xui32>
+    //CHECK:        return [[R1:%.+]], [[CONCAT_PROF_RES_FULL]] : memref<1x128x64x32xf16, {order = #NWHC}, @DDR>, memref<32xui32>
 
 }
 
@@ -287,8 +287,8 @@ module @ActShaveProfilingDynamicShapes {
     }
 
     module @VPU.SW {
-        func.func private @builtin_NonZero(memref<*xsi32, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>) attributes {VPU.kernel_code = "non_zero.cpp", VPU.kernel_entry = "non_zero", VPU.task_type = @COMPUTE}
-        func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+        func.func nested @builtin_NonZero(memref<*xsi32, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>) attributes {VPU.kernel_code = "non_zero.cpp", VPU.kernel_entry = "non_zero", VPU.task_type = @COMPUTE}
+        func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
     }
 
     func.func @main(%arg0: memref<1x88xsi32, @DDR>, %arg5: memref<2x88xsi32, @DDR>) -> memref<2x88xsi32, @DDR> {

@@ -19,6 +19,7 @@
             "binaryDir": "${sourceDir}/build-x86_64/RelWithDebInfo",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "CMAKE_CXX_FLAGS": "-fno-omit-frame-pointer",
                 "OpenVINODeveloperPackage_DIR": {
                     "type": "FILEPATH",
                     "value": "$env{OPENVINO_HOME}/build-x86_64/RelWithDebInfo"
@@ -138,7 +139,8 @@
                 "ENABLE_NPU_MICRO_BENCHMARKS": true,
                 "ENABLE_SPLIT_DWARF": true,
                 "LIT_TESTS_USE_LINKS": true,
-                "CMAKE_EXPORT_COMPILE_COMMANDS": true
+                "CMAKE_EXPORT_COMPILE_COMMANDS": true,
+                "ENABLE_NPU_LSP_SERVER": true
             }
         },
         {
@@ -207,6 +209,17 @@
             ]
         },
         {
+            "name": "developer-build-fast-profiling",
+            "description": "Profiling build for NPU Compiler development. Requires Ninja, ccache, Clang and mold",
+            "displayName": "Developer NPU Compiler Profiling build using Clang and mold",
+            "inherits": [
+                "developer-build-fast-relwithdebinfo"
+            ],
+            "cacheVariables": {
+                "LLVM_ENABLE_ASSERTIONS": false
+            }
+        },
+        {
             "name": "developer-build-debug",
             "description": "Debug build for NPU Compiler development. Enables developer build, tests. Requires Ninja and ccache",
             "displayName": "Developer NPU Compiler Debug build",
@@ -243,6 +256,15 @@
             }
         },
         {
+            "name": "_ov-basic-sanitizer-variables",
+            "description": "Default OV configuration for sanitizers (ASan + UBSan). Implicitly makes NPU compiler use sanitizers.",
+            "hidden": true,
+            "cacheVariables": {
+                "ENABLE_SANITIZER": true,
+                "ENABLE_UB_SANITIZER": true
+            }
+        },
+        {
             "name": "_ov-npu-developer-variables",
             "hidden": true,
             "cacheVariables": {
@@ -252,16 +274,17 @@
                 "ENABLE_INTEL_GPU": false,
                 "ENABLE_TEMPLATE": true,
                 "ENABLE_INTEL_NPU_COMPILER": false,
-                "ENABLE_OV_ONNX_FRONTEND": false,
+                "ENABLE_INTEL_NPU": true,
+                "ENABLE_INTEL_NPU_INTERNAL": true,
+                "ENABLE_DEBUG_CAPS": true,
+                "ENABLE_OV_ONNX_FRONTEND": true,
                 "ENABLE_OV_PADDLE_FRONTEND": false,
                 "ENABLE_OV_PYTORCH_FRONTEND": false,
                 "ENABLE_OV_TF_FRONTEND": false,
                 "ENABLE_OV_TF_LITE_FRONTEND": false,
                 "THREADING": "TBB",
                 "ENABLE_LTO": false,
-                "ENABLE_OPENCV": true,
                 "ENABLE_TESTS": true,
-                "ENABLE_PRIVATE_TESTS": true,
                 "ENABLE_FUNCTIONAL_TESTS": true,
                 "OPENVINO_EXTRA_MODULES": {
                     "type": "FILEPATH",
@@ -272,7 +295,7 @@
         {
             "name": "ov-npu-developer-debug",
             "description": "Debug Builds VPUX plugin in OpenVINO project tree. Please make sure that VPUX plugin is located inside OpenVINO repo in modules/vpux folder.",
-            "displayName": "OpenVINO + NPU Debug build",
+            "displayName": "OpenVINO Debug build",
             "inherits": [
                 "_ov-npu-developer-variables",
                 "_ninja",
@@ -281,14 +304,45 @@
             ]
         },
         {
+            "name": "ov-npu-developer-fast-asan",
+            "description": "OV setup for ASan/UBSan. Aligned to developer-build-fast-debug for NPU compiler.",
+            "inherits": [
+                "ov-npu-developer-debug",
+                "_ov-basic-sanitizer-variables",
+                "_clang",
+                "_linker-mold"
+            ]
+        },
+        {
             "name": "ov-npu-developer-release",
             "description": "Release Builds VPUX plugin in OpenVINO project tree. Please make sure that VPUX plugin is located inside OpenVINO repo in modules/vpux folder.",
-            "displayName": "OpenVINO + NPU Release build",
+            "displayName": "OpenVINO Release build",
             "inherits": [
                 "_ov-npu-developer-variables",
                 "_ninja",
                 "_ccache",
                 "_release"
+            ]
+        },
+        {
+            "name": "ov-npu-developer-relwithdebinfo",
+            "description": "RelWithDebInfo build of OpenVINO. Please make sure that VPUX plugin is located inside OpenVINO repo in modules/vpux folder.",
+            "displayName": "OpenVINO release with debug info build",
+            "inherits": [
+                "_ov-npu-developer-variables",
+                "_ninja",
+                "_ccache",
+                "_relwithdebinfo"
+            ]
+        },
+        {
+            "name": "ov-npu-developer-fast-relwithdebinfo",
+            "description": "RelWithDebInfo build of OpenVINO (fast).",
+            "displayName": "OpenVINO release with debug info build with Clang and mold",
+            "inherits": [
+                "ov-npu-developer-relwithdebinfo",
+                "_clang",
+                "_linker-mold"
             ]
         },
         {
@@ -384,6 +438,13 @@
             "configurePreset": "developer-build-fast-release"
         },
         {
+            "name": "developer-build-fast-profiling",
+            "inherits": [
+                "_ccache-build"
+            ],
+            "configurePreset": "developer-build-fast-profiling"
+        },
+        {
             "name": "developer-build-time-metric",
             "inherits": [
                 "_ccache-build"
@@ -396,6 +457,53 @@
                 "_ccache-build"
             ],
             "configurePreset": "developer-build-time-metric-clang-profiling"
+        },
+        {
+            "name": "developer-build-fast-debug",
+            "inherits": [
+                "_ccache-build"
+            ],
+            "configurePreset": "developer-build-fast-debug"
+        },
+        {
+            "name": "ov-npu-developer-debug",
+            "inherits": [
+                "_ccache-build"
+            ],
+            "targets": ["ov_frontends", "ov_dev_targets", "openvino_intel_npu_plugin", "compile_tool"],
+            "configurePreset": "ov-npu-developer-debug"
+        },
+       {
+            "name": "ov-npu-developer-fast-asan",
+            "inherits": [
+                "_ccache-build"
+            ],
+            "targets": ["ov_frontends", "ov_dev_targets", "openvino_intel_npu_plugin", "compile_tool"],
+            "configurePreset": "ov-npu-developer-fast-asan"
+        },
+        {
+            "name": "ov-npu-developer-release",
+            "inherits": [
+                "_ccache-build"
+            ],
+            "targets": ["ov_frontends", "ov_dev_targets", "openvino_intel_npu_plugin", "compile_tool"],
+            "configurePreset": "ov-npu-developer-release"
+        },
+        {
+            "name": "ov-npu-developer-relwithdebinfo",
+            "inherits": [
+                "_ccache-build"
+            ],
+            "targets": ["ov_frontends", "ov_dev_targets", "openvino_intel_npu_plugin", "compile_tool"],
+            "configurePreset": "ov-npu-developer-relwithdebinfo"
+        },
+        {
+            "name": "ov-npu-developer-fast-relwithdebinfo",
+            "inherits": [
+                "_ccache-build"
+            ],
+            "targets": ["ov_frontends", "ov_dev_targets", "openvino_intel_npu_plugin", "compile_tool"],
+            "configurePreset": "ov-npu-developer-fast-relwithdebinfo"
         }
     ],
     "testPresets": [

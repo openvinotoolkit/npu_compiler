@@ -15,6 +15,7 @@
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/core/IR/ops.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 
 #include <mlir/IR/IRMapping.h>
@@ -38,28 +39,28 @@ public:
     }
 
 private:
-    void safeRunOnFunc() final;
-    mlir::func::FuncOp serialize(vpux::Core::NestedCallOp callOp, mlir::func::FuncOp funcOp, config::ArchKind& arch);
+    void safeRunOnModule() final;
+    mlir::FailureOr<mlir::func::FuncOp> serialize(vpux::Core::NestedCallOp callOp, mlir::func::FuncOp funcOp,
+                                                  config::ArchKind arch);
 };
 
-mlir::FunctionType constructFunctionType(mlir::ModuleOp moduleOp, net::NetworkInfoOp netInfo, Logger& log) {
+mlir::FailureOr<mlir::FunctionType> constructFunctionType(mlir::ModuleOp moduleOp, net::NetworkInfoOp netInfo) {
     auto inputBindings = VPUASM::InputBindingsOp::getFromModule(moduleOp);
     if (inputBindings == nullptr) {
-        log.error("InputBindingsOp not found in module: {0}", moduleOp.getName());
-        return nullptr;
+        return errorAt(moduleOp, "InputBindingsOp not found in module: {0}",
+                       moduleOp.getName().value_or("<unnamed>").str());
     }
 
     auto outputBindings = VPUASM::OutputBindingsOp::getFromModule(moduleOp);
     if (outputBindings == nullptr) {
-        log.error("OutputBindingsOp not found in module: {0}", moduleOp.getName());
-        return nullptr;
+        return errorAt(moduleOp, "OutputBindingsOp not found in module: {0}",
+                       moduleOp.getName().value_or("<unnamed>").str());
     }
 
     llvm::SmallVector<mlir::Type> funcArgs, outArgs;
     if ((netInfo.getOutputsDataInfo().size() != outputBindings.getNetOutputsCount()) ||
         (netInfo.getInputsDataInfo().size() != inputBindings.getNetInputsCount())) {
-        log.error("Mismatch between NetworkInfoOp and IO Bindings operations info");
-        return nullptr;
+        return errorAt(moduleOp, "Mismatch between NetworkInfoOp and IO Bindings operations info");
     }
 
     for (auto inDeclBuffer : inputBindings.getInputDeclarationsOps()) {
@@ -82,38 +83,36 @@ void getBinaryBuffer(mlir::ModuleOp moduleOp, config::ArchKind& arch, std::vecto
     }
 }
 
-mlir::func::FuncOp SerializeELFToBinaryPass::serialize(vpux::Core::NestedCallOp callOp, mlir::func::FuncOp funcOp,
-                                                       config::ArchKind& arch) {
+mlir::FailureOr<mlir::func::FuncOp> SerializeELFToBinaryPass::serialize(vpux::Core::NestedCallOp callOp,
+                                                                        mlir::func::FuncOp funcOp,
+                                                                        config::ArchKind arch) {
     auto moduleOp = funcOp->getParentOfType<mlir::ModuleOp>();
     if (moduleOp == nullptr) {
-        _log.error("Expected the func op: '{0}' nested in a module operation", funcOp.getName());
-        return nullptr;
+        return errorAt(funcOp, "Expected the func op: '{0}' nested in a module operation", funcOp.getName());
     }
 
     auto netInfoOpIt = moduleOp.getOps<net::NetworkInfoOp>().begin();
     if (netInfoOpIt == moduleOp.getOps<net::NetworkInfoOp>().end()) {
-        _log.error("Expected at least one net::NetworkInfoOp in the module: '{0}'", moduleOp.getName());
-        return nullptr;
+        return errorAt(moduleOp, "Expected at least one net::NetworkInfoOp in the module: '{0}'", moduleOp.getName());
     }
 
     // After AddBuffersForNetResults, function op arguments contain buffers for output tensors
     if (((*netInfoOpIt).getNetInputsCount() + (*netInfoOpIt).getNetOutputsCount()) != callOp.getNumOperands()) {
-        _log.error("Network input and output count does not match CallOp arguments: '{0}'", funcOp.getName());
-        return nullptr;
+        return errorAt(callOp, "Network input and output count does not match CallOp arguments: '{0}'",
+                       funcOp.getName());
     }
 
-    mlir::FunctionType funcType = nullptr;
+    mlir::FailureOr<mlir::FunctionType> funcType;
     mlir::OpBuilder moduleBuilder(moduleOp);
     if ((funcOp.getNumArguments() == 0) && (funcOp.getNumResults() == 0)) {
-        funcType = constructFunctionType(moduleOp, *netInfoOpIt, _log);
+        funcType = constructFunctionType(moduleOp, *netInfoOpIt);
     } else {
         funcType =
                 mlir::FunctionType::get(moduleBuilder.getContext(), funcOp.getArgumentTypes(), funcOp.getResultTypes());
     }
 
-    if (funcType == nullptr) {
-        _log.error("Failed to get FuncType: '{0}'", funcOp.getName());
-        return nullptr;
+    if (mlir::failed(funcType)) {
+        return errorAt(funcOp, "Failed to get FuncType: '{0}'", funcOp.getName());
     }
 
     // Serialize ELF module to binary and construct a function type for the new func op.
@@ -144,39 +143,49 @@ mlir::func::FuncOp SerializeELFToBinaryPass::serialize(vpux::Core::NestedCallOp 
 
     // Kernel functions do not return data/objects. All inputs and output ptrs are passed as function arguments
     // func op is set to private to indicate that function has no body just declaration
-    auto newFuncOp = binaryOpBuilder.create<mlir::func::FuncOp>(binaryOp.getLoc(), funcOp.getName(), funcType);
-    newFuncOp.setPrivate();
+    auto newFuncOp = binaryOpBuilder.create<mlir::func::FuncOp>(binaryOp.getLoc(), funcOp.getName(), funcType.value());
+    newFuncOp.setNested();
     moduleOp.erase();
     return newFuncOp;
 }
 
-void SerializeELFToBinaryPass::safeRunOnFunc() {
-    auto func = getOperation();
-    auto parentModuleOp = func->getParentOfType<mlir::ModuleOp>();
-    if (parentModuleOp == nullptr) {
-        _log.warning("Failed to find ModuleOp enclosing the func op '{0}'", func.getName());
-        return;
+void SerializeELFToBinaryPass::safeRunOnModule() {
+    auto moduleOp = getOperation();
+    mlir::OpBuilder builder(moduleOp);
+    auto arch = config::getArch(moduleOp);
+
+    SmallVector<vpux::Core::NestedCallOp> callOps;
+    for (auto funcOp : moduleOp.getOps<mlir::func::FuncOp>()) {
+        funcOp.walk([&](vpux::Core::NestedCallOp callOp) {
+            callOps.push_back(callOp);
+        });
     }
 
-    mlir::OpBuilder builder(parentModuleOp);
-    auto arch = config::getArch(func);
-    llvm::DenseSet<mlir::Operation*> serializedOps;
+    llvm::DenseMap<mlir::Attribute, mlir::func::FuncOp> serializedFuncs;
+    for (auto callOp : callOps) {
+        mlir::func::FuncOp newFuncOp = nullptr;
+        auto calleeAttr = callOp.getCalleeAttr();
 
-    func.walk([&](vpux::Core::NestedCallOp callOp) {
-        auto nestedFuncOp = parentModuleOp.lookupSymbol<mlir::func::FuncOp>(callOp.getCallee());
-        if (nestedFuncOp == nullptr) {
-            _log.error("NestedCallOp '{0}' does not point to a valid 'func.func' op", callOp.getCallee());
-            return mlir::WalkResult::interrupt();
-        }
+        if (auto serializedFuncIt = serializedFuncs.find(calleeAttr); serializedFuncIt != serializedFuncs.end()) {
+            newFuncOp = serializedFuncIt->second;
+        } else {
+            auto nestedFuncOp = moduleOp.lookupSymbol<mlir::func::FuncOp>(callOp.getCallee());
+            if (nestedFuncOp == nullptr) {
+                callOp.emitError() << "NestedCallOp '" << callOp.getCallee()
+                                   << "' does not point to a valid 'func.func' op";
+                signalPassFailure();
+                return;
+            }
 
-        if (serializedOps.insert(nestedFuncOp.getOperation()).second == false) {
-            return mlir::WalkResult::advance();
-        }
+            auto serializedFuncOp = serialize(callOp, nestedFuncOp, arch);
+            if (mlir::failed(serializedFuncOp)) {
+                callOp.emitError() << "Failed to serialize '" << callOp.getCallee() << "'";
+                signalPassFailure();
+                return;
+            }
 
-        mlir::func::FuncOp newFuncOp = serialize(callOp, nestedFuncOp, arch);
-        if (newFuncOp == nullptr) {
-            _log.error("Failed to serialize '{0}'", callOp.getCallee());
-            return mlir::WalkResult::interrupt();
+            newFuncOp = serializedFuncOp.value();
+            serializedFuncs.insert({calleeAttr, newFuncOp});
         }
 
         // output operands are the last n funcOp arguments where n is the number of results
@@ -195,11 +204,10 @@ void SerializeELFToBinaryPass::safeRunOnFunc() {
         }
 
         builder.setInsertionPoint(callOp);
-        builder.create<vpux::Core::NestedCallOp>(callOp.getLoc(), callOp.getCalleeAttr(),
-                                                 newFuncOp.getFunctionType().getResults(), callOp.getOperands());
+        builder.create<vpux::Core::NestedCallOp>(callOp.getLoc(), calleeAttr, newFuncOp.getFunctionType().getResults(),
+                                                 callOp.getOperands());
         callOp.erase();
-        return mlir::WalkResult::advance();
-    });
+    }
 }
 }  // namespace
 

@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/compression_utils.hpp"
+#include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/core/IR/strided_dmas_utils.hpp"
@@ -942,6 +943,15 @@ mlir::LogicalResult vpux::VPUIP::SkipDMAOp::verify() {
     if (outSize.count() != 0) {
         return errorAt(loc, "output size should be zero {0}", outSize);
     }
+    if (auto taskOp = getOperation()->getParentOfType<VPURT::TaskOp>()) {
+        if (!taskOp.getWaitBarriers().empty()) {
+            return errorAt(loc, "Skip shouldn't have any wait barriers");
+        }
+        if (!taskOp.getUpdateBarriers().empty()) {
+            return errorAt(loc, "Skip shouldn't have any update barriers");
+        }
+    }
+
     return mlir::success();
 }
 

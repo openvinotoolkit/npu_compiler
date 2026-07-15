@@ -4,7 +4,7 @@
 //
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-module @mainModule attributes {config.arch = #config.arch_kind<NPU37XX>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
+module @mainModule attributes {config.compilationMode = #config.compilation_mode<DefaultHW>, config.platform = #config.platform<NPU3720>} {
   config.Resources 2 of @NCE at 1.300000e+03 MHz {
     config.ExecutorResource 1 of @DPU
   }

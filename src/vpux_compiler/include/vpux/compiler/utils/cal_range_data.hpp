@@ -15,7 +15,7 @@ mlir::DenseElementsAttr calculate(float start, float stop, float step, mlir::Ran
     for (float data = start; data < stop; data += step) {
         rangeData.push_back(static_cast<T>(data));
     }
-    auto rangeOutputAttr = mlir::DenseElementsAttr::get(outputType, ArrayRef<T>(rangeData));
+    auto rangeOutputAttr = mlir::DenseElementsAttr::get(outputType, mlir::ArrayRef<T>(rangeData));
     return rangeOutputAttr;
 }
 

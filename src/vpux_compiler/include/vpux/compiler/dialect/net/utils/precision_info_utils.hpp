@@ -22,7 +22,7 @@ public:
 
 private:
     vpux::Logger _logger;
-    std::multimap<std::string, net::PrecisionInfoOp> _lookup;
+    std::multimap<std::string, net::PrecisionInfoOp, std::less<>> _lookup;
 };
 
 }  // namespace vpux::net

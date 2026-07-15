@@ -117,6 +117,7 @@ def VPUIPDPU_DPUVariantOp :
         OptionalAttr<SymbolRefAttr>:$weight_table_sp_ptr,
         OptionalAttr<SymbolRefAttr>:$weight_table_scale,
         OptionalAttr<SymbolRefAttr>:$weight_table_bias,
+        OptionalAttr<SymbolRefAttr>:$weight_table_alpha,
         OptionalAttr<SymbolRefAttr>:$weight_zero_points,
 
         VPUIP_NCETaskTypeAttr:$nce_task_type,
@@ -249,8 +250,8 @@ def VPUIPDPU_BarrierCfgOp:
     let summary = "Barrier Configuration op";
 
     let arguments = (ins
-        UI8ArrayAttr:$waitBarriers,
-        UI8ArrayAttr:$updateBarriers,
+        UI16ArrayAttr:$waitBarriers,
+        UI16ArrayAttr:$updateBarriers,
         UI64Attr:$start_after,
         UI64Attr:$clean_after
     );

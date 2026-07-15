@@ -30,29 +30,29 @@ TEST_F(MLIR_MemLiveRangeInfo, GetInputOutputAndAllBuffers) {
     constexpr StringLiteral inputIR = R"(
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
         module @test {
-            func.func @main(%in: memref<1x32x96x96xf16, #NHWC>, %out: memref<1x32x96x96xf16, #NHWC>) -> memref<1x32x96x96xf16, #NHWC> {
-                %cst0 = const.Declare memref<1x32x96x96xf16, #NHWC> = dense<2.0> : tensor<1x32x96x96xf16>, [#const.Reorder<#NHWC>]
+            func.func @main(%in: memref<1x32x96x96xf16, {order = #NHWC}>, %out: memref<1x32x96x96xf16, {order = #NHWC}>) -> memref<1x32x96x96xf16, {order = #NHWC}> {
+                %cst0 = const.Declare memref<1x32x96x96xf16, {order = #NHWC}> = dense<2.0> : tensor<1x32x96x96xf16>, [#const.Reorder<#NHWC>]
                 %wt = const.Declare memref<16x1x1x4xsi32, [@CMX_NN, 0]> = dense<1> : tensor<16x1x1x4xsi32>
 
-                %buf0 = memref.alloc() : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 0]>
-                %buf1 = memref.alloc() : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 1]>
-                %buf2 = memref.alloc() : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 2]>
-                %buf3 = memref.alloc() : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 3]>
-                %buf4 = memref.alloc() : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 4]>
-                %buf5 = memref.alloc() : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 5]>
+                %buf0 = memref.alloc() : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 0]>
+                %buf1 = memref.alloc() : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 1]>
+                %buf2 = memref.alloc() : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 2]>
+                %buf3 = memref.alloc() : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 3]>
+                %buf4 = memref.alloc() : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 4]>
+                %buf5 = memref.alloc() : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 5]>
 
-                %t0, %r0 = async.execute -> !async.value<memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, VPUIP.num_units = 1 : i64, "async-deps-index" = 0 : i64} {
-                    %0 = VPUIP.NNDMA inputs(%in : memref<1x32x96x96xf16, #NHWC>) outputs(%buf0 : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 0]>
-                    async.yield %0 : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 0]>
+                %t0, %r0 = async.execute -> !async.value<memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, VPUIP.num_units = 1 : i64, "async-deps-index" = 0 : i64} {
+                    %0 = VPUIP.NNDMA inputs(%in : memref<1x32x96x96xf16, {order = #NHWC}>) outputs(%buf0 : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 0]>
+                    async.yield %0 : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 0]>
                 }
 
-                %t1, %r1 = async.execute -> !async.value<memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 3]>> attributes {VPUIP.executor = @DMA_NN, VPUIP.num_units = 1 : i64, "async-deps-index" = 1 : i64} {
-                    %0 = VPUIP.NNDMA inputs(%cst0 : memref<1x32x96x96xf16, #NHWC>) outputs(%buf3 : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 3]>) -> memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 3]>
-                    async.yield %0 : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 3]>
+                %t1, %r1 = async.execute -> !async.value<memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 3]>> attributes {VPUIP.executor = @DMA_NN, VPUIP.num_units = 1 : i64, "async-deps-index" = 1 : i64} {
+                    %0 = VPUIP.NNDMA inputs(%cst0 : memref<1x32x96x96xf16, {order = #NHWC}>) outputs(%buf3 : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 3]>) -> memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 3]>
+                    async.yield %0 : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 3]>
                 }
 
-                %t2, %r2:2 = async.execute [%t0] (%r0 as %arg0 : !async.value<memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 0]>>)
-                        -> (!async.value<memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 1]>>, !async.value<memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 2]>>)
+                %t2, %r2:2 = async.execute [%t0] (%r0 as %arg0 : !async.value<memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 0]>>)
+                        -> (!async.value<memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 1]>>, !async.value<memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 2]>>)
                         attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64, "async-deps-index" = 2 : i64} {
                     %1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
                             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
@@ -60,11 +60,11 @@ TEST_F(MLIR_MemLiveRangeInfo, GetInputOutputAndAllBuffers) {
                             kernel_strides = [1, 1],
                             task_type = #VPUIP.nce_task_type<MAXPOOL>
                         }>
-                        input(%arg0: memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 0]>)
+                        input(%arg0: memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 0]>)
                         weight_table(%wt : memref<16x1x1x4xsi32, [@CMX_NN, 0]>)
-                        parent_input(%arg0: memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 0]>)
-                        parent_output(%buf1 : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 1]>)
-                        outputs(%buf1 : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 1]>) -> memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 1]>
+                        parent_input(%arg0: memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+                        parent_output(%buf1 : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 1]>)
+                        outputs(%buf1 : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 1]>) -> memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 1]>
                         variants :
                         {
                             DPUTask { outEnd = [32, 96, 96], mpe_mode = #VPU.mpe_mode<VECTOR_FP16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0] }
@@ -77,30 +77,30 @@ TEST_F(MLIR_MemLiveRangeInfo, GetInputOutputAndAllBuffers) {
                             kernel_strides = [1, 1],
                             task_type = #VPUIP.nce_task_type<MAXPOOL>
                         }>
-                        input(%arg0: memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 0]>)
+                        input(%arg0: memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 0]>)
                         weight_table(%wt : memref<16x1x1x4xsi32, [@CMX_NN, 0]>)
-                        parent_input(%arg0: memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 0]>)
-                        parent_output(%buf2 : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 2]>)
-                        outputs(%buf2 : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 2]>) -> memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 2]>
+                        parent_input(%arg0: memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+                        parent_output(%buf2 : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 2]>)
+                        outputs(%buf2 : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 2]>) -> memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 2]>
                         variants :
                         {
                             DPUTask { outEnd = [32, 96, 96], mpe_mode = #VPU.mpe_mode<VECTOR_FP16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0] }
                         }
                         PPE : {
                         }
-                    async.yield %1, %2 : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 1]>, memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 2]>
+                    async.yield %1, %2 : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 1]>, memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 2]>
                 }
 
-                %t3, %r3 = async.execute [%t1, %t2] (%r2#0 as %arg0 : !async.value<memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 1]>>, %r1 as %arg1 : !async.value<memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 3]>>)
-                        -> !async.value<memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 4]>> attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64, "async-deps-index" = 3 : i64} {
+                %t3, %r3 = async.execute [%t1, %t2] (%r2#0 as %arg0 : !async.value<memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 1]>>, %r1 as %arg1 : !async.value<memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 3]>>)
+                        -> !async.value<memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 4]>> attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64, "async-deps-index" = 3 : i64} {
                     %0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
                             task_type = #VPUIP.nce_task_type<ELTWISE>
                         }>
-                        input(%arg0 : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 1]>)
-                        weights(%arg1 : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 3]>)
-                        parent_input(%arg0 : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 1]>)
-                        parent_output(%buf4 : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 4]>)
-                        outputs(%buf4 : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 4]>) -> memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 4]>
+                        input(%arg0 : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 1]>)
+                        weights(%arg1 : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 3]>)
+                        parent_input(%arg0 : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 1]>)
+                        parent_output(%buf4 : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 4]>)
+                        outputs(%buf4 : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 4]>) -> memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 4]>
                         variants :
                         {
                             DPUTask { outEnd = [32, 96, 96], mpe_mode = #VPU.mpe_mode<VECTOR_FP16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0] }
@@ -108,19 +108,19 @@ TEST_F(MLIR_MemLiveRangeInfo, GetInputOutputAndAllBuffers) {
                         PPE : {
                             PPETask {ppe = #VPU.PPEStub<>}
                         }
-                    async.yield %0 : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 4]>
+                    async.yield %0 : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 4]>
                 }
 
-                %t4, %r4 = async.execute [%t1, %t3] (%r2#1 as %arg0 : !async.value<memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 2]>>, %r3 as %arg1 : !async.value<memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 4]>>)
-                        -> !async.value<memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 5]>> attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64, "async-deps-index" = 4 : i64} {
+                %t4, %r4 = async.execute [%t1, %t3] (%r2#1 as %arg0 : !async.value<memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 2]>>, %r3 as %arg1 : !async.value<memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 4]>>)
+                        -> !async.value<memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 5]>> attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64, "async-deps-index" = 4 : i64} {
                     %0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
                             task_type = #VPUIP.nce_task_type<ELTWISE>
                         }>
-                        input(%arg0 : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 2]>)
-                        weights(%arg1 : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 4]>)
-                        parent_input(%arg0 : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 2]>)
-                        parent_output(%buf5 : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 5]>)
-                        outputs(%buf5 : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 5]>) -> memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 5]>
+                        input(%arg0 : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 2]>)
+                        weights(%arg1 : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 4]>)
+                        parent_input(%arg0 : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 2]>)
+                        parent_output(%buf5 : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 5]>)
+                        outputs(%buf5 : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 5]>) -> memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 5]>
                         variants :
                         {
                             DPUTask { outEnd = [32, 96, 96], mpe_mode = #VPU.mpe_mode<VECTOR_FP16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0] }
@@ -128,17 +128,17 @@ TEST_F(MLIR_MemLiveRangeInfo, GetInputOutputAndAllBuffers) {
                         PPE : {
                             PPETask {ppe = #VPU.PPEStub<>}
                         }
-                    async.yield %0 : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 5]>
+                    async.yield %0 : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 5]>
                 }
 
-                %t5, %r5 = async.execute [%t4] (%r4 as %arg0 : !async.value<memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 5]>>)
-                        -> !async.value<memref<1x32x96x96xf16, #NHWC>> attributes {VPUIP.executor = @DMA_NN, VPUIP.num_units = 1 : i64, "async-deps-index" = 5 : i64} {
-                    %0 = VPUIP.NNDMA inputs(%arg0 : memref<1x32x96x96xf16, #NHWC, [@CMX_NN, 5]>) outputs(%out : memref<1x32x96x96xf16, #NHWC>) -> memref<1x32x96x96xf16, #NHWC>
-                    async.yield %0 : memref<1x32x96x96xf16, #NHWC>
+                %t5, %r5 = async.execute [%t4] (%r4 as %arg0 : !async.value<memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 5]>>)
+                        -> !async.value<memref<1x32x96x96xf16, {order = #NHWC}>> attributes {VPUIP.executor = @DMA_NN, VPUIP.num_units = 1 : i64, "async-deps-index" = 5 : i64} {
+                    %0 = VPUIP.NNDMA inputs(%arg0 : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 5]>) outputs(%out : memref<1x32x96x96xf16, {order = #NHWC}>) -> memref<1x32x96x96xf16, {order = #NHWC}>
+                    async.yield %0 : memref<1x32x96x96xf16, {order = #NHWC}>
                 }
 
-                %3 = async.await %r5 : !async.value<memref<1x32x96x96xf16, #NHWC>>
-                return %3 : memref<1x32x96x96xf16, #NHWC>
+                %3 = async.await %r5 : !async.value<memref<1x32x96x96xf16, {order = #NHWC}>>
+                return %3 : memref<1x32x96x96xf16, {order = #NHWC}>
             }
         }
     )";
@@ -246,30 +246,30 @@ TEST_F(MLIR_MemLiveRangeInfo, GetUsedBuffers) {
     constexpr StringLiteral inputIR = R"(
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
         module @test {
-            func.func @main(%arg0: memref<1x16x32x32xf16, #NHWC>) -> memref<1x16x32x32xf16, #NHWC> {
-                %buf0 = memref.alloc() : memref<1x16x32x32xf16, #NHWC>
-                %buf1 = memref.alloc() : memref<1x16x32x32xf16, #NHWC>
+            func.func @main(%arg0: memref<1x16x32x32xf16, {order = #NHWC}>) -> memref<1x16x32x32xf16, {order = #NHWC}> {
+                %buf0 = memref.alloc() : memref<1x16x32x32xf16, {order = #NHWC}>
+                %buf1 = memref.alloc() : memref<1x16x32x32xf16, {order = #NHWC}>
 
-                %token_0, %result_0 = async.execute -> !async.value<memref<1x16x32x32xf16, #NHWC>>
+                %token_0, %result_0 = async.execute -> !async.value<memref<1x16x32x32xf16, {order = #NHWC}>>
                         attributes {VPUIP.executor = @DMA_NN} {
-                    %0 = VPUIP.NNDMA inputs(%arg0 : memref<1x16x32x32xf16, #NHWC>)
-                                     outputs(%buf0 : memref<1x16x32x32xf16, #NHWC>)
-                        -> memref<1x16x32x32xf16, #NHWC>
-                    async.yield %0 : memref<1x16x32x32xf16, #NHWC>
+                    %0 = VPUIP.NNDMA inputs(%arg0 : memref<1x16x32x32xf16, {order = #NHWC}>)
+                                     outputs(%buf0 : memref<1x16x32x32xf16, {order = #NHWC}>)
+                        -> memref<1x16x32x32xf16, {order = #NHWC}>
+                    async.yield %0 : memref<1x16x32x32xf16, {order = #NHWC}>
                 }
 
                 %token_1, %result_1 = async.execute [%token_0]
-                        (%result_0 as %input: !async.value<memref<1x16x32x32xf16, #NHWC>>)
-                        -> !async.value<memref<1x16x32x32xf16, #NHWC>>
+                        (%result_0 as %input: !async.value<memref<1x16x32x32xf16, {order = #NHWC}>>)
+                        -> !async.value<memref<1x16x32x32xf16, {order = #NHWC}>>
                         attributes {VPUIP.executor = @DMA_NN} {
-                    %0 = VPUIP.NNDMA inputs(%input : memref<1x16x32x32xf16, #NHWC>)
-                                     outputs(%buf1 : memref<1x16x32x32xf16, #NHWC>)
-                        -> memref<1x16x32x32xf16, #NHWC>
-                    async.yield %0 : memref<1x16x32x32xf16, #NHWC>
+                    %0 = VPUIP.NNDMA inputs(%input : memref<1x16x32x32xf16, {order = #NHWC}>)
+                                     outputs(%buf1 : memref<1x16x32x32xf16, {order = #NHWC}>)
+                        -> memref<1x16x32x32xf16, {order = #NHWC}>
+                    async.yield %0 : memref<1x16x32x32xf16, {order = #NHWC}>
                 }
 
-                %final_result = async.await %result_1 : !async.value<memref<1x16x32x32xf16, #NHWC>>
-                return %final_result : memref<1x16x32x32xf16, #NHWC>
+                %final_result = async.await %result_1 : !async.value<memref<1x16x32x32xf16, {order = #NHWC}>>
+                return %final_result : memref<1x16x32x32xf16, {order = #NHWC}>
             }
         }
     )";
@@ -303,30 +303,30 @@ TEST_F(MLIR_MemLiveRangeInfo, IsBufferUsedByOp) {
     constexpr StringLiteral inputIR = R"(
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
         module @test {
-            func.func @main(%arg0: memref<1x16x32x32xf16, #NHWC>) -> memref<1x16x32x32xf16, #NHWC> {
-                %buf0 = memref.alloc() : memref<1x16x32x32xf16, #NHWC>
-                %buf1 = memref.alloc() : memref<1x16x32x32xf16, #NHWC>
+            func.func @main(%arg0: memref<1x16x32x32xf16, {order = #NHWC}>) -> memref<1x16x32x32xf16, {order = #NHWC}> {
+                %buf0 = memref.alloc() : memref<1x16x32x32xf16, {order = #NHWC}>
+                %buf1 = memref.alloc() : memref<1x16x32x32xf16, {order = #NHWC}>
 
-                %token_0, %result_0 = async.execute -> !async.value<memref<1x16x32x32xf16, #NHWC>>
+                %token_0, %result_0 = async.execute -> !async.value<memref<1x16x32x32xf16, {order = #NHWC}>>
                         attributes {VPUIP.executor = @DMA_NN} {
-                    %0 = VPUIP.NNDMA inputs(%arg0 : memref<1x16x32x32xf16, #NHWC>)
-                                     outputs(%buf0 : memref<1x16x32x32xf16, #NHWC>)
-                        -> memref<1x16x32x32xf16, #NHWC>
-                    async.yield %0 : memref<1x16x32x32xf16, #NHWC>
+                    %0 = VPUIP.NNDMA inputs(%arg0 : memref<1x16x32x32xf16, {order = #NHWC}>)
+                                     outputs(%buf0 : memref<1x16x32x32xf16, {order = #NHWC}>)
+                        -> memref<1x16x32x32xf16, {order = #NHWC}>
+                    async.yield %0 : memref<1x16x32x32xf16, {order = #NHWC}>
                 }
 
                 %token_1, %result_1 = async.execute [%token_0]
-                        (%result_0 as %input: !async.value<memref<1x16x32x32xf16, #NHWC>>)
-                        -> !async.value<memref<1x16x32x32xf16, #NHWC>>
+                        (%result_0 as %input: !async.value<memref<1x16x32x32xf16, {order = #NHWC}>>)
+                        -> !async.value<memref<1x16x32x32xf16, {order = #NHWC}>>
                         attributes {VPUIP.executor = @DMA_NN} {
-                    %0 = VPUIP.NNDMA inputs(%input : memref<1x16x32x32xf16, #NHWC>)
-                                     outputs(%buf1 : memref<1x16x32x32xf16, #NHWC>)
-                        -> memref<1x16x32x32xf16, #NHWC>
-                    async.yield %0 : memref<1x16x32x32xf16, #NHWC>
+                    %0 = VPUIP.NNDMA inputs(%input : memref<1x16x32x32xf16, {order = #NHWC}>)
+                                     outputs(%buf1 : memref<1x16x32x32xf16, {order = #NHWC}>)
+                        -> memref<1x16x32x32xf16, {order = #NHWC}>
+                    async.yield %0 : memref<1x16x32x32xf16, {order = #NHWC}>
                 }
 
-                %final_result = async.await %result_1 : !async.value<memref<1x16x32x32xf16, #NHWC>>
-                return %final_result : memref<1x16x32x32xf16, #NHWC>
+                %final_result = async.await %result_1 : !async.value<memref<1x16x32x32xf16, {order = #NHWC}>>
+                return %final_result : memref<1x16x32x32xf16, {order = #NHWC}>
             }
         }
     )";
@@ -369,30 +369,30 @@ TEST_F(MLIR_MemLiveRangeInfo, HasRemainingUsers_ReturnsTrueWhenUsersExist) {
     constexpr StringLiteral inputIR = R"(
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
         module @test {
-            func.func @main(%arg0: memref<1x16x32x32xf16, #NHWC>) -> memref<1x16x32x32xf16, #NHWC> {
-                %buf0 = memref.alloc() : memref<1x16x32x32xf16, #NHWC>
-                %buf1 = memref.alloc() : memref<1x16x32x32xf16, #NHWC>
+            func.func @main(%arg0: memref<1x16x32x32xf16, {order = #NHWC}>) -> memref<1x16x32x32xf16, {order = #NHWC}> {
+                %buf0 = memref.alloc() : memref<1x16x32x32xf16, {order = #NHWC}>
+                %buf1 = memref.alloc() : memref<1x16x32x32xf16, {order = #NHWC}>
 
-                %token_0, %result_0 = async.execute -> !async.value<memref<1x16x32x32xf16, #NHWC>>
+                %token_0, %result_0 = async.execute -> !async.value<memref<1x16x32x32xf16, {order = #NHWC}>>
                         attributes {VPUIP.executor = @DMA_NN} {
-                    %0 = VPUIP.NNDMA inputs(%arg0 : memref<1x16x32x32xf16, #NHWC>)
-                                     outputs(%buf0 : memref<1x16x32x32xf16, #NHWC>)
-                        -> memref<1x16x32x32xf16, #NHWC>
-                    async.yield %0 : memref<1x16x32x32xf16, #NHWC>
+                    %0 = VPUIP.NNDMA inputs(%arg0 : memref<1x16x32x32xf16, {order = #NHWC}>)
+                                     outputs(%buf0 : memref<1x16x32x32xf16, {order = #NHWC}>)
+                        -> memref<1x16x32x32xf16, {order = #NHWC}>
+                    async.yield %0 : memref<1x16x32x32xf16, {order = #NHWC}>
                 }
 
                 %token_1, %result_1 = async.execute [%token_0]
-                        (%result_0 as %input: !async.value<memref<1x16x32x32xf16, #NHWC>>)
-                        -> !async.value<memref<1x16x32x32xf16, #NHWC>>
+                        (%result_0 as %input: !async.value<memref<1x16x32x32xf16, {order = #NHWC}>>)
+                        -> !async.value<memref<1x16x32x32xf16, {order = #NHWC}>>
                         attributes {VPUIP.executor = @DMA_NN} {
-                    %0 = VPUIP.NNDMA inputs(%input : memref<1x16x32x32xf16, #NHWC>)
-                                     outputs(%buf1 : memref<1x16x32x32xf16, #NHWC>)
-                        -> memref<1x16x32x32xf16, #NHWC>
-                    async.yield %0 : memref<1x16x32x32xf16, #NHWC>
+                    %0 = VPUIP.NNDMA inputs(%input : memref<1x16x32x32xf16, {order = #NHWC}>)
+                                     outputs(%buf1 : memref<1x16x32x32xf16, {order = #NHWC}>)
+                        -> memref<1x16x32x32xf16, {order = #NHWC}>
+                    async.yield %0 : memref<1x16x32x32xf16, {order = #NHWC}>
                 }
 
-                %final_result = async.await %result_1 : !async.value<memref<1x16x32x32xf16, #NHWC>>
-                return %final_result : memref<1x16x32x32xf16, #NHWC>
+                %final_result = async.await %result_1 : !async.value<memref<1x16x32x32xf16, {order = #NHWC}>>
+                return %final_result : memref<1x16x32x32xf16, {order = #NHWC}>
             }
         }
     )";
@@ -425,30 +425,30 @@ TEST_F(MLIR_MemLiveRangeInfo, HasRemainingUsers_ReturnsFalseAfterAllErased) {
     constexpr StringLiteral inputIR = R"(
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
         module @test {
-            func.func @main(%arg0: memref<1x16x32x32xf16, #NHWC>) -> memref<1x16x32x32xf16, #NHWC> {
-                %buf0 = memref.alloc() : memref<1x16x32x32xf16, #NHWC>
-                %buf1 = memref.alloc() : memref<1x16x32x32xf16, #NHWC>
+            func.func @main(%arg0: memref<1x16x32x32xf16, {order = #NHWC}>) -> memref<1x16x32x32xf16, {order = #NHWC}> {
+                %buf0 = memref.alloc() : memref<1x16x32x32xf16, {order = #NHWC}>
+                %buf1 = memref.alloc() : memref<1x16x32x32xf16, {order = #NHWC}>
 
-                %token_0, %result_0 = async.execute -> !async.value<memref<1x16x32x32xf16, #NHWC>>
+                %token_0, %result_0 = async.execute -> !async.value<memref<1x16x32x32xf16, {order = #NHWC}>>
                         attributes {VPUIP.executor = @DMA_NN} {
-                    %0 = VPUIP.NNDMA inputs(%arg0 : memref<1x16x32x32xf16, #NHWC>)
-                                     outputs(%buf0 : memref<1x16x32x32xf16, #NHWC>)
-                        -> memref<1x16x32x32xf16, #NHWC>
-                    async.yield %0 : memref<1x16x32x32xf16, #NHWC>
+                    %0 = VPUIP.NNDMA inputs(%arg0 : memref<1x16x32x32xf16, {order = #NHWC}>)
+                                     outputs(%buf0 : memref<1x16x32x32xf16, {order = #NHWC}>)
+                        -> memref<1x16x32x32xf16, {order = #NHWC}>
+                    async.yield %0 : memref<1x16x32x32xf16, {order = #NHWC}>
                 }
 
                 %token_1, %result_1 = async.execute [%token_0]
-                        (%result_0 as %input: !async.value<memref<1x16x32x32xf16, #NHWC>>)
-                        -> !async.value<memref<1x16x32x32xf16, #NHWC>>
+                        (%result_0 as %input: !async.value<memref<1x16x32x32xf16, {order = #NHWC}>>)
+                        -> !async.value<memref<1x16x32x32xf16, {order = #NHWC}>>
                         attributes {VPUIP.executor = @DMA_NN} {
-                    %0 = VPUIP.NNDMA inputs(%input : memref<1x16x32x32xf16, #NHWC>)
-                                     outputs(%buf1 : memref<1x16x32x32xf16, #NHWC>)
-                        -> memref<1x16x32x32xf16, #NHWC>
-                    async.yield %0 : memref<1x16x32x32xf16, #NHWC>
+                    %0 = VPUIP.NNDMA inputs(%input : memref<1x16x32x32xf16, {order = #NHWC}>)
+                                     outputs(%buf1 : memref<1x16x32x32xf16, {order = #NHWC}>)
+                        -> memref<1x16x32x32xf16, {order = #NHWC}>
+                    async.yield %0 : memref<1x16x32x32xf16, {order = #NHWC}>
                 }
 
-                %final_result = async.await %result_1 : !async.value<memref<1x16x32x32xf16, #NHWC>>
-                return %final_result : memref<1x16x32x32xf16, #NHWC>
+                %final_result = async.await %result_1 : !async.value<memref<1x16x32x32xf16, {order = #NHWC}>>
+                return %final_result : memref<1x16x32x32xf16, {order = #NHWC}>
             }
         }
     )";
@@ -490,30 +490,30 @@ TEST_F(MLIR_MemLiveRangeInfo, HasRemainingUsers_PartialErase) {
     constexpr StringLiteral inputIR = R"(
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
         module @test {
-            func.func @main(%arg0: memref<1x16x32x32xf16, #NHWC>) -> memref<1x16x32x32xf16, #NHWC> {
-                %buf0 = memref.alloc() : memref<1x16x32x32xf16, #NHWC>
-                %buf1 = memref.alloc() : memref<1x16x32x32xf16, #NHWC>
+            func.func @main(%arg0: memref<1x16x32x32xf16, {order = #NHWC}>) -> memref<1x16x32x32xf16, {order = #NHWC}> {
+                %buf0 = memref.alloc() : memref<1x16x32x32xf16, {order = #NHWC}>
+                %buf1 = memref.alloc() : memref<1x16x32x32xf16, {order = #NHWC}>
 
-                %token_0, %result_0 = async.execute -> !async.value<memref<1x16x32x32xf16, #NHWC>>
+                %token_0, %result_0 = async.execute -> !async.value<memref<1x16x32x32xf16, {order = #NHWC}>>
                         attributes {VPUIP.executor = @DMA_NN} {
-                    %0 = VPUIP.NNDMA inputs(%arg0 : memref<1x16x32x32xf16, #NHWC>)
-                                     outputs(%buf0 : memref<1x16x32x32xf16, #NHWC>)
-                        -> memref<1x16x32x32xf16, #NHWC>
-                    async.yield %0 : memref<1x16x32x32xf16, #NHWC>
+                    %0 = VPUIP.NNDMA inputs(%arg0 : memref<1x16x32x32xf16, {order = #NHWC}>)
+                                     outputs(%buf0 : memref<1x16x32x32xf16, {order = #NHWC}>)
+                        -> memref<1x16x32x32xf16, {order = #NHWC}>
+                    async.yield %0 : memref<1x16x32x32xf16, {order = #NHWC}>
                 }
 
                 %token_1, %result_1 = async.execute [%token_0]
-                        (%result_0 as %input: !async.value<memref<1x16x32x32xf16, #NHWC>>)
-                        -> !async.value<memref<1x16x32x32xf16, #NHWC>>
+                        (%result_0 as %input: !async.value<memref<1x16x32x32xf16, {order = #NHWC}>>)
+                        -> !async.value<memref<1x16x32x32xf16, {order = #NHWC}>>
                         attributes {VPUIP.executor = @DMA_NN} {
-                    %0 = VPUIP.NNDMA inputs(%input : memref<1x16x32x32xf16, #NHWC>)
-                                     outputs(%buf1 : memref<1x16x32x32xf16, #NHWC>)
-                        -> memref<1x16x32x32xf16, #NHWC>
-                    async.yield %0 : memref<1x16x32x32xf16, #NHWC>
+                    %0 = VPUIP.NNDMA inputs(%input : memref<1x16x32x32xf16, {order = #NHWC}>)
+                                     outputs(%buf1 : memref<1x16x32x32xf16, {order = #NHWC}>)
+                        -> memref<1x16x32x32xf16, {order = #NHWC}>
+                    async.yield %0 : memref<1x16x32x32xf16, {order = #NHWC}>
                 }
 
-                %final_result = async.await %result_1 : !async.value<memref<1x16x32x32xf16, #NHWC>>
-                return %final_result : memref<1x16x32x32xf16, #NHWC>
+                %final_result = async.await %result_1 : !async.value<memref<1x16x32x32xf16, {order = #NHWC}>>
+                return %final_result : memref<1x16x32x32xf16, {order = #NHWC}>
             }
         }
     )";

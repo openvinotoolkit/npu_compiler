@@ -8,8 +8,6 @@
 #include <vpux_elf/writer.hpp>
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/ops.hpp"
 
-#include <npu_40xx_nnrt.hpp>
-
 using namespace vpux;
 using MIVersionNote = elf::elf_note::VersionNote;
 

@@ -231,7 +231,15 @@ InputTiling vpux::VPU::InterpolateOp::backInferTileInfo(const vpux::TileInfo& ou
     auto coordMode = getAttr().getCoordMode().getValue();
     auto interpolateMode = getAttr().getMode().getValue();
     auto nearestMode = getAttr().getNearestMode().getValue();
+    auto calcMode = getAttr().getShapeCalcMode().getValue();
     auto currentInputShape = to_small_vector(getShape(getInput()));
+
+    SmallVector<double> originalScalesVec;
+    if (auto scalesAttr = getScalesAttr()) {
+        auto scalesResult = IE::extractFPVector(getLoc(), nullptr, scalesAttr);
+        VPUX_THROW_UNLESS(mlir::succeeded(scalesResult), "InterpolateOp::backInferTileInfo failed to extract scales");
+        originalScalesVec = scalesResult.value();
+    }
 
     std::optional<SmallVector<int64_t>> coordinatesShape;
     std::optional<SmallVector<int64_t>> lambdasShape;
@@ -244,7 +252,7 @@ InputTiling vpux::VPU::InterpolateOp::backInferTileInfo(const vpux::TileInfo& ou
 
     auto inTiles = vpux::backInferInterpolateTile(outputTile, iShape, oShape, initialInputOffsets, initialOutputOffsets,
                                                   currentInputShape, coordinatesShape, lambdasShape, interpolateMode,
-                                                  coordMode, nearestMode, log);
+                                                  coordMode, nearestMode, calcMode, originalScalesVec, axesVal, log);
     auto newInputOffset = to_small_vector(inTiles.tiles[0].offsets);
 
     // Recalculate the backward scale based on the new input/output shape
@@ -280,8 +288,6 @@ void vpux::VPU::InterpolateOp::adjustAttrs(const TilingInfo& inputTiling, const 
         return;
     }
     mlir::Builder builder(*this);
-
-    TileInfo inputTile = inputTiling.tiles.begin()[0];
 
     const auto origInputDims = IE::extractIntVector(getLoc(), getAxes(), getAxesAttrAttr());
     const auto initialInputDims = parseIntArrayAttr<int64_t>(getInitialInputDimsAttrAttr());

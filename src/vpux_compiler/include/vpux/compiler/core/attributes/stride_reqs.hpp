@@ -149,7 +149,7 @@ public:
     void calcStrides(MemStrides& memStrides, Bit elemSize, MemShapeRef memShape) const;
 
     MemStrides calcStrides(Bit elemSize, MemShapeRef memShape) const;
-    MemStrides calcStrides(DimsOrder order, vpux::NDTypeInterface type) const;
+    MemStrides calcStrides(const DimsOrder& order, vpux::NDTypeInterface type) const;
 
 public:
     bool checkStrides(vpux::NDTypeInterface type) const;
@@ -252,7 +252,7 @@ public:
     void calcStrides(MemStrides& memStrides, Bit elemSize, MemShapeRef memShape) const;
 
     MemStrides calcStrides(Bit elemSize, MemShapeRef memShape) const;
-    MemStrides calcStrides(DimsOrder order, vpux::NDTypeInterface type) const;
+    MemStrides calcStrides(const DimsOrder& order, vpux::NDTypeInterface type) const;
 
 public:
     bool checkStrides(vpux::NDTypeInterface type) const;

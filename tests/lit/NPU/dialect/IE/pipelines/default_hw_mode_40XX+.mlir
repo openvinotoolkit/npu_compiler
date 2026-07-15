@@ -139,8 +139,8 @@ module @RepeatingBlocks {
         DataInfo "output" : tensor<1x48x60x60xf32>
     }
 
-    // CHECK: func.func private @main_fn1([[ARG0:%.+]]: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16>
-    func.func private @main_fn1(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
+    // CHECK: func.func nested @main_fn1([[ARG0:%.+]]: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16>
+    func.func nested @main_fn1(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
         %cst = const.Declare tensor<48x48x3x3xf32> = dense<1.000000e+00> : tensor<48x48x3x3xf32>
         %conv = IE.Convolution(%arg0, %cst) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x48x60x60xf32>, tensor<48x48x3x3xf32> -> tensor<1x48x60x60xf32>
         %relu = IE.ReLU(%conv) : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
@@ -207,7 +207,9 @@ module @GroupConvolution {
 
         return %1 : tensor<1x64x2x96xf16>
 
-        // CHECK-DAG:       [[CST:%.+]] = const.Declare tensor<64x16x3x3xf16, {order = #NHWC}> = dense_resource<__elided__> : tensor<64x2x3x3xf16>, [#const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [0, 14, 0, 0]>]
+        // CHECK-DAG:       [[CST:%.+]] = const.Declare tensor<64x16x3x3xf16, {order = #NHWC}>
+        // CHECK-SAME:          #const.Concat<
+        // CHECK-SAME:          #const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [0, 14, 0, 0]>]
         // CHECK-DAG:       [[CST_0:%.+]] = const.Declare tensor<1x2x1x96xf16> = dense<0.000000e+00> : tensor<1x2x1x96xf16>
         // CHECK:           [[CONCAT:%.+]] = IE.Concat([[CST_0]], [[ARG0]]) {static_offsets = {{\[\[}}0, 0, 0, 0], [0, 0, 1, 0]]} : tensor<1x2x1x96xf16>, tensor<1x2x2x96xf16> -> tensor<1x2x3x96xf16>
         // CHECK:           [[PERMUTEQUANTIZE:%.+]] = IE.PermuteQuantize([[CONCAT]]) {dstElemType = f16, dst_order = #NHWC, mem_perm = #NHWC, pads_begin = [0, 0, 0, 0], pads_end = [0, 14, 0, 0]} : tensor<1x2x3x96xf16> -> tensor<1x16x3x96xf16, {order = #NHWC}>
@@ -265,9 +267,8 @@ module @ConvertAddToScaleShift {
         return %0 : tensor<1x16x16x32xf16>
 
         // CHECK:       [[PERM_1:%.+]] = IE.PermuteCast([[ARG1]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x16x1x1xf16> -> tensor<1x1x16x1xf16, {order = #NHWC}>
-        // CHECK:       [[TILE:%.+]] = IE.Tile([[PERM_1]]) {repeats_values = [1, 32, 1, 16]} : tensor<1x1x16x1xf16, {order = #NHWC}> -> tensor<1x32x16x16xf16, {order = #NHWC}>
         // CHECK:       [[PERM_2:%.+]] = IE.PermuteCast([[ARG0]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x16x16x32xf16> -> tensor<1x32x16x16xf16, {order = #NHWC}>
-        // CHECK:       [[ADD:%.+]] = IE.Add([[PERM_2]], [[TILE]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x16x16xf16, {order = #NHWC}>, tensor<1x32x16x16xf16, {order = #NHWC}> -> tensor<1x32x16x16xf16, {order = #NHWC}>
+        // CHECK:       [[ADD:%.+]] = IE.Add([[PERM_2]], [[PERM_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x16x16xf16, {order = #NHWC}>, tensor<1x1x16x1xf16, {order = #NHWC}> -> tensor<1x32x16x16xf16, {order = #NHWC}>
         // CHECK:       [[PERM_3:%.+]] = IE.PermuteCast([[ADD]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x32x16x16xf16, {order = #NHWC}> -> tensor<1x16x16x32xf16>
         // CHECK:       return [[PERM_3]] : tensor<1x16x16x32xf16>
 
@@ -297,12 +298,14 @@ net.NetworkInfo
         %0 = IE.StridedSlice(%arg0) {begin_mask = [0, 0, 0, 0], begins_attr = [0, 0, 0, 1], ellipsis_mask = [0, 0, 0, 0], end_mask = [0, 0, 0, 0], ends_attr = [1, 3, 640, 640], new_axis_mask = [0, 0, 0, 0], operandSegmentSizes = array<i32: 1, 0, 0, 0>, shrink_axis_mask = [0, 0, 0, 0], strides_attr = [1, 1, 1, 2]} : tensor<1x3x640x640xf16, {order = #NHWC}> -> tensor<1x3x640x320xf16, {order = #NHWC}>
         return %0 : tensor<1x3x640x320xf16, {order = #NHWC}>
 
-        // CHECK-DAG: [[CST_0:%.+]] = const.Declare tensor<1x3x640x1xf16, {order = #NHWC}> = dense<0.000000e+00> : tensor<1x3x640x1xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
-        // CHECK-DAG: [[CST_1:%.+]] = const.Declare tensor<48x96x1x1xf16, {order = #NHWC}> = dense_resource<__elided__> : tensor<48x96x1x1xf16, {order = #NHWC}>
+        // CHECK-DAG: [[CST_0:%.+]] = const.Declare tensor<48x96x1x1xf16, {order = #NHWC}> = dense<> : tensor<0xf80>, [#const.Concat<
+        // CHECK-DAG: [[CST_1:%.+]] = const.Declare tensor<1x3x640x1xf16, {order = #NHWC}> = dense<0.000000e+00> : tensor<1x3x640x1xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
         // CHECK: [[SLICE:%.+]] = IE.Slice [[ARG0]] [0, 0, 0, 1] [1, 3, 640, 639] : tensor<1x3x640x640xf16, {order = #NHWC}> to tensor<1x3x640x639xf16, {order = #NHWC}>
-        // CHECK: [[CONCAT:%.+]] = IE.Concat([[SLICE]], [[CST_0]]) {static_offsets = {{\[\[}}0, 0, 0, 0], [0, 0, 0, 639]]} : tensor<1x3x640x639xf16, {order = #NHWC}>, tensor<1x3x640x1xf16, {order = #NHWC}> -> tensor<1x3x640x640xf16, {order = #NHWC}>
+        // CHECK: [[CONCAT:%.+]] = IE.Concat([[SLICE]], [[CST_1]])
+        // CHECK-SAME{LITERAL}:  {static_offsets = [[0, 0, 0, 0], [0, 0, 0, 639]]}
+        // CHECK-SAME:           : tensor<1x3x640x639xf16, {order = #NHWC}>, tensor<1x3x640x1xf16, {order = #NHWC}> -> tensor<1x3x640x640xf16, {order = #NHWC}>
         // CHECK: [[SHAPE_CAST_IN:%.+]] = IE.ShapeCast {shape = [1, 96, 640, 20]} inputs([[CONCAT]] : tensor<1x3x640x640xf16, {order = #NHWC}>) -> tensor<1x96x640x20xf16, {order = #NHWC}>
-        // CHECK: [[CONV:%.+]] = IE.Convolution([[SHAPE_CAST_IN]], [[CST_1]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x96x640x20xf16, {order = #NHWC}>, tensor<48x96x1x1xf16, {order = #NHWC}> -> tensor<1x48x640x20xf16, {order = #NHWC}>
+        // CHECK: [[CONV:%.+]] = IE.Convolution([[SHAPE_CAST_IN]], [[CST_0]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x96x640x20xf16, {order = #NHWC}>, tensor<48x96x1x1xf16, {order = #NHWC}> -> tensor<1x48x640x20xf16, {order = #NHWC}>
         // CHECK: [[SHAPE_CAST_OUT:%.+]] = IE.ShapeCast {shape = [1, 3, 640, 320]} inputs([[CONV]] : tensor<1x48x640x20xf16, {order = #NHWC}>) -> tensor<1x3x640x320xf16, {order = #NHWC}>
         // CHECK: return [[SHAPE_CAST_OUT]] : tensor<1x3x640x320xf16, {order = #NHWC}>
     }
@@ -468,4 +471,47 @@ module @PropagateAsymmetricAffineReshapeAndTransposeThroughAdd {
     // CHECK-SAME{LITERAL}:     {dim_mapping = [[0, 1, 2], [3], [3], [3]], shape_value = [1, 1, 1024, 1024]} : tensor<1024x1024x1x1xf16> -> tensor<1x1x1024x1024xf16>
 
     // CHECK:       return [[RESHAPE_OUT:%.+]] : tensor<1x1x1024x1024xf16>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NHCW = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>
+
+// CHECK-LABEL: @FuseMultiplyReduceSumToMatMul
+module @FuseMultiplyReduceSumToMatMul {
+    net.NetworkInfo entryPoint : @main
+    inputsInfo : {
+        DataInfo "input_a" : tensor<1x4x64x256x128x1xf16>
+        DataInfo "input_b" : tensor<1x4x64x256x1x64xf16>
+    } outputsInfo : {
+        DataInfo "output" : tensor<1x4x64x1x128x64xf16>
+    }
+
+    // CHECK:   func.func @main([[INPUT_A:%.+]]: tensor<1x4x64x256x128x1xf16>, [[INPUT_B:%.+]]: tensor<1x4x64x256x1x64xf16>) -> tensor<1x4x64x1x128x64xf16> {
+    func.func @main(%arg0: tensor<1x4x64x256x128x1xf16>, %arg1: tensor<1x4x64x256x1x64xf16>) -> tensor<1x4x64x1x128x64xf16> {
+        %mul = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x4x64x256x128x1xf16>, tensor<1x4x64x256x1x64xf16> -> tensor<1x4x64x256x128x64xf16>
+        %red = IE.ReduceSum(%mul) {axes_value = [3], keep_dims} : tensor<1x4x64x256x128x64xf16> -> tensor<1x4x64x1x128x64xf16>
+        return %red : tensor<1x4x64x1x128x64xf16>
+
+        // CHECK-NOT:   IE.Multiply
+        // CHECK-NOT:   IE.ReduceSum
+        // CHECK:       [[RESHAPE_A:%.+]] = IE.AffineReshape([[INPUT_A]])
+        // CHECK-SAME{LITERAL}:     {dim_mapping = [[0], [1], [1], [2], [3], [3]], shape_value = [1, 256, 256, 128]} : tensor<1x4x64x256x128x1xf16> -> tensor<1x256x256x128xf16>
+        // CHECK:       [[CAST_A:%.+]] = IE.PermuteCast([[RESHAPE_A]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x256x256x128xf16> -> tensor<1x128x256x256xf16, {order = #NHWC}>
+        // CHECK:       [[POOL_A:%.+]] = IE.MaxPool([[CAST_A]])
+        // CHECK:       [[PCAST_A:%.+]] = IE.PermuteCast([[POOL_A]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x128x256x256xf16, {order = #NHCW}> -> tensor<1x256x128x256xf16>
+        // CHECK:       [[RESHAPE_B:%.+]] = IE.AffineReshape([[INPUT_B]])
+        // CHECK-SAME{LITERAL}:     {dim_mapping = [[0], [1], [1], [2], [2], [3]], shape_value = [1, 256, 256, 64]} : tensor<1x4x64x256x1x64xf16> -> tensor<1x256x256x64xf16>
+        // CHECK:       [[CAST_B:%.+]] = IE.PermuteCast([[RESHAPE_B]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x256x256x64xf16> -> tensor<1x64x256x256xf16, {order = #NHWC}>
+        // CHECK:       [[POOL_B:%.+]] = IE.MaxPool([[CAST_B]])
+        // CHECK:       [[PCAST_B:%.+]] = IE.PermuteCast([[POOL_B]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x64x256x256xf16, {order = #NHCW}> -> tensor<1x256x64x256xf16>
+        // CHECK:       [[MATMUL:%.+]] = IE.MatMul([[PCAST_A]], [[PCAST_B]]) {transpose_b} : tensor<1x256x128x256xf16>, tensor<1x256x64x256xf16> -> tensor<1x256x128x64xf16>
+        // CHECK:       [[RESHAPE_0:%.+]] = IE.AffineReshape([[MATMUL]])
+        // CHECK-SAME{LITERAL}:     {dim_mapping = [[0], [0], [1], [2]], shape_value = [256, 128, 64]} : tensor<1x256x128x64xf16> -> tensor<256x128x64xf16>
+        // CHECK:       [[OUT:%.+]] = IE.AffineReshape([[RESHAPE_0]])
+        // CHECK-SAME{LITERAL}:     {dim_mapping = [[0, 1, 2, 3], [4], [5]], shape_value = [1, 4, 64, 1, 128, 64]} : tensor<256x128x64xf16> -> tensor<1x4x64x1x128x64xf16>
+        // CHECK:       return [[OUT]] : tensor<1x4x64x1x128x64xf16>
+    }
 }

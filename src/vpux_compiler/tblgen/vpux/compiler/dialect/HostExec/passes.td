@@ -12,7 +12,7 @@ include "mlir/Pass/PassBase.td"
 // SerializeELFToBinary
 //
 
-def SerializeELFToBinary : PassBase<"serialize-elf-to-binary", "vpux::FunctionPass"> {
+def SerializeELFToBinary : PassBase<"serialize-elf-to-binary", "vpux::ModulePass"> {
     let summary = "Serialize ELF module to binary";
 
     let description = [{
@@ -61,10 +61,27 @@ def ConvertToLLVMUMDCalls : PassBase<"convert-to-llvm-umd-calls", "vpux::ModuleP
 }
 
 //
+// InlineMainBatchingCalls
+//
+
+def InlineMainBatchingCalls : PassBase<"inline-main-batching-calls", "vpux::ModulePass"> {
+    let summary = "Inlines main_batching calls before bytecode conversion";
+    let description = [{
+        The pass finds calls to main_batching* functions, inlines them at their call sites, and removes callees that
+        become dead after inlining.
+    }];
+    let constructor = "vpux::HostExec::createInlineMainBatchingCallsPass()";
+    let dependentDialects = [
+        "mlir::func::FuncDialect",
+        "mlir::cf::ControlFlowDialect"
+    ];
+}
+
+//
 // PrepareHostFuncForAsyncExecution
 //
 
-def PrepareHostFuncForAsyncExecution : PassBase<"prepare-host-function-for-async-execution", "vpux::FunctionPass"> {
+def PrepareHostFuncForAsyncExecution : PassBase<"prepare-host-function-for-async-execution", "vpux::ModulePass"> {
     let summary = "Prepares host function for async execution";
 
     let description = [{
@@ -78,15 +95,28 @@ def PrepareHostFuncForAsyncExecution : PassBase<"prepare-host-function-for-async
         After the loop is finished, the async group is awaited by async.await_all.
 
         The pass is designed to be used to express execution based on Level Zero submission model. It is expected that
-        async ops will be replaced with the corresponding Level Zero calls. Some ops like async.await and async_add_to_group
+        async ops will be replaced with the corresponding Level Zero calls. Some ops like async.await and async.add_to_group
         can be mapped to no-op while lowering to Level Zero as they do not have a direct equivalent in the Level Zero
         and needed just to satisfy the async dialect requirements.
+
+        When the `remove-return-values` option is enabled, the pass strips all return values from host functions
+        across the entire module: every func.return in affected functions is replaced with a void return,
+        then all func.call sites targeting those functions are updated to drop their results,
+        and finally all affected function types are updated to return no results.
     }];
 
     let constructor = "vpux::HostExec::createPrepareHostFuncForAsyncExecutionPass()";
 
     let dependentDialects = [
         "mlir::async::AsyncDialect"
+    ];
+
+    let options = [
+        Option<
+            "removeReturnValues", "remove-return-values",
+            "bool", "true",
+            "Remove return values from host functions"
+        >
     ];
 }
 
@@ -176,6 +206,8 @@ def ExtractReturnShapes : PassBase<"extract-return-shapes", "vpux::ModulePass"> 
         `tensor.from_elements` ops are created with `tensor.dim` ops as arguments and returned in the main func.
         Later in the pipeline in the pass `outline-dim-operations` these tensor and arith operations will be moved
         to a separate function (`func.func @output_shape`) and removed from the main func's return op and from `NetworkInfo`.
+        If the outlined shape-computation chain still contains unresolved ops whose result shapes cannot be reified
+        through MLIR interfaces such as `ReifyRankedShapedTypeOpInterface`, `outline-dim-operations` will fail.
 
         BEFORE:
         ```MLIR
@@ -388,4 +420,53 @@ def WrapFuncCall : PassBase<"wrap-func-call", "vpux::ModulePass"> {
 
     let constructor = "vpux::HostExec::createWrapFuncCallPass()";
 }
+
+//
+// PropagateDynamicShapes
+//
+
+def PropagateDynamicShapes : PassBase<"propagate-dynamic-shapes", "vpux::ModulePass"> {
+    let summary = "Propagate dynamic shapes from host to device functions";
+
+    let description = [{
+        This pass propagates dynamic shape information from host functions to NPU device functions.
+        For each dynamic memref input to a nested call, it calculates the complete runtime shape and
+        writes the dimension values into existing shape buffer operands at the call site.
+
+        Algorithm:
+            1. Classify each callee input as either:
+                - Dynamic data source: memref with at least one dynamic dimension.
+                - Shape buffer: memref<rank x si32> that must be filled.
+            2. Pair each dynamic source with its corresponding shape buffer by position.
+                Data and shape buffer positions are preserved after ungrouping.
+            3. Emit stores that populate each shape buffer:
+                - Dynamic dimensions: memref.dim(source, i)
+                - Static dimensions: arith.constant
+                - Cast path: index -> i32 -> si32, then memref.store
+
+        Example for input shape [?x1x548]:
+            %d0 = memref.dim(%input, 0)           // runtime extent
+            %shape[2] = cast(%d0)                 // store runtime value
+            %shape[1] = arith.constant(1)         // store static value
+            %shape[0] = arith.constant(548)       // store static value
+
+        This follows the same core idea as Reify/scf.for-based host materialization:
+        extract runtime extents via memref.dim and pass shape buffers as regular data operands
+        to execute_graph after lowering to LLVM/UMD.
+
+        Input shape buffers are populated in reverse dimension order. SW kernels expect shape data
+        in this order and reverse the index internally when performing shape inference.
+    }];
+
+    let constructor = "vpux::HostExec::createPropagateDynamicShapesPass()";
+
+    let dependentDialects = [
+        "vpux::HostExec::HostExecDialect",
+        "mlir::arith::ArithDialect",
+        "mlir::func::FuncDialect",
+        "mlir::memref::MemRefDialect",
+        "vpux::VPUIP::VPUIPDialect"
+    ];
+}
+
 #endif

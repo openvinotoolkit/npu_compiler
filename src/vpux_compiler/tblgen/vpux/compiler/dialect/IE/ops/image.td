@@ -84,7 +84,7 @@ def IE_InterpolateOp :
             "Interpolate",
             [
                 AttrSizedOperandSegments,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine Interpolate layer";
@@ -195,7 +195,7 @@ def IE_YuvToRgbOp :
             "YuvToRgb",
             [
                 AttrSizedOperandSegments,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine NV12/I420 to RGB/BGR layer";

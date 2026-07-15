@@ -23,6 +23,7 @@
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/types.hpp"
 #include "vpux/compiler/utils/walk_utils.hpp"
 #include "vpux/utils/core/error.hpp"
 
@@ -275,6 +276,80 @@ bool checkDistributedCopyWithPermutePattern(VPUIP::SwKernelOp swKernelOp, Logger
 
     auto inMode = inDistributedType.getDistribution().getMode().getValue();
     return VPU::bitEnumContainsAny(inMode, VPU::DistributionMode::DUPLICATED);
+}
+
+// Check pattern:
+//   Copy(DDR -> DDR) -> ... -> Copy(DDR -> CMX) -> sw.kernel(memPermute, CMX -> CMX)
+bool checkDDRCopyWithPermutePattern(VPUIP::SwKernelOp swKernelOp, Logger log) {
+    log.trace("Got sw kernel op at {0}. Try to find DDR copy + permute pattern.", swKernelOp->getLoc());
+
+    auto arch = config::getArch(swKernelOp.getOperation());
+    if (!vpux::VPUIP::isBeneficialForFusingWeightsPermutation(arch, swKernelOp.getOperation())) {
+        return false;
+    }
+
+    if (!VPUIP::isMemPermSwKernel(swKernelOp)) {
+        return false;
+    }
+
+    if (!VPUIP::isLegalConvertToDMA(swKernelOp, log)) {
+        log.nest().trace("VPUIP.SwKernel can not be converted to DMA at {0}", swKernelOp->getLoc());
+        return false;
+    }
+
+    const auto memPerm = VPUIP::getMemPermFromSwKernel(swKernelOp).value();
+    if (memPerm == DimsOrder::NWHC.toAffineMap(swKernelOp->getContext())) {
+        log.nest().trace("MemPermute '{0}' can not be converted to PermuteDMAOp", memPerm);
+        return false;
+    }
+
+    const auto permuteInType = mlir::cast<vpux::NDTypeInterface>(swKernelOp.getOperand(0).getType());
+    const auto permuteOutType = mlir::cast<vpux::NDTypeInterface>(swKernelOp.getResult(0).getType());
+    if (VPUIP::isSplitNeededForPermuteDMA(permuteInType, memPerm)) {
+        log.nest().trace("PermuteDMA split is not supported for fuse strided copy + MemPermute pattern.");
+        return false;
+    }
+
+    // Walk the copy chain `Copy -> Copy -> ... -> SwKernel` from SwKernel upwards.
+    // Every copy in the chain must have exactly one use, and the first (top-most) copy
+    // must take its input from DDR memory.
+    auto curCopyOp = swKernelOp.getOperand(0).getDefiningOp<VPUIP::CopyOp>();
+    if (curCopyOp == nullptr) {
+        return false;
+    }
+
+    while (curCopyOp != nullptr) {
+        if (!curCopyOp->hasOneUse()) {
+            return false;
+        }
+
+        auto prevCopyOp = curCopyOp.getInput().getDefiningOp<VPUIP::CopyOp>();
+        if (prevCopyOp == nullptr) {
+            break;
+        }
+
+        curCopyOp = prevCopyOp;
+    }
+
+    const auto copyInputType = mlir::cast<vpux::NDTypeInterface>(curCopyOp.getInput().getType());
+    if (copyInputType.getMemoryKind() != VPU::MemoryKind::DDR) {
+        return false;
+    }
+
+    if (auto outDistributedType = mlir::dyn_cast<VPUIP::DistributedBufferType>(swKernelOp.getResult(0).getType())) {
+        const auto outMode = outDistributedType.getDistribution().getMode().getValue();
+        if (VPU::bitEnumContainsAny(outMode, VPU::DistributionMode::MULTICASTED)) {
+            return false;
+        }
+
+        if (!VPUIP::doesPermuteDMATileDimSupportWrapInCluster(
+                    copyInputType, permuteOutType, memPerm,
+                    mlir::dyn_cast<vpux::VPUIP::DistributedBufferType>(outDistributedType), log)) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 bool onlyExpandAtChannel(VPUIP::ExpandOp expandOp) {
@@ -1018,9 +1093,8 @@ mlir::LogicalResult FuseExpandWithUpsampling::matchAndRewrite(VPUIP::ExpandOp or
     SmallVector<int64_t> upsamplingFactorVector = {1, upsamplingFactorVectorTmp[2], upsamplingFactorVectorTmp[1],
                                                    upsamplingFactorVectorTmp[0]};
     const auto inputType = mlir::cast<NDTypeInterface>(upsamplingOp.getInput().getType());
-    const auto zeroType =
-            mlir::cast<NDTypeInterface>(mlir::MemRefType::get(outputShape.raw(), inputType.getElementType()))
-                    .changeDimsOrder(inputType.getDimsOrder());
+    const auto zeroType = mlir::cast<NDTypeInterface>(
+            vpux::getMemRefType(outputShape, inputType.getElementType(), inputType.getDimsOrder()));
     auto constZeros = Const::createZerosConst(rewriter, origOp.getLoc(), mlir::cast<mlir::MemRefType>(zeroType));
 
     auto copyZeroOp = rewriter.create<VPUIP::CopyOp>(origOp->getLoc(), constZeros, origOp.getOutputBuff());
@@ -1649,6 +1723,70 @@ mlir::LogicalResult FuseDistributedCopyWithMemPermute::matchAndRewrite(VPUIP::Sw
 }
 
 //
+// FuseDDRCopyWithMemPermute
+//
+
+//            Copy(DDR -> DDR)
+//                    |
+//                   ...
+//                    |
+//          DistributedCopy(DDR -> CMX)        ->     Distributed PermuteDMA (DDR -> CMX)
+//                    |
+//          SW.kernel(memPermute)
+//
+class FuseDDRCopyWithMemPermute final : public mlir::OpRewritePattern<VPUIP::SwKernelOp> {
+public:
+    FuseDDRCopyWithMemPermute(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<VPUIP::SwKernelOp>(ctx), _log(log) {
+        setDebugName("FuseDDRCopyWithMemPermute");
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(VPUIP::SwKernelOp swKernelOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult FuseDDRCopyWithMemPermute::matchAndRewrite(VPUIP::SwKernelOp swKernelOp,
+                                                               mlir::PatternRewriter& rewriter) const {
+    if (VPUIP::hasBoundedBuffers(swKernelOp) || VPUIP::hasUngroupedBoundedBuffers(swKernelOp)) {
+        return mlir::failure();
+    }
+
+    if (!checkDDRCopyWithPermutePattern(swKernelOp, _log)) {
+        return mlir::failure();
+    }
+
+    auto copyOp = swKernelOp.getOperand(0).getDefiningOp<VPUIP::CopyOp>();
+    VPUX_THROW_WHEN(copyOp == nullptr, "Expected a copy chain feeding the SwKernel at {0}", swKernelOp->getLoc());
+    SmallVector<VPUIP::CopyOp> copyChain{copyOp};
+    while (copyOp != nullptr) {
+        auto prevCopyOp = copyOp.getInput().getDefiningOp<VPUIP::CopyOp>();
+        if (prevCopyOp == nullptr) {
+            break;
+        }
+
+        copyChain.push_back(prevCopyOp);
+        copyOp = prevCopyOp;
+    }
+
+    _log.trace("Process DDR copy + MemPermute fuse at {0}", swKernelOp->getLoc());
+
+    auto memPerm = VPUIP::getMemPermFromSwKernel(swKernelOp).value();
+
+    rewriter.replaceOpWithNewOp<VPUIP::PermuteDMAOp>(swKernelOp, copyOp.getInput(),
+                                                     VPUIP::getLayerOutputs(swKernelOp)[0],
+                                                     mlir::AffineMapAttr::get(memPerm), nullptr);
+
+    for (auto copyOp : copyChain) {
+        rewriter.eraseOp(copyOp);
+    }
+
+    return mlir::success();
+}
+
+//
 // FuseDistributedMemPermuteWithViewLikeOps
 //
 
@@ -1833,6 +1971,7 @@ void WrapWithPermuteAsNNDMAPass::safeRunOnFunc() {
         mlir::RewritePatternSet patterns(&ctx);
         patterns.add<FuseMemPermuteWithCopy>(&ctx, _log);
         patterns.add<FuseDistributedCopyWithMemPermute>(&ctx, _log);
+        patterns.add<FuseDDRCopyWithMemPermute>(&ctx, _log);
         patterns.add<FuseDistributedMemPermuteWithViewLikeOps>(&ctx, _log);
         patterns.add<FusePerAxisTileWithCopy>(&ctx, _log);
         patterns.add<FuseSpaceToDepthAndPermute>(&ctx, _log);

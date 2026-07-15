@@ -36,12 +36,6 @@ private:
 
 void WlmInsertDummyBarriersInPagesPass::safeRunOnFunc() {
     auto func = getOperation();
-    auto module = func->getParentOfType<mlir::ModuleOp>();
-
-    if (config::getWorkloadManagementStatus(module) != WorkloadManagementStatus::ENABLED) {
-        // WLM is not supported, no need to run this pass
-        return;
-    }
 
     const auto numBarriers =
             numBarriersOpt.hasValue() ? numBarriersOpt.getValue() : VPUIP::getNumAvailableBarriers(func);

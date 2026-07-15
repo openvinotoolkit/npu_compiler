@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/ELF/IR/dialect.hpp"
 #include "vpux/compiler/dialect/ELF/IR/ops.hpp"
 #include "vpux/compiler/dialect/ELF/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPUASM/utils.hpp"
 
 namespace vpux::ELF {
 #define GEN_PASS_DECL_FINALIZESKIPDMACHAINS
@@ -153,24 +154,29 @@ void resolveAndSetReleaseDescriptorForSkipDMAs(ELF::SymbolReferenceMap& symRefMa
     // Set aggregated releaseDesc on KernelParamsOp
     //
     // kernel_params is an array ref of uint8_t
-    // <---------------attrs-------------------> <-----8 byte x 2 release descriptor addr------>
-    // [----------------------------------------|-----------------------|-----------------------]
+    // <---------------attrs-------------------> <-----8 byte x maxNumReleaseDesc release descriptor addr------>
+    // [----------------------------------------|------------|-----------|-----------|----------]
     //
     for (auto& [kernelOp, releaseVec] : kernelToReleaseDescs) {
-        // Desc ID based sorting to ensure deterministic order of release descriptors in kernel_params
+        VPUX_THROW_UNLESS(releaseVec.size() <= VPUASM::maxNumReleaseDesc,
+                          "KernelOp has {0} release descriptors, but maximum supported is {1}", releaseVec.size(),
+                          VPUASM::maxNumReleaseDesc);
+
         std::sort(releaseVec.begin(), releaseVec.end(), [](const auto& a, const auto& b) {
             return a.first < b.first;
         });
         mlir::Builder builder(kernelOp.getContext());
         auto paramsRef = kernelOp.getKernelParams();
         SmallVector<uint8_t> params(paramsRef.begin(), paramsRef.end());
-        // We need 8 bytes to represent an address in DDR, so we append 8 bytes for each release descriptor
-        params.resize(params.size() + releaseVec.size() * sizeof(uint64_t), 0);
+        // Reserve a fixed trailing area for up to VPUASM::maxNumReleaseDesc release descriptors. Each address uses 8
+        // bytes (uint64_t). Fixed size reservation keeps the kernel_params stable even when fewer release descriptors
+        // are resolved for KernelParamsOp.
+        params.resize(params.size() + VPUASM::maxNumReleaseDesc * sizeof(uint64_t), 0);
         kernelOp.setKernelParams(params);
 
         // Create ArrayAttr for releaseDesc
         SmallVector<mlir::Attribute> releaseAttrs;
-        releaseAttrs.reserve(releaseVec.size());
+        releaseAttrs.reserve(VPUASM::maxNumReleaseDesc);
         for (auto& [_, symRef] : releaseVec) {
             releaseAttrs.push_back(symRef);
         }

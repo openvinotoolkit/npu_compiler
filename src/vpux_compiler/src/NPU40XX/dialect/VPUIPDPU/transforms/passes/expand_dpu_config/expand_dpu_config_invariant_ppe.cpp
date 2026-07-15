@@ -11,6 +11,7 @@
 
 namespace {
 
+using namespace vpux;
 using namespace VPUIPDPU;
 using namespace VPUIPDPU::arch40xx::PPE;
 

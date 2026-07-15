@@ -23,10 +23,6 @@ void vpux::VPURT::buildBarrierLegalizationPipeline(mlir::OpPassManager& pm,
 
     if (!wlmEnabled) {
         pm.addPass(VPURT::createSplitExceedingBarrierSlotCountPass(log));
-    }
-    pm.addPass(VPURT::createSatisfyOneWaitBarrierPerTaskPass(unevenVariantSplitFlag, log));
-
-    if (!wlmEnabled) {
         pm.addPass(VPURT::createReduceExceedingActiveCountBarriersPass(unevenVariantSplitFlag, log));
     }
 }

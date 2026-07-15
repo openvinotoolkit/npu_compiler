@@ -26,7 +26,7 @@
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/init/dialects_registry.hpp"
 
-using namespace vpux;
+namespace vpux {
 
 template <typename ConcreteModel, typename MainOpType>
 class LayerWithClampOpModel : public IE::LayerWithPostOpInterface::ExternalModel<ConcreteModel, MainOpType> {
@@ -206,10 +206,11 @@ protected:
         const auto dilations = getIntArrayAttr(&_ctx, SmallVector<int64_t>{1, 1});
         const auto staticScale = getFPAttr(&_ctx, scale);
 
-        return builder.create<IE::ConvolutionOp>(
-                _loc, outType, input.getResult(), weights.getResult(), bias != nullptr ? bias.getResult() : nullptr,
-                /*scale*/ nullptr, strides, padsBegin, padsEnd, dilations, postOpAttr, clampAttr, staticScale,
-                /*outputPadding=*/nullptr, /*inputPadding=*/nullptr);
+        return builder.create<IE::ConvolutionOp>(_loc, outType, input.getResult(), weights.getResult(),
+                                                 bias != nullptr ? bias.getResult() : nullptr,
+                                                 /*scale*/ nullptr, /*zero_points*/ nullptr, strides, padsBegin,
+                                                 padsEnd, dilations, postOpAttr, clampAttr, staticScale,
+                                                 /*outputPadding=*/nullptr, /*inputPadding=*/nullptr);
     }
 
     IE::AvgPoolOp createAvgPool(mlir::OpBuilder builder, mlir::Type inElemType, mlir::Type outElemType,
@@ -232,7 +233,7 @@ protected:
     }
 
     IE::MaxPoolOp createMaxPool(mlir::OpBuilder builder, mlir::Type inElemType, mlir::Type outElemType,
-                                IE::PostOpAttr postOpAttr, mlir::DictionaryAttr clampAttr) {
+                                IE::PostOpAttr postOpAttr, mlir::DictionaryAttr clampAttr, double scale = 1.0) {
         auto input = builder.create<mlir::tensor::EmptyOp>(mlir::UnknownLoc::get(&_ctx),
                                                            ArrayRef<int64_t>{1, 16, 32, 32}, inElemType);
         const auto outType = mlir::RankedTensorType::get(ArrayRef<int64_t>{1, 16, 32, 32}, outElemType);
@@ -242,9 +243,10 @@ protected:
         const auto padsBegin = getIntArrayAttr(&_ctx, SmallVector<int64_t>{0, 0});
         const auto padsEnd = getIntArrayAttr(&_ctx, SmallVector<int64_t>{0, 0});
         const auto rounding = IE::RoundingTypeAttr::get(&_ctx, IE::RoundingType::FLOOR);
+        const auto staticScale = getFPAttr(&_ctx, scale);
 
         return builder.create<IE::MaxPoolOp>(_loc, outType, input.getResult(), kernel, strides, padsBegin, padsEnd,
-                                             rounding, postOpAttr, clampAttr,
+                                             rounding, postOpAttr, clampAttr, staticScale,
                                              /*outputPadding=*/nullptr,
                                              /*inputPadding=*/nullptr);
     }
@@ -298,11 +300,12 @@ protected:
         const auto outType = mlir::RankedTensorType::get(ArrayRef<int64_t>{1, 16, 32, 32}, outElemType);
 
         const auto strides = getIntArrayAttr(&_ctx, SmallVector<int64_t>{1, 1});
-        const auto rawFilterShape = getIntArrayAttr(&_ctx, mlir::cast<NDTypeInterface>(weights.getType()).getShape());
+        const auto staticRawFilterShape =
+                mlir::DenseI64ArrayAttr::get(&_ctx, mlir::cast<NDTypeInterface>(weights.getType()).getShape());
 
         return builder.create<VPU::NCEInterpolateOp>(_loc, outType, input, weights, weightsTable, nullptr, nullptr,
                                                      nullptr, nullptr, nullptr, strides, oldPpeAttr, nullptr,
-                                                     rawFilterShape,
+                                                     /*rawFilterShape=*/mlir::ValueRange{}, staticRawFilterShape,
                                                      /*multiClusterStrategy=*/nullptr,
                                                      /*mode=*/nullptr);
     }
@@ -319,7 +322,7 @@ protected:
         const auto outType = mlir::RankedTensorType::get(ArrayRef<int64_t>{1, 16, 32, 32}, outElemType);
 
         const auto strides = getIntArrayAttr(&_ctx, SmallVector<int64_t>{1, 1});
-        const auto rawFilterShape = getIntArrayAttr(&_ctx, SmallVector<int64_t>{16, 1, 3, 3});
+        const auto staticRawFilterShape = mlir::DenseI64ArrayAttr::get(&_ctx, SmallVector<int64_t>{16, 1, 3, 3});
 
         const auto padsBegin = getIntArrayAttr(&_ctx, SmallVector<int64_t>{1, 1});
         const auto padsEnd = getIntArrayAttr(&_ctx, SmallVector<int64_t>{1, 1});
@@ -329,9 +332,11 @@ protected:
                 _loc, outType, input, weights, weightsTable, /*dataPointerTensor=*/nullptr,
                 /*sparsityPointerTensor=*/nullptr,
                 /*scaleTensor=*/nullptr, /*biasTensor=*/nullptr, /*zeroPointTensor=*/nullptr, strides, padAttr,
-                oldPpeAttr, nullptr, rawFilterShape,
+                oldPpeAttr, nullptr, /*rawFilterShape=*/mlir::ValueRange{}, staticRawFilterShape,
                 /*multiClusterStrategy=*/nullptr,
                 /*outputPaddingAttr=*/nullptr,
                 /*inputPaddingAttr=*/nullptr);
     }
 };
+
+}  // namespace vpux

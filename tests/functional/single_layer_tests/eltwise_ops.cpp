@@ -89,6 +89,9 @@ TEST_F(EltwiseMultiplyLayerTest, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(EltwiseLayerTest);
+
 typedef Eltwise2InputLayerTest<ov::op::v1::Add> EltwiseAddLayerTest;
 class EltwiseAddLayerTest_HostCompile : public EltwiseLayerTest, virtual public VpuOv2LayerTest {};
 

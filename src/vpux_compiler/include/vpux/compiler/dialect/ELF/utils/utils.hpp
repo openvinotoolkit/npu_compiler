@@ -14,10 +14,8 @@
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/SymbolTable.h>
 
-using namespace vpux;
-
 namespace llvm {
-using RelocKey = std::pair<ELF::ElfSectionInterface, ELF::CreateSymbolTableSectionOp>;
+using RelocKey = std::pair<vpux::ELF::ElfSectionInterface, vpux::ELF::CreateSymbolTableSectionOp>;
 template <>
 struct DenseMapInfo<RelocKey> {
     static RelocKey getEmptyKey() {
@@ -36,7 +34,7 @@ struct DenseMapInfo<RelocKey> {
         auto h1 = hash_value(val.first.getAsOpaquePointer());
         auto h2 = hash_value(val.second.getAsOpaquePointer());
 
-        return checked_cast<unsigned>(h1 * h2);
+        return vpux::checked_cast<unsigned>(h1 * h2);
     }
 
     static bool isEqual(RelocKey lhs, RelocKey rhs) {
@@ -159,6 +157,8 @@ mlir::SymbolRefAttr cloneSectionSymbol(mlir::SymbolRefAttr from, mlir::SymbolRef
 
 void insertELFMain(mlir::func::FuncOp netFunc);
 size_t getOpBinarySize(vpux::NDTypeInterface type);
+size_t getBufferBinarySize(vpux::NDTypeInterface type, mlir::Operation* contextOp, VPURT::BufferSection section,
+                           int64_t sectionIndex);
 
 // lookup operation that defines `symbol` in scope of ELF.Main that defines `from`
 // note: mlir::SymbolTable::lookupNearestSymbolFrom limits the scope at the closest `SymbolTable` parent

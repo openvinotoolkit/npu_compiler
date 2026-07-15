@@ -34,22 +34,22 @@ TEST_F(MLIR_AsyncDepsInfo, AddDependencySCSPWithCircle) {
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
         module @test {
             func.func @main() {
-                %token_0, %results_0 = async.execute -> !async.value<memref<1x32x256x256xf16, #NHWC>>
+                %token_0, %results_0 = async.execute -> !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>
                     attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 0 : i64} {
-                    %0 = memref.alloc() : memref<1x32x256x256xf16, #NHWC>
-                    async.yield %0 : memref<1x32x256x256xf16, #NHWC>
+                    %0 = memref.alloc() : memref<1x32x256x256xf16, {order = #NHWC}>
+                    async.yield %0 : memref<1x32x256x256xf16, {order = #NHWC}>
                 }
                 %token_1, %results_1 = async.execute [%token_0]
-                    (%results_0 as %arg0: !async.value<memref<1x32x256x256xf16, #NHWC>>)
-                    -> !async.value<memref<1x32x256x256xf16, #NHWC>>
+                    (%results_0 as %arg0: !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>)
+                    -> !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>
                     attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 1 : i64} {
-                    async.yield %arg0 : memref<1x32x256x256xf16, #NHWC>
+                    async.yield %arg0 : memref<1x32x256x256xf16, {order = #NHWC}>
                 }
                 %token_2, %results_2 = async.execute [%token_1]
-                    (%results_1 as %arg0: !async.value<memref<1x32x256x256xf16, #NHWC>>)
-                    -> !async.value<memref<1x32x256x256xf16, #NHWC>>
+                    (%results_1 as %arg0: !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>)
+                    -> !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>
                     attributes {VPUIP.executor = @DPU, "async-deps-index" = 2 : i64} {
-                    async.yield %arg0 : memref<1x32x256x256xf16, #NHWC>
+                    async.yield %arg0 : memref<1x32x256x256xf16, {order = #NHWC}>
                 }
                 return
             }
@@ -103,34 +103,34 @@ TEST_F(MLIR_AsyncDepsInfo, AddDependencyMCMP) {
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
         module @test {
             func.func @main() {
-                %token_0, %results_0 = async.execute -> !async.value<memref<1x32x256x256xf16, #NHWC>>
+                %token_0, %results_0 = async.execute -> !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>
                     attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 0 : i64} {
-                    %0 = memref.alloc() : memref<1x32x256x256xf16, #NHWC>
-                    async.yield %0 : memref<1x32x256x256xf16, #NHWC>
+                    %0 = memref.alloc() : memref<1x32x256x256xf16, {order = #NHWC}>
+                    async.yield %0 : memref<1x32x256x256xf16, {order = #NHWC}>
                 }
-                %token_1, %results_1 = async.execute -> !async.value<memref<1x32x256x256xf16, #NHWC>>
+                %token_1, %results_1 = async.execute -> !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>
                     attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 1 : i64} {
-                    %0 = memref.alloc() : memref<1x32x256x256xf16, #NHWC>
-                    async.yield %0 : memref<1x32x256x256xf16, #NHWC>
+                    %0 = memref.alloc() : memref<1x32x256x256xf16, {order = #NHWC}>
+                    async.yield %0 : memref<1x32x256x256xf16, {order = #NHWC}>
                 }
                 %token_2, %results_2 = async.execute [%token_0]
-                    (%results_0 as %arg0: !async.value<memref<1x32x256x256xf16, #NHWC>>)
-                    -> !async.value<memref<1x32x256x256xf16, #NHWC>>
+                    (%results_0 as %arg0: !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>)
+                    -> !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>
                     attributes {VPUIP.executor = @DPU, "async-deps-index" = 2 : i64} {
-                    async.yield %arg0 : memref<1x32x256x256xf16, #NHWC>
+                    async.yield %arg0 : memref<1x32x256x256xf16, {order = #NHWC}>
                 }
                 %token_3, %results_3 = async.execute [%token_0]
-                    (%results_0 as %arg0: !async.value<memref<1x32x256x256xf16, #NHWC>>)
-                    -> !async.value<memref<1x32x256x256xf16, #NHWC>>
+                    (%results_0 as %arg0: !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>)
+                    -> !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>
                     attributes {VPUIP.executor = @DPU, "async-deps-index" = 3 : i64} {
-                    async.yield %arg0 : memref<1x32x256x256xf16, #NHWC>
+                    async.yield %arg0 : memref<1x32x256x256xf16, {order = #NHWC}>
                 }
                 %token_4, %results_4 = async.execute [%token_0, %token_1]
-                    (%results_0 as %arg0: !async.value<memref<1x32x256x256xf16, #NHWC>>,
-                     %results_1 as %arg1: !async.value<memref<1x32x256x256xf16, #NHWC>>)
-                    -> !async.value<memref<1x32x256x256xf16, #NHWC>>
+                    (%results_0 as %arg0: !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>,
+                     %results_1 as %arg1: !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>)
+                    -> !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>
                     attributes {VPUIP.executor = @DPU, "async-deps-index" = 4 : i64} {
-                    async.yield %arg0 : memref<1x32x256x256xf16, #NHWC>
+                    async.yield %arg0 : memref<1x32x256x256xf16, {order = #NHWC}>
                 }
                 return
             }
@@ -192,23 +192,23 @@ TEST_F(MLIR_AsyncDepsInfo, OptimizeDepsMap) {
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
         module @test {
             func.func @main() {
-                %token_0, %results_0 = async.execute -> !async.value<memref<1x32x256x256xf16, #NHWC>>
+                %token_0, %results_0 = async.execute -> !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>
                     attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 0 : i64} {
-                    %0 = memref.alloc() : memref<1x32x256x256xf16, #NHWC>
-                    async.yield %0 : memref<1x32x256x256xf16, #NHWC>
+                    %0 = memref.alloc() : memref<1x32x256x256xf16, {order = #NHWC}>
+                    async.yield %0 : memref<1x32x256x256xf16, {order = #NHWC}>
                 }
                 %token_1, %results_1 = async.execute [%token_0]
-                    (%results_0 as %arg0: !async.value<memref<1x32x256x256xf16, #NHWC>>)
-                    -> !async.value<memref<1x32x256x256xf16, #NHWC>>
+                    (%results_0 as %arg0: !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>)
+                    -> !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>
                     attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 1 : i64} {
-                    async.yield %arg0 : memref<1x32x256x256xf16, #NHWC>
+                    async.yield %arg0 : memref<1x32x256x256xf16, {order = #NHWC}>
                 }
                 %token_2, %results_2 = async.execute [%token_0, %token_1]
-                    (%results_0 as %arg0: !async.value<memref<1x32x256x256xf16, #NHWC>>,
-                     %results_1 as %arg1: !async.value<memref<1x32x256x256xf16, #NHWC>>)
-                    -> !async.value<memref<1x32x256x256xf16, #NHWC>>
+                    (%results_0 as %arg0: !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>,
+                     %results_1 as %arg1: !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>)
+                    -> !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>
                     attributes {VPUIP.executor = @DPU, "async-deps-index" = 2 : i64} {
-                    async.yield %arg0 : memref<1x32x256x256xf16, #NHWC>
+                    async.yield %arg0 : memref<1x32x256x256xf16, {order = #NHWC}>
                 }
                 return
             }
@@ -245,22 +245,22 @@ TEST_F(MLIR_AsyncDepsInfo, CalculateInOutDegree) {
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
         module @test {
             func.func @main() {
-                %token_0, %results_0 = async.execute -> !async.value<memref<1x32x256x256xf16, #NHWC>>
+                %token_0, %results_0 = async.execute -> !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>
                     attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 0 : i64} {
-                    %0 = memref.alloc() : memref<1x32x256x256xf16, #NHWC>
-                    async.yield %0 : memref<1x32x256x256xf16, #NHWC>
+                    %0 = memref.alloc() : memref<1x32x256x256xf16, {order = #NHWC}>
+                    async.yield %0 : memref<1x32x256x256xf16, {order = #NHWC}>
                 }
                 %token_1, %results_1 = async.execute [%token_0]
-                    (%results_0 as %arg0: !async.value<memref<1x32x256x256xf16, #NHWC>>)
-                    -> !async.value<memref<1x32x256x256xf16, #NHWC>>
+                    (%results_0 as %arg0: !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>)
+                    -> !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>
                     attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 1 : i64} {
-                    async.yield %arg0 : memref<1x32x256x256xf16, #NHWC>
+                    async.yield %arg0 : memref<1x32x256x256xf16, {order = #NHWC}>
                 }
                 %token_2, %results_2 = async.execute [%token_1]
-                    (%results_1 as %arg0: !async.value<memref<1x32x256x256xf16, #NHWC>>)
-                    -> !async.value<memref<1x32x256x256xf16, #NHWC>>
+                    (%results_1 as %arg0: !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>)
+                    -> !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>
                     attributes {VPUIP.executor = @DPU, "async-deps-index" = 2 : i64} {
-                    async.yield %arg0 : memref<1x32x256x256xf16, #NHWC>
+                    async.yield %arg0 : memref<1x32x256x256xf16, {order = #NHWC}>
                 }
                 return
             }
@@ -297,10 +297,10 @@ TEST_F(MLIR_AsyncDepsInfo, InsertNewExecOp) {
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
         module @test {
             func.func @main() {
-                %token_0, %results_0 = async.execute -> !async.value<memref<1x32x256x256xf16, #NHWC>>
+                %token_0, %results_0 = async.execute -> !async.value<memref<1x32x256x256xf16, {order = #NHWC}>>
                     attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 0 : i64} {
-                    %0 = memref.alloc() : memref<1x32x256x256xf16, #NHWC>
-                    async.yield %0 : memref<1x32x256x256xf16, #NHWC>
+                    %0 = memref.alloc() : memref<1x32x256x256xf16, {order = #NHWC}>
+                    async.yield %0 : memref<1x32x256x256xf16, {order = #NHWC}>
                 }
                 return
             }

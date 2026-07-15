@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --broadcast-input-for-multiply  %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --broadcast-input-for-multiply="broadcast-input-for-multiply=true"  %s | FileCheck %s
 // REQUIRES: platform-NPU5010
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
@@ -151,5 +151,33 @@ func.func @BroadcastInputForSplatMultiplyNHWC(%arg0: tensor<1x1x1x1xf16, {order 
     // CHECK:       [[LHS:%.+]] = IE.PermuteCast([[BROADCAST]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x1x1x512xf16> -> tensor<1x512x1x1xf16, {order = #NHWC}>
     // CHECK:       [[MULTIPLY:%.+]] = IE.Multiply([[LHS]], [[INPUT_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x512x1x1xf16, {order = #NHWC}>, tensor<1x512x1x1xf16, {order = #NHWC}> -> tensor<1x512x1x1xf16, {order = #NHWC}>
 
+    // CHECK:       return [[MULTIPLY]]
+}
+
+// -----
+
+// CHECK-LABEL: @FuseMultiplyBroadcastRightInput
+// CHECK-SAME:      [[INPUT_0:%.+]]: tensor<1x64x64x128xf16>,
+// CHECK-SAME:      [[INPUT_1:%.+]]: tensor<1x64x64x1xf16>
+func.func @FuseMultiplyBroadcastRightInput(%arg0: tensor<1x64x64x128xf16>, %arg1: tensor<1x64x64x1xf16>) -> tensor<1x64x64x128xf16> {
+    %0 = IE.Tile(%arg1) {repeats_values = [1, 1, 1, 128]} : tensor<1x64x64x1xf16> -> tensor<1x64x64x128xf16>
+    %1 = IE.Multiply(%arg0, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x64x64x128xf16>, tensor<1x64x64x128xf16> -> tensor<1x64x64x128xf16>
+    return %1 : tensor<1x64x64x128xf16>
+
+    // CHECK:       [[MULTIPLY:%.+]] = IE.Multiply([[INPUT_0]], [[INPUT_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x64x64x128xf16>, tensor<1x64x64x1xf16> -> tensor<1x64x64x128xf16>
+    // CHECK:       return [[MULTIPLY]]
+}
+
+// -----
+
+// CHECK-LABEL: @FuseMultiplyBroadcastLeftInput
+// CHECK-SAME:      [[INPUT_0:%.+]]: tensor<1x64x64x1xf16>,
+// CHECK-SAME:      [[INPUT_1:%.+]]: tensor<1x64x64x128xf16>
+func.func @FuseMultiplyBroadcastLeftInput(%arg0: tensor<1x64x64x1xf16>, %arg1: tensor<1x64x64x128xf16>) -> tensor<1x64x64x128xf16> {
+    %0 = IE.Tile(%arg0) {repeats_values = [1, 1, 1, 128]} : tensor<1x64x64x1xf16> -> tensor<1x64x64x128xf16>
+    %1 = IE.Multiply(%0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x64x64x128xf16>, tensor<1x64x64x128xf16> -> tensor<1x64x64x128xf16>
+    return %1 : tensor<1x64x64x128xf16>
+
+    // CHECK:       [[MULTIPLY:%.+]] = IE.Multiply([[INPUT_0]], [[INPUT_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x64x64x1xf16>, tensor<1x64x64x128xf16> -> tensor<1x64x64x128xf16>
     // CHECK:       return [[MULTIPLY]]
 }

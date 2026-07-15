@@ -15,6 +15,7 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
+#include <cassert>
 
 namespace vpux::VPUIP {
 #define GEN_PASS_DECL_ADDCOPYBETWEENSWKERNELSANDNETWORKIO
@@ -52,10 +53,10 @@ int64_t getOperandIndex(mlir::Operation* op, mlir::Value operand) {
     return std::distance(operands.begin(), it);
 }
 
-mlir::Value getCallOpOutputByOutputBufferIndex(mlir::func::CallOp callOp, mlir::func::FuncOp privateFuncOp,
+mlir::Value getCallOpOutputByOutputBufferIndex(mlir::func::CallOp callOp, mlir::func::FuncOp funcOp,
                                                int64_t outputBufIdx) {
     // if the call op has multiple results, get the index of the one that is block arg
-    const auto calledFuncOpNumInputs = privateFuncOp.getNumArguments() - privateFuncOp.getNumResults();
+    const auto calledFuncOpNumInputs = funcOp.getNumArguments() - funcOp.getNumResults();
     const auto blockArgOutputIndex = outputBufIdx - calledFuncOpNumInputs;
     return callOp.getResults()[blockArgOutputIndex];
 }
@@ -101,7 +102,7 @@ bool isSwKernelWithTilePatternBlockArgument(VPUIP::SwKernelOp swKernelOp, const 
     return usersAreConcat;
 }
 
-bool doesCallOpHaveTilePatternBlockArgument(mlir::func::CallOp callOp, mlir::func::FuncOp privateFuncOp,
+bool doesCallOpHaveTilePatternBlockArgument(mlir::func::CallOp callOp, mlir::func::FuncOp funcOp,
                                             const mlir::DenseSet<int64_t>& inputIdx,
                                             const mlir::DenseSet<int64_t>& outputIdx, const AliasesInfo& aliasesInfo) {
     /*
@@ -130,7 +131,7 @@ bool doesCallOpHaveTilePatternBlockArgument(mlir::func::CallOp callOp, mlir::fun
 
     SmallVector<mlir::Value> callOpResults;
     for (auto idx : outputIdx) {
-        callOpResults.push_back(getCallOpOutputByOutputBufferIndex(callOp, privateFuncOp, idx));
+        callOpResults.push_back(getCallOpOutputByOutputBufferIndex(callOp, funcOp, idx));
     }
 
     auto usersAreConcat = llvm::all_of(callOpResults, [](auto callOpResult) {
@@ -142,13 +143,13 @@ bool doesCallOpHaveTilePatternBlockArgument(mlir::func::CallOp callOp, mlir::fun
 }
 
 bool doAllCallOpsHaveTilePatternBlockArgument(const FunctionWithSwKernelCalls& functionWithSwKernelCalls,
-                                              mlir::func::FuncOp privateFunc, const AliasesInfo& aliasesInfo) {
-    const auto& callOpData = functionWithSwKernelCalls.at(privateFunc);
+                                              mlir::func::FuncOp funcOp, const AliasesInfo& aliasesInfo) {
+    const auto& callOpData = functionWithSwKernelCalls.at(funcOp);
     const auto& inputIdxs = std::get<0>(callOpData);
     const auto& outputIdxs = std::get<1>(callOpData);
     const auto& callOps = std::get<2>(callOpData);
     return llvm::all_of(callOps, [&](auto callOp) {
-        return doesCallOpHaveTilePatternBlockArgument(callOp, privateFunc, inputIdxs, outputIdxs, aliasesInfo);
+        return doesCallOpHaveTilePatternBlockArgument(callOp, funcOp, inputIdxs, outputIdxs, aliasesInfo);
     });
 }
 
@@ -312,17 +313,28 @@ void addCopySwKernelWithBlockArgIOInMainFuncOp(mlir::func::FuncOp mainFuncOp, ml
             return resultIdx;
         };
 
-        auto inputIdx = selectBlockArgsAndGetTheirIdices(swKernelOp.getInputs());
+        const bool isDmaKernel = isIoDmaSwKernel(swKernelOp);
+
+        mlir::DenseSet<int64_t> inputIdx;
+        if (!isDmaKernel) {
+            inputIdx = selectBlockArgsAndGetTheirIdices(swKernelOp.getInputs());
+        }
         if (!swKernelOp.getDynamicInputShapes().empty()) {
             auto dynamicInputShapesIdx = selectBlockArgsAndGetTheirIdices(swKernelOp.getDynamicInputShapes());
             inputIdx.insert(dynamicInputShapesIdx.begin(), dynamicInputShapesIdx.end());
         }
-        auto outputIdx = selectBlockArgsAndGetTheirIdices(swKernelOp.getOutputs());
+        mlir::DenseSet<int64_t> outputIdx;
+        if (!isDmaKernel) {
+            outputIdx = selectBlockArgsAndGetTheirIdices(swKernelOp.getOutputs());
+        } else {
+            outputIdx = selectBlockArgsAndGetTheirIdices(swKernelOp.getDynamicOutputShapeBuffs());
+        }
 
         if (!inputIdx.empty() || !outputIdx.empty()) {
             auto isBlockArgTiled = isSwKernelWithTilePatternBlockArgument(swKernelOp, aliasesInfo);
             swKernelOps[swKernelOp] = std::make_tuple(inputIdx, outputIdx, isBlockArgTiled);
         }
+        return mlir::WalkResult::advance();
     });
 
     mlir::DenseSet<mlir::BlockArgument> handledBlockArgs;
@@ -338,27 +350,6 @@ void addCopySwKernelWithBlockArgIOInMainFuncOp(mlir::func::FuncOp mainFuncOp, ml
         for (auto outputBufOperandIdx : outputIdx) {
             processSwKernelWithOutputBlockArg(mainFuncOp, swKernelOp, outputBufOperandIdx, builder, handledBlockArgs,
                                               aliasesInfo, isTilePattern);
-        }
-
-        // Update all replicated output-buffs (corresponding to kernel run > 1) to be same as 1st run
-        if (isIoDmaSwKernel(swKernelOp)) {
-            const auto runs = swKernelOp.getBody().getOps<VPUIP::SwKernelRun>();
-            const auto numRuns = std::distance(runs.begin(), runs.end());
-            if (numRuns > 1) {
-                int64_t outsPerRun = swKernelOp.getOutputs().size() / numRuns;
-                // index of max regular output (i.e. non dynamic-shape output)
-                int64_t maxOutputIdx = swKernelOp.getInputs().size() + swKernelOp.getDynamicInputShapes().size() +
-                                       swKernelOp.getResults().size() - 1;
-                for (auto outputBufOperandIdx : outputIdx) {
-                    if (outputBufOperandIdx < maxOutputIdx) {
-                        for (int64_t run = 1; run < numRuns; run++) {
-                            auto dupOutputIdx = outputBufOperandIdx + run * outsPerRun;
-                            VPUX_THROW_UNLESS(dupOutputIdx <= maxOutputIdx, "Exceeding output index range");
-                            swKernelOp.setOperand(dupOutputIdx, swKernelOp.getOperand(outputBufOperandIdx));
-                        }
-                    }
-                }
-            }
         }
     }
 }
@@ -419,7 +410,7 @@ void processCallOpWithInputBlockArg(mlir::Value calledFuncArg,
 
 void processCallOpWithOutputBlockArg(mlir::Value calledFuncArg,
                                      mlir::DenseMap<mlir::Value, VPUIP::CopyOp>& blockArgumentToNewCopy,
-                                     mlir::func::CallOp callOp, mlir::func::FuncOp privateFuncOp,
+                                     mlir::func::CallOp callOp, mlir::func::FuncOp funcOp,
                                      mlir::func::FuncOp mainFuncOp, mlir::OpBuilder builder,
                                      const AliasesInfo& aliasesInfo, bool isTilePattern) {
     builder.setInsertionPointToStart(&mainFuncOp.getBody().front());
@@ -434,8 +425,7 @@ void processCallOpWithOutputBlockArg(mlir::Value calledFuncArg,
         VPUX_THROW_WHEN(subview == nullptr, "Unexpected defining op for {0}", calledFuncArg.getLoc());
         auto outBufSource = subview.getSource();
 
-        auto callOpResult =
-                getCallOpOutputByOutputBufferIndex(callOp, privateFuncOp, getOperandIndex(callOp, calledFuncArg));
+        auto callOpResult = getCallOpOutputByOutputBufferIndex(callOp, funcOp, getOperandIndex(callOp, calledFuncArg));
         VPUX_THROW_UNLESS(callOpResult.hasOneUse(), "Expected a single use of the output buffer");
         auto concat = mlir::dyn_cast<VPUIP::ConcatViewOp>(*callOpResult.user_begin());
         auto concatUses = concat.getResult().getUses();
@@ -468,7 +458,7 @@ void processCallOpWithOutputBlockArg(mlir::Value calledFuncArg,
     // set the new buffer to be the operand of the call op instead of the block arg
     callOp->setOperand(callOpArgIndex, newBufferResult);
 
-    auto callOpResult = getCallOpOutputByOutputBufferIndex(callOp, privateFuncOp, callOpArgIndex);
+    auto callOpResult = getCallOpOutputByOutputBufferIndex(callOp, funcOp, callOpArgIndex);
     auto callOpResultUses = callOpResult.getUses();
 
     // add output copy
@@ -483,14 +473,13 @@ void processCallOpWithOutputBlockArg(mlir::Value calledFuncArg,
 void addCopyForCallOpWithBlockArgIO(FunctionWithSwKernelCalls& functionWithSwKernelCalls, mlir::func::FuncOp mainFuncOp,
                                     mlir::OpBuilder builder) {
     AliasesInfo aliasesInfo{mainFuncOp};
-    for (auto& [privateFunc, callOpData] : functionWithSwKernelCalls) {
+    for (auto& [funcOp, callOpData] : functionWithSwKernelCalls) {
         auto inputIdxs = std::get<0>(callOpData);
         auto outputIdxs = std::get<1>(callOpData);
         auto callOps = std::get<2>(callOpData);
 
         mlir::DenseMap<mlir::Value, VPUIP::CopyOp> blockArgumentToNewCopy;
-        auto isTilePattern =
-                doAllCallOpsHaveTilePatternBlockArgument(functionWithSwKernelCalls, privateFunc, aliasesInfo);
+        auto isTilePattern = doAllCallOpsHaveTilePatternBlockArgument(functionWithSwKernelCalls, funcOp, aliasesInfo);
 
         for (auto& callOp : callOps) {
             auto calledFuncArgs = callOp.getOperands();
@@ -512,8 +501,8 @@ void addCopyForCallOpWithBlockArgIO(FunctionWithSwKernelCalls& functionWithSwKer
                     processCallOpWithInputBlockArg(calledFuncArg, blockArgumentToNewCopy, mainFuncOp, callOp, builder,
                                                    aliasesInfo, isTilePattern);
                 } else {
-                    processCallOpWithOutputBlockArg(calledFuncArg, blockArgumentToNewCopy, callOp, privateFunc,
-                                                    mainFuncOp, builder, aliasesInfo, isTilePattern);
+                    processCallOpWithOutputBlockArg(calledFuncArg, blockArgumentToNewCopy, callOp, funcOp, mainFuncOp,
+                                                    builder, aliasesInfo, isTilePattern);
                 }
             }
         }
@@ -549,7 +538,9 @@ void AddCopyBetweenSWKernelsAndNetworkIOPass::safeRunOnModule() {
 
     mainFuncOp.walk([&](mlir::func::CallOp callOp) {
         auto calledFuncOp = vpux::getCalledFunction(callOp);
-        if (calledFuncOp && calledFuncOp.isPrivate()) {
+        assert(calledFuncOp != mainFuncOp && "Unexpected recursive call to main function");
+
+        if (calledFuncOp) {
             _functionCalls[calledFuncOp].push_back(callOp);
         }
     });
@@ -562,6 +553,9 @@ void AddCopyBetweenSWKernelsAndNetworkIOPass::safeRunOnModule() {
         mlir::DenseSet<int64_t> outputIndices;
 
         func.walk([&](VPUIP::SwKernelOp swKernelOp) {
+            if (isIoDmaSwKernel(swKernelOp)) {
+                return mlir::WalkResult::advance();
+            }
             auto swKernelInputs = swKernelOp.getInputs();
             for (auto input : swKernelInputs) {
                 if (auto rootBlockArg = getRootBlockArgument(input, aliasesInfo)) {
@@ -574,6 +568,7 @@ void AddCopyBetweenSWKernelsAndNetworkIOPass::safeRunOnModule() {
                     outputIndices.insert(rootBlockArg.getArgNumber());
                 }
             }
+            return mlir::WalkResult::advance();
         });
 
         if (inputIndices.empty() && outputIndices.empty()) {

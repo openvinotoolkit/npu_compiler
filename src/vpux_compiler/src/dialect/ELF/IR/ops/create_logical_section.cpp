@@ -5,7 +5,10 @@
 
 #include <vpux_elf/writer.hpp>
 #include "vpux/compiler/dialect/ELF/IR/ops.hpp"
+#include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
+#include "vpux/compiler/dialect/core/types.hpp"
+#include "vpux/compiler/dialect/net/IR/ops.hpp"
 
 using namespace vpux;
 
@@ -67,33 +70,44 @@ ELF::SymbolSignature ELF::LogicalSectionOp::getSymbolSignature() {
         auto index = buffLoc.getSectionIndex();
         auto moduleOp = getOperation()->getParentOfType<mlir::ModuleOp>();
 
+        // Use the ELF utils helper to compute IO buffer size, which handles both static and dynamic
+        // memrefs by querying declared upper bounds from net::NetworkInfoOp when needed
+        auto computeBindingSize = [&moduleOp, &index](VPUASM::DeclareBufferOp ioBuffer,
+                                                      VPURT::BufferSection bufSection) -> size_t {
+            auto memrefType = ioBuffer.getBufferType().getMemref();
+            // getBufferBinarySize handles dynamic IO buffers by looking up bounds in NetworkInfo;
+            // falls back to getTotalAllocSize for static memrefs or non-IO sections
+            return ELF::getBufferBinarySize(mlir::cast<vpux::NDTypeInterface>(memrefType), moduleOp, bufSection,
+                                            static_cast<int64_t>(index));
+        };
+
         auto inputBindings = VPUASM::InputBindingsOp::getFromModule(moduleOp);
         assert(inputBindings != nullptr);
 
-        inputBindings.walk([&symSize, &section, &index](VPUASM::DeclareBufferOp ioBuffer) {
+        inputBindings.walk([&symSize, &section, &index, &computeBindingSize](VPUASM::DeclareBufferOp ioBuffer) {
             auto ioBuffLoc = ioBuffer.getBufferType().getLocation();
             if (ioBuffLoc.getSection() == section && ioBuffLoc.getSectionIndex() == index) {
-                symSize = ioBuffer.getBinarySize(config::ArchKind::UNKNOWN);
+                symSize = computeBindingSize(ioBuffer, VPURT::BufferSection::NetworkInput);
             }
         });
 
         auto outputBindings = VPUASM::OutputBindingsOp::getFromModule(moduleOp);
         assert(outputBindings != nullptr);
 
-        outputBindings.walk([&symSize, &section, &index](VPUASM::DeclareBufferOp ioBuffer) {
+        outputBindings.walk([&symSize, &section, &index, &computeBindingSize](VPUASM::DeclareBufferOp ioBuffer) {
             auto ioBuffLoc = ioBuffer.getBufferType().getLocation();
             if (ioBuffLoc.getSection() == section && ioBuffLoc.getSectionIndex() == index) {
-                symSize = ioBuffer.getBinarySize(config::ArchKind::UNKNOWN);
+                symSize = computeBindingSize(ioBuffer, VPURT::BufferSection::NetworkOutput);
             }
         });
 
         auto profilingBindings = VPUASM::ProfilingBindingsOp::getFromModule(moduleOp);
         assert(profilingBindings != nullptr);
 
-        profilingBindings.walk([&symSize, &section, &index](VPUASM::DeclareBufferOp ioBuffer) {
+        profilingBindings.walk([&symSize, &section, &index, &computeBindingSize](VPUASM::DeclareBufferOp ioBuffer) {
             auto ioBuffLoc = ioBuffer.getBufferType().getLocation();
             if (ioBuffLoc.getSection() == section && ioBuffLoc.getSectionIndex() == index) {
-                symSize = ioBuffer.getBinarySize(config::ArchKind::UNKNOWN);
+                symSize = computeBindingSize(ioBuffer, VPURT::BufferSection::ProfilingOutput);
             }
         });
     }

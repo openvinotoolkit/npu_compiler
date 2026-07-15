@@ -85,34 +85,13 @@ mlir::LogicalResult FuseWithDepth2Space::matchAndRewrite(IE::QuantizeOp quantize
 void FuseQuantizedOpsStrategy::addPatterns(mlir::RewritePatternSet& patterns, Logger& log) const {
     auto ctx = patterns.getContext();
 
-    const auto checkAddInputTypes = [&](mlir::Type input1Type, mlir::Type input2Type,
-                                        VPU::EltwiseType eltwiseType) -> mlir::LogicalResult {
-        auto dequantElemIn1Type = mlir::cast<mlir::quant::UniformQuantizedType>(input1Type);
-        auto dequantElemIn2Type = mlir::cast<mlir::quant::UniformQuantizedType>(input2Type);
-
-        // Perform check for input types. AddOp supports quantization with different zp, but not different scales.
-        if (dequantElemIn1Type.getExpressedType() != dequantElemIn2Type.getExpressedType() ||
-            dequantElemIn1Type.getStorageType() != dequantElemIn2Type.getStorageType() ||
-            dequantElemIn1Type.isSigned() != dequantElemIn2Type.isSigned()) {
-            return mlir::failure();
-        }
-
-        if (!isSupportedEltwiseQuantization(dequantElemIn1Type, dequantElemIn2Type, /*allowDifferentScales=*/true,
-                                            /*allowDifferentZp=*/true, eltwiseType)) {
-            return mlir::failure();
-        }
-
-        return mlir::success();
-    };
-
-    patterns.add<FuseWithConv>(ctx, checkPostOp, false, log);
-    patterns.add<FuseWithGroupConv>(ctx, checkPostOp, true, log);
-    patterns.add<FuseWithEltwiseConverter<IE::AddOp>>(ctx, checkPostOp, checkAddInputTypes, VPU::EltwiseType::ADD,
-                                                      false, log);
+    patterns.add<FuseWithConv>(ctx, log);
+    patterns.add<FuseWithGroupConv>(ctx, log);
+    patterns.add<FuseWithEltwiseConverter<IE::AddOp>>(ctx, log);
     patterns.add<FuseWithSlice>(ctx, log);
-    patterns.add<FuseWithMaxPool>(ctx, false, log);
+    patterns.add<FuseWithMaxPool>(ctx, log);
     patterns.add<FuseWithTile>(ctx, log);
-    patterns.add<FuseWithAveragePool>(ctx, false, log);
+    patterns.add<FuseWithAveragePool>(ctx, log);
     patterns.add<FuseWithConcat>(ctx, log);
     patterns.add<FuseWithDepth2Space>(ctx, log);
     patterns.add<FuseWithMatMul>(ctx, log);
@@ -120,7 +99,7 @@ void FuseQuantizedOpsStrategy::addPatterns(mlir::RewritePatternSet& patterns, Lo
     // TODO: optimize for SEP Pad & Roll
     if (_seOpsEnabled) {
         patterns.add<FuseWithInterpolate>(ctx, log);
-        patterns.add<FuseWithTransposedConv>(ctx, checkPostOp, false, log);
+        patterns.add<FuseWithTransposedConv>(ctx, log);
     }
 }
 

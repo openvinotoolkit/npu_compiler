@@ -51,12 +51,11 @@ TEST_F(MLIR_InferenceExecutionAnalysis, CheckCycleUpdateWith1ActShaveEngineOn1Cl
     // ACT C0_1:                   [----------------]
 
     constexpr StringLiteral inputIR = R"(
-        module @test attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
+        module @test attributes {config.compilationMode = #config.compilation_mode<DefaultHW>, config.platform = #config.platform<NPU4000>} {
             config.PipelineOptions @Options {
                 config.Option @config.UseDedicatedFifoPerShaveEngine : false
             }
             config.Resources 6 of @NCE at 1.700000e+03 MHz {
-                config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
                 config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
                 config.ExecutorResource 1 of @SHAVE_ACT
                 config.ExecutorResource 1 of @DPU
@@ -73,29 +72,29 @@ TEST_F(MLIR_InferenceExecutionAnalysis, CheckCycleUpdateWith1ActShaveEngineOn1Cl
                 func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
             }
 
-            func.func @main(%arg0: memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>, %arg1: memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>) -> memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR> {
+            func.func @main(%arg0: memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR>, %arg1: memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR>) -> memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR> {
 
-                %netin = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>
+                %netin = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR>
 
-                %buf_cmx0_1_Part0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
-                %buf_cmx0_1_Part1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
+                %buf_cmx0_1_Part0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>
+                %buf_cmx0_1_Part1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>
 
-                %buf_cmx0_2_Part0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
-                %buf_cmx0_2_Part1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
+                %buf_cmx0_2_Part0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>
+                %buf_cmx0_2_Part1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>
 
                 VPURT.Task {
-                    %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_TanhOp inputs(%buf_cmx0_1_Part0 as %arg2: memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>) outputs(%buf_cmx0_2_Part0 as %arg3: memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>{
-                    VPUIP.SW.Kernel.run {attrs = [false, true, 1.0013580322265625E-5]}(%arg2, %arg3) : memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>, memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
+                    %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_TanhOp inputs(%buf_cmx0_1_Part0 as %arg2: memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>) outputs(%buf_cmx0_2_Part0 as %arg3: memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>{
+                    VPUIP.SW.Kernel.run {attrs = [false, true, 1.0013580322265625E-5]}(%arg2, %arg3) : memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>, memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>
                     }
                 }
 
                 VPURT.Task {
-                    %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_TanhOp inputs(%buf_cmx0_1_Part1 as %arg2: memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>) outputs(%buf_cmx0_2_Part1 as %arg3: memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>{
-                    VPUIP.SW.Kernel.run {attrs = [false, true, 1.0013580322265625E-5]}(%arg2, %arg3) : memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>, memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
+                    %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_TanhOp inputs(%buf_cmx0_1_Part1 as %arg2: memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>) outputs(%buf_cmx0_2_Part1 as %arg3: memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>{
+                    VPUIP.SW.Kernel.run {attrs = [false, true, 1.0013580322265625E-5]}(%arg2, %arg3) : memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>, memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>
                     }
                 }
 
-                return %arg1 : memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>
+                return %arg1 : memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR>
             }
         }
     )";
@@ -148,12 +147,11 @@ TEST_F(MLIR_InferenceExecutionAnalysis, CheckCycleUpdateWith2ActShaveEngineOn1Cl
     // ACT C0_1: [----------------]
 
     constexpr StringLiteral inputIR = R"(
-        module @test attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
+        module @test attributes {config.compilationMode = #config.compilation_mode<DefaultHW>, config.platform = #config.platform<NPU4000>} {
             config.PipelineOptions @Options {
                 config.Option @config.UseDedicatedFifoPerShaveEngine : false
             }
             config.Resources 6 of @NCE at 1.700000e+03 MHz {
-                config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
                 config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
                 config.ExecutorResource 2 of @SHAVE_ACT
                 config.ExecutorResource 1 of @DPU
@@ -171,29 +169,29 @@ TEST_F(MLIR_InferenceExecutionAnalysis, CheckCycleUpdateWith2ActShaveEngineOn1Cl
                 func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
             }
 
-            func.func @main(%arg0: memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>, %arg1: memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>) -> memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR> {
+            func.func @main(%arg0: memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR>, %arg1: memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR>) -> memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR> {
 
-                %netin = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>
+                %netin = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR>
 
-                %buf_cmx0_1_Part0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
-                %buf_cmx0_1_Part1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
+                %buf_cmx0_1_Part0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>
+                %buf_cmx0_1_Part1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>
 
-                %buf_cmx0_2_Part0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
-                %buf_cmx0_2_Part1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
+                %buf_cmx0_2_Part0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>
+                %buf_cmx0_2_Part1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>
 
                 VPURT.Task {
-                    %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_TanhOp inputs(%buf_cmx0_1_Part0 as %arg2: memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>) outputs(%buf_cmx0_2_Part0 as %arg3: memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>{
-                    VPUIP.SW.Kernel.run {attrs = [false, true, 1.0013580322265625E-5]}(%arg2, %arg3) : memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>, memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
+                    %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_TanhOp inputs(%buf_cmx0_1_Part0 as %arg2: memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>) outputs(%buf_cmx0_2_Part0 as %arg3: memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>{
+                    VPUIP.SW.Kernel.run {attrs = [false, true, 1.0013580322265625E-5]}(%arg2, %arg3) : memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>, memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>
                     }
                 }
 
                 VPURT.Task {
-                    %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_TanhOp inputs(%buf_cmx0_1_Part1 as %arg2: memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>) outputs(%buf_cmx0_2_Part1 as %arg3: memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>{
-                    VPUIP.SW.Kernel.run {attrs = [false, true, 1.0013580322265625E-5]}(%arg2, %arg3) : memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>, memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
+                    %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_TanhOp inputs(%buf_cmx0_1_Part1 as %arg2: memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>) outputs(%buf_cmx0_2_Part1 as %arg3: memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>{
+                    VPUIP.SW.Kernel.run {attrs = [false, true, 1.0013580322265625E-5]}(%arg2, %arg3) : memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>, memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>
                     }
                 }
 
-                return %arg1 : memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>
+                return %arg1 : memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR>
             }
         }
     )";
@@ -250,12 +248,11 @@ TEST_F(MLIR_InferenceExecutionAnalysis, CheckCycleUpdateOnMultiQueueIR) {
     // ACT C1_0:                         [----------------]
     // ACT C1_1:                         [----------------]
     constexpr StringLiteral inputIR = R"(
-        module @test attributes {config.arch = #config.arch_kind<NPU37XX>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
+        module @test attributes {config.compilationMode = #config.compilation_mode<DefaultHW>, config.platform = #config.platform<NPU3720>} {
             config.PipelineOptions @Options {
                 config.Option @config.UseDedicatedFifoPerShaveEngine : false
             }
             config.Resources 6 of @NCE at 1.700000e+03 MHz {
-                config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
                 config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
                 config.ExecutorResource 2 of @SHAVE_ACT
                 config.ExecutorResource 1 of @DPU
@@ -271,7 +268,7 @@ TEST_F(MLIR_InferenceExecutionAnalysis, CheckCycleUpdateOnMultiQueueIR) {
                 func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
             }
 
-            func.func @main(%arg0: memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>, %arg1: memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>) -> memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR> {
+            func.func @main(%arg0: memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR>, %arg1: memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR>) -> memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR> {
                 %bar0 = VPURT.ConfigureBarrier<0> -> !VPURT.Barrier
                 %bar1 = VPURT.ConfigureBarrier<1> -> !VPURT.Barrier
                 %bar2 = VPURT.ConfigureBarrier<2> -> !VPURT.Barrier
@@ -279,35 +276,35 @@ TEST_F(MLIR_InferenceExecutionAnalysis, CheckCycleUpdateOnMultiQueueIR) {
 
                 %cst_WT = const.Declare memref<16x1x1x4xsi32> = dense<2> : tensor<16x1x1x4xsi32>
 
-                %netin = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>
-                %buf_ddr_0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>
-                %buf_ddr_1 = VPURT.DeclareBuffer <DDR> <32768> -> memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>
-                %buf_cmx0_0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
-                %buf_cmx1_0 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 1]>
+                %netin = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR>
+                %buf_ddr_0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR>
+                %buf_ddr_1 = VPURT.DeclareBuffer <DDR> <32768> -> memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR>
+                %buf_cmx0_0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>
+                %buf_cmx1_0 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 1]>
                 %buf_cmx0_WT = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<16x1x1x4xsi32, [@CMX_NN, 0]>
                 %buf_cmx1_WT = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<16x1x1x4xsi32, [@CMX_NN, 1]>
 
-                %buf_cmx0_1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
-                %buf_cmx1_1 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 1]>
+                %buf_cmx0_1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>
+                %buf_cmx1_1 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 1]>
 
-                %buf_cmx0_1_Part0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
-                %buf_cmx0_1_Part1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
+                %buf_cmx0_1_Part0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>
+                %buf_cmx0_1_Part1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>
 
-                %buf_cmx1_1_Part0 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 1]>
-                %buf_cmx1_1_Part1 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 1]>
+                %buf_cmx1_1_Part0 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 1]>
+                %buf_cmx1_1_Part1 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 1]>
 
-                %buf_cmx0_2_Part0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
-                %buf_cmx0_2_Part1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
+                %buf_cmx0_2_Part0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>
+                %buf_cmx0_2_Part1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>
 
-                %buf_cmx1_2_Part0 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 1]>
-                %buf_cmx1_2_Part1 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 1]>
+                %buf_cmx1_2_Part0 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 1]>
+                %buf_cmx1_2_Part1 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 1]>
 
                 VPURT.Task {
-                    %0 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%netin : memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>) outputs(%buf_ddr_0 : memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>) -> memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>
+                    %0 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%netin : memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR>) outputs(%buf_ddr_0 : memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR>) -> memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR>
                 }
 
                 VPURT.Task {
-                    %0 = VPUIP.NNDMA <{port = 1 : i64}> inputs(%netin : memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>) outputs(%buf_ddr_1 : memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>) -> memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>
+                    %0 = VPUIP.NNDMA <{port = 1 : i64}> inputs(%netin : memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR>) outputs(%buf_ddr_1 : memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR>) -> memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR>
                 }
 
                 VPURT.Task {
@@ -319,20 +316,20 @@ TEST_F(MLIR_InferenceExecutionAnalysis, CheckCycleUpdateOnMultiQueueIR) {
                 }
 
                 VPURT.Task updates(%bar0 : !VPURT.Barrier) {
-                    %0 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%buf_ddr_0 : memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>) outputs(%buf_cmx0_0 : memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>) -> memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
+                    %0 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%buf_ddr_0 : memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR>) outputs(%buf_cmx0_0 : memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>) -> memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>
                 }
 
                 VPURT.Task updates(%bar1 : !VPURT.Barrier) {
-                    %0 = VPUIP.NNDMA <{port = 1 : i64}> inputs(%buf_ddr_1 : memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>) outputs(%buf_cmx1_0 : memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 1]>) -> memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 1]>
+                    %0 = VPUIP.NNDMA <{port = 1 : i64}> inputs(%buf_ddr_1 : memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR>) outputs(%buf_cmx1_0 : memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 1]>) -> memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 1]>
                 }
 
                 VPURT.Task waits(%bar0 : !VPURT.Barrier) updates(%bar2 : !VPURT.Barrier) {
                     %0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<MAXPOOL>}>
-                    input(%buf_cmx0_0 : memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>)
+                    input(%buf_cmx0_0 : memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>)
                     weight_table(%buf_cmx0_WT : memref<16x1x1x4xsi32, [@CMX_NN, 0]>)
-                    parent_input(%buf_cmx0_0 : memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>)
-                    parent_output(%buf_cmx0_1 : memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>)
-                    outputs(%buf_cmx0_1 : memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>) -> memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]> variants : {
+                    parent_input(%buf_cmx0_0 : memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>)
+                    parent_output(%buf_cmx0_1 : memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>)
+                    outputs(%buf_cmx0_1 : memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>) -> memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]> variants : {
                     DPUTask {cluster_id = 0 : i64, outEnd = [23, 11, 15], mpe_mode = #VPU.mpe_mode<CUBOID_4x16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0]}
                     } PPE : {
                     }
@@ -340,41 +337,41 @@ TEST_F(MLIR_InferenceExecutionAnalysis, CheckCycleUpdateOnMultiQueueIR) {
 
                 VPURT.Task waits(%bar1 : !VPURT.Barrier) updates(%bar3 : !VPURT.Barrier) {
                     %0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<MAXPOOL>}>
-                    input(%buf_cmx1_0 : memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 1]>)
+                    input(%buf_cmx1_0 : memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 1]>)
                     weight_table(%buf_cmx1_WT : memref<16x1x1x4xsi32, [@CMX_NN, 1]>)
-                    parent_input(%buf_cmx1_0 : memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 1]>)
-                    parent_output(%buf_cmx1_1 : memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 1]>)
-                    outputs(%buf_cmx1_1 : memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 1]>) -> memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 1]> variants : {
+                    parent_input(%buf_cmx1_0 : memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 1]>)
+                    parent_output(%buf_cmx1_1 : memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 1]>)
+                    outputs(%buf_cmx1_1 : memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 1]>) -> memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 1]> variants : {
                     DPUTask {cluster_id = 1 : i64, outEnd = [23, 23, 15], mpe_mode = #VPU.mpe_mode<CUBOID_4x16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 12, 0]}
                     } PPE : {
                     }
                 }
 
                 VPURT.Task waits(%bar2 : !VPURT.Barrier) {
-                    %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_TanhOp inputs(%buf_cmx0_1_Part0 as %arg2: memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>) outputs(%buf_cmx0_2_Part0 as %arg3: memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>{
-                    VPUIP.SW.Kernel.run {attrs = [false, true, 1.0013580322265625E-5]}(%arg2, %arg3) : memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>, memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
+                    %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_TanhOp inputs(%buf_cmx0_1_Part0 as %arg2: memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>) outputs(%buf_cmx0_2_Part0 as %arg3: memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>{
+                    VPUIP.SW.Kernel.run {attrs = [false, true, 1.0013580322265625E-5]}(%arg2, %arg3) : memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>, memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>
                     }
                 }
 
                 VPURT.Task waits(%bar2 : !VPURT.Barrier) {
-                    %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_TanhOp inputs(%buf_cmx0_1_Part1 as %arg2: memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>) outputs(%buf_cmx0_2_Part1 as %arg3: memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>{
-                    VPUIP.SW.Kernel.run {attrs = [false, true, 1.0013580322265625E-5]}(%arg2, %arg3) : memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>, memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
+                    %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_TanhOp inputs(%buf_cmx0_1_Part1 as %arg2: memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>) outputs(%buf_cmx0_2_Part1 as %arg3: memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>{
+                    VPUIP.SW.Kernel.run {attrs = [false, true, 1.0013580322265625E-5]}(%arg2, %arg3) : memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>, memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>
                     }
                 }
 
                 VPURT.Task waits(%bar3 : !VPURT.Barrier) {
-                    %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_TanhOp inputs(%buf_cmx1_1_Part0 as %arg2: memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 1]>) outputs(%buf_cmx1_2_Part0 as %arg3: memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 1]>) on tile 1 -> memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 1]>{
-                    VPUIP.SW.Kernel.run {attrs = [false, true, 1.0013580322265625E-5]}(%arg2, %arg3) : memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 1]>, memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 1]>
+                    %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_TanhOp inputs(%buf_cmx1_1_Part0 as %arg2: memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 1]>) outputs(%buf_cmx1_2_Part0 as %arg3: memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 1]>) on tile 1 -> memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 1]>{
+                    VPUIP.SW.Kernel.run {attrs = [false, true, 1.0013580322265625E-5]}(%arg2, %arg3) : memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 1]>, memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 1]>
                     }
                 }
 
                 VPURT.Task waits(%bar3 : !VPURT.Barrier) {
-                    %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_TanhOp inputs(%buf_cmx1_1_Part1 as %arg2: memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 1]>) outputs(%buf_cmx1_2_Part1 as %arg3: memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 1]>) on tile 1 -> memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 1]>{
-                    VPUIP.SW.Kernel.run {attrs = [false, true, 1.0013580322265625E-5]}(%arg2, %arg3) : memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 1]>, memref<1x16x12x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 1]>
+                    %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_TanhOp inputs(%buf_cmx1_1_Part1 as %arg2: memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 1]>) outputs(%buf_cmx1_2_Part1 as %arg3: memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 1]>) on tile 1 -> memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 1]>{
+                    VPUIP.SW.Kernel.run {attrs = [false, true, 1.0013580322265625E-5]}(%arg2, %arg3) : memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 1]>, memref<1x16x12x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 1]>
                     }
                 }
 
-                return %arg1 : memref<1x16x24x24xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>
+                return %arg1 : memref<1x16x24x24xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR>
             }
         }
     )";

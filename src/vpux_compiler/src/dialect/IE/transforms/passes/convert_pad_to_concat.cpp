@@ -23,7 +23,7 @@ using namespace vpux;
 namespace {
 
 mlir::Value createConstContent(mlir::PatternRewriter& rewriter, mlir::Location loc, ArrayRef<int64_t> constShape,
-                               mlir::Type elemType, double padValue, DimsOrder dataOrder) {
+                               mlir::Type elemType, double padValue, const DimsOrder& dataOrder) {
     const auto padDataStorageType =
             mlir::RankedTensorType::get(constShape, mlir::Float32Type::get(rewriter.getContext()));
     const auto padDataStorage = static_cast<float>(padValue);

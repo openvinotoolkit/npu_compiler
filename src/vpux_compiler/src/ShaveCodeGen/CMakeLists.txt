@@ -16,6 +16,7 @@ add_npu_library(npu_compiler_shave_code_gen
       PRIVATE
         MLIRQuantTransforms
         MLIRTensorInferTypeOpInterfaceImpl
+        MLIRArithValueBoundsOpInterfaceImpl
         npu_compiler_dialect_net
         npu_compiler_dialect_vpu
         npu_compiler_dialect_vpuip

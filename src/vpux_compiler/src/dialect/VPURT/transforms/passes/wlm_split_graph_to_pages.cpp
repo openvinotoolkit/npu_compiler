@@ -156,11 +156,6 @@ void WlmSplitGraphToPagesPass::safeRunOnFunc() {
     const auto numBarriers =
             numBarriersOpt.hasValue() ? numBarriersOpt.getValue() : VPUIP::getNumAvailableBarriers(func);
 
-    if (config::getWorkloadManagementStatus(module) != WorkloadManagementStatus::ENABLED) {
-        // WLM is not supported, no need to run this pass
-        return;
-    }
-
     mlir::OpBuilder builder(func);
     mlir::Value inBuffer;
     mlir::Value outBuffer;

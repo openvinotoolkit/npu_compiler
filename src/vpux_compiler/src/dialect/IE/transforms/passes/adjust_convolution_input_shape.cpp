@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
@@ -337,8 +338,11 @@ mlir::LogicalResult ReshapeAddInput::matchAndRewrite(IE::AddOp origOp, mlir::Pat
 template <typename ConcreteOp>
 class ReshapeConvInput final : public mlir::OpRewritePattern<ConcreteOp> {
 public:
-    ReshapeConvInput(mlir::MLIRContext* ctx, bool favorLargerHeight, Logger log)
-            : mlir::OpRewritePattern<ConcreteOp>(ctx), _favorLargerHeight(favorLargerHeight), _log(log) {
+    ReshapeConvInput(mlir::MLIRContext* ctx, bool favorLargerHeight, int64_t preferredSpatialAlignment, Logger log)
+            : mlir::OpRewritePattern<ConcreteOp>(ctx),
+              _favorLargerHeight(favorLargerHeight),
+              _preferredSpatialAlignment(preferredSpatialAlignment),
+              _log(log) {
     }
 
 public:
@@ -346,6 +350,7 @@ public:
 
 private:
     bool _favorLargerHeight;
+    int64_t _preferredSpatialAlignment;
     Logger _log;
 };
 
@@ -469,6 +474,47 @@ mlir::LogicalResult ReshapeConvInput<ConcreteOp>::matchAndRewrite(ConcreteOp con
         inputShapeToAlign / VPU::NCEInvariant::VPU_SPATIAL_ALIGNMENT < 2) {
         return matchFailed(nestedLog, rewriter, convOp,
                            "Adjusting conv inputs is not beneficial: shape to align is too small.");
+    }
+
+    // Use the platform-preferred spatial alignment when the dimension to split is divisible by it
+    // and the resulting orthogonal dimension is also large enough for efficient tiling.
+    // Skip this override when convOp is connected to a SoftMaxOp, as the reshape breaks or
+    // degrades vertical fusion efficiency (E#210093).
+    if (_preferredSpatialAlignment > VPU::NCEInvariant::VPU_SPATIAL_ALIGNMENT) {
+        const auto isConnectedToSoftmaxUser = [](mlir::Operation* op) {
+            // Walk through view-like op chains to find a SoftMaxOp consumer.
+            llvm::SmallPtrSet<mlir::Operation*, 16> visited;
+            SmallVector<mlir::Operation*> worklist(op->getUsers().begin(), op->getUsers().end());
+            while (!worklist.empty()) {
+                auto* user = worklist.pop_back_val();
+                if (!visited.insert(user).second) {
+                    continue;
+                }
+                if (mlir::isa<IE::SoftMaxOp>(user)) {
+                    return true;
+                }
+                // Look through AddOp for the attention pattern: MatMul -> Add -> SoftMax
+                if (IE::isPureViewOp(user) || mlir::isa<IE::AddOp>(user)) {
+                    worklist.append(user->getUsers().begin(), user->getUsers().end());
+                }
+            }
+            return false;
+        };
+        const bool hasSoftmaxUser = isConnectedToSoftmaxUser(convOp);
+        const auto getProducerThroughViewLikeOps = [](mlir::Value val) -> mlir::Operation* {
+            auto* defOp = val.getDefiningOp();
+            while (defOp != nullptr && IE::isPureViewOp(defOp) && defOp->getNumOperands() == 1) {
+                defOp = defOp->getOperand(0).getDefiningOp();
+            }
+            return defOp;
+        };
+        const bool hasSoftmaxProducer =
+                mlir::isa_and_nonnull<IE::SoftMaxOp>(getProducerThroughViewLikeOps(convOp.getInput()));
+        const bool isConnectedToSoftmax = hasSoftmaxUser || hasSoftmaxProducer;
+        if (!isConnectedToSoftmax && inputShapeToAlign % _preferredSpatialAlignment == 0 &&
+            inputShapeToAlign / _preferredSpatialAlignment >= _preferredSpatialAlignment) {
+            convolutionInputShapeAlignment = _preferredSpatialAlignment;
+        }
     }
 
     if (inputShapeToAlign > VPU::NCEInvariant::VPU_DIMENSION_LIMIT) {
@@ -725,7 +771,7 @@ mlir::LogicalResult ReshapeExpandDWConvInput::matchAndRewrite(IE::GroupConvoluti
     auto newConstantShape = Shape(newConstOutputType.getShape().size(), int64_t(1));
     newConstantShape[Dims4D::Act::N] = alignedInShape[Dims4D::Act::C];
     newConstOutputType = newConstOutputType.changeShape(newConstantShape);
-    auto newContentAttrSetup = Const::ContentSetup(baseContent.getType())
+    auto newContentAttrSetup = Const::ContentSetup(baseContent, baseContent.getType())
                                        .broadcast(Dims4D::Act::N, alignedInShape[Dims4D::Act::C])
                                        .reshape(newConstantShape);
 
@@ -805,17 +851,31 @@ mlir::LogicalResult ReshapeExpandDWConvInput::matchAndRewrite(IE::GroupConvoluti
 class AdjustConvolutionInputShapePass final :
         public IE::impl::AdjustConvolutionInputShapeBase<AdjustConvolutionInputShapePass> {
 public:
-    explicit AdjustConvolutionInputShapePass(Logger log) {
+    explicit AdjustConvolutionInputShapePass(int64_t spatialAlignment, Logger log)
+            : _preferredSpatialAlignment(spatialAlignment) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
+    int64_t _preferredSpatialAlignment;
 };
 
 void AdjustConvolutionInputShapePass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
+
+    // Allow CLI override (LIT tests) via the TableGen-generated option.
+    int64_t spatialAlignment =
+            preferredSpatialAlignment.hasValue() ? preferredSpatialAlignment.getValue() : _preferredSpatialAlignment;
+
+    // W=8 alignment is only enabled for NPU5010; other platforms fall back to the default.
+    if (!preferredSpatialAlignment.hasValue() && spatialAlignment > VPU::NCEInvariant::VPU_SPATIAL_ALIGNMENT) {
+        const auto platform = config::getPlatform(func);
+        if (platform != config::Platform::NPU5010) {
+            spatialAlignment = VPU::NCEInvariant::VPU_SPATIAL_ALIGNMENT;
+        }
+    }
 
     mlir::RewritePatternSet patterns(&ctx);
 
@@ -823,11 +883,11 @@ void AdjustConvolutionInputShapePass::safeRunOnFunc() {
     // [1, C, 1, W]  -> [1, C, H*4, W/4]
     // [1, C, H, 1]  -> [1, C, H/4, W*4]
     // if favorLargeHeight == true => newHeight = max(4, dim/4)
-    patterns.add<ReshapeConvInput<IE::ConvolutionOp>>(&ctx, /*favorLargeHeight*/ true, _log);
+    patterns.add<ReshapeConvInput<IE::ConvolutionOp>>(&ctx, /*favorLargeHeight*/ true, spatialAlignment, _log);
     // Disabling reshape with large height for GroupConv
     // While it improves inference time for some models, it does bring perf regressions to several others due to being
     // able to assign SOH instead of SOK. To track: E147489
-    patterns.add<ReshapeConvInput<IE::GroupConvolutionOp>>(&ctx, /*favorLargeHeight*/ false, _log);
+    patterns.add<ReshapeConvInput<IE::GroupConvolutionOp>>(&ctx, /*favorLargeHeight*/ false, spatialAlignment, _log);
 
     // Adjust from C to H and W like [1, C, 1, 1] -> [1, C/16, 4, 4]
     patterns.add<ReshapeSingleConstDWConvInput>(&ctx, _log);
@@ -845,6 +905,7 @@ void AdjustConvolutionInputShapePass::safeRunOnFunc() {
 // createAdjustConvolutionInputShapePass
 //
 
-std::unique_ptr<mlir::Pass> vpux::IE::createAdjustConvolutionInputShapePass(Logger log) {
-    return std::make_unique<AdjustConvolutionInputShapePass>(log);
+std::unique_ptr<mlir::Pass> vpux::IE::createAdjustConvolutionInputShapePass(int64_t preferredSpatialAlignment,
+                                                                            Logger log) {
+    return std::make_unique<AdjustConvolutionInputShapePass>(preferredSpatialAlignment, log);
 }

@@ -119,7 +119,8 @@ mlir::LogicalResult SwapSWOpWithConvert::matchAndRewrite(IE::ConvertOp origOp, m
     }
 
     rewriter.setInsertionPointAfter(nceOp);
-    auto newConvert = rewriter.create<IE::ConvertOp>(nceOp->getLoc(), nceOp->getResult(0), origOp.getDstElemType());
+    auto newConvert = rewriter.create<IE::ConvertOp>(takeOpLoc(origOp, "convert_after_nce"), nceOp->getResult(0),
+                                                     origOp.getDstElemType());
 
     nceOp->getResult(0).replaceAllUsesExcept(newConvert.getOutput(),
                                              llvm::SmallPtrSet<mlir::Operation*, 1>{newConvert});
@@ -203,13 +204,14 @@ mlir::LogicalResult SwapConvertWithEltwiseOp<EltwiseOp>::matchAndRewrite(Eltwise
         return mlir::failure();
     }
 
-    auto newConvert = rewriter.create<IE::ConvertOp>(convertOp->getLoc(), origOp.getInput1(), convertOutElemType);
+    auto newConvert =
+            rewriter.create<IE::ConvertOp>(takeOpLoc(origOp, "convert_in1"), origOp.getInput1(), convertOutElemType);
 
     auto constInput = origOp.getInput2().template getDefiningOp<Const::DeclareOp>();
     auto biasContentAttr = constInput.transformContentAttr().castElemType(convertOutElemType).get();
-    auto newBiasValue =
-            rewriter.create<Const::DeclareOp>(origOp.getLoc(), biasContentAttr.getType(), std::move(biasContentAttr))
-                    .getResult();
+    auto newBiasValue = rewriter.create<Const::DeclareOp>(takeOpLoc(origOp, "const_cast"), biasContentAttr.getType(),
+                                                          std::move(biasContentAttr))
+                                .getResult();
     mlir::IRMapping mapper;
     mapper.map(origOp->getOperands(), SmallVector<mlir::Value>{newConvert.getOutput(), newBiasValue});
     auto* newOp = rewriter.clone(*origOp, mapper);

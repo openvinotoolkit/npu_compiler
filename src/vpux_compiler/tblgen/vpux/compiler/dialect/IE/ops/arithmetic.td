@@ -25,11 +25,11 @@ def IE_AbsOp :
     let summary = "InferenceEngine Abs layer";
 
     let arguments = (ins
-        RankedTensorOf<[F16, F32, F64]>:$input
+        RankedTensorOf<[F16, F32, F64, SI8, SI16, SI32]>:$input
     );
 
     let results = (outs
-        RankedTensorOf<[F16, F32, F64]>:$output
+        RankedTensorOf<[F16, F32, F64, SI8, SI16, SI32]>:$output
     );
 }
 
@@ -171,7 +171,8 @@ def IE_ClampOp :
             "Clamp",
             [
                 DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
-                IE_EltwiseOp
+                IE_EltwiseOp,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine Clamp layer";
@@ -250,6 +251,7 @@ def IE_CumSumOp :
 
     let hasVerifier = 1;
     let hasCanonicalizer = 1;
+    let hasFolder = 1;
 }
 
 def IE_ErfOp :
@@ -400,11 +402,11 @@ def IE_SignOp :
     let summary = "InferenceEngine Sign layer";
 
     let arguments = (ins
-        RankedTensorOf<[F16, F32, F64]>:$input
+        RankedTensorOf<[F16, F32, F64, SI8, SI16, SI32, SI64]>:$input
     );
 
     let results = (outs
-        RankedTensorOf<[F16, F32, F64]>:$output
+        RankedTensorOf<[F16, F32, F64, SI8, SI16, SI32, SI64]>:$output
     );
 }
 
@@ -489,7 +491,8 @@ def IE_TanhOp :
             "Tanh",
             [
                 DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
-                IE_EltwiseOp
+                IE_EltwiseOp,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine Tanh layer";

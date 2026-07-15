@@ -129,7 +129,7 @@ mlir::LogicalResult EltwiseRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp orig
         auto [inputPaddingAttr, outputPaddingAttr] =
                 getPaddingAttributes(origOp, expandedInput1, inChanPadEnd, outPadAfter);
 
-        return rewriter.create<ConcreteOp>(origOp.getLoc(), newOutputType, expandedInput1, expandedInput2,
+        return rewriter.create<ConcreteOp>(takeOpLoc(origOp, "expanded"), newOutputType, expandedInput1, expandedInput2,
                                            origOp.getAutoBroadcast(), origOp.getPostOpAttr(), origOp.getClampAttr(),
                                            outputPaddingAttr, inputPaddingAttr);
     };

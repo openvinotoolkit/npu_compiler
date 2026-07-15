@@ -166,6 +166,143 @@ IE::ShapeCastOp shapeCast = mlir::dyn_cast<IE::ShapeCastOp>(op);  // BAD: we rep
 llvm::ArrayRef<int64_t>::reverse_iterator it = shape.rbegin();  // BAD: too verbose, we already know it's an iterator.
 ```
 
+### Exceptions
+
+Exceptions should be used for **exceptional situations** only - unexpected errors that prevent normal execution flow. They should **not** be used for regular control flow or as return values for expected failure cases.
+
+**Guidelines:**
+- Use exceptions for truly exceptional conditions (e.g., invariant violations, programmer errors)
+- Use return values (`mlir::LogicalResult`, `std::optional`, etc.) for expected failure cases
+- Never use exceptions to convert error states into boolean flags or control flow
+- Exceptions are costly in performance and should not be used in frequently-called code paths
+
+**Clarity considerations:**
+- Using exceptions for control flow creates confusing error logs
+- Error messages appear even when compilation succeeds
+- Makes it unclear whether an error is truly exceptional or expected behavior
+- Violates the principle of least surprise for code readers
+
+**Using exceptions for control flow:**
+```cpp
+// BAD: Using exceptions for business logic
+// This function uses exception handling to convert error conditions into boolean flags
+// Result: confusing error logs appear even during successful compilation
+bool isIoDmaSwKernel(VPUIP::SwKernelOp swKernelOp) {
+    try {
+        auto kernelEntryName = getSwKernelEntryName(swKernelOp);
+        return llvm::is_contained(SW_KERNELS_IO_DMA, kernelEntryName);
+    } catch (...) {
+        // Exception used as control flow for:
+        // - cache_flush/invalidate ops which don't have IOs or entry point
+        // - phony SW ops from LIT tests
+        return false;
+    }
+}
+
+// This produces confusing error logs during normal operation:
+// [ERROR] 19:17 [global] Got exception in /path/to/sw_utils.cpp:69 : "Some error message"
+// User sees ERROR but compilation succeeds - very confusing!
+
+// GOOD: Use return values for expected failure cases
+// Option 1: Return std::optional
+std::optional<SmallString> getSwKernelEntryNameOpt(VPUIP::SwKernelOp swKernelOp) {
+    // Implementation that returns std::nullopt for expected failure cases
+    // instead of throwing exceptions
+    if (!swKernelOp.hasEntryPoint()) {
+        return std::nullopt;
+    }
+    return getSwKernelEntryName(swKernelOp);
+}
+
+bool isIoDmaSwKernel(VPUIP::SwKernelOp swKernelOp) {
+    auto kernelEntryName = getSwKernelEntryNameOpt(swKernelOp);
+    if (!kernelEntryName.has_value()) {
+        // Expected case: cache_flush/invalidate ops or phony SW ops
+        return false;
+    }
+    return llvm::is_contained(SW_KERNELS_IO_DMA, *kernelEntryName);
+}
+
+// Option 2: Return LogicalResult with output parameter
+mlir::LogicalResult getSwKernelEntryName(VPUIP::SwKernelOp swKernelOp, SmallString& outName) {
+    if (!swKernelOp.hasEntryPoint()) {
+        return mlir::failure();
+    }
+    outName = /* compute name */;
+    return mlir::success();
+}
+
+bool isIoDmaSwKernel(VPUIP::SwKernelOp swKernelOp) {
+    SmallString kernelEntryName;
+    if (mlir::failed(getSwKernelEntryName(swKernelOp, kernelEntryName))) {
+        return false;
+    }
+    return llvm::is_contained(SW_KERNELS_IO_DMA, kernelEntryName);
+}
+```
+
+**Using exceptions for pattern matching:**
+```cpp
+// BAD: Throwing exception when pattern does not match
+// Pattern not matching is an expected, normal outcome - not an exceptional condition
+mlir::LogicalResult MatMulOpConverter::matchAndRewrite(IE::MatMulOp matmulOp, mlir::PatternRewriter& rewriter) const {
+    // Rewrite logic...
+    auto input2 = matmulOp.getInput2();
+    auto input2Rank = getShape(input2).size();
+    // BAD: Throwing when op should just be skipped by this pattern
+    VPUX_THROW_UNLESS(input2Rank > 2,
+                      "VPU::MatMulOp only supports input 2 rank bigger than 2. "
+                      "If that changes, this code needs update. Input 2 rank = '{0}'",
+                      input2Rank);
+    
+    // Rewrite logic...
+    rewriter.replaceOp(matmulOp, newOp);
+    return mlir::success();
+}
+
+// GOOD: Return match failure directly when pattern should not apply to this op
+mlir::LogicalResult MatMulOpConverter::matchAndRewrite(IE::MatMulOp matmulOp, mlir::PatternRewriter& rewriter) const {
+    // Rewrite logic...
+    auto input2 = matmulOp.getInput2();
+    auto input2Rank = getShape(input2).size();
+    // Pattern matching is expected to fail for some ops - this is normal control flow
+    if (input2Rank <= 2) {
+        return vpux::matchFailed(rewriter, matmulOp, "Input 2 rank must be bigger than 2, got {0}", input2Rank);
+    }
+    
+    // Rewrite logic...
+    rewriter.replaceOp(matmulOp, newOp);
+    return mlir::success();
+}
+```
+
+**When exceptions ARE appropriate:**
+```cpp
+// GOOD: Exception for truly exceptional condition
+vpux::SmallString InferRequest::createTemporaryWorkDirectory() {
+    _logger.trace("Create unique temporary working directory");
+
+    vpux::SmallString workDirectory;
+    const auto errc = llvm::sys::fs::createUniqueDirectory("vpux-IMD", workDirectory);
+    // Normal execution cannot continue
+    VPUX_THROW_WHEN(errc, "Failed to create temporary working directory: {0}", errc.message());
+
+    _logger.nest().trace("{0}", workDirectory);
+
+    return workDirectory;
+}
+
+// GOOD: Exception for violated invariant (programming error)
+template <typename Min, typename Max>
+Limits(Min min, Max max) : _min(min), _max(max) {
+    // You can also consider using assert() for the similar purpose
+    VPUX_THROW_UNLESS(fitsInStorageType<T>(min) && fitsInStorageType<T>(max),
+                      "Incoming values are out of the range of the storage type");
+
+    VPUX_THROW_WHEN(_min > _max, "Min value is larger than Max value");
+}
+```
+
 ## Methods
 
 ### Arguments
@@ -1036,3 +1173,36 @@ for (int64_t actIndex = 0; actIndex < outputShape[Dims5D::Act::D]; actIndex++) {
     }
 }
 ```
+
+### Named dimension indices
+
+Use named dimensions from `Dims4D::Act` etc. (defined in `core/layers.hpp`) instead of
+hard-coded integer indices when indexing shapes and related arrays. For containers that
+support `operator[](Dim)` (for example `vpux::Shape` and `ShapeRef`), use
+`shape[Dims4D::Act::H]`. For generic index-based containers such as `ArrayRef<int64_t>`,
+use `.ind()`:
+
+```cpp
+// BAD: what does index 2 mean?
+auto height = shape[2];
+
+// GOOD: self-documenting, works with generic index-based containers
+auto height = shape[Dims4D::Act::H.ind()];
+```
+
+When a function makes heavy use of `.ind()` from a single namespace, use
+`using namespace` to reduce verbosity (permitted in function bodies or
+anonymous namespaces in `.cpp` files, never in headers):
+
+```cpp
+void myFunction(ArrayRef<int64_t> shape) {
+    using namespace Dims4D::Act;
+    auto n = shape[N.ind()];
+    auto c = shape[C.ind()];
+    auto h = shape[H.ind()];
+    auto w = shape[W.ind()];
+}
+```
+
+Do NOT create local aliases like `static const auto N = Dims4D::Act::N;`.
+Use `using namespace` instead.

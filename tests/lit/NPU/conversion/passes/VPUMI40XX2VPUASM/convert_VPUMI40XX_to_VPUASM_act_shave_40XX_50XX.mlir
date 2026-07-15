@@ -17,11 +17,11 @@ DataInfo "output" : tensor<1x2x3x4xf16>
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096]
 module @VPU.SW {
-  func.func private @builtin_hswish(memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "activation_hswish.cpp", VPU.kernel_entry = "activation_hswish"}
-  func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+  func.func nested @builtin_hswish(memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "activation_hswish.cpp", VPU.kernel_entry = "activation_hswish"}
+  func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
-func.func private @act_shave() {
+func.func nested @act_shave() {
   %2 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
   %3 = VPURT.DeclareBuffer <CMX_NN> [0] <2000> -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
   %4 = VPUMI40XX.DeclareKernelText kernel_path("activation_hswish") -> !VPURegMapped.Index<0:0:0>
@@ -104,11 +104,11 @@ DataInfo "output" : tensor<1x2x3x4xf16>
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096]
 module @VPU.SW {
-  func.func private @builtin_hswish(memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "activation_hswish.cpp", VPU.kernel_entry = "activation_hswish"}
-  func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+  func.func nested @builtin_hswish(memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "activation_hswish.cpp", VPU.kernel_entry = "activation_hswish"}
+  func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
-func.func private @act_shave() {
+func.func nested @act_shave() {
   %2 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
   %3 = VPURT.DeclareBuffer <CMX_NN> [0] <2000> -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
   %4 = VPUMI40XX.DeclareKernelText kernel_path("activation_hswish") -> !VPURegMapped.Index<0:0:0>
@@ -205,11 +205,11 @@ DataInfo "output" : tensor<1x2x3x4xf16>
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096]
 module @VPU.SW {
-  func.func private @builtin_hswish(memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "activation_hswish.cpp", VPU.kernel_entry = "activation_hswish"}
-  func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+  func.func nested @builtin_hswish(memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "activation_hswish.cpp", VPU.kernel_entry = "activation_hswish"}
+  func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
-func.func private @act_shave() {
+func.func nested @act_shave() {
   %2 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
   %3 = VPURT.DeclareBuffer <CMX_NN> [0] <2000> -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
   %4 = VPUMI40XX.DeclareKernelText kernel_path("activation_hswish") -> !VPURegMapped.Index<0:0:0>
@@ -382,11 +382,11 @@ DataInfo "output" : tensor<1x2x3x4xf16>
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096]
 module @VPU.SW {
-  func.func private @builtin_hswish(memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "activation_hswish.cpp", VPU.kernel_entry = "activation_hswish"}
-  func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+  func.func nested @builtin_hswish(memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "activation_hswish.cpp", VPU.kernel_entry = "activation_hswish"}
+  func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
-func.func private @act_shave_only_list_index_1() {
+func.func nested @act_shave_only_list_index_1() {
   %2 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
   %3 = VPURT.DeclareBuffer <CMX_NN> [0] <2000> -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
   %4 = VPUMI40XX.DeclareKernelText kernel_path("activation_hswish") -> !VPURegMapped.Index<0:1:0>
@@ -415,3 +415,129 @@ func.func private @act_shave_only_list_index_1() {
 //CHECK-DAG: actKernelInvocationsCount([0, 0, 0, 0, 0, 0])
 //CHECK-NOT: actKernelRanges
 //CHECK-NOT: actKernelInvocations
+
+// -----
+
+// Verify that a non-stride-aware kernel (not in SW_KERNELS_SUPPORTING_STRIDE) has unit-size
+// dimension strides normalized when serialized into kernel parameter binary vectors.
+//
+// Input:  1x1x1x8192 NHWC, strides=[16384,1,16384,1] elems — stride_H inherited from parent.
+// Output: 1x1x1x8192 NHWC, strides=[8192,1,8192,1] elems — compact.
+//
+// NHWC memory dim order (outermost→innermost): N, H, W, C
+//   MemDim(0)=N, MemDim(1)=H, MemDim(2)=W, MemDim(3)=C
+//   memShape (N,H,W,C) = [1, 1, 8192, 1]
+//
+// Normalized strides for both buffers (innermost-first):
+//   C=16, W=16, H=131072 (0x20000), N=131072 bits
+//   inputStridesBinaryVector  = [16,0,..., 16,0,..., 0,0,2,0,..., 0,0,2,0,...]
+//   outputStridesBinaryVector = [16,0,..., 16,0,..., 0,0,2,0,..., 0,0,2,0,...]
+//
+// dims binary vector (innermost-first): C=1, W=8192 (0x2000), H=1, N=1
+//   = [1,0,0,0, 0,32,0,0, 1,0,0,0, 1,0,0,0]
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+module {
+net.NetworkInfo entryPoint : @unit_dim_stride_norm inputsInfo : {
+DataInfo "input" : tensor<1x1x1x8192xf16>
+} outputsInfo : {
+DataInfo "output" : tensor<1x1x1x8192xf16>
+}
+
+VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096]
+module @VPU.SW {
+  func.func nested @builtin_hswish(memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "activation_hswish.cpp", VPU.kernel_entry = "activation_hswish"}
+  func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+}
+
+func.func nested @unit_dim_stride_norm() {
+  // Input: stride_H inherited from parent (1x1x1x16384); compact stride_H = 8192 elems.
+  %in  = VPURT.DeclareBuffer <CMX_NN> [0] <0>     -> memref<1x1x1x8192xf16, {order = #NHWC, strides = [16384, 1, 16384, 1]}, [@CMX_NN, 0]>
+  %out = VPURT.DeclareBuffer <CMX_NN> [0] <16384>  -> memref<1x1x1x8192xf16, {order = #NHWC, strides = [8192,  1,  8192, 1]}, [@CMX_NN, 0]>
+
+  %ktext  = VPUMI40XX.DeclareKernelText  kernel_path("activation_hswish") -> !VPURegMapped.Index<0:0:0>
+  %kentry = VPUMI40XX.DeclareKernelEntry kernel_path("activation_hswish") -> !VPURegMapped.Index<0:0:0>
+  %kargs  = VPUMI40XX.DeclareKernelArgs  kernel_path("activation_hswish") -> !VPURegMapped.Index<0:0:0>
+  %kp = VPUMI40XX.KernelParams <{dynamicInputShapesSize = array<i32>, dynamicOutputShapesSize = array<i32>}> inputs(%in : memref<1x1x1x8192xf16, {order = #NHWC, strides = [16384, 1, 16384, 1]}, [@CMX_NN, 0]>) outputs(%out : memref<1x1x1x8192xf16, {order = #NHWC, strides = [8192, 1, 8192, 1]}, [@CMX_NN, 0]>) kernel_type("activation_hswish") kernel_params([0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]) -> !VPURegMapped.Index<0:0:0>
+
+  %rtl = VPUMI40XX.DeclareTaskBuffer <ActKernelRange>      -> !VPURegMapped.Index<0:0:0>
+  %itl = VPUMI40XX.DeclareTaskBuffer <ActKernelInvocation> -> !VPURegMapped.Index<0:0:0>
+
+  %r0 = VPUMI40XX.ActKernelRange taskLocation(%rtl : !VPURegMapped.Index<0:0:0>) kernel_text_index(%ktext : !VPURegMapped.Index<0:0:0>) kernel_args_index(%kargs : !VPURegMapped.Index<0:0:0>) kernel_entry_index(%kentry : !VPURegMapped.Index<0:0:0>) kernelTaskType(@COMPUTE) -> !VPURegMapped.Index<0:0:0>
+  %i0 = VPUMI40XX.ActKernelInvocation taskLocation(%itl : !VPURegMapped.Index<0:0:0>) range_index(%r0 : <0:0:0>) kernel_params(%kp : <0:0:0>) tile(0) start_after(0) clean_after(0) -> !VPURegMapped.Index<0:0:0>
+  %miV = VPUMI40XX.MappedInferenceVersion(11 _ 4 _ 10) -> !VPURegMapped.Index<0:0:0>
+  %mi = VPUMI40XX.MappedInference actKernelRanges((%r0) : (!VPURegMapped.Index<0:0:0>)) actKernelInvocations((%i0) : (!VPURegMapped.Index<0:0:0>)) dmaCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) invariantCount([0, 0, 0, 0, 0, 0]) variantCount([0, 0, 0, 0, 0, 0]) actKernelRangesCount([[1, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[1, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) mediaCount(0) barrierCount(0) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
+
+  ELF.ABIVersion
+
+  VPUMI40XX.OpRanges
+}
+}
+
+//CHECK: VPUASM.KernelParams @{{.+}} inputs([@{{.+}}::@{{.+}}]) outputs([@{{.+}}::@{{.+}}]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("activation_hswish") <{
+//CHECK-SAME: inputDimsBinaryVector = [1, 0, 0, 0, 0, 32, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], inputStridesBinaryVector = [16, 0, 0, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0],
+//CHECK-SAME: outputDimsBinaryVector = [1, 0, 0, 0, 0, 32, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], outputStridesBinaryVector = [16, 0, 0, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0]}>
+
+// -----
+
+// Verify that a stride-aware kernel (in SW_KERNELS_SUPPORTING_STRIDE, e.g. "mvn1") has
+// unit-size dimension strides preserved as-is when serialized into kernel parameter binary
+// vectors. Such kernels derive dimension sizes from stride ratios at runtime, so normalizing
+// inherited subview strides would corrupt those ratios and produce wrong results.
+//
+// Input:  1x1x1x8192 NHWC, strides=[16384,1,16384,1] elems — stride_H inherited from parent.
+// Output: 1x1x1x8192 NHWC, strides=[8192,1,8192,1] elems — compact.
+//
+// NHWC memory dim order (outermost→innermost): N, H, W, C
+//   MemDim(0)=N, MemDim(1)=H, MemDim(2)=W, MemDim(3)=C
+//   memShape (N,H,W,C) = [1, 1, 8192, 1]
+//
+// No normalization — raw strides are passed through (innermost-first):
+//   input:  C=16, W=16, H=262144 (0x40000), N=262144 bits  [inflated, preserved]
+//   output: C=16, W=16, H=131072 (0x20000), N=131072 bits  [compact, unchanged]
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+module {
+net.NetworkInfo entryPoint : @stride_aware_kernel_no_norm inputsInfo : {
+DataInfo "input" : tensor<1x1x1x8192xf16>
+} outputsInfo : {
+DataInfo "output" : tensor<1x1x1x8192xf16>
+}
+
+VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096]
+module @VPU.SW {
+  func.func nested @builtin_MVN(memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "mvn1.cpp", VPU.kernel_entry = "mvn1"}
+  func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+}
+
+func.func nested @stride_aware_kernel_no_norm() {
+  // Input: stride_H inherited from parent (1x1x1x16384); compact stride_H = 8192 elems.
+  %in  = VPURT.DeclareBuffer <CMX_NN> [0] <0>     -> memref<1x1x1x8192xf16, {order = #NHWC, strides = [16384, 1, 16384, 1]}, [@CMX_NN, 0]>
+  %out = VPURT.DeclareBuffer <CMX_NN> [0] <16384>  -> memref<1x1x1x8192xf16, {order = #NHWC, strides = [8192,  1,  8192, 1]}, [@CMX_NN, 0]>
+
+  %ktext  = VPUMI40XX.DeclareKernelText  kernel_path("mvn1") -> !VPURegMapped.Index<0:0:0>
+  %kentry = VPUMI40XX.DeclareKernelEntry kernel_path("mvn1") -> !VPURegMapped.Index<0:0:0>
+  %kargs  = VPUMI40XX.DeclareKernelArgs  kernel_path("mvn1") -> !VPURegMapped.Index<0:0:0>
+  %kp = VPUMI40XX.KernelParams <{dynamicInputShapesSize = array<i32>, dynamicOutputShapesSize = array<i32>}> inputs(%in : memref<1x1x1x8192xf16, {order = #NHWC, strides = [16384, 1, 16384, 1]}, [@CMX_NN, 0]>) outputs(%out : memref<1x1x1x8192xf16, {order = #NHWC, strides = [8192, 1, 8192, 1]}, [@CMX_NN, 0]>) kernel_type("mvn1") kernel_params([0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]) -> !VPURegMapped.Index<0:0:0>
+
+  %rtl = VPUMI40XX.DeclareTaskBuffer <ActKernelRange>      -> !VPURegMapped.Index<0:0:0>
+  %itl = VPUMI40XX.DeclareTaskBuffer <ActKernelInvocation> -> !VPURegMapped.Index<0:0:0>
+
+  %r0 = VPUMI40XX.ActKernelRange taskLocation(%rtl : !VPURegMapped.Index<0:0:0>) kernel_text_index(%ktext : !VPURegMapped.Index<0:0:0>) kernel_args_index(%kargs : !VPURegMapped.Index<0:0:0>) kernel_entry_index(%kentry : !VPURegMapped.Index<0:0:0>) kernelTaskType(@COMPUTE) -> !VPURegMapped.Index<0:0:0>
+  %i0 = VPUMI40XX.ActKernelInvocation taskLocation(%itl : !VPURegMapped.Index<0:0:0>) range_index(%r0 : <0:0:0>) kernel_params(%kp : <0:0:0>) tile(0) start_after(0) clean_after(0) -> !VPURegMapped.Index<0:0:0>
+  %miV = VPUMI40XX.MappedInferenceVersion(11 _ 4 _ 10) -> !VPURegMapped.Index<0:0:0>
+  %mi = VPUMI40XX.MappedInference actKernelRanges((%r0) : (!VPURegMapped.Index<0:0:0>)) actKernelInvocations((%i0) : (!VPURegMapped.Index<0:0:0>)) dmaCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) invariantCount([0, 0, 0, 0, 0, 0]) variantCount([0, 0, 0, 0, 0, 0]) actKernelRangesCount([[1, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[1, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) mediaCount(0) barrierCount(0) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
+
+  ELF.ABIVersion
+
+  VPUMI40XX.OpRanges
+}
+}
+
+// Input strides: raw inflated (H=262144=0x40000, N=262144 bits), NOT normalized to 0x20000.
+// Output strides: compact (H=131072=0x20000, N=131072 bits), unchanged.
+//CHECK: VPUASM.KernelParams @{{.+}} inputs([@{{.+}}::@{{.+}}]) outputs([@{{.+}}::@{{.+}}]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("mvn1") <{
+//CHECK-SAME: inputDimsBinaryVector = [1, 0, 0, 0, 0, 32, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], inputStridesBinaryVector = [16, 0, 0, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0],
+//CHECK-SAME: outputDimsBinaryVector = [1, 0, 0, 0, 0, 32, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], outputStridesBinaryVector = [16, 0, 0, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0]}>

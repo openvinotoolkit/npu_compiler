@@ -140,7 +140,8 @@ VPURT::TaskOp getSingleSyncTaskBarUser(VPURT::TaskOp syncTaskOp, mlir::Value bar
 // if barrier variant count limit will not get exceeded when neighbor op will be connected to sync task barrier
 // that already has other users
 bool isValidVariantCountForSyncTaskReplacement(VPURT::TaskOp replaceTaskOp,
-                                               mlir::Operation::operand_range synTaskBarsRange, size_t maxVariantSum) {
+                                               mlir::Operation::operand_range synTaskBarsRange,
+                                               size_t maxBarrierSlots) {
     size_t slotCount = 0;
     for (const auto& bar : synTaskBarsRange) {
         for (const auto* userOp : bar.getUsers()) {
@@ -154,7 +155,7 @@ bool isValidVariantCountForSyncTaskReplacement(VPURT::TaskOp replaceTaskOp,
     }
     slotCount += BarrierInfo::getNumOfSlotsUsed(replaceTaskOp);
 
-    return slotCount <= maxVariantSum;
+    return slotCount <= maxBarrierSlots;
 }
 
 // Identify sync tasks that can be removed on a range of tasks: "-> sync -> ... -> sync ->"
@@ -175,16 +176,18 @@ DenseMap<VPURT::TaskOp, std::pair<VPURT::TaskOp, VPURT::TaskOp>> getSyncTaskOpsT
         return taskOpsToRemoveWithParentChildPairMap;
     }
 
-    const auto maxVariantSum = VPUIP::getBarrierMaxVariantSum(func);
+    const auto maxAvailableSlots = VPUIP::getBarrierMaxSlotCount(func);
+
+    const auto maxBarrierSlots = vpux::VPUIP::getAvailableSlots(func, maxAvailableSlots);
 
     auto checkAndAddSyncTaskToReplaceWithParent = [&](VPURT::TaskOp syncTaskOp, VPURT::TaskOp parentTaskOp) {
-        if (isValidVariantCountForSyncTaskReplacement(parentTaskOp, syncTaskOp.getWaitBarriers(), maxVariantSum)) {
+        if (isValidVariantCountForSyncTaskReplacement(parentTaskOp, syncTaskOp.getWaitBarriers(), maxBarrierSlots)) {
             taskOpsToRemoveWithParentChildPairMap[syncTaskOp] = std::make_pair(parentTaskOp, nullptr);
         }
     };
 
     auto checkAndAddSyncTaskToReplaceWithChild = [&](VPURT::TaskOp syncTaskOp, VPURT::TaskOp childTaskOp) {
-        if (isValidVariantCountForSyncTaskReplacement(childTaskOp, syncTaskOp.getUpdateBarriers(), maxVariantSum)) {
+        if (isValidVariantCountForSyncTaskReplacement(childTaskOp, syncTaskOp.getUpdateBarriers(), maxBarrierSlots)) {
             taskOpsToRemoveWithParentChildPairMap[syncTaskOp] = std::make_pair(nullptr, childTaskOp);
         }
     };

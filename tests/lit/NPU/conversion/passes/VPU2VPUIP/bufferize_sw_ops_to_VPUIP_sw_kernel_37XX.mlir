@@ -37,8 +37,8 @@ func.func @StridedSlice2Dim(%input: tensor<3x40x40x15xf16>) -> tensor<3x40x20x5x
 // -----
 
 // CHECK:  module @VPU.SW {
-// CHECK-NEXT:    func.func private @builtin_StridedSlice(memref<*xf16>, memref<*xf16>, i64, none, none, none, i64, i64, i64) attributes {VPU.kernel_code = "strided_slice.cpp", VPU.kernel_entry = "strided_slice", VPU.kernel_name = "strided_slice", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK-NEXT:    func.func nested @builtin_StridedSlice(memref<*xf16>, memref<*xf16>, i64, none, none, none, i64, i64, i64) attributes {VPU.kernel_code = "strided_slice.cpp", VPU.kernel_entry = "strided_slice", VPU.kernel_name = "strided_slice", VPU.task_type = @COMPUTE}
+// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:  }
 
 // CHECK-LABEL:  func.func @StridedSlice3Dim
@@ -60,7 +60,7 @@ func.func @StridedSlice3Dim(%input: tensor<3x40x40x15xf16>) -> tensor<3x20x20x5x
 // CHECK-LABEL: @DynamicQuantize
 // CHECK-SAME:  [[DATA:%.+]]: memref<1x1x4x400xf32>, [[MIN:%.+]]: memref<1x1x1x1xf32>, [[MAX:%.+]]: memref<1x1x1x1xf32>
 func.func @DynamicQuantize(%arg0: tensor<1x1x4x400xf32>, %arg1: tensor<1x1x1x1xf32>, %arg2: tensor<1x1x1x1xf32>) -> (tensor<1x1x4x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>) {
-    %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) : tensor<1x1x4x400xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x4x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
+    %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = ui8} : tensor<1x1x4x400xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x4x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
     return %output, %scale, %zero_point : tensor<1x1x4x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
 
     // CHECK: [[OUTPUT_BUFF:%.+]] = memref.alloc() : memref<1x1x4x400xui8>
@@ -80,6 +80,32 @@ func.func @DynamicQuantize(%arg0: tensor<1x1x4x400xf32>, %arg1: tensor<1x1x1x1xf
     // CHECK:   memref<1x1x4x400xf32>, memref<1x1x1x1xf32>, memref<1x1x1x1xf32>
     // CHECK:   memref<1x1x4x400xui8>, memref<1x1x1x1xf32>, memref<1x1x1x1xui8>
     // CHECK: return [[RESULT]]#0, [[RESULT]]#1, [[RESULT]]#2 : memref<1x1x4x400xui8>, memref<1x1x1x1xf32>, memref<1x1x1x1xui8>
+}
+
+// -----
+
+// CHECK-LABEL: @DynamicQuantizeSigned
+// CHECK-SAME:  [[DATA:%.+]]: memref<1x1x4x400xf32>, [[MIN:%.+]]: memref<1x1x1x1xf32>, [[MAX:%.+]]: memref<1x1x1x1xf32>
+func.func @DynamicQuantizeSigned(%arg0: tensor<1x1x4x400xf32>, %arg1: tensor<1x1x1x1xf32>, %arg2: tensor<1x1x1x1xf32>) -> (tensor<1x1x4x400xsi8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xsi8>) {
+    %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = si8} : tensor<1x1x4x400xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x4x400xsi8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xsi8>
+    return %output, %scale, %zero_point : tensor<1x1x4x400xsi8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xsi8>
+
+    // CHECK: [[OUTPUT_BUFF:%.+]] = memref.alloc() : memref<1x1x4x400xsi8>
+    // CHECK: [[SCALE_BUFF:%.+]] = memref.alloc() : memref<1x1x1x1xf32>
+    // CHECK: [[ZP_BUFF:%.+]] = memref.alloc() : memref<1x1x1x1xsi8>
+    // CHECK: [[RESULT:%.+]]:3 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 3, 0, 0>}
+    // CHECK: @VPU.SW::@builtin_DynamicQuantize
+    // CHECK:   inputs([[DATA]] as [[INNER_ARG3:[^:]+]]: memref<1x1x4x400xf32>,
+    // CHECK:          [[MIN]] as [[INNER_ARG4:[^:]+]]: memref<1x1x1x1xf32>,
+    // CHECK:          [[MAX]] as [[INNER_ARG5:[^:]+]]: memref<1x1x1x1xf32>)
+    // CHECK:   outputs([[OUTPUT_BUFF]] as [[INNER_ARG6:[^:]+]]: memref<1x1x4x400xsi8>,
+    // CHECK:           [[SCALE_BUFF]] as [[INNER_ARG7:[^:]+]]: memref<1x1x1x1xf32>,
+    // CHECK:           [[ZP_BUFF]] as [[INNER_ARG8:[^:]+]]: memref<1x1x1x1xsi8>) on tile 0
+    // CHECK: -> (memref<1x1x4x400xsi8>, memref<1x1x1x1xf32>, memref<1x1x1x1xsi8>){
+    // CHECK: VPUIP.SW.Kernel.run([[INNER_ARG3]], [[INNER_ARG4]], [[INNER_ARG5]], [[INNER_ARG6]], [[INNER_ARG7]], [[INNER_ARG8]])
+    // CHECK:   memref<1x1x4x400xf32>, memref<1x1x1x1xf32>, memref<1x1x1x1xf32>
+    // CHECK:   memref<1x1x4x400xsi8>, memref<1x1x1x1xf32>, memref<1x1x1x1xsi8>
+    // CHECK: return [[RESULT]]#0, [[RESULT]]#1, [[RESULT]]#2 : memref<1x1x4x400xsi8>, memref<1x1x1x1xf32>, memref<1x1x1x1xsi8>
 }
 
 // -----

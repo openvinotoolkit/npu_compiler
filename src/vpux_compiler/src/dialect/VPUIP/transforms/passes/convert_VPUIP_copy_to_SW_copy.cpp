@@ -54,7 +54,7 @@ mlir::FailureOr<bool> verifyDimsByteAligned(mlir::Location location, vpux::NDTyp
     }
     // Check innermost dim alignment
     int64_t innerMostDim = memShape.pop_back_val();
-    int64_t alignedDim = (innerMostDim * CHAR_BIT / elemSize) % CHAR_BIT;
+    int64_t alignedDim = (innerMostDim * elemSize) % CHAR_BIT;
     if (stridesGreaterThanDims && (alignedDim != 0)) {
         return errorAt(location, "Strides > dimensions && innermost dim ({0}) is not aligned!", innerMostDim);
     }
@@ -203,8 +203,11 @@ mlir::LogicalResult ConvertVPUIPCopyToSWCopy::matchAndRewrite(VPUIP::CopyOp orig
         return newOffsets;
     };
 
-    auto reverseIntArrayAttr = [&](DimsOrder inOrder, mlir::ArrayAttr arrayAttr) {
-        const auto origPerm = inOrder.toPermutation();
+    auto reverseIntArrayAttr = [&](const DimsOrder& inOrder, mlir::ArrayAttr arrayAttr) {
+        if (inOrder.empty() || arrayAttr.empty()) {
+            return arrayAttr;
+        }
+        const auto& origPerm = inOrder.toPermutation();
         const auto origArray = parseIntArrayAttr<int64_t>(arrayAttr);
         SmallVector<int64_t> permArray(arrayAttr.size());
         for (const auto srcInd : irange(origPerm.size())) {
@@ -231,7 +234,7 @@ mlir::LogicalResult ConvertVPUIPCopyToSWCopy::matchAndRewrite(VPUIP::CopyOp orig
     }
 
     // Create SWKernelOp type Copy
-    VPUIP::createRuntimeKernelDefinition(module, _log.nest(), config::getArch(origOp));
+    VPUIP::createRuntimeKernelDefinition(module, _log.nest());
 
     const int64_t tileIndex = 0;
     vpux::VPUIP::KernelInfo kernelInfo(SmallVector<mlir::Attribute>{inBitOffsets, outBitOffsets}, SmallString("copy"),

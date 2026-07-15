@@ -6,7 +6,7 @@
 // RUN: vpux-opt --init-compiler="platform=%platform%" %s | FileCheck %s --strict-whitespace
 // REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
-  func.func private @MLIR_VPURegMapped_CreateDpuVariantRegisterAllowOverlapTrue() {
+  func.func nested @MLIR_VPURegMapped_CreateDpuVariantRegisterAllowOverlapTrue() {
     VPURegMapped.RegisterWrapper regAttr(<regForTest offset 12 size 32 allowOverlap {
       UINT test_1 at 0 size 8 = 0xFF,
       SINT test_2 at 8 size 8 = 0xFF
@@ -21,7 +21,7 @@
 
 // -----
 
-  func.func private @MLIR_VPURegMapped_CreateDpuVariantRegisterAllowOverlapFalse() {
+  func.func nested @MLIR_VPURegMapped_CreateDpuVariantRegisterAllowOverlapFalse() {
     VPURegMapped.RegisterWrapper regAttr(<regForTest offset 12 size 32 {
       UINT test_1 at 0 size 8 = 0xFF,
       SINT test_2 at 8 size 8 = 0xFF
@@ -36,7 +36,7 @@
 
 // -----
 
-  func.func private @MLIR_VPURegMapped_CreateDpuVariantRegisterOneRegField() {
+  func.func nested @MLIR_VPURegMapped_CreateDpuVariantRegisterOneRegField() {
     VPURegMapped.RegisterWrapper regAttr(<regForTest offset 12 size 4 allowOverlap = UINT 0>)
     return
   }
@@ -45,7 +45,7 @@
 
 // -----
 
-  func.func private @MLIR_VPURegMapped_CreateDpuVariantRegisterRequiresVersion() {
+  func.func nested @MLIR_VPURegMapped_CreateDpuVariantRegisterRequiresVersion() {
     VPURegMapped.RegisterWrapper regAttr(<regForTest offset 12 size 32 {
       UINT test_1 at 0 size 8 = 0xFF,
       SINT test_2 at 8 size 8 = 0xFF

@@ -15,8 +15,8 @@ module @CallChain {
       DataInfo "output" : tensor<1x3x64x64xf16>
     }
 
-    // CHECK-NOT: func.func private @foo
-    func.func private @foo(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
+    // CHECK-NOT: func.func nested @foo
+    func.func nested @foo(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
         // network in/out
         %ignored_netIn = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x64x64xf16, @DDR>
         %ignored_netOut = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<1x3x64x64xf16, @DDR>

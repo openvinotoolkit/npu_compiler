@@ -170,7 +170,7 @@ TEST_F(MLIR_GetExplicitDistributionInfoAttrTest, HWOp) {
         module @test {
             func.func @main(%arg0: tensor<1x32x112x112xf16, {order = #NHWC}>) -> tensor<1x32x112x112xf16, {order = #NHWC}> {
                 %cst_0 = const.Declare tensor<32x1x1x4xsi32> = dense<10> : tensor<32x1x1x4xsi32>
-                %0 = VPU.NCE.MaxPool(%arg0, %cst_0) {
+                %0 = VPU.NCE.MaxPool(%arg0, %cst_0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                         ppe = #VPU.PPEStub<>,
                         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                         strides = [1, 1],
@@ -282,14 +282,14 @@ TEST_F(MLIR_GetExplicitDistributionInfoAttrTest, SparseHWSOKOp) {
             func.func @main(%arg0: tensor<1x512x28x28xf16, {order = #NHWC}>) -> !SparseOutputType {
                 %weights = const.Declare tensor<256x512x1x1xf16, {order = #NHWC}> = dense<10.0> : tensor<256x512x1x1xf16, {order = #NHWC}>
                 %wtable = const.Declare tensor<256x1x1x4xsi32> = dense<10> : tensor<256x1x1x4xsi32>
-                %0 = VPU.NCE.Convolution(%arg0, %weights, %wtable) {
+                %0 = VPU.NCE.Convolution(%arg0, %weights, %wtable) rawFilterShape [256, 512, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                         ppe = #VPU.PPEInt<
                             mode = <NOOP>,
                             clamp_low = 0 : i64, clamp_high = 255 : i64,
                             lrelu_mult = 1 : i64, lrelu_shift = 0 : i64,
                             fp_prelu_alpha = 1.000000e+00 : f64>,
-                            rawFilterShape = [256, 512, 1, 1], strides = [1, 1]
+                             strides = [1, 1]
                     } : tensor<1x512x28x28xf16, {order = #NHWC}>, tensor<256x512x1x1xf16, {order = #NHWC}>, tensor<256x1x1x4xsi32> -> !SparseOutputType
                 return %0 : !SparseOutputType
             }
@@ -355,8 +355,7 @@ TEST_F(MLIR_GetExplicitDistributionInfoAttrTest, NCEPermuteOp) {
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
         !qElemType = !quant.uniform<u8:f16, 1.000000e+00>
-        module @test attributes {config.arch = #config.arch_kind<NPU37XX>, config.compilationMode =
-        #config.compilation_mode<DefaultHW>} {
+        module @test attributes {config.compilationMode = #config.compilation_mode<DefaultHW>, config.platform = #config.platform<NPU3720>} {
             func.func @main(%arg0: tensor<1x3x224x224xf16>) -> tensor<1x4x224x224x!qElemType, {order
             = #NHWC}> {
 

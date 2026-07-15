@@ -9,7 +9,7 @@
 // CHECK-LABEL: @ParallelCallOps
 module @ParallelCallOps {
 
-func.func private @function1(%arg0: memref<10xf16>) -> memref<10xf16> {
+func.func nested @function1(%arg0: memref<10xf16>) -> memref<10xf16> {
     %alloc = memref.alloc() : memref<10xf16>
     %t0, %f0 = async.execute -> (!async.value<memref<10xf16>>) {
         %0 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%arg0 : memref<10xf16>) outputs(%alloc : memref<10xf16>) -> memref<10xf16>
@@ -18,7 +18,7 @@ func.func private @function1(%arg0: memref<10xf16>) -> memref<10xf16> {
     return %alloc : memref<10xf16>
 }
 
-func.func private @function2(%arg0: memref<10xf16>, %arg1: memref<10xf16>) -> memref<20xf16> {
+func.func nested @function2(%arg0: memref<10xf16>, %arg1: memref<10xf16>) -> memref<20xf16> {
     %alloc = memref.alloc() : memref<20xf16>
     %concat = VPUIP.ConcatView inputs(%arg0, %arg1 : memref<10xf16>, memref<10xf16>) outputs(%alloc : memref<20xf16>) -> memref<20xf16>
     return %concat : memref<20xf16>

@@ -6,16 +6,21 @@
 #include <mlir/IR/Builders.h>
 #include <mlir/Transforms/Inliner.h>
 #include <mlir/Transforms/InliningUtils.h>
+#include "vpux/compiler/dialect/HostExec/IR/attributes.hpp"
+#include "vpux/compiler/dialect/HostExec/transforms/wrap_func_attr.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
+#include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/batch.hpp"
 #include "vpux/compiler/utils/func_dialect.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -104,7 +109,7 @@ mlir::func::FuncOp cloneFunction(mlir::OpBuilder& moduleBuilder, mlir::func::Fun
     auto newFunc = moduleBuilder.create<mlir::func::FuncOp>(funcLoc, funcName.str(), origFunc.getFunctionType());
     mlir::IRMapping mapper;
     origFunc.getBody().cloneInto(&newFunc.getBody(), mapper);
-    newFunc.setPrivate();
+    newFunc.setNested();
     return newFunc;
 }
 
@@ -337,11 +342,19 @@ void generateCalleeResultSlicesInForCtx(mlir::scf::ForOp forCtx, mlir::OpBuilder
 }
 
 mlir::func::FuncOp getAppropriateDebatchingFunction(mlir::func::CallOp op) {
-    /* TODO E#193343:
-     * Insert a mock function and return its instance. Inject WrapFuncDataAttributeView to substitute calls to the mock
-     * function with calls to the real debatching function in WrapFuncCallPass
-     */
-    return getCalledFunction(op);
+    auto realDebatchingFunction = getCalledFunction(op);
+    const auto funcLoc = appendLoc(realDebatchingFunction.getLoc(), "_unresolved");
+    auto funcType = realDebatchingFunction.getFunctionType();
+    auto moduleOp = vpux::getModuleOp(realDebatchingFunction);
+    mlir::OpBuilder builder(moduleOp.getBodyRegion());
+    auto funcCloneStubDeclaration = builder.create<mlir::func::FuncOp>(
+            funcLoc, vpux::formatv("{0}_unresolved", realDebatchingFunction.getName()).str(), funcType);
+    funcCloneStubDeclaration.setNested();
+    config::setFunctionToPackAttribute(realDebatchingFunction, "NPUModule");
+    config::setFunctionToPackEntryPointAttribute(realDebatchingFunction);
+    vpux::HostExec::setHostCompileInferenceExpectedCommandListsNumber(realDebatchingFunction, 1);
+    WrapFuncDataAttributeView::inject(funcCloneStubDeclaration, realDebatchingFunction.getName(), true);
+    return funcCloneStubDeclaration;
 }
 
 void injectHostPipelineStage(mlir::func::FuncOp main, mlir::func::CallOp callOp, int64_t ratio,
@@ -463,13 +476,13 @@ std::tuple<int64_t, int64_t, SmallVector<DebatchCoeffDescription>> getDeDebatchP
 mlir::SmallVector<mlir::Operation*> sliceCallsOp(mlir::OpBuilder& builder, mlir::func::CallOp callOp,
                                                  const int64_t dedebatchNum, bool injectDebatchingReorderingAttr) {
     const auto callLoc = callOp.getLoc();
-    const auto privateFuncOperands = callOp.getOperands();
+    const auto funcOperands = callOp.getOperands();
     auto newCallOps = SmallVector<mlir::Operation*>();
     for (int i = 0; i < dedebatchNum; i++) {
-        // Create sliced private function operands
+        // Create sliced function operands
         mlir::SmallVector<mlir::Value> newOperands;
         size_t sliceIdx = 0;
-        for (auto operand : privateFuncOperands) {
+        for (auto operand : funcOperands) {
             if (auto convertCast = operand.getDefiningOp<mlir::UnrealizedConversionCastOp>()) {
                 auto batchedInput = convertCast.getOperand(0);
                 auto debatchedInput = convertCast.getResult(0);
@@ -489,7 +502,7 @@ mlir::SmallVector<mlir::Operation*> sliceCallsOp(mlir::OpBuilder& builder, mlir:
             }
         }
 
-        // Create multi-batched private function calls
+        // Create multi-batched function calls
         auto newCall =
                 builder.create<mlir::func::CallOp>(callLoc, callOp.getCallee(), callOp->getResultTypes(), newOperands);
         DebatchedCallOpAttributeView::inject(newCall, i, dedebatchNum);
@@ -503,8 +516,8 @@ mlir::SmallVector<mlir::Operation*> sliceCallsOp(mlir::OpBuilder& builder, mlir:
 
 void concatenateCallOps(mlir::OpBuilder& builder, mlir::func::CallOp callOp, SmallVector<mlir::Operation*> newCallOps) {
     const auto callLoc = callOp.getLoc();
-    const auto privateFuncResNum = callOp.getResults().size();
-    for (size_t i = 0; i < privateFuncResNum; i++) {
+    const auto funcResNum = callOp.getResults().size();
+    for (size_t i = 0; i < funcResNum; i++) {
         mlir::SmallVector<mlir::Value> newCallResults;
         for (auto newCall : newCallOps) {
             auto res = newCall->getResult(i);
@@ -557,12 +570,13 @@ mlir::LogicalResult DeDebatcherPass::initializeOptions(
 //
 
 void DeDebatcherPass::safeRunOnFunc() {
-    auto main = getOperation();
-    if (main.isPrivate()) {
+    auto funcOp = getOperation();
+    auto mainFuncOp = net::getMainFunc(funcOp);
+    if (funcOp != mainFuncOp) {
         return;
     }
 
-    mlir::OpBuilder builder(main);
+    mlir::OpBuilder builder(funcOp);
     auto parsedDebatcherMethod = this->debatcherMethod.getValue();
     bool injectDebatchingReorderingMethodAttr = (parsedDebatcherMethod == "reordering");
     // TODO E#186494 Mutually exclusive passes: Dedebatcher & (createSCFVerticalFusionPass + createApplyTilingPass)
@@ -573,8 +587,8 @@ void DeDebatcherPass::safeRunOnFunc() {
                     parsedDebatcherMethod);
     _log.debug("{0} applying method: {1}", getName(), parsedDebatcherMethod);
 
-    // Check all private function calls in main function
-    auto callOps = main.getFunctionBody().getOps<mlir::func::CallOp>();
+    // Check all function calls in funcOp function
+    auto callOps = funcOp.getFunctionBody().getOps<mlir::func::CallOp>();
     for (auto callOp : callOps) {
         //  Acquire and validate de-debatch number
         auto [dedebatchNum, castOpCnt, debatchCoefficients] =
@@ -585,14 +599,15 @@ void DeDebatcherPass::safeRunOnFunc() {
         }
 
         if (generateHostPipeline) {
-            injectHostPipelineStage(main, callOp, dedebatchNum, debatchCoefficients, builder, _log);
-            config::setPureHostCompileFuncAttribute(main);
+            injectHostPipelineStage(funcOp, callOp, dedebatchNum, debatchCoefficients, builder, _log);
+            vpux::runLocalDCE(funcOp);
+            config::setPureHostCompileFuncAttribute(funcOp);
             return;
         }
-        // Get multi-batch sliced private function calls
+        // Get multi-batch sliced function calls
         auto newCallOps = sliceCallsOp(builder, callOp, dedebatchNum, injectDebatchingReorderingMethodAttr);
 
-        // Create concat for multi-batched private function results
+        // Create concat for multi-batched function results
         concatenateCallOps(builder, callOp, newCallOps);
     }
 }

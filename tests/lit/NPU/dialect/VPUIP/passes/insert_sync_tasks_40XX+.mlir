@@ -22,11 +22,11 @@ module @TwoFunctions {
     VPURT.SW.Runtime entryPoint: @VPU.SW::@runtime stack_configuration: [4096, 4096, 4096, 4096]
 
     module @VPU.SW {
-        func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {VPU.kernel_code = "activation_relu.cpp", VPU.kernel_entry = "activation_relu", VPU.task_type = @COMPUTE }
-        func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+        func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {VPU.kernel_code = "activation_relu.cpp", VPU.kernel_entry = "activation_relu", VPU.task_type = @COMPUTE }
+        func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
     }
 
-    func.func private @foo1(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
+    func.func nested @foo1(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
         // original input
         %0 = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x64x64xf16, @DDR>
         // allocated by main
@@ -58,7 +58,7 @@ module @TwoFunctions {
         return %arg1 : memref<1x3x64x64xf16, @DDR>
     }
 
-    func.func private @foo2(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
+    func.func nested @foo2(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
         // input from foo1 allocated by main
         %0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x3x64x64xf16, @DDR>
         // original output
@@ -90,7 +90,7 @@ module @TwoFunctions {
         return %arg1 : memref<1x3x64x64xf16, @DDR>
     }
 
-    // CHECK: func.func private @foo1
+    // CHECK: func.func nested @foo1
     // CHECK: [[BAR0:%.+]] = VPURT.DeclareVirtualBarrier
     // CHECK: [[BAR1:%.+]] = VPURT.DeclareVirtualBarrier
 
@@ -105,7 +105,7 @@ module @TwoFunctions {
     // CHECK: VPURT.Task waits([[BAR1]] : !VPURT.Barrier)
     // CHECK-NEXT: VPUIP.SyncDMA <{port = 0 : i64}>
 
-    // CHECK: func.func private @foo2
+    // CHECK: func.func nested @foo2
     // CHECK: [[BAR3:%.+]] = VPURT.DeclareVirtualBarrier
     // CHECK: [[BAR4:%.+]] = VPURT.DeclareVirtualBarrier
     // CHECK: [[BAR5:%.+]] = VPURT.DeclareVirtualBarrier

@@ -14,10 +14,8 @@ namespace vpux {
 namespace bitc {
 class Decoder {
 public:
-    Decoder(const std::vector<uint8_t>& bits, BitCompactorConfig config);
-    Decoder(const std::vector<uint8_t>&& bits, BitCompactorConfig config);
-    void decode(std::vector<uint8_t>& out);
-    void decode(std::vector<uint8_t>& out, std::vector<uint8_t>& bitmap, unsigned sparse_block_size);
+    Decoder(std::vector<uint8_t>&& bits, BitCompactorConfig&& config);
+    bool decode(std::vector<uint8_t>& out);
     ~Decoder();
 
 private:

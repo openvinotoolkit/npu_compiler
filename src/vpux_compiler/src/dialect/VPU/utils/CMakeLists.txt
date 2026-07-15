@@ -14,6 +14,7 @@ add_npu_library(npu_compiler_dialect_vpu_utils
         npu_compiler_dialect_const
         npu_compiler_dialect_core
         npu_compiler_dialect_ie
+        npu_compiler_dialect_ie_utils
         npu_compiler_dialect_net
         npu_compiler_dialect_vpu_interfaces
         npu_compiler_dialect_vpuip
@@ -29,7 +30,6 @@ add_npu_library(npu_compiler_dialect_vpu_utils
         npu_profiling_utils
         npu_elf
         npu_compiler_dialect_vpuip_utils
-        npu_compiler_dialect_ie_utils
         npu_costmodel
         npu_algo_utils
         openvino::threading  # TBB

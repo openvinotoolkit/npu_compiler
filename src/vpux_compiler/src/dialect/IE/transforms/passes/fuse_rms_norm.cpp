@@ -3,13 +3,18 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include <vector>
+
+#include <llvm/ADT/STLExtras.h>
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/arithmetic.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/comparison.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/normalization.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/broadcast_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/power_utils.hpp"
@@ -18,6 +23,7 @@
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/utils/core/error.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
 namespace vpux::IE {
@@ -198,6 +204,35 @@ mlir::FailureOr<float> getEpsilon(mlir::Operation* op) {
             return mlir::failure();
         }
         return maybeEpsilonVal.value();
+    } else if (auto selectOp = mlir::dyn_cast_or_null<IE::SelectOp>(op)) {
+        // Pattern: Select(Equal(x, 0), epsilon, x)
+        // Input1 (condition): Equal(x, 0)
+        // Input2 (then): epsilon constant
+        // Input3 (else): x (the ReduceMean output)
+
+        // Check that condition is EqualOp
+        auto equalOp = selectOp.getInput1().getDefiningOp<IE::EqualOp>();
+        if (!equalOp) {
+            return mlir::failure();
+        }
+
+        // Check that "then" (Input2) is a constant - this should be epsilon
+        auto epsilonConstOp = selectOp.getInput2().getDefiningOp<Const::DeclareOp>();
+        if (!epsilonConstOp) {
+            return mlir::failure();
+        }
+
+        // Check that "else" (Input3) is NOT a constant - it should be 'x' (ReduceMean output)
+        if (!selectOp.getInput3().getDefiningOp<IE::ReduceMeanOp>()) {
+            return mlir::failure();
+        }
+
+        const auto epsilonVal = Const::getSplatValue<float>(epsilonConstOp);
+        if (mlir::failed(epsilonVal)) {
+            return mlir::failure();
+        }
+
+        return epsilonVal.value();
     } else if (auto multiplyOp = mlir::dyn_cast_or_null<IE::MultiplyOp>(op)) {
         // Handle MultiplyOp(Cst_Scale) + AddOp pattern
         if (!multiplyOp->hasOneUse()) {
@@ -248,12 +283,18 @@ mlir::FailureOr<float> getMultiplyScale(mlir::Operation* op) {
     return mlir::failure();
 }
 
-// Create gamma
-mlir::Value createGamma(mlir::OpBuilder& builder, mlir::Operation* op, int64_t size, float gammaScale) {
-    const float weightData = 1.0f / gammaScale;
+// Create gamma from pre-scaled values
+mlir::Value createGamma(mlir::OpBuilder& builder, mlir::Operation* op, int64_t size, ArrayRef<float> values) {
     const auto dataStorageType = mlir::RankedTensorType::get({size}, mlir::Float32Type::get(op->getContext()));
     const auto constLoc = appendLoc(op->getLoc(), "const");
-    return Const::createConst(builder, constLoc, dataStorageType, ArrayRef(weightData));
+    return Const::createConst(builder, constLoc, dataStorageType, values);
+}
+
+// Create a splat gamma
+mlir::Value createGamma(mlir::OpBuilder& builder, mlir::Operation* op, int64_t size, float gammaScale) {
+    VPUX_THROW_WHEN(gammaScale == 0.0f, "gammaScale must be non-zero");
+    const float weightData = 1.0f / gammaScale;
+    return createGamma(builder, op, size, ArrayRef(weightData));
 }
 
 void isReduceSumPattern(mlir::Operation* maybePowerOp, IE::ReduceSumOp reduceSumOp, mlir::MLIRContext& ctx,
@@ -427,19 +468,32 @@ void isReduceSumPattern(mlir::Operation* maybePowerOp, IE::ReduceSumOp reduceSum
     }
 
     mlir::Operation* replaceOp = opBeforeScale;
+    std::vector<float> scaledValues;
     if (scaleMultiplyOp != nullptr) {
         if (Const::DeclareOp constOp = scaleMultiplyOp.getOperand(1).getDefiningOp<Const::DeclareOp>()) {
             Const::Content constantContent = constOp.getContent();
-            if (constantContent.isSplat() && constantContent.getSplatValue<float>() != 0.0f) {
+            const bool matchSplat = constantContent.isSplat() && constantContent.getSplatValue<float>() != 0.0f;
+            const bool matchVec = !constantContent.isSplat() && gammaScale != 0.0f &&
+                                  constantContent.getType().getNumElements() == reduceSize;
+            if (matchSplat || matchVec) {
+                if (matchSplat) {
+                    gammaScale /= constantContent.getSplatValue<float>();
+                } else {
+                    // Non-splat vector gamma: scale each element by 1/gammaScale.
+                    scaledValues.resize(reduceSize);
+                    for (const auto [i, v] : llvm::enumerate(constantContent.getValues<float>())) {
+                        scaledValues[i] = v / gammaScale;
+                    }
+                }
                 // Fold scaleMultiply Op into RMSOp gamma
-                gammaScale /= constantContent.getSplatValue<float>();
                 replaceOp = scaleMultiplyOp;
                 builder = mlir::OpBuilder(replaceOp);
             }
         }
     }
 
-    mlir::Value gamma = createGamma(builder, replaceOp, reduceSize, gammaScale);
+    mlir::Value gamma = !scaledValues.empty() ? createGamma(builder, replaceOp, reduceSize, ArrayRef(scaledValues))
+                                              : createGamma(builder, replaceOp, reduceSize, gammaScale);
 
     // Create RMSOp
     auto rmsOp =
@@ -486,15 +540,16 @@ bool isValidReciprocalDivideOp(mlir::Operation* op) {
 }
 
 IE::RMSOp createRMSOp(mlir::OpBuilder& builder, mlir::Operation* headOp, mlir::Value gamma, int64_t layerSize,
-                      mlir::FloatAttr epsilonAttr) {
+                      mlir::FloatAttr epsilonAttr, bool conditionalEps = false) {
     auto gammaRank = mlir::cast<vpux::NDTypeInterface>(gamma.getType()).getRank();
     if (gammaRank != 1) {
         auto reshapeOp = builder.create<IE::ReshapeOp>(
                 gamma.getLoc(), gamma, getIntArrayAttr(headOp->getContext(), SmallVector<int64_t>({layerSize})));
         gamma = reshapeOp;
     }
-    auto rmsOp =
-            builder.create<IE::RMSOp>(appendLoc(headOp->getLoc(), "rms"), headOp->getOperand(0), gamma, epsilonAttr);
+    auto conditionalEpsAttr = mlir::BoolAttr::get(headOp->getContext(), conditionalEps);
+    auto rmsOp = builder.create<IE::RMSOp>(appendLoc(headOp->getLoc(), "rms"), headOp->getOperand(0), gamma,
+                                           epsilonAttr, conditionalEpsAttr);
 
     return rmsOp;
 }
@@ -521,6 +576,11 @@ IE::RMSOp createRMSOp(mlir::OpBuilder& builder, mlir::Operation* headOp, mlir::V
 //   \                                                                                                           /
 //    -----------------------------------------------------------------------------------------------------------
 // -> IE.Multiply -> IE.Convert -> IE.Multiply (gamma)
+// Or
+// Input -> IE.Power -> IE.ReduceMean -> IE.Equal -----
+//                            |                       | ->
+//                            |------------------------ ->   IE.Select -> IE.Sqrt -> IE.Divide -> IE.Multiply
+//                                              Const   ->
 // Note: [IE.AffineReshape] is optional, present when ReduceMean uses keep_dims=false
 // Convert to RMS
 // RMS = x * 1/Sqrt(ReduceMean(x^2,axes)+eps) * gamma
@@ -550,7 +610,35 @@ void FuseRMSNormPass::safeRunOnFunc() {
             return;
         }
         auto reduceMeanOp = mlir::dyn_cast_or_null<IE::ReduceMeanOp>(*powerOp->getUsers().begin());
-        if (reduceMeanOp == nullptr || !reduceMeanOp->hasOneUse()) {
+
+        // Check if ReduceMean has valid users:
+        // - 1 user: normal Add/Clamp/Maximum/Sqrt pattern
+        // - 2 users: Equal + Select pattern (both use ReduceMean output)
+        auto hasValidReduceMeanUsers = [](IE::ReduceMeanOp reduceOp) -> bool {
+            if (reduceOp == nullptr) {
+                return false;
+            }
+            auto numUsers = std::distance(reduceOp->getUsers().begin(), reduceOp->getUsers().end());
+            if (numUsers == 1) {
+                return true;
+            }
+            if (numUsers == 2) {
+                // Check for Equal + Select pattern
+                bool hasEqual = false;
+                bool hasSelect = false;
+                for (auto user : reduceOp->getUsers()) {
+                    if (mlir::isa<IE::EqualOp>(user)) {
+                        hasEqual = true;
+                    } else if (mlir::isa<IE::SelectOp>(user)) {
+                        hasSelect = true;
+                    }
+                }
+                return hasEqual && hasSelect;
+            }
+            return false;
+        };
+
+        if (!hasValidReduceMeanUsers(reduceMeanOp)) {
             const auto reduceSumOp = mlir::dyn_cast_or_null<IE::ReduceSumOp>(*powerOp->getUsers().begin());
             isReduceSumPattern(powerOp, reduceSumOp, ctx, _log);
             return;
@@ -558,20 +646,38 @@ void FuseRMSNormPass::safeRunOnFunc() {
 
         auto headOp = powerOp;
 
-        mlir::Operation* divideOp = getSqrtAndDivideOps(*reduceMeanOp->getUsers().begin());
+        // Find the preventDivByZeroOp - could be Add, Clamp, Maximum, Sqrt, or Select
+        // For Select pattern, we need SelectOp specifically (not EqualOp which is also a user of ReduceMean)
+        auto findPreventDivByZeroOp = [](IE::ReduceMeanOp reduceOp) -> mlir::Operation* {
+            mlir::Operation* fallback = nullptr;
+            for (auto user : reduceOp->getUsers()) {
+                if (mlir::isa<IE::SelectOp>(user)) {
+                    return user;
+                }
+                if (mlir::isa<IE::AddOp, IE::ClampOp, IE::MaximumOp, IE::SqrtOp>(user)) {
+                    fallback = user;
+                }
+            }
+            return fallback ? fallback : *reduceOp->getUsers().begin();
+        };
+
+        auto firstReduceMeanUser = findPreventDivByZeroOp(reduceMeanOp);
+        mlir::Operation* divideOp = getSqrtAndDivideOps(firstReduceMeanUser);
         auto epsilon = std::numeric_limits<type::float16>::smallest_mixed_precision_eps;
+        bool isConditionalEpsPattern = false;
 
         if (divideOp == nullptr) {
-            auto preventDivByZeroOp = *reduceMeanOp->getUsers().begin();
+            auto preventDivByZeroOp = firstReduceMeanUser;
             if (!preventDivByZeroOp->hasOneUse()) {
                 return;
             }
+            // Check if this is a Select pattern (conditional epsilon)
+            isConditionalEpsPattern = mlir::isa<IE::SelectOp>(preventDivByZeroOp);
             auto epsilonResult = getEpsilon(preventDivByZeroOp);
             if (mlir::failed(epsilonResult)) {
                 return;
             }
             epsilon = epsilonResult.value();
-            // Get the next op after epsilon op
             auto nextOp = *preventDivByZeroOp->getUsers().begin();
 
             // Skip dimension expansion op (AffineReshape/Unsqueeze) if present
@@ -608,7 +714,7 @@ void FuseRMSNormPass::safeRunOnFunc() {
             // Create default gamma
             auto gamma = createGamma(builder, divideOp, reduceSize, 1.0f);
 
-            auto rmsOp = createRMSOp(builder, headOp, gamma, layerSize, epsilonAttr);
+            auto rmsOp = createRMSOp(builder, headOp, gamma, layerSize, epsilonAttr, isConditionalEpsPattern);
 
             divideOp->replaceAllUsesWith(rmsOp);
             return;
@@ -701,7 +807,7 @@ void FuseRMSNormPass::safeRunOnFunc() {
         }
 
         _log.trace("RMS pattern matched");
-        auto rmsOp = createRMSOp(builder, headOp, gamma, layerSize, epsilonAttr);
+        auto rmsOp = createRMSOp(builder, headOp, gamma, layerSize, epsilonAttr, isConditionalEpsPattern);
         if (needCreateGamma) {
             // Replacing all uses is safe: multiplyOp1 computes x/rms(x), which is
             // identical to the RMS op output with a unit gamma, regardless of how

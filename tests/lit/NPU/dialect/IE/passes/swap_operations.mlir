@@ -288,6 +288,53 @@ func.func @SwapReshapeWithBiasHasSingleNonTrivialDim(%arg0: tensor<1x512x1x1xf16
 
 // -----
 
+// Bias non-trivial dim maps to W (not C) via dim_mapping; swap must be skipped.
+
+// CHECK-LABEL: @NoSwapAffineReshapeWithBiasNonTrivialDimNotC
+// CHECK-SAME:      [[ARG_0:%[^:]+]]: tensor<1x4x1x8xf16>
+func.func @NoSwapAffineReshapeWithBiasNonTrivialDimNotC(%arg0: tensor<1x4x1x8xf16>) -> tensor<1x4x8x1xf16> {
+   %filter = const.Declare tensor<4x4x1x1xf16> = dense<1.000000e+00> : tensor<4x4x1x1xf16>
+   %cst    = const.Declare tensor<1x1x8x1xf16> = dense<[[[[1.0], [2.0], [3.0], [4.0], [5.0], [6.0], [7.0], [8.0]]]]> : tensor<1x1x8x1xf16>
+
+   %0 = IE.Convolution(%arg0, %filter) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x4x1x8xf16>, tensor<4x4x1x1xf16> -> tensor<1x4x1x8xf16>
+   %1 = IE.AffineReshape(%0) {dim_mapping = [[0], [1], [1], [2, 3]], shape_value = [1, 4, 8, 1]} : tensor<1x4x1x8xf16> -> tensor<1x4x8x1xf16>
+   %2 = IE.Add(%1, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x4x8x1xf16>, tensor<1x1x8x1xf16> -> tensor<1x4x8x1xf16>
+
+   return %2 : tensor<1x4x8x1xf16>
+
+   // Swap must NOT happen: bias non-trivial dim maps to W (not C) of parent input.
+   // CHECK:     IE.Convolution([[ARG_0]]
+   // CHECK:     IE.AffineReshape
+   // CHECK:     IE.Add
+   // CHECK-SAME: tensor<1x4x8x1xf16>, tensor<1x1x8x1xf16> -> tensor<1x4x8x1xf16>
+}
+
+// -----
+
+// CLIP vision model LayerNorm pattern: bias non-trivial dim maps to W (not C); swap skipped.
+
+// CHECK-LABEL: @NoSwapAffineReshapeWithBiasLayerNorm
+// CHECK-SAME:      [[ARG_0:%[^:]+]]: tensor<1x8x1x8xf16>
+func.func @NoSwapAffineReshapeWithBiasLayerNorm(%arg0: tensor<1x8x1x8xf16>) -> tensor<1x8x8x1xf16> {
+   %filter = const.Declare tensor<8x8x1x1xf16> = dense<1.000000e+00> : tensor<8x8x1x1xf16>
+   %bias   = const.Declare tensor<1x1x8x1xf16> = dense<[[[[1.0], [2.0], [3.0], [4.0], [5.0], [6.0], [7.0], [8.0]]]]> : tensor<1x1x8x1xf16>
+
+   %0 = IE.Convolution(%arg0, %filter) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x8x1x8xf16>, tensor<8x8x1x1xf16> -> tensor<1x8x1x8xf16>
+   %1 = IE.AffineReshape(%0) {dim_mapping = [[0], [1], [1], [2, 3]], shape_value = [1, 8, 8, 1]} : tensor<1x8x1x8xf16> -> tensor<1x8x8x1xf16>
+   %2 = IE.Add(%1, %bias) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x8x8x1xf16>, tensor<1x1x8x1xf16> -> tensor<1x8x8x1xf16>
+
+   return %2 : tensor<1x8x8x1xf16>
+
+   // Swap must NOT happen: bias non-trivial dim maps to W (not C) of parent input.
+   // Swapping would previously place the bias in C, producing a wrong numerical result.
+   // CHECK:     IE.Convolution([[ARG_0]]
+   // CHECK:     IE.AffineReshape
+   // CHECK:     IE.Add
+   // CHECK-SAME: tensor<1x8x8x1xf16>, tensor<1x1x8x1xf16> -> tensor<1x8x8x1xf16>
+}
+
+// -----
+
 // CHECK-LABEL: @NoSwapReshapeWithEltwise
 // CHECK-SAME:      [[ARG_0:%[^:]+]]: tensor<4x9728x1x1xf16>
 // CHECK-SAME:      [[ARG_1:%[^:]+]]: tensor<4x9728x1x1xf16>
@@ -1083,6 +1130,34 @@ func.func @SwapWithScaleShift(%arg0: tensor<1x64x64x64xf16>) -> tensor<1x64x64x4
     // CHECK:       [[CONV:%.+]] = IE.Convolution([[RESHAPE]], [[CST_0]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], static_scale = 2.000000e+00 : f32, strides = [1, 1]} : tensor<4096x64x1x1xf16>, tensor<4096x64x1x1xf16> -> tensor<4096x4096x1x1xf16>
     // CHECK:       [[SCALE_SHIFT:%.+]] = IE.ScaleShift([[CONV]], [[CST]]) {operandSegmentSizes = array<i32: 1, 0, 1>} : tensor<4096x4096x1x1xf16>, tensor<1x4096x1x1xf16> -> tensor<4096x4096x1x1xf16>
     // CHECK:       [[RESHAPE_OUT:%.+]] = IE.AffineReshape([[SCALE_SHIFT]])
+
+    // CHECK:       return [[RESHAPE_OUT]] : tensor<1x64x64x4096xf16>
+}
+
+// -----
+
+// Equivalent of @SwapWithScaleShift but with Add: the bias is a splat constant, so it is
+// numerically uniform and can be re-aligned to the parent channel, allowing the swap.
+
+// CHECK-LABEL: @SwapAddWithSplatBias
+// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<1x64x64x64xf16>
+func.func @SwapAddWithSplatBias(%arg0: tensor<1x64x64x64xf16>) -> tensor<1x64x64x4096xf16> {
+    %cst = const.Declare tensor<1x64x1x1xf16> = dense<5.000000e+00> : tensor<1x1x1x1xf16>, [#const.Broadcast<1 : i64, 64 : i64>]
+    %cst_0 = const.Declare tensor<4096x64x1x1xf16> = dense<1.000000e+00> : tensor<4096x64x1x1xf16>
+    %0 = IE.AffineReshape(%arg0) {dim_mapping = [[0], [0], [0], [1, 2, 3]], shape_value = [4096, 64, 1, 1]} : tensor<1x64x64x64xf16> -> tensor<4096x64x1x1xf16>
+    %1 = IE.Convolution(%0, %cst_0) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], static_scale = 2.000000e+00 : f32, strides = [1, 1]} : tensor<4096x64x1x1xf16>, tensor<4096x64x1x1xf16> -> tensor<4096x4096x1x1xf16>
+    %2 = IE.AffineReshape(%1) {dim_mapping = [[0, 1, 2], [3], [3], [3]], shape_value = [1, 64, 64, 4096]} : tensor<4096x4096x1x1xf16> -> tensor<1x64x64x4096xf16>
+    %3 = IE.Add(%2, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x64x64x4096xf16>, tensor<1x64x1x1xf16> -> tensor<1x64x64x4096xf16>
+
+    return %3 : tensor<1x64x64x4096xf16>
+
+    // CHECK-DAG:   [[CST:%.+]] = const.Declare tensor<1x4096x1x1xf16> = dense<5.000000e+00> : tensor<1x4096x1x1xf16>
+    // CHECK-DAG:   [[CST_0:%.+]] = const.Declare tensor<4096x64x1x1xf16> = dense<1.000000e+00> : tensor<4096x64x1x1xf16>
+
+    // CHECK:       [[RESHAPE:%.+]] = IE.AffineReshape([[INPUT]])
+    // CHECK:       [[CONV:%.+]] = IE.Convolution([[RESHAPE]], [[CST_0]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], static_scale = 2.000000e+00 : f32, strides = [1, 1]} : tensor<4096x64x1x1xf16>, tensor<4096x64x1x1xf16> -> tensor<4096x4096x1x1xf16>
+    // CHECK:       [[ADD:%.+]] = IE.Add([[CONV]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4096x4096x1x1xf16>, tensor<1x4096x1x1xf16> -> tensor<4096x4096x1x1xf16>
+    // CHECK:       [[RESHAPE_OUT:%.+]] = IE.AffineReshape([[ADD]])
 
     // CHECK:       return [[RESHAPE_OUT]] : tensor<1x64x64x4096xf16>
 }

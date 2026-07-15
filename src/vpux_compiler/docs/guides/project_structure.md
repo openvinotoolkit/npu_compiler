@@ -27,7 +27,7 @@ It makes sense to divide libraries into two "types": common and platform-specifi
   <em>Library dependencies</em>
 </p>
 
-Please note that this diagram does not show all libraries and dependencies in the compiler. The common part(dark rectangles) contains only open code reused across multiple platforms. It consists of:
+Please note that this diagram does not show all libraries and dependencies in the compiler. The common part(dark rectangles) contains only open (non-embargoed) code reused across multiple platforms. It consists of:
 - dialects: `const`, `core`, `net` and `config` which are completely common and widely used in the compiler;
 - `core` – data structures required by compiler;
 - `utils` – helpers to work with core data structures;
@@ -48,12 +48,14 @@ The platform-specific part includes both open and closed code: constants (e.g., 
 
 These are fully platform-agnostic passes. This means you will get the same result for any input IR regardless of the platform version. Such passes have to be placed in a common part. Please refer to [primer_mlir](primer_mlir.md#passes) to get more information.
 
+### Platform-specific passes
 ### "Mixed" passes
 
 Mixed passes share a common core algorithm but utilise platform-specific information to make decisions. Simply put, the same input IR produces different results across platforms.
 
-If the pass logic differs between public platforms, you can use "standard" `if/else` or `switch/case` statements:
+If your case involves embargo logic, proceed to the following sections to find a suitable approach to integrating it. If you still can’t find a solution, feel free to contact the document owners for assistance.
 
+If the pass logic differs between public platforms, you can use "standard" `if/else` or `switch/case` statements:
 It’s worth noting that the information in the sections below is still useful when working with public platforms, as it can offer insights into writing flexible, platform-independent code. The core concept is to rely on [OOP](https://en.wikipedia.org/wiki/Object-oriented_programming) principles and, in particular, the [Strategy behavioral pattern](https://refactoring.guru/design-patterns/strategy). The main advantage of this pattern is that when a new platform is introduced, you don’t need to modify the pass code to change its behavior — adding a new implementation of the interface is enough. This approach helps maintain compliance with the Open/Closed Principle ([OCP](https://en.wikipedia.org/wiki/Open%E2%80%93closed_principle)).
 
 #### "Classic" strategy
@@ -114,7 +116,7 @@ def IE_MultiplyOp :
         > { ... }
 ```
 
-This approach has a couple of drawback: 
+This approach has a couple of drawback:
 - in particular, in the above example, where the interface is declared for `MultiplyOp`, this automatically means that the operation supports `post-ops` for all platforms, since it can be casted to `IE::LayerWithPostOpInterface`. At the same time it is possible that `MultiplyOp` supports a specific `post-op` type(e.g. `ReLu`) for the `50XX+`, but not for `37XX` and `40XX`;
 - operation can support different `post-ops` depending on platform, so we will have to use `ArchKind` again to implement the interface.
 
@@ -130,7 +132,7 @@ void vpux::VPU::arch50xx::registerLayerWithPostOpModelInterface(mlir::DialectReg
 }
 ```
 
-For detailed information on how to attach an interface to an operation, please visit [MLIR Overview](https://mlir.llvm.org/docs/Interfaces). Consequently, for each platform we can specify which operations need the interface attached using a concrete model. For example, `LayerWithPostOpModel` can differ between `37XX`/`40XX` and `50XX`. The diagram below illustrates the dependencies between these classes: 
+For detailed information on how to attach an interface to an operation, please visit [MLIR Overview](https://mlir.llvm.org/docs/Interfaces). Consequently, for each platform we can specify which operations need the interface attached using a concrete model. For example, `LayerWithPostOpModel` can differ between `37XX`/`40XX` and `50XX`. The diagram below illustrates the dependencies between these classes:
 
 <p align="center">
   <img src="images/op_interface.png" width="70%"><br>
@@ -324,7 +326,58 @@ Some [recommendations](../code_style.md#pipelines-and-passes) are already writte
 
 ## Properties
 
-TODO: #-196170
+The properties, or NPU-related constraints, are packaged in the
+[`NPUConstraints`](../../include/vpux/compiler/dialect/config/constraints.hpp) struct declared in
+the `vpux::config` component. This struct contains all platform-specific constant information.
+`NPUConstraints` is stored in the MLIR context using the `ConfigCache`, which is an MLIR dialect interface.
+Properties for different platforms are added to the cache during compiler initialization,
+before the pipeline starts (see [hw_strategy_registry.cpp](../../src/init/hw_strategy_registry.cpp)).
+
+The diagram below illustrates the dependencies between these classes:
+
+<p align="center">
+  <img src="images/npu_constraints.png" width="80%"><br>
+  <em>NPU constraints and config dialect cache dependencies</em>
+</p>
+
+To retrieve a property, call `config::getNPUConstraints(context)` and access the required field.
+The following example retrieves the frequencyTable property.
+The same access pattern applies to all properties in `NPUConstraints`:
+
+```C++
+// Example: Retrieve frequencyTable property from NPUConstraints.
+// Source: src/vpux_compiler/src/dialect/ELF/IR/ops/create_performance_metrics_section.cpp
+
+auto operation = getOperation();
+auto mainModule = operation->getParentOfType<mlir::ModuleOp>();
+
+const auto& freqTable = config::getNPUConstraints(mainModule->getContext()).frequencyTable;
+```
+
+To add a new property, first add a new field to the NPUConstraints struct in
+[constraints.hpp](../../include/vpux/compiler/dialect/config/constraints.hpp):
+```C++
+/**
+ * @brief Structure for aggregating configuration constants.
+ */
+struct NPUConstraints {
+...
+// Define a new field for the property, for example:
+int64_t maxKernelSize;
+};
+```
+Then set it to the appropriate value for each platform in the `initialize` method of each `ConstraintsInitializer`.
+For example, the `50XX` platform initializes the `maxKernelSize` property as follows:
+```C++
+void config::ConstraintsInitializer50XX::initialize(mlir::MLIRContext* context) {
+    ...
+    
+    // Fill the new field with the appropriate value for 50XX platform
+    constraints.maxKernelSize = arch50xx::DPU_MAX_KERNEL_SIZE;
+
+    setNPUConstraints(context, constraints);
+}
+```
 
 ## Operations
 
@@ -471,7 +524,7 @@ In the HostCompile pipeline, the network is divided into kernel functions and ho
 Consider the following example:
 
 ```mlir
-module @StaticEltwiseNHWC attributes {config.arch = #config.arch_kind<NPU40XX>, config.revisionID = #config.revision_id<REVISION_NONE>, config.compilationMode = #config.compilation_mode<HostCompile>} {
+module @StaticEltwiseNHWC attributes {config.revisionID = #config.revision_id<REVISION_NONE>, config.compilationMode = #config.compilation_mode<HostCompile>, config.platform = #config.platform<NPU4000>} {
   module @Module_1 {
     // function which contains the NPU-specific code and supposed to be compiled into ELF blobs
     func.func private @main_func0(%arg0: tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 100]> : tensor<4xsi64>, order = #NHWC}>, %arg1: tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 100]> : tensor<4xsi64>, order = #NHWC}>) -> tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 100]> : tensor<4xsi64>, order = #NHWC}> {
@@ -504,13 +557,20 @@ This contrasts with the `DefaultHW` pipeline, where the compilation process gene
 
 ### How to use HostCompile mode
 
+Use `HostCompile_Interpreter` as the standard value for `NPU_COMPILATION_MODE`.
+
+`HostCompile` is deprecated and is an alias of `HostCompile_JIT` (legacy backend).
+Use `HostCompile`/`HostCompile_JIT` only as a fallback when `HostCompile_Interpreter` does not work for a specific configuration, and always document:
+- a tracking ticket;
+- the technical reason why Interpreter mode cannot be used.
+
 #### Locally
 
-To compile a network end to end with `HostCompile` pipeline use one of the following options:
+To compile a network end to end with `HostCompile_Interpreter` pipeline use one of the following options:
 
 - Provide `NPU_COMPILATION_MODE` environment variable while using compile_tool:
 
-`NPU_COMPILATION_MODE="HostCompile" ./compile_tool -d NPU.4000 -m ./net.onnx -o ./net.blob  -shape [1,3,4..6,7..10]`
+`NPU_COMPILATION_MODE="HostCompile_Interpreter" ./compile_tool -d NPU.4000 -m ./net.onnx -o ./net.blob  -shape [1,3,4..6,7..10]`
 - Create config file, specify compilation mode and use this config for compilation:
 
 `./compile_tool -d NPU.4000 -m ./net.onnx -o ./net.blob -c ./extra_config_net.conf -shape [1,3,4..6,7..10]`
@@ -518,11 +578,11 @@ To compile a network end to end with `HostCompile` pipeline use one of the follo
 Below is the content of the `extra_config_net.conf` file
 
 ```plaintext
-NPU_COMPILATION_MODE HostCompile
+NPU_COMPILATION_MODE HostCompile_Interpreter
 ```
 
 #### In CI
-Specify "NPU_COMPILATION_MODE": "HostCompile" in `extra_config` section of JSON config file:
+Specify "NPU_COMPILATION_MODE": "HostCompile_Interpreter" in `extra_config` section of JSON config file:
 ```json
   "networks": [
     {
@@ -531,7 +591,7 @@ Specify "NPU_COMPILATION_MODE": "HostCompile" in `extra_config` section of JSON 
       "category": "CID/precommit/VPU4000",
       "extra_config": {
         "NPU_PLATFORM": "VPU4000",
-        "NPU_COMPILATION_MODE": "HostCompile"
+        "NPU_COMPILATION_MODE": "HostCompile_Interpreter"
       },
       "Compile": {
         "shape": "[1,3,10..1600,10..2560]"
@@ -547,6 +607,9 @@ Specify "NPU_COMPILATION_MODE": "HostCompile" in `extra_config` section of JSON 
       },
       "AccuracyCheck": {
         "disabled": true
+      },
+      "IMD": {
+        "disabled": false
       }
     }
   ]

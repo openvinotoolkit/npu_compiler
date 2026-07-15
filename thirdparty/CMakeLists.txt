@@ -19,13 +19,6 @@ endforeach()
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     string(REPLACE "/sdl" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
     string(REPLACE "/sdl" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
-    if(NOT BUILD_COMPILER_FOR_DRIVER)
-        set(ie_c_cxx_deprecated_no_errors "${ie_c_cxx_deprecated_no_errors} /wd4146 /wd4703")
-    endif()
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} ${ie_c_cxx_deprecated_no_errors}")
-    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} ${ie_c_cxx_deprecated_no_errors}")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${ie_c_cxx_deprecated_no_errors}")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${ie_c_cxx_deprecated_no_errors}")
 endif()
 
 set(BUILD_SHARED_LIBS OFF)
@@ -77,7 +70,7 @@ add_subdirectory(vpucostmodel EXCLUDE_FROM_ALL)
 
 # remove Intel specific global compile definitions to prevent them affecting thirdparty targets below (especially LLVM/MLIR)
 get_directory_property(dir_defs COMPILE_DEFINITIONS)
-list(FILTER dir_defs EXCLUDE REGEX "^INTEL_")
+list(FILTER dir_defs EXCLUDE REGEX "^INTEL_") # ex.: NPU INTEL_EMBARGO compile definitions
 list(FILTER dir_defs EXCLUDE REGEX "OV_NATIVE_PARENT_PROJECT_ROOT_DIR") # OV global compile definition
 set_directory_properties(PROPERTIES COMPILE_DEFINITIONS "${dir_defs}")
 

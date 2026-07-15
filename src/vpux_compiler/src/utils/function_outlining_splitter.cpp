@@ -52,13 +52,13 @@ void vpux::printOutliningInstances(ArrayRef<OutliningInstance> outliningInstance
     }
 }
 
-void OutlinerBase::outline(mlir::ModuleOp moduleOp, StringRef functionSuffix) {
+bool OutlinerBase::outline(mlir::ModuleOp moduleOp, StringRef functionSuffix) {
     auto netFunc = net::getMainFunc(moduleOp);
 
     auto outlinedTargets = getOutliningTargets(netFunc);
     if (outlinedTargets.empty()) {
         _log.debug("Empty outline targets");
-        return;
+        return false;
     }
 
     _log.info("Creating {0} functions", outlinedTargets.size());
@@ -81,4 +81,5 @@ void OutlinerBase::outline(mlir::ModuleOp moduleOp, StringRef functionSuffix) {
     buildFuncOps(moduleOp, funcsInfo, outlinedTargets);
     buildCallOps(moduleOp, funcsInfo, outlinedTargets);
     updateMainFuncOp(moduleOp, outlinedTargets);
+    return true;
 }

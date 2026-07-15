@@ -275,19 +275,27 @@ def OneShotBufferizeSWKernels : PassBase<"one-shot-bufferize-sw-kernels", "vpux:
     ];
 }
 
-def StripFuncQuantTypesCodeGen : PassBase<"strip-func-quant-types-codegen", "vpux::ModulePass"> {
-    let summary = "Strip func quant types from SCG capsules";
+def ParametricCapsuleTiling : PassBase<"scg-parametric-capsule-tiling", "vpux::FunctionPass"> {
+    let summary = "Capsule parametric tiling";
 
     let description = [{
-        Removes quantization types from the signatures of ShaveCodeGen capsule functions
-        after their bodies have been lowered to linalg / bufferized operations.
+        Performs parametric tiling of clusters of tileable ops inside CodeGenCapsule ops.
+        Tiling is performed in a parallel fashion. Tiling axes are chosen such that the
+        maximal number of ops are being fused while still having the possibility to tile
+        and fit into CMX.
     }];
 
-    let constructor = "vpux::ShaveCodeGen::createStripFuncQuantTypesCodeGenPass()";
+    let constructor = "vpux::ShaveCodeGen::createParametricCapsuleTilingPass()";
 
     let dependentDialects = [
         "mlir::func::FuncDialect",
-        "mlir::quant::QuantDialect",
+        "vpux::IE::IEDialect",
+        "vpux::Shave::ShaveDialect",
+        "mlir::tensor::TensorDialect",
+        "mlir::linalg::LinalgDialect",
+        "mlir::scf::SCFDialect",
+        "mlir::arith::ArithDialect",
+        "mlir::affine::AffineDialect"
     ];
 }
 

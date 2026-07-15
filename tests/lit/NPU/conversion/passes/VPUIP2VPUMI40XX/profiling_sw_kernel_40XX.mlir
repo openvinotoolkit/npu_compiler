@@ -40,7 +40,7 @@ net.NetworkInfo
 module @VPU.SW {
     // The declaration should match C++ params structure in decomposed form.
     // `memref` will be translated to `MemRefData`, while raw scalars will be translated as is.
-    func.func private @builtin_softmax(%input : memref<*xf16>, %output : memref<*xf16>, %axis : i64)
+    func.func nested @builtin_softmax(%input : memref<*xf16>, %output : memref<*xf16>, %axis : i64)
         attributes {
             VPU.kernel_code = "softmax.cpp",
             VPU.kernel_entry = "softmax"

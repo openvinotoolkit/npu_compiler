@@ -19,11 +19,11 @@ func.func @SplitQuantNCEConvOverOC(%arg0: tensor<1x32x16x16x!qElemType, {order =
     %weights = const.Declare tensor<55296x32x3x3x!qElemType2, {order = #NHWC}> = dense<1.000000e+00> : tensor<55296x32x3x3xf16>, [#const.CastElemType<ui8>, #const.CastElemType<!qElemType2>, #const.Reorder<#NHWC>]
     %weights_table = const.Declare tensor<55296x1x1x4xsi32, {order = #NCHW}> = dense<10> : tensor<55296x1x1x4xsi32>
 
-    %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) {
+    %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) rawFilterShape [55296, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         ppe = #VPU.PPEStub<>,
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-        rawFilterShape = [55296, 32, 3, 3],
+        
         strides = [1, 1]
     } : tensor<1x32x16x16x!qElemType, {order = #NHWC}>, tensor<55296x32x3x3x!qElemType2, {order = #NHWC}>, tensor<55296x1x1x4xsi32, {order = #NCHW}> -> tensor<1x55296x16x16x!qElemType1, {order = #NHWC}>
 
@@ -61,11 +61,11 @@ func.func @SplitQuantNCEConvOverOC(%arg0: tensor<1x32x16x16x!qElemType, {order =
 func.func @CheckTilingRetryLogic(%arg0: tensor<1x16x1x1xf16, {order = #NHWC}>,
                                 %arg1: tensor<6193152x16x1x1xf16, {order = #NHWC}>,
                                 %arg2: tensor<6193152x1x1x4xsi32, {order = #NCHW}>) -> tensor<1x6193152x1x1xf16, {order = #NHWC}> {
-  %0 = VPU.NCE.Convolution(%arg0, %arg1, %arg2) {
+  %0 = VPU.NCE.Convolution(%arg0, %arg1, %arg2) rawFilterShape [6193152, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         ppe = #VPU.PPEStub<>,
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-        rawFilterShape = [6193152, 16, 1, 1],
+        
         strides = [1, 1]} : tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<6193152x16x1x1xf16, {order = #NHWC}>, tensor<6193152x1x1x4xsi32, {order = #NCHW}> -> tensor<1x6193152x1x1xf16, {order = #NHWC}>
 
   return %0 : tensor<1x6193152x1x1xf16, {order = #NHWC}>

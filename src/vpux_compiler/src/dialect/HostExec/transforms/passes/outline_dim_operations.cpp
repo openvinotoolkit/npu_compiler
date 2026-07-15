@@ -5,9 +5,11 @@
 
 #include "vpux/compiler/dialect/HostExec/IR/dialect.hpp"
 #include "vpux/compiler/dialect/HostExec/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Dialect/Arith/IR/Arith.h>
@@ -208,6 +210,23 @@ void OutlineDimOperationsPass::safeRunOnModule() {
     // Traverse the IR from all tensor.from_elements ops to their inputs
     // and collect all tensor and arith operations
     auto opsToMove = collectOperationsToOutline(shapeTensorOps);
+
+    // An unreified IE op in the output shape computation means the shape chain was not
+    // fully resolved before outlining. Such ops must implement
+    // ReifyRankedShapedTypeOpInterface to be handled by resolveShapedTypeResultDims.
+    llvm::SetVector<mlir::OperationName> unreifiedOpTypes;
+    for (auto* op : opsToMove) {
+        if (mlir::isa_and_nonnull<IE::IEDialect>(op->getDialect())) {
+            unreifiedOpTypes.insert(op->getName());
+        }
+    }
+    if (!unreifiedOpTypes.empty()) {
+        auto err = mlir::emitError(mainFunc.getLoc());
+        printTo(err, "Found {0} unreified IE op type(s) in @output_shape chain: ", unreifiedOpTypes.size());
+        llvm::interleaveComma(unreifiedOpTypes, err);
+        signalPassFailure();
+        return;
+    }
 
     mlir::OpBuilder moduleBuilder(module);
     moduleBuilder.setInsertionPoint(mainFunc);

@@ -8,6 +8,7 @@
 #include "vpux/compiler/ShaveCodeGen/passes.hpp"
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/core/force_link_macros.hpp"
+#include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/core/transforms/passes.hpp"
@@ -73,14 +74,6 @@ void ReferenceSWStrategy::buildPipeline(mlir::OpPassManager& pm) {
 // HostPipelineStrategy
 //
 
-void HostPipelineStrategy::buildOutputShapePredictFunc(mlir::OpPassManager& pm) {
-    const auto grc = getDefaultGreedyRewriteConfig();
-    pm.addPass(HostExec::createExtractReturnShapesPass(_log));
-    pm.addPass(mlir::memref::createResolveShapedTypeResultDimsPass());
-    pm.addPass(HostExec::createOutlineDimOperationsPass(_log));
-    pm.addPass(mlir::createCanonicalizerPass(grc));
-}
-
 void HostPipelineStrategy::buildPipeline(mlir::OpPassManager& pm) {
     auto strategy = _createPipelineStrategy(config::CompilationMode::HostCompile);
 
@@ -92,25 +85,29 @@ void HostPipelineStrategy::buildPipeline(mlir::OpPassManager& pm) {
     pm.addPass(IE::createFuseColorConversionPass(/*enableYuvToRgbShaveScale=*/true, _log));
 
     // build output shape predict func and pack @main func to a nested @NPU module
-    buildOutputShapePredictFunc(pm);
+    HostExec::buildOutputShapePredictPipeline(pm, _log);
+
+    strategy->buildDebatcherPipeline(pm, _log);
 
     // pack @NPU module
+    // From now on, all host-compile related functions will be located in the top module
     pm.addPass(Core::createPackNestedModulesPass(_log, Core::NestingMode::EntryPoint));
-
-    // perform these transformations on the nested @NPU module
     auto& nestedNPUPm = pm.nest<mlir::ModuleOp>();
-    strategy->buildDebatcherPipeline(nestedNPUPm, _log);
     strategy->buildIEPipeline(nestedNPUPm, _log);
     strategy->buildLowerIE2VPUPipeline(nestedNPUPm, _log);
     strategy->buildVPUPipeline(nestedNPUPm, _log);
+    // unpack @NPU module
+    // Starting from that moment, all code processing each dynamic-dimension
+    // must be extracted into pure host-compile functions, which will be put into
+    // the top module
+    pm.addPass(Core::createUnpackNestedModulesPass(_log, Core::NestingMode::EntryPoint));
+    pm.addPass(VPU::createFinalizeComputeFunctionBoundariesPass(_log));
 
-    // resolve debatcher undef func call
+    // Link all resolved function calls after module unpacking
     pm.addPass(vpux::HostExec::createWrapFuncCallPass(_log));
 
-    // unpack @NPU module
-    pm.addPass(Core::createUnpackNestedModulesPass(_log, Core::NestingMode::EntryPoint));
-
     strategy->buildLowerVPU2VPUIPPipeline(pm, _log);
+    pm.addPass(vpux::HostExec::createPropagateDynamicShapesPass(_log));
 
     pm.addPass(vpux::HostExec::createOptimizeMemRefCopiesPass(_log));
 
@@ -122,8 +119,7 @@ void HostPipelineStrategy::buildPipeline(mlir::OpPassManager& pm) {
     pm.addPass(vpux::HostExec::createReplaceAllocsWithSingleAllocAndViewsPass(_log));
     pm.addPass(mlir::createCanonicalizerPass());
     pm.addPass(mlir::createCSEPass());
-
-    pm.addPass(vpux::HostExec::createPrepareHostFuncForAsyncExecutionPass(_log));
+    pm.addPass(vpux::HostExec::createPrepareHostFuncForAsyncExecutionPass(/*removeReturnValues=*/true, _log));
 
     auto& nestedPm = pm.nest<mlir::ModuleOp>();
     { strategy->buildVPUIPPipeline(nestedPm, _log); }
@@ -141,6 +137,8 @@ std::unique_ptr<IFrontendPipelineStrategy> createPipelineFactory(config::Compila
     case config::CompilationMode::ReferenceSW:
         return std::make_unique<ReferenceSWStrategy>(createPipelineStrategy, log);
     case config::CompilationMode::HostCompile:
+    case config::CompilationMode::HostCompile_JIT:
+    case config::CompilationMode::HostCompile_Interpreter:
         return std::make_unique<HostPipelineStrategy>(createPipelineStrategy, log);
     default:
         VPUX_THROW("Unsupported compilation mode '{0}'", compilationMode);

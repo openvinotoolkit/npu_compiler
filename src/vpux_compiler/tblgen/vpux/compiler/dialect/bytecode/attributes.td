@@ -23,19 +23,25 @@ class Bytecode_Attr<string cppName, string mnemonicStr, list<Trait> traits = []>
 // Float format enum
 //
 
-def Bytecode_FloatFormat_IEEE    : I64EnumAttrCase<"IEEE",    0x00>;
+def Bytecode_FloatFormat_IEEE754 : I64EnumAttrCase<"IEEE754", 0x00>;
 def Bytecode_FloatFormat_BFloat  : I64EnumAttrCase<"BFloat",  0x01>;
 def Bytecode_FloatFormat_TFloat  : I64EnumAttrCase<"TFloat",  0x02>;
 def Bytecode_FloatFormat_E4M3    : I64EnumAttrCase<"E4M3",    0x03>;
 def Bytecode_FloatFormat_E5M2    : I64EnumAttrCase<"E5M2",    0x04>;
 def Bytecode_FloatFormat_E2M1    : I64EnumAttrCase<"E2M1",    0x05>;
+def Bytecode_FloatFormat_E8M0    : I64EnumAttrCase<"E8M0",    0x06>;
+def Bytecode_FloatFormat_NF4     : I64EnumAttrCase<"NF4",     0x07>;
 
+// Note: This enum is used for the FloatTypeAttr, as it is necessary for printing / parsing
+// For serialization and deserialization, an analogous bytecode::FloatTypeFormat enum is used,
+// to keep this logic decoupled from MLIR
 def Bytecode_FloatFormat : I64EnumAttr<
     "FloatFormat",
     "Bytecode floating-point format",
-    [Bytecode_FloatFormat_IEEE, Bytecode_FloatFormat_BFloat,
+    [Bytecode_FloatFormat_IEEE754, Bytecode_FloatFormat_BFloat,
      Bytecode_FloatFormat_TFloat, Bytecode_FloatFormat_E4M3,
-     Bytecode_FloatFormat_E5M2, Bytecode_FloatFormat_E2M1]> {
+     Bytecode_FloatFormat_E5M2, Bytecode_FloatFormat_E2M1,
+     Bytecode_FloatFormat_E8M0, Bytecode_FloatFormat_NF4]> {
     let cppNamespace = "vpux::bytecode";
 }
 
@@ -48,14 +54,15 @@ def Bytecode_IntegerTypeAttr : Bytecode_Attr<"IntegerType", "integer_type"> {
     let description = [{
         Represents an integer type in the bytecode type section.
         The width specifies the number of bits.
-
+        The is_signed flag indicates whether the integer is signed or unsigned.
         Example:
         ```mlir
         bytecode.type @i64 #bytecode.integer_type<width = 64>
         ```
     }];
     let parameters = (ins
-        "int64_t":$width
+        "int64_t":$width,
+        "bool":$is_signed
     );
     let assemblyFormat = "`<` struct(params) `>`";
 }
@@ -69,7 +76,7 @@ def Bytecode_FloatTypeAttr : Bytecode_Attr<"FloatType", "float_type"> {
 
         Example:
         ```mlir
-        bytecode.type @f32 #bytecode.float_type<width = 32, format = IEEE>
+        bytecode.type @f32 #bytecode.float_type<width = 32, format = IEEE754>
         ```
     }];
     let parameters = (ins
@@ -116,6 +123,7 @@ def Bytecode_BufferTypeAttr : Bytecode_Attr<"BufferType", "buffer_type"> {
         "::mlir::DenseI64ArrayAttr":$strides
     );
     let assemblyFormat = "`<` struct(params) `>`";
+    let genVerifyDecl = 1;
 }
 
 def Bytecode_FunctionTypeAttr : Bytecode_Attr<"FunctionType", "function_type"> {

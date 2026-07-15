@@ -8,6 +8,8 @@
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/activation.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/arithmetic.hpp"
 
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPU/interfaces/scf/scf_tiling_interfaces.hpp"
@@ -106,10 +108,10 @@ TEST_F(MLIR_SCFTilingTest, ComputeInputTilesConv) {
     %weights = const.Declare tensor<256x32x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<256x32x3x3xf16>, [#const.Reorder<#NHWC>]
     %weights_table = const.Declare tensor<256x1x1x4xsi32, {order = #NCHW}> = dense<10> : tensor<256x1x1x4xsi32>
 
-    %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) {
+    %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) rawFilterShape [256, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
-        rawFilterShape = [256, 32, 3, 3],
+        
         strides = [1, 1],
         tilingStrategy = [1, 1, 2, 1]
     } : tensor<1x32x64x64xf16, {order = #NHWC}>, tensor<256x32x3x3xf16, {order = #NHWC}>, tensor<256x1x1x4xsi32, {order = #NCHW}> -> tensor<1x256x64x64xf16, {order = #NHWC}>
@@ -132,7 +134,7 @@ TEST_F(MLIR_SCFTilingTest, ComputeInputTilesConv) {
     const auto numTiles = 2;
 
     func.walk([&](VPU::NCEConvolutionOp conv) {
-        auto tileShape = to_small_vector(getShape(conv.getResult()).raw());
+        auto tileShape = to_small_vector(getShape(conv.getResult(0)).raw());
         tileShape[tileDim.ind()] /= numTiles;
         auto offset = SmallVector<int64_t>(tileShape.size(), 0);
         offset[tileDim.ind()] = tileShape[tileDim.ind()];
@@ -172,11 +174,11 @@ TEST_F(MLIR_SCFTilingTest, ComputeInputTilesCTileConv) {
             : tensor<512x256x3x3xf16>, [#const.Reorder<#NHWC>]
         %weights_table = const.Declare tensor<512x1x1x4xsi32, {order = #NCHW}> = dense<1> : tensor<512x1x1x4xsi32>
 
-        %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) {
+        %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) rawFilterShape [512, 256, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
-            rawFilterShape = [512, 256, 3, 3],
+            
             strides = [1, 1],
             tilingStrategy = [1, 2, 1, 1]
         } : tensor<1x256x14x14xf16, {order = #NHWC}>, tensor<512x256x3x3xf16, {order = #NHWC}>, tensor<512x1x1x4xsi32, {order = #NCHW}> -> tensor<1x512x14x14xf16, {order = #NHWC}>
@@ -199,7 +201,7 @@ TEST_F(MLIR_SCFTilingTest, ComputeInputTilesCTileConv) {
     const auto numTiles = 2;
 
     func.walk([&](VPU::NCEConvolutionOp conv) {
-        auto tileShape = to_small_vector(getShape(conv.getResult()).raw());
+        auto tileShape = to_small_vector(getShape(conv.getResult(0)).raw());
         tileShape[tileDim.ind()] /= numTiles;
         auto offset = SmallVector<int64_t>(tileShape.size(), 0);
         offset[tileDim.ind()] = tileShape[tileDim.ind()];
@@ -253,7 +255,7 @@ TEST_F(MLIR_SCFTilingTest, ComputeInputTilesPooling) {
             func.func @main(%arg0: tensor<1x16x200x200xf16, {order = #NHWC}>) -> tensor<1x16x200x200xf16, {order = #NHWC}> {
     %weights_table = const.Declare tensor<16x1x1x4xsi32, {order = #NCHW}> = dense<10> : tensor<16x1x1x4xsi32>
 
-    %0 = VPU.NCE.MaxPool(%arg0, %weights_table) {
+    %0 = VPU.NCE.MaxPool(%arg0, %weights_table) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         kernel_size = [3, 3],
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
@@ -279,7 +281,7 @@ TEST_F(MLIR_SCFTilingTest, ComputeInputTilesPooling) {
     const auto numTiles = 2;
 
     func.walk([&](VPU::NCEMaxPoolOp pooling) {
-        auto tileShape = to_small_vector(getShape(pooling.getResult()).raw());
+        auto tileShape = to_small_vector(getShape(pooling.getResult(0)).raw());
         tileShape[tileDim.ind()] /= numTiles;
         auto offset = SmallVector<int64_t>(tileShape.size(), 0);
         offset[tileDim.ind()] = tileShape[tileDim.ind()];
@@ -316,7 +318,7 @@ TEST_F(MLIR_SCFTilingTest, ComputeInputTilesDWConv) {
          %arg1: tensor<32x16x1x1xf16, {order = #NHWC}>,
          %arg2: tensor<32x1x1x4xsi32>
  ) -> tensor<1x32x200x200xf16, {order = #NHWC}> {
-     %1 = VPU.NCE.DepthConvolution(%arg0, %arg1, %arg2) {
+     %1 = VPU.NCE.DepthConvolution(%arg0, %arg1, %arg2) rawFilterShape [32, 1, 1, 1] {
          pad = #VPU.Padding<
              left = 0 : i64,
              right = 0 : i64,
@@ -331,7 +333,7 @@ TEST_F(MLIR_SCFTilingTest, ComputeInputTilesDWConv) {
              lrelu_shift = 0 : i64,
              fp_prelu_alpha = 1.000000e+00 : f64
          >,
-         rawFilterShape = [32, 1, 1, 1],
+         
          strides = [1, 1],
          tilingStrategy = [1, 2, 1, 1]
      } -> tensor<1x32x200x200xf16, {order = #NHWC}>
@@ -430,5 +432,533 @@ TEST_F(MLIR_SCFTilingTest, SliceTilingAxis) {
         EXPECT_FALSE(isDimSliced(1));
         EXPECT_TRUE(isDimSliced(2));
         EXPECT_FALSE(isDimSliced(3));
+    });
+}
+
+TEST_F(MLIR_SCFTilingTest, ComputeInputTilesGelu) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<VPU::VPUDialect>();
+    mlir::OpBuilder builder(&ctx);
+
+    constexpr llvm::StringLiteral inputIR = R"(
+        module @test {
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
+            func.func @main(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+                %0 = VPU.Gelu(%arg0) {
+                    tilingStrategy = [1, 1, 2, 1]
+                } : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+                return %0 : tensor<1x16x128x256xf16>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    vpux::VPU::SCFTilingEltwiseLikeModelOp<VPU::GeluOp> geluOpModel;
+
+    func.walk([&](VPU::GeluOp gelu) {
+        VPU::SCFTileInfo outputTile({1, 16, 64, 256}, builder);
+        auto scfTilingInput = geluOpModel.backInferSCFTileInfo(gelu.getOperation(), builder, outputTile);
+
+        EXPECT_EQ(scfTilingInput.tiles.size(), 1);
+        auto inputShape = mlir::getConstantIntValues(scfTilingInput.tiles.front().shape);
+        EXPECT_TRUE(inputShape.has_value());
+        SmallVector<int64_t> expectedShape = {1, 16, 64, 256};
+        EXPECT_TRUE(llvm::equal(inputShape.value(), expectedShape));
+
+        auto inputOffset = mlir::getConstantIntValues(scfTilingInput.tiles.front().offsets);
+        EXPECT_TRUE(inputOffset.has_value());
+        SmallVector<int64_t> expectedOffset = {0, 0, 0, 0};
+        EXPECT_TRUE(llvm::equal(inputOffset.value(), expectedOffset));
+    });
+}
+
+TEST_F(MLIR_SCFTilingTest, ComputeInputTilesDequantize) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<VPU::VPUDialect>();
+    mlir::OpBuilder builder(&ctx);
+
+    constexpr llvm::StringLiteral inputIR = R"(
+        module @test {
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
+            func.func @main(%arg0: tensor<1x16x128x256x!quant.uniform<u8:f16, 0.0039215686274509803>>) -> tensor<1x16x128x256xf16> {
+                %0 = VPU.Dequantize(%arg0) {
+                    dstElemType = f16,
+                    tilingStrategy = [1, 1, 2, 1]
+                } : tensor<1x16x128x256x!quant.uniform<u8:f16, 0.0039215686274509803>> -> tensor<1x16x128x256xf16>
+                return %0 : tensor<1x16x128x256xf16>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    vpux::VPU::SCFTilingEltwiseLikeModelOp<VPU::DequantizeOp> dequantizeOpModel;
+
+    func.walk([&](VPU::DequantizeOp dequantize) {
+        VPU::SCFTileInfo outputTile({1, 16, 64, 256}, builder);
+        auto scfTilingInput = dequantizeOpModel.backInferSCFTileInfo(dequantize.getOperation(), builder, outputTile);
+
+        EXPECT_EQ(scfTilingInput.tiles.size(), 1);
+        auto inputShape = mlir::getConstantIntValues(scfTilingInput.tiles.front().shape);
+        EXPECT_TRUE(inputShape.has_value());
+        SmallVector<int64_t> expectedShape = {1, 16, 64, 256};
+        EXPECT_TRUE(llvm::equal(inputShape.value(), expectedShape));
+
+        auto inputOffset = mlir::getConstantIntValues(scfTilingInput.tiles.front().offsets);
+        EXPECT_TRUE(inputOffset.has_value());
+        SmallVector<int64_t> expectedOffset = {0, 0, 0, 0};
+        EXPECT_TRUE(llvm::equal(inputOffset.value(), expectedOffset));
+    });
+}
+
+TEST_F(MLIR_SCFTilingTest, ComputeInputTilesMVN1Normalize) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<VPU::VPUDialect>();
+    mlir::OpBuilder builder(&ctx);
+
+    constexpr llvm::StringLiteral inputIR = R"(
+        module @test {
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
+            func.func @main(%arg0: tensor<1x16x128x256xf16>, %arg1: tensor<1x16x1x2xf16>) -> tensor<1x16x128x256xf16> {
+                %0 = VPU.MVN1Normalize(%arg0, %arg1) {
+                    across_channels = false,
+                    normalize_variance = true,
+                    tilingStrategy = [1, 1, 2, 1]
+                } : tensor<1x16x128x256xf16>, tensor<1x16x1x2xf16> -> tensor<1x16x128x256xf16>
+                return %0 : tensor<1x16x128x256xf16>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    vpux::VPU::SCFMVN1NormalizeModelOp mvn1NormalizeOpModel;
+
+    func.walk([&](VPU::MVN1NormalizeOp mvn) {
+        VPU::SCFTileInfo outputTile({1, 16, 64, 256}, builder);
+        auto scfTilingInput = mvn1NormalizeOpModel.backInferSCFTileInfo(mvn.getOperation(), builder, outputTile);
+
+        // MVN1Normalize has 2 inputs: data (tiled) and meanVar (untiled)
+        EXPECT_EQ(scfTilingInput.tiles.size(), 2);
+
+        auto inputShape = mlir::getConstantIntValues(scfTilingInput.tiles.front().shape);
+        EXPECT_TRUE(inputShape.has_value());
+        SmallVector<int64_t> expectedShape = {1, 16, 64, 256};
+        EXPECT_TRUE(llvm::equal(inputShape.value(), expectedShape));
+
+        auto inputOffset = mlir::getConstantIntValues(scfTilingInput.tiles.front().offsets);
+        EXPECT_TRUE(inputOffset.has_value());
+        SmallVector<int64_t> expectedOffset = {0, 0, 0, 0};
+        EXPECT_TRUE(llvm::equal(inputOffset.value(), expectedOffset));
+
+        // meanVar input is untiled — full shape passed through
+        auto meanVarShape = mlir::getConstantIntValues(scfTilingInput.tiles.back().shape);
+        EXPECT_TRUE(meanVarShape.has_value());
+        SmallVector<int64_t> expectedMeanVarShape = {1, 16, 1, 2};
+        EXPECT_TRUE(llvm::equal(meanVarShape.value(), expectedMeanVarShape));
+
+        auto meanVarOffset = mlir::getConstantIntValues(scfTilingInput.tiles.back().offsets);
+        EXPECT_TRUE(meanVarOffset.has_value());
+        SmallVector<int64_t> expectedMeanVarOffset = {0, 0, 0, 0};
+        EXPECT_TRUE(llvm::equal(meanVarOffset.value(), expectedMeanVarOffset));
+    });
+}
+
+TEST_F(MLIR_SCFTilingTest, ComputeInputTilesSoftMax) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<VPU::VPUDialect>();
+    mlir::OpBuilder builder(&ctx);
+
+    constexpr llvm::StringLiteral inputIR = R"(
+        module @test {
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
+            func.func @main(%arg0: tensor<1x16x256x140xf16>) -> tensor<1x16x256x140xf16> {
+                %0 = VPU.SoftMax(%arg0) {
+                    axisInd = 3 : i64,
+                    tilingStrategy = [1, 1, 2, 1]
+                } : tensor<1x16x256x140xf16> -> tensor<1x16x256x140xf16>
+                return %0 : tensor<1x16x256x140xf16>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    vpux::VPU::SCFTilingEltwiseLikeModelOp<VPU::SoftMaxOp> softMaxOpModel;
+
+    func.walk([&](VPU::SoftMaxOp softmax) {
+        VPU::SCFTileInfo outputTile({1, 16, 128, 140}, builder);
+        auto scfTilingInput = softMaxOpModel.backInferSCFTileInfo(softmax.getOperation(), builder, outputTile);
+
+        // SoftMax has identity back-inference: 1 input, same shape as output tile
+        EXPECT_EQ(scfTilingInput.tiles.size(), 1);
+        auto inputShape = mlir::getConstantIntValues(scfTilingInput.tiles.front().shape);
+        EXPECT_TRUE(inputShape.has_value());
+        SmallVector<int64_t> expectedShape = {1, 16, 128, 140};
+        EXPECT_TRUE(llvm::equal(inputShape.value(), expectedShape));
+
+        auto inputOffset = mlir::getConstantIntValues(scfTilingInput.tiles.front().offsets);
+        EXPECT_TRUE(inputOffset.has_value());
+        SmallVector<int64_t> expectedOffset = {0, 0, 0, 0};
+        EXPECT_TRUE(llvm::equal(inputOffset.value(), expectedOffset));
+    });
+}
+
+TEST_F(MLIR_SCFTilingTest, ComputeInputTilesAbs) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<VPU::VPUDialect>();
+    mlir::OpBuilder builder(&ctx);
+
+    constexpr llvm::StringLiteral inputIR = R"(
+        module @test {
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
+            func.func @main(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+                %0 = VPU.Abs(%arg0) {
+                    tilingStrategy = [1, 1, 2, 1]
+                } : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+                return %0 : tensor<1x16x128x256xf16>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    vpux::VPU::SCFTilingEltwiseLikeModelOp<VPU::AbsOp> absOpModel;
+    func.walk([&](VPU::AbsOp absOp) {
+        VPU::SCFTileInfo outputTile({1, 16, 64, 256}, builder);
+        auto scfTilingInput = absOpModel.backInferSCFTileInfo(absOp.getOperation(), builder, outputTile);
+
+        EXPECT_EQ(scfTilingInput.tiles.size(), 1);
+        auto inputShape = mlir::getConstantIntValues(scfTilingInput.tiles.front().shape);
+        EXPECT_TRUE(inputShape.has_value());
+        EXPECT_TRUE(llvm::equal(inputShape.value(), SmallVector<int64_t>{1, 16, 64, 256}));
+
+        auto inputOffset = mlir::getConstantIntValues(scfTilingInput.tiles.front().offsets);
+        EXPECT_TRUE(inputOffset.has_value());
+        EXPECT_TRUE(llvm::equal(inputOffset.value(), SmallVector<int64_t>{0, 0, 0, 0}));
+    });
+}
+
+TEST_F(MLIR_SCFTilingTest, ComputeInputTilesSin) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<VPU::VPUDialect>();
+    mlir::OpBuilder builder(&ctx);
+
+    constexpr llvm::StringLiteral inputIR = R"(
+        module @test {
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
+            func.func @main(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+                %0 = VPU.Sin(%arg0) {
+                    tilingStrategy = [1, 1, 2, 1]
+                } : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+                return %0 : tensor<1x16x128x256xf16>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    vpux::VPU::SCFTilingEltwiseLikeModelOp<VPU::SinOp> sinOpModel;
+    func.walk([&](VPU::SinOp sinOp) {
+        VPU::SCFTileInfo outputTile({1, 16, 64, 256}, builder);
+        auto scfTilingInput = sinOpModel.backInferSCFTileInfo(sinOp.getOperation(), builder, outputTile);
+
+        EXPECT_EQ(scfTilingInput.tiles.size(), 1);
+        auto inputShape = mlir::getConstantIntValues(scfTilingInput.tiles.front().shape);
+        EXPECT_TRUE(inputShape.has_value());
+        EXPECT_TRUE(llvm::equal(inputShape.value(), SmallVector<int64_t>{1, 16, 64, 256}));
+
+        auto inputOffset = mlir::getConstantIntValues(scfTilingInput.tiles.front().offsets);
+        EXPECT_TRUE(inputOffset.has_value());
+        EXPECT_TRUE(llvm::equal(inputOffset.value(), SmallVector<int64_t>{0, 0, 0, 0}));
+    });
+}
+
+TEST_F(MLIR_SCFTilingTest, ComputeInputTilesSqrt) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<VPU::VPUDialect>();
+    mlir::OpBuilder builder(&ctx);
+
+    constexpr llvm::StringLiteral inputIR = R"(
+        module @test {
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
+            func.func @main(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+                %0 = VPU.Sqrt(%arg0) {
+                    tilingStrategy = [1, 1, 2, 1]
+                } : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+                return %0 : tensor<1x16x128x256xf16>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    vpux::VPU::SCFTilingEltwiseLikeModelOp<VPU::SqrtOp> sqrtOpModel;
+    func.walk([&](VPU::SqrtOp sqrtOp) {
+        VPU::SCFTileInfo outputTile({1, 16, 64, 256}, builder);
+        auto scfTilingInput = sqrtOpModel.backInferSCFTileInfo(sqrtOp.getOperation(), builder, outputTile);
+
+        EXPECT_EQ(scfTilingInput.tiles.size(), 1);
+        auto inputShape = mlir::getConstantIntValues(scfTilingInput.tiles.front().shape);
+        EXPECT_TRUE(inputShape.has_value());
+        EXPECT_TRUE(llvm::equal(inputShape.value(), SmallVector<int64_t>{1, 16, 64, 256}));
+
+        auto inputOffset = mlir::getConstantIntValues(scfTilingInput.tiles.front().offsets);
+        EXPECT_TRUE(inputOffset.has_value());
+        EXPECT_TRUE(llvm::equal(inputOffset.value(), SmallVector<int64_t>{0, 0, 0, 0}));
+    });
+}
+
+TEST_F(MLIR_SCFTilingTest, ComputeInputTilesTanh) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<VPU::VPUDialect>();
+    mlir::OpBuilder builder(&ctx);
+
+    constexpr llvm::StringLiteral inputIR = R"(
+        module @test {
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
+            func.func @main(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+                %0 = VPU.Tanh(%arg0) {
+                    tilingStrategy = [1, 1, 2, 1]
+                } : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+                return %0 : tensor<1x16x128x256xf16>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    vpux::VPU::SCFTilingEltwiseLikeModelOp<VPU::TanhOp> tanhOpModel;
+    func.walk([&](VPU::TanhOp tanhOp) {
+        VPU::SCFTileInfo outputTile({1, 16, 64, 256}, builder);
+        auto scfTilingInput = tanhOpModel.backInferSCFTileInfo(tanhOp.getOperation(), builder, outputTile);
+
+        EXPECT_EQ(scfTilingInput.tiles.size(), 1);
+        auto inputShape = mlir::getConstantIntValues(scfTilingInput.tiles.front().shape);
+        EXPECT_TRUE(inputShape.has_value());
+        EXPECT_TRUE(llvm::equal(inputShape.value(), SmallVector<int64_t>{1, 16, 64, 256}));
+
+        auto inputOffset = mlir::getConstantIntValues(scfTilingInput.tiles.front().offsets);
+        EXPECT_TRUE(inputOffset.has_value());
+        EXPECT_TRUE(llvm::equal(inputOffset.value(), SmallVector<int64_t>{0, 0, 0, 0}));
+    });
+}
+
+TEST_F(MLIR_SCFTilingTest, ComputeInputTilesMish) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<VPU::VPUDialect>();
+    mlir::OpBuilder builder(&ctx);
+
+    constexpr llvm::StringLiteral inputIR = R"(
+        module @test {
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
+            func.func @main(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+                %0 = VPU.Mish(%arg0) {
+                    tilingStrategy = [1, 1, 2, 1]
+                } : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+                return %0 : tensor<1x16x128x256xf16>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    vpux::VPU::SCFTilingEltwiseLikeModelOp<VPU::MishOp> mishOpModel;
+    func.walk([&](VPU::MishOp mishOp) {
+        VPU::SCFTileInfo outputTile({1, 16, 64, 256}, builder);
+        auto scfTilingInput = mishOpModel.backInferSCFTileInfo(mishOp.getOperation(), builder, outputTile);
+
+        EXPECT_EQ(scfTilingInput.tiles.size(), 1);
+        auto inputShape = mlir::getConstantIntValues(scfTilingInput.tiles.front().shape);
+        EXPECT_TRUE(inputShape.has_value());
+        EXPECT_TRUE(llvm::equal(inputShape.value(), SmallVector<int64_t>{1, 16, 64, 256}));
+
+        auto inputOffset = mlir::getConstantIntValues(scfTilingInput.tiles.front().offsets);
+        EXPECT_TRUE(inputOffset.has_value());
+        EXPECT_TRUE(llvm::equal(inputOffset.value(), SmallVector<int64_t>{0, 0, 0, 0}));
+    });
+}
+
+TEST_F(MLIR_SCFTilingTest, ComputeInputTilesReLU) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<VPU::VPUDialect>();
+    mlir::OpBuilder builder(&ctx);
+
+    constexpr llvm::StringLiteral inputIR = R"(
+        module @test {
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
+            func.func @main(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+                %0 = VPU.ReLU(%arg0) {
+                    tilingStrategy = [1, 1, 2, 1]
+                } : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+                return %0 : tensor<1x16x128x256xf16>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    vpux::VPU::SCFTilingEltwiseLikeModelOp<VPU::ReLUOp> reluOpModel;
+    func.walk([&](VPU::ReLUOp reluOp) {
+        VPU::SCFTileInfo outputTile({1, 16, 64, 256}, builder);
+        auto scfTilingInput = reluOpModel.backInferSCFTileInfo(reluOp.getOperation(), builder, outputTile);
+
+        EXPECT_EQ(scfTilingInput.tiles.size(), 1);
+        auto inputShape = mlir::getConstantIntValues(scfTilingInput.tiles.front().shape);
+        EXPECT_TRUE(inputShape.has_value());
+        EXPECT_TRUE(llvm::equal(inputShape.value(), SmallVector<int64_t>{1, 16, 64, 256}));
+
+        auto inputOffset = mlir::getConstantIntValues(scfTilingInput.tiles.front().offsets);
+        EXPECT_TRUE(inputOffset.has_value());
+        EXPECT_TRUE(llvm::equal(inputOffset.value(), SmallVector<int64_t>{0, 0, 0, 0}));
+    });
+}
+
+TEST_F(MLIR_SCFTilingTest, ComputeInputTilesSigmoid) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<VPU::VPUDialect>();
+    mlir::OpBuilder builder(&ctx);
+
+    constexpr llvm::StringLiteral inputIR = R"(
+        module @test {
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
+            func.func @main(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+                %0 = VPU.Sigmoid(%arg0) {
+                    tilingStrategy = [1, 1, 2, 1]
+                } : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+                return %0 : tensor<1x16x128x256xf16>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    vpux::VPU::SCFTilingEltwiseLikeModelOp<VPU::SigmoidOp> sigmoidOpModel;
+    func.walk([&](VPU::SigmoidOp sigmoidOp) {
+        VPU::SCFTileInfo outputTile({1, 16, 64, 256}, builder);
+        auto scfTilingInput = sigmoidOpModel.backInferSCFTileInfo(sigmoidOp.getOperation(), builder, outputTile);
+
+        EXPECT_EQ(scfTilingInput.tiles.size(), 1);
+        auto inputShape = mlir::getConstantIntValues(scfTilingInput.tiles.front().shape);
+        EXPECT_TRUE(inputShape.has_value());
+        EXPECT_TRUE(llvm::equal(inputShape.value(), SmallVector<int64_t>{1, 16, 64, 256}));
+
+        auto inputOffset = mlir::getConstantIntValues(scfTilingInput.tiles.front().offsets);
+        EXPECT_TRUE(inputOffset.has_value());
+        EXPECT_TRUE(llvm::equal(inputOffset.value(), SmallVector<int64_t>{0, 0, 0, 0}));
+    });
+}
+
+TEST_F(MLIR_SCFTilingTest, ComputeInputTilesSoftPlus) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<VPU::VPUDialect>();
+    mlir::OpBuilder builder(&ctx);
+
+    constexpr llvm::StringLiteral inputIR = R"(
+        module @test {
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
+            func.func @main(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+                %0 = VPU.SoftPlus(%arg0) {
+                    tilingStrategy = [1, 1, 2, 1]
+                } : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+                return %0 : tensor<1x16x128x256xf16>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    vpux::VPU::SCFTilingEltwiseLikeModelOp<VPU::SoftPlusOp> softPlusOpModel;
+    func.walk([&](VPU::SoftPlusOp softPlusOp) {
+        VPU::SCFTileInfo outputTile({1, 16, 64, 256}, builder);
+        auto scfTilingInput = softPlusOpModel.backInferSCFTileInfo(softPlusOp.getOperation(), builder, outputTile);
+
+        EXPECT_EQ(scfTilingInput.tiles.size(), 1);
+        auto inputShape = mlir::getConstantIntValues(scfTilingInput.tiles.front().shape);
+        EXPECT_TRUE(inputShape.has_value());
+        EXPECT_TRUE(llvm::equal(inputShape.value(), SmallVector<int64_t>{1, 16, 64, 256}));
+
+        auto inputOffset = mlir::getConstantIntValues(scfTilingInput.tiles.front().offsets);
+        EXPECT_TRUE(inputOffset.has_value());
+        EXPECT_TRUE(llvm::equal(inputOffset.value(), SmallVector<int64_t>{0, 0, 0, 0}));
+    });
+}
+
+TEST_F(MLIR_SCFTilingTest, ComputeInputTilesSwish) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<VPU::VPUDialect>();
+    mlir::OpBuilder builder(&ctx);
+
+    constexpr llvm::StringLiteral inputIR = R"(
+        module @test {
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
+            func.func @main(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+                %0 = VPU.Swish(%arg0) {
+                    tilingStrategy = [1, 1, 2, 1]
+                } : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+                return %0 : tensor<1x16x128x256xf16>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    vpux::VPU::SCFTilingEltwiseLikeModelOp<VPU::SwishOp> swishOpModel;
+    func.walk([&](VPU::SwishOp swishOp) {
+        VPU::SCFTileInfo outputTile({1, 16, 64, 256}, builder);
+        auto scfTilingInput = swishOpModel.backInferSCFTileInfo(swishOp.getOperation(), builder, outputTile);
+
+        EXPECT_EQ(scfTilingInput.tiles.size(), 1);
+        auto inputShape = mlir::getConstantIntValues(scfTilingInput.tiles.front().shape);
+        EXPECT_TRUE(inputShape.has_value());
+        EXPECT_TRUE(llvm::equal(inputShape.value(), SmallVector<int64_t>{1, 16, 64, 256}));
+
+        auto inputOffset = mlir::getConstantIntValues(scfTilingInput.tiles.front().offsets);
+        EXPECT_TRUE(inputOffset.has_value());
+        EXPECT_TRUE(llvm::equal(inputOffset.value(), SmallVector<int64_t>{0, 0, 0, 0}));
     });
 }

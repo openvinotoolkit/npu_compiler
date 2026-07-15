@@ -44,8 +44,8 @@ private:
                                          mlir::PatternRewriter& rewriter) const;
 
     int64_t _dmaPortCount;
-    Logger _log;
     bool _useDMADescriptorAttr;
+    Logger _log;
 };
 
 }  // namespace vpux::VPUIP

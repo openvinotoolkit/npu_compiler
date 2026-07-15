@@ -55,11 +55,11 @@ TEST_NPU5_MMI_INFO_REG_FIELD(taskReferenceR3_MMI_reserved0_2, reserved0[2].reser
 TEST_NPU5_MMI_INFO_REG_FIELD(taskReferenceAddr_MMI_reserved0_2, reserved0[2].address)
 TEST_NPU5_MMI_INFO_REG_FIELD(taskReferenceCount_MMI_reserved0_2, reserved0[2].count)
 
-TEST_NPU5_MMI_INFO_REG_FIELD(taskReferenceR1_MMI_reserved0_3, reserved0[3].reserved1)
-TEST_NPU5_MMI_INFO_REG_FIELD(taskReferenceR2_MMI_reserved0_3, reserved0[3].reserved2)
-TEST_NPU5_MMI_INFO_REG_FIELD(taskReferenceR3_MMI_reserved0_3, reserved0[3].reserved3)
-TEST_NPU5_MMI_INFO_REG_FIELD(taskReferenceAddr_MMI_reserved0_3, reserved0[3].address)
-TEST_NPU5_MMI_INFO_REG_FIELD(taskReferenceCount_MMI_reserved0_3, reserved0[3].count)
+TEST_NPU5_MMI_INFO_REG_FIELD(taskReferenceR1_MMI_reserved0_3, dpu_pvp.reserved1)
+TEST_NPU5_MMI_INFO_REG_FIELD(taskReferenceR2_MMI_reserved0_3, dpu_pvp.reserved2)
+TEST_NPU5_MMI_INFO_REG_FIELD(taskReferenceR3_MMI_reserved0_3, dpu_pvp.reserved3)
+TEST_NPU5_MMI_INFO_REG_FIELD(taskReferenceAddr_MMI_reserved0_3, dpu_pvp.address)
+TEST_NPU5_MMI_INFO_REG_FIELD(taskReferenceCount_MMI_reserved0_3, dpu_pvp.count)
 
 TEST_NPU5_MMI_INFO_REG_FIELD(taskReferenceR1_MMI_barriers_configuration, barriers_configuration.reserved1)
 TEST_NPU5_MMI_INFO_REG_FIELD(taskReferenceR2_MMI_barriers_configuration, barriers_configuration.reserved2)

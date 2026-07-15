@@ -8,27 +8,27 @@
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!IDataCMXType = memref<1x16x4x4xf16, #NHWC, @CMX_NN>
-!ISMCMXType = memref<1x16x4x4xi1, #NHWC, @CMX_NN>
+!IDataCMXType = memref<1x16x4x4xf16, {order = #NHWC}, @CMX_NN>
+!ISMCMXType = memref<1x16x4x4xi1, {order = #NHWC}, @CMX_NN>
 
 // CHECK-LABEL: @NoChangesDifferentMemSpaceSparse
-// CHECK-SAME: ([[IN_DATA:%.+]]: memref<1x16x4x4xf16, #NHWC>, [[IN_SM:%.+]]: memref<1x16x4x4xi1, #NHWC>,
+// CHECK-SAME: ([[IN_DATA:%.+]]: memref<1x16x4x4xf16, {order = #NHWC}>, [[IN_SM:%.+]]: memref<1x16x4x4xi1, {order = #NHWC}>,
 // CHECK-SAME: {{%.+}}: memref<16x1x1x4xsi32, @CMX_NN>, {{%.+}}: memref<16x1x1x16xui8, @CMX_NN>,
-// CHECK-SAME: [[OUT_DATA:%.+]]: memref<1x16x4x4xf16, #NHWC>, [[OUT_SM:%.+]]: memref<1x16x4x4xi1, #NHWC>)
+// CHECK-SAME: [[OUT_DATA:%.+]]: memref<1x16x4x4xf16, {order = #NHWC}>, [[OUT_SM:%.+]]: memref<1x16x4x4xi1, {order = #NHWC}>)
 func.func @NoChangesDifferentMemSpaceSparse(
-        %arg0data: memref<1x16x4x4xf16, #NHWC>, %arg0sm: memref<1x16x4x4xi1, #NHWC>,
+        %arg0data: memref<1x16x4x4xf16, {order = #NHWC}>, %arg0sm: memref<1x16x4x4xi1, {order = #NHWC}>,
         %arg1 : memref<16x1x1x4xsi32, @CMX_NN>,
         %arg2 : memref<16x1x1x16xui8, @CMX_NN>,
-        %arg3data: memref<1x16x4x4xf16, #NHWC>, %arg3sm: memref<1x16x4x4xi1, #NHWC>)
-        -> (memref<1x16x4x4xf16, #NHWC>, memref<1x16x4x4xi1, #NHWC>) {
+        %arg3data: memref<1x16x4x4xf16, {order = #NHWC}>, %arg3sm: memref<1x16x4x4xi1, {order = #NHWC}>)
+        -> (memref<1x16x4x4xf16, {order = #NHWC}>, memref<1x16x4x4xi1, {order = #NHWC}>) {
     %data_buff = memref.alloc() : !IDataCMXType
     %sm_buff = memref.alloc() : !ISMCMXType
     %in_data_0 = VPUIP.Copy
-        inputs(%arg0data: memref<1x16x4x4xf16, #NHWC>)
+        inputs(%arg0data: memref<1x16x4x4xf16, {order = #NHWC}>)
         outputs(%data_buff: !IDataCMXType)
         -> !IDataCMXType
     %in_sm_0 = VPUIP.Copy
-        inputs(%arg0sm: memref<1x16x4x4xi1, #NHWC>)
+        inputs(%arg0sm: memref<1x16x4x4xi1, {order = #NHWC}>)
         outputs(%sm_buff: !ISMCMXType)
         -> !ISMCMXType
 
@@ -56,14 +56,14 @@ func.func @NoChangesDifferentMemSpaceSparse(
         PPE : {
         }
 
-    %3 = VPUIP.Copy inputs(%mp#0 : !IDataCMXType) outputs(%arg3data : memref<1x16x4x4xf16, #NHWC>)
-        -> memref<1x16x4x4xf16, #NHWC>
-    %4 = VPUIP.Copy inputs(%mp#1 : !ISMCMXType) outputs(%arg3sm : memref<1x16x4x4xi1, #NHWC>)
-        -> memref<1x16x4x4xi1, #NHWC>
-    return %3, %4 : memref<1x16x4x4xf16, #NHWC>, memref<1x16x4x4xi1, #NHWC>
+    %3 = VPUIP.Copy inputs(%mp#0 : !IDataCMXType) outputs(%arg3data : memref<1x16x4x4xf16, {order = #NHWC}>)
+        -> memref<1x16x4x4xf16, {order = #NHWC}>
+    %4 = VPUIP.Copy inputs(%mp#1 : !ISMCMXType) outputs(%arg3sm : memref<1x16x4x4xi1, {order = #NHWC}>)
+        -> memref<1x16x4x4xi1, {order = #NHWC}>
+    return %3, %4 : memref<1x16x4x4xf16, {order = #NHWC}>, memref<1x16x4x4xi1, {order = #NHWC}>
 
-    // CHECK:       [[BUFF_0_DATA:%.+]] = memref.alloc() : memref<1x16x4x4xf16, #NHWC, @CMX_NN>
-    // CHECK:       [[BUFF_0_SM:%.+]] = memref.alloc() : memref<1x16x4x4xi1, #NHWC, @CMX_NN>
+    // CHECK:       [[BUFF_0_DATA:%.+]] = memref.alloc() : memref<1x16x4x4xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK:       [[BUFF_0_SM:%.+]] = memref.alloc() : memref<1x16x4x4xi1, {order = #NHWC}, @CMX_NN>
 
     // CHECK:       [[IN_COPY_DATA:%.+]] = VPUIP.Copy
     // CHECK-SAME:      inputs([[IN_DATA]]
@@ -72,8 +72,8 @@ func.func @NoChangesDifferentMemSpaceSparse(
     // CHECK-SAME:      inputs([[IN_SM]]
     // CHECK-SAME:      outputs([[BUFF_0_SM]]
 
-    // CHECK:       [[NCE_OUT_DATA:%.+]] = memref.alloc() : memref<1x16x4x4xf16, #NHWC, @CMX_NN>
-    // CHECK:       [[NCE_OUT_SM:%.+]] = memref.alloc() : memref<1x16x4x4xi1, #NHWC, @CMX_NN>
+    // CHECK:       [[NCE_OUT_DATA:%.+]] = memref.alloc() : memref<1x16x4x4xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK:       [[NCE_OUT_SM:%.+]] = memref.alloc() : memref<1x16x4x4xi1, {order = #NHWC}, @CMX_NN>
 
     // CHECK:       [[NCE_0:%.+]]:2 = VPUIP.NCEClusterTask
     // CHECK-SAME:          input([[IN_COPY_DATA]]

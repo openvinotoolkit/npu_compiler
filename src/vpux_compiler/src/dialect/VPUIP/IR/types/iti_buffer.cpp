@@ -465,7 +465,7 @@ NDTypeInterface VPUIP::ITIBufferType::changeShapeElemType(ShapeRef /*shape*/, ml
     VPUX_THROW("changeShapeElemType method is not implemented for ITIBufferType");
 }
 
-NDTypeInterface VPUIP::ITIBufferType::changeDimsOrder(DimsOrder /*order*/) const {
+NDTypeInterface VPUIP::ITIBufferType::changeDimsOrder(const DimsOrder& /*order*/) const {
     VPUX_THROW("changeDimsOrder method is not implemented for ITIBufferType");
 }
 

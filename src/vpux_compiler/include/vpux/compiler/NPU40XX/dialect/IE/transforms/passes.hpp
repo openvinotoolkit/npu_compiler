@@ -21,7 +21,7 @@ struct DefaultHWOptions : public IE::DefaultHWOptionsDialectBase, virtual vpux::
     BoolOption enableConvertFFTToConv{*this, "convert-fft-to-conv", llvm::cl::desc("Enable convert-fft-to-conv pass"),
                                       llvm::cl::init(true)};
     BoolOption enableConvertToAttention{*this, "convert-to-attention", llvm::cl::desc("Enable conversion to Attention"),
-                                        llvm::cl::init(false)};
+                                        llvm::cl::init(true)};
     BoolOption enableFuseSoftwareSDPA{*this, "fuse-software-sdpa", llvm::cl::desc("Enable fuse-sdpa pass"),
                                       llvm::cl::init(true)};
     BoolOption enableConvertToReduceSquare{*this, "convert-to-reduce-square",
@@ -31,8 +31,12 @@ struct DefaultHWOptions : public IE::DefaultHWOptionsDialectBase, virtual vpux::
 
     BoolOption enableSwapConvertWithSWOp{*this, "swap-convert-with-sw-op",
                                          llvm::cl::desc("Enable swap-convert-with-sw-op pass"), llvm::cl::init(true)};
-    BoolOption mergeUnrolledMatmul{*this, "merge-unrolled-matmul", llvm::cl::desc("Enable merging urolled Matmul ops"),
-                                   llvm::cl::init(true)};
+    BoolOption mergeUnrolledMatmulForLargeOC{*this, "merge-unrolled-matmul-for-large-oc",
+                                             llvm::cl::desc("Enable merging unrolled Matmul ops for large OC"),
+                                             llvm::cl::init(false)};
+    BoolOption convertDynamicDequantize{*this, "convert-dynamic-dequantize",
+                                        llvm::cl::desc("Enable convert dynamic dequantize to dequantize ops"),
+                                        llvm::cl::init(true)};
     BoolOption enableRuntimeDequant{*this, "enable-runtime-dequant",
                                     llvm::cl::desc("Enable runtime dequantization of asymmetrically quantized weights"),
                                     llvm::cl::init(true)};
@@ -57,6 +61,8 @@ struct DefaultHWOptions : public IE::DefaultHWOptionsDialectBase, virtual vpux::
 //
 // Pipelines
 //
+void buildAttentionProcessingPipeline(mlir::OpPassManager& pm, const IE::AttentionProcessingOptions& options,
+                                      Logger log = Logger::global());
 void buildLowPrecisionPipeline(mlir::OpPassManager& pm, const LowPrecisionOptions& options,
                                Logger log = Logger::global());
 void buildFinalTransformationPipeline(mlir::OpPassManager& pm, const IE::arch40xx::DefaultHWOptions& options,

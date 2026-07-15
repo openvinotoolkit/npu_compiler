@@ -26,29 +26,16 @@ using namespace vpux;
 
 namespace {
 
-uint32_t getPlatformDPUClusterNum(const std::string& platform) {
-    if (platform == ov::intel_npu::Platform::NPU3720) {
-        return VPUX37XX_MAX_DPU_GROUPS;
-    } else if (platform == ov::intel_npu::Platform::NPU4000) {
-        return VPUX40XX_MAX_DPU_GROUPS;
-    } else if (platform == ov::intel_npu::Platform::NPU5000) {
-        return VPUX50XX_MAX_DPU_GROUPS;
-    } else if (platform == ov::intel_npu::Platform::NPU5010) {
-        return VPUX5010_MAX_DPU_GROUPS;
-    } else if (platform == ov::intel_npu::Platform::NPU5020) {
-        return VPUX5020_MAX_DPU_GROUPS;
-    } else {
-        VPUX_THROW("Unsupported VPUX platform");
-    }
+uint32_t getPlatformDPUClusterNum(const intel_npu::Config& config) {
+    return VPU::getPlatformCapabilities(getPlatform(config)).maxTiles;
 }
 
 std::optional<int> getMaxTilesValue(const intel_npu::Config& config) {
     if (config.has<intel_npu::MAX_TILES>()) {
         auto logger = vpux::Logger::global();
         int maxTiles = checked_cast<int>(config.get<intel_npu::MAX_TILES>());
-        std::string platformName = ov::intel_npu::Platform::standardize(config.get<intel_npu::PLATFORM>());
         // E#117389: remove overrides and change to exceptions once driver & plugin will be fixed
-        const int maxArchTiles = checked_cast<int>(getPlatformDPUClusterNum(platformName));
+        const int maxArchTiles = checked_cast<int>(getPlatformDPUClusterNum(config));
         if (maxTiles < 1 || maxTiles > maxArchTiles) {
             logger.warning("Invalid number of NPU_MAX_TILES for requested arch, got {0}. Override to {1}", maxTiles,
                            maxArchTiles);
@@ -60,8 +47,7 @@ std::optional<int> getMaxTilesValue(const intel_npu::Config& config) {
 }
 
 int getMaxDPUClusterNum(const intel_npu::Config& config) {
-    std::string platformName = ov::intel_npu::Platform::standardize(config.get<intel_npu::PLATFORM>());
-    const int maxArchTiles = checked_cast<int>(getPlatformDPUClusterNum(platformName));
+    const int maxArchTiles = checked_cast<int>(getPlatformDPUClusterNum(config));
     const auto maybeMaxTiles = getMaxTilesValue(config);
     if (maybeMaxTiles.has_value()) {
         return maybeMaxTiles.value();
@@ -97,9 +83,8 @@ std::optional<std::string> getPerformanceHintOverride(const intel_npu::Config& c
 
 int getNumberOfDPUGroupsUnchecked(const intel_npu::Config& config) {
     const std::string platform = ov::intel_npu::Platform::standardize(config.get<intel_npu::PLATFORM>());
-    const bool is50XXPlatform = platform == ov::intel_npu::Platform::NPU5000 ||
-                                platform == ov::intel_npu::Platform::NPU5010 ||
-                                platform == ov::intel_npu::Platform::NPU5020;
+    const bool is50XXPlatform =
+            platform == ov::intel_npu::Platform::NPU5010 || platform == ov::intel_npu::Platform::NPU5020;
     const auto& performanceHintOverride = getPerformanceHintOverride(config);
     // NPUPerformanceMode consists of same enums as ov::hint::PerformanceMode + EFFICIENCY
     // In future, ov::hint::PerformanceMode can be extended with the new value, so
@@ -182,8 +167,6 @@ config::Platform getPlatform(const intel_npu::Config& config) {
         return config::Platform::NPU3720;
     } else if (platform == ov::intel_npu::Platform::NPU4000) {
         return config::Platform::NPU4000;
-    } else if (platform == ov::intel_npu::Platform::NPU5000) {
-        return config::Platform::NPU5000;
     } else if (platform == ov::intel_npu::Platform::NPU5010) {
         return config::Platform::NPU5010;
     } else if (platform == ov::intel_npu::Platform::NPU5020) {
@@ -269,7 +252,7 @@ std::optional<int> getNumberOfDMAEngines(const intel_npu::Config& config) {
 
     auto archKind = vpux::getArchKind(config);
     auto numOfDpuGroups = getNumberOfDPUGroups(config);
-    int maxDmaPorts = VPU::getMaxDMAPorts(archKind);
+    int maxDmaPorts = VPU::getMaxDMAPorts(getPlatform(config));
     const std::string platform = ov::intel_npu::Platform::standardize(config.get<intel_npu::PLATFORM>());
 
     if (archKind == config::ArchKind::NPU37XX || archKind == config::ArchKind::NPU40XX) {
@@ -286,21 +269,7 @@ std::optional<int> getNumberOfDMAEngines(const intel_npu::Config& config) {
 //
 
 Byte getAvailableCmx(const intel_npu::Config& config) {
-    const std::string platform = ov::intel_npu::Platform::standardize(config.get<intel_npu::PLATFORM>());
-
-    if (platform == ov::intel_npu::Platform::NPU3720) {
-        return VPUX37XX_CMX_WORKSPACE_SIZE;
-    } else if (platform == ov::intel_npu::Platform::NPU4000) {
-        return VPUX40XX_CMX_WORKSPACE_SIZE;
-    } else if (platform == ov::intel_npu::Platform::NPU5000) {
-        return VPUX50XX_CMX_WORKSPACE_SIZE;
-    } else if (platform == ov::intel_npu::Platform::NPU5010) {
-        return VPUX5010_CMX_WORKSPACE_SIZE;
-    } else if (platform == ov::intel_npu::Platform::NPU5020) {
-        return VPUX5020_CMX_WORKSPACE_SIZE;
-    } else {
-        VPUX_THROW("Unsupported VPUX platform");
-    }
+    return VPU::getPlatformCapabilities(getPlatform(config)).cmxWorkspaceSize;
 }
 
 template <typename Options>
@@ -505,7 +474,8 @@ std::optional<bool> getEnableDecomposeSDPA(const intel_npu::Config& config) {
     if (arch == config::ArchKind::NPU37XX) {
         return getEnableDecomposeSDPA<DefaultHWOptions37XX>(config);
     } else if (arch == config::ArchKind::NPU40XX) {
-        return getEnableDecomposeSDPA<DefaultHWOptions40XX>(config);
+        // Disable ngraph SDPA decomposition for NPU40XX - custom decomposition is applied in IE pipeline
+        return std::nullopt;
     } else if (arch == config::ArchKind::NPU50XX) {
         // Disable ngraph SDPA decomposition for NPU50XX - custom decomposition is applied in IE pipeline
         return std::nullopt;

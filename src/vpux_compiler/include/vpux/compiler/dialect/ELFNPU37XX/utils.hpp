@@ -14,10 +14,8 @@
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <vector>
 
-using namespace vpux;
-
 namespace llvm {
-using RelocKey37XX = std::pair<mlir::Value, ELFNPU37XX::CreateSymbolTableSectionOp>;
+using RelocKey37XX = std::pair<mlir::Value, vpux::ELFNPU37XX::CreateSymbolTableSectionOp>;
 template <>
 struct DenseMapInfo<RelocKey37XX> {
     static RelocKey37XX getEmptyKey() {

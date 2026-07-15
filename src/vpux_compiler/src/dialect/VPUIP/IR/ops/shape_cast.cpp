@@ -31,7 +31,36 @@ void VPUIP::ShapeCastOp::build(mlir::OpBuilder& builder, mlir::OperationState& s
 
 void VPUIP::ShapeCastOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
                                mlir::ArrayAttr shape) {
-    build(builder, state, input, shape, nullptr, nullptr);
+    build(builder, state, input, shape, nullptr, nullptr, nullptr);
+}
+
+void VPUIP::ShapeCastOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
+                               mlir::ArrayAttr shape, mlir::ArrayAttr explicitOutputShapes,
+                               mlir::ArrayAttr explicitOutputOffsets) {
+    build(builder, state, input, shape, explicitOutputShapes, explicitOutputOffsets, nullptr);
+}
+
+void VPUIP::ShapeCastOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, NDTypeInterface result,
+                               mlir::Value input, mlir::ArrayAttr shape, mlir::ArrayAttr explicitOutputShapes,
+                               mlir::ArrayAttr explicitOutputOffsets) {
+    build(builder, state, result, input, shape, explicitOutputShapes, explicitOutputOffsets, nullptr);
+}
+
+void VPUIP::ShapeCastOp::build(mlir::OpBuilder&, mlir::OperationState& state, NDTypeInterface result, mlir::Value input,
+                               mlir::ArrayAttr shape, mlir::ArrayAttr explicitOutputShapes,
+                               mlir::ArrayAttr explicitOutputOffsets, mlir::ArrayAttr explicitOutputAlignment) {
+    state.addOperands(input);
+    state.addTypes(result);
+    state.addAttribute("shape", shape);
+    if (explicitOutputShapes != nullptr) {
+        state.addAttribute("explicit_output_shapes", explicitOutputShapes);
+    }
+    if (explicitOutputOffsets != nullptr) {
+        state.addAttribute("explicit_output_offsets", explicitOutputOffsets);
+    }
+    if (explicitOutputAlignment != nullptr) {
+        state.addAttribute("explicit_output_alignment", explicitOutputAlignment);
+    }
 }
 
 mlir::Value VPUIP::ShapeCastOp::getViewSource() {
@@ -60,6 +89,13 @@ mlir::LogicalResult vpux::VPUIP::ShapeCastOp::verify() {
     }
     if (getExplicitOutputShapes().has_value() != getExplicitOutputOffsets().has_value()) {
         return errorAt(op, "Only explicit output shape or offset is assigned");
+    }
+    if (getExplicitOutputAlignment().has_value()) {
+        const auto explicitOutputAlignment = parseIntArrayAttr<int64_t>(getExplicitOutputAlignment().value());
+        if (checked_cast<int64_t>(explicitOutputAlignment.size()) != outType.getRank()) {
+            return errorAt(op, "Explicit output alignment rank '{0}' doesn't match output rank '{1}'",
+                           explicitOutputAlignment.size(), outType.getRank());
+        }
     }
 
     return mlir::success();
@@ -173,10 +209,13 @@ mlir::LogicalResult VPUIP::ShapeCastOp::inferReturnTypes(mlir::MLIRContext* ctx,
     auto getDistType = [&](VPU::DistributedTypeInterface inDistInterface) {
         const auto inDistBufferType =
                 mlir::cast<vpux::VPUIP::DistributedBufferType>(inDistInterface.getDistributedTypes().front());
+        const auto explicitOutputAlignment = shapeCast.getExplicitOutputAlignment().has_value()
+                                                     ? shapeCast.getExplicitOutputAlignment().value()
+                                                     : nullptr;
         const auto distAttr = hasExplicitOutputShapesAndOffsets
                                       ? inferExplicitDistributedAttr(inDistBufferType.getDistribution())
                                       : VPUIP::getDistributedAttrAfterShapeCast<VPUIP::DistributedBufferType>(
-                                                inDistBufferType, outShape, arch);
+                                                inDistBufferType, outShape, arch, explicitOutputAlignment);
         return inDistInterface.changeShapeForExplicitDistribution(ShapeRef(outShape), distAttr);
     };
 

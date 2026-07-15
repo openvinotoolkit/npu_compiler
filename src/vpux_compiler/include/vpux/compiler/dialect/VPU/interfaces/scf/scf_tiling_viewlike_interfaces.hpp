@@ -5,6 +5,9 @@
 
 #pragma once
 
+#include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/utils/scf/scf_utils.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
@@ -80,10 +83,14 @@ public:
 
         auto resultDenseTile = extractResultType(operation->getResult(0).getType(), sizes, resultBounds);
         auto* tiledOp = mlir::cloneWithoutRegions(builder, operation, {resultDenseTile}, tiledOperands);
+        static_cast<const ConcreteModel*>(this)->adjustSCFAttrs(tiledOp, resultDenseTile);
         vpux::inferReturnTypes(tiledOp, vpux::InferShapedTypeMode::SHAPE);
         tiledOp->removeAttr(tilingStrategy);
 
         return mlir::TilingResult{{tiledOp}, {tiledOp->getResult(resultNumber)}, std::move(generatedSlices)};
+    }
+
+    void adjustSCFAttrs(mlir::Operation*, mlir::Type) const {
     }
 
     mlir::LogicalResult getResultTilePosition(mlir::Operation*, mlir::OpBuilder&, unsigned,
@@ -139,6 +146,13 @@ public:
 
 class SCFSliceTilingModelOp : public SCFViewLikeTilingModelOp<SCFSliceTilingModelOp, VPU::SliceOp> {
 public:
+    void adjustSCFAttrs(mlir::Operation* op, mlir::Type resultDenseTile) const {
+        auto sliceOp = mlir::cast<VPU::SliceOp>(op);
+        auto newShape = mlir::cast<mlir::ShapedType>(resultDenseTile).getShape();
+        sliceOp.setStaticSizesAttr(
+                getIntArrayAttr(op->getContext(), SmallVector<int64_t>(newShape.begin(), newShape.end())));
+    }
+
     SCFTilingInfo backInferSCFTileInfo(mlir::Operation* op, mlir::OpBuilder& builder,
                                        const SCFTileInfo& outputTile) const {
         auto sliceOp = mlir::cast<VPU::SliceOp>(op);

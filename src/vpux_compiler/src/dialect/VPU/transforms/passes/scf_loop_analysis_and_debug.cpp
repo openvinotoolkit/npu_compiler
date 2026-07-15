@@ -62,7 +62,7 @@ struct ScfBlockInfo {
         }
         if (auto forOp = mlir::dyn_cast<mlir::scf::ForOp>(op)) {
             OpChainAnalysis analysis;
-            return analysis.getForOpParams(forOp);
+            return analysis.getLoopBoundsAndStep(forOp);
         }
         return defaultParams;
     }

@@ -54,6 +54,7 @@ bool ShapeInfo::isDynamic() const {
 ShapeInfo ShapeInfo::fromNDType(NDTypeInterface type) {
     // NB: empty bounds means that the shape is static
     auto boundVals = [&type]() -> SmallVector<int64_t> {
+        using namespace Dims4D::Act;
         if (const auto sparseType = mlir::dyn_cast<VPU::SparseTensorType>(type)) {
             auto boundedData = mlir::dyn_cast<Core::BoundedTensorType>(sparseType.getData());
             if (boundedData == nullptr) {
@@ -66,8 +67,8 @@ ShapeInfo ShapeInfo::fromNDType(NDTypeInterface type) {
             }
 
             auto setShape = mlir::cast<NDTypeInterface>(sparseType.getStorageElementTable()).getShape();
-            bounds[Dims4D::Act::H.ind()] = setShape[Dims4D::Act::H];
-            bounds[Dims4D::Act::W.ind()] = setShape[Dims4D::Act::W];
+            bounds[H.ind()] = setShape[H];
+            bounds[W.ind()] = setShape[W];
 
             return bounds;
         }
@@ -305,14 +306,16 @@ SmallVector<int64_t> vpux::inferConvBackpropOutputShape(ArrayRef<int64_t> inputS
                                                         ArrayRef<int64_t> dataPaddingAbove,
                                                         ArrayRef<int64_t> windowDilations,
                                                         ArrayRef<int64_t> outputPadding) {
+    using namespace Dims4D::Act;
+    using namespace Dims4D::Filter;
     auto backpropFilter = to_std_vector(filterShape);
-    backpropFilter[Dims4D::Filter::OC.ind()] = inputShape[Dims4D::Act::C.ind()];
+    backpropFilter[OC.ind()] = inputShape[C.ind()];
     auto ovOpShape = getConvBackpropOutputShape(inputShape, backpropFilter, windowStrides, dataPaddingBelow,
                                                 dataPaddingAbove, windowDilations, outputPadding)
                              .get_shape();
 
-    ovOpShape[Dims4D::Act::N.ind()] = inputShape[Dims4D::Act::N.ind()];
-    ovOpShape[Dims4D::Act::C.ind()] = filterShape[Dims4D::Filter::IC.ind()];
+    ovOpShape[N.ind()] = inputShape[N.ind()];
+    ovOpShape[C.ind()] = filterShape[IC.ind()];
 
     return to_small_vector(ovOpShape | transformed([](size_t val) {
                                return checked_cast<int64_t>(val);
@@ -323,18 +326,19 @@ SmallVector<int64_t> vpux::inferGroupConvBackpropOutputShape(
         ArrayRef<int64_t> inputShape, ArrayRef<int64_t> filterShape, ArrayRef<int64_t> windowStrides,
         ArrayRef<int64_t> dataPaddingBelow, ArrayRef<int64_t> dataPaddingAbove, ArrayRef<int64_t> windowDilations,
         ArrayRef<int64_t> outputPadding) {
-    auto groups = filterShape[0];
-    auto IC = filterShape[1];
-    auto OC = filterShape[2];
+    using namespace Dims4D::Act;
+    auto groups = filterShape[DimsGroups5D::Filter::G.ind()];
+    auto OC = filterShape[DimsGroups5D::Filter::OC.ind()];
+    auto IC = filterShape[DimsGroups5D::Filter::IC.ind()];
 
     auto backpropIn = to_std_vector(inputShape);
-    backpropIn[Dims4D::Act::C.ind()] = groups * IC;
+    backpropIn[C.ind()] = groups * OC;
     auto ovOpShape = getGroupConvBackpropOutputShape(backpropIn, filterShape, windowStrides, dataPaddingBelow,
                                                      dataPaddingAbove, windowDilations, outputPadding)
                              .get_shape();
 
-    ovOpShape[Dims4D::Act::N.ind()] = inputShape[Dims4D::Act::N.ind()];
-    ovOpShape[Dims4D::Act::C.ind()] = groups * OC;
+    ovOpShape[N.ind()] = inputShape[N.ind()];
+    ovOpShape[C.ind()] = groups * IC;
 
     return to_small_vector(ovOpShape | transformed([](size_t val) {
                                return checked_cast<int64_t>(val);
@@ -345,14 +349,16 @@ SmallVector<int64_t> vpux::inferTransposedConvBackpropOutputShape(
         ArrayRef<int64_t> inputShape, ArrayRef<int64_t> filterShape, ArrayRef<int64_t> windowStrides,
         ArrayRef<int64_t> dataPaddingBelow, ArrayRef<int64_t> dataPaddingAbove, ArrayRef<int64_t> windowDilations,
         ArrayRef<int64_t> outputPadding) {
+    using namespace Dims4D::Act;
+    using namespace Dims4D::Filter;
     auto backpropFilter = to_std_vector(filterShape);
-    backpropFilter[Dims4D::Filter::OC.ind()] = inputShape[Dims4D::Act::C.ind()];
+    backpropFilter[OC.ind()] = inputShape[C.ind()];
     auto ovOpShape = getConvBackpropOutputShape(inputShape, backpropFilter, windowStrides, dataPaddingBelow,
                                                 dataPaddingAbove, windowDilations, outputPadding)
                              .get_shape();
 
-    ovOpShape[Dims4D::Act::N.ind()] = inputShape[Dims4D::Act::N.ind()];
-    ovOpShape[Dims4D::Act::C.ind()] = filterShape[Dims4D::Filter::OC.ind()];
+    ovOpShape[N.ind()] = inputShape[N.ind()];
+    ovOpShape[C.ind()] = filterShape[OC.ind()];
 
     return to_small_vector(ovOpShape | transformed([](size_t val) {
                                return checked_cast<int64_t>(val);
@@ -370,14 +376,15 @@ SmallVector<int64_t> vpux::inferTransposedGroupConvBackpropOutputShape(
     auto OC = filterShape[IE::GROUP_TRANSPOSED_CONV_C_OUT_DIM_INDEX];
     auto groupedChannels = groups * OC;
 
+    using namespace Dims4D::Act;
     auto transposedBackpropIn = to_std_vector(inputShape);
-    transposedBackpropIn[Dims4D::Act::C.ind()] = groupedChannels;
+    transposedBackpropIn[C.ind()] = groupedChannels;
     auto ovOpShape = getGroupConvBackpropOutputShape(transposedBackpropIn, filterShape, windowStrides, dataPaddingBelow,
                                                      dataPaddingAbove, windowDilations, outputPadding)
                              .get_shape();
 
-    ovOpShape[Dims4D::Act::N.ind()] = inputShape[Dims4D::Act::N.ind()];
-    ovOpShape[Dims4D::Act::C.ind()] = groupedChannels;
+    ovOpShape[N.ind()] = inputShape[N.ind()];
+    ovOpShape[C.ind()] = groupedChannels;
 
     return to_small_vector(ovOpShape | transformed([](size_t val) {
                                return checked_cast<int64_t>(val);
@@ -395,8 +402,9 @@ ShapeInfo vpux::inferMatMulOutputShapeInfo(const ShapeInfo& in1ShapeInfo, const 
     return createShapeInfoFromPartialShape(op.get_output_partial_shape(0));
 }
 
-ShapeInfo vpux::inferPermuteQuantizeOutputShapeInfo(mlir::Value input, DimsOrder inOrder, vpux::NDTypeInterface newType,
-                                                    DimsOrder outOrder, mlir::AffineMap memPerm) {
+ShapeInfo vpux::inferPermuteQuantizeOutputShapeInfo(mlir::Value input, const DimsOrder& inOrder,
+                                                    vpux::NDTypeInterface newType, const DimsOrder& outOrder,
+                                                    mlir::AffineMap memPerm) {
     const auto inMemShape = inOrder.toMemoryOrder(newType.getShape());
     const auto outMemShape = applyPerm(inMemShape, memPerm);
     const auto outShape = outOrder.toLogicalOrder(outMemShape);
@@ -432,13 +440,21 @@ ShapeInfo vpux::inferConvolutionOutputShapeInfo(const ShapeInfo& inShapeInfo, co
                                     ov::CoordinateDiff(dataPaddingAbove.begin(), dataPaddingAbove.end()),
                                     ov::Strides(windowDilations.begin(), windowDilations.end()));
 
+    using namespace Dims4D::Act;
+    using namespace Dims4D::Filter;
     auto shapeInfo = createShapeInfoFromPartialShape(op.get_output_partial_shape(0));
     if (mlir::isa<Core::BoundedTensorType>(filterType)) {
-        if (filterType.getShape()[Dims4D::Filter::OC] == mlir::ShapedType::kDynamic) {
+        if (filterType.getShape()[OC] == mlir::ShapedType::kDynamic) {
             if (shapeInfo.bounds.empty()) {
                 shapeInfo.bounds = shapeInfo.shape;
             }
-            shapeInfo.bounds[Dims4D::Act::C.ind()] = filterShapeInfo.shape[Dims4D::Filter::OC.ind()];
+            // Use the filter's bounds for the output OC bound when the rawFilterShape OC is dynamic.
+            // filterShapeInfo.shape may have been overridden with rawFilterShape values (kDynamic),
+            // so prefer the concrete bound from the BoundedTensorType when available.
+            const auto filterOCBound = filterShapeInfo.bounds.empty()
+                                               ? filterShapeInfo.shape[Dims4D::Filter::OC.ind()]
+                                               : filterShapeInfo.bounds[Dims4D::Filter::OC.ind()];
+            shapeInfo.bounds[Dims4D::Act::C.ind()] = filterOCBound;
             shapeInfo.shape[Dims4D::Act::C.ind()] = mlir::ShapedType::kDynamic;
         }
     }
@@ -465,24 +481,27 @@ ShapeInfo vpux::inferGroupConvolutionOutputShapeInfo(ShapeInfo& inShapeInfo, Sha
                           "Input rank '{0}' does not match filter rank '{1}'. (groups == 0)", inShapeInfo.rank(),
                           filterShapeInfo.rank());
 
-        groups = filterShapeInfo.shape[Dims4D::Act::N.ind()];
-        filterShapeInfo.shape[Dims4D::Act::C.ind()] *= groups;
+        // Filter has groups dim prepended: [GROUPS, OC, IC, KY, KX]
+        using namespace DimsGroups5D::Filter;
+        groups = filterShapeInfo.shape[G.ind()];
+        filterShapeInfo.shape[OC.ind()] *= groups;
         filterShapeInfo.shape.erase(filterShapeInfo.shape.begin());
     }
 
+    using namespace Dims4D::Act;
     const auto adjustShapeChannels = [&](int64_t& channels) {
         // The number of groups is influenced by the output channels so the division computes a wrong value because the
         // input is still expanded in case of ODU autopad
         if (hasOutputPadding) {
-            channels = filterShapeInfo.shape[Dims4D::Act::C.ind()];
+            channels = filterShapeInfo.shape[C.ind()];
         } else {
             channels /= groups;
         }
     };
 
-    adjustShapeChannels(inShapeInfo.shape[Dims4D::Act::C.ind()]);
+    adjustShapeChannels(inShapeInfo.shape[C.ind()]);
     if (inShapeInfo.isDynamic()) {
-        adjustShapeChannels(inShapeInfo.bounds[Dims4D::Act::C.ind()]);
+        adjustShapeChannels(inShapeInfo.bounds[C.ind()]);
     }
 
     const auto inPartialShape = createPartialShapeFromShapeInfo(inShapeInfo);
@@ -505,8 +524,10 @@ ShapeInfo vpux::inferTransposedConvBackpropOutputShapeInfo(
     const auto inPartialShape = createPartialShapeFromShapeInfo(inShapeInfo);
     const auto filterPartialShape = createPartialShapeFromShapeInfo(filterShapeInfo);
 
+    using namespace Dims4D::Act;
+    using namespace Dims4D::Filter;
     auto backpropFilter = to_std_vector(filterPartialShape);
-    backpropFilter[Dims4D::Filter::OC.ind()] = inPartialShape[Dims4D::Act::C.ind()];
+    backpropFilter[OC.ind()] = inPartialShape[C.ind()];
 
     auto ovOpShape = ov::op::v1::ConvolutionBackpropData(
                              std::make_shared<ov::op::v0::Parameter>(ov::element::f32, inPartialShape),
@@ -518,8 +539,8 @@ ShapeInfo vpux::inferTransposedConvBackpropOutputShapeInfo(
                              ov::CoordinateDiff(outputPadding.begin(), outputPadding.end()))
                              .get_output_partial_shape(0);
 
-    ovOpShape[Dims4D::Act::N.ind()] = inPartialShape[Dims4D::Act::N.ind()];
-    ovOpShape[Dims4D::Act::C.ind()] = filterPartialShape[Dims4D::Filter::OC.ind()];
+    ovOpShape[N.ind()] = inPartialShape[N.ind()];
+    ovOpShape[C.ind()] = filterPartialShape[OC.ind()];
 
     return createShapeInfoFromPartialShape(ovOpShape);
 }
@@ -859,14 +880,16 @@ mlir::FailureOr<SmallVector<mlir::OpFoldResult>> vpux::reifyConvPoolTensors(
         return builder.createOrFold<mlir::arith::DivSIOp>(divLoc, sum, makeIndex(stride, divLoc));
     };
 
+    using namespace Dims4D::Act;
+    using namespace Dims4D::Filter;
     // Use generator functions based on index for each output dimension
     auto computeShapeForDim = [&](int64_t idx) -> mlir::OpFoldResult {
-        if (idx == Dims4D::Act::N.ind()) {
+        if (idx == N.ind()) {
             return reifyDim(builder, input, idx, loc);
-        } else if (idx == Dims4D::Act::C.ind()) {
-            return kernel == nullptr ? reifyDim(builder, input, Dims4D::Act::C.ind(), loc)
-                                     : reifyDim(builder, kernel, Dims4D::Filter::OC.ind(), loc);
-        } else if (idx == Dims4D::Act::H.ind() || idx == Dims4D::Act::W.ind()) {
+        } else if (idx == C.ind()) {
+            return kernel == nullptr ? reifyDim(builder, input, C.ind(), loc)
+                                     : reifyDim(builder, kernel, OC.ind(), loc);
+        } else if (idx == H.ind() || idx == W.ind()) {
             auto inputDim = reifyDim(builder, input, idx, loc);
             auto inputDimVal = mlir::dyn_cast<mlir::Value>(inputDim);
             VPUX_THROW_WHEN(inputDimVal == nullptr, "Failed to reify input dimension {0} for input {1} at location {2}",

@@ -7,8 +7,10 @@
 #include "vpux/compiler/NPU50XX/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/Shave/transforms/passes.hpp"
 #include "vpux/compiler/dialect/core/transforms/passes.hpp"
 #include "vpux/compiler/locverif/passes.hpp"
+#include "vpux/compiler/pipelines/options_setup.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Pass/PassManager.h>
@@ -29,6 +31,10 @@ void vpux::IE::arch50xx::buildInitialLowPrecisionTransformationsPipeline(mlir::O
     pm.addPass(IE::arch50xx::createConvertFakeConvertToFakeQuantizePass(log));
     pm.addPass(IE::createConvertMinMaxToClampPass(log));
     pm.addPass(IE::createFoldActivationBeforeFQPass(log));
+
+    pm.addPass(IE::createAdjustFakeQdqParamsPass(log));
+    pm.addPass(IE::createFuseQuantizationMultiplyPass(options.fuseFQAndMulWithNonConstInput, log));
+    pm.addPass(IE::createHandleU16FakeQuantizePass(log));
 }
 
 void vpux::IE::arch50xx::buildLowPrecisionPipeline(mlir::OpPassManager& pm, const LowPrecisionOptions& options,
@@ -164,8 +170,9 @@ void vpux::IE::arch50xx::buildConvertToEfficientOpsPipeline(mlir::OpPassManager&
 void vpux::IE::arch50xx::buildFinalTransformationPipeline(mlir::OpPassManager& pm,
                                                           const IE::arch50xx::DefaultHWOptions& options, Logger log) {
     pm.addPass(IE::createAdaptODUPermutePass(log));
+    pm.addPass(IE::createFuseInefficientTileForAddPass(log));
+    pm.addPass(IE::createBroadcastInputForMultiplyPass(options.broadcastInputForMultiply, log));
     if (options.broadcastInputForMultiply) {
-        pm.addPass(IE::createBroadcastInputForMultiplyPass(log));
         pm.addPass(IE::createConvertBroadcastToTilePass(log));
     }
     if (options.enableConvertExpandToConvPass) {
@@ -184,6 +191,31 @@ void vpux::IE::arch50xx::buildFinalTransformationPipeline(mlir::OpPassManager& p
     if (options.enableFuseD2SExpand) {
         pm.addPass(IE::createFuseD2SExpandChannelsPass(log));
     }
+}
+
+//
+// AttentionPipeline
+//
+
+void vpux::IE::arch50xx::buildAttentionProcessingPipeline(mlir::OpPassManager& pm,
+                                                          const IE::AttentionProcessingOptions& options, Logger log) {
+    const auto grc = getDefaultGreedyRewriteConfig();
+
+    if (options.enableFlashSDPAConversion) {
+        pm.addPass(IE::createConvertSDPAToFlashSDPAPass(log));
+    }
+    pm.addPass(IE::createResolveStridedSlicePass(log));
+    if (options.enableConvertToAttention) {
+        pm.addPass(IE::createFuseAttentionPass(log));
+        pm.addPass(mlir::createCanonicalizerPass(grc));
+    }
+    if (options.enableFuseSoftwareSDPA) {
+        pm.addPass(IE::createFuseSDPAPass(log));
+    }
+    if (options.enableDecomposeAttention) {
+        pm.addPass(IE::createDecomposeAttentionPass(log));
+    }
+    pm.addPass(IE::createReshapeMatMulInputsPass(options.enableGroupedMatMul, log));
 }
 
 //
@@ -214,13 +246,11 @@ void vpux::IE::arch50xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
         pm.addPass(IE::createLogOpOptimizationsPass());
     }
 
-    if (options.enableFlashSDPAConversion) {
-        pm.addPass(IE::createConvertSDPAToFlashSDPAPass(log));
-    }
     if (options.enableDynamicShapeTransformationsPipeline) {
         IE::buildDynamicShapeTransformationsPipeline(pm, IE::DynamicShapeTransformOptions(options), log);
     }
     IE::arch50xx::buildInitialLowPrecisionTransformationsPipeline(pm, IE::LowPrecisionTransformOptions(options), log);
+    IE::arch50xx::buildAttentionProcessingPipeline(pm, IE::AttentionProcessingOptions(options), log);
     IE::buildInitialTransformationsPipeline(pm, IE::TransformOptions(options), log);
     if (options.enableAdjustPrecisionPipeline) {
         IE::buildAdjustPrecisionPipeline(pm, IE::AdjustPrecisionOptions(options), log);
@@ -242,8 +272,6 @@ void vpux::IE::arch50xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     IE::buildConvertToConvolutionPipeline(pm, log);
     IE::buildReorderFakeQuantizePipeline(pm, IE::ReorderFakeQuantizeOptions(options), log);
 
-    // All locations unique with full verification after each pass to this point
-    pm.addPass(locverif::createStopLocationVerifierPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
     IE::buildScaleShiftProcessingPipeline(pm, log);
 
@@ -260,19 +288,25 @@ void vpux::IE::arch50xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
 
     IE::buildAdjustLayoutPipeline(pm, IE::AdjustLayoutOptions(options), log);
 
-    IE::buildOptimizeMemPermuteAndActivationChannelsExpandPipeline(pm, IE::ExpandActivationChannelsOptions(options),
-                                                                   log);
+    auto expandOpts = IE::ExpandActivationChannelsOptions(options);
+    // NPU5010 benefits from W=8 alignment for better DPU efficiency.
+    // The pass gates this at runtime to NPU5010 only; NPU5020 falls back to default (4).
+    overwriteIfUnset(expandOpts.preferredSpatialAlignment, static_cast<int64_t>(8));
+    IE::buildOptimizeMemPermuteAndActivationChannelsExpandPipeline(pm, expandOpts, log);
+
+    // All locations unique with full verification after each pass to this point
+    pm.addPass(locverif::createStopLocationVerifierPass(log));
 
     IE::buildOptimizeViewLikeOpsPipeline(pm, log);
 
-    IE::buildOptimizeSliceOpPipeline(pm, log);
+    IE::buildOptimizeSliceOpPipeline(pm, options.disableSliceToConvMinHWThreshold, log);
 
     IE::buildDimensionAlignmentPipeline(pm, log);
 
     IE::arch50xx::buildFinalTransformationPipeline(pm, options, log);
 
     // Shave related optimization
-    pm.addPass(IE::createLoadExternalKernelResourcesPass(log));
+    pm.addPass(Shave::createLoadExternalKernelResourcesPass(log));
     if (options.enableShaveCodeGen) {
         ShaveCodeGen::buildShaveCodeGenPipelineIE(pm, log);
     }
@@ -295,6 +329,7 @@ void vpux::IE::arch50xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     // Level 3 : Topology
 
     IE::arch50xx::buildInitialLowPrecisionTransformationsPipeline(pm, IE::LowPrecisionTransformOptions(options), log);
+    IE::arch50xx::buildAttentionProcessingPipeline(pm, IE::AttentionProcessingOptions(options), log);
     IE::buildInitialTransformationsPipeline(pm, IE::TransformOptions(options), log);
     IE::buildAdjustPrecisionPipeline(pm, IE::AdjustPrecisionOptions(options), log);
 
@@ -307,7 +342,7 @@ void vpux::IE::arch50xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     pm.addPass(IE::createMergeParallelFullyConnectedPass(log));
     pm.addPass(IE::createUnrollGroupQuantizePass(log));
     pm.addPass(IE::createUnrollFullyConnectedPass(log));
-    pm.addPass(IE::createMergeFullyConnectedPass(log));
+    pm.addPass(IE::createMergeFullyConnectedPass(isOptionEnabled(options.mergeUnrolledMatmulForLargeOC), log));
     pm.addPass(IE::createConvertMatMulToConvPass(log));
     if (options.enableConvertFCToConv) {
         pm.addPass(IE::createConvertFCToConvPass(log));
@@ -356,6 +391,14 @@ void vpux::IE::arch50xx::registerIEPipelines() {
             "equivalent operations supported by the lower compilation levels",
             [](mlir::OpPassManager& pm, const IE::LowPrecisionTransformOptions& options) {
                 IE::arch50xx::buildInitialLowPrecisionTransformationsPipeline(pm, options);
+            });
+
+    mlir::PassPipelineRegistration<IE::AttentionProcessingOptions>(
+            "attention-processing",
+            "[OPTIMIZATION] Attention processing transformations: fuse patterns into AttentionOp and apply "
+            "attention decomposition strategies",
+            [](mlir::OpPassManager& pm, const IE::AttentionProcessingOptions& options) {
+                IE::arch50xx::buildAttentionProcessingPipeline(pm, options);
             });
 
     mlir::PassPipelineRegistration<LowPrecisionOptions>(

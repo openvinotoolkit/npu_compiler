@@ -296,6 +296,33 @@ func.func @KeepI8ConvWithDequantizeInputsArguments(%arg0: tensor<1x3072x1x1xf16>
 
 // -----
 
+// CHECK:     !qElemType = !quant.uniform<i8:f16, 7.2735629510134459E-4>
+!qElemType = !quant.uniform<i8:f16, 7.2735629510134459E-4>
+
+// CHECK:      func.func @KeepI8ConvWithDynamicDequantizeInputsArguments
+// CHECK-SAME: ([[ARG0:%.+]]: tensor<1x3072x1x1xf16>, [[ARG1:%.+]]: tensor<3072x32xsi8>, [[ARG2:%.+]]: tensor<1x3072x1x1xf16>) -> tensor<1x32x1x1xf16>
+func.func @KeepI8ConvWithDynamicDequantizeInputsArguments(%arg0: tensor<1x3072x1x1xf16>, %arg1: tensor<3072x32xsi8>, %arg2: tensor<1x3072x1x1xf16>) -> tensor<1x32x1x1xf16> {
+  %quantCast = IE.QuantizeCast(%arg1) {dstElemType = !qElemType} : tensor<3072x32xsi8> -> tensor<3072x32x!qElemType>
+  %afreshape0 = IE.AffineReshape(%quantCast) {dim_mapping = [[0, 1, 2], [3]], shape_value = [1, 3072, 1, 32]} : tensor<3072x32x!qElemType> -> tensor<1x3072x1x32x!qElemType>
+  %transpose = IE.Transpose(%afreshape0) {order_value = affine_map<(d0, d1, d2, d3) -> (d0, d3, d2, d1)>} : tensor<1x3072x1x32x!qElemType> -> tensor<1x32x1x3072x!qElemType>
+  %afreshape1 = IE.AffineReshape(%transpose) {dim_mapping = [[0], [0], [0], [1, 2, 3]], shape_value = [32, 3072, 1, 1]} : tensor<1x32x1x3072x!qElemType> -> tensor<32x3072x1x1x!qElemType>
+  %dequant = IE.DynamicDequantize(%afreshape1, %arg2) {dstElemType = f16} : tensor<32x3072x1x1x!qElemType>, tensor<1x3072x1x1xf16> -> tensor<32x3072x1x1xf16>
+  %conv = IE.Convolution(%arg0, %dequant) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x3072x1x1xf16>, tensor<32x3072x1x1xf16> -> tensor<1x32x1x1xf16>
+  return  %conv : tensor<1x32x1x1xf16>
+
+  // CHECK:               [[QCAST:%.+]] = IE.QuantizeCast([[ARG1]]) {dstElemType = !qElemType} : tensor<3072x32xsi8> -> tensor<3072x32x!qElemType>
+  // CHECK:               [[AFRESHAPE:%.+]] = IE.AffineReshape([[QCAST]])
+  // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1, 2], [3]], shape_value = [1, 3072, 1, 32]} : tensor<3072x32x!qElemType> -> tensor<1x3072x1x32x!qElemType>
+  // CHECK:               [[TRANSPOSE:%.+]] = IE.Transpose([[AFRESHAPE]]) {order_value = #NWHC} : tensor<1x3072x1x32x!qElemType> -> tensor<1x32x1x3072x!qElemType>
+  // CHECK:               [[AFRESHAPE1:%.+]] = IE.AffineReshape([[TRANSPOSE]])
+  // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [0], [0], [1, 2, 3]], shape_value = [32, 3072, 1, 1]} : tensor<1x32x1x3072x!qElemType> -> tensor<32x3072x1x1x!qElemType>
+  // CHECK:               [[DEQUANTIZE:%.+]] = IE.DynamicDequantize([[AFRESHAPE1]], [[ARG2]]) {dstElemType = f16} : tensor<32x3072x1x1x!qElemType>, tensor<1x3072x1x1xf16> -> tensor<32x3072x1x1xf16>
+  // CHECK:               [[CONV:%.+]] = IE.Convolution([[ARG0]], [[DEQUANTIZE]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x3072x1x1xf16>, tensor<32x3072x1x1xf16> -> tensor<1x32x1x1xf16>
+  // CHECK:               return [[CONV]] : tensor<1x32x1x1xf16>
+}
+
+// -----
+
 !qElemType = !quant.uniform<i8:f16, 1.000000e+00>
 
 // CHECK:      func.func @SkipForQuantizeCastDequantizePattern
@@ -641,4 +668,124 @@ func.func @ChainedQuantizeCastI8ToU8(%arg0: tensor<256x768x1x1x!qElemType_u8>, %
   // CHECK-SAME:      {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
   // CHECK-SAME:      : tensor<1x768x1x1xf16>, tensor<256x768x1x1xf16> -> tensor<1x256x1x1xf16>
   // CHECK:       return [[CONV]] : tensor<1x256x1x1xf16>
+}
+
+// -----
+
+// Gather op with quantized I8 embedding table: the pass must NOT convert the
+// constant or the Gather op to U8
+
+!qElemType = !quant.uniform<i8:f16, 1.000000e+00>
+
+// CHECK: !qElemType = !quant.uniform<i8:f16, 1.000000e+00>
+// CHECK-LABEL: @KeepI8ConstantsForGather
+// CHECK-SAME:      [[ARG0:%.+]]: tensor<1x512xsi32>
+func.func @KeepI8ConstantsForGather(%arg0: tensor<1x512xsi32>) -> tensor<1x512x768x!qElemType> {
+  %cst = const.Declare tensor<250002x768x!qElemType> = dense<0> : tensor<250002x768xsi8>,
+      [#const.CastElemType<f16>, #const.CastElemType<si8>, #const.CastElemType<!qElemType>]
+  %0 = IE.Gather(%cst, %arg0) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 2 : i64}
+      : tensor<250002x768x!qElemType>, tensor<1x512xsi32> -> tensor<1x512x768x!qElemType>
+  return %0 : tensor<1x512x768x!qElemType>
+
+  // CHECK:       [[CST:%.+]] = const.Declare tensor<250002x768x!qElemType>
+  // CHECK-NOT:   #const.ConvertElemType
+  // CHECK:       [[GATHER:%.+]] = IE.Gather([[CST]], [[ARG0]])
+  // CHECK-SAME:      {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 2 : i64}
+  // CHECK-SAME:      : tensor<250002x768x!qElemType>, tensor<1x512xsi32> -> tensor<1x512x768x!qElemType>
+  // CHECK:       return [[GATHER]] : tensor<1x512x768x!qElemType>
+}
+
+// -----
+
+// CHECK-DAG: !qElemType = !quant.uniform<i8:f16, 0.047244105488061905>
+!qElemType = !quant.uniform<i8:f16, 0.047244105488061905>
+
+// CHECK-LABEL: @KeepI8ConcatInputWithSI8BlockArg
+// CHECK-SAME:      [[INPUT_0:%[^:]+]]: tensor<1x256x1x1xf16>
+// CHECK-SAME:      [[INPUT_1:%[^:]+]]: tensor<1x256x1x1xf16>
+// CHECK-SAME:      [[SI8_ARG:%[^:]+]]: tensor<1x512x1x1xsi8>
+func.func @KeepI8ConcatInputWithSI8BlockArg(%arg0: tensor<1x256x1x1xf16>, %arg1: tensor<1x256x1x1xf16>, %arg2: tensor<1x512x1x1xsi8>) -> tensor<1x768x1x1xf16> {
+  %add = IE.Add(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x256x1x1xf16>, tensor<1x256x1x1xf16> -> tensor<1x256x1x1x!qElemType>
+  %qcast0 = IE.QuantizeCast(%add) {dstElemType = si8} : tensor<1x256x1x1x!qElemType> -> tensor<1x256x1x1xsi8>
+  %concat = IE.Concat(%qcast0, %arg2) {static_offsets = [[0, 0, 0, 0], [0, 256, 0, 0]]} : tensor<1x256x1x1xsi8>, tensor<1x512x1x1xsi8> -> tensor<1x768x1x1xsi8>
+  %qcast1 = IE.QuantizeCast(%concat) {dstElemType = !qElemType} : tensor<1x768x1x1xsi8> -> tensor<1x768x1x1x!qElemType>
+  %dequant = IE.Dequantize(%qcast1) {dstElemType = f16} : tensor<1x768x1x1x!qElemType> -> tensor<1x768x1x1xf16>
+  return %dequant : tensor<1x768x1x1xf16>
+
+  // CHECK:       [[ADD:%.+]] = IE.Add([[INPUT_0]], [[INPUT_1]])
+  // CHECK-SAME:      {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x256x1x1xf16>, tensor<1x256x1x1xf16> -> tensor<1x256x1x1x!qElemType>
+  // CHECK:       [[QCAST0:%.+]] = IE.QuantizeCast([[ADD]]) {dstElemType = si8} : tensor<1x256x1x1x!qElemType> -> tensor<1x256x1x1xsi8>
+  // CHECK:       [[CONCAT:%.+]] = IE.Concat([[QCAST0]], [[SI8_ARG]])
+  // CHECK-SAME{LITERAL}:   {static_offsets = [[0, 0, 0, 0], [0, 256, 0, 0]]} : tensor<1x256x1x1xsi8>, tensor<1x512x1x1xsi8> -> tensor<1x768x1x1xsi8>
+  // CHECK:       [[QCAST1:%.+]] = IE.QuantizeCast([[CONCAT]]) {dstElemType = !qElemType} : tensor<1x768x1x1xsi8> -> tensor<1x768x1x1x!qElemType>
+  // CHECK:       [[DEQUANT:%.+]] = IE.Dequantize([[QCAST1]]) {dstElemType = f16} : tensor<1x768x1x1x!qElemType> -> tensor<1x768x1x1xf16>
+  // CHECK:       return [[DEQUANT]] : tensor<1x768x1x1xf16>
+}
+
+// -----
+
+// Gather with a quantized I8 embedding table flowing through AffineReshape into
+// DynamicDequantize: the entire chain must remain in I8 storage.
+// DynamicDequantize consumes signed quantized input natively (its SHAVE kernel
+// does not support U8)
+
+!qElemType = !quant.uniform<i8:f16, 1.000000e+00>
+
+// CHECK: !qElemType = !quant.uniform<i8:f16, 1.000000e+00>
+// CHECK-LABEL: @KeepI8GatherWithDynamicDequantize
+// CHECK-SAME:      [[ARG0:%.+]]: tensor<1x512xsi32>
+// CHECK-SAME:      [[SCALE:%.+]]: tensor<1x512x1x1xf16>
+func.func @KeepI8GatherWithDynamicDequantize(
+        %arg0: tensor<1x512xsi32>,
+        %arg1: tensor<1x512x1x1xf16>) -> tensor<1x512x1x768xf16> {
+  %cst = const.Declare tensor<250002x768x!qElemType> = dense<0> : tensor<250002x768xsi8>,
+      [#const.CastElemType<f16>, #const.CastElemType<si8>, #const.CastElemType<!qElemType>]
+  %0 = IE.Gather(%cst, %arg0) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 2 : i64}
+      : tensor<250002x768x!qElemType>, tensor<1x512xsi32> -> tensor<1x512x768x!qElemType>
+  %1 = IE.AffineReshape(%0) {dim_mapping = [[0], [1], [2, 3]], shape_value = [1, 512, 1, 768]}
+      : tensor<1x512x768x!qElemType> -> tensor<1x512x1x768x!qElemType>
+  %2 = IE.DynamicDequantize(%1, %arg1) {dstElemType = f16}
+      : tensor<1x512x1x768x!qElemType>, tensor<1x512x1x1xf16> -> tensor<1x512x1x768xf16>
+  return %2 : tensor<1x512x1x768xf16>
+
+  // CHECK:       [[CST:%.+]] = const.Declare tensor<250002x768x!qElemType>
+  // CHECK-NOT:   #const.ConvertElemType
+  // CHECK:       [[GATHER:%.+]] = IE.Gather([[CST]], [[ARG0]])
+  // CHECK-SAME:      {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 2 : i64}
+  // CHECK-SAME:      : tensor<250002x768x!qElemType>, tensor<1x512xsi32> -> tensor<1x512x768x!qElemType>
+  // CHECK:       [[RESHAPE:%.+]] = IE.AffineReshape([[GATHER]])
+  // CHECK-SAME:      : tensor<1x512x768x!qElemType> -> tensor<1x512x1x768x!qElemType>
+  // CHECK:       [[DEQUANT:%.+]] = IE.DynamicDequantize([[RESHAPE]], [[SCALE]]) {dstElemType = f16}
+  // CHECK-SAME:      : tensor<1x512x1x768x!qElemType>, tensor<1x512x1x1xf16> -> tensor<1x512x1x768xf16>
+  // CHECK:       return [[DEQUANT]] : tensor<1x512x1x768xf16>
+}
+
+// -----
+
+// CHECK-DAG: !qElemType = !quant.uniform<i8:f16, 0.047244105488061905>
+!qElemType = !quant.uniform<i8:f16, 0.047244105488061905>
+
+// CHECK-LABEL: @KeepI8ConcatInputWithSI8BlockArgViaReshape
+// CHECK-SAME:      [[INPUT_0:%[^:]+]]: tensor<1x256x1x1xf16>
+// CHECK-SAME:      [[INPUT_1:%[^:]+]]: tensor<1x256x1x1xf16>
+// CHECK-SAME:      [[SI8_ARG:%[^:]+]]: tensor<512x1x1x1xsi8>
+func.func @KeepI8ConcatInputWithSI8BlockArgViaReshape(%arg0: tensor<1x256x1x1xf16>, %arg1: tensor<1x256x1x1xf16>, %arg2: tensor<512x1x1x1xsi8>) -> tensor<768x1x1x1xf16> {
+  %add = IE.Add(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x256x1x1xf16>, tensor<1x256x1x1xf16> -> tensor<1x256x1x1x!qElemType>
+  %qcast0 = IE.QuantizeCast(%add) {dstElemType = si8} : tensor<1x256x1x1x!qElemType> -> tensor<1x256x1x1xsi8>
+  %reshape = IE.AffineReshape(%qcast0) {dim_mapping = [[0], [0], [1], [2, 3]], shape_value = [256, 1, 1, 1]} : tensor<1x256x1x1xsi8> -> tensor<256x1x1x1xsi8>
+  %concat = IE.Concat(%reshape, %arg2) {static_offsets = [[0, 0, 0, 0], [256, 0, 0, 0]]} : tensor<256x1x1x1xsi8>, tensor<512x1x1x1xsi8> -> tensor<768x1x1x1xsi8>
+  %qcast1 = IE.QuantizeCast(%concat) {dstElemType = !qElemType} : tensor<768x1x1x1xsi8> -> tensor<768x1x1x1x!qElemType>
+  %dequant = IE.Dequantize(%qcast1) {dstElemType = f16} : tensor<768x1x1x1x!qElemType> -> tensor<768x1x1x1xf16>
+  return %dequant : tensor<768x1x1x1xf16>
+
+  // CHECK:       [[ADD:%.+]] = IE.Add([[INPUT_0]], [[INPUT_1]])
+  // CHECK-SAME:      {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x256x1x1xf16>, tensor<1x256x1x1xf16> -> tensor<1x256x1x1x!qElemType>
+  // CHECK:       [[QCAST0:%.+]] = IE.QuantizeCast([[ADD]]) {dstElemType = si8} : tensor<1x256x1x1x!qElemType> -> tensor<1x256x1x1xsi8>
+  // CHECK:       [[RESHAPE:%.+]] = IE.AffineReshape([[QCAST0]])
+  // CHECK-SAME{LITERAL}:   {dim_mapping = [[0], [0], [1], [2, 3]], shape_value = [256, 1, 1, 1]} : tensor<1x256x1x1xsi8> -> tensor<256x1x1x1xsi8>
+  // CHECK:       [[CONCAT:%.+]] = IE.Concat([[RESHAPE]], [[SI8_ARG]])
+  // CHECK-SAME{LITERAL}:   {static_offsets = [[0, 0, 0, 0], [256, 0, 0, 0]]} : tensor<256x1x1x1xsi8>, tensor<512x1x1x1xsi8> -> tensor<768x1x1x1xsi8>
+  // CHECK:       [[QCAST1:%.+]] = IE.QuantizeCast([[CONCAT]]) {dstElemType = !qElemType} : tensor<768x1x1x1xsi8> -> tensor<768x1x1x1x!qElemType>
+  // CHECK:       [[DEQUANT:%.+]] = IE.Dequantize([[QCAST1]]) {dstElemType = f16} : tensor<768x1x1x1x!qElemType> -> tensor<768x1x1x1xf16>
+  // CHECK:       return [[DEQUANT]] : tensor<768x1x1x1xf16>
 }

@@ -19,6 +19,8 @@
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/utils/interpolate_utils.hpp"
+#include "vpux/compiler/dialect/Shave/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
@@ -32,6 +34,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auxiliary_buffers.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/dialect/core/IR/ops.hpp"
@@ -190,10 +193,32 @@ mlir::LogicalResult NonMaxSuppressionRewrite::matchAndRewrite(IE::NonMaxSuppress
                                                               mlir::PatternRewriter& rewriter) const {
     _log.trace("Found NonMaxSuppression Operation '{0}'", origOp->getLoc());
 
+    // The NMS act-shave kernel reads the iou/score thresholds from scalar input tensors. Always
+    // provide both as operands: pass through the runtime operand when it is present, otherwise
+    // materialize a single-element constant tensor from the corresponding threshold attribute.
+    const auto scoresElemType = mlir::cast<vpux::NDTypeInterface>(origOp.getInBoxScores().getType()).getElementType();
+    const auto thresholdType = mlir::RankedTensorType::get({1}, scoresElemType);
+
+    const auto materializeThreshold = [&](mlir::Value runtimeOperand, mlir::FloatAttr valueAttr,
+                                          StringRef name) -> mlir::Value {
+        if (runtimeOperand != nullptr) {
+            return runtimeOperand;
+        }
+        const auto value = static_cast<float>(valueAttr != nullptr ? valueAttr.getValueAsDouble() : 0.0);
+        return Const::createFloatConst(rewriter, appendLoc(origOp->getLoc(), name), thresholdType,
+                                       ArrayRef<float>{value});
+    };
+
+    auto iouThreshold =
+            materializeThreshold(origOp.getIouThreshold(), origOp.getIouThresholdValueAttr(), "nms_iou_threshold");
+    auto scoreThreshold = materializeThreshold(origOp.getScoreThreshold(), origOp.getScoreThresholdValueAttr(),
+                                               "nms_score_threshold");
+
     rewriter.replaceOpWithNewOp<VPU::NonMaxSuppressionOp>(
-            origOp, origOp.getInBoxCoords(), origOp.getInBoxScores(), origOp.getBoxEncodingAttr(),
-            origOp.getSortResultDescendingAttr(), origOp.getMaxOutputBoxesPerClassValueAttr(),
-            origOp.getIouThresholdValueAttr(), origOp.getScoreThresholdValueAttr(), origOp.getSoftNmsSigmaValueAttr());
+            origOp, origOp.getInBoxCoords(), origOp.getInBoxScores(), iouThreshold, scoreThreshold,
+            origOp.getBoxEncodingAttr(), origOp.getSortResultDescendingAttr(),
+            origOp.getMaxOutputBoxesPerClassValueAttr(), origOp.getIouThresholdValueAttr(),
+            origOp.getScoreThresholdValueAttr(), origOp.getSoftNmsSigmaValueAttr());
 
     _log.trace("Replaced with 'VPU.NonMaxSuppressionOp'");
 
@@ -272,14 +297,35 @@ mlir::LogicalResult GRUCellRewrite::matchAndRewrite(IE::GRUCellOp origOp, mlir::
 
 mlir::LogicalResult InterpolateRewrite::matchAndRewrite(IE::InterpolateOp origOp,
                                                         mlir::PatternRewriter& rewriter) const {
-    // Scale-as-parameter path: lower to VPU::InterpolateDMAOp
+    // Scale-as-parameter path: lower to VPU::InterpolateDMAOp.
+    // InterpolateDMA has no non-DMA fallback (shave-writes-to-DDR is disabled), so any arch that
+    // accepts a scales-as-parameter Interpolate must register IE::LayerWithDmaInterface for it.
     if (IE::isScalesAsParameter(origOp.getScales(), origOp.getScalesAttr())) {
         _log.trace("Found Interpolate with scales as parameter '{0}'", origOp->getLoc());
 
+        auto opWithDma = mlir::dyn_cast<IE::LayerWithDmaInterface>(origOp.getOperation());
+        VPUX_THROW_UNLESS(opWithDma, "Interpolate with scales-as-parameter requires IE::LayerWithDmaInterface");
+        VPUX_THROW_UNLESS(opWithDma.isSupported(),
+                          "Interpolate with scales-as-parameter is unsupported for the current arch/mode "
+                          "combination: InterpolateDMA is not supported");
+
         const auto outputType = origOp.getOutput().getType();
+        auto module = origOp->getParentOfType<mlir::ModuleOp>();
+
+        // Default kernel CMX workspace; clamp to fragmentation-aware CMX so it never exceeds what
+        // the scheduler can safely give on the current arch.
+        constexpr int64_t kerWszBytes = (1024 + 256) * 1024;
+        const int64_t fragAwareBytes = VPU::getTotalCMXFragmentationAwareSize(module).count();
+        const int64_t auxBytes = std::min(kerWszBytes, fragAwareBytes);
+        _log.info("InterpolateDMA aux buffer: fragAware={0}B, kerWsz={1}B, aux={2}B at '{3}'", fragAwareBytes,
+                  kerWszBytes, auxBytes, origOp->getLoc());
+        auto auxType = mlir::RankedTensorType::get({1, 1, 1, auxBytes}, getUInt8Type(rewriter.getContext()));
+        mlir::Value auxBuffer = VPU::createEmptyAuxiliaryBuffer(rewriter, origOp->getLoc(), auxType);
+
         rewriter.replaceOpWithNewOp<VPU::InterpolateDMAOp>(origOp, outputType, origOp.getInput(), origOp.getScales(),
-                                                           /*coordinates=*/nullptr, /*lambdas=*/nullptr,
-                                                           origOp.getAxesAttrAttr(), origOp.getAttrAttr());
+                                                           /*aux_buffer=*/auxBuffer, origOp.getAxesAttrAttr(),
+                                                           origOp.getAttrAttr(),
+                                                           /*multiClusterStrategy=*/nullptr);
 
         return mlir::success();
     }
@@ -324,6 +370,26 @@ mlir::LogicalResult AtanRewrite::matchAndRewrite(IE::AtanOp origOp, mlir::Patter
     }
 
     rewriter.replaceOpWithNewOp<VPU::AtanOp>(origOp, input);
+    return mlir::success();
+}
+
+//
+// ScatterUpdateRewrite
+//
+
+mlir::LogicalResult ScatterUpdateRewrite::matchAndRewrite(IE::ScatterUpdateOp origOp,
+                                                          mlir::PatternRewriter& rewriter) const {
+    _log.trace("Found ScatterUpdate Operation '{0}'", origOp->getLoc());
+
+    auto opWithDma = mlir::dyn_cast<IE::LayerWithDmaInterface>(origOp.getOperation());
+    if (opWithDma && opWithDma.isSupported()) {
+        rewriter.replaceOpWithNewOp<VPU::ScatterUpdateSwDmaOp>(origOp, origOp.getInput(), origOp.getIndices(),
+                                                               origOp.getUpdates(), origOp.getAxisValueAttr());
+        return mlir::success();
+    }
+
+    rewriter.replaceOpWithNewOp<VPU::ScatterUpdateOp>(origOp, origOp.getInput(), origOp.getIndices(),
+                                                      origOp.getUpdates(), origOp.getAxisValueAttr());
     return mlir::success();
 }
 
@@ -539,7 +605,10 @@ mlir::LogicalResult DynamicQuantizeRewrite::matchAndRewrite(IE::DynamicQuantizeO
                                                             mlir::PatternRewriter& rewriter) const {
     _log.trace("Found DynamicQuantizeOp Operation '{0}'", origOp->getLoc());
 
-    rewriter.replaceOpWithNewOp<VPU::DynamicQuantizeOp>(origOp, origOp.getInput(), origOp.getMin(), origOp.getMax());
+    rewriter.replaceOpWithNewOp<VPU::DynamicQuantizeOp>(
+            origOp,
+            mlir::TypeRange{origOp.getOutput().getType(), origOp.getScale().getType(), origOp.getZeroPoint().getType()},
+            origOp.getInput(), origOp.getMin(), origOp.getMax(), origOp.getDstElemTypeAttr(), nullptr);
     return mlir::success();
 }
 
@@ -549,6 +618,11 @@ mlir::LogicalResult DynamicQuantizeRewrite::matchAndRewrite(IE::DynamicQuantizeO
 
 mlir::LogicalResult AddRewrite::matchAndRewrite(IE::AddOp origOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("Found Add Operation '{0}'", origOp->getLoc());
+
+    if (origOp.getScales() != nullptr) {
+        return matchFailed(rewriter, origOp, "SW eltwise Add does not support scales-as-input");
+    }
+
     constexpr int64_t RANK_4D = 4;
 
     mlir::Value input1 = origOp.getInput1();
@@ -583,19 +657,6 @@ mlir::LogicalResult AddRewrite::matchAndRewrite(IE::AddOp origOp, mlir::PatternR
     } else {
         rewriter.replaceOp(origOp, newAddOp);
     }
-    return mlir::success();
-}
-
-//
-// ExternalKernelRewrite
-//
-
-mlir::LogicalResult ExternalKernelRewrite::matchAndRewrite(IE::ExternalKernelOp origOp,
-                                                           mlir::PatternRewriter& rewriter) const {
-    _log.trace("Found ExternalKernel Operation '{0}'", origOp->getLoc());
-
-    rewriter.replaceOpWithNewOp<VPU::ExternalKernelOp>(origOp, origOp.getOutputs().getTypes(), origOp.getInputs(),
-                                                       origOp.getAttrDict(), origOp.getUniqueId());
     return mlir::success();
 }
 
@@ -718,6 +779,7 @@ void ConvertLayers2VPUPass::safeRunOnFunc() {
     target.addLegalDialect<VPU::VPUDialect>();
     target.addLegalDialect<mlir::linalg::LinalgDialect>();
     target.addLegalDialect<mlir::math::MathDialect>();
+    target.addLegalDialect<Shave::ShaveDialect>();
 
     if (config::isPureHostCompileFunc(func)) {
         // host pipeline related
@@ -743,6 +805,7 @@ void ConvertLayers2VPUPass::safeRunOnFunc() {
     patterns.add<ExperimentalDetectronROIFeatureExtractorRewrite>(&ctx, _log);
     patterns.add<TopKRewrite>(&ctx, _log);
     patterns.add<AtanRewrite>(&ctx, _log);
+    patterns.add<ScatterUpdateRewrite>(&ctx, _log);
     patterns.add<MaxPool8Rewrite>(&ctx, _log);
     patterns.add<TransposedConvRewrite>(&ctx, _log);
     patterns.add<NormalizeL2Rewrite>(&ctx, _log);
@@ -757,7 +820,6 @@ void ConvertLayers2VPUPass::safeRunOnFunc() {
     patterns.add<DynamicTileRewrite>(&ctx, _log);
     patterns.add<DynamicQuantizeRewrite>(&ctx, _log);
     patterns.add<AddRewrite>(&ctx, _log);
-    patterns.add<ExternalKernelRewrite>(&ctx, _log);
     patterns.add<FlashSDPARewrite>(&ctx, _log);
     patterns.add<LogSoftmaxTopKRewrite>(&ctx, _log);
     patterns.add<LogSoftmaxPeakRewrite>(&ctx, _log);

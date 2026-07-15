@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2025-2026 Intel Corporation.
+// Copyright (C) 2025-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -14,7 +14,7 @@ module @FunctionToPackBasic {
         DataInfo "output" : tensor<f32>
     }
 
-    func.func private @helper_fn(%arg: tensor<f32>) -> tensor<f32> attributes {config.functionToPack = "helper_module"} {
+    func.func nested @helper_fn(%arg: tensor<f32>) -> tensor<f32> attributes {config.functionToPack = "helper_module"} {
         return %arg : tensor<f32>
     }
 
@@ -24,7 +24,7 @@ module @FunctionToPackBasic {
     }
 
     // CHECK: module @helper_module attributes {{.*}}config.packedModule{{.*}}
-    // CHECK:     func.func private @helper_fn
+    // CHECK:     func.func nested @helper_fn
 
     // CHECK: func.func @main
     // CHECK:     Core.NestedCall @helper_module::@helper_fn
@@ -40,7 +40,7 @@ module @FunctionToPackWithEntryPoint {
         DataInfo "output" : tensor<f32>
     }
 
-    func.func private @helper_fn(%arg: tensor<f32>) -> tensor<f32>
+    func.func nested @helper_fn(%arg: tensor<f32>) -> tensor<f32>
         attributes {config.functionToPack = "my_module"} {
         return %arg : tensor<f32>
     }
@@ -58,7 +58,7 @@ module @FunctionToPackWithEntryPoint {
 
     // CHECK: module @my_module attributes {{.*}}config.packedModule{{.*}}
     // CHECK:     net.NetworkInfo entryPoint : @entry_fn
-    // CHECK:     func.func private @helper_fn
+    // CHECK:     func.func nested @helper_fn
     // CHECK:     func.func @entry_fn
 
     // CHECK: func.func @main
@@ -75,12 +75,12 @@ module @MultipleFunctionToPackModules {
         DataInfo "output" : tensor<f32>
     }
 
-    func.func private @fn_a(%arg: tensor<f32>) -> tensor<f32>
+    func.func nested @fn_a(%arg: tensor<f32>) -> tensor<f32>
         attributes {config.functionToPack = "module_a", config.functionToPackEntryPoint} {
         return %arg : tensor<f32>
     }
 
-    func.func private @fn_b(%arg: tensor<f32>) -> tensor<f32>
+    func.func nested @fn_b(%arg: tensor<f32>) -> tensor<f32>
         attributes {config.functionToPack = "module_b"} {
         return %arg : tensor<f32>
     }
@@ -117,7 +117,7 @@ module @NestedModuleFunctionToPack {
     }
 
     module @existingModule {
-        func.func private @foo(%arg: tensor<f32>) -> tensor<f32>
+        func.func nested @foo(%arg: tensor<f32>) -> tensor<f32>
             attributes {config.functionToPack = "targetModule"} {
             return %arg : tensor<f32>
         }
@@ -129,7 +129,7 @@ module @NestedModuleFunctionToPack {
     }
 
     // CHECK: module @existingModule
-    // CHECK:     func.func private @foo{{.*}}config.functionToPack = "targetModule"
+    // CHECK:     func.func nested @foo{{.*}}config.functionToPack = "targetModule"
 
     // CHECK: func.func @main
     // CHECK:     Core.NestedCall @existingModule::@foo

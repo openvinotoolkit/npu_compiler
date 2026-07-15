@@ -17,7 +17,7 @@ public:
         if (config.get<intel_npu::TURBO>()) {
             overwriteIfUnset(options.optimizationLevel, 3);
         }
-        setupParamsAccordingToOptimizationLevel(options.optimizationLevel, options, options.workloadManagementEnable);
+        setupParamsAccordingToOptimizationLevel(options.optimizationLevel, options);
     }
 };
 

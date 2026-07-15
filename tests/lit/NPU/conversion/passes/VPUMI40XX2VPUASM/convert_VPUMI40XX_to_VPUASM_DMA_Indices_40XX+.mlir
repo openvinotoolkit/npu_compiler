@@ -18,36 +18,36 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
     DataInfo "output_2" : tensor<16x32x1x1xf16, {order = #NHWC}>
   }
   VPUASM.InputBindings inputDeclarations : {
-    VPUASM.DeclareBuffer @input_0_buffDecl !VPUASM.Buffer< "NetworkInput"[0] <0> : memref<16x32x1x1xf16, #NHWC, @DDR> :  swizzling(0)>
+    VPUASM.DeclareBuffer @input_0_buffDecl !VPUASM.Buffer< "NetworkInput"[0] <0> : memref<16x32x1x1xf16, {order = #NHWC}, @DDR> :  swizzling(0)>
   }
   VPUASM.OutputBindings outputDeclarations : {
-    VPUASM.DeclareBuffer @output_0_buffDecl !VPUASM.Buffer< "NetworkOutput"[0] <0> : memref<16x32x1x1xf16, #NHWC, @DDR> :  swizzling(0)>
-    VPUASM.DeclareBuffer @output_1_buffDecl !VPUASM.Buffer< "NetworkOutput"[1] <0> : memref<16x32x1x1xf16, #NHWC, @DDR> :  swizzling(0)>
-    VPUASM.DeclareBuffer @output_2_buffDecl !VPUASM.Buffer< "NetworkOutput"[2] <0> : memref<16x32x1x1xf16, #NHWC, @DDR> :  swizzling(0)>
+    VPUASM.DeclareBuffer @output_0_buffDecl !VPUASM.Buffer< "NetworkOutput"[0] <0> : memref<16x32x1x1xf16, {order = #NHWC}, @DDR> :  swizzling(0)>
+    VPUASM.DeclareBuffer @output_1_buffDecl !VPUASM.Buffer< "NetworkOutput"[1] <0> : memref<16x32x1x1xf16, {order = #NHWC}, @DDR> :  swizzling(0)>
+    VPUASM.DeclareBuffer @output_2_buffDecl !VPUASM.Buffer< "NetworkOutput"[2] <0> : memref<16x32x1x1xf16, {order = #NHWC}, @DDR> :  swizzling(0)>
   }
   VPUASM.ProfilingBindings profilingDeclarations : {
   }
-  func.func private @dma_broadcast() {
+  func.func nested @dma_broadcast() {
     %320 = VPUMI40XX.DeclareTaskBuffer <DMA> -> !VPURegMapped.Index<0:0:0>
     %352 = VPUMI40XX.DeclareTaskBuffer <DMA> -> !VPURegMapped.Index<0:1:0>
     %353 = VPUMI40XX.DeclareTaskBuffer <DMA> -> !VPURegMapped.Index<0:1:1>
     %354 = VPUMI40XX.DeclareTaskBuffer <DMA> -> !VPURegMapped.Index<0:1:2>
 
-    %2304 = VPURT.DeclareBuffer <NetworkInput> [0] <0> {swizzlingKey = 0 : i64} -> memref<16x32x1x1xf16, #NHWC, @DDR>
-    %2305 = VPURT.DeclareBuffer <NetworkOutput> [0] <0> {swizzlingKey = 0 : i64} -> memref<16x32x1x1xf16, #NHWC, @DDR>
-    %2306 = VPURT.DeclareBuffer <NetworkOutput> [1] <0> {swizzlingKey = 0 : i64} -> memref<16x32x1x1xf16, #NHWC, @DDR>
-    %2307 = VPURT.DeclareBuffer <NetworkOutput> [2] <0> {swizzlingKey = 0 : i64} -> memref<16x32x1x1xf16, #NHWC, @DDR>
-    %2308 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
-    %2309 = VPURT.DeclareBuffer <CMX_NN> [2] <0> -> memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 2]>
-    %2310 = VPURT.DeclareBuffer <CMX_NN> [4] <0> -> memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 4]>
-    %2311 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
-    %2312 = VPURT.DeclareBuffer <CMX_NN> [2] <0> -> memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 2]>
-    %2313 = VPURT.DeclareBuffer <CMX_NN> [4] <0> -> memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 4]>
-    %indices = VPURT.DeclareBuffer <CMX_NN> [4] <0> -> memref<1x5x1x1xi64, #NHWC, [@CMX_NN, 4]>
-    %2315 = VPUMI40XX.NNDMA <{port = 0 : i64}> taskLocation(%320 : !VPURegMapped.Index<0:0:0>) inputs(%2304 : memref<16x32x1x1xf16, #NHWC, @DDR>) outputs(%2308, %2309, %2310 : memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 0]>, memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 2]>, memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 4]>) start_after(1) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:0:0>
-    %2316 = VPUMI40XX.NNDMA <{addressingMode = 1 : i64, port = 0 : i64}> taskLocation(%352 : !VPURegMapped.Index<0:1:0>) inputs(%2311 : memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) outputs(%2305 : memref<16x32x1x1xf16, #NHWC, @DDR>) start_after(1) clean_after(1) acceleration_mode(<DISABLE>) indices(%indices : memref<1x5x1x1xi64, #NHWC, [@CMX_NN, 4]>) -> !VPURegMapped.Index<0:1:0>
-    %2317 = VPUMI40XX.NNDMA <{port = 0 : i64}> taskLocation(%353 : !VPURegMapped.Index<0:1:1>) inputs(%2312 : memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 2]>) outputs(%2306 : memref<16x32x1x1xf16, #NHWC, @DDR>) previousDMA(%2316 : !VPURegMapped.Index<0:1:0>) start_after(1) clean_after(1) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:1:1>
-    %2318 = VPUMI40XX.NNDMA <{port = 0 : i64}> taskLocation(%354 : !VPURegMapped.Index<0:1:2>) inputs(%2313 : memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 4]>) outputs(%2307 : memref<16x32x1x1xf16, #NHWC, @DDR>) previousDMA(%2317 : !VPURegMapped.Index<0:1:1>) start_after(1) clean_after(1) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:1:2>
+    %2304 = VPURT.DeclareBuffer <NetworkInput> [0] <0> {swizzlingKey = 0 : i64} -> memref<16x32x1x1xf16, {order = #NHWC}, @DDR>
+    %2305 = VPURT.DeclareBuffer <NetworkOutput> [0] <0> {swizzlingKey = 0 : i64} -> memref<16x32x1x1xf16, {order = #NHWC}, @DDR>
+    %2306 = VPURT.DeclareBuffer <NetworkOutput> [1] <0> {swizzlingKey = 0 : i64} -> memref<16x32x1x1xf16, {order = #NHWC}, @DDR>
+    %2307 = VPURT.DeclareBuffer <NetworkOutput> [2] <0> {swizzlingKey = 0 : i64} -> memref<16x32x1x1xf16, {order = #NHWC}, @DDR>
+    %2308 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %2309 = VPURT.DeclareBuffer <CMX_NN> [2] <0> -> memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 2]>
+    %2310 = VPURT.DeclareBuffer <CMX_NN> [4] <0> -> memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 4]>
+    %2311 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %2312 = VPURT.DeclareBuffer <CMX_NN> [2] <0> -> memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 2]>
+    %2313 = VPURT.DeclareBuffer <CMX_NN> [4] <0> -> memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 4]>
+    %indices = VPURT.DeclareBuffer <CMX_NN> [4] <0> -> memref<1x5x1x1xi64, {order = #NHWC}, [@CMX_NN, 4]>
+    %2315 = VPUMI40XX.NNDMA <{port = 0 : i64}> taskLocation(%320 : !VPURegMapped.Index<0:0:0>) inputs(%2304 : memref<16x32x1x1xf16, {order = #NHWC}, @DDR>) outputs(%2308, %2309, %2310 : memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 2]>, memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 4]>) start_after(1) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:0:0>
+    %2316 = VPUMI40XX.NNDMA <{addressingMode = 1 : i64, port = 0 : i64}> taskLocation(%352 : !VPURegMapped.Index<0:1:0>) inputs(%2311 : memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%2305 : memref<16x32x1x1xf16, {order = #NHWC}, @DDR>) start_after(1) clean_after(1) acceleration_mode(<DISABLE>) indices(%indices : memref<1x5x1x1xi64, {order = #NHWC}, [@CMX_NN, 4]>) -> !VPURegMapped.Index<0:1:0>
+    %2317 = VPUMI40XX.NNDMA <{port = 0 : i64}> taskLocation(%353 : !VPURegMapped.Index<0:1:1>) inputs(%2312 : memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 2]>) outputs(%2306 : memref<16x32x1x1xf16, {order = #NHWC}, @DDR>) previousDMA(%2316 : !VPURegMapped.Index<0:1:0>) start_after(1) clean_after(1) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:1:1>
+    %2318 = VPUMI40XX.NNDMA <{port = 0 : i64}> taskLocation(%354 : !VPURegMapped.Index<0:1:2>) inputs(%2313 : memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 4]>) outputs(%2307 : memref<16x32x1x1xf16, {order = #NHWC}, @DDR>) previousDMA(%2317 : !VPURegMapped.Index<0:1:1>) start_after(1) clean_after(1) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:1:2>
     %miV = VPUMI40XX.MappedInferenceVersion(11 _ 4 _ 10) -> !VPURegMapped.Index<0:0:0>
     %mi = VPUMI40XX.MappedInference dmas((%2315), (%2316, %2318) : (!VPURegMapped.Index<0:0:0>), (!VPURegMapped.Index<0:1:0>, !VPURegMapped.Index<0:1:2>)) dmaCount([[1, 0], [3, 0]]) invariantCount([0, 0]) variantCount([0, 0]) actKernelRangesCount([[0, 0], [0, 0]]) actKernelInvocationsCount([[0, 0], [0, 0]]) mediaCount(0) barrierCount(0) bootstrapBarriersCount(0) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
     ELF.ABIVersion

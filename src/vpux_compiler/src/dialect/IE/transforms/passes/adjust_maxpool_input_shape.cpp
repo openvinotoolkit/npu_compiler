@@ -140,7 +140,8 @@ mlir::LogicalResult ReshapeMaxPoolOutput1x1::matchAndRewrite(IE::MaxPoolOp origO
     auto newMaxPoolOp = rewriter.replaceOpWithNewOp<IE::MaxPoolOp>(
             origOp, origOp.getOutput().getType(), newInputResult, newMaxPoolKernelAttr, origOp.getStridesAttr(),
             origOp.getPadsBeginAttr(), origOp.getPadsEndAttr(), origOp.getRoundingType(), origOp.getPostOpAttr(),
-            origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+            origOp.getClampAttr(), origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(),
+            origOp.getInputPaddingAttr());
 
     _log.trace("Replace with new maxpool '{0}' ", newMaxPoolOp);
 

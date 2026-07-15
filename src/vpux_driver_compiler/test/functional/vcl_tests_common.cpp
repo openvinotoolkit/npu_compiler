@@ -9,7 +9,7 @@
 
 #include <regex>
 
-namespace VCLTestsUtils {
+namespace VCLTest {
 
 uint8_t* allocateBlob(uint64_t size) {
     uint8_t* ptr = static_cast<uint8_t*>(std::calloc(static_cast<size_t>(size), sizeof(uint8_t)));
@@ -290,4 +290,4 @@ void VCLTestsCommon::SetUp() {
     }
 }
 
-}  // namespace VCLTestsUtils
+}  // namespace VCLTest

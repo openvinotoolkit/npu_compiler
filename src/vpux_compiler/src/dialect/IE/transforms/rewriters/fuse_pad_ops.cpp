@@ -108,7 +108,8 @@ mlir::LogicalResult FuseConstantPadWithConv::matchAndRewrite(IE::ConvolutionOp o
             [&](mlir::Value origPadInput, mlir::ArrayAttr newPadsBegin, mlir::ArrayAttr newPadsEnd) {
                 rewriter.replaceOpWithNewOp<IE::ConvolutionOp>(
                         origConvolutionOp, origPadInput, origConvolutionOp.getFilter(), origConvolutionOp.getBias(),
-                        origConvolutionOp.getScale(), origConvolutionOp.getStridesAttr(), newPadsBegin, newPadsEnd,
+                        origConvolutionOp.getScale(), origConvolutionOp.getZeroPoints(),
+                        origConvolutionOp.getStridesAttr(), newPadsBegin, newPadsEnd,
                         origConvolutionOp.getDilationsAttr(), nullptr, nullptr, origConvolutionOp.getStaticScaleAttr(),
                         origConvolutionOp.getOutputPaddingAttr(), origConvolutionOp.getInputPaddingAttr());
             },
@@ -185,8 +186,8 @@ mlir::LogicalResult FuseConstantPadWithMaxpool::matchAndRewrite(IE::MaxPoolOp or
                 rewriter.replaceOpWithNewOp<IE::MaxPoolOp>(
                         origMaxPoolOp, origPadInput, origMaxPoolOp.getKernelSizeAttr(), origMaxPoolOp.getStridesAttr(),
                         newPadsBegin, newPadsEnd, origMaxPoolOp.getRoundingType(), origMaxPoolOp.getPostOpAttr(),
-                        origMaxPoolOp.getClampAttr(), origMaxPoolOp.getOutputPaddingAttr(),
-                        origMaxPoolOp.getInputPaddingAttr());
+                        origMaxPoolOp.getClampAttr(), origMaxPoolOp.getStaticScaleAttr(),
+                        origMaxPoolOp.getOutputPaddingAttr(), origMaxPoolOp.getInputPaddingAttr());
             },
             _log.nest());
 }

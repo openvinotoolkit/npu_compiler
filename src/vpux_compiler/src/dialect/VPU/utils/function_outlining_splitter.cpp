@@ -4,6 +4,9 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/function_outlining_splitter.hpp"
+#include <llvm/ADT/ArrayRef.h>
+#include <mlir/Support/LLVM.h>
+#include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
@@ -337,6 +340,69 @@ SmallVector<OutliningInstance> VFOutliningSplitter::getOutliningInstances(mlir::
         return false;
     };
 
+    /*
+        Given pattern:
+            -> Concat -> Slice (on K) -> VerticalFusion tiling-on-K { ... }
+        If we outline right between the Slice and the Verticalfusion block we may lose the opportunity to optimize
+        a DDR2DDR DMA transaction.
+
+        At VPUIP, this pattern may translate to:
+            outlined func {n x Copy -> Concat -> Slice -> Copy (DDR2DDR, remove strides) } -> outlined VF func
+
+        The DDR2DDR copy that removes the strides cannot be optimized out, as the outlined block should return compact
+        strides.
+
+        Without outlining, the pattern may translate to:
+            n x Copy -> Concat -> Slice (on K) -> Copy (DDR2DDR, remove strides) -> Slice (for tiling, on K) -> Copy
+       (DDR2CMX)
+
+        Copy optimization patterns should be able to merge the Slice -> Copy -> Slice pattern, thus removing
+        the DDR2DDR copy.
+
+        Ticket for improvement: E#215360
+    */
+    const auto hasPotentialDDR2DDRCopy = [&](VPU::VerticalFusionOp vfOp, ArrayRef<size_t> tilingStrategy) {
+        for (auto operand : vfOp.getOperands()) {
+            auto sliceOp = mlir::dyn_cast_if_present<VPU::SliceOp>(operand.getDefiningOp());
+            if (sliceOp == nullptr) {
+                continue;
+            }
+
+            auto concatOp = sliceOp.getSource().getDefiningOp<VPU::ConcatOp>();
+            if (concatOp == nullptr) {
+                continue;
+            }
+
+            // If Concat can fit in CMX, there is a good chance it will be moved. Thus, the DDR2DDR copy
+            // could be optimized out by fusing it to the CMX2DDR transaction.
+            if (concatOp.fitIntoCMX(mlir::cast<NDTypeInterface>(concatOp.getOutput().getType()))) {
+                continue;
+            }
+
+            auto inputShape = getShape(sliceOp.getSource());
+            auto outputShape = getShape(sliceOp.getResult());
+
+            SmallVector<Dim> diffInOutSizeDims;
+            const auto ioShapes = zip(inputShape, outputShape);
+            for (const auto& ioShape : ioShapes | indexed) {
+                const auto inSize = std::get<0>(ioShape.value());
+                const auto outSize = std::get<1>(ioShape.value());
+                if (inSize != outSize) {
+                    diffInOutSizeDims.push_back(Dim(ioShape.index()));
+                }
+            }
+
+            for (const auto& sliceDim : diffInOutSizeDims) {
+                if (tilingStrategy[sliceDim.ind()] > 1) {
+                    // slice is on the same axis as tiling, can not outline since would result in slice and VF ops
+                    // in different functions
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+
     const auto isVfOutliningInstanceCandidate = [&](mlir::Operation* op) {
         if (auto vfOp = mlir::dyn_cast_or_null<VPU::VerticalFusionOp>(op)) {
             const auto tilingStrategy = parseIntArrayAttr<size_t>(vfOp.getTilingStrategy());
@@ -348,6 +414,13 @@ SmallVector<OutliningInstance> VFOutliningSplitter::getOutliningInstances(mlir::
             if (numTiles < _verticalFusionTileThreshold) {
                 return false;
             }
+
+            if (hasPotentialDDR2DDRCopy(vfOp, tilingStrategy)) {
+                _log.nest().trace("Outlining VerticalFusion block may potentially leave DDR to DDR copies unoptimized; "
+                                  "do not outline.");
+                return false;
+            }
+
             if (isParallelConcatInput(op, tiledOnMultiDims)) {
                 return false;
             }

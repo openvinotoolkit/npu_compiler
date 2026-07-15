@@ -107,7 +107,7 @@ def NDTypeInterface : TypeInterface<"NDTypeInterface"> {
 
         InterfaceMethod<
             "Returns the type with the new order",
-            "vpux::NDTypeInterface", "changeDimsOrder", (ins "vpux::DimsOrder":$order)
+            "vpux::NDTypeInterface", "changeDimsOrder", (ins "const vpux::DimsOrder&":$order)
         >,
 
         InterfaceMethod<

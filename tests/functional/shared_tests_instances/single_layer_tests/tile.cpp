@@ -10,6 +10,9 @@
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(TileLayerTest);
+
 class TileLayerTestCommon : public TileLayerTest, virtual public VpuOv2LayerTest {};
 class TileLayerTest_tiling : public TileLayerTestCommon {};
 

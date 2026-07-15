@@ -56,8 +56,9 @@ mlir::Value VPUIP::LUTConverterBase::createCopyDestination(VPUIP::NCEClusterTask
                                 getDebugName(), LUTConst.getType());
                 const auto memSpaceCMX = vpux::IndexedSymbolAttr::get(nceClusterTask.getContext(),
                                                                       stringifyEnum(VPU::MemoryKind::CMX_NN), 0);
-                const auto cmxMemType = mlir::MemRefType::get(constOutType.getShape(), constOutType.getElementType(),
-                                                              constOutType.getLayout(), memSpaceCMX);
+                const auto cmxMemType = vpux::getMemRefType(
+                        ShapeRef(constOutType.getShape()), constOutType.getElementType(),
+                        mlir::cast<vpux::NDTypeInterface>(constOutType).getDimsOrder(), memSpaceCMX);
                 const auto allocOp = rewriter.create<mlir::memref::AllocOp>(nceClusterTask.getLoc(), cmxMemType);
                 return allocOp->getResult(0);
             })

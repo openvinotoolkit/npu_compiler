@@ -244,20 +244,34 @@ public:
 
     // Struct for storing ownership of interval
     // Each interval must have one producer and can have multiple users
-    struct ProdConsType {
+    // _prevUsers caches the consumers that existed at the moment the current
+    // producer(s) took ownership of the interval (set by newProducer). It lets
+    // subsequent coexisting producers add control edges from those past consumers
+    // without scanning the whole output dependency list.
+    struct IntervalUsersType {
         std::set<Element> _producers;
         std::set<Element> _consumers;
+        std::set<Element> _prevUsers;
 
-        ProdConsType(const Element& prod): _producers({prod}) {
+        IntervalUsersType(const Element& prod): _producers({prod}) {
         }
-        ProdConsType(const Element& prod, const std::set<Element>& cons): _producers({prod}), _consumers(cons) {
+        IntervalUsersType(const Element& prod, const std::set<Element>& cons): _producers({prod}), _consumers(cons) {
         }
 
-        bool operator==(const ProdConsType& o) const {
+        bool operator==(const IntervalUsersType& o) const {
             return (_producers == o._producers) && (_consumers == o._consumers);
         }
 
         void newProducer(const Element& prod) {
+            // Preserve the consumers that the previous producer(s) served so that
+            // future coexisting producers can derive their control-edge sources
+            // directly from this set.
+            if (!_consumers.empty()) {
+                _prevUsers = std::move(_consumers);
+            } else {
+                _prevUsers = std::move(_producers);
+            }
+
             _producers = {prod};
             _consumers.clear();
         }
@@ -269,9 +283,14 @@ public:
         void addConsumer(const Element& cons) {
             _consumers.insert(cons);
         }
-    };  // struct ProdConsType //
 
-    using EndPointTreeType = std::map<EndPointType, ProdConsType>;
+        void addPrevUsers(const std::set<Element>& prevUsers) {
+            _prevUsers.insert(prevUsers.begin(), prevUsers.end());
+        }
+
+    };  // struct IntervalUsersType //
+
+    using EndPointTreeType = std::map<EndPointType, IntervalUsersType>;
     using ConstEndPointIteratorType = typename EndPointTreeType::const_iterator;
 
     // Invariant: itrBegin_ should always point to
@@ -309,7 +328,11 @@ public:
             return itrBegin_->second._consumers;
         }
 
-        const ProdConsType& getProdCons() const {
+        const std::set<Element>& getIntervalPrevUsers() const {
+            return itrBegin_->second._prevUsers;
+        }
+
+        const IntervalUsersType& getIntervalUsers() const {
             return itrBegin_->second;
         }
 
@@ -344,7 +367,7 @@ public:
         return true;
     }
 
-    bool insert(const Unit& ibeg, const Unit& iend, const ProdConsType& prodCons) {
+    bool insert(const Unit& ibeg, const Unit& iend, const IntervalUsersType& prodCons) {
         assert(ibeg <= iend);
         EndPointType lkey(ibeg, LEFT_END), rkey(iend, RIGHT_END);
         ConstEndPointIteratorType itr = _tree.lower_bound(lkey);

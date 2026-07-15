@@ -195,7 +195,7 @@ mlir::func::FuncOp ScfBlockUpdater::buildComputeFunctionOp(const BlockIOAndOps& 
     const auto funcLoc = appendLoc(_entryPointFuncOp.getLoc(), "compute_group{0}", funcIndex);
     auto funcName = vpux::formatv("{0}_func{1}", _entryPointFuncOp.getName().str(), std::to_string(funcIndex));
     auto func = builder.create<mlir::func::FuncOp>(funcLoc, funcName.str(), funcType);
-    func.setPrivate();
+    func.setNested();
 
     OpBuilderLogger builderLog(_log.nest());
     builder = mlir::OpBuilder::atBlockEnd(func.addEntryBlock(), &builderLog);

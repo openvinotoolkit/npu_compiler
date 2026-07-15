@@ -11,9 +11,15 @@ include "mlir/IR/OpBase.td"
 include "vpux/compiler/dialect/core/dialect.td"
 
 def Bool8 : I<8>;
+
 def I4 : I<4>;
+def SI4 : SI<4>;
+def UI4 : UI<4>;
 def I2 : I<2>;
-def U2 : UI<2>;
+def SI2 : SI<2>;
+def UI2 : UI<2>;
+
+def vpux_QuantileType : Type<CPred<"::llvm::isa<::vpux::type::QuantileType>($_self)">, "quantile type">;
 
 class Core_Type<string name, list<Trait> traits = []>
     : TypeDef<Core_Dialect, name, traits> {

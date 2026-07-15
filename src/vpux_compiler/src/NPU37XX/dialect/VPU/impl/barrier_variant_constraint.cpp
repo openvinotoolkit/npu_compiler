@@ -10,10 +10,6 @@
 
 using namespace vpux::VPU::arch37xx;
 
-size_t PerBarrierVariantConstraint::getPerBarrierMaxVariantSum() const {
-    return static_cast<size_t>(barrierMaxVariantSumRatio * firmwareVariantCount);
-}
-
-size_t PerBarrierVariantConstraint::getPerBarrierMaxVariantCount() const {
-    return static_cast<size_t>(barrierMaxVariantCountRatio * firmwareVariantCount);
+size_t PerBarrierSlotConstraint::getPerBarrierMaxSlotCount() const {
+    return static_cast<size_t>(maxBarrierUsersCount);
 }

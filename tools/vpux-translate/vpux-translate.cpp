@@ -261,21 +261,21 @@ int main(int argc, char* argv[]) {
         // TODO(E#84874):
         // currently, arch is used for both import and export
         // however, it would be a better option to extract arch info from module for the export
-        const auto arch = vpux::parseParamsAndDeduceArch(argc, argv);
+        const auto platform = vpux::parsePlatform(argc, argv);
         auto dialectRegistration = [&](mlir::DialectRegistry& registry) {
-            if (!arch.has_value()) {
+            if (!platform.has_value()) {
                 return;
             }
 
             registry = vpux::createDialectRegistry(vpux::DummyOpMode::ENABLED);
 
-            auto interfacesRegistry = vpux::createInterfacesRegistry(arch.value());
+            auto interfacesRegistry = vpux::createInterfacesRegistry(platform.value());
             interfacesRegistry->registerInterfaces(registry);
 
-            vpux::config::registerConstraints(registry, arch.value());
-            vpux::IE::registerStrategies(registry, arch.value());
-            vpux::VPU::registerStrategies(registry, arch.value());
-            vpux::VPUIP::registerStrategies(registry, arch.value());
+            vpux::config::registerConstraints(registry, platform.value());
+            vpux::IE::registerStrategies(registry, platform.value());
+            vpux::VPU::registerStrategies(registry, platform.value());
+            vpux::VPUIP::registerStrategies(registry, platform.value());
         };
         mlir::TranslateToMLIRRegistration("import-IE", "Translate OV IR to IE dialect", importIE, dialectRegistration);
         mlir::TranslateFromMLIRRegistration("export-ELF", "Translate ELF dialect to blob", exportELF,

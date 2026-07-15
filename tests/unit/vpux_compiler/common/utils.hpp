@@ -33,11 +33,11 @@ protected:
 
 class NPUSpecific_UnitTest : public MLIR_UnitBase {
 public:
-    NPUSpecific_UnitTest(vpux::config::ArchKind arch) {
+    NPUSpecific_UnitTest(vpux::config::Platform platform) {
         // We need to register hw-specific interfaces (e.g. NCEOpInterface) for VPU NCE ops
-        auto interfacesRegistry = vpux::createInterfacesRegistry(arch);
+        auto interfacesRegistry = vpux::createInterfacesRegistry(platform);
         interfacesRegistry->registerInterfaces(registry);
-        vpux::VPU::initializeSingletons(registry, vpux::VPU::DeviceVersion{std::nullopt, arch});
+        vpux::VPU::initializeSingletons(registry, platform);
 
         ctx.appendDialectRegistry(registry);
         ctx.loadDialect<vpux::VPU::VPUDialect>();
@@ -48,7 +48,7 @@ public:
 namespace vpux::VPU::arch37xx {
 class UnitTest : public NPUSpecific_UnitTest {
 public:
-    UnitTest(): NPUSpecific_UnitTest(vpux::config::ArchKind::NPU37XX) {
+    UnitTest(): NPUSpecific_UnitTest(vpux::config::Platform::NPU3720) {
     }
 };
 }  // namespace vpux::VPU::arch37xx
@@ -56,10 +56,18 @@ public:
 namespace vpux::VPU::arch40xx {
 class UnitTest : public NPUSpecific_UnitTest {
 public:
-    UnitTest(): NPUSpecific_UnitTest(vpux::config::ArchKind::NPU40XX) {
+    UnitTest(): NPUSpecific_UnitTest(vpux::config::Platform::NPU4000) {
     }
 };
 }  // namespace vpux::VPU::arch40xx
+
+namespace vpux::VPU::arch50xx {
+class UnitTest : public NPUSpecific_UnitTest {
+public:
+    UnitTest(): NPUSpecific_UnitTest(vpux::config::Platform::NPU5010) {
+    }
+};
+}  // namespace vpux::VPU::arch50xx
 
 using MappedRegValues = std::map<std::string, std::map<std::string, vpux::VPURegMapped::RegFieldValue>>;
 template <typename HW_REG_TYPE, typename REG_MAPPED_TYPE>

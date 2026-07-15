@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "vpux/compiler/core/types/quantile_float/types.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution_fwd.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise_fwd.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/image_fwd.hpp"

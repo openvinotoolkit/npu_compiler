@@ -6,16 +6,16 @@
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --convert-to-scale-shift %s | FileCheck %s
 // REQUIRES: platform-NPU5010
 
-// CHECK-LABEL: @ConvertMultiplyToScaleShiftWithBroadcastAndWithinDPULimits
-// CHECK-SAME:  [[INPUT0:%.+]]: tensor<1x9216x1024x1xf16>, [[INPUT1:%.+]]: tensor<1x9216x1x1xf16>
-func.func @ConvertMultiplyToScaleShiftWithBroadcastAndWithinDPULimits(%arg0: tensor<1x9216x1024x1xf16>, %arg1: tensor<1x9216x1x1xf16>) -> tensor<1x9216x1024x1xf16> {
+// CHECK-LABEL: @ConvertMultiplyToScaleShiftWithBroadcastAndWithinDPUBenefitFactor
+// CHECK-SAME:  [[INPUT0:%.+]]: tensor<1x17920x1024x1xf16>, [[INPUT1:%.+]]: tensor<1x17920x1x1xf16>
+func.func @ConvertMultiplyToScaleShiftWithBroadcastAndWithinDPUBenefitFactor(%arg0: tensor<1x17920x1024x1xf16>, %arg1: tensor<1x17920x1x1xf16>) -> tensor<1x17920x1024x1xf16> {
     %0 = IE.Multiply(%arg0, %arg1)
         { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } :
-        tensor<1x9216x1024x1xf16>, tensor<1x9216x1x1xf16> -> tensor<1x9216x1024x1xf16>
+        tensor<1x17920x1024x1xf16>, tensor<1x17920x1x1xf16> -> tensor<1x17920x1024x1xf16>
 
-    return %0 : tensor<1x9216x1024x1xf16>
+    return %0 : tensor<1x17920x1024x1xf16>
 
-    // CHECK: [[SCALESHIFT:%.+]] = IE.ScaleShift([[INPUT0]], [[INPUT1]]) {operandSegmentSizes = array<i32: 1, 1, 0>} : tensor<1x9216x1024x1xf16>, tensor<1x9216x1x1xf16> -> tensor<1x9216x1024x1xf16>
+    // CHECK: [[SCALESHIFT:%.+]] = IE.ScaleShift([[INPUT0]], [[INPUT1]]) {operandSegmentSizes = array<i32: 1, 1, 0>} : tensor<1x17920x1024x1xf16>, tensor<1x17920x1x1xf16> -> tensor<1x17920x1024x1xf16>
 
     // CHECK: return [[SCALESHIFT]]
 }

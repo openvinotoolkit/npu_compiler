@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/VPUIPDPU/rewriters/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 
+using namespace vpux;
 using namespace VPUIPDPU;
 
 mlir::LogicalResult VPUIPDPU::arch50xx::PPE::configurePPE(VPUIPDPU::arch50xx::PPE::PPEConfig& config,
@@ -29,7 +30,7 @@ mlir::LogicalResult VPUIPDPU::arch50xx::PPE::configurePPE(VPUIPDPU::arch50xx::PP
                 config.scaleMult.scaleStatic = ppeTask.fpScaleData;
             }
         } else if (dpuTaskType == VPUIP::NCETaskType::MAXPOOL) {
-            config.scaleMult.scaleStatic = 1.0f;
+            config.scaleMult.scaleStatic = ppeTask.fpScaleData.value_or(1.0f);
             //
             // TODO: E#-156827 - fix ReduceSumSquare numericsbench operator; hw tests are currently failing with
             // config.scaleMult.scaleStatic = 1.0f for ReduceSumSquare
@@ -182,9 +183,11 @@ mlir::FailureOr<arch50xx::PPE::PPETask> VPUIPDPU::arch50xx::PPE::evalPPETasks(co
 
         ppeTask.fixedFunction.fpClampLow = castCb(fpPpeAttr.getClampLow().getValueAsDouble());
         ppeTask.fixedFunction.fpClampHigh = castCb(fpPpeAttr.getClampHigh().getValueAsDouble());
-        ppeTask.fpPreluAlpha = SmallVector<float>();
-        llvm::transform(parseFPArrayAttr<double>(fpPpeAttr.getPreluAlpha()), std::back_inserter(ppeTask.fpPreluAlpha),
-                        castCb);
+        if (const auto preluAlphaAttr = fpPpeAttr.getPreluAlpha()) {
+            ppeTask.fpPreluAlpha.clear();
+            llvm::transform(parseFPArrayAttr<double>(preluAlphaAttr), std::back_inserter(ppeTask.fpPreluAlpha), castCb);
+            VPUX_THROW_UNLESS(!ppeTask.fpPreluAlpha.empty(), "PPEFpAttr prelu_alpha must not be empty");
+        }
         ppeTask.fpAdder = castCb(fpPpeAttr.getAdder().getValueAsDouble());
 
         if (const auto scaleAttr = fpPpeAttr.getScale()) {

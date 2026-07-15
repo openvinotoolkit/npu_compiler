@@ -8,6 +8,7 @@
 *.orig
 .settings
 .clangd
+.claude
 
 # Build results
 [Bb]uild*/

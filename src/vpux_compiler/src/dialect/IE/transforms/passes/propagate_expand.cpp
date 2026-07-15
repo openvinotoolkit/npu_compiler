@@ -469,7 +469,7 @@ mlir::Value DepthToSpaceSliceRewriter::getConcatResult(mlir::PatternRewriter& re
             mlir::RankedTensorType::get(inputShape.raw(), mlir::Float32Type::get(filterType.getContext()));
 
     auto dataAttr = Const::createConstContent(dataStorageType, ArrayRef(zeroValue));
-    Const::ContentSetup contentAttrSetup(dataStorageType);
+    Const::ContentSetup contentAttrSetup(dataAttr, dataStorageType);
 
     if (auto qElemType = mlir::dyn_cast<mlir::quant::QuantizedType>(elemType)) {
         contentAttrSetup = contentAttrSetup.castElemType(qElemType);

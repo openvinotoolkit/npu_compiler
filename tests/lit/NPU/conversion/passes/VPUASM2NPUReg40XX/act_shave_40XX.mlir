@@ -16,8 +16,8 @@ module @SingleHswishFP16 attributes {config.platform = #config.platform<NPU4000>
   }
   VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096]
     module @VPU.SW {
-      func.func private @builtin_hswish(memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "activation_hswish.cpp", VPU.kernel_entry = "activation_hswish"}
-      func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+      func.func nested @builtin_hswish(memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "activation_hswish.cpp", VPU.kernel_entry = "activation_hswish"}
+      func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
     }
   VPUASM.InputBindings inputDeclarations : {
     VPUASM.DeclareBuffer @input_0_buffDecl !VPUASM.Buffer< "NetworkInput"[0] <0> : memref<1x1x1x1000xf16, @DDR> :  swizzling(0)>
@@ -73,7 +73,7 @@ module @SingleHswishFP16 attributes {config.platform = #config.platform<NPU4000>
         // CHECK:  kernel_entry = UINT 0x1D000000
       }
       ELF.CreateSection @task.shave.invocation.0.0 aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
-        VPUASM.ActKernelInvocation @ActKernelInvocation0 idx(!VPURegMapped.Index<0:0:0>) taskLocation(@program.ActKernelInvocation.cmx.0.0::@DeclareTaskBuffer_ActKernelInvocation_0_0_0) -> @program.ActKernelRange.cmx.0.0::@DeclareTaskBuffer_ActKernelRange0_0_0(kernel_data : @program.shave.data::@DeclareKernelArgs0, kernel_params : @program.shave.parameter::@KernelParams0) waits([0 : ui8]) updates([1 : ui8]) tile(0) start_after(0) clean_after(0) range_index(0)
+        VPUASM.ActKernelInvocation @ActKernelInvocation0 idx(!VPURegMapped.Index<0:0:0>) taskLocation(@program.ActKernelInvocation.cmx.0.0::@DeclareTaskBuffer_ActKernelInvocation_0_0_0) -> @program.ActKernelRange.cmx.0.0::@DeclareTaskBuffer_ActKernelRange0_0_0(kernel_data : @program.shave.data::@DeclareKernelArgs0, kernel_params : @program.shave.parameter::@KernelParams0) waits([0 : ui16]) updates([1 : ui16]) tile(0) start_after(0) clean_after(0) range_index(0)
         // CHECK-NOT:   VPUASM.ActKernelInvocation
         // CHECK:       NPUReg40XX.ActKernelInvocation
         // CHECK:  range = UINT 0x200000
@@ -113,8 +113,8 @@ module @QuadripleHswishFP16 attributes {config.platform = #config.platform<NPU40
   }
   VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096]
     module @VPU.SW {
-      func.func private @builtin_hswish(memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "activation_hswish.cpp", VPU.kernel_entry = "activation_hswish"}
-      func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+      func.func nested @builtin_hswish(memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "activation_hswish.cpp", VPU.kernel_entry = "activation_hswish"}
+      func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
     }
   VPUASM.InputBindings inputDeclarations : {
     VPUASM.DeclareBuffer @input_0_buffDecl !VPUASM.Buffer< "NetworkInput"[0] <0> : memref<1x1x1x1000xf16, @DDR> :  swizzling(0)>
@@ -173,10 +173,10 @@ module @QuadripleHswishFP16 attributes {config.platform = #config.platform<NPU40
         // CHECK:  kernel_entry = UINT 0x1D000000
       }
       ELF.CreateSection @task.shave.invocation.0.0 aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
-        VPUASM.ActKernelInvocation @ActKernelInvocation0 idx(!VPURegMapped.Index<0:0:0>) taskLocation(@program.ActKernelInvocation.cmx.0.0::@DeclareTaskBuffer_ActKernelInvocation_0_0_0) -> @program.ActKernelRange.cmx.0.0::@DeclareTaskBuffer_ActKernelRange0_0_0(kernel_data : @program.shave.data::@DeclareKernelArgs0, kernel_params : @program.shave.parameter::@KernelParams0) waits([0 : ui8]) updates([1 : ui8]) tile(0) start_after(0) clean_after(0) range_index(0) {next_link = @program.ActKernelInvocation.cmx.0.0::@DeclareTaskBuffer_ActKernelInvocation_0_0_2}
-        VPUASM.ActKernelInvocation @ActKernelInvocation1 idx(!VPURegMapped.Index<0:0:1>) taskLocation(@program.ActKernelInvocation.cmx.0.0::@DeclareTaskBuffer_ActKernelInvocation_0_0_1) -> @program.ActKernelRange.cmx.0.0::@DeclareTaskBuffer_ActKernelRange0_0_0(kernel_data : @program.shave.data::@DeclareKernelArgs0, kernel_params : @program.shave.parameter::@KernelParams0) waits([0 : ui8]) updates([1 : ui8]) tile(0) start_after(0) clean_after(0) range_index(0) {next_link = @program.ActKernelInvocation.cmx.0.0::@DeclareTaskBuffer_ActKernelInvocation_0_0_3}
-        VPUASM.ActKernelInvocation @ActKernelInvocation2 idx(!VPURegMapped.Index<0:0:2>) taskLocation(@program.ActKernelInvocation.cmx.0.0::@DeclareTaskBuffer_ActKernelInvocation_0_0_2) -> @program.ActKernelRange.cmx.0.0::@DeclareTaskBuffer_ActKernelRange0_0_0(kernel_data : @program.shave.data::@DeclareKernelArgs0, kernel_params : @program.shave.parameter::@KernelParams0) waits([0 : ui8]) updates([1 : ui8]) tile(0) start_after(0) clean_after(0) range_index(0)
-        VPUASM.ActKernelInvocation @ActKernelInvocation3 idx(!VPURegMapped.Index<0:0:3>) taskLocation(@program.ActKernelInvocation.cmx.0.0::@DeclareTaskBuffer_ActKernelInvocation_0_0_3) -> @program.ActKernelRange.cmx.0.0::@DeclareTaskBuffer_ActKernelRange0_0_0(kernel_data : @program.shave.data::@DeclareKernelArgs0, kernel_params : @program.shave.parameter::@KernelParams0) waits([0 : ui8]) updates([1 : ui8]) tile(0) start_after(0) clean_after(0) range_index(0)
+        VPUASM.ActKernelInvocation @ActKernelInvocation0 idx(!VPURegMapped.Index<0:0:0>) taskLocation(@program.ActKernelInvocation.cmx.0.0::@DeclareTaskBuffer_ActKernelInvocation_0_0_0) -> @program.ActKernelRange.cmx.0.0::@DeclareTaskBuffer_ActKernelRange0_0_0(kernel_data : @program.shave.data::@DeclareKernelArgs0, kernel_params : @program.shave.parameter::@KernelParams0) waits([0 : ui16]) updates([1 : ui16]) tile(0) start_after(0) clean_after(0) range_index(0) {next_link = @program.ActKernelInvocation.cmx.0.0::@DeclareTaskBuffer_ActKernelInvocation_0_0_2}
+        VPUASM.ActKernelInvocation @ActKernelInvocation1 idx(!VPURegMapped.Index<0:0:1>) taskLocation(@program.ActKernelInvocation.cmx.0.0::@DeclareTaskBuffer_ActKernelInvocation_0_0_1) -> @program.ActKernelRange.cmx.0.0::@DeclareTaskBuffer_ActKernelRange0_0_0(kernel_data : @program.shave.data::@DeclareKernelArgs0, kernel_params : @program.shave.parameter::@KernelParams0) waits([0 : ui16]) updates([1 : ui16]) tile(0) start_after(0) clean_after(0) range_index(0) {next_link = @program.ActKernelInvocation.cmx.0.0::@DeclareTaskBuffer_ActKernelInvocation_0_0_3}
+        VPUASM.ActKernelInvocation @ActKernelInvocation2 idx(!VPURegMapped.Index<0:0:2>) taskLocation(@program.ActKernelInvocation.cmx.0.0::@DeclareTaskBuffer_ActKernelInvocation_0_0_2) -> @program.ActKernelRange.cmx.0.0::@DeclareTaskBuffer_ActKernelRange0_0_0(kernel_data : @program.shave.data::@DeclareKernelArgs0, kernel_params : @program.shave.parameter::@KernelParams0) waits([0 : ui16]) updates([1 : ui16]) tile(0) start_after(0) clean_after(0) range_index(0)
+        VPUASM.ActKernelInvocation @ActKernelInvocation3 idx(!VPURegMapped.Index<0:0:3>) taskLocation(@program.ActKernelInvocation.cmx.0.0::@DeclareTaskBuffer_ActKernelInvocation_0_0_3) -> @program.ActKernelRange.cmx.0.0::@DeclareTaskBuffer_ActKernelRange0_0_0(kernel_data : @program.shave.data::@DeclareKernelArgs0, kernel_params : @program.shave.parameter::@KernelParams0) waits([0 : ui16]) updates([1 : ui16]) tile(0) start_after(0) clean_after(0) range_index(0)
         // CHECK-NOT:   VPUASM.ActKernelInvocation
         // CHECK:       NPUReg40XX.ActKernelInvocation
         // CHECK:  invo_index = UINT 0

@@ -320,6 +320,24 @@ def VPUIP_DMAAccMode :
 def VPUIP_DMAAccModeAttr : VPUIP_EnumAttr<VPUIP_DMAAccMode, "dma_cc_mode">;
 
 //
+// DMA compression encoding algorithm
+//
+
+def VPUIP_DMAEncodingAlgo :
+    VPUIP_I64EnumAttr<
+        "DMAEncodingAlgo",
+        "DMA Encoding Algorithm",
+        [
+            I64EnumAttrCase<"BTC",       0>,
+            I64EnumAttrCase<"HUFFMAN",   1>,
+            I64EnumAttrCase<"BTC_AND_HUFFMAN", 2>
+        ]
+    > {
+}
+
+def VPUIP_DMAEncodingAlgoAttr : VPUIP_EnumAttr<VPUIP_DMAEncodingAlgo, "dma_encoding_algo">;
+
+//
 // DPU Profiling Metadata
 //
 
@@ -637,9 +655,9 @@ def VPUIP_EnqueueDMAAttr : VPUIP_Attr<"EnqueueDMA"> {
 
 def VPUIP_SkipDMAAttr : VPUIP_Attr<"SkipDMA"> {
     let description = [{
-        - Tile and list indices are stored to identify which SHV a given skip corresponds to; in other words, which SHV task will take control from a particular SkipDMA. 
+        - Tile and list indices are stored to identify which SHV a given skip corresponds to; in other words, which SHV task will take control from a particular SkipDMA.
             These indices are also used to impose a deterministic ordering of SkipDMA operations (tile -> list).
-            This ordering is not strictly required for correctness, as the skip loop may iterate in any order as long as all skips for a given logicalIndex are processed. 
+            This ordering is not strictly required for correctness, as the skip loop may iterate in any order as long as all skips for a given logicalIndex are processed.
             However, deterministic ordering is enforced to make the control flow predictable and easier to reason about.
 
         - The descId is used to associate a SkipDMA with its corresponding FetchDMA. They're just integers in order

@@ -6,11 +6,13 @@
 #pragma once
 
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/VPU/interfaces/ppe_capability.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 
+#include <llvm/ADT/ArrayRef.h>
 #include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/IR/BuiltinTypes.h>
 
@@ -63,6 +65,13 @@ mlir::quant::QuantizedType getQuantizedType(const Const::ContentAttr& lowConst, 
                                             IE::AutoBroadcastType broadcast = IE::AutoBroadcastType::NONE_OR_EXPLICIT,
                                             bool ignoreZPCheck = false, const Logger& log = Logger::global());
 
+// Check whether the given FQ input and output range constants can convert to a valid signed QuantizedType.
+bool canConvertToSignedQuantizedType(const Const::ContentAttr& inLowConst, const Const::ContentAttr& inHighConst,
+                                     const Const::ContentAttr& outLowConst, const Const::ContentAttr& outHighConst,
+                                     std::optional<int64_t> levels, std::optional<mlir::Type> lowFpType,
+                                     IE::AutoBroadcastType broadcast = IE::AutoBroadcastType::NONE_OR_EXPLICIT,
+                                     const Logger& log = Logger::global());
+
 mlir::FailureOr<int32_t> getQuantizedDimension(ShapeRef lowShape, ShapeRef highShape, IE::AutoBroadcastType broadcast,
                                                mlir::Location loc, const Logger& log);
 
@@ -90,6 +99,7 @@ mlir::Value createFQScaling(mlir::Location loc, mlir::Value input, float scaleFa
                             vpux::IE::AutoBroadcastTypeAttr autoBroadcast, mlir::PatternRewriter& rewriter);
 SmallVector<float> getConst(Const::DeclareOp declOp);
 mlir::Value findQuantizedInput(mlir::Value opInput, bool allowPerAxisQuantize);
+mlir::Operation* findDynDequantized(mlir::Value opInput, bool allowPerAxisQuantize);
 bool isSymmetricQuantType(mlir::quant::QuantizedType type);
 bool areAllQuantTypeZeroPointsEqualToZero(mlir::quant::QuantizedType type);
 bool hasLeakyReLUPostOp(mlir::Operation* op);
@@ -104,7 +114,9 @@ mlir::Type composeWeightsExpressedType(const mlir::Type convolutionInputType);
 
 /*
  *  Bias will be rescaled for mixed precision and written in weight table later, so need to check whether the
- *  rescaled bias range exceeds or not
+ *  rescaled bias range exceeds or not.
+ *  The int32 overflow check is delegated to IPPECapability::getBiasStorageType: it returns i32 for
+ *  NPU37XX/40XX (int32 constraint applies) and f32 for NPU50XX+ (any value is valid).
  */
 template <class ConcreteOp>
 mlir::LogicalResult checkRescaledBiasRange(ConcreteOp op) {
@@ -134,8 +146,13 @@ mlir::LogicalResult checkRescaledBiasRange(ConcreteOp op) {
                 return mlir::failure();
             }
         }
+
+        const auto* ppeCapability = VPU::tryGetPPECapability(op.getOperation()->getContext());
+        const bool checkInt32Range =
+                !ppeCapability || mlir::isa<mlir::IntegerType>(ppeCapability->getBiasStorageType(inElemType));
+
         const auto OC = getShape(op.getFilter())[Dims4D::Filter::OC];
-        if (mlir::failed(VPU::NCESparsity::getRescaledBias(bias, inElemType, filterElemType, OC))) {
+        if (mlir::failed(VPU::NCESparsity::getRescaledBias(bias, inElemType, filterElemType, OC, checkInt32Range))) {
             return mlir::failure();
         }
     }
@@ -151,6 +168,11 @@ bool keepIntTypeForSIWeightsAsInputOrConst(mlir::Operation* op);
 bool isQuantizationSupported(IE::QuantizeOp quantizeOp, mlir::Operation* mainOp,
                              IE::TypeComparisonMode elemComparisonMode);
 bool isInputQuantizationSupported(mlir::Value activationInput, mlir::Value filterInput);
+// Checks whether activationStorageType and filterStorageType match any of the supplied {actBits, wtBits} pairs
+// using the same signedness (signed, unsigned, or signless).
+bool checkQuantizePattern(mlir::Type activationStorageType, mlir::Type filterStorageType,
+                          llvm::ArrayRef<std::pair<unsigned, unsigned>> patterns);
 
+bool hasIdentityQuantizationParams(mlir::Type quantizedElemType);
 }  // namespace IE
 }  // namespace vpux

@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2024-2025 Intel Corporation
+// Copyright (C) 2024-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -12,6 +12,8 @@
 #include "openvino/runtime/intel_cpu/properties.hpp"
 #include "openvino/runtime/intel_gpu/properties.hpp"
 #include "openvino/runtime/intel_npu/properties.hpp"
+
+using namespace ov::test::behavior;
 
 namespace {
 
@@ -39,6 +41,10 @@ const std::vector<ov::AnyMap> configsDeviceProperties = {
         {ov::device::properties(test_utils::TARGET_DEVICE, ov::num_streams(ov::streams::AUTO))},
         {ov::device::properties(
                 ov::AnyMap{{test_utils::TARGET_DEVICE, ov::AnyMap{ov::num_streams(ov::streams::AUTO)}}})}};
+
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(OVGetConfigTest);
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(OVClassCompileModelAndCheckSecondaryPropertiesTest);
 
 INSTANTIATE_TEST_SUITE_P(BehaviorTests_OVGetConfigTest_nightly, OVGetConfigTest,
                          ::testing::Values(test_utils::TARGET_DEVICE),

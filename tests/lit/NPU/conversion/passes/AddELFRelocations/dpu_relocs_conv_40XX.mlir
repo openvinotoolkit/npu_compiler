@@ -27,8 +27,8 @@ module @DPURelocWeightTableReuseTest {
                   {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 1024 : i64>}, [@CMX_NN, 0]> :  swizzling(5)>
               VPUASM.DeclareBuffer @DeclareBuffer125 !VPUASM.Buffer< "CMX_NN"[0] <1376256> : memref<160x1x1x4xsi32,
                   {order = #NCHW, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 1024 : i64>}, [@CMX_NN, 0]> :  swizzling(5)>
-              VPUASM.DeclareBuffer @DeclareBuffer396 !VPUASM.Buffer< "CMX_NN"[0] <868352> : memref<1x1280x4x1xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
-              VPUASM.DeclareBuffer @DeclareBuffer444 !VPUASM.Buffer< "CMX_NN"[0] <878592> : memref<1x640x4x1xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
+              VPUASM.DeclareBuffer @DeclareBuffer396 !VPUASM.Buffer< "CMX_NN"[0] <868352> : memref<1x1280x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
+              VPUASM.DeclareBuffer @DeclareBuffer444 !VPUASM.Buffer< "CMX_NN"[0] <878592> : memref<1x640x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
           }
           ELF.CreateSection @task.dpu.invariant.0.0 aligned(64) secType(SHT_PROGBITS) secFlags("SHF_ALLOC|VPU_SHF_PROC_DMA") secLocation(<DDR>) {
               VPUIPDPU.DPUInvariant @DPUInvariant_0_2
@@ -38,12 +38,12 @@ module @DPURelocWeightTableReuseTest {
                   weight_table = @buffer.CMX_NN.0::@DeclareBuffer125,
                   weights = @buffer.CMX_NN.0::@DeclareBuffer117}>
               DPUCfg :
-              {^bb0(%arg0: memref<1x1280x4x1xf16, #NHWC, [@CMX_NN, 0]>,
+              {^bb0(%arg0: memref<1x1280x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>,
                   %arg1: memref<160x1x1x4xsi32, {order = #NCHW, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 1024 : i64>}, [@CMX_NN, 0]>,
                   %arg2: memref<160x1280x1x1xf16, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 1024 : i64>}, [@CMX_NN, 0]>,
-                  %arg3: memref<1x640x4x1xf16, #NHWC, [@CMX_NN, 0]>):
+                  %arg3: memref<1x640x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>):
               VPUIPDPU.IDUCfg {
-                  VPUIPDPU.IDUInActivations in_activations(%arg0 : memref<1x1280x4x1xf16, #NHWC, [@CMX_NN, 0]>)
+                  VPUIPDPU.IDUInActivations in_activations(%arg0 : memref<1x1280x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
                   VPUIPDPU.IDUWeights wmode(f16) wt_plt_cfg(NO_PLT)
                   VPUIPDPU.IDUKernel kernel_x(1) kernel_y(1)
                   VPUIPDPU.IDUStride stride_x(1) stride_y(1)
@@ -67,9 +67,9 @@ module @DPURelocWeightTableReuseTest {
               VPUIPDPU.ODUCfg {
                   VPUIPDPU.ODUOutTensorSize dim_x(1) dim_y(4) dim_z(640)
                   VPUIPDPU.ODUDataReuse activation_reuse(NTHW_4)
-                  VPUIPDPU.ODUOutActivations out_activations(%arg3 : memref<1x640x4x1xf16, #NHWC, [@CMX_NN, 0]>)
+                  VPUIPDPU.ODUOutActivations out_activations(%arg3 : memref<1x640x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
               }
-              VPUIPDPU.BarrierCfg waits([13 : ui8]) updates([14 : ui8]) start_after(0) clean_after(0)
+              VPUIPDPU.BarrierCfg waits([13 : ui16]) updates([14 : ui16]) start_after(0) clean_after(0)
               VPUIPDPU.DPUGroup invariantIdx(!VPURegMapped.Index<0:0:2>) variantCount(1)
               }
           }

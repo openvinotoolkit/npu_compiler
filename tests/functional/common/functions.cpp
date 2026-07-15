@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -28,6 +28,34 @@ std::shared_ptr<ov::Model> buildSingleLayerSoftMaxNetwork() {
     auto ov_model = std::make_shared<ov::Model>(results, params, "softMax");
 
     return ov_model;
+}
+
+std::shared_ptr<ov::Model> buildSingleWsFriendlyNetwork(ov::element::Type_t inType, const ov::Shape& inputShape) {
+    const auto input1 = std::make_shared<ov::op::v0::Parameter>(inType, inputShape);
+    const auto input2 = std::make_shared<ov::op::v0::Parameter>(inType, inputShape);
+
+    size_t totalElements = 1;
+    for (const auto dim : inputShape) {
+        totalElements *= dim;
+    }
+    std::vector<float> data(totalElements);
+    for (size_t i = 0; i < totalElements; ++i) {
+        data[i] = static_cast<float>(i + 1);
+    }
+
+    // Note: two separate constant nodes with the same data - this is to
+    // make use of the model compression.
+    const auto const1 = ov::op::v0::Constant::create(inType, inputShape, data);
+    const auto multiply1 = std::make_shared<ov::op::v1::Multiply>(input1, const1);
+
+    const auto const2 = ov::op::v0::Constant::create(inType, inputShape, data);
+    const auto multiply2 = std::make_shared<ov::op::v1::Multiply>(input2, const2);
+
+    const auto add = std::make_shared<ov::op::v1::Add>(multiply1, multiply2);
+
+    const ov::ResultVector results{std::make_shared<ov::op::v0::Result>(add)};
+    return std::make_shared<ov::Model>(results, ov::ParameterVector{input1, input2},
+                                       "WsSameBufferConstantsSubGraphTest");
 }
 
 std::shared_ptr<ov::Model> createModelWithLargeSize() {

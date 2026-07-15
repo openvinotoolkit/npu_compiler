@@ -15,6 +15,7 @@
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/error.hpp"
 
 #include <mlir/Support/LLVM.h>
@@ -544,9 +545,11 @@ mlir::LogicalResult MoveTransposeAffineReshapeThroughAdd::matchAndRewrite(IE::Ad
         }
 
         // Input is BlockArgument or not AffineReshape, build Reshape - Transpose on this as the new Add's input.
-        auto constReshape = rewriter.createOrFold<IE::ReshapeOp>(origOp.getLoc(), inputValue,
+        auto constReshape = rewriter.createOrFold<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_in"), inputValue,
                                                                  getIntArrayAttr(rewriter.getContext(), reshapeInput));
-        return rewriter.create<IE::TransposeOp>(origOp.getLoc(), constReshape, nullptr, orderValueAttr).getResult();
+        return rewriter
+                .create<IE::TransposeOp>(takeOpLoc(origOp, "transpose_in"), constReshape, nullptr, orderValueAttr)
+                .getResult();
     };
 
     auto newInput1 = getInputValue(input1);
@@ -556,7 +559,7 @@ mlir::LogicalResult MoveTransposeAffineReshapeThroughAdd::matchAndRewrite(IE::Ad
     auto newAddOutType = mlir::cast<vpux::NDTypeInterface>(mlir::RankedTensorType::get(inputShape, outElemType));
     newAddOutType = newAddOutType.changeDimsOrder(origOutputType.getDimsOrder());
     auto outputVal =
-            rewriter.create<IE::AddOp>(origOp.getLoc(), newAddOutType, newInput1, newInput2,
+            rewriter.create<IE::AddOp>(takeOpLoc(origOp, "as_add"), newAddOutType, newInput1, newInput2,
                                        origOp.getAutoBroadcastAttr(), origOp.getPostOpAttr(), origOp.getClampAttr(),
                                        origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr())
                     .getOutput();
@@ -564,17 +567,17 @@ mlir::LogicalResult MoveTransposeAffineReshapeThroughAdd::matchAndRewrite(IE::Ad
     auto postQuantizeCastOp = mlir::dyn_cast<IE::QuantizeCastOp>(*origOp.getOutput().user_begin());
     if (postQuantizeCastOp != nullptr && origOp->hasOneUse()) {
         outputVal = rewriter.create<IE::QuantizeCastOp>(
-                                    postQuantizeCastOp.getLoc(), outputVal,
+                                    takeOpLoc(origOp, "qcast"), outputVal,
                                     mlir::cast<vpux::NDTypeInterface>(postQuantizeCastOp.getOutput().getType())
                                             .getElementType())
                             .getOutput();
     }
 
-    auto newTransposeOp = rewriter.create<IE::TransposeOp>(transposeOp.getLoc(), outputVal, transposeOp.getOrder(),
-                                                           transposeOp.getOrderValueAttr());
-    auto newReshapeOp = rewriter.create<IE::AffineReshapeOp>(affineReshapeOp.getLoc(), newTransposeOp.getOutput(),
-                                                             affineReshapeOp.getDimMappingAttr(),
-                                                             affineReshapeOp.getShapeValueAttr());
+    auto newTransposeOp = rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "transpose_out"), outputVal,
+                                                           transposeOp.getOrder(), transposeOp.getOrderValueAttr());
+    auto newReshapeOp = rewriter.create<IE::AffineReshapeOp>(
+            takeOpLoc(origOp, "reshape_out"), newTransposeOp.getOutput(), affineReshapeOp.getDimMappingAttr(),
+            affineReshapeOp.getShapeValueAttr());
 
     if (postQuantizeCastOp == nullptr) {
         origOp.replaceAllUsesWith(newReshapeOp.getOutput());
@@ -636,8 +639,8 @@ mlir::LogicalResult MoveTransposeAffineReshapeThroughAdd::matchAndRewrite(IE::Ad
 //     - At memAxis 3: dim=16, dimension mismatch (need 17)
 //   No matching axis found, so this swap is invalid.
 //
-std::optional<int64_t> getNewSoftmaxAxisAfterSwappingWithShapeCast(IE::SoftMaxOp softmaxOp, IE::ShapeCastOp shapeCastOp,
-                                                                   const Logger& log) {
+std::optional<int64_t> getNewSoftmaxAxisAfterSwappingWithShapeCast(int64_t softmaxLogicalAxis,
+                                                                   IE::ShapeCastOp shapeCastOp, const Logger& log) {
     if (shapeCastOp == nullptr || !shapeCastOp->hasOneUse()) {
         log.trace("ShapeCastOp not found or has multiple uses");
         return std::nullopt;
@@ -649,8 +652,6 @@ std::optional<int64_t> getNewSoftmaxAxisAfterSwappingWithShapeCast(IE::SoftMaxOp
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(shapeCastOp.getOutput().getType());
     const auto inDimsOrder = inputType.getDimsOrder();
     const auto outDimsOrder = outputType.getDimsOrder();
-    const auto softmaxLogicalAxis = getPositiveAxisInd(softmaxOp.getAxisIndAttr(),
-                                                       checked_cast<int64_t>(getShape(shapeCastOp.getOutput()).size()));
     auto softmaxMemAxis = outDimsOrder.toMemDim(Dim(softmaxLogicalAxis)).ind();
 
     // Calculate the product of dimensions before and after the softmax axis in output memory shape
@@ -680,6 +681,17 @@ std::optional<int64_t> getNewSoftmaxAxisAfterSwappingWithShapeCast(IE::SoftMaxOp
 
     log.trace("Not found valid softmax axis after swapping with ShapeCast");
     return std::nullopt;
+}
+
+std::optional<int64_t> getNewSoftmaxAxisAfterSwappingWithShapeCast(IE::SoftMaxOp softmaxOp, IE::ShapeCastOp shapeCastOp,
+                                                                   const Logger& log) {
+    if (shapeCastOp == nullptr) {
+        log.trace("ShapeCastOp is null");
+        return std::nullopt;
+    }
+    const auto softmaxLogicalAxis = getPositiveAxisInd(softmaxOp.getAxisIndAttr(),
+                                                       checked_cast<int64_t>(getShape(shapeCastOp.getOutput()).size()));
+    return getNewSoftmaxAxisAfterSwappingWithShapeCast(softmaxLogicalAxis, shapeCastOp, log);
 }
 
 }  // namespace IE

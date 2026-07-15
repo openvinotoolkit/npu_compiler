@@ -4,7 +4,7 @@
 //
 
 
-// RUN: vpux-opt --platform=%platform% --setup-npu-constraint="workload-management-status=ENABLED enable-sw-kernel-fifo-per-shave-engine=true" %s | FileCheck %s
+// RUN: vpux-opt --platform=%platform% --setup-npu-constraint="enable-sw-kernel-fifo-per-shave-engine=true" %s | FileCheck %s
 // REQUIRES: platform-NPU5010
 
 module @mainModule attributes { config.platform = #config.platform<NPU5010> } {
@@ -17,8 +17,6 @@ module @mainModule attributes { config.platform = #config.platform<NPU5010> } {
 // CHECK: module @mainModule attributes
 // CHECK: config.PipelineOptions @Options
 // CHECK-DAG: config.Option @config.UseDedicatedFifoPerShaveEngine : true
-// CHECK-DAG: config.Option @config.BarrierMaxVariantSum : 64
-// CHECK-DAG: config.Option @config.BarrierMaxVariantCount : 128
+// CHECK-DAG: config.Option @config.BarrierMaxSlotCount : 256
 // CHECK-DAG: config.Option @config.MetadataMaxKernelInvocationCount : 32
 // CHECK-DAG: config.Option @config.MetadataMaxKernelRangeCount : 32
-// CHECK-DAG: config.Option @config.WorkloadManagementStatus : "ENABLED"

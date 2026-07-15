@@ -13,14 +13,15 @@
 #include <unordered_set>
 #include <vector>
 
-#include "npu_driver_compiler.h"
 #include "openvino/core/model.hpp"
 #include "openvino/pass/manager.hpp"
 #include "openvino/pass/serialize.hpp"
 #include "openvino/runtime/core.hpp"
 #include "transformations/op_conversions/convert_interpolate11_downgrade.hpp"
+#include "vcl_api.hpp"
 #include "vcl_logger.hpp"
 
+namespace VCLTest {
 const std::string INPUTS_PRECISIONS_KEY = "--inputs_precisions";
 const std::string INPUTS_LAYOUTS_KEY = "--inputs_layouts";
 const std::string OUTPUTS_PRECISIONS_KEY = "--outputs_precisions";
@@ -489,3 +490,4 @@ vcl_result_t serializeIR(const std::shared_ptr<const ov::Model>& model, vcl_vers
 
     return VCL_RESULT_SUCCESS;
 }
+}  // namespace VCLTest

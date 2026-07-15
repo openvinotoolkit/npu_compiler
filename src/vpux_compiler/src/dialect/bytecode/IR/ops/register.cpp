@@ -4,10 +4,10 @@
 //
 
 #include "vpux/compiler/dialect/bytecode/IR/ops/register.hpp"
+#include "npu_bytecode_utils/instructions.hpp"
 #include "vpux/compiler/dialect/bytecode/IR/types.hpp"
 #include "vpux/compiler/dialect/bytecode/utils/bytecode_writer.hpp"
 #include "vpux/compiler/dialect/bytecode/utils/serialization.hpp"
-#include "vpux/utils/bytecode/instructions.hpp"
 #include "vpux/utils/core/small_vector.hpp"
 
 #include <mlir/IR/Builders.h>

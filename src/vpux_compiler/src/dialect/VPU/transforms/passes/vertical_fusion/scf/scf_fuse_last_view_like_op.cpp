@@ -149,13 +149,12 @@ void SCFFuseLastViewLikeOpPass::safeRunOnFunc() {
             return;
         }
 
-        mlir::Operation* producer = op->getOperand(0).getDefiningOp();
-        if (!mlir::isa<mlir::scf::ForOp>(producer)) {
+        auto forOp = mlir::dyn_cast_or_null<mlir::scf::ForOp>(op->getOperand(0).getDefiningOp());
+        if (!forOp) {
             nestedLog.trace("Not produced by a scf::ForOp");
             return;
         }
 
-        auto forOp = mlir::cast<mlir::scf::ForOp>(producer);
         if (!forOp->getResult(0).hasOneUse()) {
             nestedLog.trace("scf::ForOp output has more than one use.");
             return;

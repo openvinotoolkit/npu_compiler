@@ -196,8 +196,8 @@ mlir::LogicalResult FuseMemPermuteThroughConcat::matchAndRewrite(IE::MemPermuteO
     We can fuse the two MemPermute if it can convert to trivial permute
 */
 
-mlir::ArrayAttr getNewPaddingAttr(mlir::MLIRContext* ctx, ArrayRef<int64_t> pads, vpux::DimsOrder targetOrder,
-                                  vpux::DimsOrder outOrder) {
+mlir::ArrayAttr getNewPaddingAttr(mlir::MLIRContext* ctx, ArrayRef<int64_t> pads, const vpux::DimsOrder& targetOrder,
+                                  const vpux::DimsOrder& outOrder) {
     SmallVector<int64_t> newPads(pads.size(), 0);
 
     for (auto ind : irange(pads.size())) {

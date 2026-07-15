@@ -11,13 +11,13 @@ namespace ov::test {
 
 class SoftMaxLayerTestCommon : public subgraph::SoftMaxLayerTest, virtual public VpuOv2LayerTest {
     void configure_model() override {
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp16";
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp";
     }
 };
 class ShaveCodeGenSoftMaxLayerTestCommon : public subgraph::SoftMaxLayerTest, virtual public VpuOv2LayerTest {
     void configure_model() override {
         configuration[ov::intel_npu::compilation_mode_params.name()] =
-                "enable-shave-code-gen=true disabled-passes=convert-precision-to-fp16";
+                "enable-shave-code-gen=true disabled-passes=convert-precision-to-fp";
     }
 };
 
@@ -119,6 +119,27 @@ TEST_P(SoftMaxConvertFP32LayerTest, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
+class SoftMaxLayerTest_SCFTiling : public SoftMaxLayerTestCommon {
+    void configure_model() override {
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "scf-tiling=true";
+        // E-190336 for MC support
+        configuration["NPU_TILES"] = "1";
+    }
+};
+
+TEST_P(SoftMaxLayerTest_SCFTiling, NPU4000_SW) {
+    abs_threshold = 1e-3;
+    setReferenceSoftwareMode();
+    run(Platform::NPU4000);
+}
+
+TEST_P(SoftMaxLayerTest_SCFTiling, NPU5010_SW) {
+    abs_threshold = 1e-3;
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
+
 TEST_P(SoftMaxLayerTestCommon, NPU5020_SW) {
     setSkipCompilationCallback(SkipDynamicShapes(GetParam()));
 
@@ -159,10 +180,17 @@ TEST_P(SoftMaxConvertFP32LayerTest, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(SoftMaxLayerTest_SCFTiling, NPU5020_SW) {
+    abs_threshold = 1e-3;
+    setReferenceSoftwareMode();
+    run(Platform::NPU5020);
+}
+
 }  // namespace ov::test
 
 using ov::test::ShaveCodeGenSoftMaxLayerTestCommon;
 using ov::test::SoftMaxConvertFP32LayerTest;
+using ov::test::SoftMaxLayerTest_SCFTiling;
 using ov::test::SoftMaxLayerTestCommon;
 
 namespace {
@@ -390,6 +418,21 @@ INSTANTIATE_TEST_SUITE_P(DISABLED_smoke_SoftMax_3D_DynSmoke_Axis0, SoftMaxLayerT
                                           testing::Values(ov::element::f16),                       // Out type
                                           testing::Values(generateTestShape(32, 32_Dyn, 64_Dyn)),  // Shape
                                           testing::Values(0),                                      // Axis
+                                          testing::Values(test_utils::TARGET_DEVICE),
+                                          testing::Values(ov::test::Config{})),
+                         SoftMaxLayerTestCommon::getTestCaseName);
+
+//
+// SCF Tiling
+//
+
+INSTANTIATE_TEST_SUITE_P(smoke_SoftMax_SCFTiling, SoftMaxLayerTest_SCFTiling,
+                         testing::Combine(testing::Values(ov::element::f16),  // Model type
+                                          testing::Values(ov::element::f16),  // In type
+                                          testing::Values(ov::element::f16),  // Out type
+                                          testing::ValuesIn(ov::test::static_shapes_to_test_representation(
+                                                  {{1, 16, 256, 256}})),  // Shape large enough to trigger tiling
+                                          testing::Values(3),             // Axis
                                           testing::Values(test_utils::TARGET_DEVICE),
                                           testing::Values(ov::test::Config{})),
                          SoftMaxLayerTestCommon::getTestCaseName);

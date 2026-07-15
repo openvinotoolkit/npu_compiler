@@ -6,6 +6,8 @@
 #include "vpux/compiler/conversion/passes/VPU2VPUIP/bufferize_sw_ops_interface.hpp"
 #include "vpux/compiler/NPU40XX/utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
+#include "vpux/compiler/dialect/Shave/IR/dialect.hpp"
+#include "vpux/compiler/dialect/Shave/IR/ops/meta-ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/arithmetic.hpp"
@@ -129,7 +131,7 @@ mlir::LogicalResult vpux::bufferizeSWLayerOp(mlir::RewriterBase& rewriter, mlir:
         swKernelResults.push_back(newOperands[auxBuffer->getOperandNumber()]);
     }
 
-    VPUIP::createRuntimeKernelDefinition(module, log.nest(), config::getArch(op));
+    VPUIP::createRuntimeKernelDefinition(module, log.nest());
 
     // TODO : tile 0
     const int64_t tileIndex = 0;
@@ -230,7 +232,7 @@ mlir::LogicalResult vpux::bufferizeDistributedSWLayerOp(mlir::RewriterBase& rewr
     auto layerOp = mlir::cast<VPU::LayerOpInterface>(op);
     auto swLayerOp = mlir::cast<VPUIP::SoftwareLayerOpInterface>(op);
 
-    VPUIP::createRuntimeKernelDefinition(module, log.nest(), config::getArch(op));
+    VPUIP::createRuntimeKernelDefinition(module, log.nest());
 
     SmallVector<mlir::OpOperand*> auxBuffers;
     if (auto auxBuffOp = mlir::dyn_cast<VPU::AuxiliaryBufferOpInterface>(op)) {
@@ -434,6 +436,7 @@ void vpux::registerSoftwareLayerBufferizableOpInterfaces(mlir::DialectRegistry& 
         VPU::ReorgYoloOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::ReorgYoloOp>>(*ctx);
         VPU::ProposalOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::ProposalOp>>(*ctx);
         VPU::ScatterUpdateOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::ScatterUpdateOp>>(*ctx);
+        VPU::ScatterUpdateSwDmaOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::ScatterUpdateSwDmaOp>>(*ctx);
         VPU::ScatterElementsUpdateOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::ScatterElementsUpdateOp>>(
                 *ctx);
         VPU::ReverseOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::ReverseOp>>(*ctx);
@@ -527,13 +530,17 @@ void vpux::registerSoftwareLayerBufferizableOpInterfaces(mlir::DialectRegistry& 
         VPU::DynamicExpandOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::DynamicExpandOp>>(*ctx);
         VPU::PopulateWeightTableOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::PopulateWeightTableOp>>(*ctx);
         VPU::GenericSwLayerOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::GenericSwLayerOp>>(*ctx);
-        VPU::ExternalKernelOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::ExternalKernelOp>>(*ctx);
         VPU::RoPEOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::RoPEOp>>(*ctx);
         VPU::SDPAOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::SDPAOp>>(*ctx);
         VPU::AttentionOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::AttentionOp>>(*ctx);
         VPU::DynamicDataMaskOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::DynamicDataMaskOp>>(*ctx);
         VPU::FlashSDPAOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::FlashSDPAOp>>(*ctx);
     });
+
+    registry.addExtension(+[](mlir::MLIRContext* ctx, Shave::ShaveDialect*) {
+        Shave::ExternalKernelOp::attachInterface<SoftwareLayerOpBufferizeModel<Shave::ExternalKernelOp>>(*ctx);
+    });
+
     mlir::linalg::registerBufferizableOpInterfaceExternalModels(registry);
     mlir::tensor::registerBufferizableOpInterfaceExternalModels(registry);
     mlir::arith::registerBufferizableOpInterfaceExternalModels(registry);

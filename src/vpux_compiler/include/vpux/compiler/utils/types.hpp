@@ -16,6 +16,7 @@
 #include "vpux/utils/core/mem_size.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
+#include <llvm/ADT/StringRef.h>
 #include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinTypes.h>
@@ -105,13 +106,14 @@ AddressType getAlignment(mlir::Value val, AddressType defaultAlignment = vpux::D
 // MemRefType utilities
 //
 
-mlir::MemRefType getMemRefType(ShapeRef shape, mlir::Type elemType, DimsOrder order, IndexedSymbolAttr memSpace,
-                               StridesRef strides = {}, VPUIP::SwizzlingSchemeAttr swizzlingSchemeAttr = nullptr,
+mlir::MemRefType getMemRefType(ShapeRef shape, mlir::Type elemType, const DimsOrder& order = {},
+                               IndexedSymbolAttr memSpace = nullptr, StridesRef strides = {},
+                               VPUIP::SwizzlingSchemeAttr swizzlingSchemeAttr = nullptr,
                                VPUIP::SparsityCompressionAttr sparsityCompressionAttr = nullptr,
                                mlir::IntegerAttr allocSizeAttr = nullptr,
                                VPUIP::CompressionStateAttr compressionState = nullptr);
 template <typename Enum>
-memref_type_if<Enum> getMemRefType(ShapeRef shape, mlir::Type elemType, DimsOrder order, Enum kind,
+memref_type_if<Enum> getMemRefType(ShapeRef shape, mlir::Type elemType, const DimsOrder& order, Enum kind,
                                    StridesRef strides = StridesRef(),
                                    VPUIP::SwizzlingSchemeAttr swizzlingSchemeAttr = nullptr,
                                    VPUIP::SparsityCompressionAttr sparsityCompressionAttr = nullptr,
@@ -128,9 +130,10 @@ mlir::SmallVector<float> getFloatStrides(StridesRef strides);
 // RankedTensorType utilities
 //
 
-mlir::RankedTensorType getTensorType(ShapeRef shape, mlir::Type elemType, DimsOrder order, IndexedSymbolAttr memSpace);
-mlir::RankedTensorType getTensorType(ShapeRef shape, mlir::Type elemType, DimsOrder order, IndexedSymbolAttr memSpace,
-                                     BoundsRef bounds, DynamicDimsMaskRef dynamicDimsMask);
+mlir::RankedTensorType getTensorType(ShapeRef shape, mlir::Type elemType, const DimsOrder& order,
+                                     IndexedSymbolAttr memSpace);
+mlir::RankedTensorType getTensorType(ShapeRef shape, mlir::Type elemType, const DimsOrder& order,
+                                     IndexedSymbolAttr memSpace, BoundsRef bounds, DynamicDimsMaskRef dynamicDimsMask);
 
 ///
 /// \brief Convert RankedTensor type to Memref type
@@ -156,6 +159,9 @@ bool areTypesCompatible(mlir::TypeRange lhs, mlir::TypeRange rhs, IE::TypeCompar
 // Checks if the only difference between two UniformQuantizedPerAxisType is the quantized dimension
 bool isQuantizedDimensionPermutation(mlir::quant::UniformQuantizedPerAxisType inputElemType,
                                      mlir::quant::UniformQuantizedPerAxisType newElemType);
+
+// Convert an MLIR element type to a stable string representation.
+std::string elementTypeToString(mlir::Type type);
 
 bool isSubByteType(mlir::Type elemType);
 

@@ -34,12 +34,16 @@ struct DefaultHWOptionsDeviceBase : public virtual vpux::DefaultHWOptionsBase {
 
     BoolOption enableSprLUT{*this, "enable-sprlut", llvm::cl::desc("Enable sprLUT"), llvm::cl::init(true)};
 
+    BoolOption enableSoftmaxMaskAware{*this, "enable-softmax-mask-aware", ::llvm::cl::desc("Enable Softmax mask aware"),
+                                      ::llvm::cl::init(false)};
+
+    DoubleOption softmaxMaskAwareThreshold{
+            *this, "softmax-mask-aware-threshold", ::llvm::cl::desc("Softmax mask aware threshold"),
+            ::llvm::cl::init(static_cast<double>(std::numeric_limits<vpux::type::float16>::lowest()) +
+                             SOFTMAX_MASK_DISABLED_NOISE_MARGIN)};
+
     BoolOption workloadManagementEnable{*this, "workload-management-enable",
                                         llvm::cl::desc("Enable partial workload management"), llvm::cl::init(true)};
-
-    IntOption workloadManagementBarrierCountThreshold{*this, "workload-management-barrier-count-threshold",
-                                                      llvm::cl::desc("Threshold for WLM optimization"),
-                                                      llvm::cl::init(std::numeric_limits<int>::max())};
 
     mlir::detail::PassOptions::Option<DMAFifoType> workloadManagementDmaFifoType{
             *this, "workload-management-dma-fifo-type",
@@ -87,10 +91,8 @@ struct DefaultHWOptionsDeviceBase : public virtual vpux::DefaultHWOptionsBase {
                     ::llvm::cl::values(
                             clEnumValN(WorkloadManagementBarrierProgrammingMode::LEGACY, "LEGACY", "Legacy Mode"),
                             clEnumValN(WorkloadManagementBarrierProgrammingMode::ALL_BARRIER_DMAS_SCHEDULED,
-                                       "ALL_BARRIER_DMAS_SCHEDULED", "Compiler generates DMAs to program all barriers"),
-                            clEnumValN(WorkloadManagementBarrierProgrammingMode::ALL_BARRIER_DMAS_SCHEDULED_4K,
-                                       "ALL_BARRIER_DMAS_SCHEDULED_4K",
-                                       "Compiler generates DMAs to program all barriers leveraging 4K barrier block"))};
+                                       "ALL_BARRIER_DMAS_SCHEDULED",
+                                       "Compiler generates DMAs to program all barriers"))};
 
     IntOption modelIdentifier{
             *this, "model-identifier",
@@ -100,6 +102,9 @@ struct DefaultHWOptionsDeviceBase : public virtual vpux::DefaultHWOptionsBase {
     BoolOption enableRunMVNNormalizeOnDPU{*this, "enable-run-mvn-normalize-on-dpu",
                                           llvm::cl::desc("Enable RunMVNNormalizeOnDPU pass on DPU"),
                                           llvm::cl::init(false)};
+
+    BoolOption enableSoftmaxDecomposition{*this, "enable-softmax-decomposition",
+                                          llvm::cl::desc("Enable Softmax decomposition pass"), llvm::cl::init(true)};
 };
 
 }  // namespace arch50xx

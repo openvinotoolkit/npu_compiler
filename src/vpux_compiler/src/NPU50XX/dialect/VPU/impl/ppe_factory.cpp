@@ -24,6 +24,7 @@
 #include "vpux/compiler/utils/quantization.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
+#include <optional>
 
 using namespace vpux;
 using namespace VPU;
@@ -160,12 +161,15 @@ std::optional<double> computeScale(mlir::Operation* operation) {
 
     // MaxPool is considered quantization-agnostic, PropagateFQ nGraph pass will propagate input and output FQ's which
     // should always result in neutral quantization scale (1.0). Non-quantized conversions (f16 <-> f32) are allowed.
-    if (mlir::isa<IE::MaxPoolOp>(operation)) {
+    if (auto maxPoolOp = mlir::dyn_cast<IE::MaxPoolOp>(operation)) {
         VPUX_THROW_WHEN(
                 inputElemType != outputElemType && (mlir::isa<mlir::quant::QuantizedType>(inputElemType) ||
                                                     mlir::isa<mlir::quant::QuantizedType>(outputElemType)),
                 "Quantization-agnostic operation (MaxPool) has different quantized input ({0}) and output ({1}) types.",
                 inputElemType, outputElemType);
+        if (const auto staticScale = maxPoolOp.getStaticScale()) {
+            return staticScale->convertToDouble();
+        }
         return 1.0;
     }
 
@@ -505,14 +509,17 @@ PpeFactory::AttrBuilder PpeFactory::retrieveNonEltwisePPEAttribute(mlir::Operati
     // Sometimes (i.e. EnsureNCEOpsSizeRequirements) PPE Factory is used to regenerate an attribute for an NCE
     // operation. Initial WT info must be preserved even if the current NCE operation has no bias/quantization, thus
     // per-tensor scale and bias must remain null.
-    if (auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(operation);
-        nceOp != nullptr && !mlir::isa<VPU::PPEStubAttr>(nceOp.getPPE()) && hasWeightsTable(nceOp.getPPE())) {
+    auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(operation);
+    if (nceOp != nullptr && !mlir::isa<VPU::PPEStubAttr>(nceOp.getPPE()) && hasWeightsTable(nceOp.getPPE())) {
         return builder;
     }
 
+    auto maybeConvOp = mlir::dyn_cast<IE::ConvolutionOp>(operation);
+    auto hasScaleTable = maybeConvOp != nullptr && maybeConvOp.getScale() != nullptr;
+
     // It's not possible to pick only the bias or the scale from WT, so WT is either used for both or not used at all.
     builder.bias = ::computeBias(operation);
-    builder.scale = builder.bias ? ::computeScale(operation) : std::nullopt;
+    builder.scale = !hasScaleTable && builder.bias ? ::computeScale(operation) : std::nullopt;
     if (!builder.scale.has_value()) {
         builder.bias = std::nullopt;
     }
@@ -600,12 +607,32 @@ PpeFactory::AttrBuilder PpeFactory::retrieveEltwisePPEAttribute(mlir::Operation*
     VPUX_THROW_UNLESS(
             mlir::isa<mlir::quant::QuantizedType>(in1ElemType) == mlir::isa<mlir::quant::QuantizedType>(in2ElemType),
             "Mixed precision on the inputs of eltwise operations is not supported by PPE");
-    VPUX_THROW_WHEN(mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(in1ElemType) ||
-                            mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(in2ElemType) ||
-                            mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(outputElemType),
-                    "Per-axis quantized eltiwise operations are not supported by PPE");
 
-    // Similar to the non-eltwise with except to per-channel quantization contraints and the possibility to scale inputs
+    // Both sub-cases below appear in case of standalone quantize/dequantize ops mapped to eltwise;
+    // they are only for eltwise ops that use the new WT format (gated by isNCEEltwiseSupported via
+    // useNewWeightTableFormat). PPE output scale/bias are null — per-channel scaling is encoded in the WT instead
+    // (retrieveNonEltwisePPEAttribute returns scale=null/bias=null when computeScale/computeBias detect a
+    // per-axis type). Clamps are still set in PPE from the quantization storage range.
+    // Two sub-cases arise under this branch:
+    //   1. Quantize direction: f16 inputs → per-axis quantized output.
+    //      WT scale carries 1/(2*q_c) per channel; no IDU multipliers needed.
+    //   2. Dequantize direction: per-axis quantized inputs → f16 output.
+    //      WT scale carries s_c/2 per channel; no IDU multipliers needed.
+    if (mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(in1ElemType) ||
+        mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(in2ElemType) ||
+        mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(outputElemType)) {
+        // Only quantize (f16 inputs → per-axis output) and dequantize (per-axis inputs → f16 output)
+        // are supported. Any form of requantization (quantized inputs → quantized output) is not.
+        VPUX_THROW_WHEN(mlir::isa<mlir::quant::QuantizedType>(in1ElemType) &&
+                                mlir::isa<mlir::quant::QuantizedType>(outputElemType),
+                        "Requantization in eltwise operations is not supported; only quantize (f16 inputs → per-axis "
+                        "output) and dequantize (per-axis inputs → f16 output) are allowed");
+        // Per-channel scaling is fully handled by the WT scale table; no IDU multipliers needed.
+        auto builder = PpeFactory::AttrBuilder(retrieveNonEltwisePPEAttribute(operation));
+        return builder;
+    }
+
+    // Similar to the non-eltwise path, except for per-channel quantization constraints and the possibility to scale
     // individually through IDU.
     auto builder = PpeFactory::AttrBuilder(retrieveNonEltwisePPEAttribute(operation));
     if (!mlir::isa<mlir::quant::QuantizedType>(in1ElemType)) {

@@ -50,10 +50,10 @@ func.func @UnrollDistributedCompressedDMAOutput(%arg0: memref<1x16x16x16xf16, @D
   VPURT.Task attributes {isTrailingSWLayer = false} {
     %16 = VPUIP.DecompressDMAOp <{port = 0 : i64}> inputs(%cst : memref<64x32x1x1xf16, {compression = #VPUIP.Compression<CompiletimeCompressed>, order = #NHWC}, @DDR>) outputs(%3 : !VPUIP.DistributedBuffer<64x32x1x1xf16, {order = #NHWC, strides = [32, 1, 32, 32]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>) -> !VPUIP.DistributedBuffer<64x32x1x1xf16, {order = #NHWC, strides = [32, 1, 32, 32]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
   }
-  // CHECK: [[BUFF_TILE_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
-  // CHECK: [[BUFF_TILE_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 1]>
+  // CHECK: [[BUFF_TILE_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+  // CHECK: [[BUFF_TILE_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>
   // CHECK-NOT: VPURT.Task
-  // CHECK: [[DMA0:%.+]] = VPUMI37XX.NNDMA <{port = 0 : i64}> inputs([[CST]] : memref<64x32x1x1xf16, {compression = #VPUIP.Compression<CompiletimeCompressed>, order = #NHWC}, @DDR>) outputs([[BUFF_TILE_0]], [[BUFF_TILE_1]] : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>, memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 1]>) start_after(0) clean_after(0) acceleration_mode(<DECOMPRESSION>) -> !VPURegMapped.Index<0:0:0>
+  // CHECK: [[DMA0:%.+]] = VPUMI37XX.NNDMA <{port = 0 : i64}> inputs([[CST]] : memref<64x32x1x1xf16, {compression = #VPUIP.Compression<CompiletimeCompressed>, order = #NHWC}, @DDR>) outputs([[BUFF_TILE_0]], [[BUFF_TILE_1]] : memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>) start_after(0) clean_after(0) acceleration_mode(<DECOMPRESSION>) -> !VPURegMapped.Index<0:0:0>
 
   return %arg1 : memref<64x32x1x1xf16, @DDR>
 }

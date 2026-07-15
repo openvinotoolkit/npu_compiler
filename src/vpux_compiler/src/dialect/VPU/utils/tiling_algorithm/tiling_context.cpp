@@ -33,10 +33,12 @@ mlir::LogicalResult TilingContext::applyTiling(mlir::RewriterBase& builder, Logg
     return _tilingAlgorithm->applyTiling(_operation, builder, log);
 }
 
-SmallVector<mlir::Operation*> TilingContext::applySCFTilingAndFusion(mlir::RewriterBase& builder, Logger log) {
+SmallVector<mlir::Operation*> TilingContext::applySCFTilingAndFusion(mlir::RewriterBase& builder,
+                                                                     const MergeConfiguration& mergeConfig,
+                                                                     Logger log) {
     VPUX_THROW_WHEN(_tilingAlgorithm == nullptr, "Tiling algorithm is not specified");
 
-    return _tilingAlgorithm->applySCFTilingAndFusion(_operation, builder, log);
+    return _tilingAlgorithm->applySCFTilingAndFusion(_operation, builder, mergeConfig, log);
 }
 
 bool isSCFSupported(mlir::Operation* operation) {

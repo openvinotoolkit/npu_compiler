@@ -16,8 +16,8 @@ int main(int argc, char* argv[]) {
     try {
         auto registry = vpux::createDialectRegistry(vpux::DummyOpMode::ENABLED);
         vpux::registerAllPassesGlobally();
-        if (auto archKind = vpux::parseParamsAndDeduceArch(argc, argv); archKind.has_value()) {
-            vpux::registerAllHwSpecificComponents(registry, archKind.value());
+        if (auto platform = vpux::parsePlatform(argc, argv); platform.has_value()) {
+            vpux::registerAllHwSpecificComponents(registry, platform.value());
         }
 
         return mlir::asMainReturnCode(mlir::MlirLspServerMain(argc, argv, registry));

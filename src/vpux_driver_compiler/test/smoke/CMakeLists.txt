@@ -14,7 +14,7 @@ find_package(OpenVINO REQUIRED COMPONENTS Runtime)
 add_executable(compilerTest compilerTest.cpp)
 target_link_libraries(compilerTest
     PRIVATE
-        ${COMPILER_LOADER_DLL} # VCL function
+        npu_compiler_loader_utils # VCL function
         npu_logger
         openvino::npu_logger_utils # logging utils
         openvino::runtime
@@ -22,10 +22,13 @@ target_link_libraries(compilerTest
 ov_add_api_validator_post_build_step(TARGET compilerTest)
 
 # profilingTest to check profiling API
-add_executable(profilingTest profilingTest.c)
+add_executable(profilingTest profilingTest.cpp)
 target_link_libraries(profilingTest
     PRIVATE
-        ${COMPILER_LOADER_DLL})
+        npu_compiler_loader_utils # VCL function
+        openvino::npu_logger_utils
+        openvino::runtime
+)
 ov_add_api_validator_post_build_step(TARGET profilingTest)
 
 # loaderTest to check npu_elf
@@ -37,9 +40,18 @@ target_link_libraries(loaderTest
         LLVMSupport)
 ov_add_api_validator_post_build_step(TARGET loaderTest)
 
-# Install functional test to CiD component
-if(BUILD_COMPILER_FOR_DRIVER)
-    install_target_with_debug_files(compilerTest ${INSTALL_DESTINATION} ${INSTALL_COMPONENT})
-    install_target_with_debug_files(profilingTest ${INSTALL_DESTINATION} ${INSTALL_COMPONENT})
-    install_target_with_debug_files(loaderTest ${INSTALL_DESTINATION} ${INSTALL_COMPONENT})
-endif()
+install(TARGETS loaderTest
+        RUNTIME DESTINATION tests
+        COMPONENT ${VPUX_TESTS_COMPONENT}
+        EXCLUDE_FROM_ALL
+)
+install(TARGETS compilerTest
+        RUNTIME DESTINATION tests
+        COMPONENT ${VPUX_TESTS_COMPONENT}
+        EXCLUDE_FROM_ALL
+)
+install(TARGETS profilingTest
+        RUNTIME DESTINATION tests
+        COMPONENT ${VPUX_TESTS_COMPONENT}
+        EXCLUDE_FROM_ALL
+)

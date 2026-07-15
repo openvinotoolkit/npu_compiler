@@ -22,23 +22,10 @@ bool vpux::isOptionEnabled(const BoolOption& option) {
     return option.getValue();
 }
 
-StringLiteral vpux::stringifyEnum(WorkloadManagementStatus val) {
-    switch (val) {
-    case WorkloadManagementStatus::ENABLED:
-        return "ENABLED";
-    case WorkloadManagementStatus::DISABLED:
-        return "DISABLED";
-    case WorkloadManagementStatus::FAILED:
-        return "FAILED";
-    }
-    return "";
-}
-
-std::optional<WorkloadManagementStatus> vpux::symbolizeWorkloadManagementStatus(llvm::StringRef str) {
-    return ::llvm::StringSwitch<::std::optional<WorkloadManagementStatus>>(str)
-            .Case("ENABLED", WorkloadManagementStatus::ENABLED)
-            .Case("DISABLED", WorkloadManagementStatus::DISABLED)
-            .Case("FAILED", WorkloadManagementStatus::FAILED)
+std::optional<WorkloadManagementMode> vpux::symbolizeWorkloadManagementMode(llvm::StringRef str) {
+    return ::llvm::StringSwitch<::std::optional<WorkloadManagementMode>>(str)
+            .Case("PWLM_V0_1_PAGES", WorkloadManagementMode::PWLM_V0_1_PAGES)
+            .Case("FWLM_V1_PAGES", WorkloadManagementMode::FWLM_V1_PAGES)
             .Default(::std::nullopt);
 }
 
@@ -48,8 +35,6 @@ StringLiteral vpux::stringifyEnum(WorkloadManagementBarrierProgrammingMode val) 
         return "LEGACY";
     case WorkloadManagementBarrierProgrammingMode::ALL_BARRIER_DMAS_SCHEDULED:
         return "ALL_BARRIER_DMAS_SCHEDULED";
-    case WorkloadManagementBarrierProgrammingMode::ALL_BARRIER_DMAS_SCHEDULED_4K:
-        return "ALL_BARRIER_DMAS_SCHEDULED_4K";
     default:
         return "UNKNOWN";
     }
@@ -79,6 +64,17 @@ StringLiteral vpux::stringifyEnum(WeightsTableReuseMode val) {
     }
 }
 
+StringLiteral vpux::stringifyEnum(VFMergeConfiguration val) {
+    switch (val) {
+    case VFMergeConfiguration::COST_BASED:
+        return "COST_BASED";
+    case VFMergeConfiguration::GREEDY:
+        return "GREEDY";
+    default:
+        return "UNKNOWN";
+    }
+}
+
 StringLiteral vpux::stringifyEnum(WorkloadManagementMode val) {
     switch (val) {
     case WorkloadManagementMode::PWLM_V0_1_PAGES:
@@ -87,6 +83,36 @@ StringLiteral vpux::stringifyEnum(WorkloadManagementMode val) {
         return "FWLM_V1_PAGES";
     default:
         llvm::outs() << "Unknown WorkloadManagementMode value: " << static_cast<int>(val) << "\n";
+        return "UNKNOWN";
+    }
+}
+
+StringLiteral vpux::stringifyEnum(SkipOCMode val) {
+    switch (val) {
+    case SkipOCMode::SKIP_NONE:
+        return "SKIP_NONE";
+    case SkipOCMode::SKIP_LARGE_SPATIAL:
+        return "SKIP_LARGE_SPATIAL";
+    case SkipOCMode::SKIP_ALL:
+        return "SKIP_ALL";
+    default:
+        return "UNKNOWN";
+    }
+}
+
+StringLiteral vpux::stringifyEnum(AutoUnrollingMode val) {
+    switch (val) {
+    case AutoUnrollingMode::DISABLED:
+        return "disabled";
+    case AutoUnrollingMode::INNER:
+        return "inner";
+    case AutoUnrollingMode::OUTER:
+        return "outer";
+    case AutoUnrollingMode::ALL:
+        return "all";
+    case AutoUnrollingMode::BIGGEST:
+        return "biggest";
+    default:
         return "UNKNOWN";
     }
 }

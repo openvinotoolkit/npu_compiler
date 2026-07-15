@@ -5,11 +5,13 @@
 
 #pragma once
 
-#include "vpux/utils/bytecode/section_header_table.hpp"
+#include "npu_bytecode_utils/section_header_table.hpp"
 #include "vpux/utils/core/array_ref.hpp"
 
+#include <llvm/ADT/DenseMap.h>
 #include <llvm/Support/raw_ostream.h>
 #include <mlir/IR/BuiltinOps.h>
+#include <mlir/IR/Region.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -23,7 +25,9 @@ namespace vpux::bytecode {
 class BytecodeWriter {
     mlir::ModuleOp _moduleOp;
     std::vector<uint8_t> _bytecodeBuffer;
-    SectionHeaderTable _sectionHeaderTable;
+    intel_npu::vm::SectionHeaderTable _sectionHeaderTable;
+    llvm::DenseMap<mlir::Block*, size_t> _blockOffsets;
+    llvm::DenseMap<mlir::Operation*, size_t> _opOffsets;
 
     void prepareSectionHeaderTable();
 
@@ -31,6 +35,9 @@ public:
     // Construct a BytecodeWriter for the given module.
     // The section header table is prepared eagerly during construction.
     explicit BytecodeWriter(mlir::ModuleOp moduleOp);
+
+    // Returns a reference to the internal bytecode buffer being built up by the writer for serialization
+    std::vector<uint8_t>& getBytecodeBuffer();
 
     // Append the file header (magic number, version, section header table) to the internal bytecode buffer
     void appendFileHeader();
@@ -56,6 +63,14 @@ public:
     /// @param data pointer to the beginning of the data
     /// @param size size of the data in bytes
     void appendRawData(const uint8_t* data, size_t size);
+
+    // Pre-compute block and op byte-offsets (relative to function body start) for
+    // all serializable ops in `body`. Must be called before getRelativeOffset().
+    void cacheOffsets(mlir::Region& body);
+
+    // Return the signed PC-relative byte offset from jumpOp to destBlock.
+    // Requires cacheOffsets() to have been called for the enclosing region.
+    int64_t getRelativeOffset(mlir::Operation* jumpOp, mlir::Block* destBlock);
 
     // Flush the accumulated bytecode buffer to the provided output stream
     void writeTo(llvm::raw_ostream& os);

@@ -112,7 +112,7 @@ NDTypeInterface VPUIP::BoundedBufferType::changeShapeElemType(ShapeRef shape, ml
     return VPUIP::BoundedBufferType::get(newData, newDynamicShape);
 }
 
-NDTypeInterface VPUIP::BoundedBufferType::changeDimsOrder(DimsOrder order) const {
+NDTypeInterface VPUIP::BoundedBufferType::changeDimsOrder(const DimsOrder& order) const {
     const auto data = mlir::cast<vpux::NDTypeInterface>(getData());
     const auto newData = data.changeDimsOrder(order);
     return VPUIP::BoundedBufferType::get(newData, getDynamicShape());

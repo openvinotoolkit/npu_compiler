@@ -309,9 +309,9 @@ std::vector<double> rewriteFQOutputParams(IE::FakeQuantizeOp fakeQuantize, mlir:
         newOutHiValuesAttr = mlir::DenseElementsAttr::get(newOutHiType, ArrayRef(oldOutHiValues));
     }
 
-    auto newLoInput = rewriter.create<Const::DeclareOp>(oLoConst.getLoc(), oLoConst.getType(),
+    auto newLoInput = rewriter.create<Const::DeclareOp>(appendLoc(oLoConst.getLoc(), "out_low"), oLoConst.getType(),
                                                         Const::ContentAttr::get(newOutLoValuesAttr));
-    auto newHiInput = rewriter.create<Const::DeclareOp>(oHiConst.getLoc(), oHiConst.getType(),
+    auto newHiInput = rewriter.create<Const::DeclareOp>(appendLoc(oHiConst.getLoc(), "out_high"), oHiConst.getType(),
                                                         Const::ContentAttr::get(newOutHiValuesAttr));
 
     rewriter.replaceOp(oLoConst, newLoInput);
@@ -337,7 +337,7 @@ applyReshapeFromAdjustConvolutionInputShape(IE::TransposeOp transposeInput, mlir
         SmallVector<SmallVector<int64_t>> inDimMapping = {{0}, {1}, {2, 3}, {3}};
 
         // And that transformation is typically done by AdjustConvolutionInputShape
-        reshapeInput = rewriter.create<IE::AffineReshapeOp>(appendLoc(transposeInput.getLoc(), "to [N, C, H/4, 4]"),
+        reshapeInput = rewriter.create<IE::AffineReshapeOp>(takeOpLoc(transposeInput, "reshape_out"),
                                                             transposeInput.getOutput(),
                                                             getIntArrayOfArray(rewriter.getContext(), inDimMapping),
                                                             getIntArrayAttr(rewriter.getContext(), shapeNxCxHx4));
@@ -361,7 +361,7 @@ IE::ConvertOp createOpsToCalculateFix(IE::ConvolutionOp convOp,
 
     if (useF32) {
         // Input -> [IE.Convert(f32)] -> [IE.ReduceSum (axes = [1])] -> IE.Multiply ([128 - zp] * scales * static_scale)
-        auto convertToF32 = rewriter.create<IE::ConvertOp>(appendLoc(convOp.getLoc(), "_to_f32"), reduceSumInput,
+        auto convertToF32 = rewriter.create<IE::ConvertOp>(takeOpLoc(convOp, "convert_in_f32"), reduceSumInput,
                                                            mlir::Float32Type::get(rewriter.getContext()));
         reduceInput = convertToF32.getOutput();
         computeType = mlir::Float32Type::get(rewriter.getContext());
@@ -369,7 +369,7 @@ IE::ConvertOp createOpsToCalculateFix(IE::ConvolutionOp convOp,
 
     // Reduce
     SmallVector<int64_t> reductionAxes = {1};
-    auto reduce = rewriter.create<IE::ReduceSumOp>(appendLoc(convOp.getLoc(), "_reduce"), reduceInput, nullptr,
+    auto reduce = rewriter.create<IE::ReduceSumOp>(takeOpLoc(convOp, "reduce_in"), reduceInput, nullptr,
                                                    getIntArrayAttr(rewriter.getContext(), ArrayRef(reductionAxes)),
                                                    /*keep_dims=*/true, nullptr, nullptr);
     // Input -> IE.ReduceSum (axes = [1]) -> IE.Multiply ([128 - zp] * scales * static_scale)
@@ -387,7 +387,7 @@ IE::ConvertOp createOpsToCalculateFix(IE::ConvolutionOp convOp,
             return -diffVal * staticScale;
         });
         const auto newScalesAttr = mlir::DenseElementsAttr::get(newScalesShape, ArrayRef(newScales));
-        newScalesVal = rewriter.create<Const::DeclareOp>(appendLoc(convOp.getLoc(), "new_scales"), newScalesShape,
+        newScalesVal = rewriter.create<Const::DeclareOp>(takeOpLoc(convOp, "scales_f32"), newScalesShape,
                                                          Const::ContentAttr::get(newScalesAttr));
     } else {
         SmallVector<vpux::type::float16> newScales(diff.size());
@@ -395,20 +395,20 @@ IE::ConvertOp createOpsToCalculateFix(IE::ConvolutionOp convOp,
             return vpux::type::float16(-diffVal);
         });
         const auto newScalesAttr = mlir::DenseElementsAttr::get(newScalesShape, ArrayRef(newScales));
-        newScalesVal = rewriter.create<Const::DeclareOp>(appendLoc(convOp.getLoc(), "new_scales"), newScalesShape,
+        newScalesVal = rewriter.create<Const::DeclareOp>(takeOpLoc(convOp, "scales_f16"), newScalesShape,
                                                          Const::ContentAttr::get(newScalesAttr));
     }
 
     // Input -> IE.ReduceSum (axes = [1]) -> [IE.Multiply] ([128 - zp] * scales)
     // Multiply reduced sum by scales        ^^^^^^^^^^^^^
     auto rescale = rewriter.create<IE::MultiplyOp>(
-            appendLoc(convOp.getLoc(), "rescale"), reduce.getOutput(), newScalesVal,
+            takeOpLoc(convOp, "multiply_scales"), reduce.getOutput(), newScalesVal,
             IE::AutoBroadcastTypeAttr::get(rewriter.getContext(), IE::AutoBroadcastType::NUMPY),
             /*postOp=*/nullptr,
             /*clamp=*/nullptr, nullptr, nullptr);
 
     // Convert to f16 to match convolution output type
-    auto convertToF16 = rewriter.create<IE::ConvertOp>(appendLoc(convOp.getLoc(), "_to_f16"), rescale.getOutput(),
+    auto convertToF16 = rewriter.create<IE::ConvertOp>(takeOpLoc(convOp, "convert_out_f16"), rescale.getOutput(),
                                                        mlir::Float16Type::get(rewriter.getContext()));
     return convertToF16;
 }
@@ -424,10 +424,9 @@ IE::AffineReshapeOp rollbackAdjustConvolutionInputShapeReshape(IE::AddOp subtrac
 
     SmallVector<SmallVector<int64_t>> outDimMapping = {{0}, {1}, {2}, {2, 3}};
 
-    auto reshapeOutput =
-            rewriter.create<IE::AffineReshapeOp>(appendLoc(subtract.getLoc(), "to [N, C, 4H, 1]"), subtract.getOutput(),
-                                                 getIntArrayOfArray(rewriter.getContext(), outDimMapping),
-                                                 getIntArrayAttr(rewriter.getContext(), shapeNxCx4Hx1));
+    auto reshapeOutput = rewriter.create<IE::AffineReshapeOp>(takeOpLoc(subtract, "reshape_out"), subtract.getOutput(),
+                                                              getIntArrayOfArray(rewriter.getContext(), outDimMapping),
+                                                              getIntArrayAttr(rewriter.getContext(), shapeNxCx4Hx1));
     return reshapeOutput;
 }
 
@@ -517,7 +516,7 @@ mlir::LogicalResult FixMatmulZeroPointRewriter::matchAndRewrite(IE::ConvolutionO
 
     // This part is originally  covered by ConvertBatchedLayerTo1N
     const auto orderHCNW = mlir::AffineMapAttr::get(DimsOrder::HCNW.toAffineMap(rewriter.getContext()));
-    auto transposeInput = rewriter.create<IE::TransposeOp>(appendLoc(matmulInput.getLoc(), "in_to_HCNW"), matmulInput,
+    auto transposeInput = rewriter.create<IE::TransposeOp>(appendLoc(convOp.getLoc(), "transpose_in"), matmulInput,
                                                            nullptr, orderHCNW);
 
     auto reduceSumInput = transposeInput.getOutput();
@@ -533,15 +532,15 @@ mlir::LogicalResult FixMatmulZeroPointRewriter::matchAndRewrite(IE::ConvolutionO
 
     // Keep static_scale on convolution, but REMOVE post_op.
     auto newConvOp = rewriter.create<IE::ConvolutionOp>(
-            convOp->getLoc(), convInput, convOp.getFilter(), convOp.getBias(), convOp.getScale(), convOp.getStrides(),
-            convOp.getPadsBegin(), convOp.getPadsEnd(), convOp.getDilations(), /*postOp=*/nullptr,
-            convOp.getClampAttr(), convOp.getStaticScaleAttr(), convOp.getOutputPaddingAttr(),
-            convOp.getInputPaddingAttr());
+            takeOpLoc(convOp, "conv_in"), convInput, convOp.getFilter(), convOp.getBias(), convOp.getScale(),
+            convOp.getZeroPoints(), convOp.getStrides(), convOp.getPadsBegin(), convOp.getPadsEnd(),
+            convOp.getDilations(), /*postOp=*/nullptr, convOp.getClampAttr(), convOp.getStaticScaleAttr(),
+            convOp.getOutputPaddingAttr(), convOp.getInputPaddingAttr());
 
     // IE.Add with a negative operand instead of IE.Subtract
     // Subtract the fix, to get original result .
     auto subtract = rewriter.create<IE::AddOp>(
-            appendLoc(convOp.getLoc(), "subtract_reduction"), newConvOp->getResult(0), rescale.getOutput(),
+            takeOpLoc(convOp, "subtract_reduction"), newConvOp->getResult(0), rescale.getOutput(),
             IE::AutoBroadcastTypeAttr::get(rewriter.getContext(), IE::AutoBroadcastType::NUMPY),
             /*postOp=*/convOp.getPostOpAttr(),  // Apply post_op to the sum!
             /*clamp=*/nullptr, nullptr, nullptr);
@@ -555,7 +554,7 @@ mlir::LogicalResult FixMatmulZeroPointRewriter::matchAndRewrite(IE::ConvolutionO
         endTransposeInputLoc = reshapeOutput.getLoc();
     }
     // Roll back the transposition from ConvertBatchedLayerTo1N
-    auto transposeOutput = rewriter.create<IE::TransposeOp>(appendLoc(endTransposeInputLoc, "out_to_HCNW"),
+    auto transposeOutput = rewriter.create<IE::TransposeOp>(appendLoc(convOp.getLoc(), "out_to_NCHW"),
                                                             endTransposeInput, nullptr, orderHCNW);
     _log.trace("Matmul decomposition is applied to fix zero point of weights related to conv : {0}", convOp->getLoc());
     rewriter.replaceOp(convOp, transposeOutput.getOutput());

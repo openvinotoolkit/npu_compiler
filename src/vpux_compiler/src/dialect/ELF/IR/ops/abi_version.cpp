@@ -47,9 +47,9 @@ size_t vpux::ELF::ABIVersionOp::getAlignmentRequirements(config::ArchKind) {
     return alignof(LoaderAbiVersionNote);
 }
 
-std::optional<ELF::SectionSignature> vpux::ELF::ABIVersionOp::getSectionSignature() {
-    return ELF::SectionSignature(vpux::ELF::generateSignature("note", "LoaderABIVersion"),
-                                 ELF::SectionFlagsAttr::SHF_NONE, ELF::SectionTypeAttr::SHT_NOTE);
+std::optional<vpux::ELF::SectionSignature> vpux::ELF::ABIVersionOp::getSectionSignature() {
+    return vpux::ELF::SectionSignature(vpux::ELF::generateSignature("note", "LoaderABIVersion"),
+                                       vpux::ELF::SectionFlagsAttr::SHF_NONE, vpux::ELF::SectionTypeAttr::SHT_NOTE);
 }
 
 bool vpux::ELF::ABIVersionOp::hasMemoryFootprint() {

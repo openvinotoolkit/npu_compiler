@@ -38,9 +38,10 @@ func.func @TransposedConvolutionNoStride(%input: tensor<1x32x23x30xf16, {order =
     // CHECK-SAME{LITERAL}:         [[[3072, 0, 1065353216, 0]]], [[[3328, 0, 1065353216, 0]]], [[[3584, 0, 1065353216, 0]]], [[[3840, 0, 1065353216, 0]]]]>
     // CHECK-SAME:      : tensor<16x1x1x4xsi32>
 
-    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) {
+    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [16, 32, 2, 2] {
     // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-    // CHECK-SAME:      rawFilterShape = [16, 32, 2, 2], strides = [1, 1]
+
+    // CHECK-SAME:      strides = [1, 1]
     // CHECK-SAME:  }
     // CHECK-SAME:  -> tensor<1x16x24x31xf16, {order = #NHWC}>
     // CHECK:       return [[OUTPUT]]
@@ -80,9 +81,10 @@ func.func @TransposedConvolutionPadding(%input: tensor<1x32x23x30xf16, {order = 
     // CHECK-SAME{LITERAL}:         [[[3072, 0, 1065353216, 0]]], [[[3328, 0, 1065353216, 0]]], [[[3584, 0, 1065353216, 0]]], [[[3840, 0, 1065353216, 0]]]]>
     // CHECK-SAME:      : tensor<16x1x1x4xsi32>
 
-    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) {
+    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [16, 32, 2, 2] {
     // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-    // CHECK-SAME:      rawFilterShape = [16, 32, 2, 2], strides = [1, 1]
+
+    // CHECK-SAME:      strides = [1, 1]
     // CHECK-SAME:  }
     // CHECK-SAME:  -> tensor<1x16x44x58xf16, {order = #NHWC}>
     // CHECK:       return [[OUTPUT]]
@@ -123,9 +125,10 @@ func.func @TransposedConvolutionPaddingLargerThanStride(%arg0: tensor<1x16x128x1
     // CHECK-SAME{LITERAL}:         [[[9600, 0, 1065353216, 0]]], [[[10400, 0, 1065353216, 0]]], [[[11200, 0, 1065353216, 0]]], [[[12000, 0, 1065353216, 0]]]]>
     // CHECK-SAME:      : tensor<16x1x1x4xsi32>
 
-    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) {
+    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [16, 16, 5, 5] {
     // CHECK-SAME:          pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-    // CHECK-SAME:          rawFilterShape = [16, 16, 5, 5], strides = [1, 1]
+
+    // CHECK-SAME:          strides = [1, 1]
     // CHECK-SAME:      }
     // CHECK-SAME:      -> tensor<1x16x382x382xf16, {order = #NHWC}>
     // CHECK:       return [[OUTPUT]]
@@ -165,9 +168,10 @@ func.func @TransposedConvolutionOutputPadding(%input: tensor<1x32x23x30xf16, {or
     // CHECK-SAME{LITERAL}:         [[[3072, 0, 1065353216, 0]]], [[[3328, 0, 1065353216, 0]]], [[[3584, 0, 1065353216, 0]]], [[[3840, 0, 1065353216, 0]]]]>
     // CHECK-SAME:      : tensor<16x1x1x4xsi32>
 
-    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) {
+    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [16, 32, 2, 2] {
     // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-    // CHECK-SAME:      rawFilterShape = [16, 32, 2, 2], strides = [1, 1]
+
+    // CHECK-SAME:      strides = [1, 1]
     // CHECK-SAME:  }
     // CHECK-SAME:  -> tensor<1x16x47x61xf16, {order = #NHWC}>
     // CHECK:       return [[OUTPUT]]
@@ -213,9 +217,10 @@ func.func @TransposedConvolutionWithOutputShape(%arg0: tensor<1x16x128x128xf16, 
     // CHECK-SAME{LITERAL}:          [[[3584, 0, 1065353216, 0]]], [[[3712, 0, 1065353216, 0]]], [[[3840, 0, 1065353216, 0]]], [[[3968, 0, 1065353216, 0]]]]>
     // CHECK-SAME:      : tensor<32x1x1x4xsi32>
 
-    // CHECK:       [[CONV:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) {
+    // CHECK:       [[CONV:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [32, 16, 2, 2] {
     // CHECK-SAME:          pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-    // CHECK-SAME:          rawFilterShape = [32, 16, 2, 2], strides = [1, 1]
+
+    // CHECK-SAME:          strides = [1, 1]
     // CHECK-SAME:      }
     // CHECK-SAME:      -> tensor<1x32x254x254xf16, {order = #NHWC}>
 
@@ -260,9 +265,10 @@ func.func @TransposedConvolutionWithNonConstFilter(%input0: tensor<1x16x4x4xf16,
     // CHECK-SAME{LITERAL}:         [[[3456, 0, 1065353216, 0]]], [[[3744, 0, 1065353216, 0]]], [[[4032, 0, 1065353216, 0]]], [[[4320, 0, 1065353216, 0]]]]>
     // CHECK-SAME:      : tensor<16x1x1x4xsi32>
 
-    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[INPUT1]], [[WEIGHTS_TABLE]]) {
+    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[INPUT1]], [[WEIGHTS_TABLE]]) rawFilterShape [16, 16, 3, 3] {
     // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-    // CHECK-SAME:      rawFilterShape = [16, 16, 3, 3], strides = [1, 1]
+
+    // CHECK-SAME:      strides = [1, 1]
     // CHECK-SAME:  }
     // CHECK-SAME:  -> tensor<1x16x9x9xf16, {order = #NHWC}>
 
@@ -308,9 +314,10 @@ func.func @DynamicTransposedConvolutionNoStride(%input: !inputDynamicType) -> !o
     // CHECK-SAME{LITERAL}:         [[[3072, 0, 1065353216, 0]]], [[[3328, 0, 1065353216, 0]]], [[[3584, 0, 1065353216, 0]]], [[[3840, 0, 1065353216, 0]]]]>
     // CHECK-SAME:      : tensor<16x1x1x4xsi32>
 
-    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) {
+    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [16, 32, 2, 2] {
     // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-    // CHECK-SAME:      rawFilterShape = [16, 32, 2, 2], strides = [1, 1]
+
+    // CHECK-SAME:      strides = [1, 1]
     // CHECK-SAME:  }
     // CHECK-SAME:  -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 24, 31]> : tensor<4xsi64>, order = #NHWC}>
     // CHECK:       return [[OUTPUT]]
@@ -355,9 +362,10 @@ func.func @DynamicTransposedConvolutionPadding(%input: !inputDynamicType) -> !ou
     // CHECK-SAME{LITERAL}:         [[[3072, 0, 1065353216, 0]]], [[[3328, 0, 1065353216, 0]]], [[[3584, 0, 1065353216, 0]]], [[[3840, 0, 1065353216, 0]]]]>
     // CHECK-SAME:      : tensor<16x1x1x4xsi32>
 
-    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) {
+    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [16, 32, 2, 2] {
     // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-    // CHECK-SAME:      rawFilterShape = [16, 32, 2, 2], strides = [1, 1]
+
+    // CHECK-SAME:      strides = [1, 1]
     // CHECK-SAME:  }
     // CHECK-SAME:  -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 44, 58]> : tensor<4xsi64>, order = #NHWC}>
     // CHECK:       return [[OUTPUT]]
@@ -401,9 +409,10 @@ func.func @DynamicTransposedConvolutionPaddingLargerThanStride(%arg0: !inputDyna
     // CHECK-SAME{LITERAL}:         [[[9600, 0, 1065353216, 0]]], [[[10400, 0, 1065353216, 0]]], [[[11200, 0, 1065353216, 0]]], [[[12000, 0, 1065353216, 0]]]]>
     // CHECK-SAME:      : tensor<16x1x1x4xsi32>
 
-    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) {
+    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [16, 16, 5, 5] {
     // CHECK-SAME:          pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-    // CHECK-SAME:          rawFilterShape = [16, 16, 5, 5], strides = [1, 1]
+
+    // CHECK-SAME:          strides = [1, 1]
     // CHECK-SAME:      }
     // CHECK-SAME:      -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 382, 382]> : tensor<4xsi64>, order = #NHWC}>
     // CHECK:       return [[OUTPUT]]
@@ -447,9 +456,10 @@ func.func @DynamicTransposedConvolutionOutputPadding(%input: !inputDynamicType) 
     // CHECK-SAME{LITERAL}:         [[[3072, 0, 1065353216, 0]]], [[[3328, 0, 1065353216, 0]]], [[[3584, 0, 1065353216, 0]]], [[[3840, 0, 1065353216, 0]]]]>
     // CHECK-SAME:      : tensor<16x1x1x4xsi32>
 
-    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) {
+    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [16, 32, 2, 2] {
     // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-    // CHECK-SAME:      rawFilterShape = [16, 32, 2, 2], strides = [1, 1]
+
+    // CHECK-SAME:      strides = [1, 1]
     // CHECK-SAME:  }
     // CHECK-SAME:  -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 47, 61]> : tensor<4xsi64>, order = #NHWC}>
     // CHECK:       return [[OUTPUT]]
@@ -494,9 +504,10 @@ func.func @DynamicTransposedConvolutionWithNonConstFilter(
     // CHECK-SAME{LITERAL}:         [[[3456, 0, 1065353216, 0]]], [[[3744, 0, 1065353216, 0]]], [[[4032, 0, 1065353216, 0]]], [[[4320, 0, 1065353216, 0]]]]>
     // CHECK-SAME:      : tensor<16x1x1x4xsi32>
 
-    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[INPUT1]], [[WEIGHTS_TABLE]]) {
+    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[INPUT1]], [[WEIGHTS_TABLE]]) rawFilterShape [16, 16, 3, 3] {
     // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-    // CHECK-SAME:      rawFilterShape = [16, 16, 3, 3], strides = [1, 1]
+
+    // CHECK-SAME:      strides = [1, 1]
     // CHECK-SAME:  }
     // CHECK-SAME:  -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 9, 9]> : tensor<4xsi64>, order = #NHWC}>
 

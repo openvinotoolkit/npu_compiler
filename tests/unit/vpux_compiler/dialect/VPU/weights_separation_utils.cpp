@@ -6,6 +6,8 @@
 #include "common/utils.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/weights_separation.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
 #include "vpux/compiler/dialect/core/IR/dialect.hpp"
@@ -14,6 +16,8 @@
 #include "vpux/compiler/utils/types.hpp"
 #include "vpux/utils/core/scope_exit.hpp"
 
+#include <mlir/Dialect/Arith/IR/Arith.h>
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/IR/MLIRContext.h>
 #include <mlir/IR/Verifier.h>
 #include <mlir/Parser/Parser.h>
@@ -470,6 +474,26 @@ TEST_F(MLIR_VPU_WeightsSeparationUtils_Obfuscation, ObfuscateInputs_Noop) {
     auto op = *ops.begin();
     ASSERT_EQ(op.getSymName(), "dummy");
 
+    VPU::obfuscateInputs(log, appendLoc(op.getLoc(), "test"), op, {}, createSlice);
+
+    // test that nothing was changed
+    SmallVector<mlir::Type> expected = {
+            mlir::RankedTensorType::get({2}, mlir::Float32Type::get(&ctx)),
+    };
+    ASSERT_EQ(op.getFunctionType().getInputs(), ArrayRef(expected));
+
+    ASSERT_TRUE(mlir::succeeded(mlir::verify(op))) << "IR must be valid";
+}
+
+TEST_F(MLIR_VPU_WeightsSeparationUtils_Obfuscation, ObfuscateInputs_Noop_SingleIndex) {
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(INPUT_IR_OBFUSCATION, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto ops = module->getOps<mlir::func::FuncOp>();
+    ASSERT_FALSE(ops.empty());
+    auto op = *ops.begin();
+    ASSERT_EQ(op.getSymName(), "dummy");
+
     VPU::obfuscateInputs(log, appendLoc(op.getLoc(), "test"), op, {0}, createSlice);
 
     // test that nothing was changed
@@ -516,6 +540,203 @@ TEST_F(MLIR_VPU_WeightsSeparationUtils_Obfuscation, ObfuscateInputs_Full) {
 
     SmallVector<mlir::Type> expected = {
             mlir::RankedTensorType::get({64}, getInt8Type(&ctx)),
+    };
+    ASSERT_EQ(op.getFunctionType().getInputs(), ArrayRef(expected));
+
+    ASSERT_TRUE(mlir::succeeded(mlir::verify(op))) << "IR must be valid";
+}
+
+TEST_F(MLIR_VPU_WeightsSeparationUtils_Obfuscation, ObfuscateInputGroups_Noop) {
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(INPUT_IR_OBFUSCATION, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto ops = module->getOps<mlir::func::FuncOp>();
+    ASSERT_FALSE(ops.empty());
+    auto op = *ops.begin();
+    ASSERT_EQ(op.getSymName(), "dummy");
+
+    VPU::obfuscateInputGroups(log, appendLoc(op.getLoc(), "test"), op, {}, createSlice);
+
+    // test that nothing was changed
+    SmallVector<mlir::Type> expected = {
+            mlir::RankedTensorType::get({2}, mlir::Float32Type::get(&ctx)),
+    };
+    ASSERT_EQ(op.getFunctionType().getInputs(), ArrayRef(expected));
+
+    ASSERT_TRUE(mlir::succeeded(mlir::verify(op))) << "IR must be valid";
+}
+
+TEST_F(MLIR_VPU_WeightsSeparationUtils_Obfuscation, ObfuscateInputGroups_Noop_SingleIndex) {
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(INPUT_IR_OBFUSCATION, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto ops = module->getOps<mlir::func::FuncOp>();
+    ASSERT_FALSE(ops.empty());
+    auto op = *ops.begin();
+    ASSERT_EQ(op.getSymName(), "dummy");
+
+    VPU::obfuscateInputGroups(log, appendLoc(op.getLoc(), "test"), op, {std::vector<size_t>({0})}, createSlice);
+
+    // test that nothing was changed
+    SmallVector<mlir::Type> expected = {
+            mlir::RankedTensorType::get({2}, mlir::Float32Type::get(&ctx)),
+    };
+    ASSERT_EQ(op.getFunctionType().getInputs(), ArrayRef(expected));
+
+    ASSERT_TRUE(mlir::succeeded(mlir::verify(op))) << "IR must be valid";
+}
+
+TEST_F(MLIR_VPU_WeightsSeparationUtils_Obfuscation, ObfuscateInputGroups_Partial_FirstArgUntouched) {
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(INPUT_IR_OBFUSCATION, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto ops = module->getOps<mlir::func::FuncOp>();
+    ASSERT_FALSE(ops.empty());
+    auto op = *std::next(ops.begin());
+    ASSERT_EQ(op.getSymName(), "foo");
+
+    VPU::obfuscateInputGroups(log, appendLoc(op.getLoc(), "test"), op,
+                              {std::vector<size_t>({1, 2}), std::vector<size_t>({3})}, createSlice);
+
+    SmallVector<mlir::Type> expected = {
+            mlir::RankedTensorType::get({1, 1, 1}, mlir::Float32Type::get(&ctx)),
+            // Note: new inputs are appended
+            mlir::RankedTensorType::get({12}, getInt8Type(&ctx)),
+            mlir::RankedTensorType::get({2, 3, 4}, mlir::Float16Type::get(&ctx)),
+    };
+    ASSERT_EQ(op.getFunctionType().getInputs(), ArrayRef(expected));
+
+    ASSERT_TRUE(mlir::succeeded(mlir::verify(op))) << "IR must be valid";
+}
+
+TEST_F(MLIR_VPU_WeightsSeparationUtils_Obfuscation, ObfuscateInputGroups_Partial_MiddleArgUntouched) {
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(INPUT_IR_OBFUSCATION, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto ops = module->getOps<mlir::func::FuncOp>();
+    ASSERT_FALSE(ops.empty());
+    auto op = *std::next(ops.begin());
+    ASSERT_EQ(op.getSymName(), "foo");
+
+    VPU::obfuscateInputGroups(log, appendLoc(op.getLoc(), "test"), op,
+                              {std::vector<size_t>({0, 3}), std::vector<size_t>({2})}, createSlice);
+
+    SmallVector<mlir::Type> expected = {
+            mlir::RankedTensorType::get({1, 1, 2}, mlir::Float16Type::get(&ctx)),
+            // Note: new inputs are appended
+            mlir::RankedTensorType::get({52}, getInt8Type(&ctx)),
+            mlir::RankedTensorType::get({4, 2, 1}, getSInt8Type(&ctx)),
+    };
+    ASSERT_EQ(op.getFunctionType().getInputs(), ArrayRef(expected));
+
+    ASSERT_TRUE(mlir::succeeded(mlir::verify(op))) << "IR must be valid";
+}
+
+TEST_F(MLIR_VPU_WeightsSeparationUtils_Obfuscation, ObfuscateInputGroups_Partial_LastArgUntouched) {
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(INPUT_IR_OBFUSCATION, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto ops = module->getOps<mlir::func::FuncOp>();
+    ASSERT_FALSE(ops.empty());
+    auto op = *std::next(ops.begin());
+    ASSERT_EQ(op.getSymName(), "foo");
+
+    VPU::obfuscateInputGroups(log, appendLoc(op.getLoc(), "test"), op,
+                              {std::vector<size_t>({1}), std::vector<size_t>({0, 2})}, createSlice);
+
+    SmallVector<mlir::Type> expected = {
+            mlir::RankedTensorType::get({2, 3, 4}, mlir::Float16Type::get(&ctx)),
+            // Note: new inputs are appended
+            mlir::RankedTensorType::get({1, 1, 2}, mlir::Float16Type::get(&ctx)),
+            mlir::RankedTensorType::get({12}, getInt8Type(&ctx)),
+    };
+    ASSERT_EQ(op.getFunctionType().getInputs(), ArrayRef(expected));
+
+    ASSERT_TRUE(mlir::succeeded(mlir::verify(op))) << "IR must be valid";
+}
+
+TEST_F(MLIR_VPU_WeightsSeparationUtils_Obfuscation, ObfuscateInputGroups_Partial_TwoArgsUntouched) {
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(INPUT_IR_OBFUSCATION, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto ops = module->getOps<mlir::func::FuncOp>();
+    ASSERT_FALSE(ops.empty());
+    auto op = *std::next(ops.begin());
+    ASSERT_EQ(op.getSymName(), "foo");
+
+    VPU::obfuscateInputGroups(log, appendLoc(op.getLoc(), "test"), op,
+                              {std::vector<size_t>({3}), std::vector<size_t>({1})}, createSlice);
+
+    SmallVector<mlir::Type> expected = {
+            mlir::RankedTensorType::get({1, 1, 1}, mlir::Float32Type::get(&ctx)),
+            mlir::RankedTensorType::get({4, 2, 1}, getSInt8Type(&ctx)),
+            // Note: new inputs are appended
+            mlir::RankedTensorType::get({2, 3, 4}, mlir::Float16Type::get(&ctx)),
+            mlir::RankedTensorType::get({1, 1, 2}, mlir::Float16Type::get(&ctx)),
+    };
+    ASSERT_EQ(op.getFunctionType().getInputs(), ArrayRef(expected));
+
+    ASSERT_TRUE(mlir::succeeded(mlir::verify(op))) << "IR must be valid";
+}
+
+TEST_F(MLIR_VPU_WeightsSeparationUtils_Obfuscation, ObfuscateInputGroups_Full_OneGroup) {
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(INPUT_IR_OBFUSCATION, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto ops = module->getOps<mlir::func::FuncOp>();
+    ASSERT_FALSE(ops.empty());
+    auto op = *std::next(ops.begin());
+    ASSERT_EQ(op.getSymName(), "foo");
+
+    VPU::obfuscateInputGroups(log, appendLoc(op.getLoc(), "test"), op, {std::vector<size_t>({0, 1, 2, 3})},
+                              createSlice);
+
+    SmallVector<mlir::Type> expected = {
+            mlir::RankedTensorType::get({64}, getInt8Type(&ctx)),
+    };
+    ASSERT_EQ(op.getFunctionType().getInputs(), ArrayRef(expected));
+
+    ASSERT_TRUE(mlir::succeeded(mlir::verify(op))) << "IR must be valid";
+}
+
+TEST_F(MLIR_VPU_WeightsSeparationUtils_Obfuscation, ObfuscateInputGroups_Full_TwoGroups) {
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(INPUT_IR_OBFUSCATION, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto ops = module->getOps<mlir::func::FuncOp>();
+    ASSERT_FALSE(ops.empty());
+    auto op = *std::next(ops.begin());
+    ASSERT_EQ(op.getSymName(), "foo");
+
+    VPU::obfuscateInputGroups(log, appendLoc(op.getLoc(), "test"), op,
+                              {std::vector<size_t>({1, 3}), std::vector<size_t>({0, 2})}, createSlice);
+
+    SmallVector<mlir::Type> expected = {
+            mlir::RankedTensorType::get({52}, getInt8Type(&ctx)),
+            mlir::RankedTensorType::get({12}, getInt8Type(&ctx)),
+    };
+    ASSERT_EQ(op.getFunctionType().getInputs(), ArrayRef(expected));
+
+    ASSERT_TRUE(mlir::succeeded(mlir::verify(op))) << "IR must be valid";
+}
+
+TEST_F(MLIR_VPU_WeightsSeparationUtils_Obfuscation, ObfuscateInputGroups_Full_ThreeGroups) {
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(INPUT_IR_OBFUSCATION, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto ops = module->getOps<mlir::func::FuncOp>();
+    ASSERT_FALSE(ops.empty());
+    auto op = *std::next(ops.begin());
+    ASSERT_EQ(op.getSymName(), "foo");
+
+    VPU::obfuscateInputGroups(log, appendLoc(op.getLoc(), "test"), op,
+                              {std::vector<size_t>({3}), std::vector<size_t>({0, 2}), std::vector<size_t>({1})},
+                              createSlice);
+
+    SmallVector<mlir::Type> expected = {
+            mlir::RankedTensorType::get({2, 3, 4}, mlir::Float16Type::get(&ctx)),
+            mlir::RankedTensorType::get({12}, getInt8Type(&ctx)),
+            mlir::RankedTensorType::get({1, 1, 2}, mlir::Float16Type::get(&ctx)),
     };
     ASSERT_EQ(op.getFunctionType().getInputs(), ArrayRef(expected));
 
@@ -823,4 +1044,245 @@ TEST_F(MLIR_VPU_WeightsSeparationUtils_WeightsSeparationInfo, WeightlessWithView
     const auto ow2Splits = filterSplitsByName(splits, "vpux_ow_2");
     ASSERT_EQ(ow2Splits.size(), 2)
             << "At least one constant has non-trivial transformations, so this weight is used by init";
+}
+
+constexpr llvm::StringLiteral HOST_INPUT_IR_0 = R"(
+{-#
+    dialect_resources: {
+        builtin: {
+            vpux_ow_0: "0x1000000001020304",
+            vpux_ow_1: "0x100000000506",
+            vpux_ow_2: "0x1000000001020607",
+            vpux_ow_3: "0x1000000002030405"
+        }
+    }
+#-}
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+module @Module0 {
+    net.NetworkInfo entryPoint : @main inputsInfo : {
+    } outputsInfo : {
+        DataInfo "output_0" : tensor<2xf16>
+    }
+
+    func.func private @kernel_func0() -> (tensor<4xf16>, tensor<2xf16>, tensor<4xf16>, tensor<4xf16>) {
+        %cst0 = const.Declare tensor<4xf16> = dense_resource<vpux_ow_0> : tensor<4xui8>, [#const.CastElemType<f16>]
+        %cst1 = const.Declare tensor<2xf16> = dense_resource<vpux_ow_1> : tensor<2xui8>, [#const.CastElemType<f16>]
+        %cst2 = const.Declare tensor<4xf16> = dense_resource<vpux_ow_2> : tensor<4xui8>, [#const.CastElemType<f16>]
+        %cst3 = const.Declare tensor<4xf16> = dense_resource<vpux_ow_3> : tensor<4xui8>, [#const.CastElemType<f16>, #const.Rescale<5.0>]
+
+        return %cst0, %cst1, %cst2, %cst3: tensor<4xf16>, tensor<2xf16>, tensor<4xf16>, tensor<4xf16>
+    }
+    func.func private @kernel_func1() -> (tensor<2xf16>, tensor<4xf16>, tensor<4xf16>) {
+        %cst0 = const.Declare tensor<4xf16> = dense_resource<vpux_ow_0> : tensor<4xui8>, [#const.CastElemType<f16>]
+        %cst1 = const.Declare tensor<2xf16> = dense_resource<vpux_ow_1> : tensor<2xui8>, [#const.CastElemType<f16>]
+        %cst2 = const.Declare tensor<4xf16> = dense_resource<vpux_ow_3> : tensor<4xui8>, [#const.CastElemType<f16>, #const.Add<1.0>]
+
+        return %cst1, %cst0, %cst2: tensor<2xf16>, tensor<4xf16>, tensor<4xf16>
+    }
+    func.func private @kernel_func2() -> (tensor<2xf16>) {
+        %cst0 = const.Declare tensor<2xf16> = dense_resource<vpux_ow_1> : tensor<2xui8>, [#const.CastElemType<f16>]
+
+        return %cst0: tensor<2xf16>
+    }
+    func.func @main() -> tensor<2xf16> {
+        %idx = arith.constant 0 : index // hardcoded index to simplify the test
+        %0 = scf.index_switch %idx -> tensor<2xf16>
+        case 0 {
+            %call0:4 = func.call @kernel_func0() : () -> (tensor<4xf16>, tensor<2xf16>, tensor<4xf16>, tensor<4xf16>)
+            scf.yield %call0#1 : tensor<2xf16>
+        }
+        case 1 {
+            %call1:3 = func.call @kernel_func1() : () -> (tensor<2xf16>, tensor<4xf16>, tensor<4xf16>)
+            scf.yield %call1#0 : tensor<2xf16>
+        }
+        default {
+            %call2 = func.call @kernel_func2() : () -> (tensor<2xf16>)
+            scf.yield %call2 : tensor<2xf16>
+        }
+        return %0: tensor<2xf16>
+    }
+})";
+
+TEST_F(MLIR_VPU_WeightsSeparationUtils_WeightsSeparationInfo, HostPipeline) {
+    auto moduleOp = mlir::parseSourceString<mlir::ModuleOp>(HOST_INPUT_IR_0, &ctx);
+    ASSERT_TRUE(moduleOp.get() != nullptr);
+
+    VPU::WeightsSeparationInfo::Options options;
+    options.weightsAnalysisMode = VPU::WeightsSeparationInfo::Options::WeightsAnalysisMode::HostCompile;
+    const auto splits = collectSplitsFromModule(moduleOp.get(), options);
+    ASSERT_FALSE(splits.empty());
+
+    // In this test we want to check that when the same constant is used in multiple entry points, it is collected only
+    // once. Thus, we expect to have 2 splits (1 for vpux_ow_0 and 1 for vpux_ow_1), and not 4.
+    const auto ow0Splits = filterSplitsByName(splits, "vpux_ow_0");
+    ASSERT_EQ(ow0Splits.size(), 1);
+    ASSERT_EQ(ow0Splits.front().getContentAttr().getTransformations().size(), 1);
+    ASSERT_TRUE(mlir::isa<Const::CastElemTypeAttr>(ow0Splits.front().getContentAttr().getTransformations().front()));
+
+    const auto ow1Splits = filterSplitsByName(splits, "vpux_ow_1");
+    ASSERT_EQ(ow1Splits.size(), 1);
+    ASSERT_EQ(ow1Splits.front().getContentAttr().getTransformations().size(), 1);
+    ASSERT_TRUE(mlir::isa<Const::CastElemTypeAttr>(ow1Splits.front().getContentAttr().getTransformations().front()));
+
+    // Should be excluded from splits as it is not repeated (used only in kernel_func0).
+    const auto ow2Splits = filterSplitsByName(splits, "vpux_ow_2");
+    ASSERT_TRUE(ow2Splits.empty());
+
+    // Should be excluded from splits as constants have different transformations across kernel functions.
+    const auto ow3Splits = filterSplitsByName(splits, "vpux_ow_3");
+    ASSERT_TRUE(ow3Splits.empty());
+}
+
+struct MLIR_VPU_HostWeightsExtraction : MLIR_VPU_WeightsSeparationUtils_WeightsSeparationInfo {
+    MLIR_VPU_HostWeightsExtraction(): MLIR_VPU_WeightsSeparationUtils_WeightsSeparationInfo() {
+        ctx.loadDialect<mlir::arith::ArithDialect>();
+        ctx.loadDialect<mlir::memref::MemRefDialect>();
+    }
+};
+
+constexpr llvm::StringLiteral HOST_INPUT_IR_1 = R"(
+{-#
+dialect_resources: {
+    builtin: {
+        vpux_ow_0: "0x1000000001020304", // [1, 2, 3, 4]
+        vpux_ow_1: "0x100000000506"  // [5, 6]
+    }
+}
+#-}
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+module @Module0 {
+    net.NetworkInfo entryPoint : @main inputsInfo : {
+    } outputsInfo : {
+        DataInfo "output_0" : tensor<1x16x1x1xf16, {order = #NHWC}>
+        DataInfo "output_1" : tensor<1x8x1x1xf16, {order = #NHWC}>
+    }
+
+    func.func private @kernel_func0() -> (tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x8x1x1xf16, {order = #NHWC}>) {
+        %cst0 = const.Declare tensor<1x16x1x1xf16, {order = #NHWC}> = dense_resource<vpux_ow_0> : tensor<4xui8>, [#const.Reshape<[1, 4, 1, 1]>, #const.Reorder<#NHWC>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 12, 0, 0]>]
+        %cst1 = const.Declare tensor<1x8x1x1xf16, {order = #NHWC}> = dense_resource<vpux_ow_1> : tensor<2xui8>, [#const.Reshape<[1, 2, 1, 1]>, #const.Reorder<#NHWC>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 6, 0, 0]>]
+
+        return %cst0, %cst1: tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x8x1x1xf16, {order = #NHWC}>
+    }
+    func.func private @kernel_func1() -> (tensor<1x8x1x1xf16, {order = #NHWC}>, tensor<1x16x1x1xf16, {order = #NHWC}>) {
+        %cst0 = const.Declare tensor<1x16x1x1xf16, {order = #NHWC}> = dense_resource<vpux_ow_0> : tensor<4xui8>, [#const.Reshape<[1, 4, 1, 1]>, #const.Reorder<#NHWC>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 12, 0, 0]>]
+        %cst1 = const.Declare tensor<1x8x1x1xf16, {order = #NHWC}> = dense_resource<vpux_ow_1> : tensor<2xui8>, [#const.Reshape<[1, 2, 1, 1]>, #const.Reorder<#NHWC>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 6, 0, 0]>]
+
+        return %cst1, %cst0: tensor<1x8x1x1xf16, {order = #NHWC}>, tensor<1x16x1x1xf16, {order = #NHWC}>
+    }
+    func.func @main() -> (tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x8x1x1xf16, {order = #NHWC}>) {
+        %call0:2 = func.call @kernel_func0() : () -> (tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x8x1x1xf16, {order = #NHWC}>)
+        %call1:2 = func.call @kernel_func1() : () -> (tensor<1x8x1x1xf16, {order = #NHWC}>, tensor<1x16x1x1xf16, {order = #NHWC}>)
+        return %call0#0, %call1#0: tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x8x1x1xf16, {order = #NHWC}>
+    }
+})";
+
+TEST_F(MLIR_VPU_HostWeightsExtraction, ExtractConcatWeightsIR) {
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(HOST_INPUT_IR_1, &ctx);
+    ASSERT_FALSE(module.get() == nullptr);
+
+    mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
+    auto initCompilerOptions =
+            VPU::InitCompilerOptions(config::Platform::NPU4000, config::CompilationMode::HostCompile);
+    VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
+
+    VPU::WeightsSeparationInfo::Options options;
+    options.weightsAnalysisMode = VPU::WeightsSeparationInfo::Options::WeightsAnalysisMode::HostCompile;
+    const auto extractedSplits = collectSplitsFromModule(module.get(), options);
+    ASSERT_FALSE(extractedSplits.empty());
+    ASSERT_EQ(extractedSplits.size(), 2);
+
+    std::vector<std::vector<char>> extractedConstContents;
+    for (auto constOp : extractedSplits) {
+        const auto content = constOp.getContentAttr().fold();
+        const auto contentType = content.getType();
+        const auto byteSize = checked_cast<size_t>(contentType.getTotalAllocSize().count());
+        std::vector<char> bytes(byteSize);
+        content.copyTo(MutableArrayRef<char>(bytes));
+        extractedConstContents.push_back(std::move(bytes));
+    }
+    ASSERT_FALSE(extractedConstContents.empty());
+
+    {
+        pm.addPass(VPU::createExtractWeightsPass(log));
+        pm.addPass(VPU::createConcatHostConstsPass(log));
+        ASSERT_TRUE(mlir::succeeded(pm.run(module.get())));
+    }
+
+    auto mainFunc = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_FALSE(mainFunc == nullptr);
+
+    // Check arguments of slice ops in kernel_func0 function, they should be the same as the content of extracted
+    // constants which are concatenated together. No need to check it for kernel_func1 since they are the same
+    // constants.
+    auto kernelFunc0 = module.get().lookupSymbol<mlir::func::FuncOp>("kernel_func0");
+    ASSERT_FALSE(kernelFunc0 == nullptr);
+
+    std::vector<std::pair<int64_t, int64_t>> sliceRanges;
+    for (auto sliceOp : kernelFunc0.getOps<VPU::SliceOp>()) {
+        const auto offsets = parseIntArrayAttr<int64_t>(sliceOp.getStaticOffsets());
+        const auto sizes = parseIntArrayAttr<int64_t>(sliceOp.getStaticSizes());
+        ASSERT_FALSE(offsets.empty());
+        ASSERT_FALSE(sizes.empty());
+        sliceRanges.emplace_back(offsets[0], sizes[0]);
+    }
+    ASSERT_FALSE(sliceRanges.empty());
+
+    auto arithConsts = to_std_vector(mainFunc.getOps<mlir::arith::ConstantOp>());
+    ASSERT_FALSE(arithConsts.empty());
+    ASSERT_EQ(arithConsts.size(), 1);
+
+    mlir::arith::ConstantOp concatenatedConstOp = nullptr;
+    size_t expectedConcatSize = 0;
+    for (const auto& bytes : extractedConstContents) {
+        expectedConcatSize += bytes.size();
+    }
+
+    auto arithConstOp = arithConsts[0];
+    auto denseAttr = mlir::dyn_cast<mlir::DenseIntElementsAttr>(arithConstOp.getValue());
+    ASSERT_FALSE(denseAttr == nullptr);
+
+    auto type = mlir::dyn_cast<mlir::RankedTensorType>(denseAttr.getType());
+    ASSERT_FALSE(type == nullptr || !type.getElementType().isInteger(8));
+
+    const auto numElements = checked_cast<size_t>(denseAttr.getNumElements());
+    ASSERT_EQ(numElements, expectedConcatSize);
+    concatenatedConstOp = arithConstOp;
+
+    ASSERT_FALSE(concatenatedConstOp == nullptr);
+
+    auto concatenatedDense = mlir::cast<mlir::DenseIntElementsAttr>(concatenatedConstOp.getValue());
+    std::vector<char> concatenatedBytes;
+    concatenatedBytes.reserve(concatenatedDense.getNumElements());
+    for (auto v : concatenatedDense.getValues<mlir::APInt>()) {
+        concatenatedBytes.push_back(checked_cast<char>(v.getSExtValue()));
+    }
+
+    std::vector<std::vector<char>> slicedContents;
+    slicedContents.reserve(sliceRanges.size());
+    for (const auto& [offset, size] : sliceRanges) {
+        ASSERT_GE(offset, 0);
+        ASSERT_GE(size, 0);
+        const auto begin = checked_cast<size_t>(offset);
+        const auto length = checked_cast<size_t>(size);
+        ASSERT_LE(begin + length, concatenatedBytes.size());
+
+        std::vector<char> sliceBytes;
+        auto sliceBegin = std::next(concatenatedBytes.begin(), checked_cast<std::ptrdiff_t>(begin));
+        auto sliceEnd = std::next(sliceBegin, checked_cast<std::ptrdiff_t>(length));
+        sliceBytes.insert(sliceBytes.end(), sliceBegin, sliceEnd);
+        slicedContents.push_back(std::move(sliceBytes));
+    }
+
+    auto bytesLess = [](const std::vector<char>& lhs, const std::vector<char>& rhs) {
+        if (lhs.size() != rhs.size()) {
+            return lhs.size() < rhs.size();
+        }
+        return std::lexicographical_compare(lhs.begin(), lhs.end(), rhs.begin(), rhs.end());
+    };
+
+    std::sort(extractedConstContents.begin(), extractedConstContents.end(), bytesLess);
+    std::sort(slicedContents.begin(), slicedContents.end(), bytesLess);
+
+    ASSERT_EQ(extractedConstContents.size(), slicedContents.size());
+    EXPECT_EQ(extractedConstContents, slicedContents);
 }

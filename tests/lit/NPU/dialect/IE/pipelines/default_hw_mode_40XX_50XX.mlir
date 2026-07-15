@@ -95,3 +95,155 @@ module @ConvertReduceMinWithLargeTensorToPooling {
         // CHECK:       return [[AFFINE_RESHAPE_5]] : tensor<1xf16>
     }
 }
+
+// -----
+
+// int4 embedding table WD chain (Const -> Multiply(per-row scale) -> Gather) is routed through
+// DynamicDequantize. swap-operation-with-gather hoists Gather before DynamicDequantize so that
+// dequantization runs on the gathered rows only, not the full 262144-row table.
+
+// CHECK: !qElemType = !quant.uniform<i4:f32, 1.000000e+00>
+// CHECK-LABEL: @EmbeddingInt4WithDynamicDequantize
+module @EmbeddingInt4WithDynamicDequantize {
+    net.NetworkInfo entryPoint : @main
+    inputsInfo : {
+        DataInfo "indices" : tensor<256xsi32>
+    } outputsInfo : {
+        DataInfo "output" : tensor<256x768xf32>
+    }
+
+    // CHECK: func.func @main([[INDICES:%.+]]: tensor<256xsi32>)
+    func.func @main(%indices: tensor<256xsi32>) -> tensor<256x768xf32> {
+      %cst_wt = const.Declare tensor<262144x768xf32> = dense<1> : tensor<262144x768xsi4>,
+          [#const.ConvertElemType<si8>, #const.CastElemType<f32>]
+      %cst_scale = const.Declare tensor<262144x1xf32> = dense<3.9215686e-3> : tensor<262144x1xf32>
+      %cst_splat = const.Declare tensor<1x1xf32> = dense<2.0> : tensor<1x1xf32>
+
+      %mul_wd = IE.Multiply(%cst_wt, %cst_scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+          : tensor<262144x768xf32>, tensor<262144x1xf32> -> tensor<262144x768xf32>
+      %gather = IE.Gather(%mul_wd, %indices) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64}
+          : tensor<262144x768xf32>, tensor<256xsi32> -> tensor<256x768xf32>
+      %mul_out = IE.Multiply(%gather, %cst_splat) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+          : tensor<256x768xf32>, tensor<1x1xf32> -> tensor<256x768xf32>
+      return %mul_out : tensor<256x768xf32>
+
+      // CHECK-NOT: IE.FakeQuantize
+      // CHECK-DAG: [[GROUP_CONV_WT:%.+]] = const.Declare tensor<16x1x1x1xf16, {order = #NHWC}>
+      // CHECK-DAG: [[SCALE:%.+]] = const.Declare tensor<1x262144x1x1xf16>
+      // CHECK-DAG: [[WT_QTYPE:%.+]] = const.Declare tensor<1x262144x1x768x!qElemType>
+      // CHECK: [[GATHER_WT:%.+]] = IE.Gather([[WT_QTYPE]], [[INDICES]]) {axis_value = 1 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64}
+      // CHECK-SAME: tensor<1x262144x1x768x!qElemType>, tensor<256xsi32> -> tensor<1x256x1x768x!qElemType>
+      // CHECK: [[GATHER_SCALE:%.+]] = IE.Gather([[SCALE]], [[INDICES]]) {axis_value = 1 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64}
+      // CHECK-SAME: tensor<1x262144x1x1xf16>, tensor<256xsi32> -> tensor<1x256x1x1xf16>
+      // CHECK: [[DYN_DEQUANT:%.+]] = IE.DynamicDequantize([[GATHER_WT]], [[GATHER_SCALE]]) {dstElemType = f16}
+      // CHECK-SAME: tensor<1x256x1x768x!qElemType>, tensor<1x256x1x1xf16> -> tensor<1x256x1x768xf16>
+      // CHECK: [[RESHAPE0:%.+]] = IE.AffineReshape([[DYN_DEQUANT]])
+      // CHECK-SAME: tensor<1x256x1x768xf16> -> tensor<1x1x256x768xf16>
+      // CHECK: [[LAYOUT_CAST_IN:%.+]] = IE.LayoutCast([[RESHAPE0]]) {dst_order = #NHWC}
+      // CHECK-SAME: tensor<1x1x256x768xf16> -> tensor<1x1x256x768xf16, {order = #NHWC}>
+      // CHECK: [[SHAPE_CAST_IN:%.+]] = IE.ShapeCast {shape = [1, 16, 256, 48]} inputs([[LAYOUT_CAST_IN]]
+      // CHECK-SAME: tensor<1x1x256x768xf16, {order = #NHWC}>) -> tensor<1x16x256x48xf16, {order = #NHWC}>
+      // CHECK: [[GROUP_CONV:%.+]] = IE.GroupConvolution([[SHAPE_CAST_IN]], [[GROUP_CONV_WT]])
+      // CHECK-SAME: groups = 16 : i64
+      // CHECK-SAME: tensor<1x16x256x48xf16, {order = #NHWC}>, tensor<16x1x1x1xf16, {order = #NHWC}> -> tensor<1x16x256x48xf32, {order = #NHWC}>
+      // CHECK: [[SHAPE_CAST_OUT:%.+]] = IE.ShapeCast {shape = [1, 1, 256, 768]} inputs([[GROUP_CONV]]
+      // CHECK-SAME: tensor<1x16x256x48xf32, {order = #NHWC}>) -> tensor<1x1x256x768xf32, {order = #NHWC}>
+      // CHECK: [[LAYOUT_CAST_OUT:%.+]] = IE.LayoutCast([[SHAPE_CAST_OUT]]) {dst_order = #NCHW}
+      // CHECK-SAME: tensor<1x1x256x768xf32, {order = #NHWC}> -> tensor<1x1x256x768xf32>
+      // CHECK: [[RESHAPE1:%.+]] = IE.AffineReshape([[LAYOUT_CAST_OUT]])
+      // CHECK-SAME: tensor<1x1x256x768xf32> -> tensor<256x768xf32>
+      // CHECK: return [[RESHAPE1]] : tensor<256x768xf32>
+    }
+}
+
+// -----
+
+// int8 embedding table WD chain: i8 weights cast to f16, per-row f16 scale, Multiply outputs f16,
+// a single-use ConvertOp (f16→f32) sits between Multiply and Gather.
+// ConsolidateWeightsDequantization converts Multiply(i8_as_f16, per-row scale) to
+// DynamicDequantize(i8_quant, f16_scale). SwapOperationWithGather hoists Gather before DynamicDequantize.
+
+// CHECK: !qElemType = !quant.uniform<i8:f16, 1.000000e+00>
+// CHECK-LABEL: @EmbeddingInt8PerRowF16WithConvertToGather
+module @EmbeddingInt8PerRowF16WithConvertToGather {
+    net.NetworkInfo entryPoint : @main
+    inputsInfo : {
+        DataInfo "indices" : tensor<256xsi32>
+    } outputsInfo : {
+        DataInfo "output" : tensor<256x512xf32>
+    }
+
+    // CHECK: func.func @main([[INDICES:%.+]]: tensor<256xsi32>)
+    func.func @main(%indices: tensor<256xsi32>) -> tensor<256x512xf32> {
+      %cst_wt = const.Declare tensor<65536x512xf16> = dense<1> : tensor<65536x512xsi8>, [#const.CastElemType<f16>]
+      %cst_scale = const.Declare tensor<65536x1xf16> = dense<3.9215686e-3> : tensor<65536x1xf16>
+
+      %mul = IE.Multiply(%cst_wt, %cst_scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+          : tensor<65536x512xf16>, tensor<65536x1xf16> -> tensor<65536x512xf16>
+      %convert = IE.Convert(%mul) {dstElemType = f32} : tensor<65536x512xf16> -> tensor<65536x512xf32>
+      %gather = IE.Gather(%convert, %indices) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64}
+          : tensor<65536x512xf32>, tensor<256xsi32> -> tensor<256x512xf32>
+      return %gather : tensor<256x512xf32>
+
+      // Both weights and per-row scale are gathered; dequantization runs on the gathered slices only.
+      // CHECK-DAG: [[SCALE:%.+]] = const.Declare tensor<1x65536x1x1xf16>
+      // CHECK-DAG: [[WT_QTYPE:%.+]] = const.Declare tensor<1x65536x1x512x!qElemType>
+      // CHECK: [[GATHER_WT:%.+]] = IE.Gather([[WT_QTYPE]], [[INDICES]]) {axis_value = 1 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64}
+      // CHECK-SAME: tensor<1x65536x1x512x!qElemType>, tensor<256xsi32> -> tensor<1x256x1x512x!qElemType>
+      // CHECK: [[GATHER_SCALE:%.+]] = IE.Gather([[SCALE]], [[INDICES]]) {axis_value = 1 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64}
+      // CHECK-SAME: tensor<1x65536x1x1xf16>, tensor<256xsi32> -> tensor<1x256x1x1xf16>
+      // CHECK: [[DYN_DEQUANT:%.+]] = IE.DynamicDequantize([[GATHER_WT]], [[GATHER_SCALE]]) {dstElemType = f16}
+      // CHECK-SAME: tensor<1x256x1x512x!qElemType>, tensor<1x256x1x1xf16> -> tensor<1x256x1x512xf16>
+      // CHECK: [[RESHAPE:%.+]] = IE.AffineReshape([[DYN_DEQUANT]])
+      // CHECK-SAME: tensor<1x256x1x512xf16> -> tensor<1x1x256x512xf16>
+      // CHECK: [[CONVERT:%.+]] = IE.Convert([[RESHAPE]]) {dstElemType = f32}
+      // CHECK-SAME: tensor<1x1x256x512xf16> -> tensor<1x1x256x512xf32>
+      // CHECK: [[RESHAPE2:%.+]] = IE.AffineReshape([[CONVERT]])
+      // CHECK-SAME: tensor<1x1x256x512xf32> -> tensor<256x512xf32>
+      // CHECK: return [[RESHAPE2]] : tensor<256x512xf32>
+    }
+}
+
+// -----
+
+// int8 embedding table WD chain: i8 weights, per-tensor f32 scale, Multiply outputs f32,
+// no ConvertOp before Gather.
+// ConsolidateWeightsDequantization converts Multiply(i8_as_f32, per-tensor scale) to
+// DynamicDequantize(i8_quant, f16_scale). SwapOperationWithGather then hoists Gather before
+// DynamicDequantize because the per-tensor scale [1x1x1x1] is invariant to row selection.
+
+// CHECK: !qElemType = !quant.uniform<i8:f32, 1.000000e+00>
+// CHECK-LABEL: @EmbeddingInt8PerTensorF32ToGather
+module @EmbeddingInt8PerTensorF32ToGather {
+    net.NetworkInfo entryPoint : @main
+    inputsInfo : {
+        DataInfo "indices" : tensor<256xsi32>
+    } outputsInfo : {
+        DataInfo "output" : tensor<256x512xf32>
+    }
+
+    // CHECK: func.func @main([[INDICES:%.+]]: tensor<256xsi32>)
+    func.func @main(%indices: tensor<256xsi32>) -> tensor<256x512xf32> {
+      %cst_wt = const.Declare tensor<65536x512xf32> = dense<1> : tensor<65536x512xsi8>, [#const.CastElemType<f32>]
+      %cst_scale = const.Declare tensor<1x1xf32> = dense<3.9215686e-3> : tensor<1x1xf32>
+
+      %mul = IE.Multiply(%cst_wt, %cst_scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+          : tensor<65536x512xf32>, tensor<1x1xf32> -> tensor<65536x512xf32>
+      %gather = IE.Gather(%mul, %indices) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64}
+          : tensor<65536x512xf32>, tensor<256xsi32> -> tensor<256x512xf32>
+      return %gather : tensor<256x512xf32>
+
+      // Only weights are gathered; per-tensor scale [1x1x1x1] is row-selection-invariant and reused directly.
+      // CHECK-DAG: [[SCALE:%.+]] = const.Declare tensor<1x1x1x1xf16>
+      // CHECK-DAG: [[WT_QTYPE:%.+]] = const.Declare tensor<1x1x65536x512x!qElemType>
+      // CHECK: [[GATHER:%.+]] = IE.Gather([[WT_QTYPE]], [[INDICES]]) {axis_value = 2 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64}
+      // CHECK-SAME: tensor<1x1x65536x512x!qElemType>, tensor<256xsi32> -> tensor<1x1x256x512x!qElemType>
+      // CHECK: [[DYN_DEQUANT:%.+]] = IE.DynamicDequantize([[GATHER]], [[SCALE]]) {dstElemType = f16}
+      // CHECK-SAME: tensor<1x1x256x512x!qElemType>, tensor<1x1x1x1xf16> -> tensor<1x1x256x512xf16>
+      // CHECK: [[CONVERT:%.+]] = IE.Convert([[DYN_DEQUANT]]) {dstElemType = f32}
+      // CHECK-SAME: tensor<1x1x256x512xf16> -> tensor<1x1x256x512xf32>
+      // CHECK: [[RESHAPE:%.+]] = IE.AffineReshape([[CONVERT]])
+      // CHECK-SAME: tensor<1x1x256x512xf32> -> tensor<256x512xf32>
+      // CHECK: return [[RESHAPE]] : tensor<256x512xf32>
+    }
+}

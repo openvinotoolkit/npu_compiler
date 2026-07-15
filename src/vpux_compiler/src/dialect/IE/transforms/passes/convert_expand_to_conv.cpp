@@ -21,6 +21,7 @@
 #include "vpux/compiler/utils/walk_utils.hpp"
 
 #include <mlir/IR/PatternMatch.h>
+#include <numeric>
 
 namespace vpux::IE {
 #define GEN_PASS_DECL_CONVERTEXPANDTOCONVPASS
@@ -582,15 +583,19 @@ mlir::LogicalResult ExpandQuantizeSliceRewriter::matchAndRewrite(IE::ExpandOp or
     }
 
     const auto expandInType = mlir::cast<vpux::NDTypeInterface>(expandInput.getType());
-    const auto convolutionAlignment = IE::calculateAlignmentRequirementForExpandOpConversion(expandInType);
-    auto reshapeIn = padHReshapeInput(origOp.getLoc(), expandInput, expandInShape, convolutionAlignment, rewriter);
-    auto weights = composeWeights(origOp.getLoc(), expandInShape, expandPatternOutShape, expandInType.getElementType(),
-                                  convolutionAlignment, rewriter);
-
     auto convOutElemType = mlir::cast<vpux::NDTypeInterface>(patternLastOp->getResult(0).getType()).getElementType();
+    const auto expandOutType = mlir::cast<vpux::NDTypeInterface>(patternLastOp->getResult(0).getType());
+    const auto selectedAlignment = IE::getRequiredExpandConvInputAlignment(
+            origOp, expandInType, expandInShape, expandOutType, expandPatternOutShape, convOutElemType,
+            IE::ReshapeMode::PAD_H_RESHAPE);
+
+    auto reshapeIn = padHReshapeInput(origOp.getLoc(), expandInput, expandInShape, selectedAlignment, rewriter);
+    auto weights = composeWeights(origOp.getLoc(), expandInShape, expandPatternOutShape, expandInType.getElementType(),
+                                  selectedAlignment, rewriter);
+
     auto convOp = buildConvolution(origOp, reshapeIn, weights, convOutElemType, rewriter);
-    auto reshapeOut = unpadHReshapeOutput(origOp.getLoc(), expandPatternOutShape, convOp.getOutput(),
-                                          convolutionAlignment, rewriter);
+    auto reshapeOut = unpadHReshapeOutput(origOp.getLoc(), expandPatternOutShape, convOp.getOutput(), selectedAlignment,
+                                          rewriter);
 
     if (!expandOutChannelsReduction) {
         // only substitute the identified pattern
@@ -636,14 +641,18 @@ mlir::LogicalResult QuantizedExpandRewriter::matchAndRewrite(IE::ExpandOp origOp
     const auto expandInShape = getShape(origOp.getInput());
     const auto expandOutShape = getShape(origOp.getOutput());
     const auto expandInType = mlir::cast<vpux::NDTypeInterface>(expandInput.getType()).changeShape(expandInShape);
-    const auto convolutionAlignment = IE::calculateAlignmentRequirementForExpandOpConversion(expandInType);
-    auto reshapeIn = padHReshapeInput(origOp.getLoc(), expandInput, expandInShape, convolutionAlignment, rewriter);
-    auto weights = composeWeights(origOp.getLoc(), expandInShape, expandOutShape, expandInType.getElementType(),
-                                  convolutionAlignment, rewriter);
+    const auto expandOutType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
     auto convOutElemType = getConvolutionOutputType(origOp);
+    const auto selectedAlignment =
+            IE::getRequiredExpandConvInputAlignment(origOp, expandInType, expandInShape, expandOutType, expandOutShape,
+                                                    convOutElemType, IE::ReshapeMode::PAD_H_RESHAPE);
+
+    auto reshapeIn = padHReshapeInput(origOp.getLoc(), expandInput, expandInShape, selectedAlignment, rewriter);
+    auto weights = composeWeights(origOp.getLoc(), expandInShape, expandOutShape, expandInType.getElementType(),
+                                  selectedAlignment, rewriter);
     auto convOp = buildConvolution(origOp, reshapeIn, weights, convOutElemType, rewriter);
     auto reshapeOut =
-            unpadHReshapeOutput(origOp.getLoc(), expandOutShape, convOp.getOutput(), convolutionAlignment, rewriter);
+            unpadHReshapeOutput(origOp.getLoc(), expandOutShape, convOp.getOutput(), selectedAlignment, rewriter);
     const auto quantCastOut = quantCastOutput(origOp, reshapeOut, rewriter);
     rewriter.replaceOp(origOp, quantCastOut);
     return mlir::success();
@@ -672,36 +681,37 @@ mlir::LogicalResult DPUExpandRewriter::matchAndRewrite(IE::ExpandOp origOp, mlir
 
     const auto expandInput = origOp.getInput();
     const auto expandInType = mlir::cast<vpux::NDTypeInterface>(expandInput.getType());
-    const auto convolutionAlignment = IE::calculateAlignmentRequirementForExpandOpConversion(expandInType);
     const auto expandInShape = expandInType.getShape();
     const auto expandOutShape = getShape(origOp.getOutput());
 
-    enum ReshapeMode { RESHAPE_H_TO_C, PAD_W_RESHAPE, PAD_H_RESHAPE };
-    ReshapeMode reshapeMode = IE::beneficialToReshapeHeightToChannel(origOp) ? RESHAPE_H_TO_C
-                              : IE::beneficialToPadWidth(origOp)             ? PAD_W_RESHAPE
-                                                                             : PAD_H_RESHAPE;
+    IE::ReshapeMode reshapeMode = IE::beneficialToReshapeHeightToChannel(origOp) ? IE::ReshapeMode::RESHAPE_H_TO_C
+                                  : IE::beneficialToPadWidth(origOp)             ? IE::ReshapeMode::PAD_W_RESHAPE
+                                                                                 : IE::ReshapeMode::PAD_H_RESHAPE;
 
-    auto reshapeIn = (reshapeMode == RESHAPE_H_TO_C)
-                             ? reshapeInputFromHeightToChannel(origOp.getLoc(), expandInput, getShape(expandInput),
-                                                               convolutionAlignment, rewriter)
-                     : (reshapeMode == PAD_W_RESHAPE)
-                             ? padWReshapeInput(origOp.getLoc(), expandInput, getShape(expandInput),
-                                                convolutionAlignment, rewriter)
-                             : padHReshapeInput(origOp.getLoc(), expandInput, getShape(expandInput),
-                                                convolutionAlignment, rewriter);
-
-    auto weights = composeWeights(origOp.getLoc(), expandInShape, expandOutShape, expandInType.getElementType(),
-                                  convolutionAlignment, rewriter);
     const auto expandOutType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
     const auto convOutElemType = expandOutType.getElementType();
-    auto convOp = buildConvolution(origOp, reshapeIn, weights, convOutElemType, rewriter);
+    const auto selectedAlignment = IE::getRequiredExpandConvInputAlignment(
+            origOp, expandInType, expandInShape, expandOutType, expandOutShape, convOutElemType, reshapeMode);
 
-    auto reshapeOut = (reshapeMode == RESHAPE_H_TO_C) ? channelToHeightReshapeOutput(origOp.getLoc(), expandOutShape,
-                                                                                     convOp.getOutput(), rewriter)
-                      : (reshapeMode == PAD_W_RESHAPE)
-                              ? unpadWReshapeOutput(origOp.getLoc(), expandOutShape, convOp.getOutput(), rewriter)
-                              : unpadHReshapeOutput(origOp.getLoc(), expandOutShape, convOp.getOutput(),
-                                                    convolutionAlignment, rewriter);
+    auto buildInputReshape = [&](const int64_t alignment) -> mlir::Value {
+        return (reshapeMode == IE::ReshapeMode::RESHAPE_H_TO_C)
+                       ? reshapeInputFromHeightToChannel(origOp.getLoc(), expandInput, getShape(expandInput), alignment,
+                                                         rewriter)
+               : (reshapeMode == IE::ReshapeMode::PAD_W_RESHAPE)
+                       ? padWReshapeInput(origOp.getLoc(), expandInput, getShape(expandInput), alignment, rewriter)
+                       : padHReshapeInput(origOp.getLoc(), expandInput, getShape(expandInput), alignment, rewriter);
+    };
+    auto reshapeIn = buildInputReshape(selectedAlignment);
+    auto weights = composeWeights(origOp.getLoc(), expandInShape, expandOutShape, expandInType.getElementType(),
+                                  selectedAlignment, rewriter);
+    auto convOp = buildConvolution(origOp, reshapeIn, weights, convOutElemType, rewriter);
+    auto reshapeOut =
+            (reshapeMode == IE::ReshapeMode::RESHAPE_H_TO_C)
+                    ? channelToHeightReshapeOutput(origOp.getLoc(), expandOutShape, convOp.getOutput(), rewriter)
+            : (reshapeMode == IE::ReshapeMode::PAD_W_RESHAPE)
+                    ? unpadWReshapeOutput(origOp.getLoc(), expandOutShape, convOp.getOutput(), rewriter)
+                    : unpadHReshapeOutput(origOp.getLoc(), expandOutShape, convOp.getOutput(), selectedAlignment,
+                                          rewriter);
 
     rewriter.replaceOp(origOp, reshapeOut);
 

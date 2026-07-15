@@ -394,7 +394,7 @@ public:
     void SetUp() override {
         auto registry = vpux::createDialectRegistry();
         vpux::registerDynamicRewriterExecutorPass();
-        auto interfacesRegistry = vpux::createInterfacesRegistry(config::ArchKind::NPU40XX);
+        auto interfacesRegistry = vpux::createInterfacesRegistry(config::Platform::NPU4000);
         interfacesRegistry->registerInterfaces(registry);
 
         _context.loadDialect<Const::ConstDialect>();

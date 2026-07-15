@@ -26,12 +26,12 @@ struct AdjustConvShapeParams {
     int64_t padNum;        // The padding num for aligned shape
 };
 
-void insertReorderForInput(mlir::Operation* op, mlir::OpOperand& input, DimsOrder dstOrder,
+void insertReorderForInput(mlir::Operation* op, mlir::OpOperand& input, const DimsOrder& dstOrder,
                            mlir::PatternRewriter& rewriter, Logger log);
-IE::ReorderOp insertReorderForOutput(mlir::Operation* op, mlir::Value output, DimsOrder dstOrder,
+IE::ReorderOp insertReorderForOutput(mlir::Operation* op, mlir::Value output, const DimsOrder& dstOrder,
                                      mlir::PatternRewriter& rewriter, Logger log);
 
-void changeDimsOrder(mlir::Value value, DimsOrder newOrder, Logger log);
+void changeDimsOrder(mlir::Value value, const DimsOrder& newOrder, Logger log);
 
 mlir::FailureOr<AdjustConvShapeParams> getAdjustConvShapeParameters(IE::ConvolutionOp convOp, mlir::Value filter,
                                                                     ShapeRef outputShape, Logger _log);

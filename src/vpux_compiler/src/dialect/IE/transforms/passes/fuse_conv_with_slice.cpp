@@ -182,7 +182,8 @@ mlir::LogicalResult FuseConvWithSlice::matchAndRewrite(IE::ConvolutionOp origOp,
     auto filter = origOp.getFilter();
     auto filterShape = getShape(filter);
     auto origBias = origOp.getBias();
-    for (auto& slice : sliceUsers) {
+    for (auto sliceIdx : irange(sliceUsers.size())) {
+        auto slice = sliceUsers[sliceIdx];
         const auto sliceOffsets = Shape(parseIntArrayAttr<int64_t>(slice.getStaticOffsets()));
         const auto sliceSizes = Shape(parseIntArrayAttr<int64_t>(slice.getStaticSizes()));
 
@@ -191,8 +192,9 @@ mlir::LogicalResult FuseConvWithSlice::matchAndRewrite(IE::ConvolutionOp origOp,
         filterOffsets[Dims4D::Act::N] = sliceOffsets[Dims4D::Act::C];
         SmallVector<int64_t> filterSizes{sliceSizes[Dims4D::Act::C], filterShape[Dims4D::Act::C],
                                          filterShape[Dims4D::Act::H], filterShape[Dims4D::Act::W]};
-        auto filterslice = rewriter.createOrFold<IE::SliceOp>(
-                origOp->getLoc(), filter, getIntArrayAttr(ctx, filterOffsets.raw()), getIntArrayAttr(ctx, filterSizes));
+        auto filterslice = rewriter.createOrFold<IE::SliceOp>(appendLoc(origOp->getLoc(), "slice_filter_{0}", sliceIdx),
+                                                              filter, getIntArrayAttr(ctx, filterOffsets.raw()),
+                                                              getIntArrayAttr(ctx, filterSizes));
 
         // slice bias
         mlir::Value biasSlice = nullptr;
@@ -200,12 +202,14 @@ mlir::LogicalResult FuseConvWithSlice::matchAndRewrite(IE::ConvolutionOp origOp,
             auto biasShape = getShape(origBias);
             SmallVector<int64_t> biasSizes{biasShape[Dims4D::Act::N], sliceSizes[Dims4D::Act::C],
                                            biasShape[Dims4D::Act::H], biasShape[Dims4D::Act::W]};
-            biasSlice = rewriter.createOrFold<IE::SliceOp>(origOp->getLoc(), origBias,
-                                                           getIntArrayAttr(ctx, sliceOffsets.raw()),
+            biasSlice = rewriter.createOrFold<IE::SliceOp>(appendLoc(origOp->getLoc(), "slice_bias_{0}", sliceIdx),
+                                                           origBias, getIntArrayAttr(ctx, sliceOffsets.raw()),
                                                            getIntArrayAttr(ctx, biasSizes));
         }
-        rewriter.replaceOp(slice, cloneConvolutionOp(rewriter, origOp, slice.getResult().getType(), origOp.getInput(),
-                                                     filterslice, biasSlice, origOp.getScale()));
+        auto newConvLoc = takeOpLoc(slice, "as_conv");
+        rewriter.replaceOp(
+                slice, cloneConvolutionOp(rewriter, origOp, slice.getResult().getType(), origOp.getInput(), filterslice,
+                                          biasSlice, origOp.getScale(), origOp.getZeroPoints(), newConvLoc));
     }
     nestedLogger.trace("fuse conv with slice success");
     return mlir::success();

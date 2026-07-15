@@ -18,10 +18,9 @@ size_t getMaxEntry(const BarrierInfo::TaskSet& entries);
 void postProcessBarrierOps(mlir::func::FuncOp func);
 bool verifyBarrierSlots(mlir::func::FuncOp func, Logger log);
 size_t countIndependentTaskExecutors(mlir::func::FuncOp func);
-bool verifyOneWaitBarrierPerTask(mlir::func::FuncOp funcOp, Logger log);
 void orderExecutionTasksAndBarriers(mlir::func::FuncOp funcOp, BarrierInfo& barrierInfo, Logger log,
                                     bool orderByConsumption = false);
-size_t getFinalBarriersCount(mlir::func::FuncOp funcOp);
+size_t getFinalBarriersCount(mlir::func::FuncOp funcOp, VPURT::BarrierOpInterface* lastBarrierOp = nullptr);
 bool addFinalBarrierIfNotExists(mlir::func::FuncOp funcOp, Logger log);
 
 // TaskOp queue related utility functions

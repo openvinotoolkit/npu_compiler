@@ -23,7 +23,7 @@ using namespace vpux;
 //
 
 void BackendPipelineStrategy40XX::buildELFPipeline(mlir::OpPassManager& pm, const intel_npu::Config& config,
-                                                   mlir::TimingScope& rootTiming, Logger log, bool useWlm) {
+                                                   mlir::TimingScope& rootTiming, Logger log) {
     auto buildTiming = rootTiming.nest("Build compilation pipeline");
 
     auto dpuDryRunMode = VPU::DPUDryRunMode::NONE;
@@ -34,10 +34,8 @@ void BackendPipelineStrategy40XX::buildELFPipeline(mlir::OpPassManager& pm, cons
     VPUX_THROW_UNLESS(backendCompilationOptions != nullptr,
                       "build ELF pipeline failed to parse BACKEND_COMPILATION_PARAMS: {0}",
                       config.get<intel_npu::BACKEND_COMPILATION_PARAMS>());
-    VPUX_THROW_UNLESS(useWlm, "WLM is not enabled.");
 
-    if (compilationMode == config::CompilationMode::DefaultHW ||
-        compilationMode == config::CompilationMode::HostCompile) {
+    if (compilationMode == config::CompilationMode::DefaultHW || config::isHostCompileMode(compilationMode)) {
         auto options = parseCompilationModeParams<DefaultHWOptions40XX>(
                 config.get<intel_npu::COMPILATION_MODE_PARAMS>(), getArchKind(config));
         VPUX_THROW_UNLESS(options != nullptr, "build ELF pipeline failed to parse COMPILATION_MODE_PARAMS: {0}",
@@ -46,15 +44,13 @@ void BackendPipelineStrategy40XX::buildELFPipeline(mlir::OpPassManager& pm, cons
         if (config.get<intel_npu::TURBO>()) {
             overwriteIfUnset(options->optimizationLevel, 3);
         }
-        setupParamsAccordingToOptimizationLevel(options->optimizationLevel, *options, useWlm);
+        setupParamsAccordingToOptimizationLevel(options->optimizationLevel, *options);
         setupPWLMParams(*options, getLogLevel(config));
         dpuDryRunMode = VPU::getDPUDryRunMode(options->dpuDryRun);
         backendCompilationOptions->enableDMAProfiling =
                 options->enableProfiling ? options->enableDMAProfiling.getValue() : "false";
         backendCompilationOptions->enableShaveDDRAccessOptimization = options->enableShaveDDRAccessOptimization;
         backendCompilationOptions->enableDumpStatisticsOfWlmOps = options->enableDumpTaskStats;
-        backendCompilationOptions->workloadManagementBarrierCountThreshold =
-                options->workloadManagementBarrierCountThreshold;
         backendCompilationOptions->workloadManagementMode = options->workloadManagementMode;
         backendCompilationOptions->workloadManagementEnable = options->workloadManagementEnable;
         backendCompilationOptions->workloadManagementBarrierProgrammingMode =

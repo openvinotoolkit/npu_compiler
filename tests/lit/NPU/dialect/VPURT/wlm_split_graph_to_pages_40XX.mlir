@@ -9,12 +9,12 @@
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @VPU.SW {
-func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {
+func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {
      VPU.kernel_code = "activation_relu.cpp", VPU.kernel_entry = "activation_relu", VPU.task_type = @COMPUTE
      }
 }
 
-func.func @DmaAndShvGraph() -> memref<1x16x8x32xf16,  #NHWC, [@CMX_NN, 0]> {
+func.func @DmaAndShvGraph() -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]> {
     %bar0 = VPURT.DeclareVirtualBarrier <{isStartBarrier}> -> !VPURT.Barrier
     %bar1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %bar2 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
@@ -24,12 +24,12 @@ func.func @DmaAndShvGraph() -> memref<1x16x8x32xf16,  #NHWC, [@CMX_NN, 0]> {
     %bar6 = VPURT.DeclareVirtualBarrier <{isFinalBarrier}> -> !VPURT.Barrier
 
     // dummy buffer
-    %cst0 = const.Declare memref<16x16x1x1xf16, #NHWC> =
+    %cst0 = const.Declare memref<16x16x1x1xf16, {order = #NHWC}> =
         dense<1.0> : tensor<16x16x1x1xf16>, [#const.Reorder<#NHWC>]
-    %buf0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
-    %buf1 = VPURT.DeclareBuffer <CMX_NN> [0] <32768> -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+    %buf0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %buf1 = VPURT.DeclareBuffer <CMX_NN> [0] <32768> -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %buf2 = VPURT.DeclareBuffer <CMX_NN> [0] <33280> -> memref<16x1x1x4xsi32, [@CMX_NN, 0]>
-    %buf3 = VPURT.DeclareBuffer <CMX_NN> [0] <8192> -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
+    %buf3 = VPURT.DeclareBuffer <CMX_NN> [0] <8192> -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     // Simple subgraph with dummy ops:
     //             DMA0
@@ -58,67 +58,67 @@ func.func @DmaAndShvGraph() -> memref<1x16x8x32xf16,  #NHWC, [@CMX_NN, 0]> {
 
     VPURT.Task updates(%bar0: !VPURT.Barrier)
     {
-         VPUIP.NNDMA inputs(%cst0: memref<16x16x1x1xf16, #NHWC>) outputs(%buf1: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+         VPUIP.NNDMA inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
     VPURT.Task waits(%bar0: !VPURT.Barrier) updates(%bar1: !VPURT.Barrier)
     {
-         VPUIP.NNDMA inputs(%cst0: memref<16x16x1x1xf16, #NHWC>) outputs(%buf1: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+         VPUIP.NNDMA inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
     VPURT.Task waits(%bar1: !VPURT.Barrier) updates(%bar2: !VPURT.Barrier)
     {
-         VPUIP.NNDMA inputs(%cst0: memref<16x16x1x1xf16, #NHWC>) outputs(%buf1: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+         VPUIP.NNDMA inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
     VPURT.Task waits(%bar1: !VPURT.Barrier) updates(%bar3: !VPURT.Barrier)
     {
           VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_relu
-              inputs(%buf0 as %input: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
-              outputs(%buf0 as %output: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]> {
-              VPUIP.SW.Kernel.run {attrs = [false, true, 6.0892105102539063E-4]} (%input, %output) : memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>, memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
+              inputs(%buf0 as %input: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+              outputs(%buf0 as %output: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]> {
+              VPUIP.SW.Kernel.run {attrs = [false, true, 6.0892105102539063E-4]} (%input, %output) : memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
           }
     }
 
     VPURT.Task waits(%bar2: !VPURT.Barrier) updates(%bar4: !VPURT.Barrier)
     {
           VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_relu
-              inputs(%buf0 as %input: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
-              outputs(%buf0 as %output: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]> {
-              VPUIP.SW.Kernel.run {attrs = [false, true, 6.0892105102539063E-4]} (%input, %output) : memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>, memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
+              inputs(%buf0 as %input: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+              outputs(%buf0 as %output: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]> {
+              VPUIP.SW.Kernel.run {attrs = [false, true, 6.0892105102539063E-4]} (%input, %output) : memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
           }
     }
 
     VPURT.Task waits(%bar3: !VPURT.Barrier) updates(%bar4: !VPURT.Barrier)
     {
-         VPUIP.NNDMA inputs(%cst0: memref<16x16x1x1xf16, #NHWC>) outputs(%buf1: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+         VPUIP.NNDMA inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
     VPURT.Task waits(%bar1: !VPURT.Barrier) updates(%bar4: !VPURT.Barrier)
     {
           VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_relu
-              inputs(%buf0 as %input: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
-              outputs(%buf0 as %output: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]> {
-              VPUIP.SW.Kernel.run {attrs = [false, true, 6.0892105102539063E-4]} (%input, %output) : memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>, memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
+              inputs(%buf0 as %input: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+              outputs(%buf0 as %output: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]> {
+              VPUIP.SW.Kernel.run {attrs = [false, true, 6.0892105102539063E-4]} (%input, %output) : memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
           }
     }
 
     VPURT.Task waits(%bar4: !VPURT.Barrier) updates(%bar5: !VPURT.Barrier)
     {
           VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_relu
-              inputs(%buf0 as %input: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
-              outputs(%buf0 as %output: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]> {
-              VPUIP.SW.Kernel.run {attrs = [false, true, 6.0892105102539063E-4]} (%input, %output) : memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>, memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
+              inputs(%buf0 as %input: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+              outputs(%buf0 as %output: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]> {
+              VPUIP.SW.Kernel.run {attrs = [false, true, 6.0892105102539063E-4]} (%input, %output) : memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
           }
     }
 
     VPURT.Task waits(%bar5: !VPURT.Barrier) updates(%bar6: !VPURT.Barrier)
     {
-         VPUIP.NNDMA inputs(%cst0: memref<16x16x1x1xf16, #NHWC>) outputs(%buf1: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+         VPUIP.NNDMA inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
 
-    return %buf3: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
+    return %buf3: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     // After page split (barX(PageY)):
     //

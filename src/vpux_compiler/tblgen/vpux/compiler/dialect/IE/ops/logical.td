@@ -21,7 +21,7 @@ def IE_AndOp :
                 IE_EltwiseOp,
                 Commutative,
                 DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine And layer";
@@ -56,6 +56,8 @@ def IE_LogicalNotOp :
     let results = (outs
         RankedTensorOf<[I8, F16, F32, F64, SI32, SI64]>:$output
     );
+
+    let hasFolder = 1;
 }
 
 def IE_LogicalOrOp :
@@ -65,7 +67,7 @@ def IE_LogicalOrOp :
                 IE_EltwiseOp,
                 Commutative,
                 DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine LogicalOr layer";

@@ -10,10 +10,10 @@
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
+#include "vpux/compiler/dialect/IE/utils/precision_policy_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
-#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/adjust_layout_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
@@ -64,13 +64,57 @@ IE::ShapeCastOp reshapeConvOutput(IE::SliceOp origOp, mlir::Value convOutput, ml
     return vpux::IE::buildShapeCast(reshapedLoc, convOutput, ArrayRef(targetShape), rewriter);
 }
 
+bool isSliceOnInnermostDim(IE::SliceOp sliceOp) {
+    const auto sliceInType = mlir::cast<vpux::NDTypeInterface>(sliceOp.getSource().getType());
+    const auto sliceInLayout = sliceInType.getDimsOrder();
+    const auto inputShape = getShape(sliceOp.getSource()).raw();
+    const auto outputShape = getShape(sliceOp.getResult()).raw();
+
+    const auto innermostDim = sliceInLayout.dimAt(sliceInLayout.numDims() - 1);
+    for (auto i : irange(inputShape.size())) {
+        if (inputShape[i] != outputShape[i] && i != checked_cast<uint32_t>(innermostDim.ind())) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Compute the 4D shape parameters for promoting a non-4D SliceOp to [1, C, H, W].
+// splitIdx = (rank-1)/2 splits non-slice dims into two balanced groups:
+//   C = D0 * ... * D_{splitIdx-1}
+//   H = D_{splitIdx} * ... * D_{rank-2}
+//   W = D_{rank-1}  (slice dim, input size)
+//   slicedW = D_{rank-1} of the output (slice dim, output size)
+struct Slice4DParams {
+    int64_t C, H, W, slicedW;
+};
+
+Slice4DParams getSlice4DParams(IE::SliceOp sliceOp) {
+    const auto sliceInType = mlir::cast<vpux::NDTypeInterface>(sliceOp.getSource().getType());
+    const auto sliceOutType = mlir::cast<vpux::NDTypeInterface>(sliceOp.getResult().getType());
+    const auto rank = sliceInType.getRank();
+    const auto inShape = sliceInType.getShape().raw();
+    const auto outShape = sliceOutType.getShape().raw();
+
+    const int64_t splitIdx = (rank - 1) / 2;
+    int64_t C = 1, H = 1;
+    for (int64_t i = 0; i < splitIdx; ++i) {
+        C *= inShape[i];
+    }
+    for (int64_t i = splitIdx; i < rank - 1; ++i) {
+        H *= inShape[i];
+    }
+    return {C, H, inShape[rank - 1], outShape[rank - 1]};
+}
+
 //
 // SliceOpConverter
 //
 
 class SliceOpConverter final : public mlir::OpRewritePattern<IE::SliceOp> {
 public:
-    SliceOpConverter(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::SliceOp>(ctx), _log(log) {
+    SliceOpConverter(mlir::MLIRContext* ctx, bool disableMinHWThreshold, Logger log)
+            : mlir::OpRewritePattern<IE::SliceOp>(ctx), _disableMinHWThreshold(disableMinHWThreshold), _log(log) {
     }
 
 public:
@@ -82,11 +126,12 @@ private:
     mlir::Value composeWeights(IE::SliceOp origOp, const mlir::Type convolutionInputType,
                                const int64_t convolutionAlignment, mlir::PatternRewriter& rewriter) const;
 
+    bool _disableMinHWThreshold;
     Logger _log;
 };
 
 bool isBeneficialToConvertSliceToConv(NDTypeInterface sliceInType, NDTypeInterface sliceOutType, mlir::Location loc,
-                                      const Logger& log) {
+                                      bool disableMinHWThreshold, const Logger& log) {
     if (sliceInType.getRank() != 4 || sliceOutType.getRank() != 4) {
         return false;
     }
@@ -119,7 +164,9 @@ bool isBeneficialToConvertSliceToConv(NDTypeInterface sliceInType, NDTypeInterfa
         return (minHW / sliceOutShape[Dims4D::Act::C]) >= SPATIAL_CHANNEL_RATIO_TO_CONVERT;
     };
     // If slice with NHWC layout and channel is small, it's efficient to convert it to Convolution.
-    if (!checkShape()) {
+    // This check can be disabled via compilation config for models where the conversion is
+    // known to be beneficial regardless of the shape ratio.
+    if (!disableMinHWThreshold && !checkShape()) {
         log.trace("Slice at {0} is not efficient to convert", loc);
         return false;
     }
@@ -283,7 +330,7 @@ mlir::LogicalResult SliceOpConverter::matchAndRewrite(IE::SliceOp origOp, mlir::
     const auto sliceInType = mlir::cast<vpux::NDTypeInterface>(sliceInput.getType());
     const auto sliceOutType = mlir::cast<vpux::NDTypeInterface>(origOp.getResult().getType());
 
-    if (!isBeneficialToConvertSliceToConv(sliceInType, sliceOutType, origOp->getLoc(), _log)) {
+    if (!isBeneficialToConvertSliceToConv(sliceInType, sliceOutType, origOp->getLoc(), _disableMinHWThreshold, _log)) {
         _log.trace("Cannot or is not beneficial to convert Slice to Conv");
         return mlir::failure();
     }
@@ -442,6 +489,13 @@ bool doesSliceConcatMeetRequirement(IE::SliceOp sliceOp, IE::ConcatOp concatOp) 
 mlir::LogicalResult SliceConcatRewriter::matchAndRewrite(IE::ConcatOp concatOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got Concat '{1}' at '{2}'", getDebugName(), concatOp->getName(), concatOp->getLoc());
 
+    // Mode-agnostic NCE-legality check, independent from ACCURACY metadata tracking.
+    if (IE::utils::hasF32OrF64Precision(concatOp.getOutput())) {
+        return matchFailed(rewriter, concatOp,
+                           "F32/F64 activation precision is unsupported for NCE-oriented rewrite (output type: {0})",
+                           concatOp.getOutput().getType());
+    }
+
     auto concatInputs = concatOp.getInputs();
     SmallVector<IE::SliceOp> sliceOps;
     Const::DeclareOp constInput = nullptr;
@@ -590,6 +644,11 @@ mlir::LogicalResult FuseSliceWithConvRewriter::matchAndRewrite(IE::SliceOp slice
         return mlir::failure();
     }
 
+    if (sliceOutputShape.isDynamic()) {
+        _log.trace("Slice at '{0}' has dynamic dimensions, cannot fuse into Convolution", sliceOp->getLoc());
+        return mlir::failure();
+    }
+
     const auto filter = inConvOp.getFilter();
     const auto bias = inConvOp.getBias();
     const auto filterCst = filter != nullptr ? filter.getDefiningOp<Const::DeclareOp>() : nullptr;
@@ -619,7 +678,7 @@ mlir::LogicalResult FuseSliceWithConvRewriter::matchAndRewrite(IE::SliceOp slice
     const auto origOutType = mlir::cast<vpux::NDTypeInterface>(inConvOp.getOutput().getType());
     const auto newOutType = origOutType.changeShape(sliceOutputShape);
     auto newConv = cloneConvolutionOp(rewriter, inConvOp, newOutType, inConvOp.getInput(), newFilter, newBias,
-                                      inConvOp.getScale());
+                                      inConvOp.getScale(), inConvOp.getZeroPoints());
     rewriter.replaceOp(inConvOp, newConv.getOutput());
     sliceOp.getResult().replaceAllUsesWith(newConv.getOutput());
 
@@ -630,41 +689,131 @@ mlir::LogicalResult FuseSliceWithConvRewriter::matchAndRewrite(IE::SliceOp slice
 }
 
 //
-// SliceOpWithLayoutConverter
+// SliceOpWithReshapeConverter
+//
+// Handles non-4D SliceOps (rank 3, 5, 6, ...) that slice only on the last dimension.
+// Promotes them to rank-4 so that the downstream SliceOpWithLayoutConverter can apply
+// PermuteCast + NHWC rewrite, and SliceOpConverter can replace with Convolution.
+//
+// The 4D shape is always [1, C, H, W] where:
+//   N = 1                          (added leading dim)
+//   C = D0*...*D_{split-1}         (first half of non-slice dims, merged)
+//   H = D_{split}*...*D_{R-2}      (second half of non-slice dims, merged)
+//   W = D_{R-1}                    (slice dim, unchanged)
+//   split = (R-1) / 2              (balanced split of R-1 non-slice dims)
+//
+// Examples:
+//   rank-3 [D0,D1,D2]           -> [1,D0,D1,D2]
+//   rank-5 [D0,D1,D2,D3,D4]     -> [1,D0*D1,D2*D3,D4]
+//
+// Rewrite steps:
+//   Step 1: ReshapeOp  [D0,..,D_{R-1}] -> [1, C, H, W]
+//   Step 2: SliceOp    [1, C, H, W]    -> [1, C, H, slicedW]
+//   Step 3: ReshapeOp  [1, C, H, slicedW] -> original output shape
 //
 
-class SliceOpWithLayoutConverter final : public mlir::OpRewritePattern<IE::SliceOp> {
+class SliceOpWithReshapeConverter final : public mlir::OpRewritePattern<IE::SliceOp> {
 public:
-    SliceOpWithLayoutConverter(mlir::MLIRContext* ctx, Logger log)
-            : mlir::OpRewritePattern<IE::SliceOp>(ctx), _log(log) {
+    SliceOpWithReshapeConverter(mlir::MLIRContext* ctx, bool disableMinHWThreshold, Logger log)
+            : mlir::OpRewritePattern<IE::SliceOp>(ctx), _disableMinHWThreshold(disableMinHWThreshold), _log(log) {
+        setDebugName("SliceOpWithReshapeConverter");
     }
 
 public:
     mlir::LogicalResult matchAndRewrite(IE::SliceOp origOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
-    bool isSliceOnInnermostDim(IE::SliceOp sliceOp) const;
-    bool canConvertToNHWC(IE::SliceOp sliceOp) const;
-    bool wouldNHWCSliceBeBeneficial(IE::SliceOp sliceOp) const;
+    bool canPromoteTo4D(IE::SliceOp sliceOp) const;
 
+    bool _disableMinHWThreshold;
     Logger _log;
 };
 
-bool SliceOpWithLayoutConverter::isSliceOnInnermostDim(IE::SliceOp sliceOp) const {
+bool SliceOpWithReshapeConverter::canPromoteTo4D(IE::SliceOp sliceOp) const {
     const auto sliceInType = mlir::cast<vpux::NDTypeInterface>(sliceOp.getSource().getType());
-    const auto sliceInLayout = sliceInType.getDimsOrder();
-    const auto inputShape = getShape(sliceOp.getSource()).raw();
-    const auto outputShape = getShape(sliceOp.getResult()).raw();
+    const auto rank = sliceInType.getRank();
 
-    // Check if slice is only on the innermost dimension
-    const auto innermostDim = sliceInLayout.dimAt(sliceInLayout.numDims() - 1);
-    for (auto i : irange(inputShape.size())) {
-        if (inputShape[i] != outputShape[i] && i != checked_cast<uint32_t>(innermostDim.ind())) {
-            return false;
-        }
+    // Only handle non-4D inputs with rank >= 3
+    if (rank == 4 || rank < 3) {
+        return false;
     }
-    return true;
+
+    // Only support layout where logical dim order matches memory order.
+    if (sliceInType.getDimsOrder() != DimsOrder::fromNumDims(rank)) {
+        return false;
+    }
+
+    // Slice must be only on the last (innermost) dimension
+    if (!isSliceOnInnermostDim(sliceOp)) {
+        return false;
+    }
+
+    const auto [C, H, W, slicedW] = getSlice4DParams(sliceOp);
+    const auto elemType = sliceInType.getElementType();
+    const auto nhwcInType = getTensorType(ShapeRef({1, W, C, H}), elemType, DimsOrder::NHWC, /*memSpace=*/nullptr);
+    const auto nhwcOutType =
+            getTensorType(ShapeRef({1, slicedW, C, H}), elemType, DimsOrder::NHWC, /*memSpace=*/nullptr);
+
+    return isBeneficialToConvertSliceToConv(nhwcInType, nhwcOutType, sliceOp->getLoc(), _disableMinHWThreshold, _log);
 }
+
+mlir::LogicalResult SliceOpWithReshapeConverter::matchAndRewrite(IE::SliceOp origOp,
+                                                                 mlir::PatternRewriter& rewriter) const {
+    _log.trace("[{0}] Got Slice at '{1}'", getDebugName(), origOp->getLoc());
+
+    if (!canPromoteTo4D(origOp)) {
+        _log.trace("[{0}] Cannot promote Slice at '{1}' to 4D", getDebugName(), origOp->getLoc());
+        return mlir::failure();
+    }
+
+    const auto sliceInType = mlir::cast<vpux::NDTypeInterface>(origOp.getSource().getType());
+    const auto sliceOutType = mlir::cast<vpux::NDTypeInterface>(origOp.getResult().getType());
+    const auto rank = sliceInType.getRank();
+    const auto outShape = sliceOutType.getShape().raw();
+    const auto [C, H, W, slicedW] = getSlice4DParams(origOp);
+    const auto ctx = rewriter.getContext();
+    const auto sliceOffset = parseIntArrayAttr<int64_t>(origOp.getStaticOffsets());
+
+    // Step 1: ReshapeOp [D0,..,D_{R-1}] -> [1, C, H, W]
+    const auto shape4DAttr = getIntArrayAttr(ctx, SmallVector<int64_t>{1, C, H, W});
+    auto reshapeIn =
+            rewriter.create<IE::ReshapeOp>(appendLoc(origOp.getLoc(), "reshape_in"), origOp.getSource(), shape4DAttr);
+
+    // Step 2: 4D SliceOp [1,C,H,W] -> [1,C,H,slicedW]
+    SmallVector<int64_t> offset4D = {0, 0, 0, sliceOffset[rank - 1]};
+    SmallVector<int64_t> size4D = {1, C, H, slicedW};
+    auto slice4D = rewriter.create<IE::SliceOp>(origOp.getLoc(), reshapeIn.getResult(), getIntArrayAttr(ctx, offset4D),
+                                                getIntArrayAttr(ctx, size4D));
+
+    // Step 3: Reshape [1,C,H,slicedW] -> original output shape via ReshapeOp.
+    const auto origOutShapeAttr = getIntArrayAttr(ctx, outShape);
+    rewriter.replaceOpWithNewOp<IE::ReshapeOp>(origOp, slice4D.getResult(), origOutShapeAttr);
+
+    _log.trace("[{0}] Reshaped rank-{1} Slice at '{2}' to 4D for downstream conversion", getDebugName(), rank,
+               origOp->getLoc());
+    return mlir::success();
+}
+
+//
+// SliceOpWithLayoutConverter
+//
+
+class SliceOpWithLayoutConverter final : public mlir::OpRewritePattern<IE::SliceOp> {
+public:
+    SliceOpWithLayoutConverter(mlir::MLIRContext* ctx, bool disableMinHWThreshold, Logger log)
+            : mlir::OpRewritePattern<IE::SliceOp>(ctx), _disableMinHWThreshold(disableMinHWThreshold), _log(log) {
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::SliceOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    bool canConvertToNHWC(IE::SliceOp sliceOp) const;
+    bool wouldNHWCSliceBeBeneficial(IE::SliceOp sliceOp) const;
+
+    bool _disableMinHWThreshold;
+    Logger _log;
+};
 
 bool SliceOpWithLayoutConverter::canConvertToNHWC(IE::SliceOp sliceOp) const {
     const auto sliceInType = mlir::cast<vpux::NDTypeInterface>(sliceOp.getSource().getType());
@@ -708,7 +857,7 @@ bool SliceOpWithLayoutConverter::wouldNHWCSliceBeBeneficial(IE::SliceOp sliceOp)
     const auto nhwcInType = sliceInType.changeDimsOrder(DimsOrder::NHWC).changeShape(nhwcInShape);
     const auto nhwcOutType = sliceOutType.changeDimsOrder(DimsOrder::NHWC).changeShape(nhwcOutShape);
 
-    return isBeneficialToConvertSliceToConv(nhwcInType, nhwcOutType, sliceOp->getLoc(), _log);
+    return isBeneficialToConvertSliceToConv(nhwcInType, nhwcOutType, sliceOp->getLoc(), _disableMinHWThreshold, _log);
 }
 
 mlir::LogicalResult SliceOpWithLayoutConverter::matchAndRewrite(IE::SliceOp origOp,
@@ -776,7 +925,8 @@ mlir::LogicalResult SliceOpWithLayoutConverter::matchAndRewrite(IE::SliceOp orig
 
 class OptimizeSliceWithStridePass final : public IE::impl::OptimizeSliceWithStrideBase<OptimizeSliceWithStridePass> {
 public:
-    explicit OptimizeSliceWithStridePass(Logger log) {
+    explicit OptimizeSliceWithStridePass(bool disableMinHWThreshold, Logger log) {
+        this->disableMinHWThreshold = disableMinHWThreshold;
         Base::initLogger(log, Base::getArgumentName());
     }
 
@@ -797,14 +947,20 @@ void OptimizeSliceWithStridePass::safeRunOnFunc() {
 
     {
         mlir::RewritePatternSet patterns(&ctx);
-        patterns.add<SliceOpWithLayoutConverter>(&ctx, _log);
+        patterns.add<SliceOpWithReshapeConverter>(&ctx, disableMinHWThreshold, _log);
+        collectOpsAndApplyPatterns(func, std::move(patterns));
+    }
+
+    {
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.add<SliceOpWithLayoutConverter>(&ctx, disableMinHWThreshold, _log);
         collectOpsAndApplyPatterns(func, std::move(patterns));
     }
 
     {
         // SliceOpConverter has dependency on layout as a result, needs to run after SliceOpWithLayoutConverter
         mlir::RewritePatternSet patterns(&ctx);
-        patterns.add<SliceOpConverter>(&ctx, _log);
+        patterns.add<SliceOpConverter>(&ctx, disableMinHWThreshold, _log);
         collectOpsAndApplyPatterns(func, std::move(patterns));
     }
 }
@@ -814,6 +970,6 @@ void OptimizeSliceWithStridePass::safeRunOnFunc() {
 // createOptimizeSliceWithStridePass
 //
 
-std::unique_ptr<mlir::Pass> vpux::IE::createOptimizeSliceWithStridePass(Logger log) {
-    return std::make_unique<OptimizeSliceWithStridePass>(log);
+std::unique_ptr<mlir::Pass> vpux::IE::createOptimizeSliceWithStridePass(bool disableMinHWThreshold, Logger log) {
+    return std::make_unique<OptimizeSliceWithStridePass>(disableMinHWThreshold, log);
 }

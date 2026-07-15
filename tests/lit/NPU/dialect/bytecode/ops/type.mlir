@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" %s | FileCheck %s
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
 bytecode.type_section @type_section {
-    bytecode.type @i64_type i64
-    bytecode.type @f32_type f32
-    // CHECK:  bytecode.type @i64_type i64
-    // CHECK:  bytecode.type @f32_type f32
+    bytecode.type @i64_type #bytecode.integer_type<width = 64, is_signed = true>
+    bytecode.type @f32_type #bytecode.float_type<width = 32, format = IEEE754>
+    // CHECK:  bytecode.type @i64_type #bytecode.integer_type<width = 64, is_signed = true>
+    // CHECK:  bytecode.type @f32_type #bytecode.float_type<width = 32, format = IEEE754>
 }

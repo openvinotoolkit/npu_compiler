@@ -75,3 +75,43 @@ func.func @PermuteCastNoOp() -> tensor<1x2xf32> {
 // CHECK:     [[CST:%.+]] = const.Declare tensor<1x2xf32> = dense<{{\[\[}}1.000000e+00, 2.000000e+00]]> : tensor<1x2xf32>
 // CHECK:     return [[CST]] : tensor<1x2xf32>
 // CHECK: }
+
+// -----
+
+// The earlier PermuteCast must survive; replacing it with the later one would make
+// the QuantizeCast (its immediate user) reference a value defined after it — a
+// dominance violation.
+!qElemType = !quant.uniform<u8:f16, 0.003921568627450980>
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @MergeParallelPermuteCastAfterIdentitySliceFold
+// CHECK-SAME:      ([[INPUT:%.+]]: tensor<1x4x4x3xui8>)
+func.func @MergeParallelPermuteCastAfterIdentitySliceFold(
+        %arg0 : tensor<1x4x4x3xui8>)
+        -> (tensor<1x4x4x4x!qElemType, {order = #NHWC}>, tensor<1x3x4x4xui8, {order = #NHWC}>) {
+    // Sub-graph 1: identity slice folds to %arg0
+    %slice_1 = VPU.Slice %arg0 [0, 0, 0, 0] [1, 4, 4, 3]
+             : tensor<1x4x4x3xui8> to tensor<1x4x4x3xui8>
+    %permute_cast_earliest = VPU.PermuteCast(%slice_1) {dst_order = #NHWC, mem_perm = #NCHW}
+             : tensor<1x4x4x3xui8> -> tensor<1x3x4x4xui8, {order = #NHWC}>
+    %2 = VPU.QuantizeCast(%permute_cast_earliest) {dstElemType = !qElemType}
+             : tensor<1x3x4x4xui8, {order = #NHWC}> -> tensor<1x3x4x4x!qElemType, {order = #NHWC}>
+    %3 = VPU.Expand(%2) {pads_begin = [0, 0, 0, 0], pads_end = [0, 1, 0, 0]}
+             : tensor<1x3x4x4x!qElemType, {order = #NHWC}> -> tensor<1x4x4x4x!qElemType, {order = #NHWC}>
+
+    // Sub-graph 2: identical identity slice + duplicate PermuteCast
+    %slice_2 = VPU.Slice %arg0 [0, 0, 0, 0] [1, 4, 4, 3]
+             : tensor<1x4x4x3xui8> to tensor<1x4x4x3xui8>
+    %permute_cast_latest = VPU.PermuteCast(%slice_2) {dst_order = #NHWC, mem_perm = #NCHW}
+             : tensor<1x4x4x3xui8> -> tensor<1x3x4x4xui8, {order = #NHWC}>
+
+    return %3, %permute_cast_latest
+             : tensor<1x4x4x4x!qElemType, {order = #NHWC}>, tensor<1x3x4x4xui8, {order = #NHWC}>
+
+    // CHECK:    [[PC_EARLIEST:%.+]] = VPU.PermuteCast([[INPUT]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x4x4x3xui8> -> tensor<1x3x4x4xui8, {order = #NHWC}>
+    // CHECK:    [[QC:%.+]] = VPU.QuantizeCast([[PC_EARLIEST]]) {dstElemType = !qElemType} : tensor<1x3x4x4xui8, {order = #NHWC}> -> tensor<1x3x4x4x!qElemType, {order = #NHWC}>
+    // CHECK:    [[EXP:%.+]] = VPU.Expand([[QC]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 1, 0, 0]} : tensor<1x3x4x4x!qElemType, {order = #NHWC}> -> tensor<1x4x4x4x!qElemType, {order = #NHWC}>
+    // CHECK:    return [[EXP]], [[PC_EARLIEST]]
+}

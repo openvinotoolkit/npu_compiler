@@ -13,6 +13,7 @@
 
 #include <npu_40xx_nnrt.hpp>
 
+using namespace vpux;
 using namespace NPUReg40XX;
 using namespace NPUReg40XX::Descriptors;
 
@@ -100,7 +101,9 @@ mlir::LogicalResult MappedInferenceRewriter::matchAndRewrite(VPUASM::MappedInfer
     // NPU4 does not have stack frames provided by compiler
     // they are resolved by shave driver when initialized.
 
-    auto isActKernelInvocations = origOp.getActKernelInvocationsCount().size() > 0;
+    auto isActKernelInvocations = llvm::any_of(actKernelInvocationsCountVec, [](int64_t count) {
+        return count > 0;
+    });
     NPUReg40XX::fillNNrtConfig<NPUReg40XX::ActShaveRtOp>(mi.shv_rt_configs, origOp, origOp.getActShaveRt(), stackSize,
                                                          isActShaveProfilingEnabled, isActKernelInvocations,
                                                          /*stackFrames*/ {});

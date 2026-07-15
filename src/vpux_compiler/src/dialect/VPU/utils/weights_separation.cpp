@@ -12,8 +12,10 @@
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
+#include "vpux/compiler/dialect/VPU/utils/weights_separation_ir_modification.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/utils/transformations.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
@@ -21,10 +23,10 @@
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
-#include "vpux/compiler/utils/func_dialect.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/stable_hash.hpp"
 #include "vpux/compiler/utils/types.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
@@ -52,6 +54,7 @@ MemPermuteConversionAttributes extractMemPermuteConversionAttributes(NDTypeInter
 
     return MemPermuteConversionAttributes{identityLayout, inMemShape, memPermute, dstOrder, outShape};
 }
+
 namespace {
 
 /// Encloses the details of handling pure-view-like transformations within this
@@ -132,6 +135,12 @@ bool isSuitableForWeightlessCompilation(Const::DeclareOp constOp, bool skipViewL
         return false;
     }
 
+    auto baseType = mlir::cast<NDTypeInterface>(constOp.getContentAttr().getBaseContent().getType());
+    if (baseType.getRank() >= 6) {
+        // TODO: E#215401 support higher-rank tensors.
+        return false;
+    }
+
     auto hasOnlySupportedTransformations = [](Const::DeclareOp constOp) {
         auto contentAttr = constOp.getContentAttr();
         auto baseType = contentAttr.getBaseContent().getType();
@@ -152,6 +161,12 @@ bool isSuitableForWeightlessCompilation(Const::DeclareOp constOp, bool skipViewL
     };
 
     return hasOnlySupportedTransformations(constOp);
+}
+
+// Choose only constants that are used in multiple kernel functions
+bool isSuitableForHostPipelineCompilation(Const::DeclareOp constOp, mlir::DenseSet<Const::ContentAttr>& seenConsts) {
+    const bool firstOccurrence = seenConsts.insert(constOp.getContentAttr()).second;
+    return mlir::isa<mlir::DenseResourceElementsAttr>(constOp.getContentAttr().getBaseContent()) && !firstOccurrence;
 }
 
 namespace {
@@ -627,42 +642,6 @@ mlir::Value createMatchingOperation(WeightsSeparationSchedule scheduleKind, mlir
 }
 }  // namespace conversions
 
-std::vector<VPU::CallChainData> collectCallChains(mlir::func::FuncOp funcOp) {
-    std::vector<VPU::CallChainData> functions;
-    funcOp.walk([&](mlir::func::CallOp callOp) {
-        functions.push_back({callOp, getCalledFunction(callOp)});
-    });
-    return functions;
-}
-
-std::vector<VPU::CallChainData> findChildren(const VPU::CallChainTree::Node& node) {
-    auto funcOp = node.data().second;
-    auto chains = collectCallChains(funcOp);
-    // Note: sort call-chains lexicographically (using function names) to ensure
-    // outlining-independent processing. while this disregards the call
-    // sequence, this allows to avoid differences in schedule generation when
-    // independent calls get reordered in IR:
-    // ```cpp
-    //  %call1 = call @foo1(...)
-    //  %call2 = call @foo2(...)
-    //  // vs:
-    //  %call2 = call @foo2(...)
-    //  %call1 = call @foo1(...)
-    //
-    //  // independent usage of calls:
-    //  %op1 = VPU.Convolution(%call1)
-    //  %ops2 = VPU.Convolution(%call2)
-    // ```
-    std::sort(chains.begin(), chains.end(), [](const VPU::CallChainData& x, const VPU::CallChainData& y) {
-        auto xFunc = x.second;
-        auto yFunc = y.second;
-        // lexicographical comparison
-        return xFunc.getSymName() < yFunc.getSymName();
-    });
-
-    return chains;
-}
-
 /// Helper utility that recognizes that duplicate transformation chains.
 struct InitBufferSizeCache {
     mlir::DenseSet<llvm::hash_code> cache;  // caches transformation hashes
@@ -671,7 +650,8 @@ struct InitBufferSizeCache {
     /// every unique transformation chain.
     vpux::Byte getResultBufferSizeForInit(const TransformationsSplit& x) {
         const auto proj = x.take(WeightsSeparationSchedule::Init);
-        const auto hashCode = Const::ContentAttr::getTransformationHash(proj.transformations);
+        const auto hashCode =
+                Const::ContentAttr::getTransformationHash(x.getContentAttr().getBaseContent(), proj.transformations);
         const bool firstOccurrence = cache.insert(hashCode).second;
         // Note: return 0 if "already seen" - to not account for the same result
         // multiple times.
@@ -815,13 +795,7 @@ std::vector<std::vector<TransformationsSplit>> getConstantsForInitSchedules(
 
     return slices;
 }
-
 }  // namespace
-
-CallChainTree getOutliningRepresentation(mlir::func::FuncOp startFunc) {
-    VPU::CallChainTree tree({VPU::CallChainTree::Node(VPU::CallChainData{nullptr, startFunc}, {})}, findChildren);
-    return tree;
-}
 
 TransformationsSplit::TransformationsSplit(Const::DeclareOp declareOp)
         : _loc(declareOp.getLoc()), _contentAttr(declareOp.getContentAttr()) {
@@ -879,6 +853,18 @@ TransformationsSplit::Projection TransformationsSplit::take(WeightsSeparationSch
 
 Const::ContentAttr TransformationsSplit::getContentAttr() const {
     return _contentAttr;
+}
+
+ArrayRef<Const::TransformAttrInterface> TransformationsSplit::getInitTransformations() const {
+    return _inInitTransformations;
+}
+
+ArrayRef<Const::TransformAttrInterface> TransformationsSplit::getPostInitTransformations() const {
+    return _postInitTransformations;
+}
+
+IoBoundaryAdapter::TypeInfo TransformationsSplit::getIoTypeInfo() const {
+    return _ioTypeInfo;
 }
 
 mlir::Location TransformationsSplit::getLoc() const {
@@ -1021,7 +1007,7 @@ std::string ConstArg::getUniqueName() const {
     const auto id = getResourceId(content);
 
     assert(!id.empty() && "Weights separation only works with dense_resource<>");
-    const size_t hash = Const::ContentAttr::getTransformationHash(transformations);
+    const size_t hash = Const::ContentAttr::getTransformationHash(content, transformations);
     return formatv("{0}{1}_hash_{2}", INIT_OUTPUT_PREFIX, id, hash).str();
 }
 
@@ -1135,6 +1121,7 @@ mlir::Value ConstOpConverter::convertToIrForm(mlir::Location loc, const VPU::Tra
 namespace {
 constexpr const char* WS_INFO_OPTIONS_NAME = "VPU.WsInfoOptions";
 constexpr const char* WS_INFO_SKIP_VIEW_LIKE_ONLY = "wsSkipViewLikeOnly";
+constexpr const char* WS_INFO_ANALYSIS_MODE = "analysisMode";
 
 // Removes all constants that point to the same weight, when only view-like
 // transformations are applied to such weight. Mixed cases, where at least one
@@ -1154,16 +1141,29 @@ void removeConstantsForWeightsWithOnlyViewLikeTransformations(std::vector<Const:
     });
     ops.erase(it, ops.end());
 }
+
+void removeRepeatedConstantsForHostPipeline(std::vector<Const::DeclareOp>& constants) {
+    mlir::DenseSet<Const::ContentAttr> uniqueConstants;
+    auto it = std::remove_if(constants.begin(), constants.end(), [&](const Const::DeclareOp& op) {
+        const auto firstOccurrence = uniqueConstants.insert(op.getContentAttr()).second;
+        return !firstOccurrence;
+    });
+    constants.erase(it, constants.end());
+}
 }  // namespace
 
 WeightsSeparationInfo::WeightsSeparationInfo(mlir::ModuleOp moduleOp) {
     auto log = Logger::global().nest("weights-separation-info", 0);
     auto mainFuncOp = net::getMainFunc(moduleOp);
-
     auto tree = VPU::getOutliningRepresentation(mainFuncOp);
 
     const auto options = getOptions(moduleOp);
+    const auto isHostPipeline = (options.weightsAnalysisMode == Options::WeightsAnalysisMode::HostCompile);
+    mlir::DenseSet<Const::ContentAttr> seenConstants;  // to avoid duplicates in host pipeline mode
     const auto isWorthy = [&](Const::DeclareOp constOp) {
+        if (isHostPipeline) {
+            return isSuitableForHostPipelineCompilation(constOp, seenConstants);
+        }
         return isSuitableForWeightlessCompilation(constOp, options.weightlessSkipViewLikeOnly);
     };
     const auto filterWeightsAsInputs = [&](std::vector<Const::DeclareOp>& ops) {
@@ -1176,8 +1176,13 @@ WeightsSeparationInfo::WeightsSeparationInfo(mlir::ModuleOp moduleOp) {
             removeConstantsForWeightsWithOnlyViewLikeTransformations(ops);
         }
     };
+    const auto filterConstantsForHostPipeline = [&](std::vector<Const::DeclareOp>& ops) {
+        removeRepeatedConstantsForHostPipeline(ops);
+    };
 
-    auto constants = collectMoveWorthyConstants(log, tree, isWorthy, filterWeightsAsInputs);
+    auto filter = isHostPipeline ? FilterCollectedConstants(filterConstantsForHostPipeline)
+                                 : FilterCollectedConstants(filterWeightsAsInputs);
+    auto constants = collectMoveWorthyConstants(log, tree, isWorthy, filter);
     _splits.reserve(constants.size());
     std::move(constants.begin(), constants.end(), std::back_inserter(_splits));
 }
@@ -1190,6 +1195,10 @@ void WeightsSeparationInfo::setOptions(mlir::ModuleOp moduleOp, Options options)
     if (options.weightlessSkipViewLikeOnly) {
         individualAttrs.emplace_back(WS_INFO_SKIP_VIEW_LIKE_ONLY, mlir::UnitAttr::get(ctx));
     }
+    individualAttrs.emplace_back(
+            WS_INFO_ANALYSIS_MODE,
+            mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 8), static_cast<int64_t>(options.weightsAnalysisMode)));
+
     const auto optionsAttr = mlir::DictionaryAttr::get(ctx, individualAttrs);
     moduleOp->setAttr(WS_INFO_OPTIONS_NAME, optionsAttr);
 }
@@ -1200,6 +1209,8 @@ WeightsSeparationInfo::Options WeightsSeparationInfo::getOptions(mlir::ModuleOp 
 
     Options options;
     options.weightlessSkipViewLikeOnly = optionsAttr.get(WS_INFO_SKIP_VIEW_LIKE_ONLY) != nullptr;
+    options.weightsAnalysisMode = static_cast<Options::WeightsAnalysisMode>(
+            mlir::cast<mlir::IntegerAttr>(optionsAttr.get(WS_INFO_ANALYSIS_MODE)).getInt());
     return options;
 }
 
@@ -1233,17 +1244,24 @@ mlir::RankedTensorType obfuscateType(ArrayRef<mlir::Type> originals) {
 mlir::RankedTensorType obfuscateType(mlir::Type original) {
     return obfuscateType(ArrayRef{original});
 }
-}  // namespace
 
-void obfuscateInputs(const Logger& log, mlir::Location loc, mlir::func::FuncOp funcOp, ArrayRef<size_t> indices,
-                     CreateSliceOpFunc createSlice) {
-    VPUX_THROW_WHEN(indices.empty(), "At least 1 input index is expected");
+// Adds a new obfuscated input as an argument of a body block. Does not delete
+// any original arguments, does not update the function signature. This is a
+// basic building block of the obfuscation algorithm that only cares about
+// adding a new input and wiring it correctly inside of the function body.
+void obfuscateInputsImpl(const Logger& log, mlir::Location loc, mlir::Block& bodyBlock, ArrayRef<size_t> indices,
+                         CreateSliceOpFunc createSlice, bool obfuscateSingleInput = false) {
+    if (indices.empty()) {
+        return;
+    }
 
-    auto& bodyBlock = funcOp.getFunctionBody().front();
     OpBuilderLogger builderLog(log.nest());
     auto builder = mlir::OpBuilder::atBlockBegin(&bodyBlock, &builderLog);
 
-    if (bool singleInput = (indices.size() == 1); singleInput) {
+    // In Host Pipeline mode, we want to obfuscate all weights, even if there is only one, as
+    // in the host function this constant is folded into one blob and we need to cast it back to the original type in
+    // kernel functions.
+    if (bool singleInput = (indices.size() == 1); singleInput && !obfuscateSingleInput) {
         // Note: to simplify the external code, the procedure still has to
         // maintain relative order of arguments given multiple init schedules,
         // thus, one has to "push" block argument to the end.
@@ -1251,10 +1269,6 @@ void obfuscateInputs(const Logger& log, mlir::Location loc, mlir::func::FuncOp f
         auto oldArg = bodyBlock.getArgument(i);
         auto newArg = bodyBlock.addArgument(oldArg.getType(), oldArg.getLoc());
         oldArg.replaceAllUsesWith(newArg);
-        bodyBlock.eraseArgument(i);
-
-        funcOp.setFunctionType(
-                mlir::FunctionType::get(builder.getContext(), bodyBlock.getArgumentTypes(), funcOp.getResultTypes()));
         return;
     }
 
@@ -1288,16 +1302,40 @@ void obfuscateInputs(const Logger& log, mlir::Location loc, mlir::func::FuncOp f
         // and main (this is by design).
         log.debug("value #{0} has location: {1}", index, inputValueLoc);
     }
+}
 
+// Erases arguments of function specified by indices. Fixes the function
+// signature. This is a basic building block of the obfuscation algorithm.
+void eraseArguments(mlir::func::FuncOp funcOp, mlir::Block& bodyBlock, SmallVector<size_t> indices) {
     // Note: avoid index recalculation by deleting from the end first
-    SmallVector<size_t> sorted(indices);
-    llvm::sort(sorted, std::not_fn(std::less<size_t>{}));
-    for (size_t index : sorted) {
+    llvm::sort(indices, std::not_fn(std::less<size_t>{}));
+    for (size_t index : indices) {
         bodyBlock.eraseArgument(index);
     }
-
     funcOp.setFunctionType(
-            mlir::FunctionType::get(builder.getContext(), bodyBlock.getArgumentTypes(), funcOp.getResultTypes()));
+            mlir::FunctionType::get(funcOp.getContext(), bodyBlock.getArgumentTypes(), funcOp.getResultTypes()));
+}
+}  // namespace
+
+void obfuscateInputs(const Logger& log, mlir::Location loc, mlir::func::FuncOp funcOp, ArrayRef<size_t> indices,
+                     CreateSliceOpFunc createSlice, bool obfuscateSingleInput) {
+    auto& bodyBlock = funcOp.getFunctionBody().front();
+    obfuscateInputsImpl(log, loc, bodyBlock, indices, createSlice, obfuscateSingleInput);
+    eraseArguments(funcOp, bodyBlock, SmallVector<size_t>(indices));
+}
+
+void obfuscateInputGroups(const Logger& log, mlir::Location loc, mlir::func::FuncOp funcOp,
+                          const std::vector<std::vector<size_t>>& indexGroups, CreateSliceOpFunc createSlice) {
+    SmallVector<size_t> oldArgumentIndices;
+
+    auto& bodyBlock = funcOp.getFunctionBody().front();
+    for (size_t i = 0; i < indexGroups.size(); ++i) {
+        const auto& indices = indexGroups[i];
+        obfuscateInputsImpl(log, appendLoc(loc, "{0}", i), bodyBlock, indices, createSlice);
+        oldArgumentIndices.insert(oldArgumentIndices.end(), indices.begin(), indices.end());
+    }
+
+    eraseArguments(funcOp, bodyBlock, std::move(oldArgumentIndices));
 }
 
 void obfuscateOutputs(const Logger& log, mlir::Location loc, mlir::func::FuncOp funcOp, ArrayRef<size_t> indices,
@@ -1364,6 +1402,7 @@ void obfuscateOutputs(const Logger& log, mlir::Location loc, mlir::func::FuncOp 
 }  // namespace vpux::VPU
 
 namespace llvm {
+// vpux::VPU::ConstArg
 vpux::VPU::ConstArg DenseMapInfo<vpux::VPU::ConstArg>::getEmptyKey() {
     return vpux::VPU::ConstArg{llvm::DenseMapInfo<mlir::DenseResourceElementsAttr>::getEmptyKey(),
                                llvm::DenseMapInfo<ArrayRef<vpux::Const::TransformAttrInterface>>::getEmptyKey()};
@@ -1381,7 +1420,7 @@ unsigned DenseMapInfo<vpux::VPU::ConstArg>::getHashValue(const vpux::VPU::ConstA
     // * for main, transformations are the ones that happen in init,
     //   thus deduplication happens at transformation chain level
     const auto name = getResourceName(x.content);
-    auto hash = llvm::hash_combine(name, vpux::Const::ContentAttr::getTransformationHash(x.transformations));
+    auto hash = llvm::hash_combine(name, vpux::Const::ContentAttr::getTransformationHash(x.content, x.transformations));
     return hash;
 }
 bool DenseMapInfo<vpux::VPU::ConstArg>::isEqual(const vpux::VPU::ConstArg& x, const vpux::VPU::ConstArg& y) {

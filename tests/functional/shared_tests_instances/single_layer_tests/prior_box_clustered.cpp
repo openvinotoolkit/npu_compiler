@@ -11,6 +11,9 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(PriorBoxClusteredLayerTest);
+
 class PriorBoxClusteredLayerTestCommon : public PriorBoxClusteredLayerTest, virtual public VpuOv2LayerTest {};
 
 TEST_P(PriorBoxClusteredLayerTestCommon, NPU3720_SW) {

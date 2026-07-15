@@ -9,7 +9,7 @@
 !MemRef = memref<1x32x4x4xf16, @DDR>
 
 module @VPU.SW {
-    func.func private @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
+    func.func nested @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
         attributes {
             VPU.kernel_code = "softmax.cpp",
             VPU.kernel_entry = "softmax"

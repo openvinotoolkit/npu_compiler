@@ -94,25 +94,6 @@ private:
     void setBarrierMask(llvm::BitVector& mask, const BarrierInfo::TaskSet& barriers, size_t offset = 0);
     void splitBarrierProducers(VPURT::DeclareVirtualBarrierOp barrierOp, size_t availableSlots);
     void splitBarrierConsumers(VPURT::DeclareVirtualBarrierOp barrierOp, size_t availableSlots);
-    SmallVector<BarrierInfo::TaskSet> createProducerBatches(const BarrierInfo::TaskSet& waitBarriers,
-                                                            size_t availableSlots, bool considerTaskExecutorType);
-    void linearizeLegalParallelProducers(size_t taskInd, const BarrierInfo::TaskSet& parallelProducers,
-                                         const BarrierInfo::TaskSet& parallelConsumers, size_t availableSlots,
-                                         bool considerTaskExecutorType);
-
-    /**
-     * @brief check if total slot count in provided set of tasks is smaller or equal to availableSlots
-     *
-     * @param producers - set of tasks which slots should be checked
-     * @param availableSlots - number of slots available for provided tasks (producers)
-     * @return true when total slots count in producers <= availableSlots
-     * @return false otherwise
-     *
-     */
-    bool canMergeBarriersForTasks(const BarrierInfo::TaskSet& producers, size_t availableSlots);
-    bool eliminateParallelWaitBarriers(size_t taskInd, size_t availableSlots, bool considerTaskExecutorType);
-    void mergeLegalParallelProducers(size_t taskInd, const BarrierInfo::TaskSet& parallelProducers,
-                                     const BarrierInfo::TaskSet& parallelConsumers);
     void linkTasksToBarriers(const TaskSet& tasksToAdd, const TaskSet& newBarriers, bool waitBarriers,
                              size_t availableSlots);
 
@@ -197,7 +178,7 @@ public:
     virtual size_t getNumOfTasks() const;
     virtual size_t getNumOfTasks(vpux::config::ExecutorKind executorKind) const;
     size_t getNumOfBarrierOps() const;
-    virtual size_t getBarrierMaxVariantSum() const;
+    virtual size_t getBarrierMaxSlotCount() const;
     static size_t getNumOfSlotsUsed(VPURT::TaskOp op);
     virtual size_t getNumOfSlotsUsedByTask(VPURT::TaskOp op) const;
     void resetBarrier(VPURT::BarrierOpInterface barrierOp);
@@ -260,7 +241,7 @@ public:
     void dumpSlots(const std::string& fileName);
     void dumpBarriers(const std::string& fileNamePrefix);
 
-    void splitControlGraphToBlocks(const size_t blockSize);
+    void splitControlGraphToBlocks(const SmallVector<size_t>& syncPointTaskIndices);
     bool verifyControlGraphSplit();
     bool verifyBarriersUsersCount(size_t maxUsersCount);
 
@@ -332,8 +313,6 @@ public:
                                                 bool maxSlotsSumLimitEnabled);
     void splitBarrierProducers(size_t availableSlots, size_t maxSlotsSum, bool maxSlotsSumLimitEnabled);
     void splitBarrierConsumers(size_t availableSlots, size_t maxSlotsSum, bool maxSlotsSumLimitEnabled);
-    bool ensureTasksDrivenBySingleBarrier(size_t availableSlots, bool mergeWaitBarriersIteratively = false,
-                                          bool considerTaskExecutorType = false);
     void removeSyncTaskAttributes();
     bool hasBarrierDependency(size_t taskOneIdx, size_t taskTwoIdx, size_t& commonBarrier);
     bool isSyncPoint(size_t taskIdx);
@@ -525,7 +504,7 @@ public:
     void setTaskQueueTypeMap(const std::map<VPURT::TaskQueueType, SmallVector<uint32_t>>& taskQueueMaps);
     void setMaxVariantCountPerBarrier(size_t variantCount);
     size_t getNumOfTasks() const override;
-    size_t getBarrierMaxVariantSum() const override;
+    size_t getBarrierMaxSlotCount() const override;
     size_t getNumOfSlotsUsedByTask(VPURT::TaskOp op) const override;
     VPURT::TaskOp getTaskOpAtIndex(size_t opIdx) const override;
     BarrierInfoMaps optimizeBarrierProducers(size_t blockIdx);

@@ -5,9 +5,9 @@
 
 #pragma once
 
+#include "npu_bytecode_utils/instructions.hpp"
+#include "npu_bytecode_utils/version.hpp"
 #include "vpux/compiler/dialect/bytecode/utils/bytecode_writer.hpp"
-#include "vpux/utils/bytecode/instructions.hpp"
-#include "vpux/utils/bytecode/version.hpp"
 
 #include <vector>
 

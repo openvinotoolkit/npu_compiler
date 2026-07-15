@@ -87,7 +87,14 @@ mlir::LogicalResult ConvertConstToAttr::matchAndRewrite(IE::NormalizeL2Op normal
         return mlir::failure();
     }
 
-    const auto axesAttr = getIntArrayAttr(rewriter.getContext(), axesValue.value());
+    // Normalize negative axes to positive
+    const auto inRank = mlir::cast<mlir::ShapedType>(normalizeL2Op.getData().getType()).getRank();
+    auto axesVec = axesValue.value();
+    llvm::for_each(axesVec, [&](auto& axis) {
+        axis = axis < 0 ? axis + inRank : axis;
+    });
+
+    const auto axesAttr = getIntArrayAttr(rewriter.getContext(), axesVec);
 
     rewriter.replaceOpWithNewOp<IE::NormalizeL2Op>(normalizeL2Op, normalizeL2Op.getData(), nullptr, axesAttr,
                                                    normalizeL2Op.getEps(), normalizeL2Op.getEpsMode());

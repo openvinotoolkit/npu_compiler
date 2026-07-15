@@ -42,45 +42,49 @@ void VPU::VPUDialect::registerAttributes() {
             >();
 }
 
-uint32_t vpux::VPU::getMaxArchDPUClusterNum(config::ArchKind arch) {
-    switch (arch) {
-    case config::ArchKind::NPU37XX:
-        return VPUX37XX_MAX_DPU_GROUPS;
-    case config::ArchKind::NPU40XX:
-        return VPUX40XX_MAX_DPU_GROUPS;
-    case config::ArchKind::NPU50XX:
-        return VPUX50XX_MAX_DPU_GROUPS;
-    default:
-        VPUX_THROW("Unsupported architecture '{0}'", arch);
+// Per-platform hardware capabilities table
+const VPU::PlatformCapabilities& vpux::VPU::getPlatformCapabilities(config::Platform platform) {
+    using Entry = std::pair<config::Platform, VPU::PlatformCapabilities>;
+    static const Entry table[] = {
+            {config::Platform::NPU3720,
+             {DPU_GROUPS_2, MAX_DMA_PORTS_2, MAX_SHAVES_PER_TILE_2, MAX_BARRIERS_PER_TILE_32,
+              CMX_WORKSPACE_SIZE_1936KB}},
+            {config::Platform::NPU4000,
+             {DPU_GROUPS_6, MAX_DMA_PORTS_2, MAX_SHAVES_PER_TILE_2, MAX_BARRIERS_PER_TILE_16,
+              CMX_WORKSPACE_SIZE_1439KB}},
+            {config::Platform::NPU5010,
+             {DPU_GROUPS_3, MAX_DMA_PORTS_2, MAX_SHAVES_PER_TILE_2, MAX_BARRIERS_PER_TILE_16,
+              CMX_WORKSPACE_SIZE_1439KB}},
+            {config::Platform::NPU5020,
+             {DPU_GROUPS_1, MAX_DMA_PORTS_2, MAX_SHAVES_PER_TILE_2, MAX_BARRIERS_PER_TILE_16,
+              CMX_WORKSPACE_SIZE_1951KB}},
+    };
+    for (const auto& entry : table) {
+        if (entry.first == platform) {
+            return entry.second;
+        }
     }
+    VPUX_THROW("Unknown platform '{0}'", platform);
 }
 
-uint32_t vpux::VPU::getMaxArchDPUClusterNum(mlir::Operation* op) {
-    return VPU::getMaxArchDPUClusterNum(config::getArch(op));
+uint32_t vpux::VPU::getMaxDPUClusterNum(config::Platform platform) {
+    return getPlatformCapabilities(platform).maxTiles;
 }
 
-uint32_t vpux::VPU::getMaxDMAPorts(config::ArchKind arch) {
-    switch (arch) {
-    case config::ArchKind::NPU37XX:
-        return VPUX37XX_MAX_DMA_PORTS;
-    case config::ArchKind::NPU40XX:
-        return VPUX40XX_MAX_DMA_PORTS;
-    case config::ArchKind::NPU50XX:
-        return VPUX50XX_MAX_DMA_PORTS;
-    default:
-        VPUX_THROW("Unsupported architecture '{0}'", arch);
-    }
+uint32_t vpux::VPU::getMaxDMAPorts(config::Platform platform) {
+    return getPlatformCapabilities(platform).dmaPorts;
 }
 
-double vpux::VPU::getDMABandwidth(config::ArchKind arch, config::RevisionID rev) {
-    switch (arch) {
-    case config::ArchKind::NPU37XX:
-        return VPUNN::get_dram_bandwidth_MBps(VPUNN::VPUDevice::VPU_2_7) / VPU::getDpuFrequency(arch, rev);
+double vpux::VPU::getDMABandwidth(config::Platform platform, config::RevisionID rev) {
+    switch (platform) {
+    case config::Platform::NPU3720:
+        return VPUNN::get_dram_bandwidth_MBps(VPUNN::VPUDevice::VPU_2_7) / VPU::getDpuFrequency(platform, rev);
     default:
         if (VPUNN::PerformanceMode::forceLegacy_G4) {
-            return VPUNN::get_dram_bandwidth_MBps_Legacy(VPUNN::VPUDevice::VPU_4_0) / VPU::getDpuFrequency(arch, rev);
+            return VPUNN::get_dram_bandwidth_MBps_Legacy(VPUNN::VPUDevice::VPU_4_0) /
+                   VPU::getDpuFrequency(platform, rev);
         } else {
-            return VPUNN::get_dram_bandwidth_MBps(VPUNN::VPUDevice::VPU_4_0) / VPU::getDpuFrequency(arch, rev);
+            return VPUNN::get_dram_bandwidth_MBps(VPUNN::VPUDevice::VPU_4_0) / VPU::getDpuFrequency(platform, rev);
         }
     }
 }
@@ -89,24 +93,25 @@ double vpux::VPU::getNCEThroughput() {
     return 8000000.0;
 }
 
-unsigned int vpux::VPU::getDpuFrequency(vpux::config::ArchKind arch, vpux::config::RevisionID rev) {
-    switch (arch) {
-    case config::ArchKind::NPU37XX:
+unsigned int vpux::VPU::getDpuFrequency(vpux::config::Platform platform, vpux::config::RevisionID rev) {
+    switch (platform) {
+    case config::Platform::NPU3720:
         return VPUNN::get_dpu_fclk(VPUNN::VPUDevice::VPU_2_7); /*!< The value 1300 corresponds to Highvcc of dpuclk.
                 (See VPUX37XX HAS #voltage-and-frequency-targets section).
                  */
-    case config::ArchKind::NPU40XX:
+    case config::Platform::NPU4000:
         if (rev >= config::RevisionID::REVISION_B) {
             return 1850;  // MHz; TODO: switch to the value from vpunn, once this frequency is implemented. E#127567
         }
         return VPUNN::get_dpu_fclk(VPUNN::VPUDevice::VPU_4_0);  // 1700 MHZ currently
-    case config::ArchKind::NPU50XX:
+    case config::Platform::NPU5010:
+    case config::Platform::NPU5020:
         if (rev >= config::RevisionID::REVISION_B) {
             return 2100;  // MHz;
         }
         return VPUNN::get_dpu_fclk(VPUNN::VPUDevice::NPU_5_0);  // 1950 MHZ currently
     default:
-        Logger::global().warning("Use default NPU_4 DPU frequency for {0}", arch);
+        Logger::global().warning("Use default NPU_4 DPU frequency for {0}", platform);
         return VPUNN::get_dpu_fclk(VPUNN::VPUDevice::VPU_4_0);
         /* TODO: verify the correct value for NPU50XX+. Value set to the maximal
          * dpu_clk value from NPU50XX+ HAS (See vpu4 #clocks section)
@@ -168,24 +173,8 @@ Byte vpux::VPU::getTotalCMXSize(mlir::Operation* op) {
 }
 
 Byte vpux::VPU::getTotalCMXFragmentationAwareSize(mlir::ModuleOp module) {
-    auto cmxRes = config::getAvailableMemory(
-            module, mlir::SymbolRefAttr::get(module.getContext(), VPU::CMX_NN_FragmentationAware));
-    VPUX_THROW_UNLESS(cmxRes != nullptr, "Can't get information about {0} memory", VPU::CMX_NN_FragmentationAware);
-
-    const auto arch = config::getArch(module);
-
-    // This function is used to determine the best tile size. It tries to put maximum data in CMX.
-    // Available CMX memory is decreased by two profilingBufferSize even if profiling is disabled
-    // because we want to get exactly same compiled networks with profiling enabled and disabled.
-    // Two buffer sizes are required in case when profiling allocates new buffer and old buffer
-    // is still not disposed. Second buffer can be treated as an optimisation that prevents spilling.
-    const int64_t profilingBufferSize =
-            vpux::VPUIP::HW_DMA_PROFILING_MAX_BUFFER_SIZE +
-            (config::isProfilingEnabled(module) ? vpux::VPUIP::getDPUProfMaxBufferSize(arch)
-                                                : vpux::VPUIP::HW_DPU_PROFILING_MAX_BUFFER_SIZE) +
-            ((arch == config::ArchKind::NPU37XX) ? vpux::VPUIP::HW_ACT_SHAVE_PROFILING_MAX_BUFFER_SIZE : 0);
-
-    return cmxRes.size() - Byte(2 * profilingBufferSize);
+    return Byte(static_cast<int64_t>(
+            std::ceil(static_cast<double>(getTotalCMXSize(module).count()) * FRAGMENTATION_AVOID_RATIO)));
 }
 
 Byte vpux::VPU::getTotalCMXFragmentationAwareSize(mlir::Operation* op) {
@@ -404,10 +393,6 @@ mlir::LogicalResult vpux::VPU::verify(FuncRef<mlir::InFlightDiagnostic()> emitEr
 
     // Limitations on tiling axes
     if (distributionMode == VPU::DistributionMode::OVERLAPPED) {
-        if (axis != Dims4D::Act::H.ind() && axis != Dims4D::Act::W.ind() && axis != Dims4D::Act::N.ind()) {
-            return printTo(emitError(), "Overlapped cluster tiling is only supported for dimensions N, H and W");
-        }
-
         if (distributedAttr.getAlignment() != nullptr) {
             const auto alignment = parseIntArrayAttr<int64_t>(distributedAttr.getAlignment());
             if (alignment[axis] != 1) {
@@ -607,6 +592,14 @@ bool vpux::VPU::isHaloAssistedSliceOptimizationSupported(mlir::Operation* op) {
     return arch >= config::ArchKind::NPU50XX;
 }
 
+bool vpux::VPU::isPipelineAwareConvSplitOverICSupported(config::Platform platform) {
+    return platform == config::Platform::NPU5010;
+}
+
+bool vpux::VPU::isPipelineAwareConvSplitOverICSupported(mlir::Operation* op) {
+    return isPipelineAwareConvSplitOverICSupported(config::getPlatform(op));
+}
+
 //
 // Tiling utils
 //
@@ -776,6 +769,7 @@ std::optional<SmallVector<DimRange>> getOverlappedInputTileDimRanges(
     const auto padLeft = pad.value().getLeftPad();
     const auto padRight = pad.value().getRightPad();
     SmallVector<DimRange> inputTileDimRanges;
+    inputTileDimRanges.reserve(outputTiles.size());
     for (const auto& outputTile : outputTiles) {
         const auto dimSize = outputTile[Dim(axis)];
         const DimRange tileSize(offset, offset + dimSize);
@@ -810,7 +804,7 @@ SmallVector<Shape> vpux::VPU::getPerClusterComputeShapes(ShapeRef shapeRef, cons
     auto tiledComputeShapes = SmallVector<Shape>(numClusters);
 
     std::optional<ArrayRef<int64_t>> optionalAlignment = std::nullopt;
-    auto alignment = SmallVector<int64_t>(distribution.getAlignment());
+    const ArrayRef<int64_t> alignment = distribution.getAlignment();
     if (!alignment.empty()) {
         optionalAlignment = std::optional<ArrayRef<int64_t>>(alignment);
     }
@@ -924,7 +918,7 @@ std::optional<SmallVector<Shape>> vpux::VPU::getPerClusterMemoryShapes(ShapeRef 
     auto tiledMemoryShapes = SmallVector<Shape>(numClusters);
 
     std::optional<ArrayRef<int64_t>> optionalAlignment = std::nullopt;
-    auto alignment = SmallVector<int64_t>(distribution.getAlignment());
+    const ArrayRef<int64_t> alignment = distribution.getAlignment();
     if (!alignment.empty()) {
         optionalAlignment = std::optional<ArrayRef<int64_t>>(alignment);
     }
@@ -1146,11 +1140,13 @@ SmallVector<PadInfo> vpux::VPU::getPerClusterPadding(DistributionInfoAttr distri
 }
 
 SmallVector<StridedShape> vpux::VPU::getPerClusterMemoryStridedShapes(ShapeRef shape, StridesRef strides,
-                                                                      DimsOrder dimsOrder, DistributionModeAttr mode,
+                                                                      const DimsOrder& dimsOrder,
+                                                                      DistributionModeAttr mode,
                                                                       ArrayRef<Shape> memoryShapes) {
     const auto distributionMode = mode.getValue();
 
     SmallVector<StridedShape> stridedShapes;
+    stridedShapes.reserve(memoryShapes.size());
     if (VPU::bitEnumContainsAny(distributionMode, VPU::DistributionMode::DUPLICATED)) {
         for (const auto& memoryShape : memoryShapes) {
             stridedShapes.emplace_back(memoryShape, strides);
@@ -1173,6 +1169,7 @@ SmallVector<StridedShape> vpux::VPU::getPerClusterMemoryStridedShapes(ShapeRef s
 SmallVector<Shape> vpux::VPU::arrayAttrToVecOfShapes(mlir::ArrayAttr arr) {
     SmallVector<Shape> shapesVec;
     const auto parsedVec = parseIntArrayOfArrayAttr<int64_t>(arr);
+    shapesVec.reserve(parsedVec.size());
     for (auto ind : irange(parsedVec.size())) {
         shapesVec.push_back(Shape(parsedVec[ind]));
     }
@@ -1385,6 +1382,7 @@ VPU::SparsityCompressionAttr VPU::tileSparsityCompression(VPU::SparsityCompressi
 
 SmallVector<SmallVector<int64_t>> VPU::arrayOfArrayFromShape(ArrayRef<Shape> shape) {
     SmallVector<SmallVector<int64_t>> ret;
+    ret.reserve(shape.size());
     for (const auto& a : shape) {
         ret.push_back(a.raw());
     }

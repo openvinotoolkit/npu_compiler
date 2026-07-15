@@ -159,6 +159,21 @@ std::optional<size_t> OpTilingCache::getDPUWorkloadCost(llvm::hash_code opHash) 
     return result;
 }
 
+std::optional<std::optional<TemporalTilingInfo>> OpTilingCache::getTemporalTilingInfo(llvm::hash_code opHash) {
+    if (!_enableCache) {
+        return std::nullopt;
+    }
+    _temporalTilingAccessCount.fetch_add(1, std::memory_order_relaxed);
+
+    auto result = _temporalTilingCache.find(opHash);
+
+    if (result.has_value()) {
+        _temporalTilingHitCount.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    return result;
+}
+
 std::optional<SmallVector<DimArr>> OpTilingCache::getValidPermutations(llvm::hash_code opHash) {
     if (!_enableCache) {
         return std::nullopt;
@@ -230,6 +245,10 @@ void OpTilingCache::printStats(Logger& logger) const {
     logCacheStats("Valid permutations", validPermutationsHitCount, validPermutationsAccessCount);
     logCacheStats("Dim Order", dimOrderHitCount, dimOrderAccessCount);
     logCacheStats("DPU Workload cost", dpuTaskOpCostHitCount, dpuTaskOpCostAccessCount);
+
+    auto temporalTilingHitCount = _temporalTilingHitCount.load(std::memory_order_relaxed);
+    auto temporalTilingAccessCount = _temporalTilingAccessCount.load(std::memory_order_relaxed);
+    logCacheStats("Temporal tiling", temporalTilingHitCount, temporalTilingAccessCount);
 }
 
 void OpTilingCache::updateOutputTiling(const llvm::hash_code opHash, mlir::Operation* op,
@@ -298,7 +317,13 @@ void OpTilingCache::updateDPUWorkloadCost(llvm::hash_code opHash, size_t cost) {
 
     _dpuTaskOpCostCache.insert(opHash, cost);
 }
+void OpTilingCache::updateTemporalTilingInfo(llvm::hash_code opHash, const std::optional<TemporalTilingInfo>& info) {
+    if (!_enableCache) {
+        return;
+    }
 
+    _temporalTilingCache.insert(opHash, info);
+}
 void OpTilingCache::cleanUp() {
     _tilingAccessCount = 0;
     _tilingHitCount = 0;
@@ -314,6 +339,8 @@ void OpTilingCache::cleanUp() {
     _dimOrderAccessCount = 0;
     _dpuTaskOpCostHitCount = 0;
     _dpuTaskOpCostAccessCount = 0;
+    _temporalTilingHitCount = 0;
+    _temporalTilingAccessCount = 0;
 
     _tilingCache.clear();
     _opHashToInputOutputModeHash.clear();
@@ -323,6 +350,7 @@ void OpTilingCache::cleanUp() {
     _dimOrderCache.clear();
     _perClusterShapeCache.clear();
     _dpuTaskOpCostCache.clear();
+    _temporalTilingCache.clear();
 }
 
 bool OpTilingCache::isCacheSupported() {

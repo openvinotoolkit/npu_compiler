@@ -334,8 +334,14 @@ func.func @OptimizeConvConcatWithBias(%arg0: tensor<1x16x512x512xf16>) -> (tenso
 
     return %2 : tensor<1x4x512x512xf16>
 
-    // CHECK-DAG:       [[WEIGHTS:%.+]] = const.Declare tensor<4x16x1x1xf16> = dense<1.000000e+00> : tensor<4x16x1x1xf16>
-    // CHECK-DAG:       [[BIAS:%.+]] = const.Declare tensor<1x4x1x1xf16> = dense<1.000000e+00> : tensor<1x4x1x1xf16>
+    // CHECK-DAG:       [[WEIGHTS:%.+]] = const.Declare tensor<4x16x1x1xf16>
+    // CHECK-SAME:          #const.Concat
+    // CHECK-SAME:          dense<1.000000e+00>
+    // CHECK-SAME:          dense<1.000000e+00>
+    // CHECK-DAG:       [[BIAS:%.+]] = const.Declare tensor<1x4x1x1xf16>
+    // CHECK-SAME:          #const.Concat
+    // CHECK-SAME:          dense<1.000000e+00>
+    // CHECK-SAME:          dense<1.000000e+00>
 
     // CHECK:           [[CONV:%.+]] = IE.Convolution([[INPUT]], [[WEIGHTS]], [[BIAS]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x512x512xf16>, tensor<4x16x1x1xf16>, tensor<1x4x1x1xf16> -> tensor<1x4x512x512xf16>
     // CHECK:           return [[CONV]] : tensor<1x4x512x512xf16>
@@ -355,7 +361,10 @@ func.func @OptimizeConvConcatWithoutBias(%arg0: tensor<1x16x512x512xf16>) -> (te
 
     return %2 : tensor<1x4x512x512xf16>
 
-    // CHECK-DAG:       [[WEIGHTS:%.+]] = const.Declare tensor<4x16x1x1xf16> = dense<1.000000e+00> : tensor<4x16x1x1xf16>
+    // CHECK-DAG:       [[WEIGHTS:%.+]] = const.Declare tensor<4x16x1x1xf16>
+    // CHECK-SAME:          #const.Concat
+    // CHECK-SAME:          dense<1.000000e+00>
+    // CHECK-SAME:          dense<1.000000e+00>
 
     // CHECK:           [[CONV:%.+]] = IE.Convolution([[INPUT]], [[WEIGHTS]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x512x512xf16>, tensor<4x16x1x1xf16> -> tensor<1x4x512x512xf16>
     // CHECK:           return [[CONV]] : tensor<1x4x512x512xf16>
@@ -376,9 +385,12 @@ func.func @OptimizeConvConcatOneHasBias(%arg0: tensor<1x16x512x512xf16>) -> (ten
 
     return %2 : tensor<1x4x512x512xf16>
 
-    // CHECK-DAG:           [[WEIGHTS:%.+]] = const.Declare tensor<4x16x1x1xf16> = dense<1.000000e+00> : tensor<4x16x1x1xf16>
-    // CHECK-DAG:           [[BIAS:%.+]] = const.Declare tensor<1x4x1x1xf16> =
-    // CHECK-SAME{LITERAL}:     dense<[[[[0.000000e+00]], [[0.000000e+00]], [[0.000000e+00]], [[1.000000e+00]]]]> : tensor<1x4x1x1xf16>
+    // CHECK-DAG:           [[WEIGHTS:%.+]] = const.Declare tensor<4x16x1x1xf16>
+    // CHECK-SAME:              #const.Concat
+    // CHECK-SAME:              dense<1.000000e+00>
+    // CHECK-SAME:              dense<1.000000e+00>
+    // CHECK-DAG:           [[BIAS:%.+]] = const.Declare tensor<1x4x1x1xf16>
+    // CHECK-SAME:              #const.Concat
 
     // CHECK:               [[CONV:%.+]] = IE.Convolution([[INPUT]], [[WEIGHTS]], [[BIAS]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x512x512xf16>, tensor<4x16x1x1xf16>, tensor<1x4x1x1xf16> -> tensor<1x4x512x512xf16>
     // CHECK:               return [[CONV]] : tensor<1x4x512x512xf16>
@@ -503,6 +515,101 @@ func.func @NotOptimizeSliceMultiplyConcatForNonSplatScale(%arg0: tensor<1x24x1x6
 
 // -----
 
+// CHECK-LABEL: @NotOptimizeGroupConvConcatForUnsupportedPrecision
+// CHECK-SAME:    [[INPUT:%.+]]: tensor<1x16x144x144xf32>
+func.func @NotOptimizeGroupConvConcatForUnsupportedPrecision(%arg0: tensor<1x16x144x144xf32>) -> (tensor<1x32x144x144xf32>) {
+    %cst_0 = const.Declare tensor<16x16x1x1xf32> = dense<1.0> : tensor<16x16x1x1xf32>
+    %cst_1 = const.Declare tensor<16x1x3x3xf32> = dense<1.0> : tensor<16x1x3x3xf32>
+    %0 = IE.Convolution(%arg0, %cst_0) {
+        dilations = [1, 1],
+        pads_begin = [0, 0],
+        pads_end = [0, 0],
+        strides = [1, 1]
+    } : tensor<1x16x144x144xf32>, tensor<16x16x1x1xf32> -> tensor<1x16x144x144xf32>
+    %1 = IE.GroupConvolution(%0, %cst_1) {
+        dilations = [1, 1],
+        groups = 16 : i64,
+        pads_begin = [1, 1],
+        pads_end = [1, 1],
+        strides = [1, 1]
+    } : tensor<1x16x144x144xf32>, tensor<16x1x3x3xf32> -> tensor<1x16x144x144xf32>
+    %2 = IE.Concat(%0, %1) {static_offsets = [[0, 0, 0, 0], [0, 16, 0, 0]]} : tensor<1x16x144x144xf32>, tensor<1x16x144x144xf32> -> tensor<1x32x144x144xf32>
+
+    return %2 : tensor<1x32x144x144xf32>
+
+    // CHECK:           [[CONV:%.+]] = IE.Convolution([[INPUT]],
+    // CHECK:           [[GROUP_CONV:%.+]] = IE.GroupConvolution([[CONV]],
+    // CHECK:           [[CONCAT:%.+]] = IE.Concat([[CONV]], [[GROUP_CONV]])
+    // CHECK-SAME{LITERAL}:     {static_offsets = [[0, 0, 0, 0], [0, 16, 0, 0]]} : tensor<1x16x144x144xf32>, tensor<1x16x144x144xf32> -> tensor<1x32x144x144xf32>
+    // CHECK:           return [[CONCAT]] : tensor<1x32x144x144xf32>
+}
+
+// -----
+
+// CHECK-LABEL: @NotOptimizeConvConcatForUnsupportedPrecision
+// CHECK-SAME:    [[INPUT:%.+]]: tensor<1x16x32x32xf32>
+func.func @NotOptimizeConvConcatForUnsupportedPrecision(%arg0: tensor<1x16x32x32xf32>) -> (tensor<1x4x32x32xf32>) {
+    %cst = const.Declare tensor<3x16x1x1xf32> = dense<1.0> : tensor<3x16x1x1xf32>
+    %cst_0 = const.Declare tensor<1x16x1x1xf32> = dense<1.0> : tensor<1x16x1x1xf32>
+
+    %0 = IE.Convolution(%arg0, %cst) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x32x32xf32>, tensor<3x16x1x1xf32> -> tensor<1x3x32x32xf32>
+    %1 = IE.Convolution(%arg0, %cst_0) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x32x32xf32>, tensor<1x16x1x1xf32> -> tensor<1x1x32x32xf32>
+    %2 = IE.Concat(%0, %1) {static_offsets = [[0, 0, 0, 0], [0, 3, 0, 0]]} : tensor<1x3x32x32xf32>, tensor<1x1x32x32xf32> -> tensor<1x4x32x32xf32>
+
+    return %2 : tensor<1x4x32x32xf32>
+
+    // CHECK:               [[CONV_0:%.+]] = IE.Convolution([[INPUT]],
+    // CHECK:               [[CONV_1:%.+]] = IE.Convolution([[INPUT]],
+    // CHECK:               [[CONCAT:%.+]] = IE.Concat([[CONV_0]], [[CONV_1]])
+    // CHECK-SAME{LITERAL}:     {static_offsets = [[0, 0, 0, 0], [0, 3, 0, 0]]} : tensor<1x3x32x32xf32>, tensor<1x1x32x32xf32> -> tensor<1x4x32x32xf32>
+    // CHECK:               return [[CONCAT]] : tensor<1x4x32x32xf32>
+}
+
+// -----
+
+// CHECK-LABEL: @NotOptimizeConvConcatForUnsupportedPrecisionFP64
+// CHECK-SAME:    [[INPUT:%.+]]: tensor<1x16x8x8xf64>
+func.func @NotOptimizeConvConcatForUnsupportedPrecisionFP64(%arg0: tensor<1x16x8x8xf64>) -> (tensor<1x4x8x8xf64>) {
+    %cst = const.Declare tensor<3x16x1x1xf64> = dense<1.0> : tensor<3x16x1x1xf64>
+    %cst_0 = const.Declare tensor<1x16x1x1xf64> = dense<1.0> : tensor<1x16x1x1xf64>
+
+    %0 = IE.Convolution(%arg0, %cst) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x8x8xf64>, tensor<3x16x1x1xf64> -> tensor<1x3x8x8xf64>
+    %1 = IE.Convolution(%arg0, %cst_0) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x8x8xf64>, tensor<1x16x1x1xf64> -> tensor<1x1x8x8xf64>
+    %2 = IE.Concat(%0, %1) {static_offsets = [[0, 0, 0, 0], [0, 3, 0, 0]]} : tensor<1x3x8x8xf64>, tensor<1x1x8x8xf64> -> tensor<1x4x8x8xf64>
+
+    return %2 : tensor<1x4x8x8xf64>
+
+    // CHECK:               [[CONV_0:%.+]] = IE.Convolution([[INPUT]],
+    // CHECK:               [[CONV_1:%.+]] = IE.Convolution([[INPUT]],
+    // CHECK:               [[CONCAT:%.+]] = IE.Concat([[CONV_0]], [[CONV_1]])
+    // CHECK-SAME{LITERAL}:     {static_offsets = [[0, 0, 0, 0], [0, 3, 0, 0]]} : tensor<1x3x8x8xf64>, tensor<1x1x8x8xf64> -> tensor<1x4x8x8xf64>
+    // CHECK:               return [[CONCAT]] : tensor<1x4x8x8xf64>
+}
+
+// -----
+
+// CHECK-LABEL: @NotOptimizeSliceMultiplyConcatForUnsupportedPrecision
+// CHECK-SAME:    [[INPUT:%.+]]: tensor<1x24x1x64xf32>
+func.func @NotOptimizeSliceMultiplyConcatForUnsupportedPrecision(%arg0: tensor<1x24x1x64xf32>) -> (tensor<1x24x1x64xf32>) {
+    %cst = const.Declare tensor<1x1x1x1xf32> = dense<-1.000000e+00> : tensor<1x1x1x1xf32>
+
+    %0 = IE.Slice %arg0 [0, 0, 0, 32] [1, 24, 1, 32] : tensor<1x24x1x64xf32> to tensor<1x24x1x32xf32>
+    %1 = IE.Multiply(%0, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x24x1x32xf32>, tensor<1x1x1x1xf32> -> tensor<1x24x1x32xf32>
+    %2 = IE.Slice %arg0 [0, 0, 0, 0] [1, 24, 1, 32] : tensor<1x24x1x64xf32> to tensor<1x24x1x32xf32>
+    %3 = IE.Concat(%1, %2) {static_offsets = [[0, 0, 0, 0], [0, 0, 0, 32]]} : tensor<1x24x1x32xf32>, tensor<1x24x1x32xf32> -> tensor<1x24x1x64xf32>
+
+    return %3 : tensor<1x24x1x64xf32>
+
+    // CHECK:           [[SLICE_0:%.+]] = IE.Slice [[INPUT]] [0, 0, 0, 32] [1, 24, 1, 32] : tensor<1x24x1x64xf32> to tensor<1x24x1x32xf32>
+    // CHECK:           [[MULTIPLY:%.+]] = IE.Multiply([[SLICE_0]],
+    // CHECK:           [[SLICE_1:%.+]] = IE.Slice [[INPUT]] [0, 0, 0, 0] [1, 24, 1, 32] : tensor<1x24x1x64xf32> to tensor<1x24x1x32xf32>
+    // CHECK:           [[CONCAT:%.+]] = IE.Concat([[MULTIPLY]], [[SLICE_1]])
+    // CHECK-SAME{LITERAL}:     {static_offsets = [[0, 0, 0, 0], [0, 0, 0, 32]]} : tensor<1x24x1x32xf32>, tensor<1x24x1x32xf32> -> tensor<1x24x1x64xf32>
+    // CHECK:           return [[CONCAT]] : tensor<1x24x1x64xf32>
+}
+
+// -----
+
 !qElemType = !quant.uniform<u8:f16, 3.1906749834032623E-5>
 !qElemType1 = !quant.uniform<u8:f16:0, {0.04918184093400544:128,0.072342521069096583:128,0.056963582132376879:128}>
 !qElemType2 = !quant.uniform<u8:f16:0, {0.064222440532609532:128,0.063976377599379602:128,0.057332676532221773:128}>
@@ -523,11 +630,15 @@ func.func @PropagateOutputTypeOfInputTensorIntoOutputConvType(%arg0: tensor<1x51
   %2 = IE.Concat(%0, %1) {static_offsets = [[0, 0, 0, 0], [0, 3, 0, 0]]} : tensor<1x3x1x1xf16>, tensor<1x3x1x1xf16> -> tensor<1x6x1x1xf16>
   return %2 : tensor<1x6x1x1xf16>
 
-  // CHECK-DAG:       [[CST:%.+]] = const.Declare tensor<6x512x1x1x!qElemType1> = dense<129> : tensor<6x512x1x1xui8>, [#const.CastElemType<!qElemType1>]
-  // CHECK-DAG:       [[CST_0:%.+]] =  const.Declare tensor<1x6x1x1xf16> = dense<1.000000e+00> : tensor<1x6x1x1xf16>
-
+  // CHECK-DAG:       [[CST:%.+]] = const.Declare tensor<6x512x1x1x
+  // CHECK-SAME:          #const.Concat
+  // CHECK-SAME:          dense<1>
+  // CHECK-SAME:          dense<1>
+  // CHECK-DAG:       [[CST_0:%.+]] = const.Declare tensor<1x6x1x1xf16>
+  // CHECK-SAME:          #const.Concat
+  // CHECK-SAME:          dense<1.000000e+00>
+  // CHECK-SAME:          dense<1.000000e+00>
   // CHECK:    [[CONVOLUTION:%.+]] = IE.Convolution([[INPUT]], [[CST]], [[CST_0]]) {
   // CHECK-SAME: dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]
-  // CHECK-SAME: } : tensor<1x512x1x1x!qElemType>, tensor<6x512x1x1x!qElemType1>, tensor<1x6x1x1xf16> -> tensor<1x6x1x1xf16>
   // CHECK:    return [[CONVOLUTION]] : tensor<1x6x1x1xf16>
 }

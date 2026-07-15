@@ -56,10 +56,10 @@
 // CHECK-SAME:      [[CONV_INPUT:%.+]]: !VPU.DistributedTensor<1x48x256x16xf16, #NHWC, @CMX_NN,
 // CHECK-SAME:      [[CONV_WEIGHTS:%.+]]: !VPU.SparseTensor<data=!VPU.DistributedTensor<256x48x3x2xf16, #NHWC, @CMX_NN,
 func.func @OptimizeShapeCastCopies(%conv_input: !ConvInputTensor, %conv_weights: !ConvWeightsTensor) -> !NextOverlappingInputTensor {
-    %conv = VPU.NCE.Convolution(%conv_input, %conv_weights) {
+    %conv = VPU.NCE.Convolution(%conv_input, %conv_weights) rawFilterShape [256, 48, 3, 2] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 0 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
-        rawFilterShape = [256, 48, 3, 2],
+        
         strides = [2, 1]
     } : !ConvInputTensor, !ConvWeightsTensor -> !ConvOutputTensor
     %conv_cmx_to_ddr = VPU.UnrolledType(%conv : !ConvOutputTensor) -> tensor<1x256x128x16xf16, {order = #NHWC}>
@@ -67,7 +67,7 @@ func.func @OptimizeShapeCastCopies(%conv_input: !ConvInputTensor, %conv_weights:
     %ddr_to_next_cmx = VPU.UnrolledType(%shape_cast : tensor<1x32x128x128xf16, {order = #NHWC}>) -> !NextOverlappingInputTensor
     return %ddr_to_next_cmx : !NextOverlappingInputTensor
 
-    // CHECK:               [[CONV:%.+]] = VPU.NCE.Convolution([[CONV_INPUT]], [[CONV_WEIGHTS]]) {
+    // CHECK:               [[CONV:%.+]] = VPU.NCE.Convolution([[CONV_INPUT]], [[CONV_WEIGHTS]]){{.*}} {
     // CHECK:               [[SHAPE_CAST:%.+]] = VPU.ShapeCast {shape = [1, 32, 128, 128]} inputs([[CONV]] : !VPU.DistributedTensor<1x256x128x16xf16, #NHWC, @CMX_NN,
     // CHECK-SAME{LITERAL}:     compute_shapes = [[1, 256, 22, 16], [1, 256, 22, 16], [1, 256, 21, 16], [1, 256, 21, 16], [1, 256, 21, 16], [1, 256, 21, 16]],
     // CHECK-SAME{LITERAL}:     compute_offsets = [[0, 0, 0, 0], [0, 0, 22, 0], [0, 0, 44, 0], [0, 0, 65, 0], [0, 0, 86, 0], [0, 0, 107, 0]],
@@ -137,10 +137,10 @@ func.func @OptimizeShapeCastCopies(%conv_input: !ConvInputTensor, %conv_weights:
 // CHECK-SAME:      [[CONV_INPUT:%.+]]: !VPU.DistributedTensor<1x48x256x16xf16, #NHWC, @CMX_NN,
 // CHECK-SAME:      [[CONV_WEIGHTS:%.+]]: !VPU.SparseTensor<data=!VPU.DistributedTensor<256x48x3x2xf16, #NHWC, @CMX_NN,
 func.func @OptimizeShapeCastCopiesWithMultUsers(%conv_input: !ConvInputTensor, %conv_weights: !ConvWeightsTensor) -> (!NextOverlappingInputTensor, !NextOverlappingInputTensor) {
-    %conv = VPU.NCE.Convolution(%conv_input, %conv_weights) {
+    %conv = VPU.NCE.Convolution(%conv_input, %conv_weights) rawFilterShape [256, 48, 3, 2] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 0 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
-        rawFilterShape = [256, 48, 3, 2],
+        
         strides = [2, 1]
     } : !ConvInputTensor, !ConvWeightsTensor -> !ConvOutputTensor
     %conv_cmx_to_ddr = VPU.UnrolledType(%conv : !ConvOutputTensor) -> tensor<1x256x128x16xf16, {order = #NHWC}>
@@ -149,7 +149,7 @@ func.func @OptimizeShapeCastCopiesWithMultUsers(%conv_input: !ConvInputTensor, %
     %ddr_to_next_cmx1 = VPU.UnrolledType(%shape_cast : tensor<1x32x128x128xf16, {order = #NHWC}>) -> !NextOverlappingInputTensor
     return %ddr_to_next_cmx0, %ddr_to_next_cmx1 : !NextOverlappingInputTensor, !NextOverlappingInputTensor
 
-    // CHECK:               [[CONV:%.+]] = VPU.NCE.Convolution([[CONV_INPUT]], [[CONV_WEIGHTS]]) {
+    // CHECK:               [[CONV:%.+]] = VPU.NCE.Convolution([[CONV_INPUT]], [[CONV_WEIGHTS]]){{.*}} {
     // CHECK:               [[SHAPE_CAST:%.+]] = VPU.ShapeCast {shape = [1, 32, 128, 128]} inputs([[CONV]] : !VPU.DistributedTensor<1x256x128x16xf16, #NHWC, @CMX_NN,
     // CHECK-SAME{LITERAL}:     compute_shapes = [[1, 256, 22, 16], [1, 256, 22, 16], [1, 256, 21, 16], [1, 256, 21, 16], [1, 256, 21, 16], [1, 256, 21, 16]],
     // CHECK-SAME{LITERAL}:     compute_offsets = [[0, 0, 0, 0], [0, 0, 22, 0], [0, 0, 44, 0], [0, 0, 65, 0], [0, 0, 86, 0], [0, 0, 107, 0]],
@@ -234,7 +234,7 @@ func.func @NotOptimizeShapeCastCopies(%eltwise_input1: !EltwiseTensorType, %eltw
 
 // CHECK-LABEL: @DoNotOptimizeShapeCastCopiesForSiblingEltwise
 func.func @DoNotOptimizeShapeCastCopiesForSiblingEltwise(%input: !DistributedInput, %weights: !DistributedWeights, %eltwise_input : tensor<1x32x90x160xf16, {order = #NHWC}>) -> (!DistributedShapeCast, tensor<1x32x90x160xf16, {order = #NHWC}>) {
-    %conv = VPU.NCE.Convolution(%input, %weights) {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [32, 16, 3, 3], strides = [1, 1]} : !DistributedInput, !DistributedWeights -> !DistributedOutput
+    %conv = VPU.NCE.Convolution(%input, %weights) rawFilterShape [32, 16, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>,  strides = [1, 1]} : !DistributedInput, !DistributedWeights -> !DistributedOutput
     %conv_to_ddr = VPU.UnrolledType(%conv : !DistributedOutput) -> tensor<1x32x90x160xf16, {order = #NHWC}>
     %shape_cast = VPU.ShapeCast {shape = [1, 128, 90, 40]} inputs(%conv_to_ddr : tensor<1x32x90x160xf16, {order = #NHWC}>) -> tensor<1x128x90x40xf16, {order = #NHWC}>
     %shape_cast_to_cmx = VPU.UnrolledType(%shape_cast : tensor<1x128x90x40xf16, {order = #NHWC}>) -> !DistributedShapeCast
@@ -250,4 +250,40 @@ func.func @DoNotOptimizeShapeCastCopiesForSiblingEltwise(%input: !DistributedInp
     // CHECK:       VPU.ShapeCast
     // CHECK-SAME:    inputs({{.+}} : tensor<1x32x90x160xf16, {order = #NHWC}>)
     // CHECK-SAME:    -> tensor<1x128x90x40xf16, {order = #NHWC}>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!ShapeCastInputTensor = !VPU.DistributedTensor<1x32x4x640xf16, #NCHW, @CMX_NN, {
+    mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments,
+    compute_shapes = [[1, 32, 2, 640], [1, 32, 2, 640]],
+    compute_offsets = [[0, 0, 0, 0], [0, 0, 2, 0]],
+    memory_shapes = [[1, 32, 2, 640], [1, 32, 2, 640]],
+    memory_offsets = [[0, 0, 0, 0], [0, 0, 2, 0]]
+}>
+
+!ShapeCastOutputTensor = !VPU.DistributedTensor<1x1280x4x16xf16, #NCHW, @CMX_NN, {
+    mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments,
+    compute_shapes = [[1, 1280, 2, 16], [1, 1280, 2, 16]],
+    compute_offsets = [[0, 0, 0, 0], [0, 0, 2, 0]],
+    memory_shapes = [[1, 1280, 2, 16], [1, 1280, 2, 16]],
+    memory_offsets = [[0, 0, 0, 0], [0, 0, 2, 0]]
+}>
+
+// CHECK-LABEL: @DoNotOptimizeShapeCastCopiesWhenTiledDimIsNotMemoryCompatible
+// CHECK-SAME:      [[INPUT:%.+]]: !VPU.DistributedTensor<1x32x4x640xf16, #NCHW, @CMX_NN,
+func.func @DoNotOptimizeShapeCastCopiesWhenTiledDimIsNotMemoryCompatible(%input: !ShapeCastInputTensor) -> !ShapeCastOutputTensor {
+    %cmx_to_ddr = VPU.UnrolledType(%input : !ShapeCastInputTensor) -> tensor<1x32x4x640xf16, {order = #NCHW}>
+    %shape_cast = VPU.ShapeCast {shape = [1, 1280, 4, 16]} inputs(%cmx_to_ddr : tensor<1x32x4x640xf16, {order = #NCHW}>) -> tensor<1x1280x4x16xf16, {order = #NCHW}>
+    %ddr_to_cmx = VPU.UnrolledType(%shape_cast : tensor<1x1280x4x16xf16, {order = #NCHW}>) -> !ShapeCastOutputTensor
+    return %ddr_to_cmx : !ShapeCastOutputTensor
+
+    // CHECK:               [[COPY_IN:%.+]] = VPU.Copy([[INPUT]]
+    // CHECK:               [[SHAPE_CAST:%.+]] = VPU.ShapeCast {shape = [1, 1280, 4, 16]} inputs([[COPY_IN]]
+    // CHECK-SAME:              tensor<1x32x4x640xf16, {order = #NCHW}>
+    // CHECK-SAME:           -> tensor<1x1280x4x16xf16, {order = #NCHW}>
+    // CHECK:               [[COPY_OUT:%.+]] = VPU.Copy([[SHAPE_CAST]]
+    // CHECK:               return [[COPY_OUT]] : !VPU.DistributedTensor<1x1280x4x16xf16, #NCHW, @CMX_NN,
 }

@@ -107,7 +107,7 @@ void BoundedTensorsToDynamicDimsMask::safeRunOnModule() {
     // pipeline, this pass is executed on the main function, which contains host-side code as well. Ideally, this pass
     // should not operate on the main function in the HostCompile pipeline. This will be refactored in the future.
     // Track: E#168311
-    auto hostCompileMode = (config::getCompilationMode(module) == config::CompilationMode::HostCompile);
+    auto hostCompileMode = config::isHostCompileMode(module);
     target.addLegalDialect<mlir::scf::SCFDialect>();
     target.addLegalOp<mlir::tensor::ExtractSliceOp>();
     if (hostCompileMode) {

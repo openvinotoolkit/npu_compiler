@@ -9,6 +9,7 @@
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/types.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/utils.hpp"
 
+using namespace vpux;
 using namespace NPUReg40XX;
 using namespace NPUReg40XX::Descriptors;
 using namespace vpux::VPURegMapped;

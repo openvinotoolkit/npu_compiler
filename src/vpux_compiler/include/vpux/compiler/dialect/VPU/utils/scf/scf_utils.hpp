@@ -9,6 +9,7 @@
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vf_merge_configuration.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
@@ -24,10 +25,33 @@
 #include <mlir/IR/OpDefinition.h>
 #include <mlir/Interfaces/TilingInterface.h>
 
+#include <array>
+
 namespace vpux::VPU {
 
 enum class TilePosition { MIDDLE = 0, END = 1, START = 2, FULLBLK = 3 };
 constexpr size_t NUMBITS = 2;
+
+int64_t getTilePositionShift(vpux::Dim dim);
+
+mlir::Value encodePointPosition(mlir::OpBuilder& builder, mlir::Location loc, ArrayRef<mlir::Value> values,
+                                ArrayRef<mlir::Value> shiftAmounts);
+int64_t getEncodedPointPosition(ArrayRef<std::pair<vpux::Dim, TilePosition>> dimPositions);
+TilePosition getDimPosition(int64_t pointEncoded, vpux::Dim dim);
+int64_t setDimPosition(int64_t pointEncoded, vpux::Dim dim, TilePosition pos);
+SmallVector<TilePosition> decodePointPosition(int64_t encoded, ArrayRef<vpux::Dim> dims);
+
+// Range encoding: each dim slot expands to 2*NUMBITS bits {end[1:0], start[1:0]}.
+// rangeStartShift(dim) = getTilePositionShift(dim) * 2
+// rangeEndShift(dim)   = getTilePositionShift(dim) * 2 + NUMBITS
+int64_t encodeRangePosition(vpux::Dim dim, int64_t currentValue, TilePosition start, TilePosition end);
+std::pair<TilePosition, TilePosition> decodeRangePosition(int64_t rangeEncoded, vpux::Dim dim);
+
+// TilePosition bit layout: bit1 = keepStart, bit0 = keepEnd.
+inline std::pair<bool, bool> getTilePaddingMask(TilePosition pos) {
+    auto v = static_cast<int>(pos);
+    return {(v >> 1) & 1, v & 1};
+}
 
 /** @brief Information about a tile.
 
@@ -252,10 +276,10 @@ mlir::Operation* createTiledPaddedOperation(OpGeneratorFunc opGenerator, OpTilin
     auto rankedType = mlir::cast<mlir::RankedTensorType>(tiledOperands[0].getType());
     staticDims.reserve(rankedType.getRank());
     llvm::transform(llvm::seq<size_t>(0, rankedType.getRank()), std::back_inserter(staticDims), [&](auto i) {
-        if (rankedType.isDynamicDim(i)) {
+        if (rankedType.isDynamicDim(checked_cast<unsigned>(i))) {
             return mlir::ShapedType::kDynamic;
         }
-        return rankedType.getDimSize(i);
+        return rankedType.getDimSize(checked_cast<unsigned>(i));
     });
 
     tiledOperands[0].setType(mlir::RankedTensorType::get(staticDims, tiledType.getElementType(), tensorDesc));
@@ -272,13 +296,15 @@ mlir::Operation* createTiledPaddedOperation(OpGeneratorFunc opGenerator, OpTilin
             auto shapeDimValue = mlir::getConstantIntValue(val);
             return shapeDimValue.value();
         });
-        auto generatedType = mlir::cast<vpux::NDTypeInterface>(generatedOp.getType());
+        auto firstResult = generatedOp->getResult(0);
+        auto generatedType = mlir::cast<vpux::NDTypeInterface>(firstResult.getType());
         auto correctedTensorDesc = vpux::getTensorAttr(generatedType.getContext(), generatedType.getDimsOrder(),
                                                        generatedType.getMemSpace());
 
         mlir::Type correctedTiledOutputType =
                 mlir::RankedTensorType::get(staticOutputShape, generatedType.getElementType(), correctedTensorDesc);
-        return builder.create<mlir::tensor::CastOp>(generatedOp.getLoc(), correctedTiledOutputType, generatedOp);
+        return builder.create<mlir::tensor::CastOp>(generatedOp.getLoc(), correctedTiledOutputType,
+                                                    generatedOp->getResult(0));
     };
 
     // check if next operation has static shape then we cast current dynamic shape to static shape.
@@ -341,7 +367,13 @@ void correctPaddedOutput(mlir::OpBuilder& builder, ConcreteOp operation, SmallVe
     To be extended to more complex checks
 */
 bool checkFusion(mlir::OpOperand& consumer, mlir::OpResult producerCandidate,
-                 const llvm::SetVector<mlir::Operation*>& producers);
+                 const llvm::SetVector<mlir::Operation*>& producers, const MergeConfiguration& mergeConfig);
+
+/** @brief Returns the padded dim of @p op if it is a VPU.Expand with single-dim
+    end-padding (`pads_begin == 0`, exactly one `pads_end[i] > 0`); `std::nullopt`
+    otherwise. Such Expand may be tiled only on non-padded dims; callers must keep
+    the padded dim untiled (see `isSupportedOutTile`). */
+std::optional<vpux::Dim> getSinglePaddedExpandDim(mlir::Operation* op);
 
 /** @brief Generate upper bounds for dynamic tensors
  */

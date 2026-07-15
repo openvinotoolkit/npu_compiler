@@ -18,10 +18,10 @@ namespace vpux {
 
 constexpr int64_t PERMUTE_TO_POOLING_THRESHOLD = 32 * 16 * 224;
 
-DimsOrder getNHWCOutputLayout(DimsOrder memPermute);
+DimsOrder getNHWCOutputLayout(const DimsOrder& memPermute);
 
 SmallVector<std::pair<Shape, DimsOrder>> calculateConversions(ShapeRef originInputShape, const int64_t alignedChannel,
-                                                              DimsOrder targetOrder);
+                                                              const DimsOrder& targetOrder);
 
 bool isLegalConvertToPool(NDTypeInterface inputType, NDTypeInterface outputType, mlir::Operation* parentOp,
                           mlir::AffineMap memPermMap, mlir::MLIRContext* ctx, int64_t numClusters,

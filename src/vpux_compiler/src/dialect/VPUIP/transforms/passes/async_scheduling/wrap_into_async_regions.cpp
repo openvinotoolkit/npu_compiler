@@ -43,8 +43,9 @@ void warpIntoAsyncRegion(VPUIP::AsyncLayerOpInterface op, Logger log) {
     OpBuilderLogger builderLog(log.nest());
     mlir::OpBuilder builder(op, &builderLog);
 
-    auto execOp = builder.create<mlir::async::ExecuteOp>(op->getLoc(), op->getResultTypes(), std::nullopt, std::nullopt,
-                                                         bodyBuilder);
+    auto execOp = builder.create<mlir::async::ExecuteOp>(op->getLoc(), op->getResultTypes(),
+                                                         /* dependencies */ mlir::ValueRange{},
+                                                         /* operands */ mlir::ValueRange{}, bodyBuilder);
     if (executor != nullptr) {
         VPUIP::VPUIPDialect::setExecutor(execOp, executor);
     }

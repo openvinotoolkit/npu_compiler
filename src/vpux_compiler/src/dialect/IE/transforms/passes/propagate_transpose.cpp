@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/normalization.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
@@ -65,11 +66,13 @@ mlir::LogicalResult MoveThroughSoftmax::matchAndRewrite(IE::SoftMaxOp origOp, ml
     const auto transposePerm = DimsOrder::fromAffineMap(transposeOp.getOrderValue().value());
     const auto newSoftmaxAxisInd = transposePerm.dimAt(softmaxAxisInd).ind();
 
-    auto newSoftmaxOp =
-            rewriter.create<IE::SoftMaxOp>(origOp.getLoc(), transposeOp.getInput().getType(), transposeOp.getInput(),
-                                           getIntAttr(getContext(), newSoftmaxAxisInd), origOp.getPadSizeAttr());
-    auto newTransposeOp = rewriter.create<IE::TransposeOp>(transposeOp.getLoc(), newSoftmaxOp.getOutput(),
-                                                           transposeOp.getOrder(), transposeOp.getOrderValueAttr());
+    auto newSoftmaxOp = rewriter.create<IE::SoftMaxOp>(
+            takeOpLoc(origOp, "as_softmax"), transposeOp.getInput().getType(), transposeOp.getInput(),
+            getIntAttr(getContext(), newSoftmaxAxisInd), origOp.getPadSizeAttr(), origOp.getDstElemTypeAttr(),
+            origOp.getMaskAwareAttr());
+    auto newTransposeOp =
+            rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "transpose_softmax_out"), newSoftmaxOp.getOutput(),
+                                             transposeOp.getOrder(), transposeOp.getOrderValueAttr());
     origOp.replaceAllUsesWith(newTransposeOp.getOutput());
 
     return mlir::success();
@@ -190,8 +193,8 @@ mlir::LogicalResult MoveThroughSlice::matchAndRewrite(IE::SliceOp origOp, mlir::
 
             updateSliceAttributes(staticSizes, staticOffsets, orderAttr.getValue(), origPermuteInputOrder);
 
-            auto newSliceOp = rewriter.create<IE::SliceOp>(slice->getLoc(), origTransposeOp.getInput(), staticOffsets,
-                                                           staticSizes);
+            auto newSliceOp = rewriter.create<IE::SliceOp>(takeOpLoc(slice, "as_slice"), origTransposeOp.getInput(),
+                                                           staticOffsets, staticSizes);
 
             auto newTranspose = rewriter.replaceOpWithNewOp<IE::TransposeOp>(slice, newSliceOp.getResult(), nullptr,
                                                                              origTransposeOp.getOrderValueAttr());
@@ -255,8 +258,9 @@ mlir::LogicalResult MoveThroughEltwiseGeneric<ConcreteOp>::matchAndRewrite(Concr
     auto newOp = rewriter.clone(*origOp, mapper);
     vpux::inferReturnTypes(newOp, vpux::InferShapedTypeMode::SHAPE);
 
-    auto newTransposeOp = rewriter.create<IE::TransposeOp>(transposeOp.getLoc(), newOp->getResult(0),
-                                                           transposeOp.getOrder(), transposeOp.getOrderValueAttr());
+    auto newTransposeOp =
+            rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "transpose_eltwise_out"), newOp->getResult(0),
+                                             transposeOp.getOrder(), transposeOp.getOrderValueAttr());
     rewriter.replaceOp(origOp, newTransposeOp.getOutput());
 
     return mlir::success();
@@ -340,15 +344,16 @@ mlir::LogicalResult MoveTransposeThroughMultiply::processMultiplyOpWithBroadCast
 
     if (isVector) {
         auto inversePermutation = mlir::inversePermutation(orderVal.value());
-        anotherInput = rewriter.createOrFold<IE::TransposeOp>(anotherInput.getLoc(), anotherInput, nullptr,
-                                                              mlir::AffineMapAttr::get(inversePermutation));
+        anotherInput = rewriter.createOrFold<IE::TransposeOp>(takeOpLoc(origOp, "inv_transpose_in"), anotherInput,
+                                                              nullptr, mlir::AffineMapAttr::get(inversePermutation));
     }
 
     auto newMultiply = rewriter.create<IE::MultiplyOp>(
-            origOp.getLoc(), transposeOp.getInput(), anotherInput, origOp.getAutoBroadcastAttr(),
+            takeOpLoc(origOp, "as_multiply"), transposeOp.getInput(), anotherInput, origOp.getAutoBroadcastAttr(),
             origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
-    rewriter.replaceOpWithNewOp<IE::TransposeOp>(origOp, newMultiply.getOutput(), nullptr,
-                                                 transposeOp.getOrderValueAttr());
+    auto newTranspose = rewriter.replaceOpWithNewOp<IE::TransposeOp>(origOp, newMultiply.getOutput(), nullptr,
+                                                                     transposeOp.getOrderValueAttr());
+    extendOpLoc(newTranspose, "transpose_mul1_out");
     _log.debug("Successfully moved Transpose through Multiply.");
     return mlir::success();
 }
@@ -392,12 +397,12 @@ mlir::LogicalResult MoveTransposeThroughMultiply::matchAndRewrite(IE::MultiplyOp
     auto input2 = transpose2Op.getInput();
     auto newOutputType = origOutputType.changeShape(getShape(input1));
     auto newMultiplyOp = rewriter.create<IE::MultiplyOp>(
-            origOp.getLoc(), newOutputType, input1, input2, origOp.getAutoBroadcastAttr(), origOp.getPostOpAttr(),
-            origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+            takeOpLoc(origOp, "as_multiply"), newOutputType, input1, input2, origOp.getAutoBroadcastAttr(),
+            origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
 
     auto newTranspose = rewriter.replaceOpWithNewOp<IE::TransposeOp>(
             origOp, newMultiplyOp.getOutput(), transpose1Op.getOrder(), transpose1Op.getOrderValueAttr());
-    extendOpLoc(newTranspose, "transpose");
+    extendOpLoc(newTranspose, "transpose_mul2_out");
 
     rewriter.eraseOp(transpose1Op);
     rewriter.eraseOp(transpose2Op);
@@ -452,8 +457,9 @@ mlir::LogicalResult MoveThroughOneInputEltwise::matchAndRewrite(mlir::Operation*
     auto newEltwiseOp = rewriter.clone(*eltwiseOp, eltwiseMapper);
     vpux::inferReturnTypes(newEltwiseOp, vpux::InferShapedTypeMode::SHAPE);
 
-    rewriter.replaceOpWithNewOp<IE::TransposeOp>(eltwiseOp, newEltwiseOp->getResult(0), transposeOp.getOrder(),
-                                                 transposeOp.getOrderValueAttr());
+    auto newTranspose = rewriter.replaceOpWithNewOp<IE::TransposeOp>(
+            eltwiseOp, newEltwiseOp->getResult(0), transposeOp.getOrder(), transposeOp.getOrderValueAttr());
+    extendOpLoc(newTranspose, "transpose_one_input_out");
 
     return mlir::success();
 }
@@ -627,20 +633,23 @@ mlir::LogicalResult MoveConcatThroughTranspose::matchAndRewrite(IE::ConcatOp ori
     SmallVector<mlir::Value> newInputs;
     newInputs.reserve(inputs.size());
 
-    for (auto input : inputs) {
+    for (auto inputsIdx : irange(inputs.size())) {
+        auto input = inputs[inputsIdx];
         if (auto transposeOp = mlir::dyn_cast_if_present<IE::TransposeOp>(input.getDefiningOp())) {
             newInputs.push_back(transposeOp.getInput());
         } else {
-            auto newTranspose = rewriter.create<IE::TransposeOp>(input.getLoc(), input, nullptr,
-                                                                 mlir::AffineMapAttr::get(inversePermutation));
+            auto newTranspose =
+                    rewriter.create<IE::TransposeOp>(takeOpLoc(origConcatOp, "inv_transpose_in{0}", inputsIdx), input,
+                                                     nullptr, mlir::AffineMapAttr::get(inversePermutation));
             newInputs.push_back(newTranspose.getOutput());
         }
     }
 
     // Create new Concat and forward Transpose
-    auto newConcat = rewriter.create<IE::ConcatOp>(origConcatOp.getLoc(), newInputs, Dim(newConcatAxis));
-    rewriter.replaceOpWithNewOp<IE::TransposeOp>(origConcatOp, newConcat.getOutput(), nullptr,
-                                                 singleTransposeOp.getOrderValueAttr());
+    auto newConcat = rewriter.create<IE::ConcatOp>(takeOpLoc(origConcatOp, "as_concat"), newInputs, Dim(newConcatAxis));
+    auto newTranspose = rewriter.replaceOpWithNewOp<IE::TransposeOp>(origConcatOp, newConcat.getOutput(), nullptr,
+                                                                     singleTransposeOp.getOrderValueAttr());
+    extendOpLoc(newTranspose, "transpose_out");
 
     _log.trace("Successfully moved Concat through Transpose");
     return mlir::success();
@@ -687,14 +696,170 @@ mlir::LogicalResult MoveTransposeThroughRMS::matchAndRewrite(IE::RMSOp origOp, m
         return matchFailed(_log, rewriter, origOp, "Transpose changes the last dimension");
     }
 
-    auto newRmsOp = rewriter.create<IE::RMSOp>(origOp->getLoc(), transposeOp.getInput(), origOp.getGamma(),
-                                               origOp.getEpsAttr());
+    auto newRmsOp = rewriter.create<IE::RMSOp>(takeOpLoc(origOp, "as_rms"), transposeOp.getInput(), origOp.getGamma(),
+                                               origOp.getEpsAttr(), origOp.getConditionalEpsAttr());
 
-    rewriter.replaceOpWithNewOp<IE::TransposeOp>(origOp, newRmsOp.getOutput(), transposeOp.getOrder(), orderAttr);
+    auto newTranspose = rewriter.replaceOpWithNewOp<IE::TransposeOp>(origOp, newRmsOp.getOutput(),
+                                                                     transposeOp.getOrder(), orderAttr);
+    extendOpLoc(newTranspose, "transpose_out");
     _log.trace("Successfully moved Transpose through RMS.");
 
     return mlir::success();
 }
+
+//
+// MoveThroughScatterUpdate
+//
+
+class MoveThroughScatterUpdate final : public mlir::OpRewritePattern<IE::ScatterUpdateOp> {
+public:
+    MoveThroughScatterUpdate(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::ScatterUpdateOp>(ctx), _log(log) {
+        this->setDebugName("MoveThroughScatterUpdate");
+    }
+
+private:
+    struct MatchResult {
+        IE::TransposeOp preTransposeOp;
+        IE::TransposeOp postTransposeOp;
+        int64_t axisValue = 0;
+        DimsOrder invPreOrder;
+    };
+
+    mlir::FailureOr<MatchResult> matchPattern(IE::ScatterUpdateOp origOp) const {
+        auto preTransposeOp = origOp.getInput().getDefiningOp<IE::TransposeOp>();
+        if (preTransposeOp == nullptr || !preTransposeOp->hasOneUse()) {
+            _log.trace("[{0}] Input TransposeOp not found or has multiple uses", getDebugName());
+            return mlir::failure();
+        }
+
+        if (!origOp.getAxisValue().has_value()) {
+            _log.trace("[{0}] axis_value attribute not set", getDebugName());
+            return mlir::failure();
+        }
+        int64_t axisValue = origOp.getAxisValue().value();
+
+        const auto dataRank =
+                static_cast<int64_t>(mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType()).getRank());
+        if (axisValue < 0) {
+            axisValue += dataRank;
+        }
+        if (axisValue < 0 || axisValue >= dataRank) {
+            _log.trace("[{0}] axis_value out of range for data rank {1}", getDebugName(), dataRank);
+            return mlir::failure();
+        }
+
+        const auto updatesRank =
+                static_cast<int64_t>(mlir::cast<vpux::NDTypeInterface>(origOp.getUpdates().getType()).getRank());
+        if (updatesRank < dataRank) {
+            _log.trace("[{0}] updates rank {1} inconsistent with data rank {2}", getDebugName(), updatesRank, dataRank);
+            return mlir::failure();
+        }
+
+        if (!origOp->hasOneUse()) {
+            _log.trace("[{0}] ScatterUpdateOp has multiple uses", getDebugName());
+            return mlir::failure();
+        }
+        auto postTransposeOp = mlir::dyn_cast<IE::TransposeOp>(*origOp->user_begin());
+        if (postTransposeOp == nullptr) {
+            _log.trace("[{0}] ScatterUpdateOp single user is not a TransposeOp", getDebugName());
+            return mlir::failure();
+        }
+
+        const auto preOrderVal = preTransposeOp.getOrderValue();
+        const auto postOrderVal = postTransposeOp.getOrderValue();
+        if (!preOrderVal.has_value() || !postOrderVal.has_value()) {
+            _log.trace("[{0}] Transpose order_value attribute not set", getDebugName());
+            return mlir::failure();
+        }
+        if (!preOrderVal.value().isPermutation() || !postOrderVal.value().isPermutation()) {
+            _log.trace("[{0}] Transpose order_value is not a permutation map", getDebugName());
+            return mlir::failure();
+        }
+
+        const auto invPreOrder = DimsOrder::fromAffineMap(mlir::inversePermutation(preOrderVal.value()));
+        if (invPreOrder != DimsOrder::fromAffineMap(postOrderVal.value())) {
+            _log.trace("[{0}] Post-transpose is not the inverse of pre-transpose", getDebugName());
+            return mlir::failure();
+        }
+
+        return MatchResult{preTransposeOp, postTransposeOp, axisValue, invPreOrder};
+    }
+
+    mlir::AffineMapAttr computeUpdatesPermutation(IE::ScatterUpdateOp origOp, int64_t axisValue, int64_t newAxisValue,
+                                                  const DimsOrder& invPreOrder) const {
+        const auto dataRank =
+                static_cast<int64_t>(mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType()).getRank());
+        const auto updatesRank =
+                static_cast<int64_t>(mlir::cast<vpux::NDTypeInterface>(origOp.getUpdates().getType()).getRank());
+        const int64_t indicesRank = updatesRank - dataRank + 1;
+
+        const auto invPermArr = to_small_vector(invPreOrder.toPermutation() | transformed([](Dim dim) {
+                                                    return checked_cast<unsigned>(dim.ind());
+                                                }));
+
+        const auto toTransUpdatesPos = [&](int64_t origDim) -> unsigned {
+            const auto transposedDim = static_cast<int64_t>(invPermArr[origDim]);
+            return transposedDim < axisValue ? static_cast<unsigned>(transposedDim)
+                                             : static_cast<unsigned>(transposedDim + indicesRank - 1);
+        };
+
+        SmallVector<unsigned> updatesPermArr(updatesRank);
+        for (int64_t k = 0; k < updatesRank; k++) {
+            if (k < newAxisValue) {
+                updatesPermArr[k] = toTransUpdatesPos(k);
+            } else if (k < newAxisValue + indicesRank) {
+                updatesPermArr[k] = static_cast<unsigned>(axisValue + (k - newAxisValue));
+            } else {
+                updatesPermArr[k] = toTransUpdatesPos(k - indicesRank + 1);
+            }
+        }
+
+        return mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(updatesPermArr, origOp.getContext()));
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::ScatterUpdateOp origOp, mlir::PatternRewriter& rewriter) const final {
+        _log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
+
+        auto matchResult = matchPattern(origOp);
+        if (mlir::failed(matchResult)) {
+            return mlir::failure();
+        }
+        auto [preTransposeOp, postTransposeOp, axisValue, invPreOrder] = matchResult.value();
+
+        const int64_t newAxisValue = checked_cast<int64_t>(
+                DimsOrder::fromAffineMap(preTransposeOp.getOrderValue().value()).toPermutation()[axisValue].ind());
+
+        // The SW kernel only supports axis=0. If the rewrite would produce a non-zero axis,
+        // only proceed when the DMA path (which handles any axis) is available.
+        if (newAxisValue != 0) {
+            auto opWithDma = mlir::dyn_cast<IE::LayerWithDmaInterface>(origOp.getOperation());
+            if (!opWithDma || !opWithDma.isSupported()) {
+                _log.trace("[{0}] newAxisValue={1} but DMA path unavailable, skip to preserve kernel form",
+                           getDebugName(), newAxisValue);
+                return mlir::failure();
+            }
+        }
+
+        const auto updatesPermAttr = computeUpdatesPermutation(origOp, axisValue, newAxisValue, invPreOrder);
+        auto newUpdates = rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "updates_transpose"), origOp.getUpdates(),
+                                                           nullptr, updatesPermAttr);
+
+        const auto newAxisAttr = getIntAttr(rewriter.getContext(), newAxisValue);
+        auto newScatterOp =
+                rewriter.create<IE::ScatterUpdateOp>(origOp->getLoc(), preTransposeOp.getInput(), origOp.getIndices(),
+                                                     newUpdates.getOutput(), nullptr, newAxisAttr);
+
+        rewriter.replaceOp(postTransposeOp, newScatterOp.getOutput());
+        rewriter.eraseOp(origOp);
+        rewriter.eraseOp(preTransposeOp);
+        _log.trace("Successfully moved Transpose through ScatterUpdate");
+        return mlir::success();
+    }
+
+private:
+    Logger _log;
+};
 
 //
 // PropagateTransposePass
@@ -745,6 +910,7 @@ void PropagateTransposePass::safeRunOnFunc() {
     patterns.add<MoveThroughOneInputEltwise>(&ctx, _log);
     patterns.add<MoveConcatThroughTranspose>(&ctx, _log);
     patterns.add<MoveTransposeThroughRMS>(&ctx, _log);
+    patterns.add<MoveThroughScatterUpdate>(&ctx, _log);
 
     if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();

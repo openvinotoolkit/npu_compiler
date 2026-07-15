@@ -14,7 +14,8 @@ using namespace vpux;
 
 size_t VPUASM::DeclareBufferOp::getBinarySize(config::ArchKind) {
     const auto type = mlir::cast<vpux::NDTypeInterface>(getBufferType().getMemref());
-    return ELF::getOpBinarySize(type);
+    const auto location = getBufferType().getLocation();
+    return ELF::getBufferBinarySize(type, getOperation(), location.getSection(), location.getSectionIndex());
 }
 
 size_t VPUASM::DeclareBufferOp::getAlignmentRequirements(config::ArchKind) {

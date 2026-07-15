@@ -13,6 +13,7 @@
 #include "vpux/compiler/utils/options.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 #include "vpux/utils/core/developer_build_utils.hpp"
+#include "vpux/utils/core/type/float16.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
 #include <memory>
@@ -20,6 +21,10 @@
 #include <type_traits>
 
 namespace vpux {
+
+// Noise margin above FP16 lowest value to account for residual noise on disabled signal lines.
+// Default mask threshold = std::numeric_limits<vpux::type::float16>::lowest() + this margin.
+constexpr double SOFTMAX_MASK_DISABLED_NOISE_MARGIN = 500.0;
 
 //
 // BatchCompileOptionsAdapter
@@ -192,6 +197,11 @@ public:
     BoolOption enableScfComputeOpsOutlining{*this, "scf-compute-ops-outlining",
                                             llvm::cl::desc("Outline SCF compute ops"), llvm::cl::init(false)};
 
+    BoolOption enableWeightsExtraction{*this, "weights-extraction",
+                                       llvm::cl::desc("Extract repeated weights and concat host constants in the "
+                                                      "SCF compute-ops outlining pipeline"),
+                                       llvm::cl::init(false)};
+
     BoolOption enableAsyncRegionOutlining{*this, "async-region-outlining",
                                           llvm::cl::desc("Enable async region outlining"), llvm::cl::init(false)};
 
@@ -303,9 +313,18 @@ public:
             llvm::cl::desc("Enable cascaded unrolling with decreasing factors (e.g., 10 -> 5 -> 2)"),
             llvm::cl::init(true)};
 
-    BoolOption enableAutoUnrolling{*this, "enable-auto-unrolling",
-                                   llvm::cl::desc("Enable automatic unrolling factor computation"),
-                                   llvm::cl::init(false)};
+    mlir::detail::PassOptions::Option<AutoUnrollingMode> autoUnrollingMode{
+            *this, "auto-unrolling-mode",
+            llvm::cl::desc("Auto-unrolling mode: disabled | inner | outer | all | biggest"),
+            llvm::cl::init(AutoUnrollingMode::DISABLED),
+            llvm::cl::values(clEnumValN(AutoUnrollingMode::DISABLED, "disabled", "Auto-unrolling off"),
+                             clEnumValN(AutoUnrollingMode::INNER, "inner",
+                                        "Unroll innermost loops; skip outer if inner already unrolled"),
+                             clEnumValN(AutoUnrollingMode::OUTER, "outer",
+                                        "Unroll outermost loops; skip inner if parent loop will be unrolled"),
+                             clEnumValN(AutoUnrollingMode::ALL, "all", "Unroll all loops without anti-nesting guard"),
+                             clEnumValN(AutoUnrollingMode::BIGGEST, "biggest",
+                                        "Unroll only the loop with the largest auto-assigned factor"))};
 
     BoolOption enableDynamicQuantizationForStaticCase{*this, "enable-dynamic-quantization-for-static-case",
                                                       llvm::cl::desc("Enable dynamic quantization for static case"),
@@ -320,6 +339,14 @@ public:
             llvm::cl::desc("Enable pipelined command list recording and inference execution"),
             llvm::cl::init(vpux::HostExec::defaultEnablePipelinedCmdListRecording)};
 
+    mlir::detail::PassOptions::Option<VFMergeConfiguration> vfMergeConfiguration{
+            *this, "vf-merge-configuration", ::llvm::cl::desc("Option for configuring vertical fusion merge strategy."),
+            ::llvm::cl::init(VFMergeConfiguration::COST_BASED),
+            ::llvm::cl::values(
+                    clEnumValN(VFMergeConfiguration::COST_BASED, "COST_BASED",
+                               "Merge based on cost comparison between merged and non-merged cases"),
+                    clEnumValN(VFMergeConfiguration::GREEDY, "GREEDY", "Merge greedily without considering cost"))};
+
     mlir::detail::PassOptions::Option<AllocateDDRStackFrames> allocateDDRStackFrames{
             *this, "allocate-ddr-stack-frames",
             ::llvm::cl::desc("Enable the computation and allocation of a new section which "
@@ -328,6 +355,10 @@ public:
             ::llvm::cl::values(clEnumValN(AllocateDDRStackFrames::ENABLED, "ENABLED",
                                           "Allocate DDR buffer to be used as shave stack frames."),
                                clEnumValN(AllocateDDRStackFrames::DISABLED, "DISABLED", "Shave stack frames in CMX."))};
+
+    StrOption outdatedPassDetectionFile{*this, "outdated-pass-detection-file",
+                                        llvm::cl::desc("File to dump information about detecting outdated passes"),
+                                        llvm::cl::init("")};
 };
 
 //
@@ -342,6 +373,10 @@ struct MCAndTilingOptionsBase : mlir::PassPipelineOptions<MCAndTilingOptionsBase
 
     BoolOption enablePipelining{*this, "pipelining", llvm::cl::desc("Enable vertical fusion pipelining"),
                                 llvm::cl::init(false)};
+
+    BoolOption enableTilingFullSearchSpace{*this, "enable-tiling-full-search-space",
+                                           llvm::cl::desc("Enable full search space for tiling"),
+                                           llvm::cl::init(false)};
 
     IntOption opTilingCacheThreshold{
             *this, "op-tiling-cache-threshold",
@@ -410,6 +445,11 @@ struct MCAndTilingOptionsBase : mlir::PassPipelineOptions<MCAndTilingOptionsBase
     BoolOption enableScfComputeOpsOutlining{*this, "scf-compute-ops-outlining",
                                             llvm::cl::desc("Outline SCF compute ops"), llvm::cl::init(false)};
 
+    BoolOption enableWeightsExtraction{*this, "weights-extraction",
+                                       llvm::cl::desc("Extract repeated weights and concat host constants in the "
+                                                      "SCF compute-ops outlining pipeline (experimental)"),
+                                       llvm::cl::init(false)};
+
     BoolOption enablePrintStatistics{*this, "enable-print-statistics", ::llvm::cl::desc("Enable print statistics"),
                                      ::llvm::cl::init(vpux::isDeveloperBuild())};
 
@@ -426,6 +466,14 @@ struct MCAndTilingOptionsBase : mlir::PassPipelineOptions<MCAndTilingOptionsBase
             *this, "enable-explicit-distributed-attr",
             llvm::cl::desc("Enable DistributionInfoAttr with explicit per cluster memory/compute shapes & offsets"),
             llvm::cl::init(false)};
+
+    mlir::detail::PassOptions::Option<VFMergeConfiguration> vfMergeConfiguration{
+            *this, "vf-merge-configuration", ::llvm::cl::desc("Option for configuring vertical fusion merge strategy."),
+            ::llvm::cl::init(VFMergeConfiguration::COST_BASED),
+            ::llvm::cl::values(
+                    clEnumValN(VFMergeConfiguration::COST_BASED, "COST_BASED",
+                               "Merge based on cost comparison between merged and non-merged cases"),
+                    clEnumValN(VFMergeConfiguration::GREEDY, "GREEDY", "Merge greedily without considering cost"))};
 
     mlir::detail::PassOptions::Option<WorkloadManagementMode> workloadManagementMode{
             *this, "workload-management-mode",
@@ -449,13 +497,25 @@ struct MCAndTilingOptionsBase : mlir::PassPipelineOptions<MCAndTilingOptionsBase
             llvm::cl::desc("Enable cascaded unrolling with decreasing factors (e.g., 10 -> 5 -> 2)"),
             llvm::cl::init(true)};
 
-    BoolOption enableAutoUnrolling{*this, "enable-auto-unrolling",
-                                   llvm::cl::desc("Enable automatic unrolling factor computation"),
-                                   llvm::cl::init(false)};
+    mlir::detail::PassOptions::Option<AutoUnrollingMode> autoUnrollingMode{
+            *this, "auto-unrolling-mode",
+            llvm::cl::desc("Auto-unrolling mode: disabled | inner | outer | all | biggest"),
+            llvm::cl::init(AutoUnrollingMode::DISABLED),
+            llvm::cl::values(clEnumValN(AutoUnrollingMode::DISABLED, "disabled", "Auto-unrolling off"),
+                             clEnumValN(AutoUnrollingMode::INNER, "inner",
+                                        "Unroll innermost loops; skip outer if inner already unrolled"),
+                             clEnumValN(AutoUnrollingMode::OUTER, "outer",
+                                        "Unroll outermost loops; skip inner if parent loop will be unrolled"),
+                             clEnumValN(AutoUnrollingMode::ALL, "all", "Unroll all loops without anti-nesting guard"),
+                             clEnumValN(AutoUnrollingMode::BIGGEST, "biggest",
+                                        "Unroll only the loop with the largest auto-assigned factor"))};
 
     BoolOption enableRunMVNNormalizeOnDPU{*this, "enable-run-mvn-normalize-on-dpu",
                                           llvm::cl::desc("Enable RunMVNNormalizeOnDPU pass on DPU"),
                                           llvm::cl::init(false)};
+
+    BoolOption enableSoftmaxDecomposition{*this, "enable-softmax-decomposition",
+                                          llvm::cl::desc("Enable Softmax decomposition pass"), llvm::cl::init(true)};
 
     MCAndTilingOptionsBase() = default;
 
@@ -474,10 +534,6 @@ struct BackendCompilationOptionsBase : mlir::PassPipelineOptions<T> {
     StrOption enableDMAProfiling{*this, "dma-profiling",
                                  llvm::cl::desc("Enable DMA task profiling (true|static|false)"),
                                  llvm::cl::init("false")};
-
-    IntOption workloadManagementBarrierCountThreshold{*this, "workload-management-barrier-count-threshold",
-                                                      llvm::cl::desc("Threshold for WLM optimization"),
-                                                      llvm::cl::init(std::numeric_limits<int>::max())};
 
     mlir::detail::PassOptions::Option<WorkloadManagementMode> workloadManagementMode{
             *this, "workload-management-mode",
@@ -526,10 +582,8 @@ struct BackendCompilationOptionsBase : mlir::PassPipelineOptions<T> {
                     ::llvm::cl::values(
                             clEnumValN(WorkloadManagementBarrierProgrammingMode::LEGACY, "LEGACY", "Legacy Mode"),
                             clEnumValN(WorkloadManagementBarrierProgrammingMode::ALL_BARRIER_DMAS_SCHEDULED,
-                                       "ALL_BARRIER_DMAS_SCHEDULED", "Compiler generates DMAs to program all barriers"),
-                            clEnumValN(WorkloadManagementBarrierProgrammingMode::ALL_BARRIER_DMAS_SCHEDULED_4K,
-                                       "ALL_BARRIER_DMAS_SCHEDULED_4K",
-                                       "Compiler generates DMAs to program all barriers leveraging 4K barrier block"))};
+                                       "ALL_BARRIER_DMAS_SCHEDULED",
+                                       "Compiler generates DMAs to program all barriers"))};
 
     IntOption modelIdentifier{
             *this, "model-identifier",

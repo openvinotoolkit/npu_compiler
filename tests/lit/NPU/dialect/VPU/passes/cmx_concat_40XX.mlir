@@ -82,11 +82,11 @@ func.func @InsertAvgPoolingWhenNCEOpHasExtraUser(%arg0: tensor<1x64x36x36xf16, {
     %1 = VPU.Copy(%convWeights) {out_mem_space = @CMX_NN} : tensor<64x64x1x1xf16, {order = #NHWC}> -> !Distributed2
     %2 = VPU.Copy(%convWeightsTable) {out_mem_space = @CMX_NN} : tensor<64x1x1x4xsi32> -> !Distributed3
 
-    %3 = VPU.NCE.Convolution(%0, %1, %2) {
+    %3 = VPU.NCE.Convolution(%0, %1, %2) rawFilterShape [64, 64, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
                 lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
-                rawFilterShape = [64, 64, 1, 1],
+                
                 strides = [1, 1]
             } : !Distributed, !Distributed2, !Distributed3 -> !Distributed
 
@@ -94,11 +94,11 @@ func.func @InsertAvgPoolingWhenNCEOpHasExtraUser(%arg0: tensor<1x64x36x36xf16, {
     // Input 2 of Concat
     %5 = VPU.Copy(%dwConvWeights) {out_mem_space = @CMX_NN} : tensor<64x16x1x1xf16, {order = #NHWC}> -> !Distributed4
 
-    %6 = VPU.NCE.DepthConvolution(%3, %5) {
+    %6 = VPU.NCE.DepthConvolution(%3, %5) rawFilterShape [64, 1, 3, 3] {
                 pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
                 ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -128 : i64, clamp_high = 127 : i64,
                 lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
-                rawFilterShape = [64, 1, 3, 3],
+                
                 strides = [1, 1]
             } -> !Distributed
 
@@ -109,7 +109,7 @@ func.func @InsertAvgPoolingWhenNCEOpHasExtraUser(%arg0: tensor<1x64x36x36xf16, {
     // Concat output
     %9 = VPU.Copy(%8) {out_mem_space = @CMX_NN} : tensor<1x128x36x36xf16, {order = #NHWC}> -> !Distributed5
 
-    %10 = VPU.NCE.MaxPool(%9, %maxPoolWeightsTable) {
+    %10 = VPU.NCE.MaxPool(%9, %maxPoolWeightsTable) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64>,
                 strides = [1, 1],
@@ -152,11 +152,10 @@ func.func @InsertAvgPoolingWhenNCEOpHasExtraUser(%arg0: tensor<1x64x36x36xf16, {
     // CHECK-SAME{LITERAL}:                 memory_shapes = [[64, 1, 1, 4], [64, 1, 1, 4], [64, 1, 1, 4], [64, 1, 1, 4], [64, 1, 1, 4], [64, 1, 1, 4]],
     // CHECK-SAME{LITERAL}:                 memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
 
-    // CHECK:       [[CONV:%.+]] = VPU.NCE.Convolution([[COPY_IN_0]], [[COPY_IN_1]], [[COPY_IN_2]]) {
+    // CHECK:       [[CONV:%.+]] = VPU.NCE.Convolution([[COPY_IN_0]], [[COPY_IN_1]], [[COPY_IN_2]]) rawFilterShape [64, 64, 1, 1] {
     // CHECK-SAME:                  pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
     // CHECK-SAME:                  ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
     // CHECK-SAME:                      lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
-    // CHECK-SAME:                  rawFilterShape = [64, 64, 1, 1],
     // CHECK-SAME:                  strides = [1, 1]}
     // CHECK-SAME:                      -> !VPU.DistributedTensor<
     // CHECK-SAME:                          1x64x36x36xf16, #NHWC, @CMX_NN, {
@@ -189,11 +188,10 @@ func.func @InsertAvgPoolingWhenNCEOpHasExtraUser(%arg0: tensor<1x64x36x36xf16, {
     // CHECK-SAME{LITERAL}:                 memory_shapes = [[64, 16, 1, 1], [64, 16, 1, 1], [64, 16, 1, 1], [64, 16, 1, 1], [64, 16, 1, 1], [64, 16, 1, 1]],
     // CHECK-SAME{LITERAL}:                 memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
 
-    // CHECK:       [[DW_CONV:%.+]] = VPU.NCE.DepthConvolution([[CONV]], [[COPY_IN_3]]) {
+    // CHECK:       [[DW_CONV:%.+]] = VPU.NCE.DepthConvolution([[CONV]], [[COPY_IN_3]]) rawFilterShape [64, 1, 3, 3] {
     // CHECK-SAME:                          pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
     // CHECK-SAME:                          ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -128 : i64, clamp_high = 127 : i64,
     // CHECK-SAME:                              lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
-    // CHECK-SAME:                          rawFilterShape = [64, 1, 3, 3],
     // CHECK-SAME:                          strides = [1, 1]}
     // CHECK-SAME:                      -> !VPU.DistributedTensor<
     // CHECK-SAME:                          1x64x36x36xf16, #NHWC, @CMX_NN, {

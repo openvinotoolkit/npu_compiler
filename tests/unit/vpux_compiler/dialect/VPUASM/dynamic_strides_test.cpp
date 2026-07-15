@@ -8,6 +8,9 @@
 #include <gtest/gtest.h>
 
 namespace {
+
+using namespace vpux;
+
 struct DmaCanonicalizationTestParams {
     MemShape dmaBufferShape;
     MemStrides dmaBufferStrides;

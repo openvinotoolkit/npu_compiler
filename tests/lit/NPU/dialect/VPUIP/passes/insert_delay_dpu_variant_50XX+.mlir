@@ -8,12 +8,12 @@
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!DataType = memref<1x32x16x16xf16, #NHWC, [@CMX_NN, 0]>
-!WeightsType = memref<32x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
-!WeightTableType = memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>
+!DataType = memref<1x32x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!WeightsType = memref<32x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!WeightTableType = memref<32x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>
 
 // CHECK-LABEL: @DPUTaskWithoutSprLUT
-func.func private @DPUTaskWithoutSprLUT(%input: !DataType, %weights: !WeightsType, %weight_table: !WeightTableType, %output: !DataType) -> !DataType {
+func.func nested @DPUTaskWithoutSprLUT(%input: !DataType, %weights: !WeightsType, %weight_table: !WeightTableType, %output: !DataType) -> !DataType {
     %dpu_output = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
                             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                             kernel_size = [1, 1],
@@ -44,13 +44,13 @@ func.func private @DPUTaskWithoutSprLUT(%input: !DataType, %weights: !WeightsTyp
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!DataType = memref<1x32x16x16xf16, #NHWC, [@CMX_NN, 0]>
-!WeightsType = memref<32x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
-!WeightTableType = memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>
+!DataType = memref<1x32x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!WeightsType = memref<32x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!WeightTableType = memref<32x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>
 !SrplutType = memref<512xui16, [@CMX_NN, 0]>
 
 // CHECK-LABEL: @ConvWithSprLUTKernel1x1
-func.func private @ConvWithSprLUTKernel1x1(%input: !DataType, %weights: !WeightsType, %weight_table: !WeightTableType, %sprlut: !SrplutType, %output: !DataType) -> !DataType {
+func.func nested @ConvWithSprLUTKernel1x1(%input: !DataType, %weights: !WeightsType, %weight_table: !WeightTableType, %sprlut: !SrplutType, %output: !DataType) -> !DataType {
     %dpu_output = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
                             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                             kernel_size = [1, 1],
@@ -87,13 +87,13 @@ func.func private @ConvWithSprLUTKernel1x1(%input: !DataType, %weights: !Weights
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!DataType = memref<1x32x16x16xf16, #NHWC, [@CMX_NN, 0]>
-!WeightsType = memref<32x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
-!WeightTableType = memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>
+!DataType = memref<1x32x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!WeightsType = memref<32x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!WeightTableType = memref<32x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>
 !SrplutType = memref<512xui16, [@CMX_NN, 0]>
 
 // CHECK-LABEL: @ConvWithSprLUTKernel3x3
-func.func private @ConvWithSprLUTKernel3x3(%input: !DataType, %weights: !WeightsType, %weight_table: !WeightTableType, %sprlut: !SrplutType, %output: !DataType) -> !DataType {
+func.func nested @ConvWithSprLUTKernel3x3(%input: !DataType, %weights: !WeightsType, %weight_table: !WeightTableType, %sprlut: !SrplutType, %output: !DataType) -> !DataType {
     %dpu_output = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
                             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                             kernel_size = [3, 3],
@@ -130,13 +130,13 @@ func.func private @ConvWithSprLUTKernel3x3(%input: !DataType, %weights: !Weights
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!DataType = memref<1x32x16x16xf16, #NHWC, [@CMX_NN, 0]>
-!WeightsType = memref<32x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
-!WeightTableType = memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>
+!DataType = memref<1x32x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!WeightsType = memref<32x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!WeightTableType = memref<32x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>
 !SrplutType = memref<512xui16, [@CMX_NN, 0]>
 
 // CHECK-LABEL: @ConvWithSprLUTKernel3x3Padding1x1x1x1
-func.func private @ConvWithSprLUTKernel3x3Padding1x1x1x1(%input: !DataType, %weights: !WeightsType, %sprlut: !SrplutType, %output: !DataType) -> !DataType {
+func.func nested @ConvWithSprLUTKernel3x3Padding1x1x1x1(%input: !DataType, %weights: !WeightsType, %sprlut: !SrplutType, %output: !DataType) -> !DataType {
     %dpu_output = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
                             kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
                             kernel_size = [3, 3],
@@ -172,13 +172,13 @@ func.func private @ConvWithSprLUTKernel3x3Padding1x1x1x1(%input: !DataType, %wei
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!DataType = memref<1x4x16x16xf16, #NHWC, [@CMX_NN, 0]>
-!WeightsType = memref<3x4x1x1xf16, #NHWC, [@CMX_NN, 0]>
-!WeightTableType = memref<16x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>
+!DataType = memref<1x4x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!WeightsType = memref<3x4x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!WeightTableType = memref<16x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>
 !SrplutType = memref<512xui16, [@CMX_NN, 0]>
 
 // CHECK-LABEL: @ConvWithSprLUTKernel1x1Autopad
-func.func private @ConvWithSprLUTKernel1x1Autopad(%input: !DataType, %weights: !WeightsType, %weight_table: !WeightTableType, %sprlut: !SrplutType, %output: !DataType) -> !DataType {
+func.func nested @ConvWithSprLUTKernel1x1Autopad(%input: !DataType, %weights: !WeightsType, %weight_table: !WeightTableType, %sprlut: !SrplutType, %output: !DataType) -> !DataType {
     %dpu_output = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
                             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                             kernel_size = [1, 1],
@@ -215,9 +215,9 @@ func.func private @ConvWithSprLUTKernel1x1Autopad(%input: !DataType, %weights: !
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!DataType = memref<1x64x3x4xf16, #NHWC, [@CMX_NN, 0]>
-!WeightsType = memref<1x64x1x1xf16, #NHWC, [@CMX_NN, 0]>
-!WeightTableType = memref<16x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>
+!DataType = memref<1x64x3x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!WeightsType = memref<1x64x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!WeightTableType = memref<16x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>
 !OutputITICluster0 = !VPUIP.ITIBuffer<
     1x1x8x4xf16, #NHWC, [@CMX_NN, 0],
     inwardHaloRegions = [
@@ -256,7 +256,7 @@ func.func private @ConvWithSprLUTKernel1x1Autopad(%input: !DataType, %weights: !
 ]>
 
 // CHECK-LABEL: @ConvWithODUAutopadAndHalo
-func.func  @ConvWithODUAutopadAndHalo(
+func.func nested @ConvWithODUAutopadAndHalo(
         %input: !DataType, %weights: !WeightsType, %weight_table: !WeightTableType,
         %output_iti0: !OutputITICluster0, %output_iti1: !OutputITICluster1, %output_iti2: !OutputITICluster2) -> !OutputITICluster0 {
     %nce = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
@@ -269,7 +269,7 @@ func.func  @ConvWithODUAutopadAndHalo(
         }> input(%input : !DataType)
           weights(%weights : !WeightsType)
           weight_table(%weight_table : !WeightTableType)
-          parent_input(%input : memref<1x64x3x4xf16, #NHWC, [@CMX_NN, 0]>)
+          parent_input(%input : memref<1x64x3x4xf16, {order = #NHWC}, [@CMX_NN, 0]>)
           parent_output(%output_iti0 : !OutputITICluster0)
           output_ITI_buff(%output_iti1, %output_iti2 : !OutputITICluster1, !OutputITICluster2)
           outputs(%output_iti0 : !OutputITICluster0) -> !OutputITICluster0
@@ -313,11 +313,11 @@ func.func  @ConvWithODUAutopadAndHalo(
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!DataType = memref<1x32x16x16xf16, #NHWC, [@CMX_NN, 0]>
+!DataType = memref<1x32x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
 !SrplutType = memref<512xui16, [@CMX_NN, 0]>
 
 // CHECK-LABEL: @EltwiseAddWithSprLUT
-func.func private @EltwiseAddWithSprLUT(%input1: !DataType, %input2: !DataType, %sprlut: !SrplutType, %output: !DataType) -> !DataType {
+func.func nested @EltwiseAddWithSprLUT(%input1: !DataType, %input2: !DataType, %sprlut: !SrplutType, %output: !DataType) -> !DataType {
     %dpu_output = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
                             eltwise_type = #VPU.eltwise_type<ADD>,
                             mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
@@ -352,12 +352,12 @@ func.func private @EltwiseAddWithSprLUT(%input1: !DataType, %input2: !DataType, 
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!DataType = memref<1x32x16x16xf16, #NHWC, [@CMX_NN, 0]>
-!WeightTableType = memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>
+!DataType = memref<1x32x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!WeightTableType = memref<32x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>
 !SrplutType = memref<512xui16, [@CMX_NN, 0]>
 
 // CHECK-LABEL: @MaxPoolWithSprLUT
-func.func private @MaxPoolWithSprLUT(%input1: !DataType, %weight_table: !WeightTableType, %sprlut: !SrplutType, %output: !DataType) -> !DataType {
+func.func nested @MaxPoolWithSprLUT(%input1: !DataType, %weight_table: !WeightTableType, %sprlut: !SrplutType, %output: !DataType) -> !DataType {
     %dpu_output = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
                             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                             kernel_size = [2, 2],
@@ -393,13 +393,13 @@ func.func private @MaxPoolWithSprLUT(%input1: !DataType, %weight_table: !WeightT
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!DataType = memref<1x32x16x16xf16, #NHWC, [@CMX_NN, 0]>
-!WeightsType = memref<32x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
-!WeightTableType = memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>
+!DataType = memref<1x32x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!WeightsType = memref<32x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!WeightTableType = memref<32x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>
 !SrplutType = memref<512xui16, [@CMX_NN, 0]>
 
 // CHECK-LABEL: @ConvWithSprLUTAndProfiling
-func.func private @ConvWithSprLUTAndProfiling(%input: !DataType, %weights: !WeightsType, %sprlut: !SrplutType, %output: !DataType) -> !DataType {
+func.func nested @ConvWithSprLUTAndProfiling(%input: !DataType, %weights: !WeightsType, %sprlut: !SrplutType, %output: !DataType) -> !DataType {
     %dpu_output = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
                             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                             kernel_size = [1, 1],

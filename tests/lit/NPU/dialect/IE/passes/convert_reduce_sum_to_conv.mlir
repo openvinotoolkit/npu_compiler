@@ -158,7 +158,7 @@ func.func @ConvertOuterDimReduceSumToConv5D(%arg0: tensor<64x2x4x8x16xf16>) -> t
 
 // -----
 
-// OuterDimReduceSumToConvRewriter should NOT convert when axis != 0.
+// OuterDimReduceSumToConvRewriter should NOT convert when axis != 0 and not axis=1 with unit batch.
 
 // CHECK-LABEL: @NotConvertOuterDimReduceSumAxis2
 // CHECK-SAME:      [[INPUT:%.+]]: tensor<2x3x150xf16>
@@ -168,6 +168,112 @@ func.func @NotConvertOuterDimReduceSumAxis2(%arg0: tensor<2x3x150xf16>) -> tenso
 
   // CHECK:       [[REDUCE:%.+]] = IE.ReduceSum([[INPUT]]) {axes_value = [2], keep_dims} : tensor<2x3x150xf16> -> tensor<2x3x1xf16>
   // CHECK:       return [[REDUCE]] : tensor<2x3x1xf16>
+}
+
+// -----
+
+// OuterDimReduceSumToConvRewriter: axis=1 with unit batch, reduceSize=29 > alignment(16).
+// Should NOT convert because large axis=1 reductions cause FP16 accumulation inaccuracy.
+
+// CHECK-LABEL: @NotConvertOuterDimReduceSumAxis1LargeReduce6D
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x29x4x34x3x3xf16>
+func.func @NotConvertOuterDimReduceSumAxis1LargeReduce6D(%arg0: tensor<1x29x4x34x3x3xf16>) -> tensor<1x1x4x34x3x3xf16> {
+  %0 = IE.ReduceSum(%arg0) {axes_value = [1], keep_dims} : tensor<1x29x4x34x3x3xf16> -> tensor<1x1x4x34x3x3xf16>
+  return %0 : tensor<1x1x4x34x3x3xf16>
+
+  // CHECK:       [[REDUCE:%.+]] = IE.ReduceSum([[INPUT]]) {axes_value = [1], keep_dims} : tensor<1x29x4x34x3x3xf16> -> tensor<1x1x4x34x3x3xf16>
+  // CHECK:       return [[REDUCE]] : tensor<1x1x4x34x3x3xf16>
+}
+
+// -----
+
+// OuterDimReduceSumToConvRewriter: axis=1 with unit batch, 3D tensor.
+// Input [1, 64, 768] reduces axis=1, reduceSize=64 > alignment(16).
+// Should NOT convert to avoid FP16 accumulation inaccuracy.
+
+// CHECK-LABEL: @NotConvertOuterDimReduceSumAxis1LargeReduce3D
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x64x768xf16>
+func.func @NotConvertOuterDimReduceSumAxis1LargeReduce3D(%arg0: tensor<1x64x768xf16>) -> tensor<1x1x768xf16> {
+  %0 = IE.ReduceSum(%arg0) {axes_value = [1], keep_dims} : tensor<1x64x768xf16> -> tensor<1x1x768xf16>
+  return %0 : tensor<1x1x768xf16>
+
+  // CHECK:       [[REDUCE:%.+]] = IE.ReduceSum([[INPUT]]) {axes_value = [1], keep_dims} : tensor<1x64x768xf16> -> tensor<1x1x768xf16>
+  // CHECK:       return [[REDUCE]] : tensor<1x1x768xf16>
+}
+
+// -----
+
+// OuterDimReduceSumToConvRewriter: axis=1 without keep_dims, 5D input.
+// Input [1, 29, 4, 34, 3] reduces axis=1, reduceSize=29 > alignment(16).
+// Should NOT convert to avoid FP16 accumulation inaccuracy.
+
+// CHECK-LABEL: @NotConvertOuterDimReduceSumAxis1LargeReduceNoKeepDims
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x29x4x34x3xf16>
+func.func @NotConvertOuterDimReduceSumAxis1LargeReduceNoKeepDims(%arg0: tensor<1x29x4x34x3xf16>) -> tensor<1x4x34x3xf16> {
+  %0 = IE.ReduceSum(%arg0) {axes_value = [1]} : tensor<1x29x4x34x3xf16> -> tensor<1x4x34x3xf16>
+  return %0 : tensor<1x4x34x3xf16>
+
+  // CHECK:       [[REDUCE:%.+]] = IE.ReduceSum([[INPUT]]) {axes_value = [1]} : tensor<1x29x4x34x3xf16> -> tensor<1x4x34x3xf16>
+  // CHECK:       return [[REDUCE]] : tensor<1x4x34x3xf16>
+}
+
+// -----
+
+// ReduceSumToConvRewriter: 4D input, reduce on channel (axis=1), keep_dims=true,
+// with NCE parent (AvgPool) making the conversion beneficial.
+
+// CHECK-LABEL: @ConvertReduceSumOnCWithNCEParent
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x16x34x34xf16>
+func.func @ConvertReduceSumOnCWithNCEParent(%arg0: tensor<1x16x34x34xf16>) -> tensor<1x1x34x34xf16> {
+  %0 = IE.AvgPool(%arg0) {
+        exclude_pads,
+        kernel_size = [3, 3],
+        pads_begin = [1, 1],
+        pads_end = [1, 1],
+        rounding_type = #IE.rounding_type<FLOOR>,
+        strides = [1, 1]
+    } : tensor<1x16x34x34xf16> -> tensor<1x16x34x34xf16>
+  %1 = IE.ReduceSum(%0) {axes_value = [1], keep_dims} : tensor<1x16x34x34xf16> -> tensor<1x1x34x34xf16>
+  return %1 : tensor<1x1x34x34xf16>
+
+  // CHECK:       [[POOL:%.+]] = IE.AvgPool([[INPUT]])
+  // CHECK:       [[CST:%.+]] = const.Declare tensor<1x16x1x1xf16> = dense<1.000000e+00> : tensor<1x16x1x1xf32>, [#const.CastElemType<f16>]
+  // CHECK:       [[CONV:%.+]] = IE.Convolution([[POOL]], [[CST]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x34x34xf16>, tensor<1x16x1x1xf16> -> tensor<1x1x34x34xf16>
+  // CHECK:       return [[CONV]] : tensor<1x1x34x34xf16>
+}
+
+// -----
+
+// OuterDimReduceSumToConvRewriter: 3D input with axis=1, unit batch, reduceSize=16 <= alignment,
+// NCE parent (AvgPool on the 4D-reshaped form) makes it beneficial. Should convert via reshape-to-4D + Conv.
+
+// CHECK-LABEL: @ConvertOuterDimReduceSumAxis1SmallReduce3D
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x16x768xf16>
+func.func @ConvertOuterDimReduceSumAxis1SmallReduce3D(%arg0: tensor<1x16x768xf16>) -> tensor<1x1x768xf16> {
+  %0 = IE.ReduceSum(%arg0) {axes_value = [1], keep_dims} : tensor<1x16x768xf16> -> tensor<1x1x768xf16>
+  return %0 : tensor<1x1x768xf16>
+
+  // CHECK:       [[RESHAPE_IN:%.+]] = IE.Reshape([[INPUT]])
+  // CHECK-SAME:      shape_value = [1, 16, 768, 1]
+  // CHECK:       [[CST:%.+]] = const.Declare tensor<1x16x1x1xf16> = dense<1.000000e+00> : tensor<1x16x1x1xf32>, [#const.CastElemType<f16>]
+  // CHECK:       [[CONV:%.+]] = IE.Convolution([[RESHAPE_IN]], [[CST]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x768x1xf16>, tensor<1x16x1x1xf16> -> tensor<1x1x768x1xf16>
+  // CHECK:       [[RESHAPE_OUT:%.+]] = IE.Reshape([[CONV]])
+  // CHECK-SAME:      shape_value = [1, 1, 768]
+  // CHECK:       return [[RESHAPE_OUT]] : tensor<1x1x768xf16>
+}
+
+// -----
+
+// OuterDimReduceSumToConvRewriter should NOT convert axis=1 when batch > 1.
+
+// CHECK-LABEL: @NotConvertOuterDimReduceSumAxis1NonUnitBatch
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<2x29x4x34x3x3xf16>
+func.func @NotConvertOuterDimReduceSumAxis1NonUnitBatch(%arg0: tensor<2x29x4x34x3x3xf16>) -> tensor<2x1x4x34x3x3xf16> {
+  %0 = IE.ReduceSum(%arg0) {axes_value = [1], keep_dims} : tensor<2x29x4x34x3x3xf16> -> tensor<2x1x4x34x3x3xf16>
+  return %0 : tensor<2x1x4x34x3x3xf16>
+
+  // CHECK:       [[REDUCE:%.+]] = IE.ReduceSum([[INPUT]]) {axes_value = [1], keep_dims} : tensor<2x29x4x34x3x3xf16> -> tensor<2x1x4x34x3x3xf16>
+  // CHECK:       return [[REDUCE]] : tensor<2x1x4x34x3x3xf16>
 }
 
 // -----

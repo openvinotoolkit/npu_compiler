@@ -1,8 +1,11 @@
-{"device": "3720", "enabled": "false", "network": "yolo_v4", "info": "--inputs_precisions=\"image_input:fp16\" --inputs_layouts=\"image_input:NCHW\" --outputs_precisions=\"conv2d_93/BiasAdd/Add:fp16 conv2d_101/BiasAdd/Add:fp16 conv2d_109/BiasAdd/Add:fp16\" --outputs_layouts=\"conv2d_93/BiasAdd/Add:NCHW conv2d_101/BiasAdd/Add:NCHW conv2d_109/BiasAdd/Add:NCHW\" --config NPU_COMPILATION_MODE=\"DefaultHW\"", "path": "yolo_v4/tf/FP16-INT8"}
 {"device": "3720", "enabled": "true", "network": "resnet-50-pytorch", "info": "", "path": "resnet-50-pytorch/onnx/model/dense/FP16"}
 {"device": "3720", "enabled": "true", "network": "unet-camvid-onnx-0001", "info": "", "path": "unet-camvid-onnx-0001/onnx/model/dense/FP16"}
 {"device": "3720", "enabled": "true", "network": "yolo-v4-tiny", "info": "", "path": "yolo-v4-tiny/tf/model/dense/FP16"}
 {"device": "4000", "enabled": "true", "network": "resnet-50-pytorch", "info": "", "path": "resnet-50-pytorch/onnx/model/dense/FP16"}
-{"device": "4000", "enabled": "true", "network": "edsr_nas_s", "info": "", "path": "edsr_nas_s/onnx/model/dense/FP16"}
 {"device": "4000", "enabled": "true", "network": "unet-camvid-onnx-0001", "info": "", "path": "unet-camvid-onnx-0001/onnx/model/dense/FP16"}
 {"device": "4000", "enabled": "true", "network": "yolo-v4-tiny", "info": "", "path": "yolo-v4-tiny/tf/model/dense/FP16"}
+{"device": "4000", "enabled": "true", "network": "edsr_nas_s", "info": "", "path": "edsr_nas_s/onnx/model/dense/FP16"}
+{"device": "5010", "enabled": "true", "network": "resnet-50-pytorch", "info": "", "path": "resnet-50-pytorch/onnx/model/dense/FP16"}
+{"device": "5010", "enabled": "true", "network": "unet-camvid-onnx-0001", "info": "", "path": "unet-camvid-onnx-0001/onnx/model/dense/FP16"}
+{"device": "5010", "enabled": "true", "network": "yolo-v4-tiny", "info": "", "path": "yolo-v4-tiny/tf/model/dense/FP16"}
+{"device": "5010", "enabled": "true", "network": "edsr_nas_s", "info": "", "path": "edsr_nas_s/onnx/model/dense/FP16"}

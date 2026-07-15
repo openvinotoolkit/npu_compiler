@@ -201,20 +201,7 @@ DimsOrder vpux::DimsOrder::fromPermutation(DimArrRef perm) {
 }
 
 size_t vpux::DimsOrder::numDims() const {
-    size_t out = 0;
-
-    auto code = this->code();
-
-    for (size_t i = 0; i < MAX_NUM_DIMS; ++i, code >>= BITS_PER_DIM) {
-        const auto digit = code & INDEX_MASK;
-        if (digit == 0) {
-            break;
-        }
-
-        ++out;
-    }
-
-    return out;
+    return _numDims;
 }
 
 bool vpux::DimsOrder::hasDim(Dim d) const {
@@ -272,21 +259,8 @@ Dim vpux::DimsOrder::toDim(MemDim d) const {
     return dimAt(d.ind());
 }
 
-DimArr vpux::DimsOrder::toPermutation() const {
-    DimArr out;
-
-    auto code = _invertedCode;
-
-    for (size_t i = 0; i < MAX_NUM_DIMS; ++i, code >>= BITS_PER_DIM) {
-        auto curDigit = code & INDEX_MASK;
-        if (curDigit == 0) {
-            break;
-        }
-
-        out.emplace_back(curDigit - 1);
-    }
-
-    return out;
+const DimArr& vpux::DimsOrder::toPermutation() const {
+    return _permutation;
 }
 
 bool vpux::DimsOrder::isIdentity() const {
@@ -325,14 +299,15 @@ bool vpux::DimsOrder::isCompatibleLayout(mlir::MemRefType type) const {
     }
 
     const auto logicalStrides = mlir::cast<vpux::NDTypeInterface>(type).getStrides();
-    const auto currPerm = toPermutation();
+    const auto& currPerm = toPermutation();
 
     if (currPerm.size() <= 1) {
         return true;
     }
 
-    for (size_t i = 0; i < currPerm.size() - 1; i++) {
-        if (logicalStrides[currPerm[i]] < logicalStrides[currPerm[i + 1]]) {
+    auto prev = currPerm.begin();
+    for (auto it = std::next(prev); it != currPerm.end(); ++it, ++prev) {
+        if (logicalStrides[*prev] < logicalStrides[*it]) {
             return false;
         }
     }
@@ -407,6 +382,14 @@ DimsOrder::DimsOrder(StorageType code): _code(code) {
 
         _invertedCode <<= BITS_PER_DIM;
         _invertedCode |= dimDigit;
+        ++_numDims;
+    }
+
+    // Eagerly build permutation from inverted code (major to minor order).
+    _permutation.reserve(_numDims);
+    auto invCode = _invertedCode;
+    for (size_t i = 0; i < _numDims; ++i, invCode >>= BITS_PER_DIM) {
+        _permutation.emplace_back((invCode & INDEX_MASK) - 1);
     }
 }
 

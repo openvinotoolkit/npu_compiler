@@ -22,7 +22,7 @@ def IE_ConvertOp :
             [
                 DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface, ["shouldJITCompile"]>,
                 DeclareOpInterfaceMethods<CastOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
                 IE_EltwiseOp
             ]
         > {
@@ -100,12 +100,16 @@ def IE_DynamicDequantizeOp :
         The operation dequantizes the input from like i8 i4 or i2 to f16 or f32.
         The input data type should be signed or unsigned, we can not support
         signless because we can not determine the data range.
+
+        Integer element types are accepted via `AnyInteger` in the type constraint;
+        the supported bit widths (2/4/8/16) and the input/zp type compatibility
+        are enforced by the op verifier.
     }];
 
     let arguments = (ins
-        RankedTensorOf<[quant_QuantizedType]>:$input,
+        RankedTensorOf<[AnyInteger, F8E4M3FN, F8E5M2, F4E2M1FN, vpux_QuantileType, quant_QuantizedType]>:$input,
         RankedTensorOf<[F16, F32]>:$scale,
-        Optional<RankedTensorOf<[I8, I4, I2, U2]>>:$zp,
+        Optional<RankedTensorOf<[AnyInteger, F8E4M3FN, F8E5M2, F4E2M1FN]>>:$zp,
 
         TypeAttr:$dstElemType
     );
@@ -167,13 +171,14 @@ def IE_DynamicQuantizeOp :
     let arguments = (ins
         RankedTensorOf<[F32]>:$input,
         Optional<RankedTensorOf<[F32]>>:$min,
-        Optional<RankedTensorOf<[F32]>>:$max
+        Optional<RankedTensorOf<[F32]>>:$max,
+        TypeAttr:$dstElemType
     );
 
     let results = (outs
-        RankedTensorOf<[UI8]>:$output,
+        RankedTensorOf<[AnyInteger]>:$output,
         RankedTensorOf<[F32]>:$scale,
-        RankedTensorOf<[UI8]>:$zero_point
+        RankedTensorOf<[AnyInteger]>:$zero_point
     );
 
     let hasVerifier = 1;
@@ -209,7 +214,7 @@ def IE_FakeQuantizeOp :
             "FakeQuantize",
             [
                 IE_EltwiseOp,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
                 DeclareOpInterfaceMethods<StaticShapeOpInterface>
             ]
         > {

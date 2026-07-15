@@ -24,10 +24,9 @@
 #define GET_ATTRDEF_CLASSES
 #include <vpux/compiler/dialect/config/attributes.hpp.inc>
 
-namespace vpux {
-namespace config {
+namespace vpux::config {
 
-std::optional<config::Platform> getPlatform(mlir::Operation* op);
+config::Platform getPlatform(mlir::Operation* op);
 config::ArchKind getArch(config::Platform platform);
 
 //
@@ -38,12 +37,11 @@ void setCompilationMode(mlir::ModuleOp module, CompilationMode compilationMode);
 bool hasCompilationMode(mlir::ModuleOp module);
 CompilationMode getCompilationMode(mlir::Operation* op);
 
-//
-// HostBackendMode
-//
-
-void setHostBackendMode(mlir::ModuleOp module, HostBackendMode mode);
-HostBackendMode getHostBackendMode(mlir::ModuleOp module);
+// Returns true for HostCompile, HostCompile_JIT, and HostCompile_Interpreter modes.
+bool isHostCompileMode(CompilationMode mode);
+bool isHostCompileMode(mlir::Operation* op);
+bool isHostCompileInterpreterMode(CompilationMode mode);
+bool isHostCompileInterpreterMode(mlir::Operation* op);
 
 //
 // ELF ABI Version
@@ -70,6 +68,7 @@ ConcreteKind getKindValue(ResourceOp op) {
 
 void setCompileMethodDebatch(mlir::ModuleOp module);
 bool hasCompileMethodDebatch(mlir::ModuleOp module);
+void removeCompileMethodDebatch(mlir::ModuleOp module);
 
 //
 // PureHostCompileFunc
@@ -112,5 +111,4 @@ bool hasPackedModuleAttribute(mlir::ModuleOp module);
 /// Removes the PackedModule attribute from a module.
 void removePackedModuleAttribute(mlir::ModuleOp module);
 
-}  // namespace config
-}  // namespace vpux
+}  // namespace vpux::config

@@ -24,6 +24,10 @@ mlir::LogicalResult inferReduceReturnTypes(mlir::Location loc, mlir::Value input
                                            mlir::SmallVectorImpl<mlir::Type>& inferredReturnTypes,
                                            mlir::ArrayAttr inputPadding = nullptr,
                                            mlir::ArrayAttr outputPadding = nullptr);
+mlir::LogicalResult inferReduceExtraNCETypes(mlir::Location loc, mlir::Type opOutput,
+                                             ::std::optional<::mlir::ArrayAttr> axes,
+                                             ::llvm::ArrayRef<int32_t> resultSegmentSizes,
+                                             mlir::SmallVectorImpl<mlir::Type>& inferredReturnTypes);
 void inferPermuteReturnTypes(mlir::Value input, mlir::AffineMap mem_perm, mlir::AffineMap dst_order,
                              SmallVectorImpl<mlir::Type>& inferredReturnTypes);
 mlir::LogicalResult inferEltwiseReturnTypes(SmallVectorImpl<mlir::Type>& inferredReturnTypes, mlir::Location loc,

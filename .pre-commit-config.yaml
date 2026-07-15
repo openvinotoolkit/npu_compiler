@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2022-2025 Intel Corporation
+# Copyright (C) 2022-2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -14,7 +14,7 @@ repos:
         stages: [pre-commit]
         args: ["-style=file"]
         types: [c++]
-        exclude: 'docs/.*|thirdparty/.*|sw_runtime_kernels/.*'
+        exclude: 'thirdparty/.*|sw_runtime_kernels/.*'
         require_serial: false
         additional_dependencies: ['clang-format==18.1.8']
 
@@ -22,11 +22,11 @@ repos:
     rev: v5.0.0
     hooks:
     -   id: check-json
-        exclude: 'docs/.*|.*tests/lit/.*'
+        exclude: .*tests/lit/.*
     -   id: trailing-whitespace
-        exclude: 'docs/.*|thirdparty/.*|sw_runtime_kernels/.*|.*.md'
+        exclude: 'thirdparty/.*|sw_runtime_kernels/.*|.*.md'
     -   id: end-of-file-fixer
-        exclude: 'docs/.*|thirdparty/.*|sw_runtime_kernels/.*|.*.bin$|.*.cpp|.*.hpp|.*.db|.*.svg|.*.js'
+        exclude: 'thirdparty/.*|sw_runtime_kernels/.*|.*.bin$|.*.cpp|.*.hpp|.*.db|.*.svg|.*.js'
 
 -   repo: https://github.com/hhatto/autopep8
     rev: v2.3.1
@@ -38,4 +38,4 @@ repos:
         - --in-place
         - --ignore
         - E402
-        exclude: 'docs/.*|thirdparty/.*|sw_runtime_kernels/.*|.*.bin$'
+        exclude: 'thirdparty/.*|sw_runtime_kernels/.*|npuw/.*|.*.bin$'

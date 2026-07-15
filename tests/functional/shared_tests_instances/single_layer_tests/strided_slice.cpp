@@ -9,6 +9,9 @@
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(StridedSliceLayerTest);
+
 class StridedSliceLayerTestCommon : public StridedSliceLayerTest, virtual public VpuOv2LayerTest {};
 
 class StridedSliceNCELayerTest : public StridedSliceLayerTestCommon {};

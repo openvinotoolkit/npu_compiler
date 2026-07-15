@@ -15,6 +15,7 @@
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
+#include "vpux/compiler/utils/types.hpp"
 #include "vpux/utils/profiling/common.hpp"
 
 namespace vpux::VPUIP {
@@ -117,7 +118,7 @@ void DMATaskProfilingAfterBarrierSchedPass::createCmx2DdrProfDma(mlir::OpBuilder
                                                                   VPURT::BufferSection::CMX_NN, 0, srcCmxAddr);
     // Create declaration for destination in profiling output
     auto profilingOutputType =
-            mlir::MemRefType::get(profilingBufferType.getShape(), profilingBufferType.getElementType());
+            vpux::getMemRefType(ShapeRef(profilingBufferType.getShape()), profilingBufferType.getElementType());
     auto dstBufProfResultOp = builder.create<VPURT::DeclareBufferOp>(
             loc, profilingOutputType, VPURT::BufferSection::ProfilingOutput, _profOutputId, dstDdrAddr);
 
@@ -205,7 +206,7 @@ void DMATaskProfilingAfterBarrierSchedPass::safeRunOnModule() {
     // DMA profiling data is stored in CMX slice 0
     _Cmx0MemKind = IndexedSymbolAttr::get(ctx, stringifyEnum(VPU::MemoryKind::CMX_NN), 0);
 
-    const auto outputResult = mlir::MemRefType::get({2 * totalNumberOfDmas}, _timerType);
+    const auto outputResult = vpux::getMemRefType({2 * totalNumberOfDmas}, _timerType);
 
     // Update network output information to have also new dma profiling result
     auto profilingResult = addNewProfilingOutput(ctx, func, netInfo, outputResult, profiling::ExecutorType::DMA_SW);

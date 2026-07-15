@@ -28,7 +28,7 @@ using namespace vpux;
 using namespace VPU;
 
 namespace {
-bool isTiledOnLowestDim(ShapeRef tileAxis, DimsOrder dimOrder) {
+bool isTiledOnLowestDim(ShapeRef tileAxis, const DimsOrder& dimOrder) {
     const auto lowestDim = dimOrder.dimAt(dimOrder.numDims() - 1);
     const auto axis = tileAxis[lowestDim];
     return axis > 1;
@@ -190,6 +190,17 @@ void LayerVPUNNCost::printNNCacheStatistics() const {
     _log.info("[NN Cache statistics]  {0}", _vpunnCostModel->getDPUPreloadedCacheCounter().printString());
 }
 
+LayerVPUNNCost::LayerVPUNNCost(LayerVPUNNCost&& other) noexcept
+        : _arch(other._arch),
+          _numTiles(other._numTiles),
+          _numDPUs(other._numDPUs),
+          _numShaveActs(other._numShaveActs),
+          _numDMAPorts(other._numDMAPorts),
+          _vpuDevice(other._vpuDevice),
+          _vpunnCostModel(std::move(other._vpunnCostModel)),
+          _log(std::move(other._log)) {
+}
+
 StrategyCost LayerVPUNNCost::getStrategyCost(mlir::Operation* operation, const VPUNNCostParameters& parameters) const {
     if (mlir::isa<VPU::NCEPermuteOp>(operation)) {
         return getSimpleLayerCost(mlir::cast<vpux::NDTypeInterface>(operation->getResult(0).getType()), parameters);
@@ -277,7 +288,7 @@ SmallVector<StrategyCost> LayerVPUNNCost::getSpillingWriteCostsForAllTiles(
         const Bit elemSize = outputType.getElemTypeSize();
         auto continousBytes = outShape[lowestDim] * elemSize.count();
 
-        auto strideDMACorrectionThreshold = VPU::getStrideDMACorrectionThresholdByArch(_arch);
+        auto strideDMACorrectionThreshold = getStrideDMACorrectionThresholdByArch(_arch);
         if (continousBytes >= strideDMACorrectionThreshold) {
             return mlir::failure();
         }
@@ -424,7 +435,8 @@ StrategyCost LayerVPUNNCost::getNCELayerCost(VPU::NCEOpInterface nceOp, const VP
                                                         true, distributionMode, nceOp);
     SmallVector<uint32_t> vpunnLayerDPUCosts;
     const auto enableVPUNNPreSplit = config::hasVPUNNPreSplit(nceOp);
-    if (enableVPUNNPreSplit && !isActSparseOp(nceOp)) {
+    const auto isMatMul = mlir::isa<VPU::NCEMatMulOp>(nceOp.getOperation());
+    if (enableVPUNNPreSplit && !isActSparseOp(nceOp) && !isMatMul) {
         // Track E#160972. Activation sparse op accuracy issue
         vpunnLayerDPUCosts = getDPUCostForNCEOpPreSplit(nceOp, parameters._tiling, costParams,
                                                         vpunnStrategy.tiling_strategy, _vpunnCostModel, _numDPUs, _log);
@@ -598,7 +610,7 @@ StrategyCost LayerVPUNNCost::correctStrideDMACost(vpux::NDTypeInterface type, St
         continuousBytesOnLowestDim = type.getShape()[lowestDim] * elemSize;
     }
 
-    auto strideDMACorrectionThreshold = VPU::getStrideDMACorrectionThresholdByArch(_arch);
+    auto strideDMACorrectionThreshold = getStrideDMACorrectionThresholdByArch(_arch);
     if (continuousBytesOnLowestDim.count() < strideDMACorrectionThreshold) {
         auto factor = checked_cast<double>(strideDMACorrectionThreshold) / continuousBytesOnLowestDim.count();
         return checked_cast<uint32_t>(std::floor(factor * cost));

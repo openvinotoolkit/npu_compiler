@@ -19,6 +19,7 @@ add_npu_library(npu_compiler_dialect_elf_transforms
         npu_compiler_dialect_core
         npu_compiler_dialect_net
         npu_compiler_dialect_vpuasm
+        npu_compiler_conversion
         npu_core_utils
         MLIRFuncDialect
 )

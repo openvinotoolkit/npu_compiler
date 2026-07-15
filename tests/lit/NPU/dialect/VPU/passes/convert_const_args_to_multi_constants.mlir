@@ -27,14 +27,14 @@ module @MultipleFunctionsMultipleConstants {
     // CHECK-DAG:        const.RodataBundle [[BUNDLE_3:@.+]] = [@Data::[[RODATA_0]], @Data::[[RODATA_1]]] : tensor<48x48x3x3xf16>
     // CHECK:        }
 
-    func.func private @main_fn1(%arg0: tensor<48x48x3x3xf32>, %arg1: tensor<48x48x3x3xf32>, %arg2: tensor<48x48x3x3xf32>) -> tensor<48x48x3x3xf32> {
+    func.func nested @main_fn1(%arg0: tensor<48x48x3x3xf32>, %arg1: tensor<48x48x3x3xf32>, %arg2: tensor<48x48x3x3xf32>) -> tensor<48x48x3x3xf32> {
         %0 = VPU.Add(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<48x48x3x3xf32>, tensor<48x48x3x3xf32> -> tensor<48x48x3x3xf32>
         %1 = VPU.Add(%arg0, %arg2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<48x48x3x3xf32>, tensor<48x48x3x3xf32> -> tensor<48x48x3x3xf32>
         %2 = VPU.Add(%0, %1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<48x48x3x3xf32>, tensor<48x48x3x3xf32> -> tensor<48x48x3x3xf32>
         return %2 : tensor<48x48x3x3xf32>
     }
 
-    // CHECK:        func.func private @main_fn1([[ARG0:%.+]]: tensor<48x48x3x3xf32>) -> tensor<48x48x3x3xf32> {
+    // CHECK:        func.func nested @main_fn1([[ARG0:%.+]]: tensor<48x48x3x3xf32>) -> tensor<48x48x3x3xf32> {
     // CHECK-DAG:        [[MCST_0:%.+]] = const.MultiDeclare tensor<48x48x3x3xf32> = @BundleData::[[BUNDLE_0]] : tensor<48x48x3x3xf16>, [#const.Add<5.000000e+00 : f64>, #const.CastElemType<f32>]
     // CHECK-DAG:        [[MCST_1:%.+]] = const.MultiDeclare tensor<48x48x3x3xf32> = @BundleData::[[BUNDLE_1]] : tensor<48x48x3x3xf16>, [#const.Add<5.000000e+00 : f64>, #const.CastElemType<f32>]
     // CHECK:            [[R0:%.+]] = VPU.Add([[ARG0]], [[MCST_0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<48x48x3x3xf32>, tensor<48x48x3x3xf32> -> tensor<48x48x3x3xf32>
@@ -43,14 +43,14 @@ module @MultipleFunctionsMultipleConstants {
     // CHECK:            return [[R2]] : tensor<48x48x3x3xf32>
     // CHECK:        }
 
-    func.func private @main_fn2(%arg0: tensor<48x48x3x3xf32>, %arg1: tensor<48x48x3x3xf32>, %arg2: tensor<48x48x3x3xf32>) -> tensor<48x48x3x3xf32> {
+    func.func nested @main_fn2(%arg0: tensor<48x48x3x3xf32>, %arg1: tensor<48x48x3x3xf32>, %arg2: tensor<48x48x3x3xf32>) -> tensor<48x48x3x3xf32> {
         %0 = VPU.Add(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<48x48x3x3xf32>, tensor<48x48x3x3xf32> -> tensor<48x48x3x3xf32>
         %1 = VPU.Add(%arg0, %arg2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<48x48x3x3xf32>, tensor<48x48x3x3xf32> -> tensor<48x48x3x3xf32>
         %2 = VPU.Add(%0, %1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<48x48x3x3xf32>, tensor<48x48x3x3xf32> -> tensor<48x48x3x3xf32>
         return %2 : tensor<48x48x3x3xf32>
     }
 
-    // CHECK:        func.func private @main_fn2([[ARG0:%.+]]: tensor<48x48x3x3xf32>) -> tensor<48x48x3x3xf32> {
+    // CHECK:        func.func nested @main_fn2([[ARG0:%.+]]: tensor<48x48x3x3xf32>) -> tensor<48x48x3x3xf32> {
     // CHECK-DAG:        [[MCST_1:%.+]] = const.MultiDeclare tensor<48x48x3x3xf32> = @BundleData::[[BUNDLE_2]] : tensor<48x48x3x3xf16>, [#const.Add<5.000000e+00 : f64>, #const.CastElemType<f32>]
     // CHECK-DAG:        [[MCST_2:%.+]] = const.MultiDeclare tensor<48x48x3x3xf32> = @BundleData::[[BUNDLE_3]] : tensor<48x48x3x3xf16>, [#const.Add<5.000000e+00 : f64>, #const.CastElemType<f32>]
     // CHECK:            [[R0:%.+]] = VPU.Add([[ARG0]], [[MCST_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<48x48x3x3xf32>, tensor<48x48x3x3xf32> -> tensor<48x48x3x3xf32>
@@ -129,12 +129,12 @@ module @NestedCalls {
         DataInfo "output0" : tensor<4xf32>
     }
 
-    func.func private @main_fn1(%arg0: tensor<4xf32>) -> tensor<4xf32> {
+    func.func nested @main_fn1(%arg0: tensor<4xf32>) -> tensor<4xf32> {
         return %arg0 : tensor<4xf32>
     }
 
     // expected-error@+1 {{'func.func' op main_fn2 contains disallowed 'func.Call' op outside of net func}}
-    func.func private @main_fn2(%arg0: tensor<4xf32>) -> tensor<4xf32> {
+    func.func nested @main_fn2(%arg0: tensor<4xf32>) -> tensor<4xf32> {
         %0 = call @main_fn1(%arg0) : (tensor<4xf32>) -> tensor<4xf32>
         return %0 : tensor<4xf32>
     }
@@ -158,7 +158,7 @@ module @DifferingTransformations {
         DataInfo "output0" : tensor<4xf32>
     }
 
-    func.func private @main_fn1(%arg0: tensor<4xf32>) -> tensor<4xf32> {
+    func.func nested @main_fn1(%arg0: tensor<4xf32>) -> tensor<4xf32> {
         return %arg0 : tensor<4xf32>
     }
 
@@ -188,7 +188,7 @@ module @CandidateSharedWithNonConstant {
     // CHECK:        const.BundleData @BundleData {
     // CHECK:        }
 
-    func.func private @main_fn1(%arg0: tensor<48x48x3x3xf32>, %arg1: tensor<48x48x3x3xf32>) -> tensor<48x48x3x3xf32> {
+    func.func nested @main_fn1(%arg0: tensor<48x48x3x3xf32>, %arg1: tensor<48x48x3x3xf32>) -> tensor<48x48x3x3xf32> {
         %0 = VPU.Add(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<48x48x3x3xf32>, tensor<48x48x3x3xf32> -> tensor<48x48x3x3xf32>
         %2 = VPU.Add(%0, %arg0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<48x48x3x3xf32>, tensor<48x48x3x3xf32> -> tensor<48x48x3x3xf32>
         return %2 : tensor<48x48x3x3xf32>

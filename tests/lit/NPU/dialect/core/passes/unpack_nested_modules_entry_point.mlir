@@ -11,7 +11,6 @@
 // CHECK-LABEL: @mainModuleWithNestedModule
 module @mainModuleWithNestedModule {
   config.PipelineOptions @Options {
-    config.Option @config.MaxKernelSize : 15 : si64
     config.Option @config.AutoPaddingODU : false
     config.Option @config.AutoPaddingIDU : false
   }
@@ -26,7 +25,6 @@ module @mainModuleWithNestedModule {
   }
   module @NPUModule {
     config.PipelineOptions @Options {
-      config.Option @config.MaxKernelSize : 15 : si64
       config.Option @config.AutoPaddingODU : false
       config.Option @config.AutoPaddingIDU : false
     }
@@ -41,7 +39,7 @@ module @mainModuleWithNestedModule {
       DataInfo "output" : tensor<1x3x60x60xf16>
     }
     module @nestedModule {
-      func.func private @nestedFunc(%arg0: tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
+      func.func nested @nestedFunc(%arg0: tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
     }
     func.func @main(%arg0: tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16> {
       %callee = Core.NestedCall @nestedModule::@nestedFunc(%arg0) : (tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
@@ -56,7 +54,7 @@ module @mainModuleWithNestedModule {
   // CHECK-NOT:   module @NPUModule
 
   // CHECK:       module @nestedModule {
-  // CHECK:         func.func private @nestedFunc
+  // CHECK:         func.func nested @nestedFunc
   // CHECK:       }
 
   // CHECK:       func.func @main
@@ -68,7 +66,6 @@ module @mainModuleWithNestedModule {
 // CHECK-LABEL: @mainModuleWithOtherFunc
 module @mainModuleWithOtherFunc {
   config.PipelineOptions @Options {
-    config.Option @config.MaxKernelSize : 15 : si64
     config.Option @config.AutoPaddingODU : false
     config.Option @config.AutoPaddingIDU : false
   }
@@ -83,7 +80,6 @@ module @mainModuleWithOtherFunc {
   }
   module @NPUModule {
     config.PipelineOptions @Options {
-      config.Option @config.MaxKernelSize : 15 : si64
       config.Option @config.AutoPaddingODU : false
       config.Option @config.AutoPaddingIDU : false
     }
@@ -97,7 +93,7 @@ module @mainModuleWithOtherFunc {
     } outputsInfo : {
       DataInfo "output" : tensor<1x3x60x60xf16>
     }
-    func.func private @func1(%arg0: tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
+    func.func nested @func1(%arg0: tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
     func.func @main(%arg0: tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16> {
       %callee = call @func1(%arg0) : (tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
       return %callee : tensor<1x3x60x60xf16>
@@ -110,7 +106,7 @@ module @mainModuleWithOtherFunc {
 
   // CHECK-NOT:   module @NPUModule
 
-  // CHECK:       func.func private @func1
+  // CHECK:       func.func nested @func1
 
   // CHECK:       func.func @main
   // CHECK:         call @func1
@@ -121,7 +117,6 @@ module @mainModuleWithOtherFunc {
 // CHECK-LABEL: @mainModuleDoubleNesting
 module @mainModuleDoubleNesting {
   config.PipelineOptions @Options {
-    config.Option @config.MaxKernelSize : 15 : si64
     config.Option @config.AutoPaddingODU : false
     config.Option @config.AutoPaddingIDU : false
   }
@@ -136,7 +131,6 @@ module @mainModuleDoubleNesting {
   }
   module @NPUModule {
     config.PipelineOptions @Options {
-      config.Option @config.MaxKernelSize : 15 : si64
       config.Option @config.AutoPaddingODU : false
       config.Option @config.AutoPaddingIDU : false
     }
@@ -152,7 +146,7 @@ module @mainModuleDoubleNesting {
     }
     module @nestedModule1 {
       module @nestedModule2 {
-        func.func private @nestedFunc(%arg0: tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
+        func.func nested @nestedFunc(%arg0: tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
       }
     }
     func.func @main(%arg0: tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16> {
@@ -169,7 +163,7 @@ module @mainModuleDoubleNesting {
 
   // CHECK:       module @nestedModule1 {
   // CHECK:         module @nestedModule2 {
-  // CHECK:           func.func private @nestedFunc
+  // CHECK:           func.func nested @nestedFunc
   // CHECK:         }
   // CHECK:       }
 

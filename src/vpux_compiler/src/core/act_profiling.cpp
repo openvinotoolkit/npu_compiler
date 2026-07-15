@@ -13,6 +13,7 @@
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/strings.hpp"
+#include "vpux/compiler/utils/types.hpp"
 
 #include <deque>
 #include <iterator>
@@ -288,7 +289,7 @@ mlir::Value ActShaveProfiler::copyToDdr(const ProfilingResults& profilingResults
     }
 
     const auto resultType =
-            mlir::MemRefType::get({totalNumElements * _profilingElementSize}, getActShaveProfilingElementType(_ctx));
+            vpux::getMemRefType({totalNumElements * _profilingElementSize}, getActShaveProfilingElementType(_ctx));
 
     auto subDDR = _builder.create<VPUIP::SubViewOp>(
             mlir::NameLoc::get(mlir::StringAttr::get(_ctx, "actshaveDDR" + std::to_string(currentDDROffset))),

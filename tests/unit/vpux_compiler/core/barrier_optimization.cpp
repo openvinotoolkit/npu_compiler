@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2024-2025 Intel Corporation
+// Copyright (C) 2024-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -26,6 +26,8 @@ enum class TestTarget {
     getControlGraphBlockTaskRangeMidBlock,
     getControlGraphBlockTaskRangeLastBlock,
 };
+
+namespace {
 
 void checkBarrierMaps(const BarrierInfoMaps& expectedResult, const BarrierInfoMaps& testResult,
                       bool checkUpdateAndWaitBarriers = true, bool checkProducersAndConsumers = true) {
@@ -699,16 +701,14 @@ BarrierInfoMaps barriersWithFIFOdependenciesNPU40XXconfig(mlir::MLIRContext* ctx
     constexpr llvm::StringLiteral inputIR = R"(
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-        module attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>, config.revisionID = #config.revision_id<REVISION_NONE>} {
+        module attributes {config.compilationMode = #config.compilation_mode<DefaultHW>, config.platform = #config.platform<NPU4000>, config.revisionID = #config.revision_id<REVISION_NONE>} {
             config.PipelineOptions @Options {
             config.Option @config.UseDedicatedFifoPerShaveEngine : false
             config.Option @config.ReduceSupported : false
             config.Option @config.AutoPaddingODU : false
-            config.Option @config.BarrierMaxVariantSum : 64
-            config.Option @config.BarrierMaxVariantCount : 128
+            config.Option @config.BarrierMaxSlotCount : 256
             }
             config.Resources 6 of @NCE at 1.850000e+03 MHz {
-                config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
                 config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
                 config.ExecutorResource 2 of @SHAVE_ACT
                 config.ExecutorResource 1 of @DPU
@@ -833,16 +833,14 @@ BarrierInfoMaps barriersWithFIFOdependenciesNPU40XXconfig2(mlir::MLIRContext* ct
     constexpr llvm::StringLiteral inputIR = R"(
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-        module attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>, config.revisionID = #config.revision_id<REVISION_NONE>} {
+        module attributes {config.compilationMode = #config.compilation_mode<DefaultHW>, config.platform = #config.platform<NPU4000>, config.revisionID = #config.revision_id<REVISION_NONE>} {
             config.PipelineOptions @Options {
             config.Option @config.UseDedicatedFifoPerShaveEngine : false
             config.Option @config.ReduceSupported : false
             config.Option @config.AutoPaddingODU : false
-            config.Option @config.BarrierMaxVariantSum : 64
-            config.Option @config.BarrierMaxVariantCount : 128
+            config.Option @config.BarrierMaxSlotCount : 256
             }
             config.Resources 6 of @NCE at 1.850000e+03 MHz {
-                config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
                 config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
                 config.ExecutorResource 2 of @SHAVE_ACT
                 config.ExecutorResource 1 of @DPU
@@ -932,16 +930,14 @@ BarrierInfoMaps barriersWithFIFOdependenciesNPU40XXconfig3(mlir::MLIRContext* ct
     constexpr llvm::StringLiteral inputIR = R"(
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-        module attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>, config.revisionID = #config.revision_id<REVISION_NONE>} {
+        module attributes {config.compilationMode = #config.compilation_mode<DefaultHW>, config.platform = #config.platform<NPU4000>, config.revisionID = #config.revision_id<REVISION_NONE>} {
             config.PipelineOptions @Options {
             config.Option @config.UseDedicatedFifoPerShaveEngine : false
             config.Option @config.ReduceSupported : false
             config.Option @config.AutoPaddingODU : false
-            config.Option @config.BarrierMaxVariantSum : 64
-            config.Option @config.BarrierMaxVariantCount : 128
+            config.Option @config.BarrierMaxSlotCount : 256
             }
             config.Resources 6 of @NCE at 1.850000e+03 MHz {
-                config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
                 config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
                 config.ExecutorResource 2 of @SHAVE_ACT
                 config.ExecutorResource 1 of @DPU
@@ -1147,16 +1143,14 @@ BarrierInfoMaps barriersWithFIFOdependenciesNPU40XXconfig6(
     constexpr llvm::StringLiteral inputIR = R"(
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-        module attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>, config.revisionID = #config.revision_id<REVISION_NONE>} {
+        module attributes {config.compilationMode = #config.compilation_mode<DefaultHW>, config.platform = #config.platform<NPU4000>, config.revisionID = #config.revision_id<REVISION_NONE>} {
             config.PipelineOptions @Options {
             config.Option @config.UseDedicatedFifoPerShaveEngine : false
             config.Option @config.ReduceSupported : false
             config.Option @config.AutoPaddingODU : false
-            config.Option @config.BarrierMaxVariantSum : 64
-            config.Option @config.BarrierMaxVariantCount : 128
+            config.Option @config.BarrierMaxSlotCount : 256
             }
             config.Resources 6 of @NCE at 1.850000e+03 MHz {
-                config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
                 config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
                 config.ExecutorResource 2 of @SHAVE_ACT
                 config.ExecutorResource 1 of @DPU
@@ -1262,16 +1256,14 @@ SmallVector<size_t> variableGraphSplitBlockSizeNPU40XXconfig(
     constexpr llvm::StringLiteral inputIR = R"(
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-        module attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>, config.revisionID = #config.revision_id<REVISION_NONE>} {
+        module attributes {config.compilationMode = #config.compilation_mode<DefaultHW>, config.platform = #config.platform<NPU4000>, config.revisionID = #config.revision_id<REVISION_NONE>} {
             config.PipelineOptions @Options {
             config.Option @config.UseDedicatedFifoPerShaveEngine : false
             config.Option @config.ReduceSupported : false
             config.Option @config.AutoPaddingODU : false
-            config.Option @config.BarrierMaxVariantSum : 64
-            config.Option @config.BarrierMaxVariantCount : 128
+            config.Option @config.BarrierMaxSlotCount : 256
             }
             config.Resources 6 of @NCE at 1.850000e+03 MHz {
-                config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
                 config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
                 config.ExecutorResource 2 of @SHAVE_ACT
                 config.ExecutorResource 1 of @DPU
@@ -1427,6 +1419,8 @@ SmallVector<size_t> variableGraphSplitBlockSizeNPU40XXconfig(
 
     return expectedResult;
 }
+
+}  // namespace
 
 /**
  * Test conversions of update barrier (wait barrier) map to barrier producers (consumers) map.
@@ -1895,16 +1889,14 @@ void parallelWaitBarriersIRconfig(mlir::MLIRContext* ctx, mlir::OwningOpRef<mlir
     constexpr llvm::StringLiteral inputIR = R"(
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-        module attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>, config.revisionID = #config.revision_id<REVISION_NONE>} {
+        module attributes {config.compilationMode = #config.compilation_mode<DefaultHW>, config.platform = #config.platform<NPU4000>, config.revisionID = #config.revision_id<REVISION_NONE>} {
             config.PipelineOptions @Options {
             config.Option @config.UseDedicatedFifoPerShaveEngine : false
             config.Option @config.ReduceSupported : false
             config.Option @config.AutoPaddingODU : false
-            config.Option @config.BarrierMaxVariantSum : 64
-            config.Option @config.BarrierMaxVariantCount : 128
+            config.Option @config.BarrierMaxSlotCount : 256
             }
             config.Resources 6 of @NCE at 1.850000e+03 MHz {
-                config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
                 config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
                 config.ExecutorResource 2 of @SHAVE_ACT
                 config.ExecutorResource 1 of @DPU

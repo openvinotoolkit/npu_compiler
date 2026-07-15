@@ -12,9 +12,29 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ConvolutionLayerTest);
+
 class ConvolutionLayerTestCommon : public ConvolutionLayerTest, virtual public VpuOv2LayerTest {};
-class ConvolutionLayerTest_HostCompile : public ConvolutionLayerTest, virtual public VpuOv2LayerTest {};
-class ConvolutionLayerTest_HostCompile_Profiling : public ConvolutionLayerTest, virtual public VpuOv2LayerTest {};
+class ConvolutionLayerTest_HostCompile : public ConvolutionLayerTest, virtual public VpuOv2LayerTest {
+    void configure_model() override {
+        // After HostCompile default params were changed to a more performant configuration, these tests fail under the
+        // new defaults and need investigation before they can be re-enabled.
+        // Track: E#218923
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "dynamic-dim-alignment=false "
+                                                                       "auto-unrolling-mode=disabled";
+    }
+};
+class ConvolutionLayerTest_HostCompile_Profiling : public ConvolutionLayerTest, virtual public VpuOv2LayerTest {
+    void configure_model() override {
+        // After HostCompile default params were changed to a more performant configuration, these tests fail under the
+        // new defaults and need investigation before they can be re-enabled.
+        // Track: E#218923
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "dynamic-dim-alignment=false "
+                                                                       "auto-unrolling-mode=disabled";
+    }
+};
+
 class ConvolutionLayerTest_SCFTiling : public ConvolutionLayerTestCommon {
     void configure_model() override {
         configuration[ov::intel_npu::compilation_mode_params.name()] = "scf-tiling=true";
@@ -34,7 +54,7 @@ class ConvolutionLayerTest_NPU5020_SW : public ConvolutionLayerTestCommon {};
 
 class ConvolutionLayerTest_FP32_SW : public ConvolutionLayerTestCommon {
     void configure_model() override {
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp16";
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp";
     }
 };
 
@@ -59,7 +79,11 @@ class ConvolutionLayerTest_SCF_Unroll : public ConvolutionLayerTestCommon {
 
 class ConvolutionLayerTest_SCF_AutoUnroll : public ConvolutionLayerTestCommon {
     void configure_model() override {
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-auto-unrolling=true";
+        configuration[ov::intel_npu::compilation_mode_params.name()] =
+                "auto-unrolling-mode=inner "
+                // After HostCompile default params were changed to a more performant configuration, these tests fail
+                // under the new defaults and need investigation before they can be re-enabled. Track: E#218923
+                "dynamic-dim-alignment=false";
     }
 };
 

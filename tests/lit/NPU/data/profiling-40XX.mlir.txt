@@ -15,12 +15,11 @@
 module @"resnet-320-pytorch" attributes {config.compilationMode = #config.compilation_mode<DefaultHW>, config.platform = #config.platform<NPU4000>, config.revisionID = #config.revision_id<REVISION_NONE>} {
   VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096] loc(#loc1)
   module @VPU.SW {
-    func.func private @builtin_Convert(memref<*xf16, [@CMX_NN, 0]>, memref<*xui8, [@CMX_NN, 0]>) attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert", VPU.kernel_name = "convert", VPU.task_type = @COMPUTE} loc(#loc1)
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"} loc(#loc1)
+    func.func nested @builtin_Convert(memref<*xf16, [@CMX_NN, 0]>, memref<*xui8, [@CMX_NN, 0]>) attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert", VPU.kernel_name = "convert", VPU.task_type = @COMPUTE} loc(#loc1)
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"} loc(#loc1)
   } loc(#loc1)
   config.PipelineOptions @Options {
     config.Option @config.FragmentationAvoidRatioPipeliningLargeWeights : 4.500000e-01 : f32 loc(#loc1)
-    config.Option @config.WorkloadManagementStatus : "ENABLED" loc(#loc1)
     config.Option @config.UseDedicatedFifoPerShaveEngine : false loc(#loc1)
     config.Option @config.BarrierMaxVariantSum : 64 : ui64 loc(#loc1)
     config.Option @config.BarrierMaxVariantCount : 128 : ui64 loc(#loc1)
@@ -33,7 +32,6 @@ module @"resnet-320-pytorch" attributes {config.compilationMode = #config.compil
     config.Option @config.MetadataMaxKernelInvocationCount : 64 : ui64 loc(#loc1)
     config.Option @config.MetadataMaxKernelRangeCount : 64 : ui64 loc(#loc1)
     config.Option @config.MetadataMaxMediaCount : 4 : ui64 loc(#loc1)
-    config.Option @config.MaxKernelSize : 11 : si64 loc(#loc1)
     config.Option @config.AutoPaddingODU : false loc(#loc1)
     config.Option @config.AutoPaddingIDU : false loc(#loc1)
     config.Option @config.AsymmetricPerTensorZP : false loc(#loc1)
@@ -61,7 +59,6 @@ module @"resnet-320-pytorch" attributes {config.compilationMode = #config.compil
         config.MemoryResource 512 bytes of @CMX_NN offset 1473024 loc(#loc1)
       } loc(#loc1)
     } loc(#loc1)
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware loc(#loc1)
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64} loc(#loc1)
     config.ExecutorResource 2 of @SHAVE_ACT loc(#loc1)
     config.ExecutorResource 1 of @DPU loc(#loc1)

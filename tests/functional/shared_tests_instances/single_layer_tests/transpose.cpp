@@ -9,6 +9,9 @@
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(TransposeLayerTest);
+
 class TransposeLayerTestCommon : public TransposeLayerTest, virtual public VpuOv2LayerTest {};
 class TransposeLayerTest_NPU3720 : public TransposeLayerTestCommon {};
 class TransposeLayerTest_NPU4000 : public TransposeLayerTestCommon {};

@@ -107,7 +107,8 @@ void DPUProfilingPass::safeRunOnModule() {
         return;
     }
 
-    const auto outputResult = mlir::MemRefType::get({totalDpuDdrProfilingOutputSize}, getUInt64Type(ctx));
+    const auto outputResult =
+            vpux::getMemRefType({static_cast<int64_t>(totalDpuDdrProfilingOutputSize)}, getUInt64Type(ctx));
     auto profilingResult = addNewProfilingOutput(ctx, netFunc, netInfo, outputResult, profiling::ExecutorType::DPU);
 
     SmallVector<mlir::Value> concatResults;

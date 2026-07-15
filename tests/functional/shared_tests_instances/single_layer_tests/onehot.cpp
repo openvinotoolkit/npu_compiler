@@ -11,6 +11,10 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(OneHot1LayerTest);
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(OneHot16LayerTest);
+
 class OneHot16LayerTestCommon : public OneHot16LayerTest, virtual public VpuOv2LayerTest {};
 
 TEST_P(OneHot16LayerTestCommon, NPU3720_HW) {

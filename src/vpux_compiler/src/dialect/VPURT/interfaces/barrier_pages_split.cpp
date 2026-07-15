@@ -33,12 +33,13 @@ vpux::VPURT::BarrierPagesSplitHandler::BarrierPagesSplitHandler(mlir::func::Func
 vpux::VPURT::BarrierPagesSplitHandler::BarrierPagesSplitHandler(
         BarrierInfoTest& barrierInfoTest, std::map<VPURT::TaskQueueType, SmallVector<uint32_t>>& taskQueueTypeMap,
         size_t pageSize, size_t barrierFifoDepth, size_t numClusters, const SmallVector<size_t>& shvTasksWithDpu,
-        Logger log)
+        const SmallVector<size_t>& shvTasksWithDma, Logger log)
         : _barrierInfo(barrierInfoTest),
           _pageSize(pageSize),
           _taskQueueTypeMap(taskQueueTypeMap),
           _barrierFifoDepth(barrierFifoDepth),
           _log(log) {
+    _legalizationMode = true;
     _startBarrierIndex = 0;
     _getNumberOfWorkloadsFromTaskOpFlag = false;
     _fifoPerShaveEngineEnabled = true;
@@ -58,6 +59,18 @@ vpux::VPURT::BarrierPagesSplitHandler::BarrierPagesSplitHandler(
 
         _shvTasksWithDpuPerTile[tileIndex].push_back(shvTaskInd);
     }
+
+    // Initialize data for SHV tasks with DMA
+    for (auto shvTaskInd : shvTasksWithDma) {
+        auto shvQueueIt = llvm::find_if(_taskQueueTypeMap, [&](const auto& item) {
+            return llvm::find(item.second, shvTaskInd) != item.second.end();
+        });
+        VPUX_THROW_WHEN(shvQueueIt == _taskQueueTypeMap.end(), "Can not find task {0} in task queue map", shvTaskInd);
+
+        auto tileIndex = vpux::getShaveTileIndexFromEncodedId(shvQueueIt->first.id, numClusters);
+
+        _shvTasksWithDmaPerTile[tileIndex].insert(shvTaskInd);
+    }
 }
 
 void vpux::VPURT::BarrierPagesSplitHandler::reconfigureBarrierFifoDepth(size_t barrierFifoDepth) {
@@ -73,8 +86,7 @@ void vpux::VPURT::BarrierPagesSplitHandler::initializeForAssignment(mlir::func::
     initializeTaskToPageAssignment();
 }
 
-// Configure the barrier page split handler for legalization of the schedule for split into pages
-void vpux::VPURT::BarrierPagesSplitHandler::initializeForLegalization() {
+void vpux::VPURT::BarrierPagesSplitHandler::initializePageSplitData() {
     _barrierInfo.buildTaskQueueTypeMap();
 
     // Get number of pages based on information in IR. Read page assignment from last barrier in IR
@@ -89,20 +101,41 @@ void vpux::VPURT::BarrierPagesSplitHandler::initializeForLegalization() {
     initializeBoundaryTasksData();
 }
 
+// Configure the barrier page split handler for legalization of the schedule for split into pages
+void vpux::VPURT::BarrierPagesSplitHandler::initializeForLegalization() {
+    _legalizationMode = true;
+    initializePageSplitData();
+}
+
 void vpux::VPURT::BarrierPagesSplitHandler::initializeTaskQueueTypeMap(mlir::func::FuncOp func) {
     _taskQueueTypeMap = VPURT::getTaskOpQueues(func, _barrierInfo);
 }
 
-void vpux::VPURT::BarrierPagesSplitHandler::findShvTasksWithDpu(size_t numClusters) {
+void vpux::VPURT::BarrierPagesSplitHandler::findShvTasksWithDpuOrDma(mlir::func::FuncOp func) {
+    auto module = func->getParentOfType<mlir::ModuleOp>();
+    auto numClusters = config::getTileExecutor(module).getCount();
+
+    // Shave submitting DMA tasks on using compiler DMA FIFOs requires WLM enqueue logic
+    // to be aware of implicit dependency from SHV task to DMA queue
+    const bool isShvToDmaImplicitDep = (config::getArch(module) <= config::ArchKind::NPU50XX);
+
     for (auto& [queueType, taskVec] : _taskQueueTypeMap) {
         if (queueType.type != config::ExecutorKind::SHAVE_ACT) {
             continue;
         }
 
         for (auto taskInd : taskVec) {
-            if (isDpuShaveKernelType(_barrierInfo.getTaskOpAtIndex(taskInd))) {
-                auto tileIndex = vpux::getShaveTileIndexFromEncodedId(queueType.id, numClusters);
+            auto taskOp = _barrierInfo.getTaskOpAtIndex(taskInd);
+            auto tileIndex = vpux::getShaveTileIndexFromEncodedId(queueType.id, numClusters);
+            if (isDpuShaveKernelType(taskOp)) {
                 _shvTasksWithDpuPerTile[tileIndex].push_back(taskInd);
+            }
+
+            if (isShvToDmaImplicitDep) {
+                auto swKernelOp = mlir::cast<VPUIP::SwKernelOp>(taskOp.getInnerTaskOp());
+                if (isIoDmaSwKernel(swKernelOp)) {
+                    _shvTasksWithDmaPerTile[tileIndex].insert(taskInd);
+                }
             }
         }
     }
@@ -115,13 +148,10 @@ void vpux::VPURT::BarrierPagesSplitHandler::findShvTasksWithDpu(size_t numCluste
 
 // Configure the barrier page split handler for finding enqueue DMA data
 void vpux::VPURT::BarrierPagesSplitHandler::initializeForEnqueue(mlir::func::FuncOp func) {
-    initializeForLegalization();
+    initializePageSplitData();
     initializeTaskQueueTypeMap(func);
 
-    auto module = func->getParentOfType<mlir::ModuleOp>();
-    auto numClusters = config::getTileExecutor(module).getCount();
-
-    findShvTasksWithDpu(numClusters);
+    findShvTasksWithDpuOrDma(func);
     initPrevPhysBarrierData(func);
 
     // Locate start barrier
@@ -425,7 +455,10 @@ void vpux::VPURT::BarrierPagesSplitHandler::initializeBoundaryTasksData() {
         }
 
         _log.trace("Page {0} boundary tasks: {1}", pageInd, pageBoundaryTasks);
-        enforceBoundaryTaskHasUpdateBarrier(pageInd);
+        if (_legalizationMode) {
+            // TODO E#177834: This should no longer be needed if initialization is clearly separated from legalization
+            enforceBoundaryTaskHasUpdateBarrier(pageInd);
+        }
     }
 }
 
@@ -544,7 +577,7 @@ void vpux::VPURT::BarrierPagesSplitHandler::updateTaskPageAssignmentForShvInCase
                        taskQueueType.id);
 
             // Update task page assignment and make it depend on additional wait barrier
-            // TODO: E#170011, E#196707 If 1 wait barrier requirement is not needed then just make taskInd depend also
+            // If 1 wait barrier requirement is not needed then just make taskInd depend also
             // on same waitBars as prevTaskInd
             auto prevTaskWaitBars = _barrierInfo.getWaitBarriers(prevTaskInd);
             auto taskWaitBars = _barrierInfo.getWaitBarriers(taskInd);
@@ -2641,6 +2674,273 @@ VPURT::BarrierPagesSplitHandler::EnqueueDmaData vpux::VPURT::BarrierPagesSplitHa
     return newEnq;
 }
 
+// Check if DPU enqueue needs to be delayed after SHV with DPU task to prevent it from blocking DPU FIFO
+// and allow SHV task to complete and submit DPU before DPU task starts executing
+bool vpux::VPURT::BarrierPagesSplitHandler::isDpuEnqueueDelayNeededAfterShvWithDpu(
+        size_t taskInd, VPURT::TaskQueueType queueType,
+        DenseMap<VPURT::TaskQueueType, size_t>& shvTasksWithDpuVecStartIndPerQueue, size_t shvTasksWithDpuVecInd,
+        std::map<VPURT::TaskQueueType, SmallVector<EnqueueDmaData>>& enqDmaDataVecPerQueue) {
+    auto isDepFromShvToDpu = [&](size_t shvTaskInd, size_t dpuTaskInd, size_t dpuTileInd) {
+        if (shvTaskInd > dpuTaskInd) {
+            return false;
+        }
+
+        if (isDepFromTaskAToTaskB(shvTaskInd, dpuTaskInd)) {
+            return true;
+        }
+
+        // In case SHV submits DMA there is an implicit dependency from SHV to DMA tasks (Skip/Release descriptors) and
+        // those DMA tasks may have dependency to DPU task
+        auto shvWithDmaIt = _shvTasksWithDmaPerTile.find(dpuTileInd);
+        if (shvWithDmaIt == _shvTasksWithDmaPerTile.end() || !shvWithDmaIt->second.contains(shvTaskInd)) {
+            return false;
+        }
+
+        // TODO: Until the kernels with SHV submission of DMA support multi DMA engine,
+        // the check is limited to first port only - E#213511
+        const SmallVector<VPURT::TaskQueueType> dmaQueueTypes{
+                {config::ExecutorKind::DMA_NN, getDMAQueueIdEncoding(/*port*/ 0, VPUIP::DmaChannelType::DDR)},
+                {config::ExecutorKind::DMA_NN, getDMAQueueIdEncoding(/*port*/ 0, VPUIP::DmaChannelType::CMX)}};
+
+        for (auto dmaQueueType : dmaQueueTypes) {
+            auto nextDmaTaskOnQueueOpt = _barrierInfo.getNextTaskOnQueue(shvTaskInd, dmaQueueType);
+            if (!nextDmaTaskOnQueueOpt.has_value()) {
+                continue;
+            }
+            auto nextDmaTaskOnQueue = nextDmaTaskOnQueueOpt.value();
+            if (isDepFromTaskAToTaskB(nextDmaTaskOnQueue, dpuTaskInd)) {
+                _log.nest().trace("SHV task {0} submits DMA task {1} which has dependency to DPU task {2}", shvTaskInd,
+                                  nextDmaTaskOnQueue, dpuTaskInd);
+                return true;
+            }
+        }
+        return false;
+    };
+
+    auto shvTaskInd = _shvTasksWithDpuPerTile[queueType.id][shvTasksWithDpuVecInd];
+    if (!isDepFromShvToDpu(shvTaskInd, taskInd, queueType.id)) {
+        return false;
+    }
+
+    // DPU task depends on SHV. Check if DPU enqueue DMA barrier is after SHV task
+    _log.nest().trace("DPU task {0} depends on SHV task {1} which submits DPU", taskInd, shvTaskInd);
+    // Since this DPU depends on this SHV task, there is no need for subsequent DPUs to check
+    // dependency against it, thus move the iteration start index forward
+    shvTasksWithDpuVecStartIndPerQueue[queueType] = shvTasksWithDpuVecInd + 1;
+
+    auto& lastEnqDmaData = enqDmaDataVecPerQueue[queueType].back();
+
+    bool isEnqDmaAfterShv = false;
+    for (auto dpuEnqBar : lastEnqDmaData.waitBars) {
+        _log.nest().trace("Check dependency from SHV task {0} to enqueue DMA barrier {1}", shvTaskInd, dpuEnqBar);
+        if (isDepFromTaskToBarrier(shvTaskInd, dpuEnqBar)) {
+            // If SHV task is before enqueue DMA barrier then it is safe to enqueue
+            _log.nest().trace("SHV task {0} is before enqueue DMA barrier {1} for task {2}", shvTaskInd, dpuEnqBar,
+                              taskInd);
+            isEnqDmaAfterShv = true;
+            break;
+        }
+    }
+
+    return !isEnqDmaAfterShv;
+}
+
+// Create enqueue DMA for DPU task which needs to be delayed after SHV with DPU task so that
+// it does not block DPU FIFO and executes after SHV task completes.
+void vpux::VPURT::BarrierPagesSplitHandler::createInitialDelayDpuEnqueueAfterShvWithDpu(
+        size_t taskInd, VPURT::TaskQueueType queueType, bool wasDpuAlreadyDelayed, size_t taskWorkloadStartIdx,
+        size_t taskWorkloadEndIdx, size_t shvTasksWithDpuVecInd,
+        std::map<VPURT::TaskQueueType, SmallVector<EnqueueDmaData>>& enqDmaDataVecPerQueue) {
+    auto shvTaskInd = _shvTasksWithDpuPerTile[queueType.id][shvTasksWithDpuVecInd];
+    auto& lastEnqDmaData = enqDmaDataVecPerQueue[queueType].back();
+
+    _log.nest().trace("Enqueue DMA for task {0} is before SHV task {1}. Need to delay enqueue", taskInd, shvTaskInd);
+    // If enqueue is not after SHV task completion then delay it
+    // Check on which barrier to delay. Identify closest barrier produced by SHV task
+    auto shvTaskUpdBars = _barrierInfo.getUpdateBarriers(shvTaskInd);
+    if (shvTaskUpdBars.empty()) {
+        auto nextTaskOpt = getNextTaskOnSameQueueWithUpdateBarIfQueueOrderSupported(shvTaskInd);
+        if (nextTaskOpt.has_value()) {
+            shvTaskUpdBars = _barrierInfo.getUpdateBarriers(nextTaskOpt.value());
+        }
+    }
+    VPUX_THROW_WHEN(shvTaskUpdBars.empty(), "SHV task {0} has no update barriers. Cannot delay enqueue for task {1}",
+                    shvTaskInd, taskInd);
+    auto newEnqDmaBar = *std::min_element(shvTaskUpdBars.begin(), shvTaskUpdBars.end());
+    auto newInsertBefore = _barrierInfo.getBarrierLatestProducer(newEnqDmaBar) + 1;
+    _log.nest().trace("Delay enqueue of task {0} to {1} due to dependency on SHV task {2} which "
+                      "submits DPU",
+                      taskInd, newEnqDmaBar, shvTaskInd);
+
+    // Check if last enqueue is just for this task and can be updated
+    // or if new one needs to be created
+    if (taskWorkloadStartIdx == lastEnqDmaData.startTaskIdx) {
+        if (!wasDpuAlreadyDelayed || lastEnqDmaData.pageInd < getBarrierPage(newEnqDmaBar)) {
+            // If this is the first time this DPU task is delayed because of SHV task or
+            // if new delay barrier is on later page
+            // update last enqueue DMA to use new wait barrier that is produced
+            // by SHV. Insert this DMA after SHV task
+            lastEnqDmaData.waitBars = {newEnqDmaBar};
+            lastEnqDmaData.pageInd = getBarrierPage(newEnqDmaBar);
+            lastEnqDmaData.insertBefore = newInsertBefore;
+        } else if (lastEnqDmaData.pageInd == getBarrierPage(newEnqDmaBar)) {
+            // If this task was already delayed by some DPU and new enqueue DMA barrier
+            // is on the same page extend wait barrier set and update insertion point
+            lastEnqDmaData.waitBars.push_back(newEnqDmaBar);
+            lastEnqDmaData.insertBefore = std::max(lastEnqDmaData.insertBefore, newInsertBefore);
+        }
+        _log.nest().trace("Update last enqueue DMA for task {0} to use barriers {1}", taskInd, lastEnqDmaData.waitBars);
+    } else {
+        // Remove this task from previous one and create new one
+        auto taskWorkloadsCount = taskWorkloadEndIdx - taskWorkloadStartIdx + 1;
+        lastEnqDmaData.endTaskIdx = lastEnqDmaData.endTaskIdx - taskWorkloadsCount;
+
+        EnqueueDmaData newEnqDmaData;
+        newEnqDmaData.pageInd = getBarrierPage(newEnqDmaBar);
+        newEnqDmaData.queueType = queueType;
+        newEnqDmaData.startTaskIdx = taskWorkloadStartIdx;
+        newEnqDmaData.endTaskIdx = taskWorkloadEndIdx;
+        newEnqDmaData.waitBars = {newEnqDmaBar};
+        newEnqDmaData.insertBefore = newInsertBefore;
+
+        enqDmaDataVecPerQueue[queueType].push_back(newEnqDmaData);
+        _log.nest().trace("Create new enqueue DMA for task {0} with barriers {1}", taskInd,
+                          enqDmaDataVecPerQueue[queueType].back().waitBars);
+    }
+}
+
+// After identifying that DPU enqueue DMA needs to be delayed because of SHV task with DPU check
+// if it introducing new enqueue DMA would not make previous now depend on SHV with DPU what would
+// invalidate previous DPU enqueue. If this is the case update new DPU enqueue position to
+// be after closest DMA on this queue which is the closest one before previous DPU. This way adding
+// new enqueue DMA would not impact previous DPU dependencies.
+void vpux::VPURT::BarrierPagesSplitHandler::updateDelayedDpuEnqPositionToNotImpactEnqOfPrevDpu(
+        size_t taskInd, VPURT::TaskQueueType queueType, const VPURT::TaskQueueType& enqueueDmaQueueType,
+        const DenseMap<VPURT::TaskQueueType, std::optional<size_t>>& previousTaskIndOptPerQueue,
+        std::map<VPURT::TaskQueueType, SmallVector<EnqueueDmaData>>& enqDmaDataVecPerQueue) {
+    auto& lastEnqDmaData = enqDmaDataVecPerQueue[queueType].back();
+    auto prevTask = previousTaskIndOptPerQueue.lookup(queueType).value();
+
+    auto closestDmaTaskIndOpt = _barrierInfo.getPrevTaskOnQueue(prevTask, enqueueDmaQueueType);
+    while (closestDmaTaskIndOpt.has_value() && !isDepFromTaskAToTaskB(closestDmaTaskIndOpt.value(), prevTask)) {
+        closestDmaTaskIndOpt = getPrevTaskOnSameQueueIfQueueOrderEnabled(closestDmaTaskIndOpt.value());
+    }
+
+    VPUX_THROW_WHEN(!closestDmaTaskIndOpt.has_value(), "Cannot be enqueued safely with dpuFromShave execution");
+
+    auto closestDmaTaskInd = closestDmaTaskIndOpt.value();
+    if (lastEnqDmaData.insertBefore <= closestDmaTaskInd) {
+        _log.nest().trace("DMA {0} (page {1}) is the closest task for prev DPU {2} (page {3})", closestDmaTaskInd,
+                          _taskPageAssignment[closestDmaTaskInd], prevTask, _taskPageAssignment[prevTask]);
+        auto newInsertBefore = closestDmaTaskInd + 1;
+        _log.nest().trace("Change enqueue insertion position from {0} to {1}", lastEnqDmaData.insertBefore,
+                          newInsertBefore);
+
+        lastEnqDmaData.insertBefore = newInsertBefore;
+
+        auto closestDmaTaskPage = _taskPageAssignment[closestDmaTaskInd];
+        if (closestDmaTaskPage > lastEnqDmaData.pageInd) {
+            _log.nest().trace("Enqueue DMA changed page from {0} to {1}. Identified wait bars "
+                              "are no longer valid",
+                              lastEnqDmaData.pageInd, closestDmaTaskPage);
+            lastEnqDmaData.pageInd = closestDmaTaskPage;
+
+            BarrierInfo::TaskSet newWaitBars;
+            // Since now Enqueue DMA is in different page its wait barrier needs to be modified
+            // as it can no longer wait on barrier from previous page. For each already
+            // identified Enqueue DMA wait barrier check if there is already dependency to new
+            // Enqueue DMA position (which is after closestDmaTaskInd)
+            bool isWaitBarrierNeeded = false;
+            for (auto enqWaitBar : lastEnqDmaData.waitBars) {
+                _log.nest().trace("Check if there is dependency from enqueue wait bar {0} to "
+                                  "previous DMA {1}",
+                                  enqWaitBar, closestDmaTaskInd);
+                if (isDepFromBarrierToTask(enqWaitBar, closestDmaTaskInd)) {
+                    continue;
+                }
+                isWaitBarrierNeeded = true;
+                _log.nest(2).trace("No dependency. Need to find new wait bars");
+
+                bool foundNewWaitBar = false;
+                // Find a suitable barrier in new page that guarantees dependency to previous
+                // wait barrier
+                auto firstBarrierInNewPage = _firstBarrierInPage[closestDmaTaskPage];
+                size_t barSearchLimit = ((closestDmaTaskPage + 1) < _pageCount)
+                                                ? _firstBarrierInPage[closestDmaTaskPage + 1]
+                                                : _barrierInfo.getNumOfBarrierOps();
+                for (auto barInd = firstBarrierInNewPage; barInd < barSearchLimit; barInd++) {
+                    _log.nest().trace("Check barrier {0} in new page {1} as candidate for "
+                                      "enqueue DMA wait barrier",
+                                      barInd, closestDmaTaskPage);
+
+                    if (!isDepFromBarAToBarB(enqWaitBar, barInd)) {
+                        _log.nest(2).trace("Barrier {0} is not suitable because there is no "
+                                           "dependency from previous wait barrier {1}",
+                                           barInd, enqWaitBar);
+                        continue;
+                    }
+
+                    newWaitBars.insert(barInd);
+                    _log.nest(2).trace("Barrier {0} is suitable. Add it to new wait bars", barInd);
+                    foundNewWaitBar = true;
+                    break;
+                }
+                VPUX_THROW_WHEN(!foundNewWaitBar,
+                                "Cannot find suitable wait barrier in page {0} for previous "
+                                "wait barrier {1}",
+                                closestDmaTaskPage, enqWaitBar);
+            }
+
+            VPUX_THROW_WHEN(isWaitBarrierNeeded && newWaitBars.empty(),
+                            "Cannot find suitable wait barrier for enqueue DMA after SHV with "
+                            "DPU for task {0}",
+                            taskInd);
+            // After finding new wait barriers update insertion point
+            auto latestProducerPosition = _barrierInfo.getBarriersLatestProducer(newWaitBars);
+            if (latestProducerPosition >= lastEnqDmaData.insertBefore) {
+                _log.nest().trace("Update enqueue DMA insertion point from {0} to {1} to be "
+                                  "after latest producer of new wait barriers",
+                                  lastEnqDmaData.insertBefore, latestProducerPosition + 1);
+                lastEnqDmaData.insertBefore = latestProducerPosition + 1;
+            }
+
+            lastEnqDmaData.waitBars = to_small_vector(newWaitBars);
+        }
+    }
+}
+
+// In case enqueue DMA is to be placed just before sync point then move it after as
+// otherwise there will be no barrier between sync point and enqueue DMA later to be
+// inserted This situation can happen only after enqueue was delayed due to SHV with DPU as
+// in other cases proposed enqueue will use wait barrier of last DMA0:CHDDR and will be
+// placed before it thus there will never be a problem with making sure there is some last
+// update barrier to mark completion of this last task on page
+void vpux::VPURT::BarrierPagesSplitHandler::updateDpuEnqPositionToAccountForSyncTask(
+        size_t taskInd, VPURT::TaskQueueType queueType, const VPURT::TaskQueueType& enqueueDmaQueueType,
+        std::map<VPURT::TaskQueueType, SmallVector<EnqueueDmaData>>& enqDmaDataVecPerQueue) {
+    auto& lastEnqDmaData = enqDmaDataVecPerQueue[queueType].back();
+    auto maybeSyncTask = _firstAndLastTaskPerPage[lastEnqDmaData.pageInd].value().second;
+    if (!_barrierInfo.isSyncPoint(maybeSyncTask) ||
+        _barrierInfo.getTaskQueueType(maybeSyncTask) == enqueueDmaQueueType) {
+        return;
+    }
+
+    // Get largest barrier index as sync point is guaranteed to wait on last barrier in page
+    // and if this barrier is also wait barrier for enqueue DMA then enqueue DMA needs to be
+    // moved after sync point. Otherwise there would be no way to add later update barrier
+    // for this enqueue DMA to guarantee sync-task waits on last tasks from all HW FIFOs
+    auto enqDmaWaitBar = *std::max_element(lastEnqDmaData.waitBars.begin(), lastEnqDmaData.waitBars.end());
+    if (enqDmaWaitBar == (_firstBarrierInPage[lastEnqDmaData.pageInd + 1] - 1)) {
+        auto syncPointUpdateBars = _barrierInfo.getUpdateBarriers(maybeSyncTask);
+        lastEnqDmaData.waitBars = {*std::min_element(syncPointUpdateBars.begin(), syncPointUpdateBars.end())};
+        lastEnqDmaData.insertBefore++;
+        lastEnqDmaData.pageInd++;
+        _log.nest().trace("Enqueue DMA for task {0} is to be inserted before sync point {1}. Move "
+                          "it after barrier {2}(page {3})",
+                          taskInd, maybeSyncTask, lastEnqDmaData.waitBars[0], lastEnqDmaData.pageInd);
+    }
+}
+
 // This method prepares enqueue information in case of Full WLM for each task
 // Return enqueue DMA data
 SmallVector<VPURT::BarrierPagesSplitHandler::EnqueueDmaData> vpux::VPURT::BarrierPagesSplitHandler::getEnqueueDmaData(
@@ -2703,9 +3003,42 @@ SmallVector<VPURT::BarrierPagesSplitHandler::EnqueueDmaData> vpux::VPURT::Barrie
     // Earliest enqueue DMA
     EnqueueDmaData earliestEnqDma;
     earliestEnqDma.pageInd = 0;
-    // Get earliest start barrier consumer and set enqueue DMA before it
+    // Get earliest start barrier consumer and set enqueue DMA before it.
+    // getBarrierEarliestConsumer returns a global task index that may belong to any queue.
+
+    // Enqueue DMAs are always inserted on DMA P0 DDR. If the earliest start-barrier consumer
+    // is NOT on that queue (e.g. it is an SHV task or a DMA on another port/channel), using it
+    // as insertBefore could place the Enqueue DMA inside an undesired chain (e.g. between Sync
+    // and Release in an SHV-submit-DMA skip chain), accidentally making it the Release DMA.
+
+    // Instead, use the earliest P0 DDR producer of the start barrier and insert the Enqueue DMA immediately after it.
+    // This doesn't change the property of this enqueue i.e. it still waits for start_barrier production but executes
+    // immediately after the earliest P0 DDR producer of the start barrier, which is guaranteed to be before any other
+    // consumer of the start barrier.
     auto startBarEarliestConsumer = _barrierInfo.getBarrierEarliestConsumer(_startBarrierIndex.value());
-    earliestEnqDma.insertBefore = startBarEarliestConsumer;
+    size_t insertBeforeForEarliestEnq = startBarEarliestConsumer;
+    {
+        if (_barrierInfo.getTaskQueueType(startBarEarliestConsumer) != enqueueDmaQueueType) {
+            auto startBarProducers = _barrierInfo.getBarrierProducers(_startBarrierIndex.value());
+            std::optional<size_t> earliestP0DdrProducer;
+            for (auto producerIdx : startBarProducers) {
+                if (_barrierInfo.getTaskQueueType(producerIdx) == enqueueDmaQueueType) {
+                    if (!earliestP0DdrProducer.has_value() || producerIdx < earliestP0DdrProducer.value()) {
+                        earliestP0DdrProducer = producerIdx;
+                    }
+                }
+            }
+            VPUX_THROW_UNLESS(earliestP0DdrProducer.has_value(),
+                              "add_start_barrier pass guarantees start barrier has a P0 DDR producer, "
+                              "but none was found for barrier {0}",
+                              _startBarrierIndex.value());
+            _log.trace("Start barrier earliest consumer {0} is not on P0 DDR queue. "
+                       "Using P0 DDR producer {1} + 1 as enqueue insertion point",
+                       startBarEarliestConsumer, earliestP0DdrProducer.value());
+            insertBeforeForEarliestEnq = earliestP0DdrProducer.value() + 1;
+        }
+    }
+    earliestEnqDma.insertBefore = insertBeforeForEarliestEnq;
     earliestEnqDma.waitBars.push_back(_startBarrierIndex.value());
 
     auto executionGrouplistMap = execGroupAnalysis.getExecutionGroups();
@@ -2946,139 +3279,24 @@ SmallVector<VPURT::BarrierPagesSplitHandler::EnqueueDmaData> vpux::VPURT::Barrie
             bool isDpuDelayedAfterShv = false;
             for (size_t shvTasksWithDpuVecInd = shvTasksWithDpuVecStartIndPerQueue[queueType];
                  shvTasksWithDpuVecInd < _shvTasksWithDpuPerTile[queueType.id].size(); shvTasksWithDpuVecInd++) {
-                auto shvTaskInd = _shvTasksWithDpuPerTile[queueType.id][shvTasksWithDpuVecInd];
-
-                if (shvTaskInd < taskInd && isDepFromTaskAToTaskB(shvTaskInd, taskInd)) {
-                    // DPU task depends on SHV. Check if DPU enqueue DMA barrier is after SHV task
-                    _log.nest().trace("DPU task {0} depends on SHV task {1} which submits DPU", taskInd, shvTaskInd);
-                    // Since this DPU depends on this SHV task, there is no need for subsequent DPUs to check
-                    // dependency against it, thus move the iteration start index forward
-                    shvTasksWithDpuVecStartIndPerQueue[queueType] = shvTasksWithDpuVecInd + 1;
-
-                    auto& lastEnqDmaData = enqDmaDataVecPerQueue[queueType].back();
-
-                    bool isEnqDmaAfterShv = false;
-                    for (auto dpuEnqBar : lastEnqDmaData.waitBars) {
-                        if (isDepFromTaskToBarrier(shvTaskInd, dpuEnqBar)) {
-                            // If SHV task is before enqueue DMA barrier then it is safe to enqueue
-                            _log.nest().trace("SHV task {0} is before enqueue DMA barrier {1} for task {2}", shvTaskInd,
-                                              dpuEnqBar, taskInd);
-                            isEnqDmaAfterShv = true;
-                            break;
-                        }
-                    }
-
-                    if (!isEnqDmaAfterShv) {
-                        // If enqueue is not after SHV task completion then delay it
-                        // Check on which barrier to delay. Identify closest barrier produced by SHV task
-                        auto shvTaskUpdBars = _barrierInfo.getUpdateBarriers(shvTaskInd);
-                        if (shvTaskUpdBars.empty()) {
-                            auto nextTaskOpt = getNextTaskOnSameQueueWithUpdateBarIfQueueOrderSupported(shvTaskInd);
-                            if (nextTaskOpt.has_value()) {
-                                shvTaskUpdBars = _barrierInfo.getUpdateBarriers(nextTaskOpt.value());
-                            }
-                        }
-                        VPUX_THROW_WHEN(shvTaskUpdBars.empty(),
-                                        "SHV task {0} has no update barriers. Cannot delay enqueue for task {1}",
-                                        shvTaskInd, taskInd);
-                        auto newEnqDmaBar = *std::min_element(shvTaskUpdBars.begin(), shvTaskUpdBars.end());
-                        auto newInsertBefore = _barrierInfo.getBarrierLatestProducer(newEnqDmaBar) + 1;
-                        _log.nest().trace("Delay enqueue of task {0} to {1} due to dependency on SHV task {2} which "
-                                          "submits DPU",
-                                          taskInd, newEnqDmaBar, shvTaskInd);
-
-                        // Check if last enqueue is just for this task and can be updated
-                        // or if new one needs to be created
-                        if (taskWorkloadStartIdx == lastEnqDmaData.startTaskIdx) {
-                            if (!isDpuDelayedAfterShv || lastEnqDmaData.pageInd < getBarrierPage(newEnqDmaBar)) {
-                                // If this is the first time this DPU task is delayed because of SHV task or
-                                // if new delay barrier is on later page
-                                // update last enqueue DMA to use new wait barrier that is produced
-                                // by SHV. Insert this DMA after SHV task
-                                lastEnqDmaData.waitBars = {newEnqDmaBar};
-                                lastEnqDmaData.pageInd = getBarrierPage(newEnqDmaBar);
-                                lastEnqDmaData.insertBefore = newInsertBefore;
-                            } else if (lastEnqDmaData.pageInd == getBarrierPage(newEnqDmaBar)) {
-                                // If this task was already delayed by some DPU and new enqueue DMA barrier
-                                // is on the same page extend wait barrier set and update insertion point
-                                lastEnqDmaData.waitBars.push_back(newEnqDmaBar);
-                                lastEnqDmaData.insertBefore = std::max(lastEnqDmaData.insertBefore, newInsertBefore);
-                            }
-                            _log.nest().trace("Update last enqueue DMA for task {0} to use barriers {1}", taskInd,
-                                              lastEnqDmaData.waitBars);
-                        } else {
-                            // Remove this task from previous one and create new one
-                            lastEnqDmaData.endTaskIdx = lastEnqDmaData.endTaskIdx - taskWorkloadsCount;
-
-                            EnqueueDmaData newEnqDmaData;
-                            newEnqDmaData.pageInd = getBarrierPage(newEnqDmaBar);
-                            newEnqDmaData.queueType = queueType;
-                            newEnqDmaData.startTaskIdx = taskWorkloadStartIdx;
-                            newEnqDmaData.endTaskIdx = taskWorkloadEndIdx;
-                            newEnqDmaData.waitBars = {newEnqDmaBar};
-                            newEnqDmaData.insertBefore = newInsertBefore;
-
-                            enqDmaDataVecPerQueue[queueType].push_back(newEnqDmaData);
-                            _log.nest().trace("Create new enqueue DMA for task {0} with barriers {1}", taskInd,
-                                              enqDmaDataVecPerQueue[queueType].back().waitBars);
-                        }
-                        isDpuDelayedAfterShv = true;
-
-                        if (previousTaskIndOptPerQueue[queueType].has_value()) {
-                            auto& lastEnqDmaDataForCheck = enqDmaDataVecPerQueue[queueType].back();
-                            auto prevTask = previousTaskIndOptPerQueue[queueType].value();
-
-                            auto closestDmaTaskInd = _barrierInfo.getPrevTaskOnQueue(prevTask, enqueueDmaQueueType);
-                            while (closestDmaTaskInd.has_value() &&
-                                   !isDepFromTaskAToTaskB(closestDmaTaskInd.value(), prevTask)) {
-                                closestDmaTaskInd =
-                                        getPrevTaskOnSameQueueIfQueueOrderEnabled(closestDmaTaskInd.value());
-                            }
-
-                            VPUX_THROW_WHEN(!closestDmaTaskInd.has_value(),
-                                            "Cannot be enqueued safely with dpuFromShave execution");
-
-                            if (lastEnqDmaDataForCheck.insertBefore <= closestDmaTaskInd.value()) {
-                                _log.nest().trace("DMA {0} is the closest task for DPU {1}", closestDmaTaskInd.value(),
-                                                  prevTask);
-                                auto newInsertBefore = closestDmaTaskInd.value() + 1;
-                                _log.nest().trace("Change enqueue insertion position from {0} to {1}",
-                                                  lastEnqDmaDataForCheck.insertBefore, newInsertBefore);
-
-                                lastEnqDmaDataForCheck.insertBefore = newInsertBefore;
-                            }
-                        }
-
-                        // In case enqueue DMA is to be placed just before sync point then move it after as
-                        // otherwise there will be no barrier between sync point and enqueue DMA later to be
-                        // inserted This situation can happen only after enqueue was delayed due to SHV with DPU as
-                        // in other cases proposed enqueue will use wait barrier of last DMA0:CHDDR and will be
-                        // placed before it thus there will never be a problem with making sure there is some last
-                        // update barrier to mark completion of this last task on page
-                        auto& lastEnqDmaData = enqDmaDataVecPerQueue[queueType].back();
-                        auto maybeSyncTask = _firstAndLastTaskPerPage[lastEnqDmaData.pageInd].value().second;
-                        if (_barrierInfo.isSyncPoint(maybeSyncTask) &&
-                            _barrierInfo.getTaskQueueType(maybeSyncTask) != enqueueDmaQueueType) {
-                            // Get largest barrier index as sync point is guaranteed to wait on last barrier in page
-                            // and if this barrier is also wait barrier for enqueue DMA then enqueue DMA needs to be
-                            // moved after sync point. Otherwise there would be no way to add later update barrier
-                            // for this enqueue DMA to guarantee sync-task waits on last tasks from all HW FIFOs
-                            auto enqDmaWaitBar =
-                                    *std::max_element(lastEnqDmaData.waitBars.begin(), lastEnqDmaData.waitBars.end());
-                            if (enqDmaWaitBar == (_firstBarrierInPage[lastEnqDmaData.pageInd + 1] - 1)) {
-                                auto syncPointUpdateBars = _barrierInfo.getUpdateBarriers(maybeSyncTask);
-                                lastEnqDmaData.waitBars = {
-                                        *std::min_element(syncPointUpdateBars.begin(), syncPointUpdateBars.end())};
-                                lastEnqDmaData.insertBefore++;
-                                lastEnqDmaData.pageInd++;
-                                _log.nest().trace(
-                                        "Enqueue DMA for task {0} is to be inserted before sync point {1}. Move "
-                                        "it after barrier {2}(page {3})",
-                                        taskInd, maybeSyncTask, lastEnqDmaData.waitBars[0], lastEnqDmaData.pageInd);
-                            }
-                        }
-                    }
+                if (!isDpuEnqueueDelayNeededAfterShvWithDpu(taskInd, queueType, shvTasksWithDpuVecStartIndPerQueue,
+                                                            shvTasksWithDpuVecInd, enqDmaDataVecPerQueue)) {
+                    continue;
                 }
+
+                createInitialDelayDpuEnqueueAfterShvWithDpu(taskInd, queueType, isDpuDelayedAfterShv,
+                                                            taskWorkloadStartIdx, taskWorkloadEndIdx,
+                                                            shvTasksWithDpuVecInd, enqDmaDataVecPerQueue);
+
+                isDpuDelayedAfterShv = true;
+
+                if (previousTaskIndOptPerQueue[queueType].has_value()) {
+                    updateDelayedDpuEnqPositionToNotImpactEnqOfPrevDpu(
+                            taskInd, queueType, enqueueDmaQueueType, previousTaskIndOptPerQueue, enqDmaDataVecPerQueue);
+                }
+
+                updateDpuEnqPositionToAccountForSyncTask(taskInd, queueType, enqueueDmaQueueType,
+                                                         enqDmaDataVecPerQueue);
             }
         }
 

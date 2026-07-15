@@ -55,8 +55,6 @@ std::unique_ptr<mlir::Pass> createSimplifySchedulePass(
         const bool reduceParallelControlFlowsFlag = true,
         std::optional<WorkloadManagementMode> workloadManagementMode = std::nullopt, Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSplitExceedingBarrierSlotCountPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createSatisfyOneWaitBarrierPerTaskPass(const bool unevenVariantSplitFlag = false,
-                                                                   Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createReduceExceedingActiveCountBarriersPass(const bool unevenVariantSplitFlag = false,
                                                                          Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAssignPhysicalBarriersPass(
@@ -67,7 +65,6 @@ std::unique_ptr<mlir::Pass> createInferenceExecutionAnalysisPass(
         const std::string& compileSchedTraceFileName = "compileTimeScheduleTrace.json", bool dumpToJson = false,
         Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createInsertBarrierToMarkTheEndOfDescriptorGroupPass(
-        std::optional<size_t> virtualBarrierThresholdForWlm = std::numeric_limits<int>::max(),
         std::optional<WorkloadManagementMode> workloadManagementMode = WorkloadManagementMode::PWLM_V0_1_PAGES,
         Logger log = Logger::global());
 

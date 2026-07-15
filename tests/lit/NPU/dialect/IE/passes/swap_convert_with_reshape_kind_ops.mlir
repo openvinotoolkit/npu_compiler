@@ -366,3 +366,63 @@ func.func @PropagateConvertForwardNoInfiniteLoop(%arg0: tensor<1x1152xsi64>) -> 
     // CHECK-SAME:  : tensor<1x1x1x1152xf16> -> tensor<1x1x576x2xf16>
     // CHECK:   return [[AFFINE_RESHAPE_1]] : tensor<1x1x576x2xf16>
 }
+
+// -----
+
+// Test EliminateConvertRoundTripThroughReshapeAndSlice pattern directly.
+// Input is post-UniquifyBranches form: AffineReshape already merged before Slice.
+
+// CHECK-LABEL: func @EliminateConvertRoundTripThroughReshapeAndSlice
+// CHECK-SAME:        [[INPUT:%[^:]+]]: tensor<1x32x4096x1xf32>
+func.func @EliminateConvertRoundTripThroughReshapeAndSlice(%arg0: tensor<1x32x4096x1xf32>) -> (tensor<1x32768x1x1xf32>, tensor<1x32768x1x1xf32>, tensor<1x32768x1x1xf32>, tensor<1x32768x1x1xf32>) {
+    %0 = IE.Convert(%arg0) {dstElemType = f16} : tensor<1x32x4096x1xf32> -> tensor<1x32x4096x1xf16>
+    %1 = IE.AffineReshape(%0) {dim_mapping = [[0], [1], [1], [2, 3]], shape_value = [1, 131072, 1, 1]}
+        : tensor<1x32x4096x1xf16> -> tensor<1x131072x1x1xf16>
+    %2 = IE.Slice %1 [0, 0, 0, 0] [1, 32768, 1, 1] : tensor<1x131072x1x1xf16> to tensor<1x32768x1x1xf16>
+    %3 = IE.Slice %1 [0, 32768, 0, 0] [1, 32768, 1, 1] : tensor<1x131072x1x1xf16> to tensor<1x32768x1x1xf16>
+    %4 = IE.Slice %1 [0, 65536, 0, 0] [1, 32768, 1, 1] : tensor<1x131072x1x1xf16> to tensor<1x32768x1x1xf16>
+    %5 = IE.Slice %1 [0, 98304, 0, 0] [1, 32768, 1, 1] : tensor<1x131072x1x1xf16> to tensor<1x32768x1x1xf16>
+    %6 = IE.Convert(%2) {dstElemType = f32} : tensor<1x32768x1x1xf16> -> tensor<1x32768x1x1xf32>
+    %7 = IE.Convert(%3) {dstElemType = f32} : tensor<1x32768x1x1xf16> -> tensor<1x32768x1x1xf32>
+    %8 = IE.Convert(%4) {dstElemType = f32} : tensor<1x32768x1x1xf16> -> tensor<1x32768x1x1xf32>
+    %9 = IE.Convert(%5) {dstElemType = f32} : tensor<1x32768x1x1xf16> -> tensor<1x32768x1x1xf32>
+    return %6, %7, %8, %9 : tensor<1x32768x1x1xf32>, tensor<1x32768x1x1xf32>, tensor<1x32768x1x1xf32>, tensor<1x32768x1x1xf32>
+
+    // CHECK:   [[RESHAPE:%.+]] = IE.AffineReshape([[INPUT]])
+    // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [1], [1], [2, 3]], shape_value = [1, 131072, 1, 1]}
+    // CHECK-SAME:  : tensor<1x32x4096x1xf32> -> tensor<1x131072x1x1xf32>
+    // CHECK:   [[SLICE0:%.+]] = IE.Slice [[RESHAPE]] [0, 0, 0, 0] [1, 32768, 1, 1] : tensor<1x131072x1x1xf32> to tensor<1x32768x1x1xf32>
+    // CHECK:   [[SLICE1:%.+]] = IE.Slice [[RESHAPE]] [0, 32768, 0, 0] [1, 32768, 1, 1] : tensor<1x131072x1x1xf32> to tensor<1x32768x1x1xf32>
+    // CHECK:   [[SLICE2:%.+]] = IE.Slice [[RESHAPE]] [0, 65536, 0, 0] [1, 32768, 1, 1] : tensor<1x131072x1x1xf32> to tensor<1x32768x1x1xf32>
+    // CHECK:   [[SLICE3:%.+]] = IE.Slice [[RESHAPE]] [0, 98304, 0, 0] [1, 32768, 1, 1] : tensor<1x131072x1x1xf32> to tensor<1x32768x1x1xf32>
+    // CHECK:   return [[SLICE0]], [[SLICE1]], [[SLICE2]], [[SLICE3]]
+}
+
+// -----
+
+// CHECK-LABEL: func @NoEliminateConvertRoundTripSliceMultipleUsers
+// CHECK-SAME:        [[INPUT:%[^:]+]]: tensor<1x32x4096x1xf32>
+func.func @NoEliminateConvertRoundTripSliceMultipleUsers(%arg0: tensor<1x32x4096x1xf32>) -> (tensor<1x32768x1x1xf16>, tensor<1x32768x1x1xf32>) {
+    %0 = IE.Convert(%arg0) {dstElemType = f16} : tensor<1x32x4096x1xf32> -> tensor<1x32x4096x1xf16>
+    %1 = IE.AffineReshape(%0) {dim_mapping = [[0], [1], [1], [2, 3]], shape_value = [1, 131072, 1, 1]}
+        : tensor<1x32x4096x1xf16> -> tensor<1x131072x1x1xf16>
+    %2 = IE.Slice %1 [0, 0, 0, 0] [1, 32768, 1, 1] : tensor<1x131072x1x1xf16> to tensor<1x32768x1x1xf16>
+    %3 = IE.Slice %1 [0, 32768, 0, 0] [1, 32768, 1, 1] : tensor<1x131072x1x1xf16> to tensor<1x32768x1x1xf16>
+    %4 = IE.Convert(%3) {dstElemType = f32} : tensor<1x32768x1x1xf16> -> tensor<1x32768x1x1xf32>
+    return %2, %4 : tensor<1x32768x1x1xf16>, tensor<1x32768x1x1xf32>
+
+    // The pattern should not fire because not all Slice users have Convert(f16->f32) as sole user.
+    // Slice %2 is returned directly as f16, not converted back.
+    // OpSwapConverter swaps Convert before AffineReshape, resulting in AffineReshape(f32) -> Convert(f32->f16).
+
+    // CHECK:   [[RESHAPE:%.+]] = IE.AffineReshape([[INPUT]])
+    // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [1], [1], [2, 3]], shape_value = [1, 131072, 1, 1]}
+    // CHECK-SAME:  : tensor<1x32x4096x1xf32> -> tensor<1x131072x1x1xf32>
+    // CHECK:   [[CONVERT:%.+]] = IE.Convert([[RESHAPE]]) {dstElemType = f16}
+    // CHECK-SAME:  : tensor<1x131072x1x1xf32> -> tensor<1x131072x1x1xf16>
+    // CHECK:   [[SLICE0:%.+]] = IE.Slice [[CONVERT]] [0, 0, 0, 0] [1, 32768, 1, 1] : tensor<1x131072x1x1xf16> to tensor<1x32768x1x1xf16>
+    // CHECK:   [[SLICE1:%.+]] = IE.Slice [[CONVERT]] [0, 32768, 0, 0] [1, 32768, 1, 1] : tensor<1x131072x1x1xf16> to tensor<1x32768x1x1xf16>
+    // CHECK:   [[CONVERT_BACK:%.+]] = IE.Convert([[SLICE1]]) {dstElemType = f32}
+    // CHECK-SAME:  : tensor<1x32768x1x1xf16> -> tensor<1x32768x1x1xf32>
+    // CHECK:   return [[SLICE0]], [[CONVERT_BACK]]
+}

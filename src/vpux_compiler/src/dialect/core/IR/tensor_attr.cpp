@@ -172,8 +172,8 @@ TensorAttr vpux::getTensorAttr(mlir::MLIRContext* ctx, mlir::AffineMap order, In
     return vpux::getTensorAttr(ctx, mlir::AffineMapAttr::get(order), memSpace, bounds, dynamicDimsMask);
 }
 
-TensorAttr vpux::getTensorAttr(mlir::MLIRContext* ctx, DimsOrder order, IndexedSymbolAttr memSpace, BoundsRef bounds,
-                               DynamicDimsMaskRef dynamicDimsMask) {
+TensorAttr vpux::getTensorAttr(mlir::MLIRContext* ctx, const DimsOrder& order, IndexedSymbolAttr memSpace,
+                               BoundsRef bounds, DynamicDimsMaskRef dynamicDimsMask) {
     return vpux::getTensorAttr(ctx, order.toAffineMap(ctx), memSpace, bounds, dynamicDimsMask);
 }
 

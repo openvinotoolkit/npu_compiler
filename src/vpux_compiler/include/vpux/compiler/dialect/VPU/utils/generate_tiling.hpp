@@ -231,11 +231,16 @@ void adjustPaddings(ConcreteOp* op, const TilingInfo& inputTiling) {
 // Adjust rawFilterShape attribute for specific output tile
 template <typename ConcreteOp>
 void adjustRawFilterShape(ConcreteOp* op, const TileInfo& outputTile) {
-    auto newRawFilterShape = Shape(parseIntArrayAttr<int64_t>(op->getRawFilterShape()));
+    auto mixedRawFilterShape = op->getMixedRawFilterShape();
+    mixedRawFilterShape[Dims4D::Filter::OC.ind()] =
+            mlir::getAsIndexOpFoldResult(op->getContext(), outputTile.shape[Dims4D::Act::C]);
 
-    newRawFilterShape[Dims4D::Filter::OC] = outputTile.shape[Dims4D::Act::C];
+    SmallVector<int64_t> staticValues;
+    SmallVector<mlir::Value> dynamicValues;
+    mlir::dispatchIndexOpFoldResults(mixedRawFilterShape, dynamicValues, staticValues);
 
-    op->setRawFilterShapeAttr(getIntArrayAttr(op->getContext(), newRawFilterShape));
+    op->setStaticRawFilterShape(staticValues);
+    op->getRawFilterShapeMutable().assign(dynamicValues);
 }
 
 }  // namespace VPU

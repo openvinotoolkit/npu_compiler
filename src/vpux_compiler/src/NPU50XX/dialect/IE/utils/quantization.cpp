@@ -36,12 +36,7 @@ bool IE::arch50xx::isMixPrecisionSupported(mlir::Operation* origOp, const bool, 
         }
     }
 
-    const auto hasLeakyReLUConsumer = llvm::any_of(origOp->getUsers(), [](mlir::Operation* op) {
-        return mlir::isa<IE::LeakyReluOp>(op);
-    });
-
-    // Thus, mixed precision is supported only when consumers and post-ops are not leaky ReLU
-    return !hasLeakyReLUConsumer && !hasLeakyReLUPostOp(origOp);
+    return true;
 }
 
 bool IE::arch50xx::checkPostOp(IE::LayerWithPostOpInterface layerWithPostOp, bool isPerAxisQuantizedOutput,

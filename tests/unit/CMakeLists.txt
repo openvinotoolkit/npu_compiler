@@ -26,6 +26,22 @@ set(MANDATORY_UNIT_TESTS_LIBS
     "npu_costmodel"
 )
 
+set (EXTRA_INCLUDES
+    ${OPTIONAL_UNIT_TESTS_INCLUDES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/vpux_compiler
+    ${PROJECT_SOURCE_DIR}/tests/common
+    "${PROJECT_SOURCE_DIR}/tests/functional/shared_tests_instances"
+    ${PROJECT_SOURCE_DIR}/src/vpux_compiler/include/vpux/compiler/NPU40XX/dialect/NPUReg40XX/firmware_headers/details
+)
+
+# Toggle the inclusion of the virtual machine unit tests based on whether the NPU execution engine is enabled, as the virtual machine belongs to this execution engine
+if(ENABLE_NPU_EXECUTION_ENGINE)
+    list(APPEND MANDATORY_UNIT_TESTS_LIBS "npu_interpreter_runtime")
+    list(APPEND EXTRA_INCLUDES "${PROJECT_SOURCE_DIR}/src/npu_interpreter_runtime/src/utils") # Access to the private headers for testing purposes
+else()
+    list(APPEND EXCLUDED_UNIT_TESTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/virtual_machine")
+endif()
+
 # Skip tests for plugin targets
 set(ENABLE_DRIVER_COMPILER_ADAPTER OFF)
 list(APPEND EXCLUDED_UNIT_TESTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vpux_plugin")
@@ -55,10 +71,7 @@ ov_add_test_target(
     EXCLUDED_SOURCE_PATHS
         ${EXCLUDED_UNIT_TESTS_DIR}
     INCLUDES
-        ${OPTIONAL_UNIT_TESTS_INCLUDES}
-        ${CMAKE_CURRENT_SOURCE_DIR}/vpux_compiler
-        "${PROJECT_SOURCE_DIR}/tests/functional/shared_tests_instances"
-        ${PROJECT_SOURCE_DIR}/src/vpux_compiler/include/vpux/compiler/NPU40XX/dialect/NPUReg40XX/firmware_headers/details
+        ${EXTRA_INCLUDES}
     LINK_LIBRARIES
         ${OPTIONAL_UNIT_TESTS_LIBS}
         ${MANDATORY_UNIT_TESTS_LIBS}
@@ -86,4 +99,18 @@ install(TARGETS ${TARGET_NAME}
         RUNTIME DESTINATION tests
         COMPONENT ${VPUX_TESTS_COMPONENT}
         EXCLUDE_FROM_ALL
+)
+
+install(DIRECTORY
+    vpux_compiler/dialect/VPUMI40XX/input_ir
+    DESTINATION tests/vpux_compiler/dialect/VPUMI40XX
+    COMPONENT ${VPUX_TESTS_COMPONENT}
+    EXCLUDE_FROM_ALL
+)
+
+add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/vpux_compiler/dialect/VPUMI40XX/input_ir"
+        "$<TARGET_FILE_DIR:${TARGET_NAME}>/vpux_compiler/dialect/VPUMI40XX/input_ir"
+    COMMENT "Copying VPUMI40XX test IR files alongside npuUnitTests binary"
 )

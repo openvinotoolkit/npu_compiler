@@ -15,6 +15,9 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ComparisonLayerTest);
+
 class ComparisonLayerTestCommon : public ComparisonLayerTest, virtual public VpuOv2LayerTest {
 protected:
     void SetUp() override {
@@ -141,6 +144,9 @@ class ComparisonLayerTestDynamic : public ComparisonLayerTest, virtual public Vp
         function = std::make_shared<ov::Model>(convertedComparisonNode, inputs, "Comparison");
     }
 };
+
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ComparisonLayerTest_Tiling);
 
 class ComparisonLayerTest_Tiling : public ComparisonLayerTestCommon {};
 

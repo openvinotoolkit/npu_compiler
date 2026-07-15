@@ -62,5 +62,9 @@ function(add_npu_library name)
 
     update_npu_src_lib_list(${name})
     enable_warnings_as_errors(${name} WIN_STRICT)
-    ov_build_target_faster(${name} PCH_HEADER ${VPU_COMPILER_PCH_FILE})
+    # REUSE_FROM is only valid when ENABLE_FASTER_BUILD is ON, because the
+    # anchor target only builds its PCH in that configuration (via ov_build_target_faster)
+    if(ENABLE_FASTER_BUILD)
+        target_precompile_headers(${name} REUSE_FROM npu_compiler_pch_base)
+    endif()
 endfunction(add_npu_library)

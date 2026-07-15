@@ -12,6 +12,9 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(GRUSequenceTest);
+
 class GRUSequenceLayerTestCommon : public GRUSequenceTest, virtual public VpuOv2LayerTest {
     void generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) override {
         VpuOv2LayerTest::inputs.clear();
@@ -156,7 +159,7 @@ const auto gruSequenceParam2Bi = testing::Combine(
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_GRUSequence, GRUSequenceLayerTestCommon, gruSequenceParam0,
                          GRUSequenceTest::getTestCaseName);
 
-INSTANTIATE_TEST_SUITE_P(smoke_precommit_GRUSequence_Tiling, GRUSequenceLayerTestCommon, gruSequenceParam1,
+INSTANTIATE_TEST_SUITE_P(smoke_GRUSequence_Tiling, GRUSequenceLayerTestCommon, gruSequenceParam1,
                          GRUSequenceTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_GRUSequence_Split, GRUSequenceLayerTestCommon, gruSequenceParam2,
@@ -167,7 +170,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_precommit_GRUSequence_Split, GRUSequenceLayerTest
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_GRUSequence_BI, GRUSequenceLayerTestCommon, gruSequenceParam0Bi,
                          GRUSequenceTest::getTestCaseName);
 
-INSTANTIATE_TEST_SUITE_P(smoke_precommit_GRUSequence_Tiling_BI, GRUSequenceLayerTestCommon, gruSequenceParam1Bi,
+INSTANTIATE_TEST_SUITE_P(smoke_GRUSequence_Tiling_BI, GRUSequenceLayerTestCommon, gruSequenceParam1Bi,
                          GRUSequenceTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_GRUSequence_Split_BI, GRUSequenceLayerTestCommon, gruSequenceParam2Bi,

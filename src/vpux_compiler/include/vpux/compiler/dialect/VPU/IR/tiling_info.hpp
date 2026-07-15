@@ -20,10 +20,10 @@ OutputTiling logSoftmaxTopKOutputTiling(const vpux::TileInfo& firstOutputTile);
 OutputTiling logSoftmaxPeakOutputTiling(const vpux::TileInfo& firstOutputTile);
 OutputTiling lstmSequenceOutputTiling(const vpux::TileInfo& firstOutputTile);
 OutputTiling lstmDpuOutputTiling(const vpux::TileInfo& firstOutputTile);
-OutputTiling DynamicQuantizeOutputTiling(const vpux::TileInfo& firstOutputTile);
+OutputTiling DynamicQuantizeOutputTiling(const vpux::TileInfo& firstOutputTile, ShapeRef scaleShape, ShapeRef zpShape);
 
 OutputTiling FlashSDPAOpOutputTiling(const vpux::TileInfo& firstOutputTile);
-InputTiling FlashSDPAOpInputTiling(const vpux::TileInfo& firstOutputTile, ShapeRef keyShape,
+InputTiling FlashSDPAOpInputTiling(const vpux::TileInfo& firstOutputTile, int64_t qHeads, ShapeRef keyShape,
                                    std::optional<ShapeRef> attentionMaskShape, ShapeRef auxBufferShape,
                                    ShapeRef dpuDescriptorBufferShape, ShapeRef weightsTable0Shape,
                                    ShapeRef weightsTable1Shape);

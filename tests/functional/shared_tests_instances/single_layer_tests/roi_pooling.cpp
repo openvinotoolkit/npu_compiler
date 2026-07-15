@@ -15,6 +15,9 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ROIPoolingLayerTest);
+
 using roiPoolingParamsTupleAddLayout = std::tuple<std::vector<InputShape>,  // Input, coords shapes
                                                   ov::Shape,                // Pooled shape {pooled_h, pooled_w}
                                                   float,                    // Spatial scale

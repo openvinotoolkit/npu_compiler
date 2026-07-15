@@ -37,8 +37,12 @@ struct DefaultHWOptions : public IE::DefaultHWOptionsDialectBase, virtual vpux::
     BoolOption enableSwapConvertWithSWOp{*this, "swap-convert-with-sw-op",
                                          llvm::cl::desc("Enable swap-convert-with-sw-op pass"), llvm::cl::init(true)};
 
-    BoolOption mergeUnrolledMatmul{*this, "merge-unrolled-matmul", llvm::cl::desc("Enable merging urolled Matmul ops"),
-                                   llvm::cl::init(true)};
+    BoolOption mergeUnrolledMatmulForLargeOC{*this, "merge-unrolled-matmul-for-large-oc",
+                                             llvm::cl::desc("Enable merging unrolled Matmul ops for large OC"),
+                                             llvm::cl::init(false)};
+    BoolOption convertDynamicDequantize{*this, "convert-dynamic-dequantize",
+                                        llvm::cl::desc("Enable convert dynamic dequantize to dequantize ops"),
+                                        llvm::cl::init(true)};
 
     BoolOption enableRuntimeDequant{*this, "enable-runtime-dequant",
                                     llvm::cl::desc("Enable runtime dequantization of asymmetrically quantized weights"),
@@ -74,6 +78,8 @@ void buildLowPrecisionPipeline(mlir::OpPassManager& pm, const LowPrecisionOption
 void buildInitialLowPrecisionTransformationsPipeline(mlir::OpPassManager& pm,
                                                      const IE::LowPrecisionTransformOptions& options,
                                                      Logger log = Logger::global());
+void buildAttentionProcessingPipeline(mlir::OpPassManager& pm, const IE::AttentionProcessingOptions& options,
+                                      Logger log = Logger::global());
 void buildConvertToEfficientOpsPipeline(mlir::OpPassManager& pm, const ConvertToEfficientOpsOptions& options,
                                         Logger log = Logger::global());
 void buildFinalTransformationPipeline(mlir::OpPassManager& pm, const DefaultHWOptions& options,

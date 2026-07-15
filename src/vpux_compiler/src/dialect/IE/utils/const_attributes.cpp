@@ -90,5 +90,33 @@ bool isBaseContentSplat(Const::DeclareOp constOp) {
     return baseContent.isSplat();
 }
 
+// Read all values from a constant DeclareOp as doubles.
+SmallVector<double> readConstAsDoubles(Const::DeclareOp constOp) {
+    const auto content = constOp.getContentAttr().fold();
+    const auto numElements = content.getType().getNumElements();
+    SmallVector<double> result;
+    result.reserve(numElements);
+    content.read([&](auto values) {
+        for (const auto v : values) {
+            result.push_back(static_cast<double>(v));
+        }
+    });
+    return result;
+}
+
+// Read all values from a constant DeclareOp as int64_t.
+SmallVector<int64_t> readConstAsInt64(Const::DeclareOp constOp) {
+    const auto content = constOp.getContentAttr().fold();
+    const auto numElements = content.getType().getNumElements();
+    SmallVector<int64_t> result;
+    result.reserve(numElements);
+    content.read([&](auto values) {
+        for (const auto v : values) {
+            result.push_back(static_cast<int64_t>(v));
+        }
+    });
+    return result;
+}
+
 }  // namespace IE
 }  // namespace vpux

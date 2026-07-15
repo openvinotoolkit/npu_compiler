@@ -90,7 +90,8 @@ mlir::LogicalResult SwapSoftmaxAndMemPermute::matchAndRewrite(IE::SoftMaxOp soft
     const auto optimalAxis = outOrder.toDim(MemDim(outOrder.numDims() - 1)).ind();
     const auto optimalAxisAttr = getIntAttr(rewriter.getContext(), optimalAxis);
     auto newSoftMaxOp =
-            rewriter.replaceOpWithNewOp<IE::SoftMaxOp>(memPermuteOp, newMemPermuteOpResult, optimalAxisAttr, nullptr);
+            rewriter.replaceOpWithNewOp<IE::SoftMaxOp>(memPermuteOp, newMemPermuteOpResult, optimalAxisAttr, nullptr,
+                                                       softMaxOp.getDstElemTypeAttr(), softMaxOp.getMaskAwareAttr());
     newSoftMaxOp->setLoc(softMaxOp->getLoc());
     changeDimsOrder(newSoftMaxOp, outOrder, _log.nest());
     rewriter.eraseOp(softMaxOp);
@@ -160,7 +161,8 @@ mlir::LogicalResult InsertMemPermuteBeforeAndAfterSoftmax::matchAndRewrite(IE::S
         return mlir::failure();
     }
 
-    auto calcuteOptimalOrderMapForSoftmax = [](DimsOrder origOrder, int64_t softmaxAxis, auto ctx) -> DimsOrder {
+    auto calculateOptimalOrderMapForSoftmax = [](const DimsOrder& origOrder, int64_t softmaxAxis,
+                                                 auto ctx) -> DimsOrder {
         auto size = origOrder.numDims();
         SmallVector<unsigned int> permVec;
 
@@ -179,7 +181,7 @@ mlir::LogicalResult InsertMemPermuteBeforeAndAfterSoftmax::matchAndRewrite(IE::S
     };
 
     // Create input MemPermute to transpose softmax axis to the inner most dimension
-    const auto optimalDstOrder = calcuteOptimalOrderMapForSoftmax(inOrder, axis, ctx);
+    const auto optimalDstOrder = calculateOptimalOrderMapForSoftmax(inOrder, axis, ctx);
     const auto permMapOfInputMemPermute = getPermutationFromOrders(inOrder, optimalDstOrder, ctx);
     const auto optimalDstOrderMap = optimalDstOrder.toAffineMap(ctx);
     auto inputMemPermuteOpResult = rewriter.createOrFold<IE::MemPermuteOp>(
@@ -189,7 +191,8 @@ mlir::LogicalResult InsertMemPermuteBeforeAndAfterSoftmax::matchAndRewrite(IE::S
     const auto optimalAxis = optimalDstOrder.toDim(MemDim(optimalDstOrder.numDims() - 1)).ind();
     const auto optimalAxisAttr = getIntAttr(ctx, optimalAxis);
     auto newSoftMaxOpResult =
-            rewriter.createOrFold<IE::SoftMaxOp>(origLoc, inputMemPermuteOpResult, optimalAxisAttr, nullptr);
+            rewriter.createOrFold<IE::SoftMaxOp>(origLoc, inputMemPermuteOpResult, optimalAxisAttr, nullptr,
+                                                 softMaxOp.getDstElemTypeAttr(), softMaxOp.getMaskAwareAttr());
     changeDimsOrder(newSoftMaxOpResult, optimalDstOrder, _log.nest());
 
     // Create output MemPermute for inverse data transposition

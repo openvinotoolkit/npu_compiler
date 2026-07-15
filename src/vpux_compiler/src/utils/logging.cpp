@@ -15,7 +15,7 @@ using namespace vpux;
 // Context logging
 //
 
-void vpux::addLogging(mlir::MLIRContext& ctx, Logger log) {
+void vpux::addLogging(mlir::MLIRContext& ctx, Logger& log) {
     auto& diagEngine = ctx.getDiagEngine();
 
     diagEngine.registerHandler([log](mlir::Diagnostic& diag) -> mlir::LogicalResult {
@@ -36,11 +36,15 @@ void vpux::addLogging(mlir::MLIRContext& ctx, Logger log) {
             }
         }();
 
+#ifdef VPUX_DEVELOPER_BUILD
         const auto loc = diag.getLocation();
         log.addEntry(msgLevel, "Got Diagnostic at {0} : {1}", loc, diag);
+#else
+        log.addEntry(msgLevel, "{0}", diag);
+#endif
 
-        // Propagate diagnostic to following handlers
-        return mlir::failure();
+        // Suppress the default handler
+        return mlir::success();
     });
 }
 

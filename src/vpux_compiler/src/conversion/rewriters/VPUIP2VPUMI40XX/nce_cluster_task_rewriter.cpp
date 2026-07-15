@@ -108,6 +108,7 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
     auto weightTableSpPtr = convertOrExtractBuffer(rewriter, adaptor.getWeightTableSpPtr(), tileIndex);
     auto weightTableScale = convertOrExtractBuffer(rewriter, adaptor.getWeightTableScale(), tileIndex);
     auto weightTableBias = convertOrExtractBuffer(rewriter, adaptor.getWeightTableBias(), tileIndex);
+    auto weightTableAlpha = convertOrExtractBuffer(rewriter, adaptor.getWeightTableAlpha(), tileIndex);
     auto weightZeroPoints = convertOrExtractBuffer(rewriter, adaptor.getWeightZeroPoints(), tileIndex);
     auto sprLookupTable = convertOrExtractBuffer(rewriter, adaptor.getSprLookupTable(), tileIndex);
     auto palletLookupTable = convertOrExtractBuffer(rewriter, adaptor.getPalletLookupTable(), tileIndex);
@@ -124,8 +125,8 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
             convertOrExtractBuffer(rewriter, adaptor.getInputSparsityMap(), tileIndex),
             convertOrExtractBuffer(rewriter, adaptor.getInputStorageElementTable(), tileIndex), weights,
             convertOrExtractBuffer(rewriter, adaptor.getWeightsSparsityMap(), tileIndex), weightTable,
-            weightTableDataPtr, weightTableSpPtr, weightTableScale, weightTableBias, weightZeroPoints, sprLookupTable,
-            palletLookupTable, convertOrUnrollBuffer(rewriter, adaptor.getOutputBuff()),
+            weightTableDataPtr, weightTableSpPtr, weightTableScale, weightTableBias, weightTableAlpha, weightZeroPoints,
+            sprLookupTable, palletLookupTable, convertOrUnrollBuffer(rewriter, adaptor.getOutputBuff()),
             convertOrUnrollBuffer(rewriter, adaptor.getOutputSparsityMapBuff()), adaptor.getProfilingData(),
             dynamicSequenceLength, maxPerXyBuff, minPerXyBuff, adaptor.getMinMaxPerTensorBuff(), taskTypeAttr,
             adaptor.getEltwiseTypeAttr(), mpeModeAttr, adaptor.getMpeEngineAttr(), adaptor.getKernelSizeAttr(),
@@ -151,9 +152,9 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
                 nullptr,  // taskLocation
                 nullptr,  // previousVariant
                 invariant.getResult(), weights, weightTable, weightTableDataPtr, weightTableSpPtr, weightTableScale,
-                weightTableBias, weightZeroPoints, taskTypeAttr, dpuTask.getInStartAttr(), dpuTask.getInEndAttr(),
-                dpuTask.getOutStartAttr(), dpuTask.getOutEndAttr(), dpuTask.getPadAttr(), mpeModeAttr,
-                mlir::IntegerAttr::get(getUInt64Type(ctx), tileIndex), dpuTask.getHaloRegionsAttr(),
+                weightTableBias, weightTableAlpha, weightZeroPoints, taskTypeAttr, dpuTask.getInStartAttr(),
+                dpuTask.getInEndAttr(), dpuTask.getOutStartAttr(), dpuTask.getOutEndAttr(), dpuTask.getPadAttr(),
+                mpeModeAttr, mlir::IntegerAttr::get(getUInt64Type(ctx), tileIndex), dpuTask.getHaloRegionsAttr(),
                 dpuTask.getWorkloadIdAttr(), sprLutRead, palletLutRead, forceInvRead, origTaskOp.getWlmPageAttr(),
                 dpuTask.getVariantPrimitiveIdAttr(),
                 wtOffset.has_value()
@@ -175,19 +176,22 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
     std::map<WorkloadZCoord, size_t> workloadsZData;
     auto dpuTasksIt = dpuTasks.begin();
 
-    if (sprLookupTable || palletLookupTable) {
+    if (sprLookupTable || palletLookupTable || dynamicSequenceLength) {
         // Skip dummy DPU task (see more info in InsertDelayDPUVariant pass)
         // NCEClusterTask shouldn't be treated as multi variant, because of the dummy DPUTask
         dpuTasksIt++;
     }
 
+    // Store the start iterator for real DPU tasks (after skipping dummy if present)
+    const auto realDpuTasksStart = dpuTasksIt;
+
     auto isMultiVariantWorkload = ++dpuTasksIt != dpuTasks.end();
     if (isMultiVariantWorkload) {
-        auto getZPTableAlignmentForWorkload8bit = [](int32_t zSize) {
-            return VPU::NCESparsity::NewWeightsTableFormatMapper::getZPTableAlignmentForWorkload(false, zSize);
+        auto getZeroPointTableAlignmentForWorkload8bit = [](int32_t zSize) {
+            return VPU::NCESparsity::NewWeightsTableFormatMapper::getZeroPointTableAlignmentForWorkload(false, zSize);
         };
-        auto getZPTableAlignmentForWorkload4bit = [](int32_t zSize) {
-            return VPU::NCESparsity::NewWeightsTableFormatMapper::getZPTableAlignmentForWorkload(true, zSize);
+        auto getZeroPointTableAlignmentForWorkload4bit = [](int32_t zSize) {
+            return VPU::NCESparsity::NewWeightsTableFormatMapper::getZeroPointTableAlignmentForWorkload(true, zSize);
         };
         std::function<int32_t(int32_t)> wtOffsetComputationFn;
         if (adaptor.getWeightTableDataPtr()) {
@@ -204,18 +208,18 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
                 if (auto storageTypeAsIntegerType = mlir::dyn_cast<mlir::IntegerType>(storageType)) {
                     auto numberOfBitsInZeroPoint = storageTypeAsIntegerType.getWidth();
                     if (numberOfBitsInZeroPoint == 4) {
-                        wtOffsetComputationFn = getZPTableAlignmentForWorkload4bit;
+                        wtOffsetComputationFn = getZeroPointTableAlignmentForWorkload4bit;
                     } else {
-                        wtOffsetComputationFn = getZPTableAlignmentForWorkload8bit;
+                        wtOffsetComputationFn = getZeroPointTableAlignmentForWorkload8bit;
                     }
                 }
             }
         }
         if (wtOffsetComputationFn) {
-            std::for_each(dpuTasks.begin(), dpuTasks.end(), [&](auto dpuTask) {
+            std::for_each(realDpuTasksStart, dpuTasks.end(), [&](auto dpuTask) {
                 auto workloadZCoord = WorkloadZCoord(parseIntArrayAttr<int64_t>(dpuTask.getOutStartAttr())[2],
                                                      parseIntArrayAttr<int64_t>(dpuTask.getOutEndAttr())[2]);
-                const auto [it, inserted] = workloadsZData.insert({workloadZCoord, 0});
+                const auto [it, inserted] = workloadsZData.insert({workloadZCoord, /*start_offset=*/0});
                 if (!inserted) {
                     if (it->first.zEnd != workloadZCoord.zEnd) {
                         VPUX_THROW("DPU tasks from the same NCEClusterTaskOp have overlapping Z output "
@@ -227,11 +231,6 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
             });
 
             auto firstWorkloadZDataIt = workloadsZData.begin();
-            if (firstWorkloadZDataIt->first.zStart != adaptor.getOutChannelOffset().value_or(0)) {
-                VPUX_THROW("First Z range in DPU tasks from the same NCEClusterTaskOp expected to start at {}, but "
-                           "actual is {}",
-                           adaptor.getOutChannelOffset(), firstWorkloadZDataIt->first.zStart);
-            }
             if (workloadsZData.size() > 1) {
                 auto workloadZDataPrevIt = firstWorkloadZDataIt;
                 for (auto workloadZDataIt = std::next(firstWorkloadZDataIt); workloadZDataIt != workloadsZData.end();
@@ -243,6 +242,13 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
                                 workloadZDataPrevIt->first.zStart, workloadZDataPrevIt->first.zEnd,
                                 workloadZDataIt->first.zStart, workloadZDataIt->first.zEnd);
                     }
+
+                    // Accumulate the byte offset for this workload's section.
+                    // Each workload occupies a section whose byte size is determined by the number of output
+                    // channels it processes (zEnd - zStart + 1), padded to the required alignment
+                    // (wtOffsetComputationFn). The resulting offset is stored as weight_table_offset on the DPU variant
+                    // descriptor and later added to the buffer's base CMX address, producing the
+                    // final weight_d_ptr_start register value.
                     workloadZDataIt->second =
                             workloadZDataPrevIt->second +
                             wtOffsetComputationFn(static_cast<int32_t>(workloadZDataPrevIt->first.zEnd -
@@ -264,13 +270,11 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
     };
 
     dpuTasksIt = dpuTasks.begin();
-    if (sprLookupTable || palletLookupTable) {
+    if (sprLookupTable || palletLookupTable || dynamicSequenceLength) {
         // Processing dummy DPU task (see more info in InsertDelayDPUVariant pass)
         createVPUMI40XXVariant(*(dpuTasksIt++));
 
-        // For the first variant that goes after the dummy one, two additional registers are set:
-        // - lut_read enables the read of sprLUT (it can only be done once per invariant as other
-        // variants will just reuse the loaded one)
+        // For the first variant that goes after the dummy one, an additional register is set:
         // - force_inv_read forces re-read of the Invariant. sprLUT read is triggered only as a part of
         // Invariant read (see DPU FSM diagram in HAS) and Invariant read may be skipped if it's already
         // loaded. As Dummy DPU variant loads Invariant for this workload, without it read of sprLUT may
@@ -283,7 +287,7 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
     }
 
     std::for_each(dpuTasksIt, dpuTasks.end(), [&](auto dpuTask) {
-        createVPUMI40XXVariant(dpuTask, getWeightTableOffset(dpuTask), /*sprLutRead=*/false,
+        createVPUMI40XXVariant(dpuTask, getWeightTableOffset(dpuTask), /*sprLutRead=*/sprLookupTable != nullptr,
                                /*palletLutRead=*/palletLookupTable != nullptr);
     });
 

@@ -116,8 +116,10 @@ Convert subgraph:
 */
 class MergeFullyConnectedWithWeightsAsConstant : public mlir::OpRewritePattern<IE::FullyConnectedOp> {
 public:
-    MergeFullyConnectedWithWeightsAsConstant(mlir::MLIRContext* ctx, Logger log)
-            : mlir::OpRewritePattern<IE::FullyConnectedOp>(ctx), _log(log) {
+    MergeFullyConnectedWithWeightsAsConstant(mlir::MLIRContext* ctx, bool _mergeUnrolledMatmulForLargeOC, Logger log)
+            : mlir::OpRewritePattern<IE::FullyConnectedOp>(ctx),
+              _mergeUnrolledMatmulForLargeOC(_mergeUnrolledMatmulForLargeOC),
+              _log(log) {
         setDebugName("MergeFullyConnectedWithWeightsAsConstant");
     }
 
@@ -142,6 +144,7 @@ protected:
     virtual mlir::Value reshapeOutputSlice(mlir::Value sliceOut, mlir::PatternRewriter& rewriter) const;
     virtual void cleanUpMatMulBranches(ArrayRef<UnrolledMatMulBranch> branches, mlir::PatternRewriter& rewriter) const;
 
+    bool _mergeUnrolledMatmulForLargeOC;
     Logger _log;
 };
 
@@ -157,8 +160,11 @@ mlir::LogicalResult MergeFullyConnectedWithWeightsAsConstant::matchAndRewrite(IE
     auto source = getMatMulInputSource(origOp);
     const auto matMulOutShape = getShape(origOp.getResult());
     const auto OC = matMulOutShape.back();
-    if (OC >= VPU::NCEInvariant::VPU_DIMENSION_LIMIT) {
-        return mlir::failure();
+
+    if (!_mergeUnrolledMatmulForLargeOC) {
+        if (OC >= VPU::NCEInvariant::VPU_DIMENSION_LIMIT) {
+            return mlir::failure();
+        }
     }
 
     auto unrolledMatMulBranchValue = unrolledMatMulBranch.value();
@@ -628,8 +634,8 @@ To:
 
 class MergeFullyConnectedForDQPatternWithConvert final : public MergeFullyConnectedWithWeightsAsConstant {
 public:
-    MergeFullyConnectedForDQPatternWithConvert(mlir::MLIRContext* ctx, Logger log)
-            : MergeFullyConnectedWithWeightsAsConstant(ctx, log) {
+    MergeFullyConnectedForDQPatternWithConvert(mlir::MLIRContext* ctx, bool _mergeUnrolledMatmulForLargeOC, Logger log)
+            : MergeFullyConnectedWithWeightsAsConstant(ctx, _mergeUnrolledMatmulForLargeOC, log) {
         setDebugName("MergeFullyConnectedForDQPatternWithConvert");
     }
 
@@ -910,10 +916,11 @@ void MergeFullyConnectedForDQPatternWithConvert::cleanUpMatMulBranches(ArrayRef<
     rewriter.eraseOp(weightSource);
 }
 
-class MergeFullyConnectedForDQPatternWithDequantize final : public MergeFullyConnectedWithWeightsAsConstant {
+class MergeFullyConnectedForDQPatternWithDequantize : public MergeFullyConnectedWithWeightsAsConstant {
 public:
-    MergeFullyConnectedForDQPatternWithDequantize(mlir::MLIRContext* ctx, Logger log)
-            : MergeFullyConnectedWithWeightsAsConstant(ctx, log) {
+    MergeFullyConnectedForDQPatternWithDequantize(mlir::MLIRContext* ctx, bool _mergeUnrolledMatmulForLargeOC,
+                                                  Logger log)
+            : MergeFullyConnectedWithWeightsAsConstant(ctx, _mergeUnrolledMatmulForLargeOC, log) {
         setDebugName("MergeFullyConnectedForDQPatternWithDequantize");
     }
 
@@ -934,7 +941,9 @@ protected:
 
 private:
     mlir::FailureOr<IE::ConcatOp> getConcatThroughReshapeUser(IE::FullyConnectedOp origOp) const;
-    std::optional<IE::SliceOp> getWeightsSourceSliceOp(IE::FullyConnectedOp origOp) const;
+
+protected:
+    virtual std::optional<IE::SliceOp> getWeightsSourceSliceOp(IE::FullyConnectedOp origOp) const;
 };
 
 std::optional<IE::SliceOp> MergeFullyConnectedForDQPatternWithDequantize::getWeightsSourceSliceOp(
@@ -1336,24 +1345,180 @@ void MergeFullyConnectedForDQPatternWithDequantize::cleanUpMatMulBranches(ArrayR
     }
 }
 
+// Handles the same pattern as MergeFullyConnectedForDQPatternWithDequantize but with IE::DynamicDequantizeOp
+// on the weights path instead of IE::DequantizeOp.
+class MergeFullyConnectedForDQPatternWithDynDequantize final : public MergeFullyConnectedForDQPatternWithDequantize {
+public:
+    MergeFullyConnectedForDQPatternWithDynDequantize(mlir::MLIRContext* ctx, bool _mergeUnrolledMatmulForLargeOC,
+                                                     Logger log)
+            : MergeFullyConnectedForDQPatternWithDequantize(ctx, _mergeUnrolledMatmulForLargeOC, log) {
+        setDebugName("MergeFullyConnectedForDQPatternWithDynDequantize");
+    }
+
+protected:
+    std::optional<IE::SliceOp> getWeightsSourceSliceOp(IE::FullyConnectedOp origOp) const override;
+    mlir::Value buildNewMatMulWeights(ArrayRef<UnrolledMatMulBranch> branches, size_t batchIdx, size_t batchOffset,
+                                      size_t batchSize, mlir::PatternRewriter& rewriter) const override;
+    void cleanUpMatMulBranches(ArrayRef<UnrolledMatMulBranch> branches, mlir::PatternRewriter& rewriter) const override;
+};
+
+std::optional<IE::SliceOp> MergeFullyConnectedForDQPatternWithDynDequantize::getWeightsSourceSliceOp(
+        IE::FullyConnectedOp origOp) const {
+    auto validateReshape = [this](IE::ReshapeOp reshapeOp) -> bool {
+        const auto reshapeInputDims = getShape(reshapeOp.getInput());
+        if (reshapeInputDims.size() != 3 || reshapeInputDims[Dim(0)] != 1) {
+            _log.trace("reshapeInputDims is not suitable {0}", reshapeInputDims);
+            return false;
+        }
+        const Shape expectedShape = {reshapeInputDims[Dim(0)] * reshapeInputDims[Dim(1)], reshapeInputDims[Dim(2)]};
+        const auto reshapeOutputDims = getShape(reshapeOp.getOutput());
+        if (reshapeOutputDims != expectedShape) {
+            _log.trace("reshapeOutputDims is not suitable {0}", reshapeOutputDims);
+            return false;
+        }
+        return true;
+    };
+    auto weightsReshape = getSingleUseParent<IE::ReshapeOp>(origOp.getWeights());
+    if (!weightsReshape.has_value() || !validateReshape(weightsReshape.value())) {
+        _log.trace("Can't find valid ReshapeOp on weights");
+        return std::nullopt;
+    }
+    auto dequantize = getSingleUseParent<IE::DynamicDequantizeOp>(weightsReshape.value().getInput());
+    if (!dequantize.has_value()) {
+        _log.trace("DynamicDequantizeOp is not found on weights");
+        return std::nullopt;
+    }
+    auto weightsSlice = getSingleUseParent<IE::SliceOp>(dequantize.value().getInput());
+    if (!weightsSlice.has_value()) {
+        _log.trace("SliceOp is not found on weights");
+        return std::nullopt;
+    }
+    return weightsSlice;
+}
+
+mlir::Value MergeFullyConnectedForDQPatternWithDynDequantize::buildNewMatMulWeights(
+        ArrayRef<UnrolledMatMulBranch> branches, size_t batchIdx, size_t batchOffset, size_t batchSize,
+        mlir::PatternRewriter& rewriter) const {
+    auto source = branches[0].weights->getOperand(0);
+    auto sourceShape = getShape(source);
+    auto ctx = rewriter.getContext();
+
+    // Retrieve scale, optional zero-point, and destination element type from the first branch's DynamicDequantizeOp.
+    auto firstWeightsSlice = mlir::dyn_cast<IE::SliceOp>(branches[batchOffset].weights);
+    auto existingDynDequant = mlir::dyn_cast<IE::DynamicDequantizeOp>(*firstWeightsSlice->getUsers().begin());
+    auto scaleSource = existingDynDequant.getScale().getDefiningOp<IE::SliceOp>().getSource();
+    auto scaleSourceShape = getShape(scaleSource);
+    const auto dstElemType = existingDynDequant.getDstElemType();
+
+    mlir::Value zpSource = nullptr;
+    ShapeRef zpSourceShape;
+    if (existingDynDequant.getZp() != nullptr) {
+        zpSource = existingDynDequant.getZp().getDefiningOp<IE::SliceOp>().getSource();
+        zpSourceShape = getShape(zpSource);
+    }
+
+    rewriter.setInsertionPointAfterValue(source);
+
+    SmallVector<int64_t> sliceOffsets(sourceShape.size(), 0);
+    sliceOffsets[0] = checked_cast<int64_t>(batchOffset);
+    SmallVector<int64_t> sliceSizes = to_small_vector(sourceShape);
+    sliceSizes[0] = checked_cast<int64_t>(batchSize);
+    auto slice = rewriter.create<IE::SliceOp>(appendLoc(source.getLoc(), "slice_{0}", batchIdx), source,
+                                              getIntArrayAttr(ctx, sliceOffsets), getIntArrayAttr(ctx, sliceSizes));
+
+    SmallVector<int64_t> scaleSliceOffsets(scaleSourceShape.size(), 0);
+    scaleSliceOffsets[0] = checked_cast<int64_t>(batchOffset);
+    SmallVector<int64_t> scaleSliceSizes = to_small_vector(scaleSourceShape);
+    scaleSliceSizes[0] = checked_cast<int64_t>(batchSize);
+    auto scaleSlice = rewriter.create<IE::SliceOp>(appendLoc(scaleSource.getLoc(), "scale_slice_{0}", batchIdx),
+                                                   scaleSource, getIntArrayAttr(ctx, scaleSliceOffsets),
+                                                   getIntArrayAttr(ctx, scaleSliceSizes));
+
+    mlir::Value zpSlice = nullptr;
+    if (zpSource != nullptr) {
+        SmallVector<int64_t> zpSliceOffsets(zpSourceShape.size(), 0);
+        zpSliceOffsets[0] = checked_cast<int64_t>(batchOffset);
+        SmallVector<int64_t> zpSliceSizes = to_small_vector(zpSourceShape);
+        zpSliceSizes[0] = checked_cast<int64_t>(batchSize);
+        zpSlice =
+                rewriter.create<IE::SliceOp>(appendLoc(zpSource.getLoc(), "zp_slice_{0}", batchIdx), zpSource,
+                                             getIntArrayAttr(ctx, zpSliceOffsets), getIntArrayAttr(ctx, zpSliceSizes));
+    }
+
+    auto dequantizeOp = rewriter.create<IE::DynamicDequantizeOp>(appendLoc(slice.getLoc(), "dequantize"), slice,
+                                                                 scaleSlice, zpSlice, dstElemType)
+                                .getOutput();
+
+    auto outShape = getShape(dequantizeOp);
+    SmallVector<int64_t> newWeightsShape{outShape[Dim(0)] * outShape[Dim(1)], outShape[Dim(2)]};
+    SmallVector<SmallVector<int64_t>> inDimMapping{{0}, {0}, {1}};
+    return rewriter.createOrFold<IE::AffineReshapeOp>(appendLoc(dequantizeOp.getLoc(), "reshape"), dequantizeOp,
+                                                      getIntArrayOfArray(ctx, inDimMapping),
+                                                      getIntArrayAttr(ctx, newWeightsShape));
+}
+
+void MergeFullyConnectedForDQPatternWithDynDequantize::cleanUpMatMulBranches(ArrayRef<UnrolledMatMulBranch> branches,
+                                                                             mlir::PatternRewriter& rewriter) const {
+    for (auto& branch : branches) {
+        auto matMul = branch.matMul;
+        auto inSlice = matMul.getInput().getDefiningOp<IE::SliceOp>();
+        auto weightsReshape = matMul.getWeights().getDefiningOp<IE::ReshapeOp>();
+        auto weightsDequantize = weightsReshape.getInput().getDefiningOp<IE::DynamicDequantizeOp>();
+        auto weightsSlice = weightsDequantize.getInput().getDefiningOp<IE::SliceOp>();
+        auto scaleSlice = weightsDequantize.getScale().getDefiningOp<IE::SliceOp>();
+        auto zpSlice =
+                weightsDequantize.getZp() != nullptr ? weightsDequantize.getZp().getDefiningOp<IE::SliceOp>() : nullptr;
+
+        auto outReshape = mlir::dyn_cast<IE::ReshapeOp>(*matMul->getUsers().begin());
+
+        rewriter.eraseOp(outReshape);
+        rewriter.eraseOp(matMul);
+        rewriter.eraseOp(inSlice);
+        rewriter.eraseOp(weightsReshape);
+        rewriter.eraseOp(weightsDequantize);
+        rewriter.eraseOp(weightsSlice);
+        rewriter.eraseOp(scaleSlice);
+        if (zpSlice != nullptr) {
+            rewriter.eraseOp(zpSlice);
+        }
+    }
+}
+
 class MergeFullyConnectedPass final : public IE::impl::MergeFullyConnectedBase<MergeFullyConnectedPass> {
 public:
-    explicit MergeFullyConnectedPass(Logger log) {
+    explicit MergeFullyConnectedPass(bool mergeUnrolledMatmulForLargeOC, Logger log)
+            : _mergeUnrolledMatmulForLargeOC(mergeUnrolledMatmulForLargeOC) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
+    mlir::LogicalResult initialize(mlir::MLIRContext* ctx) final;
+
 private:
     void safeRunOnFunc() final;
+    bool _mergeUnrolledMatmulForLargeOC;
 };
+
+mlir::LogicalResult MergeFullyConnectedPass::initialize(mlir::MLIRContext* ctx) {
+    if (mlir::failed(Base::initialize(ctx))) {
+        return mlir::failure();
+    }
+
+    if (mergeUnrolledMatmulForLargeOC.hasValue()) {
+        _mergeUnrolledMatmulForLargeOC = mergeUnrolledMatmulForLargeOC.getValue();
+    }
+
+    return mlir::success();
+}
 
 void MergeFullyConnectedPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
 
     mlir::RewritePatternSet patterns(&ctx);
-    patterns.add<MergeFullyConnectedWithWeightsAsConstant>(&ctx, _log);
-    patterns.add<MergeFullyConnectedForDQPatternWithConvert>(&ctx, _log);
-    patterns.add<MergeFullyConnectedForDQPatternWithDequantize>(&ctx, _log);
+    patterns.add<MergeFullyConnectedWithWeightsAsConstant>(&ctx, _mergeUnrolledMatmulForLargeOC, _log);
+    patterns.add<MergeFullyConnectedForDQPatternWithConvert>(&ctx, _mergeUnrolledMatmulForLargeOC, _log);
+    patterns.add<MergeFullyConnectedForDQPatternWithDequantize>(&ctx, _mergeUnrolledMatmulForLargeOC, _log);
+    patterns.add<MergeFullyConnectedForDQPatternWithDynDequantize>(&ctx, _mergeUnrolledMatmulForLargeOC, _log);
     if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
@@ -1361,6 +1526,6 @@ void MergeFullyConnectedPass::safeRunOnFunc() {
 
 }  // namespace
 
-std::unique_ptr<mlir::Pass> vpux::IE::createMergeFullyConnectedPass(Logger log) {
-    return std::make_unique<MergeFullyConnectedPass>(log);
+std::unique_ptr<mlir::Pass> vpux::IE::createMergeFullyConnectedPass(bool mergeUnrolledMatmulForLargeOC, Logger log) {
+    return std::make_unique<MergeFullyConnectedPass>(mergeUnrolledMatmulForLargeOC, log);
 }

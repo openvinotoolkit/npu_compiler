@@ -20,6 +20,7 @@
 #include "vpux/utils/core/error.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
+#include <llvm/Support/raw_ostream.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/IR/BuiltinTypes.h>
@@ -145,6 +146,12 @@ mlir::Float16Type vpux::getFp16Type(mlir::MLIRContext* ctx) {
     return mlir::Float16Type::get(ctx);
 }
 
+std::string vpux::elementTypeToString(mlir::Type type) {
+    std::string typeStr;
+    llvm::raw_string_ostream(typeStr) << type;
+    return typeStr;
+}
+
 //
 // TypeSize
 //
@@ -255,22 +262,32 @@ AddressType vpux::getAlignment(mlir::Value val, AddressType defaultAlignment) {
 // MemRefType utilities
 //
 
-mlir::MemRefType vpux::getMemRefType(ShapeRef shape, mlir::Type elemType, DimsOrder order, IndexedSymbolAttr memSpace,
-                                     StridesRef strides, VPUIP::SwizzlingSchemeAttr swizzlingSchemeAttr,
+mlir::MemRefType vpux::getMemRefType(ShapeRef shape, mlir::Type elemType, const DimsOrder& order,
+                                     IndexedSymbolAttr memSpace, StridesRef strides,
+                                     VPUIP::SwizzlingSchemeAttr swizzlingSchemeAttr,
                                      VPUIP::SparsityCompressionAttr sparsityCompressionAttr,
                                      mlir::IntegerAttr allocSizeAttr, VPUIP::CompressionStateAttr compressionState) {
-    VPUX_THROW_UNLESS(order.numDims() == shape.size(), "Shape '{0}' doesn't match order '{1}'", shape, order);
+    // If order is not provided, assume identity. The identity order is constructed only when
+    // needed; otherwise effectiveOrder references the incoming order to avoid copying DimsOrder
+    // (which holds a SmallVector permutation).
+    std::optional<DimsOrder> identityOrder;
+    if (order.empty()) {
+        identityOrder = DimsOrder::fromNumDims(shape.size());
+    }
+    const DimsOrder& effectiveOrder = order.empty() ? *identityOrder : order;
+    VPUX_THROW_UNLESS(effectiveOrder.numDims() == shape.size(), "Shape '{0}' doesn't match order '{1}'", shape,
+                      effectiveOrder);
     VPUX_THROW_UNLESS(strides.empty() || shape.size() == strides.size(), "Strides '{0}' doesn't match shape '{1}'",
                       strides, shape);
 
     auto* ctx = elemType.getContext();
-    const auto orderAttr = mlir::AffineMapAttr::get(order.toAffineMap(ctx));
+    const auto orderAttr = mlir::AffineMapAttr::get(effectiveOrder.toAffineMap(ctx));
 
     mlir::ArrayAttr stridesAttr = nullptr;
-    if (strides != StridesRef()) {
+    if (!strides.empty()) {
         const Bit elemSize = getElemTypeSize(elemType);
-        const auto memShape = order.toMemoryOrder(shape);
-        const auto memStrides = order.toMemoryOrder(strides);
+        const auto memShape = effectiveOrder.toMemoryOrder(shape);
+        const auto memStrides = effectiveOrder.toMemoryOrder(strides);
         const auto compactReqs = StrideReqs::compact(shape.size());
         if (!compactReqs.checkStrides(memStrides, elemSize, memShape)) {
             // Have strides only if they are not compact
@@ -281,18 +298,24 @@ mlir::MemRefType vpux::getMemRefType(ShapeRef shape, mlir::Type elemType, DimsOr
             stridesAttr = getIntArrayAttr(ctx, elemStrides);
         }
     }
-
     mlir::MemRefType::Builder builder(shape.raw(), elemType);
     builder.setMemorySpace(memSpace);
-    if (stridesAttr == nullptr && swizzlingSchemeAttr == nullptr && sparsityCompressionAttr == nullptr &&
-        allocSizeAttr == nullptr && compressionState == nullptr) {
-        builder.setLayout(orderAttr);
-    } else {
-        const auto layoutAttr =
-                vpux::MemRefAttr::get(orderAttr, stridesAttr, allocSizeAttr,
-                                      {swizzlingSchemeAttr, sparsityCompressionAttr, compressionState}, ctx);
-        builder.setLayout(mlir::cast<mlir::MemRefLayoutAttrInterface>(layoutAttr));
+
+    // When the order is identity and there are no VPUX-specific layout extras
+    // (non-compact strides, swizzling, sparsity compression, allocSize,
+    // compressionState), produce a bare memref with no layout attribute.
+    // This matches mlir::bufferization::getMemRefTypeWithStaticIdentityLayout
+    // and prevents spurious memref.cast ops at function boundaries.
+    if (orderAttr.getValue().isIdentity() && !stridesAttr && !swizzlingSchemeAttr && !sparsityCompressionAttr &&
+        !allocSizeAttr && !compressionState) {
+        // No layout extras → bare memref (Builder already has null layout by default).
+        return builder;
     }
+
+    const auto layoutAttr =
+            vpux::MemRefAttr::get(orderAttr, stridesAttr, allocSizeAttr,
+                                  {swizzlingSchemeAttr, sparsityCompressionAttr, compressionState}, ctx);
+    builder.setLayout(mlir::cast<mlir::MemRefLayoutAttrInterface>(layoutAttr));
     return builder;
 }
 
@@ -314,7 +337,7 @@ mlir::SmallVector<float> vpux::getFloatStrides(StridesRef strides) {
 // RankedTensorType utilities
 //
 
-mlir::RankedTensorType vpux::getTensorType(ShapeRef shape, mlir::Type elemType, DimsOrder order,
+mlir::RankedTensorType vpux::getTensorType(ShapeRef shape, mlir::Type elemType, const DimsOrder& order,
                                            IndexedSymbolAttr memSpace) {
     VPUX_THROW_UNLESS(order.numDims() == shape.size(), "DimsOrder '{0}' doesn't match to shape '{1}'", order, shape);
 
@@ -327,7 +350,7 @@ mlir::RankedTensorType vpux::getTensorType(ShapeRef shape, mlir::Type elemType, 
     return newType;
 }
 
-mlir::RankedTensorType vpux::getTensorType(ShapeRef shape, mlir::Type elemType, DimsOrder order,
+mlir::RankedTensorType vpux::getTensorType(ShapeRef shape, mlir::Type elemType, const DimsOrder& order,
                                            IndexedSymbolAttr memSpace, BoundsRef bounds,
                                            DynamicDimsMaskRef dynamicDimsMask) {
     VPUX_THROW_UNLESS(order.numDims() == shape.size(), "DimsOrder '{0}' doesn't match to shape '{1}'", order, shape);

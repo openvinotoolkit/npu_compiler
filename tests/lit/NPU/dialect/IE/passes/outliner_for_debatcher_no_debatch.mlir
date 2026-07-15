@@ -32,8 +32,8 @@ module @ValidModuleWithAttrBut_NoDebatchOptions attributes {config.debatch} {
         return %5: tensor<3x48x60x60xf32>
     }
 
-    // CHECK: func.func private @main_part1
-    // CHECK: func.func private @main_part2
+    // CHECK: func.func nested @main_part1
+    // CHECK: func.func nested @main_part2
 
     // CHECK: func.func @main([[ARG0:%.+]]: tensor<3x3x62x62xf32>) -> tensor<3x48x60x60xf32> {
     // CHECK: [[PART_0:%.+]] = call @main_part1([[ARG0]]) : (tensor<3x3x62x62xf32>) -> tensor<1x48x60x60xf32>

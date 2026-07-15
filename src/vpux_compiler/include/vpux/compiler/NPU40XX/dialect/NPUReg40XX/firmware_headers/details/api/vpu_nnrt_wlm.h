@@ -397,6 +397,27 @@ union VPU_ALIGNED_STRUCT(4) VpuBarrierConfiguration {
 static_assert(sizeof(VpuBarrierConfiguration) == 4, "VpuBarrierConfiguration size != 4");
 
 /**
+ * @brief Contains per-inference values needed for dynamic PVP.
+ *
+ * These values are divided to create a throttled operation percentage which will
+ * be passed to Power through TileManager
+ */
+struct VPU_ALIGNED_STRUCT(8) VpuDpuPVP {
+    /**
+     * @brief The number of floating point operations performed by the DPU variant.
+     */
+    uint64_t opFPCount;
+
+    /**
+     * @brief The total number of operations performed by the DPU variant.
+     */
+    uint64_t totalOpCount;
+
+    uint8_t reserved[16];
+};
+static_assert(sizeof(VpuDpuPVP) == 32, "VpuDpuPVP size != 32");
+
+/**
  * @brief Contains the information needed to run a fully or partially managed inference.
  */
 struct VPU_ALIGNED_STRUCT(32) VpuManagedMappedInference {
@@ -429,7 +450,12 @@ struct VPU_ALIGNED_STRUCT(32) VpuManagedMappedInference {
     /**
      * @brief VpuTaskReferences reserved for future use.
      */
-    VpuTaskReference<uint32_t> reserved0[4];
+   VpuTaskReference<uint32_t> reserved0[3];
+
+    /**
+     * @brief The DPU floating point operation values for this inference, used for dynamic PVP.
+     */
+    VpuTaskReference<VpuDpuPVP> dpu_pvp;
 
     /**
      * @brief barriers_configuration contains the information for barrier programming that can
@@ -578,6 +604,7 @@ struct VPU_ALIGNED_STRUCT(32) VpuManagedMappedInference {
 static_assert(sizeof(VpuManagedMappedInference) == 704, "VpuManagedMappedInference size != 704");
 static_assert(offsetof(VpuManagedMappedInference, work_items) % 8 == 0, "Alignment error");
 static_assert(offsetof(VpuManagedMappedInference, task_configs) % 8 == 0, "Alignment error");
+static_assert(offsetof(VpuManagedMappedInference, dpu_pvp) % 8 == 0, "Alignment error");
 static_assert(offsetof(VpuManagedMappedInference, initial_barriers) % 8 == 0, "Alignment error");
 static_assert(offsetof(VpuManagedMappedInference, nnrt_config) % 8 == 0, "Alignment error");
 static_assert(offsetof(VpuManagedMappedInference, inference_info) % 8 == 0, "Alignment error");

@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 using namespace vpux;
 
@@ -79,4 +80,10 @@ bool vpux::VPU::AbsOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeInterface> buffers)
 
 bool vpux::VPU::AbsOp::supportCycleCostCalculation() {
     return false;
+}
+
+mlir::LogicalResult vpux::VPU::AbsOp::reifyResultShapes(mlir::OpBuilder& builder,
+                                                        mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    reifiedReturnShapes.emplace_back(reifyTrivialTensor(builder, getInput(), getLoc()));
+    return mlir::success();
 }

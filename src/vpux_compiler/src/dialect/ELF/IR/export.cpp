@@ -142,8 +142,9 @@ std::vector<uint8_t> exportToELF(mlir::ModuleOp module, Logger log) {
     return blob;
 }
 
-std::pair<BlobView, BlobView> exportToELF(mlir::ModuleOp module, BlobAllocator& allocator, Logger log,
-                                          bool generateCompatibilityString) {
+std::pair<BlobView, BlobView> exportToELF(mlir::ModuleOp module, BlobAllocator& allocator,
+                                          std::string& compatibilityString, Logger log,
+                                          bool allocateCompatibilityString) {
     log.setName("ELF Backend - Export");
 
     // Associate the respective mlir::Operation* of
@@ -173,46 +174,43 @@ std::pair<BlobView, BlobView> exportToELF(mlir::ModuleOp module, BlobAllocator& 
 
     uint8_t* compatStr = nullptr;
     size_t compatStrSize = 0;
-    if (generateCompatibilityString) {
-        const auto platformID = config::getPlatform(elfMain);
-        VPUX_THROW_WHEN(!platformID.has_value(), "Platform ID is required to be set for ELF export");
 
-        const auto numOfTiles = config::getNumOfTiles(elfMain);
+    const auto platformID = config::getPlatform(elfMain);
+    const auto numOfTiles = config::getNumOfTiles(elfMain);
+    const auto miVersionValue = [&]() {
+        std::optional<elf::Version> res;
+        elfMain.walk([&](DataSectionOp dataSectionOp) {
+            auto ops = dataSectionOp.getContent().getOps();
+            if (ops.empty()) {
+                return mlir::WalkResult::skip();
+            }
 
-        const auto miVersionValue = [&]() {
-            std::optional<elf::Version> res;
-            elfMain.walk([&](DataSectionOp dataSectionOp) {
-                auto ops = dataSectionOp.getContent().getOps();
-                if (ops.empty()) {
-                    return mlir::WalkResult::skip();
-                }
+            auto miVersion = mlir::dyn_cast<VPURegMapped::MIVersionInterface>(*ops.begin());
+            if (!miVersion) {
+                return mlir::WalkResult::skip();
+            }
 
-                auto miVersion = mlir::dyn_cast<VPURegMapped::MIVersionInterface>(*ops.begin());
-                if (!miVersion) {
-                    return mlir::WalkResult::skip();
-                }
+            VPUX_THROW_WHEN(res.has_value(), "Multiple MIVersion data sections found");
+            res = miVersion.getVersion();
+            return mlir::WalkResult::advance();
+        });
+        VPUX_THROW_WHEN(!res.has_value(), "MIVersion data section not found");
+        return *res;
+    }();
 
-                VPUX_THROW_WHEN(res.has_value(), "Multiple MIVersion data sections found");
-                res = miVersion.getVersion();
-                return mlir::WalkResult::advance();
-            });
-            VPUX_THROW_WHEN(!res.has_value(), "MIVersion data section not found");
-            return *res;
-        }();
+    const auto elfVersion = config::getElfAbiVersion(elfMain);
+    VPUX_THROW_WHEN(!elfVersion.has_value(), "ELF ABI version is required to be set for ELF export");
 
-        const auto elfVersion = config::getElfAbiVersion(elfMain);
-        VPUX_THROW_WHEN(!elfVersion.has_value(), "ELF ABI version is required to be set for ELF export");
+    compatibilityString =
+            formatv("compiler={0}.{1};npu={2};t={3};elf={4};mi={5}.{6}.{7}", NPU_COMPILER_VERSION_MAJOR,
+                    NPU_COMPILER_VERSION_MINOR, static_cast<uint64_t>(platformID), numOfTiles, *elfVersion,
+                    miVersionValue.getMajor(), miVersionValue.getMinor(), miVersionValue.getPatch());
+    log.info("Blob compatibility string: '{0}'", compatibilityString);
 
-        std::string compatibilityData =
-                formatv("compiler={0}.{1};npu={2};t={3};elf={4}.{5}.{6};mi={7}.{8}.{9}", NPU_COMPILER_VERSION_MAJOR,
-                        NPU_COMPILER_VERSION_MINOR, static_cast<uint64_t>(platformID.value()), numOfTiles,
-                        elfVersion->major, elfVersion->minor, elfVersion->patch, miVersionValue.getMajor(),
-                        miVersionValue.getMinor(), miVersionValue.getPatch());
-        log.info("Blob compatibility string: '{0}'", compatibilityData);
-
-        compatStrSize = compatibilityData.size() + 1;
+    if (allocateCompatibilityString) {
+        compatStrSize = compatibilityString.size() + 1;
         compatStr = allocator.allocate(vpux::Byte{static_cast<int64_t>(compatStrSize)});
-        std::copy_n(compatibilityData.c_str(), compatStrSize, compatStr);
+        std::copy_n(compatibilityString.c_str(), compatStrSize, compatStr);
     }
 
     return std::pair{BlobView{blob, static_cast<uint64_t>(size)},

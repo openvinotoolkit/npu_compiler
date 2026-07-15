@@ -11,10 +11,15 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(PadLayerTest);
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(Pad12LayerTest);
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(PadStringLayerTest);
+
 class Pad12LayerTestCommon : public Pad12LayerTest, virtual public VpuOv2LayerTest {};
 class PadLayerTestCommon : public PadLayerTest, virtual public VpuOv2LayerTest {
     void configure_model() override {  // allow both f16/f32 tests
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp16";
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp";
     }
 };
 

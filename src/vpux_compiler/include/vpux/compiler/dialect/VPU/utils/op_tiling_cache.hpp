@@ -6,6 +6,7 @@
 #pragma once
 
 #include "vpux/compiler/core/tiling.hpp"
+#include "vpux/compiler/dialect/VPU/utils/scheduling/temporal_tiling_utils.hpp"
 #include "vpux/compiler/utils/thread_safe_hash_map.hpp"
 
 #include <atomic>
@@ -81,6 +82,8 @@ public:
 
     std::optional<size_t> getDPUWorkloadCost(llvm::hash_code opHash);
 
+    std::optional<std::optional<TemporalTilingInfo>> getTemporalTilingInfo(llvm::hash_code opHash);
+
     std::optional<SmallVector<DimArr>> getValidPermutations(llvm::hash_code opHash);
 
     std::optional<DimArr> getDimOrder(llvm::hash_code opHash);
@@ -98,6 +101,8 @@ public:
     void updateDimOrder(llvm::hash_code opHash, const DimArr& validDimOrder);
 
     void updateDPUWorkloadCost(llvm::hash_code opHash, size_t cost);
+
+    void updateTemporalTilingInfo(llvm::hash_code opHash, const std::optional<TemporalTilingInfo>& info);
 
     bool isCacheSupported();
 
@@ -117,6 +122,7 @@ private:
     ThreadSafeHashMap<llvm::hash_code, SmallVector<DimArr>> _validPermutationsCache;
     ThreadSafeHashMap<llvm::hash_code, DimArr> _dimOrderCache;
     ThreadSafeHashMap<llvm::hash_code, size_t> _dpuTaskOpCostCache;
+    ThreadSafeHashMap<llvm::hash_code, std::optional<TemporalTilingInfo>> _temporalTilingCache;
 
     bool _enableCache{false};
 
@@ -140,6 +146,9 @@ private:
 
     std::atomic<uint64_t> _dpuTaskOpCostHitCount{0};
     std::atomic<uint64_t> _dpuTaskOpCostAccessCount{0};
+
+    std::atomic<uint64_t> _temporalTilingHitCount{0};
+    std::atomic<uint64_t> _temporalTilingAccessCount{0};
 };
 
 // Global instance accessor

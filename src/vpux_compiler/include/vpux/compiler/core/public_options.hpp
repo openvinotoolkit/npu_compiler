@@ -69,13 +69,7 @@ struct PublicOptions : mlir::PassPipelineOptions<PublicOptions> {
     BoolOption enableSEPtrsOperations{*this, "enable-se-ptrs-operations",
                                       llvm::cl::desc("Enable storage element pointer operations")};
     static bool getDefaultEnableSEPtrsOperations(config::ArchKind arch) {
-        switch (arch) {
-        case config::ArchKind::NPU40XX:
-        case config::ArchKind::NPU50XX:
-            return true;
-        default:
-            return false;
-        }
+        return arch >= config::ArchKind::NPU40XX;
     }
 
     // TODO: E#159215 Remove this option once external dependencies remove it as well.
@@ -120,14 +114,10 @@ struct PublicOptions : mlir::PassPipelineOptions<PublicOptions> {
                                "backwards compatibility only and the mode redirects to PWLM_V0_1_PAGES mode, which has "
                                "the same vpu-fw compatibility but offers numerous stability improvements."))};
     static WorkloadManagementMode getDefaultWorkloadManagementMode(config::ArchKind arch) {
-        switch (arch) {
-        case config::ArchKind::NPU40XX:
-            return WorkloadManagementMode::PWLM_V0_1_PAGES;
-        case config::ArchKind::NPU50XX:
+        if (arch >= config::ArchKind::NPU50XX) {
             return WorkloadManagementMode::FWLM_V1_PAGES;
-        default:
-            return WorkloadManagementMode::PWLM_V0_1_PAGES;
         }
+        return WorkloadManagementMode::PWLM_V0_1_PAGES;
     }
 
     BoolOption enableDPUProfiling{*this, "dpu-profiling", llvm::cl::desc("Enable DPU task profiling"),

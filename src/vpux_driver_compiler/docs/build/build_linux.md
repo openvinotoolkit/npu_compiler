@@ -68,6 +68,7 @@ export CommonBuildOptions="-D ENABLE_LTO=OFF \
                           -D ENABLE_INTEL_NPU_PROTOPIPE=OFF \
                           -D BUILD_COMPILER_FOR_DRIVER=ON \
                           -D ENABLE_PRIVATE_TESTS=OFF \
+                          -D ENABLE_DIRECTML=OFF \
                           -D ENABLE_NPU_LSP_SERVER=OFF"
 ```
 For more information about the build options, refer to [this section](../FAQ.md#additional-notes).
@@ -93,7 +94,7 @@ cmake \
     ${CommonBuildOptions} \
     ..
 
-cmake --build . --config ${CONFIG} --target npu_driver_compiler compilerTest profilingTest vpuxCompilerL0Test loaderTest --parallel $(nproc)
+cmake --build . --config ${CONFIG} --target openvino_intel_npu_compiler openvino_intel_npu_compiler_loader compilerTest profilingTest vpuxCompilerL0Test loaderTest --parallel $(nproc)
 
 # Optional, compress and pack all CiD targets
 cpack -V -D CPACK_COMPONENTS_ALL=CiD -D CPACK_CMAKE_GENERATOR=Ninja -D CPACK_PACKAGE_FILE_NAME="${CONFIG}" -G "TGZ"
@@ -139,10 +140,10 @@ cmake \
 <summary>Commands</summary>
 
 ```sh
-ninja npu_driver_compiler compilerTest profilingTest vpuxCompilerL0Test loaderTest -j$(nproc)
+ninja openvino_intel_npu_compiler openvino_intel_npu_compiler_loader compilerTest profilingTest vpuxCompilerL0Test loaderTest -j$(nproc)
 
 # Or, if not using Ninja:
-# cmake --build . --target npu_driver_compiler compilerTest profilingTest vpuxCompilerL0Test loaderTest --parallel $(nproc)
+# cmake --build . --target openvino_intel_npu_compiler openvino_intel_npu_compiler_loader compilerTest profilingTest vpuxCompilerL0Test loaderTest --parallel $(nproc)
 ```
 </details>
 

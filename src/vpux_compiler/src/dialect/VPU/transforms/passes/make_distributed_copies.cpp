@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/dialect/Shave/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
@@ -196,7 +197,7 @@ void MakeDistributedCopiesPass::safeRunOnFunc() {
     // pipeline, this pass is executed on the main function, which contains host-side code as well. Ideally, this pass
     // should not operate on the main function in the HostCompile pipeline. This will be refactored in the future.
     // Track: E#168311
-    bool hostCompileMode = (config::getCompilationMode(func) == config::CompilationMode::HostCompile);
+    bool hostCompileMode = config::isHostCompileMode(func);
     auto entryPointFunc = vpux::net::findEntryPointFunc(func, _log);
     if (hostCompileMode && (func == entryPointFunc)) {
         return;
@@ -207,6 +208,7 @@ void MakeDistributedCopiesPass::safeRunOnFunc() {
     target.addLegalDialect<Core::CoreDialect>();
     target.addLegalDialect<VPU::VPUDialect>();
     target.addLegalDialect<Const::ConstDialect>();
+    target.addLegalDialect<Shave::ShaveDialect>();
     target.addLegalOp<VPU::CopyOp>();
     target.addLegalOp<mlir::func::FuncOp, mlir::func::ReturnOp, mlir::func::CallOp>();
     target.addLegalDialect<mlir::arith::ArithDialect>();
@@ -257,6 +259,12 @@ void MakeDistributedCopiesPass::safeRunOnFunc() {
         // Skip if 'clusteringDimChanges'
         if (prevUTOpInputDistTensorType.getShape().raw()[inputTilingAxis] !=
             nextUTOpOutputDistTensorType.getShape().raw()[inputTilingAxis]) {
+            return true;
+        }
+
+        if (!VPUIP::isDistributedCompatibleAfterShapeChangeForViewOps<VPU::DistributedTensorType>(
+                    nextUTOpOutputDistTensorType, prevUTOpInputDistTensorType.getShape(),
+                    nextUTOpOutputDistTensorType.getDimsOrder(), config::getArch(shapeCast))) {
             return true;
         }
 

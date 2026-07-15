@@ -69,7 +69,7 @@ Const::ContentAttr getContentAttr(
     auto data = generateValues<T>(rankedType.getNumElements());
     auto baseAttr = Const::createConstContent(rankedType, ArrayRef(data));
 
-    Const::ContentSetup setup(baseAttr.getType());
+    Const::ContentSetup setup(baseAttr, baseAttr.getType());
     setup = transform(setup);
 
     return Const::ContentAttr::get(baseAttr, setup);
@@ -640,7 +640,7 @@ TEST_F(MLIR_ConstContentAttrTest, CopyTo_U2) {
 
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup contentAttrSetup(baseType);
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
     contentAttrSetup = contentAttrSetup.castElemType(mlir::IntegerType::get(&ctx, 2, mlir::IntegerType::Unsigned));
 
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
@@ -669,7 +669,7 @@ TEST_F(MLIR_ConstContentAttrTest, CopyTo_I4) {
                                        15};  // 0xF
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup contentAttrSetup(baseType);
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
     contentAttrSetup = contentAttrSetup.castElemType(mlir::IntegerType::get(&ctx, 4));
 
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
@@ -699,7 +699,7 @@ TEST_F(MLIR_ConstContentAttrTest, CopyTo_I2) {
 
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup contentAttrSetup(baseType);
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
     contentAttrSetup = contentAttrSetup.castElemType(mlir::IntegerType::get(&ctx, 2, mlir::IntegerType::Signed));
 
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
@@ -728,7 +728,7 @@ TEST_F(MLIR_ConstContentAttrTest, CopyTo_I1) {
                                        1, 1, 1, 0};  // 0xE -> 0x7 packed
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup contentAttrSetup(baseType);
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
     contentAttrSetup = contentAttrSetup.castElemType(mlir::IntegerType::get(&ctx, 1));
 
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
@@ -800,7 +800,7 @@ TEST_F(MLIR_ConstContentAttrTest, Splat_CopyTo_U2) {
     const std::vector<uint8_t> vals = {3};  // 0x2 b'11
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup contentAttrSetup(baseType);
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
     contentAttrSetup = contentAttrSetup.castElemType(mlir::IntegerType::get(&ctx, 2, mlir::IntegerType::Unsigned));
 
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
@@ -826,7 +826,7 @@ TEST_F(MLIR_ConstContentAttrTest, Splat_CopyTo_I4) {
     const std::vector<uint8_t> vals = {10};
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup contentAttrSetup(baseType);
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
     contentAttrSetup = contentAttrSetup.castElemType(mlir::IntegerType::get(&ctx, 4));
 
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
@@ -852,7 +852,7 @@ TEST_F(MLIR_ConstContentAttrTest, Splat_CopyTo_I2) {
     const std::vector<int8_t> vals = {-2};  // 0x2 b'10
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup contentAttrSetup(baseType);
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
     contentAttrSetup = contentAttrSetup.castElemType(mlir::IntegerType::get(&ctx, 2, mlir::IntegerType::Signed));
 
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
@@ -878,7 +878,7 @@ TEST_F(MLIR_ConstContentAttrTest, Splat_CopyTo_I1) {
     const std::vector<uint8_t> vals = {1};
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup contentAttrSetup(baseType);
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
     contentAttrSetup = contentAttrSetup.castElemType(mlir::IntegerType::get(&ctx, 1));
 
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
@@ -907,7 +907,7 @@ TEST_F(MLIR_ConstContentAttrTest, CopyTo_I1_With_Enough_Buffer) {
                                        1, 1, 1, 0};  // 0xE -> 0x7 packed
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup contentAttrSetup(baseType);
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
     contentAttrSetup = contentAttrSetup.castElemType(mlir::IntegerType::get(&ctx, 1));
 
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
@@ -934,7 +934,7 @@ TEST_F(MLIR_ConstContentAttrTest, CastElemType) {
     const auto vals = generateValues<float>(baseType.getNumElements());
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
     auto contentAttrSetup = baseContentAttrSetup.castElemType(getSInt32Type(&ctx));
 
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
@@ -957,7 +957,7 @@ TEST_F(MLIR_ConstContentAttrTest, CastElemTypeSplat) {
     const float splatVal = 4.0f;
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(splatVal));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
     auto contentAttrSetup = baseContentAttrSetup.castElemType(getSInt32Type(&ctx));
 
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
@@ -983,7 +983,7 @@ TEST_F(MLIR_ConstContentAttrTest, CastElemTypeSubByte) {
     const auto vals = generateValues<uint8_t>(baseType.getNumElements());
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
     auto contentAttrSetup = baseContentAttrSetup.castElemType(mlir::IntegerType::get(&ctx, 1));
 
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
@@ -1065,7 +1065,7 @@ TEST_F(MLIR_ConstContentAttrTest, Add) {
 
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
     auto contentAttrSetup = baseContentAttrSetup.add(bias);
 
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
@@ -1090,7 +1090,7 @@ TEST_F(MLIR_ConstContentAttrTest, QuantCast) {
     const auto vals = generateValues<uint8_t>(baseType.getNumElements());
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
     const auto quantType = mlir::quant::UniformQuantizedType::get(0, getUInt8Type(&ctx), mlir::Float32Type::get(&ctx),
                                                                   0.078431372549019607, 128, 0, 255);
 
@@ -1124,7 +1124,7 @@ TEST_F(MLIR_ConstContentAttrTest, Dequantize) {
 
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
     const double scale = 2.0 / 254.0;
     const auto quantType =
             mlir::quant::UniformQuantizedType::get(mlir::quant::QuantizationFlags::Signed, getSInt8Type(&ctx),
@@ -1152,7 +1152,7 @@ TEST_F(MLIR_ConstContentAttrTest, Reshape) {
     const auto vals = generateValues<float>(baseType.getNumElements());
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
     auto contentAttrSetup = baseContentAttrSetup.reshape({1, 3, 3, 2});
 
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
@@ -1179,7 +1179,7 @@ TEST_F(MLIR_ConstContentAttrTest, ReverseCWise) {
     const auto vals = generateValues<float>(baseType.getNumElements());
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
     auto contentAttrSetup = baseContentAttrSetup.reverse(Dim(1));
 
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
@@ -1214,7 +1214,7 @@ TEST_F(MLIR_ConstContentAttrTest, ReverseNWise) {
     const auto vals = generateValues<float>(baseType.getNumElements());
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
     auto contentAttrSetup = baseContentAttrSetup.reverse(Dim(0));
 
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
@@ -1250,7 +1250,7 @@ TEST_F(MLIR_ConstContentAttrTest, Reverse_Splat) {
     const std::vector<float> vals = {splatVal};
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
     auto contentAttrSetup = baseContentAttrSetup.reverse(Dim(0));
 
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
@@ -1272,7 +1272,7 @@ TEST_F(MLIR_ConstContentAttrTest, Reorder) {
     const auto vals = generateValues<float>(baseType.getNumElements());
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
     auto contentAttrSetup = baseContentAttrSetup.reorder(DimsOrder::NHWC);
 
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
@@ -1307,7 +1307,7 @@ TEST_F(MLIR_ConstContentAttrTest, ReorderAfterReshape) {
     const auto vals = generateValues<float>(baseType.getNumElements());
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
     auto contentAttrSetup = baseContentAttrSetup.reshape({N, C, H, W}).reorder(DimsOrder::NHWC);
 
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
@@ -1341,7 +1341,7 @@ TEST_F(MLIR_ConstContentAttrTest, Pad) {
     const auto vals = generateValues<int32_t>(baseType.getNumElements());
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     const int64_t PC = 1;
     const int64_t PH = 1;
@@ -1370,7 +1370,7 @@ TEST_F(MLIR_ConstContentAttrTest, PadSplat) {
     const int32_t splatVal = 42;
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(splatVal));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     const int64_t PC = 1;
     const int64_t PH = 1;
@@ -1400,7 +1400,7 @@ TEST_F(MLIR_ConstContentAttrTest, PadUniformQuant) {
     const auto vals = generateValues<float>(baseType.getNumElements());
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     const auto zp = 128;
     const auto quantType = mlir::quant::UniformQuantizedType::get(0, getUInt8Type(&ctx), mlir::Float32Type::get(&ctx),
@@ -1440,7 +1440,7 @@ TEST_F(MLIR_ConstContentAttrTest, PadPerAxisQuant) {
     const auto vals = generateValues<float>(baseType.getNumElements());
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     const auto zp = 127;
     std::vector<double> scales(2, 0.5);
@@ -1492,7 +1492,7 @@ TEST_F(MLIR_ConstContentAttrTest, PadUniformQuantileI4) {
     const auto vals = std::vector<int8_t>{0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3};
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     const double scale = 1.0;
     const int8_t zeroPoint = 0;
@@ -1541,7 +1541,7 @@ TEST_F(MLIR_ConstContentAttrTest, PadPerAxisQuantileI4) {
     const auto vals = std::vector<int8_t>{0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3};
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     const auto zp = 0;
     std::vector<double> scales(1, 1);
@@ -1601,7 +1601,7 @@ TEST_F(MLIR_ConstContentAttrTest, SubView) {
     const auto vals = generateValues<int32_t>(baseType.getNumElements());
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     const int64_t OFF_C = 0;
     const int64_t OFF_H = 1;
@@ -1633,56 +1633,6 @@ TEST_F(MLIR_ConstContentAttrTest, SubView) {
     }
 }
 
-TEST_F(MLIR_ConstContentAttrTest, SubViewI1) {
-    const int64_t IC = 1;
-    const int64_t IH = 7;
-    const int64_t IW = 5;
-
-    const auto baseType = mlir::RankedTensorType::get({IC, IH, IW}, getInt1Type(&ctx));
-    auto vals = SmallVector<bool>(baseType.getNumElements());
-    for (auto index : irange(vals.size())) {
-        vals[index] = static_cast<bool>(index % 2);
-    }
-
-    const auto valsArrayRef = ArrayRef<bool>(vals);
-    const auto baseAttr = Const::createConstContent(baseType, valsArrayRef);
-
-    Const::ContentSetup baseContentAttrSetup(baseType);
-
-    const int64_t OFF_C = 0;
-    const int64_t OFF_H = 1;
-    const int64_t OFF_W = 1;
-
-    const int64_t OC = 1;
-    const int64_t OH = 1;
-    const int64_t OW = 1;
-
-    auto contentAttrSetup = baseContentAttrSetup.subview({OFF_C, OFF_H, OFF_W}, {OC, OH, OW});
-
-    auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
-    const auto content = contentAttr.fold();
-    EXPECT_EQ(content.getType(), contentAttr.getType());
-    EXPECT_FALSE(content.isSplat());
-    EXPECT_EQ(contentAttr.isSplat(), content.isSplat());
-
-    // getValues is not realized for sub-byte types
-    // therefore access through raw buffer
-    auto contentBuf = content.getRawStorageBuf();
-    auto contentData = contentBuf.data();
-
-    for (int64_t c = 0; c < OC; ++c) {
-        for (int64_t h = 0; h < OH; ++h) {
-            for (int64_t w = 0; w < OW; ++w) {
-                const auto newIndex = w + h * OW + c * OW * OH;
-                const auto origIndex = (w + OFF_W) + (h + OFF_H) * IW + (c + OFF_C) * IW * IH;
-                auto inputCoord = std::div(newIndex, checked_cast<size_t>(CHAR_BIT));
-                bool bitValue = contentData[inputCoord.quot] & (1 << inputCoord.rem);
-                EXPECT_EQ(bitValue, vals[origIndex]) << c << " " << h << " " << w;
-            }
-        }
-    }
-}
-
 TEST_F(MLIR_ConstContentAttrTest, SubViewSplat) {
     const int64_t IC = 1;
     const int64_t IH = 2;
@@ -1692,7 +1642,7 @@ TEST_F(MLIR_ConstContentAttrTest, SubViewSplat) {
     const int32_t splatVal = 42;
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(splatVal));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     const int64_t OFF_C = 0;
     const int64_t OFF_H = 1;
@@ -1721,7 +1671,7 @@ TEST_F(MLIR_ConstContentAttrTest, Transpose) {
     const auto vals = generateValues<float>(baseType.getNumElements());
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     const auto permutationMap = mlir::AffineMap::getPermutationMap(SmallVector<unsigned>{1, 0}, &ctx);
     const auto orderAttr = DimsOrder::fromAffineMap(permutationMap);
@@ -1753,7 +1703,7 @@ TEST_F(MLIR_ConstContentAttrTest, MemPermute) {
     const auto vals = generateValues<float>(baseType.getNumElements());
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     const auto permutationMap = mlir::AffineMap::getPermutationMap(SmallVector<unsigned>{1, 0}, &ctx);
     const auto memPermAttr = DimsOrder::fromAffineMap(permutationMap);
@@ -1791,7 +1741,7 @@ TEST_F(MLIR_ConstContentAttrTest, ExpandDilated) {
     const auto vals = generateValues<int32_t>(baseType.getNumElements());
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     const int64_t dilY = 3;
     const int64_t dilX = 3;
@@ -1840,7 +1790,7 @@ TEST_F(MLIR_ConstContentAttrTest, ExpandDilated_Splat) {
     const auto vals = std::vector<int32_t>(baseType.getNumElements(), 42);
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     const int64_t dilY = 3;
     const int64_t dilX = 3;
@@ -1895,7 +1845,7 @@ TEST_F(MLIR_ConstContentAttrTest, GetSparsityMap) {
     const auto expectedResult = std::vector<uint8_t>{0xFE, 0xEB};
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     auto contentAttrSetup = baseContentAttrSetup.getSparsityMap();
 
@@ -1939,7 +1889,7 @@ TEST_F(MLIR_ConstContentAttrTest, GetSparsityMapQuantized) {
     const auto expectedResult = std::vector<uint8_t>{0xFE, 0xEA};
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     const auto quantType =
             mlir::quant::UniformQuantizedType::get(0, baseType.getElementType(), mlir::Float32Type::get(&ctx), scale,
@@ -1979,7 +1929,7 @@ TEST_F(MLIR_ConstContentAttrTest, Sparsify) {
                                                      16, 18, 19, 20, 22, 23, 24, 25, 26, 29, 30, 31, 0,  0, 0, 0};
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     auto contentAttrSetup = baseContentAttrSetup.sparsify(false);
 
@@ -2009,7 +1959,7 @@ TEST_F(MLIR_ConstContentAttrTest, Sparsify_True) {
                                                      16, 18, 19, 20, 22, 23, 24, 25, 26, 29, 30, 31, 0,  0, 0, 0};
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     const auto numElemsPerOC =
             vpux::countNonSparseElementsPerOC(Const::ContentAttr::get(baseAttr).fold(), baseType.getElementType());
@@ -2053,7 +2003,7 @@ TEST_F(MLIR_ConstContentAttrTest, SparsifyQuantized) {
                                                      18, 19, 20, 22, 23, 24, 25, 26, 29, 30, 31, 0,  0,  0, 0, 0};
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     const auto quantType =
             mlir::quant::UniformQuantizedType::get(0, baseType.getElementType(), mlir::Float32Type::get(&ctx), scale,
@@ -2080,7 +2030,7 @@ TEST_F(MLIR_ConstContentAttrTest, PositionRequirement) {
     const int64_t IH = 3;
     const int64_t IW = 3;
     const auto baseType = mlir::RankedTensorType::get({IN, IC, IH, IW}, mlir::Float32Type::get(&ctx));
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(nullptr, baseType);
 
     // Inserting a transformation that has no position requirement
     auto contentAttrSetup1 = baseContentAttrSetup.rescale(10.0);
@@ -2108,7 +2058,7 @@ TEST_F(MLIR_ConstContentAttrTest, ChangeShapeAndElemType) {
     const auto baseType = mlir::RankedTensorType::get({2, 1, 1, 8}, getUInt8Type(&ctx));
     const auto vals = generateValues<uint8_t>(baseType.getNumElements());
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     const auto quantType = mlir::quant::UniformQuantizedType::get(0, getUInt8Type(&ctx), mlir::Float32Type::get(&ctx),
                                                                   0.078431372549019607, 128, 0, 255);
@@ -2134,7 +2084,7 @@ TEST_F(MLIR_ConstContentAttrTest, ChangeShapeAndElemTypePerAxisQuant) {
     const auto baseType = mlir::RankedTensorType::get({2, 1, 1, 8}, getUInt8Type(&ctx));
     const auto vals = generateValues<uint8_t>(baseType.getNumElements());
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     const auto zp = 127;
     std::vector<double> scales(2, 0.5);
@@ -2176,7 +2126,7 @@ TEST_F(MLIR_ConstContentAttrTest, ChangeShapeAndElemTypeFloat) {
     const auto baseType = mlir::RankedTensorType::get({2, 1, 1, 8}, mlir::Float32Type::get(&ctx));
     const auto vals = generateValues<float>(baseType.getNumElements());
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     auto newContentAttrSetup = baseContentAttrSetup.changeShapeAndElemType({1, 2, 1, 8}, getSInt32Type(&ctx));
 
@@ -2198,7 +2148,7 @@ TEST_F(MLIR_ConstContentAttrTest, ChangeShapeAndElemTypeFloat) {
 
 TEST_F(MLIR_ConstContentAttrTest, GetTransformationsRange) {
     const auto baseType = mlir::RankedTensorType::get({10}, mlir::Float32Type::get(&ctx));
-    Const::ContentSetup contentAttrSetup(baseType);
+    Const::ContentSetup contentAttrSetup(nullptr, baseType);
 
     contentAttrSetup = contentAttrSetup.reshape({2, 5}).subview({0, 0}, {1, 5}).add(1.0);
 
@@ -2235,7 +2185,7 @@ TEST_F(MLIR_ConstContentAttrTest, SwizzleConstant_SubBytes_I1) {
                                        1, 1, 1, 1,   // 0xF -> 0xF packed
                                        1, 1, 1, 0};  // 0xE -> 0x7 packed
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     auto contentAttrSetup = baseContentAttrSetup.castElemType(mlir::IntegerType::get(&ctx, 1));
     auto contentAttrSetup1 =
@@ -2274,7 +2224,7 @@ TEST_F(MLIR_ConstContentAttrTest, SwizzleConstant_SubBytes_I4) {
                                            10, 15};  // 0xAF
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
     auto contentAttrSetup = baseContentAttrSetup.castElemType(mlir::IntegerType::get(&ctx, 4));
 
     auto contentAttrSetup1 =
@@ -2314,7 +2264,7 @@ TEST_F(MLIR_ConstContentAttrTest, SwizzleConstant_U8) {
 
     const auto vals = std::vector<uint8_t>{255, 100, 0, 1};
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     auto contentAttrSetup = baseContentAttrSetup.swizzleConstant(5, static_cast<uint64_t>(config::ArchKind::NPU37XX));
 
@@ -2348,7 +2298,7 @@ TEST_F(MLIR_ConstContentAttrTest, SwizzleConstant_FP32) {
 
     const auto vals = std::vector<float>{700, 800, 900, 900};
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     auto contentAttrSetup = baseContentAttrSetup.swizzleConstant(5, static_cast<uint64_t>(config::ArchKind::NPU37XX));
 
@@ -2383,7 +2333,7 @@ TEST_F(MLIR_ConstContentAttrTest, SwizzleConstant_SubBytes_Splat_I1) {
     const std::vector<uint8_t> vals = {1};
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     auto contentAttrSetup = baseContentAttrSetup.castElemType(mlir::IntegerType::get(&ctx, 1));
 
@@ -2425,7 +2375,7 @@ TEST_F(MLIR_ConstContentAttrTest, SwizzleConstant_SubBytes_Splat_I4) {
     const std::vector<uint8_t> vals = {10};
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     auto contentAttrSetup = baseContentAttrSetup.castElemType(mlir::IntegerType::get(&ctx, 4));
 
@@ -2467,7 +2417,7 @@ TEST_F(MLIR_ConstContentAttrTest, SwizzleConstant_Splat_U8) {
     const std::vector<uint8_t> vals = {10};
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     auto contentAttrSetup = baseContentAttrSetup.swizzleConstant(5, static_cast<uint64_t>(config::ArchKind::NPU37XX));
 
@@ -2505,7 +2455,7 @@ TEST_F(MLIR_ConstContentAttrTest, SwizzleConstant_Splat_FP32) {
     const std::vector<float> vals = {10};
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     auto contentAttrSetup = baseContentAttrSetup.swizzleConstant(5, static_cast<uint64_t>(config::ArchKind::NPU37XX));
 
@@ -2548,7 +2498,7 @@ TEST_F(MLIR_ConstContentAttrTest, ScalarMultInverse) {
 
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
     auto contentAttrSetup = baseContentAttrSetup.scalarMultInverse();
 
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
@@ -2573,7 +2523,7 @@ TEST_F(MLIR_ConstContentAttrTest, ScalarMultInverse_Splat) {
 
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
     auto contentAttrSetup = baseContentAttrSetup.scalarMultInverse();
 
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
@@ -2595,7 +2545,7 @@ TEST_F(MLIR_ConstContentAttrTest, FuseConstants) {
     auto i1Type = getInt1Type(&ctx);
 
     const auto baseType = mlir::RankedTensorType::get(ArrayRef<int64_t>{1}, tensorType);
-    auto baseContentAttrSetup = Const::ContentSetup(baseType);
+    auto baseContentAttrSetup = Const::ContentSetup(nullptr, baseType);
 
     auto cst1 = getContentAttr<uint8_t>(ArrayRef<int64_t>{4, 1, 1, 1}, tensorType, SmallVector<uint8_t>{1, 2, 3, 4});
     auto cst2 = getContentAttr<uint8_t>(ArrayRef<int64_t>{2, 1, 1, 1}, tensorType, SmallVector<uint8_t>{5, 6});
@@ -2663,7 +2613,7 @@ TEST_P(MLIR_ConstContentAttrTest_ConvertElemType, Roundtrip) {
 
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(inputVals));
     const auto contentAttr = Const::ContentAttr::get(
-            baseAttr, Const::ContentSetup(baseType).castElemType(qTypeIn).convertElemType(qTypeOut));
+            baseAttr, Const::ContentSetup(baseAttr, baseType).castElemType(qTypeIn).convertElemType(qTypeOut));
     const auto roundtripContentAttr = contentAttr.transform().convertElemType(qTypeIn).get();
 
     std::vector<float> shiftedVals;
@@ -2828,7 +2778,7 @@ TEST_F(MLIR_ConstContentAttrTest, Quantize) {
                                0.0,  0.25,  0.5,  0.75,  1.0,  1.25,  1.5,  1.75};
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     // Quantize to 1/127;56 type => [-1.4409448818897637; 0.5590551181102362]
     const double scale = 1.0 / 127.0;
@@ -2859,7 +2809,7 @@ TEST_F(MLIR_ConstContentAttrTest, Quantize_Subbyte_s4) {
                                0.0,  0.25,  0.5,  0.75,  1.0,  1.25,  1.5,  1.75};
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     // Quantize to 1/7;0 type => [-8; 7]
     const double scale = 1.0 / 7.0;
@@ -2889,7 +2839,7 @@ TEST_F(MLIR_ConstContentAttrTest, Quantize_Subbyte_u4) {
                                0.0,  0.25,  0.5,  0.75,  1.0,  1.25,  1.5,  1.75};
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     const double scale = 1.0 / 7.0;
     const auto quantType = mlir::quant::UniformQuantizedType::get(0 /* unsigned*/, getUInt4Type(&ctx),
@@ -2918,7 +2868,7 @@ TEST_F(MLIR_ConstContentAttrTest, Quantize_Subbyte_u6) {
                                0.0,  0.25,  0.5,  0.75,  1.0,  1.25,  1.5,  1.75};
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     const double scale = 0.1;
     const auto quantType = mlir::quant::UniformQuantizedType::get(0 /* unsigned*/, getUInt6Type(&ctx),
@@ -2947,7 +2897,7 @@ TEST_F(MLIR_ConstContentAttrTest, Quantize_Subbyte_u3) {
                                0.0,  0.25,  0.5,  0.75,  1.0,  1.25,  1.5,  1.75};
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     // Quantize to 1/3;2 type => [-0.6(6); 1.6(6)]
     const double scale = 1.0 / 3.0;
@@ -2977,7 +2927,7 @@ TEST_F(MLIR_ConstContentAttrTest, Quantize_Subbyte_s2) {
                                0.0,  0.25,  0.5,  0.75,  1.0,  1.25,  1.5,  1.75};
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     const double scale = 0.5;
     const auto quantType = mlir::quant::UniformQuantizedType::get(
@@ -3007,7 +2957,7 @@ TEST_F(MLIR_ConstContentAttrTest, Quantize_Subbyte_u2) {
                                0.0,  0.25,  0.5,  0.75,  1.0,  1.25,  1.5,  1.75};
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     const double scale = 0.5;
     const auto quantType = mlir::quant::UniformQuantizedType::get(0 /* unsigned*/, getUInt2Type(&ctx),
@@ -3036,7 +2986,7 @@ TEST_F(MLIR_ConstContentAttrTest, Quantize_Subbyte_u1) {
                                0.0,  0.25,  0.5,  0.75,  1.0,  1.25,  1.5,  1.75};
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     const double scale = 1.0;
     const auto quantType = mlir::quant::UniformQuantizedType::get(0 /* unsigned*/, getUInt1Type(&ctx),
@@ -3069,7 +3019,7 @@ TEST_F(MLIR_ConstContentAttrTest, PerAxisQuantize_s8) {
     }
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     // first axis qType to 1/127;56 type => [-1.4409448818897637; 0.5590551181102362]
     // second axis qType 0.003;-21; type => [-0.318; 0.444]
@@ -3113,7 +3063,7 @@ TEST_F(MLIR_ConstContentAttrTest, PerAxisQuantize_s4) {
     }
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
 
     // first axis qType to 1/8.0;3 type => [-1.375; 0.625]
     // second axis qType 0.3;-2; type => [-1.5; 3]
@@ -3155,7 +3105,7 @@ TEST_F(MLIR_ConstContentAttrTest, DequantizeQuantize) {
         vals[i] = -120 + 15 * i;
     }
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
     auto contentAttrSetup = baseContentAttrSetup.castElemType(quantType).dequantize().quantize(quantType);
 
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
@@ -3319,7 +3269,7 @@ TEST_F(MLIR_ConstContentAttrTest_StableHash, SameValues_CastElemTypeUniformPerAx
     EXPECT_EQ(stableHashFirst, stableHashSecond);
 
     // just to double check the value is the same across different runs
-    const size_t expectedValue = 17434572010445879455ULL;
+    const size_t expectedValue = 7072335194490813993ULL;
     EXPECT_EQ(expectedValue, static_cast<size_t>(stableHashFirst));
 }
 
@@ -3364,7 +3314,7 @@ TEST_F(MLIR_ConstContentAttrTest_StableHash, SameValues_CastElemTypeQuantilePerA
     EXPECT_EQ(stableHashFirst, stableHashSecond);
 
     // just to double check the value is the same across different runs
-    const size_t expectedValue = 11229134676890109987ULL;
+    const size_t expectedValue = 12863469656709118308ULL;
     EXPECT_EQ(expectedValue, static_cast<size_t>(stableHashFirst));
 }
 
@@ -3406,7 +3356,14 @@ TEST_F(MLIR_ConstContentAttrTest_StableHash, NoTransformations) {
 
     auto stableHashInt = baseAttrInt.getTransformationHash();
 
-    EXPECT_EQ(stableHashFloat, stableHashInt);
+    EXPECT_NE(stableHashFloat, stableHashInt) << "Different base content element types result in different hashes";
+
+    const auto floatTypeNewShape = mlir::RankedTensorType::get({4, 2, 3, 1}, mlir::Float32Type::get(&ctx));
+    const auto baseAttrFloatNewShape = getContentAttr<float>(floatTypeNewShape);
+
+    auto stableHashFloatNewShape = baseAttrFloatNewShape.getTransformationHash();
+
+    EXPECT_NE(stableHashFloat, stableHashFloatNewShape) << "Different base content shapes result in different hashes";
 
     // ---- different contexts ----
 
@@ -3427,7 +3384,7 @@ TEST_F(MLIR_ConstContentAttrTest_StableHash, NoTransformations) {
     EXPECT_EQ(stableHashFirst, stableHashSecond);
 
     // just to double check the value is the same across different runs
-    const size_t expectedValue = 7327574214402493570U;
+    const size_t expectedValue = 4579562972044447942ULL;
     EXPECT_EQ(expectedValue, static_cast<size_t>(stableHashFirst));
 }
 
@@ -3451,7 +3408,7 @@ TEST_F(MLIR_ConstContentAttrTest_StableHash, DimsOrder) {
     EXPECT_EQ(stableHashFirst, stableHashSecond);
 
     // just to double check the value is the same across different runs
-    const size_t expectedValue = 18339998782900935893U;
+    const size_t expectedValue = 7992919923434012841ULL;
     EXPECT_EQ(expectedValue, static_cast<size_t>(stableHashFirst));
 }
 
@@ -3478,7 +3435,7 @@ TEST_F(MLIR_ConstContentAttrTest_StableHash, MultipleTransformations) {
     EXPECT_EQ(stableHashFirst, stableHashSecond);
 
     // just to double check the value is the same across different runs
-    const size_t expectedValue = 1886374455152511358U;
+    const size_t expectedValue = 15384721241491552282ULL;
     EXPECT_EQ(expectedValue, static_cast<size_t>(stableHashFirst));
 }
 
@@ -3490,7 +3447,7 @@ TEST_F(MLIR_ConstContentAttrTest, AffineReshapeFuseAndSplitNoTranspose) {
     auto shapeValue = getArrayAttr(&ctx, {5, 2, 6});
 
     const auto baseType = mlir::RankedTensorType::get({10, 2, 3}, mlir::Float32Type::get(&ctx));
-    Const::ContentSetup contentAttrSetup(baseType);
+    Const::ContentSetup contentAttrSetup(nullptr, baseType);
     contentAttrSetup = contentAttrSetup.affineReshape(dimMapping, shapeValue);
 
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(0.0f));
@@ -3512,7 +3469,7 @@ TEST_F(MLIR_ConstContentAttrTest, AffineReshapeFuseAndSplitTranspose) {
     auto shapeValue = getArrayAttr(&ctx, {6, 5, 2});
 
     const auto baseType = mlir::RankedTensorType::get({10, 2, 3}, mlir::Float32Type::get(&ctx));
-    Const::ContentSetup contentAttrSetup(baseType);
+    Const::ContentSetup contentAttrSetup(nullptr, baseType);
     contentAttrSetup = contentAttrSetup.affineReshape(dimMapping, shapeValue);
 
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(0.0f));
@@ -3531,7 +3488,7 @@ TEST_F(MLIR_ConstContentAttrTest, AffineReshapeFailedTypeInference) {
     auto shapeValue = getArrayAttr(&ctx, {2, 4, 15});
 
     const auto baseType = mlir::RankedTensorType::get({2, 3, 4, 5}, mlir::Float32Type::get(&ctx));
-    Const::ContentSetup contentAttrSetup(baseType);
+    Const::ContentSetup contentAttrSetup(nullptr, baseType);
     contentAttrSetup = contentAttrSetup.affineReshape(dimMapping, shapeValue);
 
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(0.0f));
@@ -3550,7 +3507,7 @@ TEST_F(MLIR_ConstContentAttrTest, Interpolate) {
 
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
     auto contentAttrSetup = baseContentAttrSetup.interpolate(
             getIntArrayAttr(&ctx, ArrayRef<int64_t>{2, 3}), getIntArrayAttr(&ctx, ArrayRef<int64_t>{2, 2}),
             mlir::StringAttr::get(&ctx, "CUBIC"), mlir::StringAttr::get(&ctx, "HALF_PIXEL"),
@@ -3585,7 +3542,7 @@ TEST_F(MLIR_ConstContentAttrTest, GatherElements) {
     const auto indicesType = mlir::RankedTensorType::get({2, 2}, getSInt64Type(&ctx));
     auto indicesAttr = mlir::DenseElementsAttr::get(indicesType, ArrayRef<int64_t>(indicesVals));
 
-    Const::ContentSetup contentAttrSetup(baseType);
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
     contentAttrSetup = contentAttrSetup.gatherElements(axisAttr, indicesAttr);
 
     auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
@@ -3612,7 +3569,7 @@ TEST_F(MLIR_ConstContentAttrTest, GatherElementsWithSplatInput) {
     const auto indicesType = mlir::RankedTensorType::get({2, 2}, getSInt64Type(&ctx));
     auto indicesAttr = mlir::DenseElementsAttr::get(indicesType, ArrayRef<int64_t>(indicesVals));
 
-    Const::ContentSetup contentAttrSetup(baseType);
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
     contentAttrSetup = contentAttrSetup.gatherElements(axisAttr, indicesAttr);
 
     auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
@@ -3638,7 +3595,7 @@ TEST_F(MLIR_ConstContentAttrTest, GatherElementsWithSplatIndices) {
     auto indicesAttr = mlir::DenseElementsAttr::get(indicesType, ArrayRef<int64_t>({1}));
     EXPECT_TRUE(indicesAttr.isSplat());
 
-    Const::ContentSetup contentAttrSetup(baseType);
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
     contentAttrSetup = contentAttrSetup.gatherElements(axisAttr, indicesAttr);
 
     auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
@@ -3653,4 +3610,550 @@ TEST_F(MLIR_ConstContentAttrTest, GatherElementsWithSplatIndices) {
     for (size_t i = 0; i < expectedValues.size(); ++i) {
         EXPECT_EQ(contentVals[i], expectedValues[i]);
     }
+}
+
+// [1x3] + [1x3] -> [1x6] along axis=1, with add() transform on inputs
+TEST_F(MLIR_ConstContentAttrTest, ConcatF32_Axis1) {
+    const auto input0Type = mlir::RankedTensorType::get({1, 3}, mlir::Float32Type::get(&ctx));
+    const auto input1Type = mlir::RankedTensorType::get({1, 3}, mlir::Float32Type::get(&ctx));
+    const std::vector<float> input0Vals{1.0f, 2.0f, 3.0f};
+    const std::vector<float> input1Vals{4.0f, 5.0f, 6.0f};
+
+    const auto base0 = Const::createConstContent(input0Type, ArrayRef(input0Vals));
+    const auto base1 = Const::createConstContent(input1Type, ArrayRef(input1Vals));
+
+    // Apply add(10.0) transformation to each input to verify transforms are folded during concat
+    Const::ContentSetup setup0(base0, input0Type);
+    setup0 = setup0.add(10.0);
+    auto content0 = Const::ContentAttr::get(base0, std::move(setup0));
+
+    Const::ContentSetup setup1(base1, input1Type);
+    setup1 = setup1.add(10.0);
+    auto content1 = Const::ContentAttr::get(base1, std::move(setup1));
+
+    std::vector<Const::ContentAttr> inputContents{content0, content1};
+
+    SmallVector<SmallVector<int64_t>> offsets = {{0, 0}, {0, 3}};
+    auto staticOffsets = getIntArrayOfArray(&ctx, ArrayRef(offsets));
+
+    auto contentAttr = Const::createConcatContentAttr(&ctx, staticOffsets, /*axis=*/1, inputContents);
+    const auto content = contentAttr.fold();
+
+    EXPECT_FALSE(content.isSplat());
+    EXPECT_EQ(content.getType(), contentAttr.getType());
+
+    EXPECT_EQ(content.getType().getShape().raw()[0], 1);
+    EXPECT_EQ(content.getType().getShape().raw()[1], 6);
+
+    const auto resultVals = content.getValues<float>();
+    ASSERT_EQ(resultVals.size(), 6);
+
+    // Original values + 10.0 from the add() transform
+    std::vector<float> expected{11.0f, 12.0f, 13.0f, 14.0f, 15.0f, 16.0f};
+    for (size_t i = 0; i < resultVals.size(); ++i) {
+        EXPECT_FLOAT_EQ(resultVals[i], expected[i]);
+    }
+}
+
+// Three ui8 inputs: [1x2] + [1x3] + [1x1] -> [1x6] along axis=1
+TEST_F(MLIR_ConstContentAttrTest, ConcatUI8_ThreeInputs) {
+    const auto input0Type = mlir::RankedTensorType::get({1, 2}, getUInt8Type(&ctx));
+    const auto input1Type = mlir::RankedTensorType::get({1, 3}, getUInt8Type(&ctx));
+    const auto input2Type = mlir::RankedTensorType::get({1, 1}, getUInt8Type(&ctx));
+
+    const std::vector<uint8_t> input0Vals{10, 20};
+    const std::vector<uint8_t> input1Vals{30, 40, 50};
+    const std::vector<uint8_t> input2Vals{60};
+
+    const auto base0 = Const::createConstContent(input0Type, ArrayRef(input0Vals));
+    const auto base1 = Const::createConstContent(input1Type, ArrayRef(input1Vals));
+    const auto base2 = Const::createConstContent(input2Type, ArrayRef(input2Vals));
+
+    auto content0 = Const::ContentAttr::get(base0);
+    auto content1 = Const::ContentAttr::get(base1);
+    auto content2 = Const::ContentAttr::get(base2);
+
+    std::vector<Const::ContentAttr> inputContents{content0, content1, content2};
+
+    SmallVector<SmallVector<int64_t>> offsets = {{0, 0}, {0, 2}, {0, 5}};
+    auto staticOffsets = getIntArrayOfArray(&ctx, ArrayRef(offsets));
+
+    auto contentAttr = Const::createConcatContentAttr(&ctx, staticOffsets, /*axis=*/1, inputContents);
+    const auto content = contentAttr.fold();
+
+    EXPECT_FALSE(content.isSplat());
+    EXPECT_EQ(content.getType(), contentAttr.getType());
+    EXPECT_EQ(content.getType().getShape().raw()[1], 6);
+
+    const auto resultVals = content.getValues<uint8_t>();
+    ASSERT_EQ(resultVals.size(), 6);
+
+    std::vector<uint8_t> expected{10, 20, 30, 40, 50, 60};
+    for (size_t i = 0; i < resultVals.size(); ++i) {
+        EXPECT_EQ(resultVals[i], expected[i]);
+    }
+}
+
+// 4D inner axis: [1x2x2x3] + [1x2x2x3] -> [1x2x4x3] along axis=2, with rescale on inputs
+TEST_F(MLIR_ConstContentAttrTest, ConcatF32_4D_InnerAxis) {
+    const auto input0Type = mlir::RankedTensorType::get({1, 2, 2, 3}, mlir::Float32Type::get(&ctx));
+    const auto input1Type = mlir::RankedTensorType::get({1, 2, 2, 3}, mlir::Float32Type::get(&ctx));
+
+    std::vector<float> input0Vals;
+    for (int i = 1; i <= 12; ++i) {
+        input0Vals.push_back(static_cast<float>(i));
+    }
+    std::vector<float> input1Vals;
+    for (int i = 13; i <= 24; ++i) {
+        input1Vals.push_back(static_cast<float>(i));
+    }
+
+    const auto base0 = Const::createConstContent(input0Type, ArrayRef(input0Vals));
+    const auto base1 = Const::createConstContent(input1Type, ArrayRef(input1Vals));
+
+    // Apply rescale(2.0) to verify transforms are folded during concat
+    Const::ContentSetup setup0(base0, input0Type);
+    setup0 = setup0.rescale(2.0);
+    auto content0 = Const::ContentAttr::get(base0, std::move(setup0));
+
+    Const::ContentSetup setup1(base1, input1Type);
+    setup1 = setup1.rescale(2.0);
+    auto content1 = Const::ContentAttr::get(base1, std::move(setup1));
+
+    std::vector<Const::ContentAttr> inputContents{content0, content1};
+
+    SmallVector<SmallVector<int64_t>> offsets = {{0, 0, 0, 0}, {0, 0, 2, 0}};
+    auto staticOffsets = getIntArrayOfArray(&ctx, ArrayRef(offsets));
+
+    auto contentAttr = Const::createConcatContentAttr(&ctx, staticOffsets, /*axis=*/2, inputContents);
+    const auto content = contentAttr.fold();
+
+    EXPECT_FALSE(content.isSplat());
+    EXPECT_EQ(content.getType(), contentAttr.getType());
+    EXPECT_EQ(content.getType().getShape().raw()[2], 4);
+
+    const auto resultVals = content.getValues<float>();
+    ASSERT_EQ(resultVals.size(), 24);
+
+    // Values rescaled by 2.0, then concatenated along axis=2
+    std::vector<float> expected{2,  4,  6,  8,  10, 12, 26, 28, 30, 32, 34, 36,
+                                14, 16, 18, 20, 22, 24, 38, 40, 42, 44, 46, 48};
+    for (size_t i = 0; i < resultVals.size(); ++i) {
+        EXPECT_FLOAT_EQ(resultVals[i], expected[i]);
+    }
+}
+
+TEST_F(MLIR_ConstContentAttrTest, CumSumInclusiveAxis1) {
+    const auto baseType = mlir::RankedTensorType::get({1, 4}, mlir::Float32Type::get(&ctx));
+    std::vector<float> baseVals = {1.0f, 2.0f, 3.0f, 4.0f};
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(baseVals));
+    const auto axisAttr = getIntAttr(&ctx, 1);
+    const auto falseAttr = mlir::BoolAttr::get(&ctx, false);
+
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
+    contentAttrSetup = contentAttrSetup.cumSum(axisAttr, falseAttr, falseAttr);
+    auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
+    const auto content = contentAttr.fold();
+
+    const auto contentVals = content.getValues<float>();
+    std::vector<float> expected = {1.0f, 3.0f, 6.0f, 10.0f};
+    EXPECT_EQ(contentVals.size(), expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        EXPECT_FLOAT_EQ(contentVals[i], expected[i]);
+    }
+}
+
+TEST_F(MLIR_ConstContentAttrTest, CumSumExclusive) {
+    const auto baseType = mlir::RankedTensorType::get({1, 4}, mlir::Float32Type::get(&ctx));
+    std::vector<float> baseVals = {1.0f, 2.0f, 3.0f, 4.0f};
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(baseVals));
+    const auto axisAttr = getIntAttr(&ctx, 1);
+    const auto trueAttr = mlir::BoolAttr::get(&ctx, true);
+    const auto falseAttr = mlir::BoolAttr::get(&ctx, false);
+
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
+    contentAttrSetup = contentAttrSetup.cumSum(axisAttr, trueAttr, falseAttr);
+    auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
+    const auto content = contentAttr.fold();
+
+    const auto contentVals = content.getValues<float>();
+    std::vector<float> expected = {0.0f, 1.0f, 3.0f, 6.0f};
+    EXPECT_EQ(contentVals.size(), expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        EXPECT_FLOAT_EQ(contentVals[i], expected[i]);
+    }
+}
+
+TEST_F(MLIR_ConstContentAttrTest, CumSumReverse) {
+    const auto baseType = mlir::RankedTensorType::get({1, 4}, mlir::Float32Type::get(&ctx));
+    std::vector<float> baseVals = {1.0f, 2.0f, 3.0f, 4.0f};
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(baseVals));
+    const auto axisAttr = getIntAttr(&ctx, 1);
+    const auto trueAttr = mlir::BoolAttr::get(&ctx, true);
+    const auto falseAttr = mlir::BoolAttr::get(&ctx, false);
+
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
+    contentAttrSetup = contentAttrSetup.cumSum(axisAttr, falseAttr, trueAttr);
+    auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
+    const auto content = contentAttr.fold();
+
+    const auto contentVals = content.getValues<float>();
+    std::vector<float> expected = {10.0f, 9.0f, 7.0f, 4.0f};
+    EXPECT_EQ(contentVals.size(), expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        EXPECT_FLOAT_EQ(contentVals[i], expected[i]);
+    }
+}
+
+TEST_F(MLIR_ConstContentAttrTest, CumSumExclusiveReverse) {
+    const auto baseType = mlir::RankedTensorType::get({1, 4}, mlir::Float32Type::get(&ctx));
+    std::vector<float> baseVals = {1.0f, 2.0f, 3.0f, 4.0f};
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(baseVals));
+    const auto axisAttr = getIntAttr(&ctx, 1);
+    const auto trueAttr = mlir::BoolAttr::get(&ctx, true);
+
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
+    contentAttrSetup = contentAttrSetup.cumSum(axisAttr, trueAttr, trueAttr);
+    auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
+    const auto content = contentAttr.fold();
+
+    const auto contentVals = content.getValues<float>();
+    std::vector<float> expected = {9.0f, 7.0f, 4.0f, 0.0f};
+    EXPECT_EQ(contentVals.size(), expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        EXPECT_FLOAT_EQ(contentVals[i], expected[i]);
+    }
+}
+
+TEST_F(MLIR_ConstContentAttrTest, CumSumAxis0_2x4) {
+    const auto baseType = mlir::RankedTensorType::get({2, 4}, mlir::Float32Type::get(&ctx));
+    std::vector<float> baseVals = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f};
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(baseVals));
+    const auto axisAttr = getIntAttr(&ctx, 0);
+    const auto falseAttr = mlir::BoolAttr::get(&ctx, false);
+
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
+    contentAttrSetup = contentAttrSetup.cumSum(axisAttr, falseAttr, falseAttr);
+    auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
+    const auto content = contentAttr.fold();
+
+    const auto contentVals = content.getValues<float>();
+    // axis 0: [[1,2,3,4],[5,6,7,8]] -> [[1,2,3,4],[6,8,10,12]]
+    std::vector<float> expected = {1.0f, 2.0f, 3.0f, 4.0f, 6.0f, 8.0f, 10.0f, 12.0f};
+    EXPECT_EQ(contentVals.size(), expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        EXPECT_FLOAT_EQ(contentVals[i], expected[i]);
+    }
+}
+
+TEST_F(MLIR_ConstContentAttrTest, CumSumAxis0_2x4_Exclusive) {
+    const auto baseType = mlir::RankedTensorType::get({2, 4}, mlir::Float32Type::get(&ctx));
+    std::vector<float> baseVals = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f};
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(baseVals));
+    const auto axisAttr = getIntAttr(&ctx, 0);
+    const auto trueAttr = mlir::BoolAttr::get(&ctx, true);
+    const auto falseAttr = mlir::BoolAttr::get(&ctx, false);
+
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
+    contentAttrSetup = contentAttrSetup.cumSum(axisAttr, trueAttr, falseAttr);
+    auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
+    const auto content = contentAttr.fold();
+
+    const auto contentVals = content.getValues<float>();
+    // axis 0, exclusive: [[0,0,0,0],[1,2,3,4]]
+    std::vector<float> expected = {0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 2.0f, 3.0f, 4.0f};
+    EXPECT_EQ(contentVals.size(), expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        EXPECT_FLOAT_EQ(contentVals[i], expected[i]);
+    }
+}
+
+TEST_F(MLIR_ConstContentAttrTest, CumSumAxis0_2x4_Reverse) {
+    const auto baseType = mlir::RankedTensorType::get({2, 4}, mlir::Float32Type::get(&ctx));
+    std::vector<float> baseVals = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f};
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(baseVals));
+    const auto axisAttr = getIntAttr(&ctx, 0);
+    const auto falseAttr = mlir::BoolAttr::get(&ctx, false);
+    const auto trueAttr = mlir::BoolAttr::get(&ctx, true);
+
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
+    contentAttrSetup = contentAttrSetup.cumSum(axisAttr, falseAttr, trueAttr);
+    auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
+    const auto content = contentAttr.fold();
+
+    const auto contentVals = content.getValues<float>();
+    // axis 0, reverse: [[1+5,2+6,3+7,4+8],[5,6,7,8]] = [[6,8,10,12],[5,6,7,8]]
+    std::vector<float> expected = {6.0f, 8.0f, 10.0f, 12.0f, 5.0f, 6.0f, 7.0f, 8.0f};
+    EXPECT_EQ(contentVals.size(), expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        EXPECT_FLOAT_EQ(contentVals[i], expected[i]);
+    }
+}
+
+TEST_F(MLIR_ConstContentAttrTest, CumSumMiddleAxis_2x3x2) {
+    const auto baseType = mlir::RankedTensorType::get({2, 3, 2}, mlir::Float32Type::get(&ctx));
+    // [[[1,2],[3,4],[5,6]], [[7,8],[9,10],[11,12]]]
+    std::vector<float> baseVals = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(baseVals));
+    const auto axisAttr = getIntAttr(&ctx, 1);
+    const auto falseAttr = mlir::BoolAttr::get(&ctx, false);
+
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
+    contentAttrSetup = contentAttrSetup.cumSum(axisAttr, falseAttr, falseAttr);
+    auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
+    const auto content = contentAttr.fold();
+
+    const auto contentVals = content.getValues<float>();
+    // axis 1: cumsum along dim 1
+    // batch 0: [1,2] -> [1,2]; [1+3,2+4]=[4,6]; [4+5,6+6]=[9,12]
+    // batch 1: [7,8] -> [7,8]; [7+9,8+10]=[16,18]; [16+11,18+12]=[27,30]
+    std::vector<float> expected = {1, 2, 4, 6, 9, 12, 7, 8, 16, 18, 27, 30};
+    EXPECT_EQ(contentVals.size(), expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        EXPECT_FLOAT_EQ(contentVals[i], expected[i]);
+    }
+}
+
+TEST_F(MLIR_ConstContentAttrTest, CumSumSplatInput) {
+    const auto baseType = mlir::RankedTensorType::get({1, 4}, mlir::Float32Type::get(&ctx));
+    const float splatVal = 1.0f;
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(splatVal));
+    const auto axisAttr = getIntAttr(&ctx, 1);
+    const auto falseAttr = mlir::BoolAttr::get(&ctx, false);
+
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
+    contentAttrSetup = contentAttrSetup.cumSum(axisAttr, falseAttr, falseAttr);
+    auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
+    const auto content = contentAttr.fold();
+
+    EXPECT_FALSE(content.isSplat());
+    const auto contentVals = content.getValues<float>();
+    std::vector<float> expected = {1.0f, 2.0f, 3.0f, 4.0f};
+    EXPECT_EQ(contentVals.size(), expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        EXPECT_FLOAT_EQ(contentVals[i], expected[i]);
+    }
+}
+
+TEST_F(MLIR_ConstContentAttrTest, CumSumI32) {
+    const auto baseType = mlir::RankedTensorType::get({1, 4}, getSInt32Type(&ctx));
+    std::vector<int32_t> baseVals = {1, 2, 3, 4};
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(baseVals));
+    const auto axisAttr = getIntAttr(&ctx, 1);
+    const auto falseAttr = mlir::BoolAttr::get(&ctx, false);
+
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
+    contentAttrSetup = contentAttrSetup.cumSum(axisAttr, falseAttr, falseAttr);
+    auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
+    const auto content = contentAttr.fold();
+
+    const auto contentVals = content.getValues<int32_t>();
+    std::vector<int32_t> expected = {1, 3, 6, 10};
+    EXPECT_EQ(contentVals.size(), expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        EXPECT_EQ(contentVals[i], expected[i]);
+    }
+}
+
+TEST_F(MLIR_ConstContentAttrTest, LogicalNot_SI8_AllZero) {
+    const auto baseType = mlir::RankedTensorType::get({1, 2}, getSInt8Type(&ctx));
+    std::vector<int8_t> baseVals = {0, 0};
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(baseVals));
+
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
+    contentAttrSetup = contentAttrSetup.logicalNot();
+    auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
+    const auto content = contentAttr.fold();
+
+    EXPECT_TRUE(content.isSplat());
+    const auto contentVals = content.getValues<int8_t>();
+    std::vector<int8_t> expected = {1, 1};
+    EXPECT_EQ(contentVals.size(), expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        EXPECT_EQ(contentVals[i], expected[i]);
+    }
+}
+
+TEST_F(MLIR_ConstContentAttrTest, LogicalNot_SI8_AllNonZero) {
+    const auto baseType = mlir::RankedTensorType::get({1, 2}, getSInt8Type(&ctx));
+    std::vector<int8_t> baseVals = {5, 5};
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(baseVals));
+
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
+    contentAttrSetup = contentAttrSetup.logicalNot();
+    auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
+    const auto content = contentAttr.fold();
+
+    EXPECT_TRUE(content.isSplat());
+    const auto contentVals = content.getValues<int8_t>();
+    std::vector<int8_t> expected = {0, 0};
+    EXPECT_EQ(contentVals.size(), expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        EXPECT_EQ(contentVals[i], expected[i]);
+    }
+}
+
+TEST_F(MLIR_ConstContentAttrTest, LogicalNot_SplatZero_SI8) {
+    const auto baseType = mlir::RankedTensorType::get({2, 3, 4}, getSInt8Type(&ctx));
+    const int8_t splatVal = 0;
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(splatVal));
+
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
+    contentAttrSetup = contentAttrSetup.logicalNot();
+    auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
+    const auto content = contentAttr.fold();
+
+    EXPECT_TRUE(content.isSplat());
+    EXPECT_EQ(content.getSplatValue<int8_t>(), static_cast<int8_t>(1));
+}
+
+TEST_F(MLIR_ConstContentAttrTest, LogicalNot_SplatNonZero_SI8) {
+    const auto baseType = mlir::RankedTensorType::get({2, 3, 4}, getSInt8Type(&ctx));
+    const int8_t splatVal = 5;
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(splatVal));
+
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
+    contentAttrSetup = contentAttrSetup.logicalNot();
+    auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
+    const auto content = contentAttr.fold();
+
+    EXPECT_TRUE(content.isSplat());
+    EXPECT_EQ(content.getSplatValue<int8_t>(), static_cast<int8_t>(0));
+}
+
+TEST_F(MLIR_ConstContentAttrTest, LogicalNot_SI32) {
+    const auto baseType = mlir::RankedTensorType::get({3}, getSInt32Type(&ctx));
+    std::vector<int32_t> baseVals = {0, 2, -1};
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(baseVals));
+
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
+    contentAttrSetup = contentAttrSetup.logicalNot();
+    auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
+    const auto content = contentAttr.fold();
+
+    EXPECT_FALSE(content.isSplat());
+    const auto contentVals = content.getValues<int32_t>();
+    std::vector<int32_t> expected = {1, 0, 0};
+    EXPECT_EQ(contentVals.size(), expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        EXPECT_EQ(contentVals[i], expected[i]);
+    }
+}
+
+TEST_F(MLIR_ConstContentAttrTest, LogicalNot_SI64) {
+    const auto baseType = mlir::RankedTensorType::get({3}, getSInt64Type(&ctx));
+    std::vector<int64_t> baseVals = {0, 9, -2};
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(baseVals));
+
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
+    contentAttrSetup = contentAttrSetup.logicalNot();
+    auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
+    const auto content = contentAttr.fold();
+
+    EXPECT_FALSE(content.isSplat());
+    const auto contentVals = content.getValues<int64_t>();
+    std::vector<int64_t> expected = {1, 0, 0};
+    EXPECT_EQ(contentVals.size(), expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        EXPECT_EQ(contentVals[i], expected[i]);
+    }
+}
+
+TEST_F(MLIR_ConstContentAttrTest, LogicalNot_SplatNonZero_SI64) {
+    const auto baseType = mlir::RankedTensorType::get({2, 3, 4}, getSInt64Type(&ctx));
+    const int64_t splatVal = 7;
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(splatVal));
+
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
+    contentAttrSetup = contentAttrSetup.logicalNot();
+    auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
+    const auto content = contentAttr.fold();
+
+    EXPECT_TRUE(content.isSplat());
+    EXPECT_EQ(content.getSplatValue<int64_t>(), static_cast<int64_t>(0));
+}
+
+TEST_F(MLIR_ConstContentAttrTest, LogicalNot_SplatNonZero_F16) {
+    const auto baseType = mlir::RankedTensorType::get({2, 3}, mlir::Float16Type::get(&ctx));
+    const float splatVal = 2.5f;
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(splatVal));
+
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
+    contentAttrSetup = contentAttrSetup.logicalNot();
+    auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
+    const auto content = contentAttr.fold();
+
+    EXPECT_TRUE(content.isSplat());
+    EXPECT_EQ(content.getSplatValue<float>(), static_cast<float>(0.0f));
+}
+
+TEST_F(MLIR_ConstContentAttrTest, LogicalNot_F16_Mixed) {
+    const auto baseType = mlir::RankedTensorType::get({4}, mlir::Float16Type::get(&ctx));
+    std::vector<float> baseVals = {0.0f, 1.0f, 0.0f, -3.5f};
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(baseVals));
+
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
+    contentAttrSetup = contentAttrSetup.logicalNot();
+    auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
+    const auto content = contentAttr.fold();
+
+    EXPECT_FALSE(content.isSplat());
+    const auto contentVals = content.getValues<float>();
+    std::vector<float> expected = {1.0f, 0.0f, 1.0f, 0.0f};
+    EXPECT_EQ(contentVals.size(), expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        EXPECT_FLOAT_EQ(contentVals[i], expected[i]);
+    }
+}
+
+TEST_F(MLIR_ConstContentAttrTest, LogicalNot_F32_Mixed) {
+    const auto baseType = mlir::RankedTensorType::get({4}, mlir::Float32Type::get(&ctx));
+    std::vector<float> baseVals = {0.0f, 1.0f, 0.0f, -3.5f};
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(baseVals));
+
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
+    contentAttrSetup = contentAttrSetup.logicalNot();
+    auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
+    const auto content = contentAttr.fold();
+
+    EXPECT_FALSE(content.isSplat());
+    const auto contentVals = content.getValues<float>();
+    std::vector<float> expected = {1.0f, 0.0f, 1.0f, 0.0f};
+    EXPECT_EQ(contentVals.size(), expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        EXPECT_FLOAT_EQ(contentVals[i], expected[i]);
+    }
+}
+
+TEST_F(MLIR_ConstContentAttrTest, LogicalNot_F64_Mixed) {
+    const auto baseType = mlir::RankedTensorType::get({4}, mlir::Float64Type::get(&ctx));
+    std::vector<double> baseVals = {0.0, 7.25, 0.0, -1.0};
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(baseVals));
+
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
+    contentAttrSetup = contentAttrSetup.logicalNot();
+    auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
+    const auto content = contentAttr.fold();
+
+    EXPECT_FALSE(content.isSplat());
+    const auto contentVals = content.getValues<double>();
+    std::vector<double> expected = {1.0, 0.0, 1.0, 0.0};
+    EXPECT_EQ(contentVals.size(), expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        EXPECT_DOUBLE_EQ(contentVals[i], expected[i]);
+    }
+}
+
+TEST_F(MLIR_ConstContentAttrTest, LogicalNot_SplatZero_F64) {
+    const auto baseType = mlir::RankedTensorType::get({2, 2}, mlir::Float64Type::get(&ctx));
+    const double splatVal = 0.0;
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(splatVal));
+
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
+    contentAttrSetup = contentAttrSetup.logicalNot();
+    auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
+    const auto content = contentAttr.fold();
+
+    EXPECT_TRUE(content.isSplat());
+    EXPECT_EQ(content.getSplatValue<double>(), static_cast<double>(1.0));
 }

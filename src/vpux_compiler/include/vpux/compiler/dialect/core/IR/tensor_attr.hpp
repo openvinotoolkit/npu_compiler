@@ -42,7 +42,7 @@ TensorAttr getTensorAttr(mlir::MLIRContext* ctx, mlir::AffineMapAttr order, vpux
                          BoundsRef bounds = {}, DynamicDimsMaskRef dynamicDimsMask = {});
 TensorAttr getTensorAttr(mlir::MLIRContext* ctx, mlir::AffineMap order, vpux::IndexedSymbolAttr memSpace,
                          BoundsRef bounds = {}, DynamicDimsMaskRef dynamicDimsMask = {});
-TensorAttr getTensorAttr(mlir::MLIRContext* ctx, vpux::DimsOrder order, vpux::IndexedSymbolAttr memSpace,
+TensorAttr getTensorAttr(mlir::MLIRContext* ctx, const vpux::DimsOrder& order, vpux::IndexedSymbolAttr memSpace,
                          BoundsRef bounds = {}, DynamicDimsMaskRef dynamicDimsMask = {});
 
 // A helper function to reduce code duplication in dynamic-shape-related cases

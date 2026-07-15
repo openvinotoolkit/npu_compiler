@@ -13,11 +13,10 @@
 #include <unordered_map>
 #include <vector>
 
-#include "npu_driver_compiler.h"
-#include "utils.hpp"
-#include "vcl_utils.hpp"
-
 #include <llvm/Support/CommandLine.h>
+#include "utils.hpp"
+#include "vcl_api.hpp"
+#include "vcl_utils.hpp"
 
 static constexpr char helpMessage[] = "Optional. Print the usage message.";
 
@@ -402,12 +401,12 @@ using TimeDiff = std::chrono::milliseconds;
 
 int main(int argc, char* argv[]) {
     try {
-        if (argc == 1 || hasOption("-h", argc, argv)) {
+        if (argc == 1 || VCLTest::hasOption("-h", argc, argv)) {
             showUsage();
             return -1;
         }
 
-        if (hasOption("-m", argc, argv)) {
+        if (VCLTest::hasOption("-m", argc, argv)) {
             std::cout << "Parsing command-line arguments" << std::endl;
             if (!parseCommandLine(&argc, &argv)) {
                 return EXIT_SUCCESS;
@@ -433,11 +432,11 @@ int main(int argc, char* argv[]) {
 
             std::cout << "2. Performing reshape" << std::endl;
             auto inputsInfo = std::const_pointer_cast<ov::Model>(model)->inputs();
-            InputsInfo infoMap;
-            reshape(std::move(inputsInfo), infoMap, model, inputShape.getValue(), batchSize.getValue());
+            VCLTest::InputsInfo infoMap;
+            VCLTest::reshape(std::move(inputsInfo), infoMap, model, inputShape.getValue(), batchSize.getValue());
 
             if (inputShape.empty()) {
-                setModelBatch(model, batchSize.getValue());
+                VCLTest::setModelBatch(model, batchSize.getValue());
             }
 
             std::cout << "3. Configuring model pre & post processing" << std::endl;
@@ -447,7 +446,7 @@ int main(int argc, char* argv[]) {
                                        outputModelLayout.getValue(), inputOutputModelLayout.getValue());
 
             std::cout << "4. Printing Updated Input and Output Info from model" << std::endl;
-            printInputAndOutputsInfoShort(*model);
+            VCLTest::printInputAndOutputsInfoShort(*model);
 
             std::cout << "5. Parse Configuration" << std::endl;
             std::map<std::string, std::string> compilerConfig;
@@ -456,7 +455,7 @@ int main(int argc, char* argv[]) {
             }
 
             if (compilerConfig.find("NPU_PLATFORM") == compilerConfig.end()) {
-                compilerConfig.emplace("NPU_PLATFORM", getPlatform(deviceTarget.getValue()));
+                compilerConfig.emplace("NPU_PLATFORM", VCLTest::getPlatform(deviceTarget.getValue()));
             }
 
             if (compilerConfig.find("LOG_LEVEL") == compilerConfig.end()) {
@@ -469,17 +468,17 @@ int main(int argc, char* argv[]) {
 
             vcl_result_t status = VCL_RESULT_SUCCESS;
             std::string allocatedBlobName;
-            int result = getName(outputFile.getValue(), allocatedBlobName);
+            int result = VCLTest::getName(outputFile.getValue(), allocatedBlobName);
             if (result) {
                 return result;
             }
 
             std::cout << "6. Compile model with VCL" << std::endl;
             auto timeBeforeLoadNetwork = std::chrono::steady_clock::now();
-            status = simulateVclCompilerAllocator(compilerConfig, model, allocatedBlobName.c_str());
+            status = VCLTest::simulateVclCompilerAllocator(compilerConfig, model, allocatedBlobName.c_str());
 
             if (status != VCL_RESULT_SUCCESS) {
-                printErrorMessage(status);
+                VCLTest::printErrorMessage(status);
                 return (int)status;
             }
             loadNetworkTimeElapsed =
@@ -496,15 +495,15 @@ int main(int argc, char* argv[]) {
 
             std::string allocatedBlobFileName;
             std::string inputFileName(argv[3]);
-            int res = getName(inputFileName, allocatedBlobFileName);
+            int res = VCLTest::getName(inputFileName, allocatedBlobFileName);
             if (res) {
                 return res;
             }
 
             vcl_result_t status = VCL_RESULT_SUCCESS;
-            status = simulateVclCompilerAllocatorOldVersion(argc, argv, allocatedBlobFileName.c_str());
+            status = VCLTest::simulateVclCompilerAllocatorOldVersion(argc, argv, allocatedBlobFileName.c_str());
             if (status != VCL_RESULT_SUCCESS) {
-                printErrorMessage(status);
+                VCLTest::printErrorMessage(status);
                 return (int)status;
             }
         }

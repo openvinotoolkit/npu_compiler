@@ -42,18 +42,6 @@ private:
 void CheckWlmPageSplitConstraintsPass::safeRunOnFunc() {
     auto func = getOperation();
 
-    VPUX_THROW_UNLESS(_workloadManagementMode.has_value() &&
-                              (_workloadManagementMode.value() == WorkloadManagementMode::FWLM_V1_PAGES ||
-                               _workloadManagementMode.value() == WorkloadManagementMode::PWLM_V0_1_PAGES),
-                      "Unsupported WLM mode");
-
-    auto module = func->getParentOfType<mlir::ModuleOp>();
-
-    if (config::getWorkloadManagementStatus(module) != WorkloadManagementStatus::ENABLED) {
-        // WLM is not supported, no need to run this pass
-        return;
-    }
-
     const auto numBarriers =
             numBarriersOpt.hasValue() ? numBarriersOpt.getValue() : VPUIP::getNumAvailableBarriers(func);
 
@@ -77,15 +65,13 @@ void CheckWlmPageSplitConstraintsPass::safeRunOnFunc() {
         barrierPagesSplitHandler.verifyEnqueueOfDmas(func);
     }
     // Once we have enqueues inserted, check if FetchTasks have all required dependencies
-    if (wlmMode == WorkloadManagementMode::PWLM_V0_1_PAGES || wlmMode == WorkloadManagementMode::FWLM_V1_PAGES) {
-        auto& execGroupAnalysis = getAnalysis<ExecutionGroupAnalysis>();
-        auto dpuGroups = execGroupAnalysis.getDPUExecutionGroups();
-        auto swGroups = execGroupAnalysis.getActShvExecutionGroups();
-        VPUX_THROW_WHEN(!VPURT::verifyFetchDmaDependencies(func, barrierInfo, dpuGroups, _log),
-                        "Unsafe dependencies for Fetch DMA around DPUs");
-        VPUX_THROW_WHEN(!VPURT::verifyFetchDmaDependencies(func, barrierInfo, swGroups, _log),
-                        "Unsafe dependencies for Fetch DMA around SHVs");
-    }
+    auto& execGroupAnalysis = getAnalysis<ExecutionGroupAnalysis>();
+    auto dpuGroups = execGroupAnalysis.getDPUExecutionGroups();
+    auto swGroups = execGroupAnalysis.getActShvExecutionGroups();
+    VPUX_THROW_WHEN(!VPURT::verifyFetchDmaDependencies(func, barrierInfo, dpuGroups, _log),
+                    "Unsafe dependencies for Fetch DMA around DPUs");
+    VPUX_THROW_WHEN(!VPURT::verifyFetchDmaDependencies(func, barrierInfo, swGroups, _log),
+                    "Unsafe dependencies for Fetch DMA around SHVs");
 
     barrierInfo.clearAttributes();
 }

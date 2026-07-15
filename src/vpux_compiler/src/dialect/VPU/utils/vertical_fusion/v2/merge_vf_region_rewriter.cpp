@@ -25,54 +25,7 @@
 
 namespace vpux::VPU::VF::v2 {
 
-constexpr double ELTWISE_PERFORMANT_RATIO_FOR_MULTI_DIM_TILING = 0.5;
-
-// Check if there is a spill between parent op and current op due to incompatible distributed type. This function is
-// used to help VF op calculate related spilling status around its parent or user op
-bool hasSpillDueToIncompatibleDistributedType(mlir::Operation* parentOp, mlir::Operation* currentOp,
-                                              mlir::Value currentOpOperand) {
-    if (isPureViewOp(parentOp)) {
-        return false;
-    }
-
-    if (parentOp != findParent(currentOpOperand)) {
-        return false;
-    }
-    auto outShapeSize = getShape(parentOp->getResult(0)).totalSize();
-    auto inShapeSize = getShape(currentOpOperand).totalSize();
-    if (outShapeSize != inShapeSize) {
-        return false;
-    }
-
-    auto distributedOutType = mlir::dyn_cast_or_null<VPU::DistributedTensorType>(getDistributedOutputType(parentOp));
-    if (distributedOutType == nullptr) {
-        return false;
-    }
-
-    auto distributedInType =
-            mlir::dyn_cast_or_null<VPU::DistributedTensorType>(getDistributedInputType(currentOp, currentOpOperand));
-    if (distributedInType == nullptr) {
-        return false;
-    }
-    return VPU::hasSpillDueToIncompatibleDistributionMode(distributedInType, distributedOutType);
-}
-
-bool hasSpill(mlir::Operation* parentOp, mlir::Operation* currentOp, mlir::Value currentOpOperand) {
-    if (hasSpillDueToIncompatibleDistributedType(parentOp, currentOp, currentOpOperand)) {
-        return true;
-    }
-    auto parentTiling = parentOp->getAttr(vpux::tilingStrategy);
-    auto currentTiling = currentOp->getAttr(vpux::tilingStrategy);
-    if (parentTiling == currentTiling) {
-        return false;
-    }
-    return outputTileAxisIsSameAsMultiClusterStrategy(parentOp) ||
-           inputTileAxisIsSameAsMultiClusterStrategy(currentOp, currentOpOperand);
-}
-
-bool isSpatialDim(Dim dim) {
-    return dim.ind() >= static_cast<int32_t>(Dims4D::Act::numSpatialDims);
-};
+namespace {
 
 bool tileOnSameDims(const VFSplit& curVFSplit, const VFSplit& preVFSplit, const int64_t linkNumber,
                     VFConfig& currentConfig, VFConfig& prevConfig,
@@ -110,47 +63,27 @@ bool tileOnSameDims(const VFSplit& curVFSplit, const VFSplit& preVFSplit, const 
     return true;
 }
 
-bool isMultiDimTilingPerformant(VFConfig& vfConfig, const VFSplit& curVFSplit) {
-    // For some subgraph patterns, multi dim tiling is not performant. Skip it for now.
-    // E#205782: For in-place eltwise ops at VF output, DMA cost estimation is inaccurate and can skew VF scheduling.
-    // As more view-like ops become VF-compatible, this inaccuracy grows with multi-dimensional tiling.
-    // Disable multi-dimensional splits in this scenario.
-    auto outputOp = vfConfig.getOutputs().back();
-    auto isInplaceEltwise = [](mlir::Operation* op) {
-        return mlir::isa<VPU::NCEOpInterface>(op) && op->hasTrait<VPU::EltwiseOp>() && op->getNumOperands() > 1 &&
-               op->hasAttr(VPU::isInPlace);
-    };
-    auto hasInplaceEltwiseOutputWithViewOpInput =
-            isInplaceEltwise(outputOp) && llvm::any_of(outputOp->getOperands(), [](mlir::Value operand) {
-                return mlir::isa_and_present<VPU::TilingViewLikeOpInterface>(operand.getDefiningOp());
-            });
-    auto hasMultiDimTiling = curVFSplit.size() > 1;
-    auto inplaceEltwiseOpCount = llvm::count_if(vfConfig.getOperationsForTiling(), isInplaceEltwise);
-    auto nceOpCount = llvm::count_if(vfConfig.getOperationsForTiling(), [](mlir::Operation* op) {
-        return mlir::isa<VPU::NCEOpInterface>(op);
-    });
-    return hasMultiDimTiling || !hasInplaceEltwiseOutputWithViewOpInput ||
-           inplaceEltwiseOpCount < ELTWISE_PERFORMANT_RATIO_FOR_MULTI_DIM_TILING * nceOpCount;
-}
+bool isTilingDimChangedViewOp(VPU::TilingViewLikeOpInterface viewOp) {
+    auto inType = mlir::dyn_cast<vpux::NDTypeInterface>(viewOp->getOperand(0).getType());
+    auto outType = mlir::dyn_cast<vpux::NDTypeInterface>(viewOp->getResult(0).getType());
+    if (inType == nullptr || outType == nullptr) {
+        return false;
+    }
 
-SmallVector<VFSplit> getSplitFromDimArr(DimArrRef dimsToCheck, DimArrRef allowedDims, VFConfig& vfConfig,
-                                        bool enableMultiDimTiling) {
-    SmallVector<VFSplit> splits;
-    for (auto dim : dimsToCheck) {
-        VFSplit singleSplit = {{dim, std::nullopt}};
-        splits.emplace_back(singleSplit);
-        for (auto otherDim : allowedDims) {
-            if (enableMultiDimTiling && dim.ind() > otherDim.ind()) {
-                const auto isSpatialTilingForOther = isSpatialDim(otherDim);
-                auto outerDimLimit = getTilingLimit(otherDim, vfConfig, true);
-                if (outerDimLimit > 1 || isSpatialTilingForOther) {
-                    VFSplit doubleSplit = {{otherDim, outerDimLimit}, {dim, std::nullopt}};
-                    splits.emplace_back(doubleSplit);
-                }
-            }
+    // Strong signal for permute-like behavior
+    if (inType.getRank() == outType.getRank() && inType.getDimsOrder() != outType.getDimsOrder()) {
+        return true;
+    }
+
+    // Fallback: tiling-dim remap behavior
+    for (int64_t i = 0; i < inType.getRank(); ++i) {
+        auto inDim = vpux::Dim(i);
+        auto outDims = viewOp.inferTilingDim(inDim);
+        if (outDims.size() != 1 || outDims.front() != inDim) {
+            return true;
         }
     }
-    return splits;
+    return false;
 }
 
 SmallVector<OpWithViewInputs> getParentOpWithViewInputs(mlir::Operation* op) {
@@ -165,6 +98,10 @@ SmallVector<OpWithViewInputs> getParentOpWithViewInputs(mlir::Operation* op) {
             viewOps.push_back(parent);
             parent = parent->getOperand(0).getDefiningOp();
         }
+        // Reverse: the loop above collects view ops from consumer toward
+        // producer, but inferDistributedTypeThroughViewOps iterates forward
+        // from the producer distribution, so producer-to-consumer order is required.
+        std::reverse(viewOps.begin(), viewOps.end());
         if (auto clusteredOp = mlir::dyn_cast_or_null<VPU::ClusteredOpInterface>(findParent(operand))) {
             parentOps.push_back({idx, clusteredOp, std::move(viewOps)});
         }
@@ -221,262 +158,20 @@ VPU::MultiClusterStrategy getMultiClusterStrategy(
     }
     return clusteredOp.getMultiClusterStrategy().value();
 }
+}  // namespace
 
 StrategyCost MergeVFRegionRewriter::extractVFCost(VFConfig& vfConfig) const {
     auto vfOp = vfConfig.getSubgraph();
     auto tilingDims = parseIntArrayAttr<int64_t>(vfOp.getTilingStrategyAttr());
     auto vfSplit = getVFTilingSplit(tilingDims);
 
-    const auto dim = getVFTilingDim(tilingDims);
     auto operations = vfConfig.getOperationsForTiling();
     if (operations.empty()) {
         return 0;
     }
 
-    if (!dim.has_value() || operations.size() == 1) {
-        OutputTiling tiles;
-        auto* operation = operations.front();
-        if (dim.has_value()) {
-            auto tiling = fillDividedTiles(operation, ShapeRef(tilingDims), getShape(operation->getResult(0)));
-            VPUX_THROW_WHEN(mlir::failed(tiling), "Incorrect tiling {0} for vf {1}", tilingDims, vfOp);
-            tiles = tiling.value();
-        }
-
-        const auto costParameters = fillInCostParam(operation, tiles, {}, _enablePrefetchTiling);
-        auto cost = _vpunnCostFunction->getStrategyCost(operation, costParameters);
-        _log.trace("Original VF {0} has strategy cost {1}", operation->getLoc(), cost);
-
-        SmallVector<mlir::Value> operands = {operation->getOperand(0)};
-        auto eltwiseLikeOp = false;
-        if (operation->getNumOperands() > 1 && operation->template hasTrait<VPU::EltwiseOp>() &&
-            operation->getOperand(0) != operation->getOperand(1)) {
-            operands.emplace_back(operation->getOperand(1));
-            eltwiseLikeOp = true;
-        }
-
-        auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(operation);
-        auto vfOperation = mlir::cast<VPU::VerticalFusionOpInterface>(operation);
-        auto restrictedAxes = vfOperation.restrictedFusionAxes();
-
-        auto spilling =
-                dim.has_value() &&
-                (isSpatialTiling(tilingDims) || nceOp == nullptr || nceOp.getWeightsOperand() == nullptr ||
-                 (nceOp.getWeightsOperand() != nullptr &&
-                  (restrictedAxes.empty() || llvm::find(restrictedAxes, Dims4D::Act::C) == restrictedAxes.end())));
-
-        auto checkSpillParent = [&](mlir::BlockArgument arg) {
-            auto parentOperand = vfConfig.getSubgraph().getOperand(arg.getArgNumber());
-            auto parentOp = findParent(parentOperand);
-            return !VF::v2::isCmxOperation(parentOp, false) ||
-                   isPrevOperationEarlyScheduled(parentOp, vfConfig.getSubgraph()) ||
-                   hasBeforeDDRUsers(parentOp, vfConfig.getSubgraph()) ||
-                   hasSpill(parentOp, vfConfig.getSubgraph(), parentOperand);
-        };
-
-        auto hasSpilledParents = llvm::any_of(operands, [&](mlir::Value value) {
-            if (auto arg = mlir::dyn_cast<mlir::BlockArgument>(value)) {
-                return checkSpillParent(arg);
-            }
-            return false;
-        });
-        auto hasSpilledUsers =
-                vfConfig.getSubgraph()->getUsers().empty() ||
-                hasOutputSpilledForDifferentDataSizeUses(vfConfig.getSubgraph()) ||
-                llvm::any_of(findUses(vfConfig.getSubgraph()), [&vfConfig](auto* use) {
-                    return !VF::v2::isCmxOperation(use->getOwner(), true) ||
-                           isPrevOperationEarlyScheduled(vfConfig.getSubgraph().getOperation(), use->getOwner()) ||
-                           hasSpill(vfConfig.getSubgraph(), use->getOwner(),
-                                    use->getOwner()->getOperand(use->getOperandNumber()));
-                });
-        auto multiDimTilingWithChannelTiling = vfSplit.size() > 1 && vfSplit.find(Dims4D::Act::C) != vfSplit.end();
-        auto spillReadWriteCanBeOverlapped = [&]() {
-            if (operations.size() != 1 || costParameters._tiling.size() <= 1) {
-                return false;
-            }
-
-            const auto arch = config::getArch(operation);
-            if (!VPU::spillingCopyOpsCanBeOverlapped(arch)) {
-                return false;
-            }
-            if (multiDimTilingWithChannelTiling) {
-                return true;
-            }
-
-            if (auto tilingOpInterface = mlir::dyn_cast<VPU::TilingInfoOpInterface>(operation)) {
-                return tilingOpInterface.isSupportedTiling(tiles, TilingMode::PIPELINING, _log);
-            }
-            return false;
-        }();
-
-        _log.trace("Original VF {0} spill status: spill {1}, spill parent {2} spill user {3}", operation->getLoc(),
-                   spilling, hasSpilledParents, hasSpilledUsers);
-
-        SmallVector<StrategyCost> perTileSpillReadCost(costParameters._tiling.size());
-        SmallVector<StrategyCost> perTileSpillWriteCost(costParameters._tiling.size());
-
-        if (spilling || hasSpilledParents) {
-            for (auto operandValue : operands | indexed) {
-                auto operand = operandValue.value();
-                auto arg = mlir::dyn_cast<mlir::BlockArgument>(operand);
-                if (!spilling && arg != nullptr) {
-                    if (!checkSpillParent(arg)) {
-                        continue;
-                    }
-                }
-                auto getOperandType = [&](const auto& tileInfo) {
-                    return vfConfig.getOperationTypes(operation, tileInfo, {})[operandValue.index()];
-                };
-
-                if (!spillReadWriteCanBeOverlapped) {
-                    cost += _vpunnCostFunction->getSpillingReadCost(operation, costParameters, operand, getOperandType);
-                } else {
-                    auto spillReadCostForCurOperand = _vpunnCostFunction->getSpillingReadCostsForAllTiles(
-                            operation, costParameters, nullptr,
-                            [&](mlir::Value item) {
-                                return item == operand;
-                            },
-                            getOperandType);
-                    llvm::transform(irange(spillReadCostForCurOperand.size()), perTileSpillReadCost.begin(),
-                                    [&](size_t index) {
-                                        return spillReadCostForCurOperand[index] + perTileSpillReadCost[index];
-                                    });
-                }
-            }
-        }
-
-        if (spilling || hasSpilledUsers) {
-            auto getOutputType = [&](const auto& tileInfo) {
-                auto types = vfConfig.getOperationTypes(operation, tileInfo, {});
-                VPUX_THROW_WHEN(types.empty(), "Cannot get types for {0}", *operation);
-                return types.back();
-            };
-            if (!spillReadWriteCanBeOverlapped) {
-                cost += _vpunnCostFunction->getSpillingWriteCost(operation, costParameters, getOutputType);
-            } else {
-                perTileSpillWriteCost =
-                        _vpunnCostFunction->getSpillingWriteCostsForAllTiles(operation, costParameters, getOutputType);
-            }
-        }
-        if (spillReadWriteCanBeOverlapped) {
-            if (multiDimTilingWithChannelTiling) {
-                cost += perTileSpillReadCost.front() + perTileSpillWriteCost.back();
-            } else {
-                for (auto tileInd : irange(perTileSpillReadCost.size())) {
-                    if (tileInd == 0) {
-                        cost += perTileSpillReadCost[tileInd];
-                    } else {
-                        cost += std::max(perTileSpillReadCost[tileInd], perTileSpillWriteCost[tileInd - 1]);
-                    }
-                }
-                // Add the spilling write cost for the last tile's output
-                if (!perTileSpillWriteCost.empty()) {
-                    cost += perTileSpillWriteCost.back();
-                }
-            }
-        }
-
-        if (!spilling && eltwiseLikeOp) {
-            SmallVector<mlir::Operation*> parents;
-            parents.reserve(operands.size());
-
-            const auto getOutsideParents = [&](mlir::Value operand) {
-                if (auto arg = mlir::dyn_cast<mlir::BlockArgument>(operand)) {
-                    auto parentOperand = vfConfig.getSubgraph().getOperand(arg.getArgNumber());
-                    auto parentOp = findParent(parentOperand);
-
-                    if (parentOp != nullptr) {
-                        parents.emplace_back(parentOp);
-                    }
-                }
-            };
-
-            llvm::for_each(operands, getOutsideParents);
-            if (parents.size() <= 1) {
-                return cost;
-            }
-            // check long term spill
-
-            auto* parentLeft = parents.front();
-            auto* parentRight = parents.back();
-
-            if (parentLeft == nullptr || parentRight == nullptr) {
-                return cost;
-            }
-
-            auto* earliestParent = parentLeft->isBeforeInBlock(parentRight) ? parentLeft : parentRight;
-            auto* closestParent = earliestParent == parentLeft ? parentRight : parentLeft;
-
-            SmallVector<mlir::Operation*> chain;
-            const auto isParentOperation = [&]() {
-                auto prevOp = closestParent;
-                while ((prevOp = findParent(prevOp->getOperand(0)))) {
-                    if (prevOp == earliestParent) {
-                        return true;
-                    }
-
-                    if (mlir::isa<VPU::TilingInfoOpInterface, VPU::VerticalFusionOp>(prevOp)) {
-                        chain.emplace_back(prevOp);
-                    }
-
-                    if (mlir::isa_and_nonnull<Const::DeclareOp>(prevOp)) {
-                        return false;
-                    }
-                }
-
-                return false;
-            }();
-
-            if (parentLeft != parentRight && !earliestParent->hasOneUse() &&
-                VF::v2::isCmxOperation(earliestParent, false) &&
-                !mlir::isa_and_nonnull<Const::DeclareOp>(closestParent) && isParentOperation && chain.size() > 1) {
-                auto operandType = mlir::cast<vpux::NDTypeInterface>(earliestParent->getResult(0).getType());
-                auto operandSize = operandType.getTotalAllocSize();
-                if (auto distributedOutType = mlir::dyn_cast_if_present<VPU::DistributedTensorType>(
-                            VPU::getDistributedOutputType(earliestParent))) {
-                    operandSize = distributedOutType.getTotalAllocSize();
-                }
-                const auto hasLongSpilling = [&](mlir::Operation* op) {
-                    if (!VF::v2::isCmxOperation(op, true)) {
-                        return false;
-                    }
-                    if (auto vfOp = mlir::dyn_cast<VPU::VerticalFusionOp>(op)) {
-                        auto vfOperations = to_small_vector(vfOp.getBody()->getOps<VPU::VerticalFusionOpInterface>());
-                        if (vfOperations.size() > 1) {
-                            return false;
-                        }
-
-                        op = vfOperations.back().getOperation();
-                    }
-                    return getRequiredCMX(op, TileInfo(getShape(op->getResult(0))), _log) + operandSize >
-                           getTotalCMXFragmentationAwareSize(op);
-                };
-                if (hasLongSpilling(chain.back()) || hasLongSpilling(chain.front())) {
-                    auto longSpillingCost = _vpunnCostFunction->getSpillingReadCost(
-                                                    operation, costParameters, operands.back(),
-                                                    [&](const auto& tileInfo) {
-                                                        return vfConfig.getOperationTypes(operation, tileInfo, {})[1];
-                                                    }) +
-                                            _vpunnCostFunction->getSpillingWriteCost(
-                                                    operation, costParameters, [&](const auto& tileInfo) {
-                                                        return vfConfig.getOperationTypes(operation, tileInfo, {})[1];
-                                                    });
-
-                    _log.trace("Original VF {0} has long spill cost {1}", operation->getLoc(), longSpillingCost);
-                    cost += longSpillingCost;
-                }
-            } else if (!isParentOperation && cmxSizeExceedForEltwiseOpWithSwOpUser(vfConfig, parents, _log)) {
-                // If the eltwise and its user exhaust entire CMX memory, we should
-                // consider that there will very likely be dynamic spilling for its shared input
-                auto inSpillingCost = _vpunnCostFunction->getSpillingReadCost(
-                        operation, costParameters, operands.back(), [&](const auto& tileInfo) {
-                            return vfConfig.getOperationTypes(operation, tileInfo, {})[1];
-                        });
-                _log.trace("Original VF {0} has shared input spill cost {1}", operation->getLoc(), inSpillingCost);
-                cost += inSpillingCost;
-            }
-        }
-
-        return cost;
+    if (vfSplit.empty() || operations.size() == 1) {
+        return extractBaselineCost(operations.back(), ShapeRef(tilingDims), _vpunnCostFunction, _log);
     }
 
     auto vfCase = VFCase(vfConfig, vfSplit);
@@ -488,19 +183,19 @@ StrategyCost MergeVFRegionRewriter::extractVFCost(VFConfig& vfConfig) const {
 }
 
 bool MergeVFRegionRewriter::isMCStrategyAligned(VPU::VerticalFusionOp currentOp, VPU::VerticalFusionOp prevOp) const {
-    // Check if previous output op has MC strategy
-    const auto prevOutDistType =
-            mlir::dyn_cast_if_present<VPU::DistributedTensorType>(getDistributedOutputType(prevOp));
-    const auto isPrevOutOpWithMCStrategy = prevOutDistType != nullptr;
-    if (!isPrevOutOpWithMCStrategy) {
-        return true;
-    }
-
     // Get input arg of current vf region corresponding to previous vf op
     auto currInputArg = getLinkedArgumentBetweenVFOps(currentOp, prevOp);
     VPUX_THROW_UNLESS(currInputArg != nullptr,
                       "No corresponding input argument found for current VF region {0} with previous VF region {1}",
                       currentOp, prevOp);
+
+    // Check if previous output op has MC strategy
+    const auto prevOutDistType = mlir::dyn_cast_if_present<VPU::DistributedTensorType>(
+            getDistributedOutputType(prevOp, currentOp.getOperand(currInputArg.getArgNumber())));
+    const auto isPrevOutOpWithMCStrategy = prevOutDistType != nullptr;
+    if (!isPrevOutOpWithMCStrategy) {
+        return true;
+    }
 
     // Here we check whether the MC strategies are aligned between the previous VF output and all
     // compute consumers in the current VF region. The check accounts for view-like ops (e.g. PermuteCast,
@@ -545,7 +240,7 @@ bool MergeVFRegionRewriter::isMCStrategyAligned(VPU::VerticalFusionOp currentOp,
         if (mlir::isa<VPU::NCEOpInterface>(currInputOp) && currInputOp->hasTrait<VPU::EltwiseOp>()) {
             const auto inDistribution = VPU::DistributionInfo::getClassFromAttr(actualCurrInDistType.getDistribution());
             const auto outType = mlir::dyn_cast_if_present<VPU::DistributedTensorType>(
-                    getDistributedOutputType(currInputOp).getDistributedTypes().front());
+                    getDistributedOutputType(currInputOp, currInputOp->getResult(0)).getDistributedTypes().front());
             const auto outDistribution = VPU::DistributionInfo::getClassFromAttr(outType.getDistribution());
             const auto isInputSegmentedLike = isSegmentedLikeDistributionMode(actualCurrInDistType, inDistribution);
             const auto isOutputSegmentedLike = isSegmentedLikeDistributionMode(outType, outDistribution);
@@ -622,7 +317,8 @@ bool MergeVFRegionRewriter::adjustMCStrategyInMergedVF(VPU::VerticalFusionOp cur
             auto& parentOp = opToAdjust.clusteredOp;
             auto& viewOps = opToAdjust.viewOps;
 
-            auto parentOutType = getDistributedOutputType(parentOp, parentOp.getMultiClusterStrategy().value());
+            auto parentOutType = getDistributedOutputType(parentOp, parentOp->getResult(0),
+                                                          parentOp.getMultiClusterStrategy().value());
             if (parentOutType == nullptr) {
                 return false;
             }
@@ -643,7 +339,7 @@ bool MergeVFRegionRewriter::adjustMCStrategyInMergedVF(VPU::VerticalFusionOp cur
             if (mlir::isa<VPU::NCEOpInterface>(op.getOperation()) && op->hasTrait<VPU::EltwiseOp>()) {
                 const auto inDistribution = VPU::DistributionInfo::getClassFromAttr(userInDataType.getDistribution());
                 const auto outType = mlir::dyn_cast_if_present<VPU::DistributedTensorType>(
-                        getDistributedOutputType(op).getDistributedTypes().front());
+                        getDistributedOutputType(op, op->getResult(0)).getDistributedTypes().front());
                 const auto outDistribution = VPU::DistributionInfo::getClassFromAttr(outType.getDistribution());
                 const auto isInputSegmentedLike = isSegmentedLikeDistributionMode(userInDataType, inDistribution);
                 const auto isOutputSegmentedLike = isSegmentedLikeDistributionMode(outType, outDistribution);
@@ -757,73 +453,6 @@ mlir::FailureOr<VPU::MultiClusterStrategy> MergeVFRegionRewriter::alignMCStrateg
     return mlir::failure();
 }
 
-bool MergeVFRegionRewriter::cmxSizeExceedForEltwiseOpWithSwOpUser(VFConfig& currentConfig,
-                                                                  ArrayRef<mlir::Operation*> parents,
-                                                                  Logger log) const {
-    /*
-        Check the pattern below:
-                         ParentVF0
-                           /   \
-                 EltwiseOp    SiblingOp
-                     |
-                   SWOp
-                     |
-    The execution order of EltWiseOp, SiblingOp and SWOp will be EltwiseOp -> SwOp -> SiblingOp, in which SiblingOp is
-    expected to be overlapped with SwOp, but if may result in dynamic spilling when the cmx size of EltwiseOp and SWOp
-    is greater than the available CMX Size.
-    */
-    auto currentVFOp = currentConfig.getSubgraph();
-    auto uses = findUses(currentVFOp);
-    if (uses.size() != 1) {
-        return false;
-    }
-    auto userVFOp = mlir::dyn_cast_or_null<VPU::VerticalFusionOp>((*uses.begin())->getOwner());
-    if (userVFOp == nullptr) {
-        return false;
-    }
-    VFConfig userConfig(userVFOp, _enableVerticalFusionPipelining);
-    auto swOpUser = mlir::dyn_cast<VPU::SWOpInterface>(userConfig.getOperationsForTiling().front());
-    if (swOpUser == nullptr) {
-        return false;
-    }
-    auto parentHasMultiUses = llvm::any_of(parents, [&](auto* parent) {
-        auto parentUses = findUses(parent);
-        auto otherUserCount = llvm::count_if(parentUses, [&](auto* use) {
-            auto userOp = use->getOwner();
-            return userOp != nullptr && userOp != currentVFOp && VF::v2::isCmxOperation(userOp, false);
-        });
-        return otherUserCount > 0;
-    });
-    if (!parentHasMultiUses) {
-        return false;
-    }
-
-    const auto currentTiling = parseIntArrayAttr<int64_t>(currentVFOp.getTilingStrategy());
-    const auto userTiling = parseIntArrayAttr<int64_t>(userVFOp.getTilingStrategy());
-    auto hasTiling = [&](const auto& tiling) {
-        return llvm::any_of(tiling, [](auto i) {
-            return i != 1;
-        });
-    };
-    if (hasTiling(currentTiling) || hasTiling(userTiling)) {
-        // Skipp this complex scenario
-        return false;
-    }
-
-    auto eltwiseOp = currentConfig.getOperationsForTiling().front();
-    auto getUsedSize = [&](mlir::Operation* operation) {
-        auto usedSize = getRequiredCMX(operation, TileInfo(getShape(operation->getResult(0))), log);
-        return usedSize;
-    };
-    auto strategy = getMultiClusterStrategyFromOp(eltwiseOp);
-    auto types = getTileTypes(eltwiseOp, TileInfo(getShape(eltwiseOp->getResult(0))), strategy);
-    auto sharedInputSize = types.front().getTotalAllocSize();
-    auto totalAvailableCMXSize = getTotalCMXVFPipelineFragmentationAwareSize(currentVFOp);
-    // Caculate the required size for the eltwise op and swOp user
-    auto usedSize = getUsedSize(swOpUser) + sharedInputSize;
-    return usedSize > totalAvailableCMXSize;
-}
-
 std::optional<VFCase> MergeVFRegionRewriter::findVFCase(VPU::VerticalFusionOp prevOp, VPU::VerticalFusionOp currentOp,
                                                         VPU::VerticalFusionOp mergedVFOp) const {
     if (!isLegalFusion(currentOp, prevOp)) {
@@ -840,7 +469,18 @@ bool MergeVFRegionRewriter::canMergeVFOpsWithoutCostCheck(VFCase&) const {
 }
 
 bool MergeVFRegionRewriter::canSkipMergeVF(VFConfig& vfConfig, bool opsNeedTiling) const {
-    return !opsNeedTiling && !vfConfig.isPipelined();
+    auto ops = vfConfig.getOperationsForTiling();
+
+    // TODO: E#215747 - fix suboptimal vf tiling happening when the parent on the weights tensor has inaccurate cost for
+    // small sizes
+    auto hasParentOnWeights = llvm::any_of(ops, [](mlir::Operation* op) {
+        auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op);
+        return nceOp != nullptr && nceOp.getWeightsOperand() != nullptr &&
+               findParent(nceOp.getWeightsOperand()) != nullptr &&
+               llvm::is_contained(mlir::cast<VPU::VerticalFusionOpInterface>(op).restrictedFusionAxes(),
+                                  Dims4D::Act::C);
+    });
+    return !opsNeedTiling && (!vfConfig.isPipelined() || hasParentOnWeights);
 }
 
 MergeVFRegionRewriter::IVFSchedulingPtr MergeVFRegionRewriter::detectScenario(VFConfig& vfConfig) const {
@@ -905,13 +545,36 @@ std::optional<VFCase> MergeVFRegionRewriter::findVFTiling(VPU::VerticalFusionOp 
             return false;
         }
 
+        auto linkedArg = getLinkedArgumentBetweenVFOps(nextVFOp, mergedOp);
+        if (linkedArg == nullptr) {
+            return false;
+        }
+
+        auto outputOpDimIt = opDimMap.find(currentConfig.getOutputs().back());
+        if (outputOpDimIt == opDimMap.end()) {
+            return false;
+        }
+        auto linkedInputDim = outputOpDimIt->second;
+
+        auto nextViewOps = nextConfig.getVFOperations() | filtered([](mlir::Operation* op) {
+                               return mlir::isa<VPU::TilingViewLikeOpInterface>(op);
+                           });
+        auto isInferedDimChanged = llvm::any_of(nextViewOps, [&](mlir::Operation* viewOp) {
+            return isTilingDimChangedViewOp(mlir::cast<VPU::TilingViewLikeOpInterface>(viewOp));
+        });
+
+        if (isInferedDimChanged) {
+            // If the inferred tiling dim is changed, skip it for simplicity
+            return false;
+        }
+
         for (auto* operation : nextConfig.getOperationsForTiling()) {
             auto vfOperation = mlir::cast<VPU::VerticalFusionOpInterface>(operation);
             auto restrictedAxes = vfOperation.restrictedFusionAxes();
             if (restrictedAxes.empty()) {
                 continue;
             }
-            if (llvm::find(restrictedAxes, opDimMap.at(currentConfig.getOutputs().back())) != restrictedAxes.end()) {
+            if (llvm::is_contained(restrictedAxes, linkedInputDim)) {
                 return true;
             }
         }
@@ -954,7 +617,6 @@ std::optional<VFCase> MergeVFRegionRewriter::findVFTiling(VPU::VerticalFusionOp 
         return false;
     };
 
-    auto vfSchedulingChecks = getSchedulingScenarios(vfConfig, _log);
     const auto linkNumber = getLinkNumber(currentOp, prevOp);
 
     const auto getMinimumNumber = [&](auto dim, const VFSplit& split) -> int64_t {
@@ -1006,79 +668,28 @@ std::optional<VFCase> MergeVFRegionRewriter::findVFTiling(VPU::VerticalFusionOp 
         dimsToCheck = allowedDims;
     }
 
-    auto getVFCaseFromSplits = [&](ArrayRef<VFSplit> splits) -> std::optional<VFCase> {
-        if (splits.empty()) {
-            return std::nullopt;
+    const SplitFilterFn splitFilter = [&](Dim dim, const VFSplit&) -> bool {
+        std::unordered_map<mlir::Operation*, vpux::Dim> curOpDimMap;
+
+        if (mlir::failed(backInferVFTilingDim(currentConfig, dim, curOpDimMap))) {
+            return true;
         }
-        std::vector<std::optional<VFCase>> vfCases(splits.size(), std::nullopt);
-        std::vector<StrategyCost> vfCosts(splits.size(), std::numeric_limits<StrategyCost>::max());
-        loop_1d(LoopExecPolicy::Parallel, mergedOp.getContext(), splits.size(), [&](auto splitIndex) {
-            auto dimOpt = getVFOptimizedDim(splits[splitIndex]);
-            if (!dimOpt.has_value()) {
-                return;
-            }
-            auto dim = dimOpt.value();
-            std::unordered_map<mlir::Operation*, vpux::Dim> curOpDimMap;
 
-            if (mlir::failed(backInferVFTilingDim(currentConfig, dim, curOpDimMap))) {
-                return;
-            }
-
-            // Skip current merge if a better (pipelined) merge with the next VF block is possible.
-            if (checkIfNextMergeBetter && isNextMergeCanBePipelined(curOpDimMap)) {
-                return;
-            }
-
-            if (isRegionRestrictedDim(curOpDimMap)) {
-                return;
-            }
-
-            auto vfCase = VPU::VF::v2::getVFCaseWithTiling(vfConfig, dim, splits[splitIndex], getMinimumNumber,
-                                                           getMaximalNumber, _log, vfSchedulingChecks);
-            if (!vfCase.isInitialized()) {
-                return;
-            }
-
-            // If the split contains channel and one spatial dim, try to adjust the channel tile size to fit the CMX to
-            // avoid over-tiling on channel dim. This is because we firstly tiling maximally on channel dim, then tile
-            // on spatial dim to make the tiled op fit into CMX. When spatial dim tiling is fixed, there is chance to
-            // reduce the tiling size on channel
-            if (splits[splitIndex].size() == 2) {
-                auto iter = llvm::find_if(splits[splitIndex], [&](const std::pair<Dim, std::optional<int64_t>>& item) {
-                    return item.first != dim;
-                });
-                VPUX_THROW_WHEN(iter == splits[splitIndex].end(), "Cannot find the other dim in split");
-                auto otherDim = iter->first;
-                if (!isSpatialDim(otherDim)) {
-                    // Try to re-adjust the channel tile size
-                    auto newSplit = splits[splitIndex];
-                    newSplit[dim] = parseIntArrayAttr<int64_t>(vfCase.getTiling())[dim.ind()];
-                    newSplit[otherDim] = std::nullopt;
-                    vfCase = VPU::VF::v2::getVFCaseWithTiling(vfConfig, otherDim, newSplit, getMinimumNumber,
-                                                              getMaximalNumber, _log, vfSchedulingChecks);
-                    if (!vfCase.isInitialized()) {
-                        return;
-                    }
-                }
-            }
-
-            vfCosts[splitIndex] = vfCase.getCost(_vpunnCostFunction, _log.nest());
-            vfCases[splitIndex] = std::move(vfCase);
-        });
-
-        auto bestCostIter = std::min_element(vfCosts.begin(), vfCosts.end());
-        if (*bestCostIter == std::numeric_limits<StrategyCost>::max()) {
-            return std::nullopt;
+        // Skip current merge if a better (pipelined) merge with the next VF block is possible.
+        if (checkIfNextMergeBetter && isNextMergeCanBePipelined(curOpDimMap)) {
+            return true;
         }
-        return vfCases[std::distance(vfCosts.begin(), bestCostIter)];
+
+        return isRegionRestrictedDim(curOpDimMap);
     };
 
     auto enableMultiDimTiling = isMultiDimTilingPerformant(vfConfig, curVFSplit);
     auto splits = getSplitFromDimArr(dimsToCheck, allowedDims, vfConfig, enableMultiDimTiling);
 
-    auto mergedCase = getVFCaseFromSplits(splits);
+    auto mergedCase = findBestVFCaseFromSplits(vfConfig, splits, getMinimumNumber, getMaximalNumber, _vpunnCostFunction,
+                                               _log, mergedOp.getContext(), splitFilter);
     if (mergedCase.has_value()) {
-        return mergedCase;
+        return std::move(mergedCase.value());
     }
 
     // If no valid case found, try to check dims that are not in dimsToCheck. For example, if the current VF and
@@ -1090,8 +701,36 @@ std::optional<VFCase> MergeVFRegionRewriter::findVFTiling(VPU::VerticalFusionOp 
         return llvm::find(dimsToCheck, dim) == dimsToCheck.end();
     });
     auto splitsWithLowPriority = getSplitFromDimArr(restAllowedDims, allowedDims, vfConfig, enableMultiDimTiling);
-    mergedCase = getVFCaseFromSplits(splitsWithLowPriority);
+    mergedCase = findBestVFCaseFromSplits(vfConfig, splitsWithLowPriority, getMinimumNumber, getMaximalNumber,
+                                          _vpunnCostFunction, _log, mergedOp.getContext(), splitFilter);
     return mergedCase;
+}
+
+bool MergeVFRegionRewriter::checkVFCostFunction(VPU::VerticalFusionOp prevOp, VPU::VerticalFusionOp currentOp,
+                                                VFCase& mergedCase) const {
+    VPUX_THROW_WHEN(!mergedCase.isInitialized(), "Incorrect tiling strategy for VF");
+    if (canMergeVFOpsWithoutCostCheck(mergedCase)) {
+        return true;
+    }
+
+    // Compare the cost between merged VF subgraph and 2 subgraphs with the spill
+    VFConfig prevOpConfig(prevOp, _enableVerticalFusionPipelining);
+    VFConfig currentOpConfig(currentOp, _enableVerticalFusionPipelining);
+
+    const auto prevCost = extractVFCost(prevOpConfig);
+    const auto currentCost = extractVFCost(currentOpConfig);
+
+    {
+        // Change the IR so that merged VF substitutes current operation and previous op to
+        // calculate correct cost.
+        // The IR will change back when the setter is destroyed.
+        VPU::VFSubgraphUserSetter setter(currentOp, mergedCase.getConfig().getSubgraph());
+        if (!isVFMergeProfitable(mergedCase, prevCost, currentCost, _vpunnCostFunction, _log)) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 mlir::LogicalResult MergeVFRegionRewriter::matchAndRewrite(VPU::VerticalFusionOp vfOp,

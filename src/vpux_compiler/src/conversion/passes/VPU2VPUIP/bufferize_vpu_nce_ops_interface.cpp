@@ -132,6 +132,66 @@ void addDPUTasks(const Logger& log, VPUIP::NCEClusterTaskOp nceOp, mlir::OpBuild
 // Create VPUIP.NCEClusterTask and ensure sparse types interact with the operation as individual buffers
 //
 
+// Holds the buffers backing every output of an NCE operation. Each non-data field is
+// nullptr when the corresponding output is absent. Sparsity-map presence is derived
+// from the main output's MLIR type (see allocateNceOutputBuffers below) rather than
+// from a caller-set flag, so callers cannot forget to opt in.
+struct NceOutputBuffers {
+    mlir::Value data;
+    mlir::Value sparsityMap;
+    mlir::Value reduceMaxXy;
+    mlir::Value reduceMinXy;
+    mlir::Value reduceMinMaxTensor;
+};
+
+// Allocates the data buffer for `mainOutput` (transparently expanding a SparseTensor
+// main output into data + sparsity-map buffers) and one buffer per supplied non-null
+// reduce output. Pass nullptr for reduce outputs the op does not produce.
+NceOutputBuffers allocateNceOutputBuffers(const Logger& log, mlir::Location loc, mlir::OpBuilder& builder,
+                                          mlir::Value mainOutput, mlir::Value reduceMaxXy = nullptr,
+                                          mlir::Value reduceMinXy = nullptr, mlir::Value reduceMinMaxTensor = nullptr) {
+    SmallVector<mlir::Value> origOutputs{mainOutput};
+    if (reduceMaxXy != nullptr) {
+        origOutputs.push_back(reduceMaxXy);
+    }
+    if (reduceMinXy != nullptr) {
+        origOutputs.push_back(reduceMinXy);
+    }
+    if (reduceMinMaxTensor != nullptr) {
+        origOutputs.push_back(reduceMinMaxTensor);
+    }
+
+    const auto buffers = VPUIP::allocateBuffers(log, loc, builder, origOutputs, /*individualBuffers=*/true);
+
+    NceOutputBuffers result;
+    size_t idx = 0;
+    VPUX_THROW_UNLESS(idx < buffers.size(), "allocateBuffers returned no buffers for the main NCE output");
+    result.data = buffers[idx++];
+
+    if (mlir::isa<vpux::VPU::SparseTensorType>(mainOutput.getType())) {
+        VPUX_THROW_UNLESS(idx < buffers.size(),
+                          "Sparse main output requires a sparsity-map buffer (got {0} buffers, expected at least 2)",
+                          buffers.size());
+        result.sparsityMap = buffers[idx++];
+    }
+    if (reduceMaxXy != nullptr) {
+        VPUX_THROW_UNLESS(idx < buffers.size(), "Missing buffer for reduceMaxXy output");
+        result.reduceMaxXy = buffers[idx++];
+    }
+    if (reduceMinXy != nullptr) {
+        VPUX_THROW_UNLESS(idx < buffers.size(), "Missing buffer for reduceMinXy output");
+        result.reduceMinXy = buffers[idx++];
+    }
+    if (reduceMinMaxTensor != nullptr) {
+        VPUX_THROW_UNLESS(idx < buffers.size(), "Missing buffer for reduceMinMaxTensor output");
+        result.reduceMinMaxTensor = buffers[idx++];
+    }
+    VPUX_THROW_UNLESS(idx == buffers.size(),
+                      "Unexpected extra output buffers (consumed {0} of {1}); reduce output may itself be sparse", idx,
+                      buffers.size());
+    return result;
+}
+
 struct NCEClusterTaskParams {
     struct Weights {
         mlir::Value weights;
@@ -151,16 +211,16 @@ struct NCEClusterTaskParams {
     // Required attributes: They have to explicitly be set by the user.
     mlir::Value input;
     Weights weights;
-    ArrayRef<mlir::Value> outputBuffs;
+    NceOutputBuffers outputs;
     vpux::VPUIP::NCETaskType taskType;
     Kernel kernel;
     mlir::Region& workloads;
 
-    NCEClusterTaskParams(mlir::Value input, const Weights& weights, ArrayRef<mlir::Value> outputBuffs,
+    NCEClusterTaskParams(mlir::Value input, const Weights& weights, const NceOutputBuffers& outputs,
                          vpux::VPUIP::NCETaskType taskType, const Kernel& kernel, mlir::Region& workloads)
             : input(input),
               weights(weights),
-              outputBuffs(outputBuffs),
+              outputs(outputs),
               taskType(taskType),
               kernel(kernel),
               workloads(workloads) {
@@ -180,12 +240,12 @@ struct NCEClusterTaskParams {
     VPU::EltwiseTypeAttr eltwiseType = nullptr;
     TilingLoopIndexAttr tilingLoopIndex = nullptr;
     VFLoopIndexAttr vfLoopIndex = nullptr;
-    VFLoopLayerIndexAttr vfLoopLayerIndex = nullptr;
+    VFLoopTileIndexAttr vfLoopTileIndex = nullptr;
     VPU::S2DD2SConfigAttr s2dD2sConfig = nullptr;
 };
 
-mlir::Value createNCEClusterTask(mlir::OpBuilder& rewriter, mlir::Location loc, const NCEClusterTaskParams& params,
-                                 Logger log = Logger::global()) {
+SmallVector<mlir::Value> createNCEClusterTask(mlir::OpBuilder& rewriter, mlir::Location loc,
+                                              const NCEClusterTaskParams& params, Logger log = Logger::global()) {
     const auto getIndividualBuffers = [&](mlir::Value value) {
         mlir::Value data = value;
         mlir::Value sparsityMap = nullptr;
@@ -205,8 +265,11 @@ mlir::Value createNCEClusterTask(mlir::OpBuilder& rewriter, mlir::Location loc, 
     mlir::Value weightsData, weightsSparsityMap;
     std::tie(weightsData, weightsSparsityMap, std::ignore) = getIndividualBuffers(params.weights.weights);
 
-    mlir::Value outputBuffData = params.outputBuffs[0];
-    mlir::Value outputBuffSparsityMap = (params.outputBuffs.size() > 1) ? params.outputBuffs[1] : nullptr;
+    const auto& outputs = params.outputs;
+    mlir::SmallVector<mlir::Value> reduceMinMaxTensor;
+    if (outputs.reduceMinMaxTensor != nullptr) {
+        reduceMinMaxTensor.push_back(outputs.reduceMinMaxTensor);
+    }
 
     auto nceClusterTask = rewriter.create<VPUIP::NCEClusterTaskOp>(
             loc, inputData, inputSparsityMap, inputSETable, weightsData, weightsSparsityMap,
@@ -215,10 +278,10 @@ mlir::Value createNCEClusterTask(mlir::OpBuilder& rewriter, mlir::Location loc, 
             params.weights.weightTableScale, params.weights.weightTableBias,
             /*weight_zero_points=*/params.weights.weightTableZeroPoints,
             /*sprLookupTable=*/nullptr, /*palletLookupTable=*/nullptr, inputData, inputSparsityMap, inputSETable,
-            outputBuffData, outputBuffSparsityMap, outputBuffData, outputBuffSparsityMap, /*profiling_data=*/nullptr,
-            /*dynamic_sequence_length*/ nullptr,
-            /*max_per_xy=*/nullptr, /*min_per_xy=*/nullptr, /*min_max_per_tensor=*/mlir::ValueRange(), params.taskType,
-            params.kernel.kernelSizeAttr, params.kernel.kernelStridesAttr, params.kernel.kernelPaddingAttr,
+            outputs.data, outputs.sparsityMap, outputs.data, outputs.sparsityMap, /*profiling_data=*/nullptr,
+            /*dynamic_sequence_length*/ nullptr, outputs.reduceMaxXy, outputs.reduceMinXy, reduceMinMaxTensor,
+            params.taskType, params.kernel.kernelSizeAttr, params.kernel.kernelStridesAttr,
+            params.kernel.kernelPaddingAttr,
             /*is_continued=*/false, params.cmSpPattern,
             /*is_segmented=*/false,
             /*out_channel_offset=*/nullptr, params.inputChannelsCompression, /*isZeroOffsetWeightsTable=*/false,
@@ -235,10 +298,15 @@ mlir::Value createNCEClusterTask(mlir::OpBuilder& rewriter, mlir::Location loc, 
         nceClusterTask->setAttr(DPUCost, params.dpuCostAttr);
     }
 
+    SmallVector<mlir::Value> results;
     if (nceClusterTask.getOutputSparsityMap() != nullptr) {
         auto groupedOp = rewriter.create<VPUIP::GroupSparseBufferOp>(loc, nceClusterTask.getOutput(),
                                                                      nceClusterTask.getOutputSparsityMap());
-        return groupedOp.getOutput();
+        results.push_back(groupedOp.getOutput());
+    } else {
+        if (nceClusterTask.getOutput()) {
+            results.push_back(nceClusterTask.getOutput());
+        }
     }
 
     if (params.tilingLoopIndex != nullptr) {
@@ -247,11 +315,20 @@ mlir::Value createNCEClusterTask(mlir::OpBuilder& rewriter, mlir::Location loc, 
     if (params.vfLoopIndex != nullptr) {
         nceClusterTask->setAttr(VF_LOOP_INDEX_ATTR_NAME, params.vfLoopIndex);
     }
-    if (params.vfLoopLayerIndex != nullptr) {
-        nceClusterTask->setAttr(VF_LOOP_LAYER_INDEX_ATTR_NAME, params.vfLoopLayerIndex);
+    if (params.vfLoopTileIndex != nullptr) {
+        nceClusterTask->setAttr(VF_LOOP_TILE_INDEX_ATTR_NAME, params.vfLoopTileIndex);
     }
 
-    return nceClusterTask.getOutput();
+    if (nceClusterTask.getMaxPerXy()) {
+        results.push_back(mlir::cast<mlir::Value>(nceClusterTask.getMaxPerXy()));
+    }
+    if (nceClusterTask.getMinPerXy()) {
+        results.push_back(mlir::cast<mlir::Value>(nceClusterTask.getMinPerXy()));
+    }
+    if (!nceClusterTask.getMinMaxPerTensor().empty()) {
+        results.push_back(mlir::cast<mlir::Value>(nceClusterTask.getMinMaxPerTensor()[0]));
+    }
+    return results;
 }
 
 bool isSuperdenseOp(mlir::Operation* nceOp) {
@@ -376,17 +453,18 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEConvolutio
     // Get dimensions
     //
 
-    const auto filterShape = Shape(parseIntArrayAttr<int64_t>(origOp.getRawFilterShape()));
-
+    const auto filterShape = Shape(origOp.getStaticRawFilterShape());
     const auto KY = filterShape[Dims4D::Filter::KY];
     const auto KX = filterShape[Dims4D::Filter::KX];
+    VPUX_THROW_WHEN(KY == mlir::ShapedType::kDynamic || KX == mlir::ShapedType::kDynamic,
+                    "NCEConvolutionOp requires static KY/KX during bufferization");
 
     //
     // Prepare output buffer for DPU
     //
-
-    const auto outputBuffers =
-            VPUIP::allocateBuffers(log, origOp.getLoc(), rewriter, {origOp.getOutput()}, /*individualBuffers=*/true);
+    const auto outputs =
+            allocateNceOutputBuffers(log, origOp.getLoc(), rewriter, origOp.getOutput(), origOp.getReduceXyMax(),
+                                     origOp.getReduceXyMin(), origOp.getReduceTensorMinMax());
 
     //
     // Create NCE per-cluster Operation
@@ -418,8 +496,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEConvolutio
             NCEClusterTaskParams::Weights{newArgs.getFilter(), newArgs.getWeightsTable(),
                                           newArgs.getWeightTableDataPtr(), newArgs.getWeightTableScale(),
                                           newArgs.getWeightTableBias(), newArgs.getWeightZeroPoints()},
-            outputBuffers, taskType,
-            NCEClusterTaskParams::Kernel{kernelSizeAttr, origOp.getStrides(), origOp.getPadAttr()},
+            outputs, taskType, NCEClusterTaskParams::Kernel{kernelSizeAttr, origOp.getStrides(), origOp.getPadAttr()},
             origOp.getWorkloads());
     params.isSuperdense = isSuperdense;
     params.ppeAttr = ppeAttr;
@@ -428,7 +505,8 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEConvolutio
     params.mpeEngineAttr = origOp.getMpeEngineAttr();
     params.tilingLoopIndex = loopAttributes.tilingLoopIndex;
     params.vfLoopIndex = loopAttributes.vfLoopIndex;
-    params.vfLoopLayerIndex = loopAttributes.vfLoopLayerIndex;
+    params.vfLoopTileIndex = loopAttributes.vfLoopTileIndex;
+
     auto nceOp = createNCEClusterTask(rewriter, origOp->getLoc(), params, log);
 
     mlir::bufferization::replaceOpWithBufferizedValues(rewriter, origOp, nceOp);
@@ -448,9 +526,9 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* /*ctx*/, VPU::NCEMaxPoo
     //
     // Prepare output buffer for DPU
     //
-
-    const auto outputBuffers =
-            VPUIP::allocateBuffers(log, origOp.getLoc(), rewriter, {origOp.getOutput()}, /*individualBuffers=*/true);
+    const auto outputs =
+            allocateNceOutputBuffers(log, origOp.getLoc(), rewriter, origOp.getOutput(), origOp.getReduceXyMax(),
+                                     origOp.getReduceXyMin(), origOp.getReduceTensorMinMax());
 
     //
     // Create NCE per-cluster Operation
@@ -471,8 +549,12 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* /*ctx*/, VPU::NCEMaxPoo
     const auto loopAttributes = getLoopAttributes(origOp);
     NCEClusterTaskParams params(
             newArgs.getInput(),
-            NCEClusterTaskParams::Weights{nullptr, newArgs.getWeightsTable(), nullptr, nullptr, nullptr, nullptr},
-            outputBuffers, VPUIP::NCETaskType::MAXPOOL,
+            NCEClusterTaskParams::Weights{/*weights=*/nullptr, newArgs.getWeightsTable(),
+                                          /*weightTableDataPtr=*/nullptr,
+                                          /*weightTableScale=*/newArgs.getWeightTableScale(),
+                                          /*weightTableBias=*/newArgs.getWeightTableBias(),
+                                          /*weightTableZeroPoints=*/nullptr},
+            outputs, VPUIP::NCETaskType::MAXPOOL,
             NCEClusterTaskParams::Kernel{origOp.getKernelSize(), origOp.getStrides(), origOp.getPadAttr()},
             origOp.getWorkloads());
     params.isSuperdense = isSuperdense;
@@ -481,7 +563,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* /*ctx*/, VPU::NCEMaxPoo
     params.mpeEngineAttr = mpeEngineAttr;
     params.tilingLoopIndex = loopAttributes.tilingLoopIndex;
     params.vfLoopIndex = loopAttributes.vfLoopIndex;
-    params.vfLoopLayerIndex = loopAttributes.vfLoopLayerIndex;
+    params.vfLoopTileIndex = loopAttributes.vfLoopTileIndex;
     params.s2dD2sConfig = origOp.getS2dd2sConfigAttr();
 
     auto nceOp = createNCEClusterTask(rewriter, origOp->getLoc(), params, log);
@@ -502,8 +584,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* /*ctx*/, VPU::NCEAverag
     // Prepare output buffer for DPU
     //
 
-    const auto outputBuffers =
-            VPUIP::allocateBuffers(log, origOp.getLoc(), rewriter, {origOp.getOutput()}, /*individualBuffers=*/true);
+    const auto outputs = allocateNceOutputBuffers(log, origOp.getLoc(), rewriter, origOp.getOutput());
 
     //
     // Create NCE per-cluster Operation
@@ -531,7 +612,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* /*ctx*/, VPU::NCEAverag
                                           /*weightTableScale=*/newArgs.getWeightTableScale(),
                                           /*weightTableBias=*/newArgs.getWeightTableBias(),
                                           /*weightTableZeroPoints=*/nullptr},
-            outputBuffers, VPUIP::NCETaskType::AVEPOOL,
+            outputs, VPUIP::NCETaskType::AVEPOOL,
             NCEClusterTaskParams::Kernel{origOp.getKernelSize(), origOp.getStrides(), origOp.getPadAttr()},
             origOp.getWorkloads());
     params.isSuperdense = isSuperdense;
@@ -541,7 +622,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* /*ctx*/, VPU::NCEAverag
     params.mpeEngineAttr = mpeEngineAttr;
     params.tilingLoopIndex = loopAttributes.tilingLoopIndex;
     params.vfLoopIndex = loopAttributes.vfLoopIndex;
-    params.vfLoopLayerIndex = loopAttributes.vfLoopLayerIndex;
+    params.vfLoopTileIndex = loopAttributes.vfLoopTileIndex;
     auto nceOp = createNCEClusterTask(rewriter, origOp->getLoc(), params, log);
 
     mlir::bufferization::replaceOpWithBufferizedValues(rewriter, origOp, nceOp);
@@ -562,16 +643,17 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEDepthConvo
     // Get dimensions
     //
 
-    const auto filterShape = Shape(parseIntArrayAttr<int64_t>(origOp.getRawFilterShape()));
-    const auto KY = filterShape[Dims4D::Filter::KY];
-    const auto KX = filterShape[Dims4D::Filter::KX];
+    const auto filterShape = origOp.getStaticRawFilterShape();
+    const auto KY = filterShape[Dims4D::Filter::KY.ind()];
+    const auto KX = filterShape[Dims4D::Filter::KX.ind()];
+    VPUX_THROW_WHEN(KY == mlir::ShapedType::kDynamic || KX == mlir::ShapedType::kDynamic,
+                    "NCEDepthConvolutionOp requires static KY/KX during bufferization");
 
     //
     // Prepare output buffer for DPU
     //
 
-    const auto outputBuffers =
-            VPUIP::allocateBuffers(log, origOp.getLoc(), rewriter, {origOp.getOutput()}, /*individualBuffers=*/true);
+    const auto outputs = allocateNceOutputBuffers(log, origOp.getLoc(), rewriter, origOp.getOutput());
 
     //
     // Create NCE per-cluster Operation
@@ -595,13 +677,13 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEDepthConvo
     const auto mpeEngineAttr = origOp.getMpeEngineAttr();
     const auto loopAttributes = getLoopAttributes(origOp);
 
-    NCEClusterTaskParams params(
-            newArgs.getInput(),
-            NCEClusterTaskParams::Weights{newArgs.getFilter(), newArgs.getWeightsTable(), nullptr,
-                                          newArgs.getWeightTableScale(), newArgs.getWeightTableBias(), nullptr},
-            outputBuffers, VPUIP::NCETaskType::DWCONV,
-            NCEClusterTaskParams::Kernel{kernelSizeAttr, origOp.getStrides(), origOp.getPadAttr()},
-            origOp.getWorkloads());
+    NCEClusterTaskParams params(newArgs.getInput(),
+                                NCEClusterTaskParams::Weights{
+                                        newArgs.getFilter(), newArgs.getWeightsTable(), newArgs.getWeightTableDataPtr(),
+                                        newArgs.getWeightTableScale(), newArgs.getWeightTableBias(), nullptr},
+                                outputs, VPUIP::NCETaskType::DWCONV,
+                                NCEClusterTaskParams::Kernel{kernelSizeAttr, origOp.getStrides(), origOp.getPadAttr()},
+                                origOp.getWorkloads());
     params.isSuperdense = isSuperdense;
     params.ppeAttr = ppeAttr;
     params.dpuCostAttr = dpuCostAttr;
@@ -609,7 +691,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEDepthConvo
     params.mpeEngineAttr = mpeEngineAttr;
     params.tilingLoopIndex = loopAttributes.tilingLoopIndex;
     params.vfLoopIndex = loopAttributes.vfLoopIndex;
-    params.vfLoopLayerIndex = loopAttributes.vfLoopLayerIndex;
+    params.vfLoopTileIndex = loopAttributes.vfLoopTileIndex;
     auto nceOp = createNCEClusterTask(rewriter, origOp->getLoc(), params, log);
 
     mlir::bufferization::replaceOpWithBufferizedValues(rewriter, origOp, nceOp);
@@ -626,10 +708,11 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEInterpolat
     auto log = Logger::global().nest("one-shot-bufferize-NCEInterpolateOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
-    const auto filterShape = Shape(parseIntArrayAttr<int64_t>(origOp.getRawFilterShape()));
-
+    const auto filterShape = Shape(origOp.getStaticRawFilterShape());
     const auto KY = filterShape[Dims4D::Filter::KY];
     const auto KX = filterShape[Dims4D::Filter::KX];
+    VPUX_THROW_WHEN(KY == mlir::ShapedType::kDynamic || KX == mlir::ShapedType::kDynamic,
+                    "NCEInterpolateOp requires static KY/KX during bufferization");
 
     auto kernelSizeAttr = getIntArrayAttr(ctx, ArrayRef({KY, KX}));
 
@@ -637,8 +720,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEInterpolat
 
     auto newLoc = appendLoc(origOp.getLoc(), "interpolate");
 
-    const auto outputBuffers =
-            VPUIP::allocateBuffers(log, newLoc, rewriter, {origOp.getOutput()}, /*individualBuffers=*/true);
+    const auto outputs = allocateNceOutputBuffers(log, newLoc, rewriter, origOp.getOutput());
 
     log.nest().trace("Creating VPUIP::NCEClusterTaskOp");
 
@@ -656,11 +738,14 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEInterpolat
     const auto loopAttributes = getLoopAttributes(origOp);
 
     auto nceOpInterface = mlir::dyn_cast<VPU::NCEOpInterface>(origOp.getOperation());
+    // Interpolate operation is being convert to Convolution here. Parameter weightTableDataPtr is set to nullptr,
+    // because Convolution doesn't require data-pointer table
     NCEClusterTaskParams params(
             newArgs.getInput(),
-            NCEClusterTaskParams::Weights{newArgs.getWeights(), newArgs.getWeightsTable(), nullptr,
-                                          newArgs.getWeightTableScale(), newArgs.getWeightTableBias(), nullptr},
-            outputBuffers, VPUIP::NCETaskType::CONV,
+            NCEClusterTaskParams::Weights{newArgs.getWeights(), newArgs.getWeightsTable(),
+                                          /*weightTableDataPtr=*/nullptr, newArgs.getWeightTableScale(),
+                                          newArgs.getWeightTableBias(), /*weightTableZeroPoints=*/nullptr},
+            outputs, VPUIP::NCETaskType::CONV,
             NCEClusterTaskParams::Kernel{kernelSizeAttr, getIntArrayAttr(ctx, nceOpInterface.getStridesVal()),
                                          nceOpInterface.getPad()},
             origOp.getWorkloads());
@@ -670,7 +755,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEInterpolat
     params.mpeEngineAttr = mpeEngineAttr;
     params.tilingLoopIndex = loopAttributes.tilingLoopIndex;
     params.vfLoopIndex = loopAttributes.vfLoopIndex;
-    params.vfLoopLayerIndex = loopAttributes.vfLoopLayerIndex;
+    params.vfLoopTileIndex = loopAttributes.vfLoopTileIndex;
     auto nceOp = createNCEClusterTask(rewriter, newLoc, params, log);
 
     mlir::bufferization::replaceOpWithBufferizedValues(rewriter, origOp, nceOp);
@@ -691,8 +776,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* /*ctx*/, VPU::NCEEltwis
     // Prepare output buffer for DPU
     //
 
-    const auto outputBuffers =
-            VPUIP::allocateBuffers(log, origOp.getLoc(), rewriter, {origOp.getOutput()}, /*individualBuffers=*/true);
+    const auto outputs = allocateNceOutputBuffers(log, origOp.getLoc(), rewriter, origOp.getOutput());
 
     //
     // Create NCE per-cluster Operation
@@ -713,11 +797,14 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* /*ctx*/, VPU::NCEEltwis
     const auto mpeEngineAttr = origOp.getMpeEngineAttr();
     const auto loopAttributes = getLoopAttributes(origOp);
 
-    NCEClusterTaskParams params(
-            newArgs.getInput1(),
-            NCEClusterTaskParams::Weights{newArgs.getInput2(), nullptr, nullptr, nullptr, nullptr, nullptr},
-            outputBuffers, VPUIP::NCETaskType::ELTWISE, NCEClusterTaskParams::Kernel{nullptr, nullptr, nullptr},
-            origOp.getWorkloads());
+    NCEClusterTaskParams params(newArgs.getInput1(),
+                                NCEClusterTaskParams::Weights{newArgs.getInput2(), /*weightsTable=*/nullptr,
+                                                              /*weightTableDataPtr=*/nullptr,
+                                                              /*weightTableScale=*/newArgs.getWeightTableScale(),
+                                                              /*weightTableBias=*/newArgs.getWeightTableBias(),
+                                                              /*weightTableZeroPoints=*/nullptr},
+                                outputs, VPUIP::NCETaskType::ELTWISE,
+                                NCEClusterTaskParams::Kernel{nullptr, nullptr, nullptr}, origOp.getWorkloads());
     params.isSuperdense = isSuperdense;
     params.ppeAttr = ppeAttr;
     params.dpuCostAttr = dpuCostAttr;
@@ -726,7 +813,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* /*ctx*/, VPU::NCEEltwis
     params.eltwiseType = origOp.getOpTypeAttr();
     params.tilingLoopIndex = loopAttributes.tilingLoopIndex;
     params.vfLoopIndex = loopAttributes.vfLoopIndex;
-    params.vfLoopLayerIndex = loopAttributes.vfLoopLayerIndex;
+    params.vfLoopTileIndex = loopAttributes.vfLoopTileIndex;
     auto nceOp = createNCEClusterTask(rewriter, origOp->getLoc(), params, log);
 
     mlir::bufferization::replaceOpWithBufferizedValues(rewriter, origOp, nceOp);
@@ -747,8 +834,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEReduceOp o
     // Prepare output buffer for DPU
     //
 
-    const auto outputBuffers =
-            VPUIP::allocateBuffers(log, origOp.getLoc(), rewriter, {origOp.getOutput()}, /*individualBuffers=*/true);
+    const auto outputs = allocateNceOutputBuffers(log, origOp.getLoc(), rewriter, origOp.getOutput());
 
     //
     // Create NCE per-cluster Operation
@@ -773,7 +859,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEReduceOp o
             newArgs.getInput(),
             NCEClusterTaskParams::Weights{nceOpInterface.getWeightsOperand(), nceOpInterface.getWeightsTableOperand(),
                                           nullptr, nullptr, nullptr, nullptr},
-            outputBuffers, nceTaskType,
+            outputs, nceTaskType,
             NCEClusterTaskParams::Kernel{getIntArrayAttr(ctx, nceOpInterface.getKernelSizeVal()),
                                          getIntArrayAttr(ctx, nceOpInterface.getStridesVal()), nceOpInterface.getPad()},
             origOp.getWorkloads());
@@ -783,7 +869,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEReduceOp o
     params.mpeEngineAttr = mpeEngineAttr;
     params.tilingLoopIndex = loopAttributes.tilingLoopIndex;
     params.vfLoopIndex = loopAttributes.vfLoopIndex;
-    params.vfLoopLayerIndex = loopAttributes.vfLoopLayerIndex;
+    params.vfLoopTileIndex = loopAttributes.vfLoopTileIndex;
     auto nceOp = createNCEClusterTask(rewriter, origOp->getLoc(), params, log);
 
     mlir::bufferization::replaceOpWithBufferizedValues(rewriter, origOp, nceOp);
@@ -804,10 +890,12 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCECompressCo
     // Get dimensions
     //
 
-    const auto filterShape = Shape(parseIntArrayAttr<int64_t>(origOp.getRawFilterShape()));
+    const auto filterShape = Shape(origOp.getStaticRawFilterShape());
 
     const auto KY = filterShape[Dims4D::Filter::KY];
     const auto KX = filterShape[Dims4D::Filter::KX];
+    VPUX_THROW_WHEN(KY == mlir::ShapedType::kDynamic || KX == mlir::ShapedType::kDynamic,
+                    "NCECompressConvolutionOp requires static KY/KX during bufferization");
 
     const auto channelAlignValue = VPU::NCEInvariant::getAlignment(
             mlir::cast<vpux::NDTypeInterface>(newArgs.getFilter().getType()).getElementType());
@@ -819,8 +907,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCECompressCo
     // Prepare output buffer for DPU
     //
 
-    const auto outputBuffers =
-            VPUIP::allocateBuffers(log, origOp.getLoc(), rewriter, {origOp.getOutput()}, /*individualBuffers=*/true);
+    const auto outputs = allocateNceOutputBuffers(log, origOp.getLoc(), rewriter, origOp.getOutput());
 
     //
     // Create NCE per-cluster Operation
@@ -852,7 +939,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCECompressCo
     NCEClusterTaskParams params(inputShapeCastOp.getResult(),
                                 NCEClusterTaskParams::Weights{shapeCastWeightsOp.getResult(), newArgs.getWeightsTable(),
                                                               nullptr, nullptr, nullptr, nullptr},
-                                outputBuffers, VPUIP::NCETaskType::CONV,
+                                outputs, VPUIP::NCETaskType::CONV,
                                 NCEClusterTaskParams::Kernel{kernelSizeAttr, origOp.getStrides(), origOp.getPadAttr()},
                                 origOp.getWorkloads());
     params.isSuperdense = isSuperdense;
@@ -863,7 +950,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCECompressCo
     params.mpeEngineAttr = mpeEngineAttr;
     params.tilingLoopIndex = loopAttributes.tilingLoopIndex;
     params.vfLoopIndex = loopAttributes.vfLoopIndex;
-    params.vfLoopLayerIndex = loopAttributes.vfLoopLayerIndex;
+    params.vfLoopTileIndex = loopAttributes.vfLoopTileIndex;
     auto nceOp = createNCEClusterTask(rewriter, origOp->getLoc(), params, log);
 
     mlir::bufferization::replaceOpWithBufferizedValues(rewriter, origOp, nceOp);
@@ -939,11 +1026,16 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEPermuteOp 
         log.nest().trace("Creating VPUIP::NCEClusterTaskOp");
         const auto outputBuffers =
                 VPUIP::allocateBuffersOfType(log.nest(), loc, rewriter, bufferType, /*individualBuffers=*/true);
+        VPUX_THROW_UNLESS(outputBuffers.size() == 1,
+                          "NCEPermute expects a single output buffer (got {0}); main output is not sparse",
+                          outputBuffers.size());
+        NceOutputBuffers outputs;
+        outputs.data = outputBuffers[0];
 
         NCEClusterTaskParams params(
                 inputViewOp.getResult(),
                 NCEClusterTaskParams::Weights{inputViewOp.getResult(), nullptr, nullptr, nullptr, nullptr, nullptr},
-                outputBuffers, VPUIP::NCETaskType::ELTWISE, NCEClusterTaskParams::Kernel{nullptr, nullptr, nullptr},
+                outputs, VPUIP::NCETaskType::ELTWISE, NCEClusterTaskParams::Kernel{nullptr, nullptr, nullptr},
                 origOp.getWorkloads());
         params.isSuperdense = isSuperdense;
         params.ppeAttr = ppeAttr;
@@ -953,7 +1045,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEPermuteOp 
         params.mpeEngineAttr = mpeEngineAttr;
         params.tilingLoopIndex = loopAttributes.tilingLoopIndex;
         params.vfLoopIndex = loopAttributes.vfLoopIndex;
-        params.vfLoopLayerIndex = loopAttributes.vfLoopLayerIndex;
+        params.vfLoopTileIndex = loopAttributes.vfLoopTileIndex;
         auto nceOpResult = createNCEClusterTask(rewriter, origOp->getLoc(), params, log);
 
         // ViewOp Output
@@ -961,7 +1053,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEPermuteOp 
         // Layout change to NHWC
 
         auto outputViewOp = rewriter.create<VPUIP::ViewOp>(
-                origOp.getLoc(), vpux::getBufferType(origOp.getResult().getType()), nceOpResult);
+                origOp.getLoc(), vpux::getBufferType(origOp.getResult().getType()), nceOpResult[0]);
 
         mlir::bufferization::replaceOpWithBufferizedValues(rewriter, origOp, outputViewOp.getResult());
 
@@ -1001,6 +1093,11 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEPermuteOp 
     log.nest().trace("Allocating result buffer of type '{0}' for value type '{1}'", bufferType, outType);
     const auto outputBuffers =
             VPUIP::allocateBuffersOfType(log.nest(), origOp.getLoc(), rewriter, bufferType, /*individualBuffers=*/true);
+    VPUX_THROW_UNLESS(outputBuffers.size() == 1,
+                      "NCEPermute expects a single output buffer (got {0}); main output is not sparse",
+                      outputBuffers.size());
+    NceOutputBuffers outputs;
+    outputs.data = outputBuffers[0];
 
     bool isSuperdense = false;
     if (isSuperdenseOp(origOp)) {
@@ -1019,8 +1116,8 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEPermuteOp 
 
     NCEClusterTaskParams params(
             viewOpIn.getResult(),
-            NCEClusterTaskParams::Weights{viewOpIn.getResult(), nullptr, nullptr, nullptr, nullptr, nullptr},
-            outputBuffers, VPUIP::NCETaskType::ELTWISE, NCEClusterTaskParams::Kernel{nullptr, nullptr, nullptr},
+            NCEClusterTaskParams::Weights{viewOpIn.getResult(), nullptr, nullptr, nullptr, nullptr, nullptr}, outputs,
+            VPUIP::NCETaskType::ELTWISE, NCEClusterTaskParams::Kernel{nullptr, nullptr, nullptr},
             origOp.getWorkloads());
     params.isSuperdense = isSuperdense;
     params.ppeAttr = ppeAttr;
@@ -1030,16 +1127,21 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEPermuteOp 
     params.mpeEngineAttr = mpeEngineAttr;
     params.tilingLoopIndex = loopAttributes.tilingLoopIndex;
     params.vfLoopIndex = loopAttributes.vfLoopIndex;
-    params.vfLoopLayerIndex = loopAttributes.vfLoopLayerIndex;
+    params.vfLoopTileIndex = loopAttributes.vfLoopTileIndex;
     auto nceOp = createNCEClusterTask(rewriter, origOp->getLoc(), params, log);
 
     // ViewOp Output
     // Reshape to NxCxHxW
     // Layout change to NHWC
-    auto viewOpOutType = mlir::cast<vpux::NDTypeInterface>(nceOp.getType()).changeDimsOrder(targetInOutOrder);
+    auto viewOpOutType = mlir::cast<vpux::NDTypeInterface>(nceOp[0].getType()).changeDimsOrder(targetInOutOrder);
     viewOpOutType = viewOpOutType.changeShape(getShape(origOp.getOutput()));
-    auto viewOpOut = rewriter.create<VPUIP::ViewOp>(origOp.getLoc(), viewOpOutType, nceOp);
-    mlir::bufferization::replaceOpWithBufferizedValues(rewriter, origOp, viewOpOut.getResult());
+    auto viewOpOut = rewriter.create<VPUIP::ViewOp>(origOp.getLoc(), viewOpOutType, nceOp[0]);
+    SmallVector<mlir::Value> results;
+    results.push_back(viewOpOut.getResult());
+    if (nceOp.size() > 1) {
+        results.append(nceOp.begin() + 1, nceOp.end());
+    }
+    mlir::bufferization::replaceOpWithBufferizedValues(rewriter, origOp, results);
 
     return mlir::success();
 }
@@ -1051,17 +1153,19 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEMatMulOp o
     //
     // Get dimensions
     //
-    const auto filterShape = Shape(parseIntArrayAttr<int64_t>(origOp.getRawFilterShape()));
+    const auto filterShape = Shape(origOp.getStaticRawFilterShape());
 
     const auto KY = filterShape[DimsGroups5D::Filter::KY];
     const auto KX = filterShape[DimsGroups5D::Filter::KX];
+    VPUX_THROW_WHEN(KY == mlir::ShapedType::kDynamic || KX == mlir::ShapedType::kDynamic,
+                    "NCEMatMulOp requires static KY/KX during bufferization");
 
     //
     // Prepare output buffer for DPU
     //
-
-    const auto outputBuffers =
-            VPUIP::allocateBuffers(log, origOp.getLoc(), rewriter, {origOp.getOutput()}, /*individualBuffers=*/true);
+    const auto outputs =
+            allocateNceOutputBuffers(log, origOp.getLoc(), rewriter, origOp.getOutput(), origOp.getReduceXyMax(),
+                                     origOp.getReduceXyMin(), origOp.getReduceTensorMinMax());
 
     //
     // Create NCE per-cluster Operation
@@ -1084,9 +1188,9 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEMatMulOp o
     NCEClusterTaskParams params(
             newArgs.getInput(),
             NCEClusterTaskParams::Weights{newArgs.getWeights(), newArgs.getWeightsTable(), nullptr,
-                                          newArgs.getWeightTableScale(), newArgs.getWeightTableBias(), nullptr},
-            outputBuffers, taskType,
-            NCEClusterTaskParams::Kernel{kernelSizeAttr, origOp.getStrides(), origOp.getPadAttr()},
+                                          newArgs.getWeightTableScale(), newArgs.getWeightTableBias(),
+                                          newArgs.getWeightZeroPoints()},
+            outputs, taskType, NCEClusterTaskParams::Kernel{kernelSizeAttr, origOp.getStrides(), origOp.getPadAttr()},
             origOp.getWorkloads());
     params.isSuperdense = isSuperdense;
     params.ppeAttr = ppeAttr;
@@ -1094,7 +1198,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEMatMulOp o
     params.mpeEngineAttr = origOp.getMpeEngineAttr();
     params.tilingLoopIndex = loopAttributes.tilingLoopIndex;
     params.vfLoopIndex = loopAttributes.vfLoopIndex;
-    params.vfLoopLayerIndex = loopAttributes.vfLoopLayerIndex;
+    params.vfLoopTileIndex = loopAttributes.vfLoopTileIndex;
     auto nceOp = createNCEClusterTask(rewriter, origOp->getLoc(), params, log);
 
     mlir::bufferization::replaceOpWithBufferizedValues(rewriter, origOp, nceOp);

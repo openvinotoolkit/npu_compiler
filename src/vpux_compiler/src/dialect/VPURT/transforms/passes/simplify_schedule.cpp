@@ -356,9 +356,9 @@ void SimplifySchedulePass::safeRunOnFunc() {
 
     // 2. make execution fully controlled by barriers
     if (shareWaitAndUpdateBarriers) {
-        const auto legalVariantCount = VPUIP::getBarrierMaxVariantCount(funcOp) / 2;
+        const auto legalSlotCount = VPUIP::getAvailableSlots(funcOp, VPUIP::getBarrierMaxSlotCount(funcOp));
         barrierInfo.buildTaskQueueTypeMap();
-        barrierInfo.shareWaitAndUpdateBarriers(legalVariantCount);
+        barrierInfo.shareWaitAndUpdateBarriers(legalSlotCount);
         // re-order execution
         VPURT::orderExecutionTasksAndBarriers(funcOp, barrierInfo, _log);
     }

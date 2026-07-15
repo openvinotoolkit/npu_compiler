@@ -19,6 +19,7 @@ add_npu_library(${TARGET_NAME}
         npu_compiler_dialect_vpurt
         npu_compiler_dialect_config
         npu_compiler_dialect_const
+        npu_compiler_dialect_shave
         npu_compiler_dialect_net
         npu_compiler_utils
         npu_core_utils

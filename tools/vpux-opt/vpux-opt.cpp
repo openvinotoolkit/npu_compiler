@@ -20,8 +20,8 @@ int main(int argc, char* argv[]) {
         // Ticket: E#50937
         auto registry = vpux::createDialectRegistry(vpux::DummyOpMode::ENABLED);
         vpux::registerAllPassesGlobally();
-        if (auto archKind = vpux::parseParamsAndDeduceArch(argc, argv); archKind.has_value()) {
-            vpux::registerAllHwSpecificComponents(registry, archKind.value());
+        if (auto platform = vpux::parsePlatform(argc, argv); platform.has_value()) {
+            vpux::registerAllHwSpecificComponents(registry, platform.value());
         }
         return mlir::asMainReturnCode(mlir::MlirOptMain(argc, argv, "NPU Optimizer Testing Tool", registry));
     } catch (const std::exception& e) {

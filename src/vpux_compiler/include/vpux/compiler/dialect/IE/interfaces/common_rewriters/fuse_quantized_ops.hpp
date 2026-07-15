@@ -19,9 +19,6 @@
 namespace vpux {
 namespace IE {
 
-using CheckPostOpFunctor = llvm::function_ref<bool(IE::LayerWithPostOpInterface layerWithPostOp,
-                                                   bool isPerAxisQuantizedOutput, bool isFloatInput)>;
-
 //
 // FuseWithConvBase
 //
@@ -41,12 +38,7 @@ using CheckPostOpFunctor = llvm::function_ref<bool(IE::LayerWithPostOpInterface 
 template <class ConcreteOp>
 class FuseWithConvBase : public mlir::OpRewritePattern<IE::QuantizeOp> {
 public:
-    FuseWithConvBase(mlir::MLIRContext* ctx, const CheckPostOpFunctor& checkPostOp, bool isPerAxesQuantSupported,
-                     Logger log)
-            : mlir::OpRewritePattern<IE::QuantizeOp>(ctx),
-              _checkPostOp(checkPostOp),
-              _isPerAxesQuantSupported(isPerAxesQuantSupported),
-              _log(log) {
+    FuseWithConvBase(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::QuantizeOp>(ctx), _log(log) {
         this->setDebugName("FuseWithConvBase");
     }
 
@@ -57,8 +49,6 @@ public:
                                             mlir::Value newWeights, mlir::PatternRewriter& rewriter) const = 0;
 
 private:
-    const CheckPostOpFunctor _checkPostOp;
-    bool _isPerAxesQuantSupported;
     Logger _log;
 };
 
@@ -70,11 +60,8 @@ mlir::LogicalResult FuseWithConvBase<ConcreteOp>::matchAndRewrite(IE::QuantizeOp
         return mlir::failure();
     }
 
-    if (!isQuantizationSupported(quantizeOp, convBaseOp, IE::TypeComparisonMode::ALLOW_DIFFERENT_QUANT)) {
-        return mlir::failure();
-    }
-
-    if (!areAllUsersQuantized(convBaseOp)) {
+    auto quantizedLayerOp = mlir::dyn_cast<IE::QuantizedLayerOpInterface>(convBaseOp.getOperation());
+    if (!quantizedLayerOp || !quantizedLayerOp.isInOutQuantizationCompatible(quantizeOp.getOperation())) {
         return mlir::failure();
     }
 
@@ -82,32 +69,21 @@ mlir::LogicalResult FuseWithConvBase<ConcreteOp>::matchAndRewrite(IE::QuantizeOp
         return mlir::failure();
     }
 
+    if (!quantizedLayerOp.isInputQuantizationFusable()) {
+        return mlir::failure();
+    }
     auto inputDequantizeOp = convBaseOp.getInput().template getDefiningOp<IE::DequantizeOp>();
-    if (inputDequantizeOp == nullptr) {
-        return mlir::failure();
-    }
-
     auto filterDequantizeOp = convBaseOp.getFilter().template getDefiningOp<IE::DequantizeOp>();
-    if (filterDequantizeOp == nullptr) {
-        return mlir::failure();
-    }
 
-    auto layerWithPostOp = mlir::dyn_cast<IE::LayerWithPostOpInterface>(convBaseOp.getOperation());
-    if (layerWithPostOp != nullptr && layerWithPostOp.hasPPE()) {
-        if (!_checkPostOp(layerWithPostOp, isPerAxisQuant(quantizeOp.getOutput()), false)) {
-            return mlir::failure();
-        }
+    if (!quantizedLayerOp.isOutputQuantizationFusable(IE::isPerAxisQuant(quantizeOp.getOutput()),
+                                                      /*isFloatInput=*/false)) {
+        return mlir::failure();
     }
 
     // Could not fuse if bias rescale check fail
     if (mlir::failed(checkRescaledBiasRange(convBaseOp))) {
         return mlir::failure();
     }
-
-    if (!_isPerAxesQuantSupported && isPerAxisQuant(inputDequantizeOp.getInput())) {
-        return mlir::failure();
-    }
-
     auto newConvBaseOp = createNewConvBasedOp(quantizeOp, convBaseOp, inputDequantizeOp.getInput(),
                                               filterDequantizeOp.getInput(), rewriter);
     if (!IE::checkRescaledQuantApproximationForConvBasedOp(newConvBaseOp)) {
@@ -125,9 +101,7 @@ mlir::LogicalResult FuseWithConvBase<ConcreteOp>::matchAndRewrite(IE::QuantizeOp
 
 class FuseWithConv final : public FuseWithConvBase<IE::ConvolutionOp> {
 public:
-    FuseWithConv(mlir::MLIRContext* ctx, const CheckPostOpFunctor& checkPostOp, bool isPerAxesQuantSupported,
-                 Logger log)
-            : FuseWithConvBase<IE::ConvolutionOp>(ctx, checkPostOp, isPerAxesQuantSupported, log) {
+    FuseWithConv(mlir::MLIRContext* ctx, Logger log): FuseWithConvBase<IE::ConvolutionOp>(ctx, log) {
         setDebugName("FuseWithConv");
     }
 
@@ -142,9 +116,7 @@ public:
 
 class FuseWithGroupConv final : public FuseWithConvBase<IE::GroupConvolutionOp> {
 public:
-    FuseWithGroupConv(mlir::MLIRContext* ctx, const CheckPostOpFunctor& checkPostOp, bool isPerAxesQuantSupported,
-                      Logger log)
-            : FuseWithConvBase<IE::GroupConvolutionOp>(ctx, checkPostOp, isPerAxesQuantSupported, log) {
+    FuseWithGroupConv(mlir::MLIRContext* ctx, Logger log): FuseWithConvBase<IE::GroupConvolutionOp>(ctx, log) {
         setDebugName("FuseWithGroupConv");
     }
 
@@ -160,9 +132,8 @@ public:
 
 class FuseWithTransposedConv final : public FuseWithConvBase<IE::TransposedConvolutionOp> {
 public:
-    FuseWithTransposedConv(mlir::MLIRContext* ctx, const CheckPostOpFunctor& checkPostOp, bool isPerAxesQuantSupported,
-                           Logger log)
-            : FuseWithConvBase<IE::TransposedConvolutionOp>(ctx, checkPostOp, isPerAxesQuantSupported, log) {
+    FuseWithTransposedConv(mlir::MLIRContext* ctx, Logger log)
+            : FuseWithConvBase<IE::TransposedConvolutionOp>(ctx, log) {
         setDebugName("FuseWithTransposedConv");
     }
 
@@ -191,10 +162,7 @@ public:
 
 class FuseWithMaxPool final : public mlir::OpRewritePattern<IE::QuantizeOp> {
 public:
-    FuseWithMaxPool(mlir::MLIRContext* ctx, bool isPerAxesQuantSupported, Logger log)
-            : mlir::OpRewritePattern<IE::QuantizeOp>(ctx),
-              _isPerAxesQuantSupported(isPerAxesQuantSupported),
-              _log(log) {
+    FuseWithMaxPool(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::QuantizeOp>(ctx), _log(log) {
         setDebugName("FuseWithMaxPool");
     }
 
@@ -202,7 +170,6 @@ public:
     mlir::LogicalResult matchAndRewrite(IE::QuantizeOp origOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
-    bool _isPerAxesQuantSupported;
     Logger _log;
 };
 
@@ -224,10 +191,7 @@ private:
 
 class FuseWithAveragePool final : public mlir::OpRewritePattern<IE::QuantizeOp> {
 public:
-    FuseWithAveragePool(mlir::MLIRContext* ctx, bool isPerAxesQuantSupported, Logger log)
-            : mlir::OpRewritePattern<IE::QuantizeOp>(ctx),
-              _isPerAxesQuantSupported(isPerAxesQuantSupported),
-              _log(log) {
+    FuseWithAveragePool(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::QuantizeOp>(ctx), _log(log) {
         setDebugName("FuseWithAveragePool");
     }
 
@@ -235,7 +199,6 @@ public:
     mlir::LogicalResult matchAndRewrite(IE::QuantizeOp origOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
-    bool _isPerAxesQuantSupported;
     Logger _log;
 };
 
@@ -423,15 +386,8 @@ mlir::LogicalResult FuseWithReduce<ConcreteOp>::matchAndRewrite(IE::QuantizeOp q
 template <class ConcreteOp>
 class FuseWithEltwiseConverter final : public mlir::OpRewritePattern<IE::QuantizeOp> {
 public:
-    FuseWithEltwiseConverter(mlir::MLIRContext* ctx, const CheckPostOpFunctor& checkPostOp,
-                             FuncRef<mlir::LogicalResult(mlir::Type, mlir::Type, VPU::EltwiseType)> checkInputTypes,
-                             VPU::EltwiseType opType, bool isPerAxesQuantSupported, Logger log)
-            : mlir::OpRewritePattern<IE::QuantizeOp>(ctx),
-              _checkPostOp(checkPostOp),
-              _checkInputTypes(checkInputTypes),
-              _opType(opType),
-              _isPerAxesQuantSupported(isPerAxesQuantSupported),
-              _log(log) {
+    FuseWithEltwiseConverter(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::QuantizeOp>(ctx), _log(log) {
         this->setDebugName("FuseWithEltwiseConverter");
     }
 
@@ -439,39 +395,25 @@ public:
     mlir::LogicalResult matchAndRewrite(IE::QuantizeOp quantizeOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
-    const CheckPostOpFunctor _checkPostOp;
-    FuncRef<mlir::LogicalResult(mlir::Type, mlir::Type, VPU::EltwiseType)> _checkInputTypes;
-    VPU::EltwiseType _opType;
-    bool _isPerAxesQuantSupported;
     Logger _log;
 };
 
 template <class ConcreteOp>
 mlir::LogicalResult FuseWithEltwiseConverter<ConcreteOp>::matchAndRewrite(IE::QuantizeOp quantizeOp,
                                                                           mlir::PatternRewriter& rewriter) const {
-    const auto isOutputPerAxisQuant = isPerAxisQuant(quantizeOp.getOutput());
-    if (!_isPerAxesQuantSupported && isOutputPerAxisQuant) {
-        return mlir::failure();
-    }
-
     auto eltwiseOp = quantizeOp.getInput().getDefiningOp<ConcreteOp>();
     if (eltwiseOp == nullptr) {
         return mlir::failure();
     }
 
-    if (!areAllUsersQuantized(eltwiseOp)) {
+    auto quantizedLayerOp = mlir::dyn_cast<IE::QuantizedLayerOpInterface>(eltwiseOp.getOperation());
+    if (!quantizedLayerOp || !quantizedLayerOp.isInOutQuantizationCompatible(quantizeOp.getOperation())) {
         return mlir::failure();
     }
 
-    if (!isQuantizationSupported(quantizeOp, eltwiseOp, IE::TypeComparisonMode::STRICT_EQUAL)) {
+    if (!quantizedLayerOp.isOutputQuantizationFusable(IE::isPerAxisQuant(quantizeOp.getOutput()),
+                                                      /*isFloatInput=*/true)) {
         return mlir::failure();
-    }
-
-    auto layerWithPostOp = mlir::dyn_cast<IE::LayerWithPostOpInterface>(eltwiseOp.getOperation());
-    if (layerWithPostOp != nullptr && layerWithPostOp.hasPPE()) {
-        if (!_checkPostOp(layerWithPostOp, isOutputPerAxisQuant, /*isFloatInput=*/true)) {
-            return mlir::failure();
-        }
     }
 
     if (mlir::cast<vpux::NDTypeInterface>(eltwiseOp.getInput1().getType()).getShape() !=
@@ -479,33 +421,12 @@ mlir::LogicalResult FuseWithEltwiseConverter<ConcreteOp>::matchAndRewrite(IE::Qu
         return mlir::failure();
     }
 
-    const auto checkDequantizeOp = [&](IE::DequantizeOp dequantOp) {
-        if (dequantOp == nullptr) {
-            return mlir::failure();
-        }
-
-        if (isPerAxisQuant(dequantOp.getInput())) {
-            return mlir::failure();
-        }
-
-        return mlir::success();
-    };
-
+    if (!quantizedLayerOp.isInputQuantizationFusable()) {
+        return mlir::failure();
+    }
     auto input1DequantizeOp = eltwiseOp.getInput1().template getDefiningOp<IE::DequantizeOp>();
-    if (mlir::failed(checkDequantizeOp(input1DequantizeOp))) {
-        return mlir::failure();
-    }
-
     auto input2DequantizeOp = eltwiseOp.getInput2().template getDefiningOp<IE::DequantizeOp>();
-    if (mlir::failed(checkDequantizeOp(input2DequantizeOp))) {
-        return mlir::failure();
-    }
 
-    const auto input1Type = mlir::cast<vpux::NDTypeInterface>(input1DequantizeOp.getInput().getType()).getElementType();
-    const auto input2Type = mlir::cast<vpux::NDTypeInterface>(input2DequantizeOp.getInput().getType()).getElementType();
-    if (mlir::failed(_checkInputTypes(input1Type, input2Type, _opType))) {
-        return mlir::failure();
-    }
     auto users = eltwiseOp.getResult().getUsers();
     auto userSize = std::distance(users.begin(), users.end());
     auto newLoc = takeOpLoc(eltwiseOp, "{0}", userSize);

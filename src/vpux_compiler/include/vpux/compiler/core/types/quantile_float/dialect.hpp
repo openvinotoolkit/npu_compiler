@@ -6,10 +6,6 @@
 #include <llvm/ADT/TypeSwitch.h>
 #include <mlir/IR/DialectImplementation.h>
 
-using namespace llvm;
-using namespace mlir;
-using namespace mlir::detail;
-
 namespace vpux {
 namespace type {
 

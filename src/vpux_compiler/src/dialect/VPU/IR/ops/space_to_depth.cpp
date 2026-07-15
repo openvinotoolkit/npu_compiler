@@ -111,10 +111,7 @@ mlir::LogicalResult vpux::VPU::SpaceToDepthOp::inferReturnTypes(
         return errorAt(loc, "Invalid block size {0}, should be greater than zero", block_size);
     }
 
-    static const auto N = Dims4D::Act::N;
-    static const auto C = Dims4D::Act::C;
-    static const auto H = Dims4D::Act::H;
-    static const auto W = Dims4D::Act::W;
+    using namespace Dims4D::Act;
 
     if (inputShape[H.ind()] % block_size || inputShape[W.ind()] % block_size) {
         return errorAt(loc, "Invalid block_size {0} , height {1} and width {2} must be divisible by block_size",
@@ -148,19 +145,20 @@ vpux::InputTiling vpux::VPU::SpaceToDepthOp::backInferTileInfo(const vpux::TileI
     blockSize = mlir::dyn_cast<mlir::IntegerAttr>(getBlockSizeAttr()).getValue().getSExtValue();
 
     VPUX_THROW_WHEN(blockSize <= 0, "Unsupported block size: {0}", blockSize);
+    using namespace Dims4D::Act;
 
     TileInfo inputTile(origInputShape);
     inputTile.axis = outputTile.axis;
 
-    inputTile.shape[Dims4D::Act::N] = outputTile.shape[Dims4D::Act::N];
-    inputTile.shape[Dims4D::Act::C] = outputTile.shape[Dims4D::Act::C] / (blockSize * blockSize);
-    inputTile.shape[Dims4D::Act::W] = outputTile.shape[Dims4D::Act::W] * blockSize;
-    inputTile.shape[Dims4D::Act::H] = outputTile.shape[Dims4D::Act::H] * blockSize;
+    inputTile.shape[N] = outputTile.shape[N];
+    inputTile.shape[C] = outputTile.shape[C] / (blockSize * blockSize);
+    inputTile.shape[W] = outputTile.shape[W] * blockSize;
+    inputTile.shape[H] = outputTile.shape[H] * blockSize;
 
-    inputTile.offsets[Dims4D::Act::N] = outputTile.offsets[Dims4D::Act::N];
-    inputTile.offsets[Dims4D::Act::C] = outputTile.offsets[Dims4D::Act::C] / (blockSize * blockSize);
-    inputTile.offsets[Dims4D::Act::W] = outputTile.offsets[Dims4D::Act::W] * blockSize;
-    inputTile.offsets[Dims4D::Act::H] = outputTile.offsets[Dims4D::Act::H] * blockSize;
+    inputTile.offsets[N] = outputTile.offsets[N];
+    inputTile.offsets[C] = outputTile.offsets[C] / (blockSize * blockSize);
+    inputTile.offsets[W] = outputTile.offsets[W] * blockSize;
+    inputTile.offsets[H] = outputTile.offsets[H] * blockSize;
 
     return InputTiling{inputTile};
 }
@@ -181,6 +179,7 @@ mlir::FailureOr<OutputTiling> vpux::VPU::SpaceToDepthOp::getTilingStrategy(Tilin
     VPUX_THROW_UNLESS(getBlockSizeAttr() != nullptr, "Got NULL block_size");
     blockSize = mlir::dyn_cast<mlir::IntegerAttr>(getBlockSizeAttr()).getValue().getSExtValue();
 
+    using namespace Dims4D::Act;
     Shape nTilesOnDimforSpaceToDepth(outputShape.size(), 1);
     tilingMode = TilingMode::ISOLATED;
     const auto tilingModeToCheck = tilingMode;
@@ -188,9 +187,9 @@ mlir::FailureOr<OutputTiling> vpux::VPU::SpaceToDepthOp::getTilingStrategy(Tilin
     SmallVector<Dim> tileDimOrder;
 
     if (origOp.getMode() == IE::SpaceToDepthMode::BLOCKS_FIRST) {
-        tileDimOrder = {Dims4D::Act::W, Dims4D::Act::H};
+        tileDimOrder = {W, H};
     } else if (origOp.getMode() == IE::SpaceToDepthMode::DEPTH_FIRST) {
-        tileDimOrder = {Dims4D::Act::W, Dims4D::Act::H, Dims4D::Act::C};
+        tileDimOrder = {W, H, C};
     } else {
         VPUX_THROW("Unknown SpaceToDepthMode: {0}. BLOCKS_FIRST and DEPTH_FIRST methods are supported only",
                    origOp.getMode());
@@ -213,7 +212,7 @@ mlir::FailureOr<OutputTiling> vpux::VPU::SpaceToDepthOp::getTilingStrategy(Tilin
     VPUX_THROW_WHEN(blockSize <= 0, "Unsupported block size: {0}", blockSize);
 
     while (tileDimIter < tileDimOrder.end()) {
-        if (dimToTile == Dims4D::Act::C) {
+        if (dimToTile == C) {
             while (((maxTile * blockSize * blockSize) <= outputShape[dimToTile]) &&
                    (!isSupportedTileSize(nTilesOnDimforSpaceToDepth, tilingModeToCheck))) {
                 if (outputShape[dimToTile] % (maxTile * blockSize * blockSize) == 0) {
@@ -225,7 +224,7 @@ mlir::FailureOr<OutputTiling> vpux::VPU::SpaceToDepthOp::getTilingStrategy(Tilin
             }
             dimToTile = *(++tileDimIter);
             maxTile = 1;
-        } else if (dimToTile == Dims4D::Act::H || dimToTile == Dims4D::Act::W) {
+        } else if (dimToTile == H || dimToTile == W) {
             while (!isSupportedTileSize(nTilesOnDimforSpaceToDepth, tilingModeToCheck)) {
                 if (nTilesOnDimforSpaceToDepth[dimToTile] >= outputShape[dimToTile]) {
                     break;

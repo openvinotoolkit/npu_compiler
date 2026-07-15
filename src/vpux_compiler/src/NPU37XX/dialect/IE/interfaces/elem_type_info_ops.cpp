@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/image.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/utils/elem_type_info_utils.hpp"
 
 using namespace vpux;
@@ -37,5 +38,8 @@ void vpux::IE::arch37xx::registerElemTypeInfoOpInterfaces(mlir::DialectRegistry&
         IE::UnsqueezeOp::attachInterface<PerTensorElemTypeInfoOpModel>(*ctx);
         IE::UpsamplingOp::attachInterface<PerTensorElemTypeInfoOpModel>(*ctx);
         IE::PadOp::attachInterface<PerTensorElemTypeInfoOpModel>(*ctx);
+        IE::LayoutCastOp::attachInterface<PerTensorElemTypeInfoOpModel>(*ctx);
+        IE::PermuteCastOp::attachInterface<PerTensorElemTypeInfoOpModel>(*ctx);
+        IE::ShapeCastOp::attachInterface<PerTensorElemTypeInfoOpModel>(*ctx);
     });
 }

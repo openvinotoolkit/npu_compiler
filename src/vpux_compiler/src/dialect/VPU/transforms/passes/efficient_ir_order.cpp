@@ -105,8 +105,19 @@ void reorderOperationsInVFBlock(VPU::VerticalFusionOp vfOp) {
             continue;
         }
 
-        // For operation has single computeOp input, place it right before it's first user
-        auto* firstUser = getFirstUser(origOp->getResult(0));
+        // For operation has single computeOp input, place it right before it's first user.
+        // Examine all results to preserve dominance for multi-result ops (e.g. NCE ops
+        // with a fused reduce output).
+        mlir::Operation* firstUser = nullptr;
+        for (auto result : origOp->getResults()) {
+            auto* candidate = getFirstUser(result);
+            if (candidate == nullptr) {
+                continue;
+            }
+            if (firstUser == nullptr || candidate->isBeforeInBlock(firstUser)) {
+                firstUser = candidate;
+            }
+        }
         if (firstUser != nullptr) {
             origOp->moveBefore(firstUser);
         }
@@ -258,6 +269,51 @@ void reorderConcatBranches(VPU::ConcatOp concatOp) {
     }
 }
 
+void reordeNCEOpAsWeightScaleTable(VPU::NCEOpInterface nceOp) {
+    auto weightTableScale = nceOp.getWeightTableScaleOperand();
+    if (weightTableScale == nullptr || mlir::isa<mlir::BlockArgument>(weightTableScale)) {
+        return;
+    }
+
+    auto consumerOp = nceOp.getOperation();
+    auto currentOp = weightTableScale.getDefiningOp();
+    SmallVector<mlir::Operation*> viewLikeOps;
+
+    while (mlir::isa_and_present<VPU::ViewLikeOpInterface>(currentOp)) {
+        if (!currentOp->hasOneUse()) {
+            return;
+        }
+
+        viewLikeOps.push_back(currentOp);
+        auto producerValue = currentOp->getOperand(0);
+        if (mlir::isa<mlir::BlockArgument>(producerValue)) {
+            return;
+        }
+
+        currentOp = producerValue.getDefiningOp();
+    }
+
+    if (!currentOp->hasOneUse()) {
+        return;
+    }
+
+    if (!mlir::isa_and_present<VPU::NCEMaxPoolOp, VPU::NCEEltwiseOp>(currentOp)) {
+        return;
+    }
+
+    if (!currentOp->isBeforeInBlock(consumerOp)) {
+        return;
+    }
+
+    auto postOp = consumerOp;
+    for (auto op : viewLikeOps) {
+        op->moveBefore(postOp);
+        postOp = op;
+    }
+
+    currentOp->moveBefore(postOp);
+}
+
 void EfficientIROrderPass::safeRunOnFunc() {
     auto func = getOperation();
 
@@ -280,6 +336,11 @@ void EfficientIROrderPass::safeRunOnFunc() {
                                 return op.getOperation();
                             }));
     VPU::reorderOperations(operationsInBlock);
+
+    // Reorder MaxPool as scale table
+    for (auto nceOp : func.getOps<VPU::NCEOpInterface>()) {
+        reordeNCEOpAsWeightScaleTable(nceOp);
+    }
 }
 
 }  // namespace

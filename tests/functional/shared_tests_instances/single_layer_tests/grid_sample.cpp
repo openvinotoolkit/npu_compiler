@@ -12,6 +12,9 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(GridSampleLayerTest);
+
 class GridSampleLayerTestCommon : public GridSampleLayerTest, virtual public VpuOv2LayerTest {
     void generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) override {
         VpuOv2LayerTest::inputs.clear();
@@ -126,7 +129,7 @@ const auto paramsTiling = testing::Combine(
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_GridSample, GridSampleLayerTestCommon, params,
                          GridSampleLayerTest::getTestCaseName);
 
-INSTANTIATE_TEST_SUITE_P(smoke_precommit_GridSample_Tiling, GridSampleLayerTestCommon, paramsTiling,
+INSTANTIATE_TEST_SUITE_P(smoke_GridSample_Tiling, GridSampleLayerTestCommon, paramsTiling,
                          GridSampleLayerTest::getTestCaseName);
 
 }  // namespace

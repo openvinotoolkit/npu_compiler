@@ -16,12 +16,11 @@ using namespace vpux::VPU;
 void arch37xx::initializeSingletonCache(mlir::MLIRContext* context, std::optional<config::Platform>) {
     const bool isShave2ApiUsedInVPUNN = false;
 
-    auto costModelFactory = std::make_unique<arch37xx::CostModelFactory>();
-    auto costModel = costModelFactory->createCostModel();
-    auto supportedOps = costModel->getShaveSupportedOperations(VPUNN::VPUDevice::VPU_2_7);
-
-    setCostModelFactory(context, std::move(costModelFactory));
-    setShaveCostModelUtils(context, std::make_unique<CostModelShaveUtil>(isShave2ApiUsedInVPUNN, supportedOps));
+    setCostModelFactory(context, std::make_unique<arch37xx::CostModelFactory>());
+    setShaveCostModelUtils(context, std::make_unique<CostModelShaveUtil>(isShave2ApiUsedInVPUNN, [context]() {
+                               auto costModel = getCostModelFactory(context).createCostModel();
+                               return costModel->getShaveSupportedOperations(VPUNN::VPUDevice::VPU_2_7);
+                           }));
 }
 
 void arch37xx::initializePPEVersionConfig(mlir::MLIRContext* context) {

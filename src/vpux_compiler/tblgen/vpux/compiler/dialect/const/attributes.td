@@ -231,20 +231,20 @@ def Const_ContentAttr : Const_Attr<"Content"> {
         };
 
         auto transform() const {
-            return vpux::Const::SpecializedContentSetup(getBaseContent().getType(), getTransformations(),
+            return vpux::Const::SpecializedContentSetup(getBaseContent(), getBaseContent().getType(), getTransformations(),
                 SpecialSetupCallable{getBaseContent()});
         }
 
         llvm::hash_code getTransformationHash() const;
         static llvm::hash_code getTransformationHash(
+            mlir::ElementsAttr baseContent,
             mlir::ArrayRef<vpux::Const::TransformAttrInterface> transformations);
 
         // special version of get() that is used when we create Content
         // property from the setup object
         static ContentAttr get(mlir::ElementsAttr base, const detail::ContentSetupBase& setup);
 
-        static mlir::LogicalResult verifyDenseResource(FuncRef<mlir::InFlightDiagnostic()> emitError, mlir::DenseResourceElementsAttr denseResource,
-                                                bool isSplat);
+        static mlir::LogicalResult verifyDenseResource(FuncRef<mlir::InFlightDiagnostic()> emitError, mlir::DenseResourceElementsAttr denseResource);
     }];
 
     let storageType = "vpux::Const::ContentAttr";
@@ -704,6 +704,42 @@ def Const_GatherElementsAttr : Const_AttrWithStableHash<"GatherElements"> {
     let genVerifyDecl = 1;
     let skipDefaultBuilders = 1;
     let assemblyFormat = "`<` $axis `,` $indices `>`";
+}
+
+//
+// LogicalNotAttr
+//
+
+def Const_LogicalNotAttr : Const_Attr<"LogicalNot",
+        [DeclareAttrInterfaceMethods<Const_TransformAttrInterface>]> {
+    let summary = "LogicalNot constant content";
+}
+
+//
+// CumSumAttr
+//
+
+def Const_CumSumAttr : Const_AttrWithStableHash<"CumSum"> {
+    let summary = "CumSum constant content";
+
+    let parameters = (ins
+        "mlir::IntegerAttr":$axis,
+        "mlir::BoolAttr":$exclusive,
+        "mlir::BoolAttr":$reverse
+    );
+
+    let builders = [
+        AttrBuilderWithInferredContext<
+            (ins "mlir::IntegerAttr":$axis, "mlir::BoolAttr":$exclusive, "mlir::BoolAttr":$reverse), [{
+                return $_get(axis.getContext(), axis, exclusive, reverse);
+            }]
+        >
+    ];
+
+    let storageNamespace = "details";
+    let genVerifyDecl = 1;
+    let skipDefaultBuilders = 1;
+    let assemblyFormat = "`<` $axis `,` $exclusive `,` $reverse `>`";
 }
 
 //
@@ -1190,6 +1226,36 @@ def Const_InterpolateAttr : Const_Attr<"Interpolate",
     let skipDefaultBuilders = 1;
     // #const.Interpolate<$axes, $sizes, $mode, $coordMode, $nearestMode, $antialias, $padsBegin, $padsEnd, $cubeCoeff>
     let hasCustomAssemblyFormat = 1;
+}
+
+//
+// ConcatAttr
+//
+
+def Const_ConcatAttr : Const_Attr<"Concat",
+        [DeclareAttrInterfaceMethods<Const_TransformAttrInterface>]> {
+    let summary = "Concatenate constants without folding";
+
+    let description = [{
+        Part of the lazy folding infrastructure: instead of applying concatenation eagerly,
+        it is applied later during exportToELF(), providing RAM savings during compilation.
+        Stores the concat axis, offsets, and input constants as attributes so that
+        the concatenation can be materialized on demand. The output type is inferred
+        from axis and the constants' shapes.
+    }];
+
+    let parameters = (ins
+        "mlir::IntegerAttr":$axis,
+        "mlir::ArrayAttr":$staticOffsets,
+        "vpux::Const::ContentArrayAttr":$constants
+    );
+
+    let storageNamespace = "details";
+    let assemblyFormat = [{
+        `<` `axis` `=` `<` $axis `>` `,`
+        `offsets` `=` `<` $staticOffsets `>` `,`
+        `constants` `=` `<` $constants `>` `>`
+    }];
 }
 
 #endif

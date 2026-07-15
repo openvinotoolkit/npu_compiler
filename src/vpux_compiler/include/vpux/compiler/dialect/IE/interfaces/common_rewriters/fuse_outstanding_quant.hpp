@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/utils/core/array_ref.hpp"
 #include "vpux/utils/core/small_vector.hpp"
@@ -15,8 +14,6 @@
 namespace vpux {
 namespace IE {
 
-using SupportedMixedPrecisionFunctor = std::function<bool(mlir::Operation*, const bool isPReLUSupported, Logger log)>;
-
 template <typename ConcreteOp>
 mlir::LogicalResult findQuantizeOrQuantizedNCE(ConcreteOp origOp, mlir::PatternRewriter& rewriter,
                                                mlir::Value eltwiseInput,
@@ -24,8 +21,7 @@ mlir::LogicalResult findQuantizeOrQuantizedNCE(ConcreteOp origOp, mlir::PatternR
 template <typename ConcreteOp>
 mlir::LogicalResult removeQuantOrFusedQuant(ConcreteOp origOp, mlir::PatternRewriter& rewriter,
                                             ArrayRef<mlir::Operation*> eltwiseToQuantizeOps,
-                                            mlir::Operation* quantOrQuantizedNCE, mlir::Type elementType,
-                                            const SupportedMixedPrecisionFunctor& isMixPrecisionSupported, Logger log);
+                                            mlir::Operation* quantOrQuantizedNCE, mlir::Type elementType, Logger log);
 
 //
 // QuantizeWithTwoInputsNCEEltwiseOpGeneric
@@ -57,46 +53,39 @@ mlir::LogicalResult removeQuantOrFusedQuant(ConcreteOp origOp, mlir::PatternRewr
 template <typename ConcreteOp>
 class QuantizeWithTwoInputsNCEEltwiseOpGeneric final : public mlir::OpRewritePattern<ConcreteOp> {
 public:
-    QuantizeWithTwoInputsNCEEltwiseOpGeneric(mlir::MLIRContext* ctx,
-                                             const SupportedMixedPrecisionFunctor& isMixPrecisionSupported, Logger log)
-            : mlir::OpRewritePattern<ConcreteOp>(ctx), _isMixPrecisionSupported(isMixPrecisionSupported), _log(log) {
+    QuantizeWithTwoInputsNCEEltwiseOpGeneric(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<ConcreteOp>(ctx), _log(log) {
     }
 
 public:
     mlir::LogicalResult matchAndRewrite(ConcreteOp origOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
-    const SupportedMixedPrecisionFunctor _isMixPrecisionSupported;
     Logger _log;
 };
 
 class QuantizeWithAvgPool final : public mlir::OpRewritePattern<IE::AvgPoolOp> {
 public:
-    QuantizeWithAvgPool(mlir::MLIRContext* ctx, const SupportedMixedPrecisionFunctor& isMixPrecisionSupported,
-                        Logger log)
-            : mlir::OpRewritePattern<IE::AvgPoolOp>(ctx), _isMixPrecisionSupported(isMixPrecisionSupported), _log(log) {
+    QuantizeWithAvgPool(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::AvgPoolOp>(ctx), _log(log) {
     }
 
 public:
     mlir::LogicalResult matchAndRewrite(IE::AvgPoolOp avgPoolOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
-    const SupportedMixedPrecisionFunctor _isMixPrecisionSupported;
     Logger _log;
 };
 
 template <typename ConcreteOp>
 class QuantizeWithNCEOp final : public mlir::OpRewritePattern<ConcreteOp> {
 public:
-    QuantizeWithNCEOp(mlir::MLIRContext* ctx, const SupportedMixedPrecisionFunctor& isMixPrecisionSupported, Logger log)
-            : mlir::OpRewritePattern<ConcreteOp>(ctx), _isMixPrecisionSupported(isMixPrecisionSupported), _log(log) {
+    QuantizeWithNCEOp(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<ConcreteOp>(ctx), _log(log) {
     }
 
 public:
     mlir::LogicalResult matchAndRewrite(ConcreteOp origOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
-    const SupportedMixedPrecisionFunctor _isMixPrecisionSupported;
     Logger _log;
 };
 }  // namespace IE

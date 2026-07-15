@@ -56,18 +56,18 @@ net.NetworkInfo entryPoint : @UnrollDMAOutput inputsInfo : {
   DataInfo "output_0" : tensor<64x32x1x1xf16>
 }
 func.func @UnrollDMAOutput(%arg0: memref<1x16x16x16xf16, @DDR>, %arg1: memref<64x32x1x1xf16, @DDR>) -> memref<64x32x1x1xf16, @DDR> {
-  %cst = const.Declare memref<64x32x1x1xf16, #NHWC, @DDR> = dense<1.000000e+00> : tensor<64x32x1x1xf16>, [#const.Reorder<#NHWC>]
-  // CHECK-DAG: [[CST:%.+]] = const.Declare memref<64x32x1x1xf16, #NHWC, @DDR>
+  %cst = const.Declare memref<64x32x1x1xf16, {order = #NHWC}, @DDR> = dense<1.000000e+00> : tensor<64x32x1x1xf16>, [#const.Reorder<#NHWC>]
+  // CHECK-DAG: [[CST:%.+]] = const.Declare memref<64x32x1x1xf16, {order = #NHWC}, @DDR>
 
   %3 = VPURT.DeclareBuffer <CMX_NN> [0, 1] <0> -> !VPUIP.DistributedBuffer<64x32x1x1xf16, {order = #NHWC, strides = [32, 1, 32, 32]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64, uniform_distributed_segments}>
 
   VPURT.Task attributes {isTrailingSWLayer = false} {
-    %16 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst : memref<64x32x1x1xf16, #NHWC, @DDR>) outputs(%3 : !VPUIP.DistributedBuffer<64x32x1x1xf16, {order = #NHWC, strides = [32, 1, 32, 32]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64, uniform_distributed_segments}>) -> !VPUIP.DistributedBuffer<64x32x1x1xf16, {order = #NHWC, strides = [32, 1, 32, 32]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64, uniform_distributed_segments}>
+    %16 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst : memref<64x32x1x1xf16, {order = #NHWC}, @DDR>) outputs(%3 : !VPUIP.DistributedBuffer<64x32x1x1xf16, {order = #NHWC, strides = [32, 1, 32, 32]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64, uniform_distributed_segments}>) -> !VPUIP.DistributedBuffer<64x32x1x1xf16, {order = #NHWC, strides = [32, 1, 32, 32]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64, uniform_distributed_segments}>
   }
-  // CHECK: [[BUFF_TILE_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
-  // CHECK: [[BUFF_TILE_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 1]>
+  // CHECK: [[BUFF_TILE_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+  // CHECK: [[BUFF_TILE_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>
   // CHECK-NOT: VPURT.Task
-  // CHECK: [[DMA0:%.+]] = VPUMI40XX.NNDMA <{port = 0 : i64}> inputs([[CST]] : memref<64x32x1x1xf16, #NHWC, @DDR>) outputs([[BUFF_TILE_0]], [[BUFF_TILE_1]] : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>, memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 1]>) start_after(0) clean_after(0) acceleration_mode(<DISABLE>){{.+}}dma_transaction(#VPUMI40XX.NNDMATransaction<inputType = memref<64x32x1x1xf16, #NHWC, @DDR>, outputType = !VPUIP.DistributedBuffer<64x32x1x1xf16, {order = #NHWC, strides = [32, 1, 32, 32]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64, uniform_distributed_segments}>>){{.+}}-> !VPURegMapped.Index<0:0:0>
+  // CHECK: [[DMA0:%.+]] = VPUMI40XX.NNDMA <{port = 0 : i64}> inputs([[CST]] : memref<64x32x1x1xf16, {order = #NHWC}, @DDR>) outputs([[BUFF_TILE_0]], [[BUFF_TILE_1]] : memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>) start_after(0) clean_after(0) acceleration_mode(<DISABLE>){{.+}}dma_transaction(#VPUMI40XX.NNDMATransaction<inputType = memref<64x32x1x1xf16, {order = #NHWC}, @DDR>, outputType = !VPUIP.DistributedBuffer<64x32x1x1xf16, {order = #NHWC, strides = [32, 1, 32, 32]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64, uniform_distributed_segments}>>){{.+}}-> !VPURegMapped.Index<0:0:0>
 
   return %arg1 : memref<64x32x1x1xf16, @DDR>
 }
@@ -83,7 +83,7 @@ net.NetworkInfo entryPoint : @singleDMADistributeBufferWithNotAdjacentClusters i
 func.func @singleDMADistributeBufferWithNotAdjacentClusters() {
   %3 = VPURT.ConfigureBarrier<1> -> !VPURT.Barrier
   %4 = VPURT.ConfigureBarrier<2> -> !VPURT.Barrier
-  %cst = const.Declare memref<16x32x1x1xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR> = dense<0.0> : tensor<32x32x1x1xf16>, [#const.SubView<[0, 0, 0, 0], [16, 32, 1, 1]>, #const.Reorder<affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>>]
+  %cst = const.Declare memref<16x32x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR> = dense<0.0> : tensor<32x32x1x1xf16>, [#const.SubView<[0, 0, 0, 0], [16, 32, 1, 1]>, #const.Reorder<affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>>]
   %5 = VPURT.DeclareBuffer <CMX_NN> [0, 2] <0> -> !VPUIP.DistributedBuffer<16x32x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, strides = [32, 1, 32, 32]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
   // CHECK: [[BUFFER_0:%.+]] = VPURT.DeclareBuffer
   // CHECK-SAME: [0]
@@ -94,7 +94,7 @@ func.func @singleDMADistributeBufferWithNotAdjacentClusters() {
   // CHECK-NOT: -> !VPUIP.DistributedBuffer
   // CHECK-SAME: -> [[BUFFER_2_TYPE:.+]]
   VPURT.Task waits(%3 : !VPURT.Barrier) updates(%4 : !VPURT.Barrier) {
-    %28 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst : memref<16x32x1x1xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>) outputs(%5 : !VPUIP.DistributedBuffer<16x32x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, strides = [32, 1, 32, 32]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>) -> !VPUIP.DistributedBuffer<16x32x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, strides = [32, 1, 32, 32]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
+    %28 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst : memref<16x32x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR>) outputs(%5 : !VPUIP.DistributedBuffer<16x32x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, strides = [32, 1, 32, 32]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>) -> !VPUIP.DistributedBuffer<16x32x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, strides = [32, 1, 32, 32]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
   }
   // CHECK-NOT: VPURT.Task
   // CHECK-NOT: VPUIP.NNDMA

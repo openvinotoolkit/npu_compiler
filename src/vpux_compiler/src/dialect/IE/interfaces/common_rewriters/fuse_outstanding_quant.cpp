@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -100,11 +101,11 @@ template <typename ConcreteOp>
 mlir::LogicalResult IE::removeQuantOrFusedQuant(ConcreteOp origOp, mlir::PatternRewriter& rewriter,
                                                 ArrayRef<mlir::Operation*> eltwiseToQuantizeOps,
                                                 mlir::Operation* quantOrQuantizedNCE, mlir::Type elementType,
-                                                const SupportedMixedPrecisionFunctor& isMixPrecisionSupported,
                                                 Logger log) {
     if (mlir::isa_and_nonnull<IE::LayerWithPostOpInterface>(quantOrQuantizedNCE)) {
         const auto isPerChannel = IE::isPerAxisQuant(quantOrQuantizedNCE->getResult(0));
-        if (!isMixPrecisionSupported(quantOrQuantizedNCE, !isPerChannel, log)) {
+        auto quantizedLayerOp = mlir::dyn_cast<IE::QuantizedLayerOpInterface>(quantOrQuantizedNCE);
+        if (!quantizedLayerOp || !quantizedLayerOp.isMixPrecisionSupported(!isPerChannel)) {
             return matchFailed(rewriter, origOp, "Producer {0} is not supported", quantOrQuantizedNCE->getName());
         }
 
@@ -150,7 +151,8 @@ mlir::LogicalResult QuantizeWithTwoInputsNCEEltwiseOpGeneric<ConcreteOp>::matchA
     if (noQuantizedInput) {
         return matchFailed(rewriter, origOp, "OrigOp doesn't have quantized input");
     }
-    if (!_isMixPrecisionSupported(origOp, false, _log)) {
+    auto quantizedLayerOp = mlir::dyn_cast<IE::QuantizedLayerOpInterface>(origOp.getOperation());
+    if (!quantizedLayerOp || !quantizedLayerOp.isMixPrecisionSupported(false)) {
         return matchFailed(rewriter, origOp, "OrigOp doesn't support mixed precision");
     }
 
@@ -192,12 +194,12 @@ mlir::LogicalResult QuantizeWithTwoInputsNCEEltwiseOpGeneric<ConcreteOp>::matchA
 
     // Remove the quantize or fused-quantize, and update the type alone the way
     if (auto result = removeQuantOrFusedQuant<ConcreteOp>(origOp, rewriter, lhsEltwiseToQuantizeOps, lhsQuant,
-                                                          elementType, _isMixPrecisionSupported, _log);
+                                                          elementType, _log);
         result.failed()) {
         return result;
     }
     if (auto result = removeQuantOrFusedQuant<ConcreteOp>(origOp, rewriter, rhsEltwiseToQuantizeOps, rhsQuant,
-                                                          elementType, _isMixPrecisionSupported, _log);
+                                                          elementType, _log);
         result.failed()) {
         return result;
     }
@@ -213,7 +215,8 @@ mlir::LogicalResult QuantizeWithAvgPool::matchAndRewrite(IE::AvgPoolOp avgPoolOp
     if (!isInputQuantized) {
         return matchFailed(rewriter, avgPoolOp, "OrigOp doesn't have quantized input");
     }
-    if (!_isMixPrecisionSupported(avgPoolOp, false, _log)) {
+    auto quantizedLayerOp = mlir::dyn_cast<IE::QuantizedLayerOpInterface>(avgPoolOp.getOperation());
+    if (!quantizedLayerOp || !quantizedLayerOp.isMixPrecisionSupported(false)) {
         return matchFailed(rewriter, avgPoolOp, "OrigOp doesn't support mixed precision");
     }
 
@@ -245,8 +248,7 @@ mlir::LogicalResult QuantizeWithAvgPool::matchAndRewrite(IE::AvgPoolOp avgPoolOp
     const mlir::Type elementType = mlir::cast<NDTypeInterface>(quantizeOp.getInput().getType()).getElementType();
 
     // Remove the quantize, and update the type alone the way
-    if (auto result = removeQuantOrFusedQuant(avgPoolOp, rewriter, avgPoolToQuantizeOps, quant, elementType,
-                                              _isMixPrecisionSupported, _log);
+    if (auto result = removeQuantOrFusedQuant(avgPoolOp, rewriter, avgPoolToQuantizeOps, quant, elementType, _log);
         result.failed()) {
         return result;
     }
@@ -290,7 +292,8 @@ mlir::LogicalResult QuantizeWithNCEOp<ConcreteOp>::matchAndRewrite(ConcreteOp or
     if (!mlir::isa<Const::DeclareOp>(getWeightsVal().getDefiningOp())) {
         return matchFailed(rewriter, origOp, "Weights operand must be DeclareOp");
     }
-    if (!_isMixPrecisionSupported(origOp, false, _log)) {
+    auto quantizedLayerOp = mlir::dyn_cast<IE::QuantizedLayerOpInterface>(origOp.getOperation());
+    if (!quantizedLayerOp || !quantizedLayerOp.isMixPrecisionSupported(false)) {
         return matchFailed(rewriter, origOp, "OrigOp doesn't support mixed precision");
     }
 
@@ -314,8 +317,7 @@ mlir::LogicalResult QuantizeWithNCEOp<ConcreteOp>::matchAndRewrite(ConcreteOp or
     const mlir::Type elementType = mlir::cast<NDTypeInterface>(quantizeOp.getInput().getType()).getElementType();
 
     // Remove the quantize, and update the type alone the way
-    if (auto result = removeQuantOrFusedQuant(origOp, rewriter, convToQuantizeOps, quant, elementType,
-                                              _isMixPrecisionSupported, _log);
+    if (auto result = removeQuantOrFusedQuant(origOp, rewriter, convToQuantizeOps, quant, elementType, _log);
         result.failed()) {
         return result;
     }

@@ -300,7 +300,7 @@ public:
                                                  getIntArrayAttr(ctx, maxPoolParams->m_padsBegin),
                                                  getIntArrayAttr(ctx, maxPoolParams->m_padsEnd),
                                                  vpux::IE::RoundingTypeAttr::get(ctx, maxPoolParams->m_roundingType),
-                                                 nullptr, nullptr, nullptr, nullptr);
+                                                 nullptr, nullptr, nullptr, nullptr, nullptr);
         }
         return nullptr;
     }

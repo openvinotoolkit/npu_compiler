@@ -8,12 +8,12 @@
 
 // Note: This test checks if UnifiedFuncInlinerInterface uses the fallback implementation.
 module @FuncCallOpFallback {
-    func.func private @foo(%arg: tensor<1x1x1x1xf32>) -> tensor<1x1x1x1xf32> {
+    func.func nested @foo(%arg: tensor<1x1x1x1xf32>) -> tensor<1x1x1x1xf32> {
         %0 = VPU.Add(%arg, %arg) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x1x1xf32>
         return %0: tensor<1x1x1x1xf32>
     }
 
-    // CHECK-NOT: func.func private @foo
+    // CHECK-NOT: func.func nested @foo
 
     func.func @main(%arg: tensor<1x1x1x1xf32>) -> (tensor<1x1x1x1xf32>) {
         %0 = func.call @foo(%arg) : (tensor<1x1x1x1xf32>) -> tensor<1x1x1x1xf32>

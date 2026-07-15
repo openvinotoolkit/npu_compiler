@@ -95,7 +95,8 @@ mlir::LogicalResult InsertIdPoolRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp
         return mlir::failure();
     }
 
-    auto* identityOp = IE::createIdentityAvgPool(input, input.getType(), rewriter, concreteOp->getLoc());
+    auto* identityOp =
+            IE::createIdentityAvgPool(input, input.getType(), rewriter, takeOpLoc(concreteOp, "identity_avgpool"));
     // The identity AvgPool is inserted so it can later be fused into a DPU (NCE) AvgPool.
     // If the created AvgPool is not supported by NCEAveragePoolOp, it would just be a useless op.
     auto avgPoolOp = mlir::dyn_cast_if_present<IE::AvgPoolOp>(identityOp);
@@ -113,6 +114,8 @@ mlir::LogicalResult InsertIdPoolRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp
     const SmallVector<mlir::Value> inputsToMap = {identityOp->getResult(0)};
     mapper.map(concreteOp->getOperands(), ArrayRef(inputsToMap));
     auto* newLayerOp = rewriter.clone(*concreteOp, mapper);
+
+    newLayerOp->setLoc(takeOpLoc(concreteOp, "with_identity_avgpool"));
     rewriter.replaceOp(concreteOp, newLayerOp->getResult(0));
 
     return mlir::success();

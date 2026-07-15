@@ -19,6 +19,10 @@ const Params params[] = {
 
 }  // namespace
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(CoreThreadingTest);
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(CoreThreadingTestsWithIter);
+
 INSTANTIATE_TEST_SUITE_P(smoke_BehaviorTests_CoreThreadingTest_NPU, CoreThreadingTestsWithCacheEnabled,
                          testing::Combine(testing::ValuesIn(params), testing::Values(20), testing::Values(10)),
                          (ov::test::utils::appendPlatformTypeTestName<CoreThreadingTestsWithCacheEnabled>));

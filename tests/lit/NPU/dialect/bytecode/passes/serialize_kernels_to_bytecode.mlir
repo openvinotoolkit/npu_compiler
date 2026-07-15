@@ -3,13 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --serialize-kernels-to-bytecode %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --serialize-kernels-to-bytecode %s | FileCheck %s
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
 module @BasicKernelSerialization {
   HostExec.Binary @SubModule {
     HostExec.BinaryData @serialized_compute <object = "\00\01\02\03">
-    func.func private @compute(memref<1x3x8x8xf16>, memref<1x3x8x8xf16>) -> memref<1x3x8x8xf16>
+    func.func nested @compute(memref<1x3x8x8xf16>, memref<1x3x8x8xf16>) -> memref<1x3x8x8xf16>
   }
   func.func @main(%arg0: memref<1x3x8x8xf16>, %arg1: memref<1x3x8x8xf16>) -> memref<1x3x8x8xf16> {
     %0 = Core.NestedCall @SubModule::@compute(%arg0, %arg1) : (memref<1x3x8x8xf16>, memref<1x3x8x8xf16>) -> memref<1x3x8x8xf16>
@@ -22,7 +22,7 @@ module @BasicKernelSerialization {
 // CHECK:     bytecode.kernel @compute "\00\01\02\03"
 // CHECK:   }
 // CHECK:   module @SubModule {
-// CHECK:     func.func private @compute(memref<1x3x8x8xf16>, memref<1x3x8x8xf16>) -> memref<1x3x8x8xf16>
+// CHECK:     func.func nested @compute(memref<1x3x8x8xf16>, memref<1x3x8x8xf16>) -> memref<1x3x8x8xf16>
 // CHECK:   }
 
 // -----
@@ -30,11 +30,11 @@ module @BasicKernelSerialization {
 module @MultipleKernels {
   HostExec.Binary @Module1 {
     HostExec.BinaryData @serialized_kernel_a <object = "\00\01">
-    func.func private @kernel_a(memref<1x16xf16>) -> memref<1x16xf16>
+    func.func nested @kernel_a(memref<1x16xf16>) -> memref<1x16xf16>
   }
   HostExec.Binary @Module2 {
     HostExec.BinaryData @serialized_kernel_b <object = "\02\03">
-    func.func private @kernel_b(memref<1x32xf16>) -> memref<1x32xf16>
+    func.func nested @kernel_b(memref<1x32xf16>) -> memref<1x32xf16>
   }
   func.func @main(%arg0: memref<1x16xf16>, %arg1: memref<1x32xf16>) -> memref<1x32xf16> {
     %0 = Core.NestedCall @Module1::@kernel_a(%arg0) : (memref<1x16xf16>) -> memref<1x16xf16>

@@ -538,6 +538,34 @@ mlir::LogicalResult ReshapeNDInputConverter::matchAndRewrite(IE::MatMulOp matmul
         return mlir::failure();
     }
 
+    // If both inputs are 3D after adjustment, check that collapsing original batch dims into a single batch
+    // dimension is semantics-preserving. This is true only when either:
+    //   (a) all aligned batch dims are element-wise equal, OR
+    //   (b) one operand's batch product is 1 (broadcast at 3D preserves semantics).
+    // Counter-example: input1 batch [2,1] × input2 batch [1,2] both flatten to batch=2,
+    // but the correct output requires 2×2=4 matmuls (broadcast), not 2.
+    if (newIn1Shape.size() == 3 && newIn2Shape.size() == 3) {
+        const auto batch1 = newIn1Shape.front();
+        const auto batch2 = newIn2Shape.front();
+        if (batch1 != batch2 && batch1 != 1 && batch2 != 1) {
+            return mlir::failure();
+        }
+        if (batch1 != 1 && batch2 != 1) {
+            const auto numBatchDims1 = input1Shape.size() - 2;
+            const auto numBatchDims2 = input2Shape.size() - 2;
+            const auto maxBatchDims = std::max(numBatchDims1, numBatchDims2);
+            auto getAlignedBatchDim = [&](ShapeRef shape, size_t numBatchDims, size_t i) -> int64_t {
+                return (i >= maxBatchDims - numBatchDims) ? shape[Dim(i - (maxBatchDims - numBatchDims))] : 1;
+            };
+            for (size_t i = 0; i < maxBatchDims; ++i) {
+                if (getAlignedBatchDim(input1Shape, numBatchDims1, i) !=
+                    getAlignedBatchDim(input2Shape, numBatchDims2, i)) {
+                    return mlir::failure();
+                }
+            }
+        }
+    }
+
     if (_enableGroupedMatMul && newIn1Shape.size() > 2 && newIn2Shape.size() > 2 && newIn1Shape.front() != 1 &&
         newIn2Shape.front() != 1) {
         if (IE::isGroupedMatMulBeneficial(matmulOp, newIn1Shape, newIn2Shape)) {

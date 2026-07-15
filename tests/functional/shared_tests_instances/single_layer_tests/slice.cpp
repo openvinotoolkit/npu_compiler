@@ -9,6 +9,9 @@
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(Slice8LayerTest);
+
 class SliceLayerTestCommon : public Slice8LayerTest, virtual public VpuOv2LayerTest {};
 
 TEST_P(SliceLayerTestCommon, NPU3720_SW) {

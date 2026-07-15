@@ -12,8 +12,9 @@ using namespace vpux;
 
 // for a given input and a output requirement(outOrdr and outShape), the function is trying to find a permutation that
 // can use permuteCastOp to convert input to output requirement.
-std::optional<IE::PermuteCastOp> IE::tryToFindPermuteCastOp(mlir::Location loc, mlir::Value input, DimsOrder outOrder,
-                                                            ShapeRef outShape, mlir::PatternRewriter& rewriter) {
+std::optional<IE::PermuteCastOp> IE::tryToFindPermuteCastOp(mlir::Location loc, mlir::Value input,
+                                                            const DimsOrder& outOrder, ShapeRef outShape,
+                                                            mlir::PatternRewriter& rewriter) {
     const auto ctx = rewriter.getContext();
     const auto inputType = mlir::cast<vpux::NDTypeInterface>(input.getType());
     auto hasValidPermutationMap =

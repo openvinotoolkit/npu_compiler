@@ -8,7 +8,7 @@
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!type_DDR = memref<1x3x64x64xf16, #NHWC, @DDR>
+!type_DDR = memref<1x3x64x64xf16, {order = #NHWC}, @DDR>
 
 //CHECK-LABEL: @DMAOutOfOrderOptimization
 func.func @DMAOutOfOrderOptimization() -> !type_DDR {
@@ -38,7 +38,7 @@ func.func @DMAOutOfOrderOptimization() -> !type_DDR {
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!type_DDR = memref<1x3x64x64xf16, #NHWC, @DDR>
+!type_DDR = memref<1x3x64x64xf16, {order = #NHWC}, @DDR>
 
 //CHECK-LABEL: @NoDMAOutOfOrderOptimizationDueToMemOverlap
 func.func @NoDMAOutOfOrderOptimizationDueToMemOverlap() -> !type_DDR {
@@ -67,7 +67,7 @@ func.func @NoDMAOutOfOrderOptimizationDueToMemOverlap() -> !type_DDR {
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!type_DDR = memref<1x3x64x64xf16, #NHWC, @DDR>
+!type_DDR = memref<1x3x64x64xf16, {order = #NHWC}, @DDR>
 
 //CHECK-LABEL: @NoDMAOutOfOrderOptimizationOn3rdTaskDueToMemOverlapWith1stTask
 func.func @NoDMAOutOfOrderOptimizationOn3rdTaskDueToMemOverlapWith1stTask() -> !type_DDR {
@@ -104,7 +104,7 @@ func.func @NoDMAOutOfOrderOptimizationOn3rdTaskDueToMemOverlapWith1stTask() -> !
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!type_DDR = memref<1x3x64x64xf16, #NHWC, @DDR>
+!type_DDR = memref<1x3x64x64xf16, {order = #NHWC}, @DDR>
 
 //CHECK-LABEL: @DMAOutOfOrderOptimizationOn4thTaskEvenWithMemOverlapWith1stTask
 func.func @DMAOutOfOrderOptimizationOn4thTaskEvenWithMemOverlapWith1stTask() -> !type_DDR {
@@ -149,7 +149,7 @@ func.func @DMAOutOfOrderOptimizationOn4thTaskEvenWithMemOverlapWith1stTask() -> 
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!type_DDR = memref<1x3x64x64xf16, #NHWC, @DDR>
+!type_DDR = memref<1x3x64x64xf16, {order = #NHWC}, @DDR>
 
 //CHECK-LABEL: @ParallelDMAOutOfOrderOptimization
 func.func @ParallelDMAOutOfOrderOptimization() -> !type_DDR {

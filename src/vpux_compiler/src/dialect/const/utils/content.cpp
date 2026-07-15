@@ -112,24 +112,19 @@ void fillBuf(ArrayRef<SrcType> src, MutableArrayRef<char> dst) {
 void vpux::Const::Content::copySubByteContent(MutableArrayRef<char> targetData, mlir::Type elemType) const {
     if (_isSplat) {
         const auto bits = vpux::getElemTypeSize(elemType).count();
-        const auto numShifts = CHAR_BIT / bits;
         uint8_t byteValue = 0;
-        int8_t subByteValue = 0;
-        // Previously, in the case of a splat boolean tensor, the value "true" was interpreted as 0x01
-        // Now LLVM interprets the value as 0xff
-        // This change helps to preserve the logic of handling constants on our end
-        // More info here: https://reviews.llvm.org/D133743
-        // The _data can't correctly retrieve data when it is of type Float, but getValues can.
-        // However, getValues does not support subbytes storageElementType.
-        const auto mask = checked_cast<uint8_t>((1 << bits) - 1);
-        if (_storageElemType.isInteger(1)) {
-            subByteValue = _data.data().front() & 1;
-        } else {
-            subByteValue = getSplatValue<int8_t>() & mask;
-        }
+        const auto subByteValue = [this, bits]() {
+            const auto mask = checked_cast<uint8_t>((1 << bits) - 1);
+            if (_storageElemType.isSignedInteger() || _storageElemType.isFloat()) {
+                return static_cast<uint8_t>(getSplatValue<int8_t>() & mask);
+            } else {
+                return static_cast<uint8_t>(getSplatValue<uint8_t>() & mask);
+            }
+        }();
 
+        const auto numShifts = CHAR_BIT / bits;
         for (int64_t shift = 0; shift < numShifts; shift++) {
-            byteValue = (byteValue << bits) + subByteValue;
+            byteValue = (byteValue << bits) | subByteValue;
         }
         std::fill(targetData.begin(), targetData.end(), byteValue);
         return;

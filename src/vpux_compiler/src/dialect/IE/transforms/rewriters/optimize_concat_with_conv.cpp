@@ -29,8 +29,8 @@ using namespace vpux;
 namespace {
 
 bool isElementTypeSupported(mlir::Type elementType) {
-    // Conv in NCE only works on some float and quantized types.
-    return mlir::isa<mlir::FloatType>(elementType) || mlir::quant::QuantizedType::castToStorageType(elementType);
+    // These concat-to-conv rewrites target NCE-friendly convolutions, so allow only F16/BF16 or quantized types.
+    return elementType.isF16() || elementType.isBF16() || mlir::isa<mlir::quant::QuantizedType>(elementType);
 }
 
 //

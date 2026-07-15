@@ -10,19 +10,22 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sibling_ops_analysis.hpp"
+#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
+#include "vpux/compiler/dialect/config/IR/utils.hpp"
 
 #include <mlir/Parser/Parser.h>
 #include "common/utils.hpp"
 
 #include <gtest/gtest.h>
 
-using vpux::config::ArchKind;
+using vpux::config::Platform;
 using namespace vpux;
 using MLIR_VPU_doesTopKLayerFitIntoCMX = MLIR_UnitBase;
 
-const int64_t numDPUs = 5;
+constexpr int64_t numDPUs = 5;
 
 TEST(MLIR_VPU_TilingUtils, BackInferPadsTile) {
     const auto compareInferredPads = [&](ShapeRef inputShape, PadInfo padInfo, ArrayRef<int64_t> kernelSize,
@@ -156,10 +159,8 @@ TEST_F(MLIR_VPU_doesTopKLayerFitIntoCMX, TopKfitsCMX) {
     auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
     ASSERT_TRUE(func != nullptr);
 
-    const auto archKind = ArchKind::NPU37XX;
-
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    auto initCompilerOptions = VPU::InitCompilerOptions(archKind, config::CompilationMode::DefaultHW);
+    auto initCompilerOptions = VPU::InitCompilerOptions(Platform::NPU3720, config::CompilationMode::DefaultHW);
 
     VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
 
@@ -195,10 +196,8 @@ TEST_F(MLIR_VPU_doesTopKLayerFitIntoCMX, TopKdoesNotFitCMX) {
     auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
     ASSERT_TRUE(func != nullptr);
 
-    const auto archKind = ArchKind::NPU37XX;
-
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    auto initCompilerOptions = VPU::InitCompilerOptions(archKind, config::CompilationMode::DefaultHW);
+    auto initCompilerOptions = VPU::InitCompilerOptions(Platform::NPU3720, config::CompilationMode::DefaultHW);
 
     VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
 
@@ -220,19 +219,17 @@ TEST_F(MLIR_VPU_IsSupportedTileSize, UpsamlingSEP) {
     constexpr StringLiteral inputIR = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-    module @test attributes {config.arch = #config.arch_kind<NPU50XX>, config.compilationMode = #config.compilation_mode<DefaultHW>, config.revisionID = #config.revision_id<REVISION_NONE>} {
+    module @test attributes {config.compilationMode = #config.compilation_mode<DefaultHW>, config.platform = #config.platform<NPU5010>, config.revisionID = #config.revision_id<REVISION_NONE>} {
         config.PipelineOptions @Options {
             config.Option @config.FP16CompressedConv : false
             config.Option @config.ReduceSupported : false
             config.Option @config.AutoPaddingODU : false
             config.Option @config.AutoPaddingIDU : false
             config.Option @config.SprLUTEnabled : false
-            config.Option @config.BarrierMaxVariantSum : 64
-            config.Option @config.BarrierMaxVariantCount : 128
-            config.Option @config.MaxKernelSize : 11
+            config.Option @config.BarrierMaxSlotSum : 256
+            config.Option @config.BarrierMaxSlotCount : 256
         }
         config.Resources 1 of @NCE at 1.700000e+03 MHz {
-            config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
             config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
             config.ExecutorResource 2 of @SHAVE_ACT
             config.ExecutorResource 1 of @DPU
@@ -256,11 +253,11 @@ TEST_F(MLIR_VPU_IsSupportedTileSize, UpsamlingSEP) {
                 seAttr = #VPU.SEUpsampling<factors = [1, 1], padding = [1, 1, 1, 1]>
                 } -> !VPU.SparseTensor<data=tensor<1x512x46x60xf16, {order = #NHWC}>, sparsity_map=tensor<1x512x93x121xi1, {order = #NHWC}>, storage_element_table=tensor<1x1x93x121xi32, {order = #NHWC}>, #VPU.SEUpsampling<factors = [1, 1], padding = [1, 1, 1, 1]>>
 
-            %result = VPU.NCE.Convolution(%activation, %weights, %wt) {
+            %result = VPU.NCE.Convolution(%activation, %weights, %wt) rawFilterShape [256, 512, 2, 2] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, prelu_alpha = [1.000000e+00], adder = 0.000000e+00 : f64>,
-                rawFilterShape = [256, 512, 2, 2],
+
                 strides = [1, 1]} : !VPU.SparseTensor<data=tensor<1x512x46x60xf16, {order = #NHWC}>, sparsity_map=tensor<1x512x93x121xi1, {order = #NHWC}>, storage_element_table=tensor<1x1x93x121xi32, {order = #NHWC}>, #VPU.SEUpsampling<factors = [1, 1], padding = [1, 1, 1, 1]>>, tensor<256x512x2x2xf16, {order = #NHWC}>, tensor<256x1x1x4xsi32> -> tensor<1x256x92x120xf16, {order = #NHWC}>
             return %result : tensor<1x256x92x120xf16, {order = #NHWC}>
         }
@@ -347,19 +344,19 @@ TEST_F(MLIR_VPU_isMultiClusterCompatibleForTiling, isSplitOverHeightCompatibleFo
             func.func @main(%arg0: tensor<1x128x32x32xf16, {order = #NHWC}>) -> tensor<1x9216x32x32xf16, {order = #NHWC}> {
                 %cst = const.Declare tensor<9216x1x1x4xsi32> = dense<10> : tensor<9216x1x1x4xsi32>
                 %cst_0 = const.Declare tensor<9216x128x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<9216x128x1x1xf16>, [#const.Reorder<#NHWC>]
-                %0 = VPU.NCE.Convolution(%arg0, %cst_0, %cst) {
+                %0 = VPU.NCE.Convolution(%arg0, %cst_0, %cst) rawFilterShape [9216, 128, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                     ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    rawFilterShape = [9216, 128, 1, 1], strides = [1, 1]} : tensor<1x128x32x32xf16, {order = #NHWC}>, tensor<9216x128x1x1xf16, {order = #NHWC}>, tensor<9216x1x1x4xsi32>
+                     strides = [1, 1]} : tensor<1x128x32x32xf16, {order = #NHWC}>, tensor<9216x128x1x1xf16, {order = #NHWC}>, tensor<9216x1x1x4xsi32>
                     -> tensor<1x9216x32x32xf16, {order = #NHWC}>
                 return %0 : tensor<1x9216x32x32xf16, {order = #NHWC}>
             }
     })";
 
     auto registry = vpux::createDialectRegistry();
-    const auto arch = config::ArchKind::NPU40XX;
-    auto interfacesRegistry = vpux::createInterfacesRegistry(arch);
+    const auto platform = config::Platform::NPU4000;
+    auto interfacesRegistry = vpux::createInterfacesRegistry(platform);
     interfacesRegistry->registerInterfaces(registry);
 
     mlir::MLIRContext ctx(registry);
@@ -367,7 +364,7 @@ TEST_F(MLIR_VPU_isMultiClusterCompatibleForTiling, isSplitOverHeightCompatibleFo
     ASSERT_TRUE(module.get() != nullptr);
 
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    auto initCompilerOptions = VPU::InitCompilerOptions(arch, config::CompilationMode::DefaultHW);
+    auto initCompilerOptions = VPU::InitCompilerOptions(platform, config::CompilationMode::DefaultHW);
     VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
     ASSERT_TRUE(mlir::succeeded(pm.run(module.get())));
 
@@ -414,19 +411,19 @@ TEST_F(MLIR_VPU_isMultiClusterCompatibleForTiling, isSplitOverKernelCompatibleFo
             func.func @main(%arg0: tensor<1x128x32x32xf16, {order = #NHWC}>) -> tensor<1x55296x32x32xf16, {order = #NHWC}> {
                 %cst = const.Declare tensor<55296x1x1x4xsi32> = dense<10> : tensor<55296x1x1x4xsi32>
                 %cst_0 = const.Declare tensor<55296x128x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<55296x128x1x1xf16>, [#const.Reorder<#NHWC>]
-                %0 = VPU.NCE.Convolution(%arg0, %cst_0, %cst) {
+                %0 = VPU.NCE.Convolution(%arg0, %cst_0, %cst) rawFilterShape [55296, 128, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
                     ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    rawFilterShape = [55296, 128, 1, 1], strides = [1, 1]} : tensor<1x128x32x32xf16, {order = #NHWC}>, tensor<55296x128x1x1xf16, {order = #NHWC}>, tensor<55296x1x1x4xsi32>
+                     strides = [1, 1]} : tensor<1x128x32x32xf16, {order = #NHWC}>, tensor<55296x128x1x1xf16, {order = #NHWC}>, tensor<55296x1x1x4xsi32>
                     -> tensor<1x55296x32x32xf16, {order = #NHWC}>
                 return %0 : tensor<1x55296x32x32xf16, {order = #NHWC}>
             }
     })";
 
     auto registry = vpux::createDialectRegistry();
-    const auto arch = config::ArchKind::NPU40XX;
-    auto interfacesRegistry = vpux::createInterfacesRegistry(arch);
+    const auto platform = config::Platform::NPU4000;
+    auto interfacesRegistry = vpux::createInterfacesRegistry(platform);
     interfacesRegistry->registerInterfaces(registry);
 
     mlir::MLIRContext ctx(registry);
@@ -434,7 +431,7 @@ TEST_F(MLIR_VPU_isMultiClusterCompatibleForTiling, isSplitOverKernelCompatibleFo
     ASSERT_TRUE(module.get() != nullptr);
 
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    auto initCompilerOptions = VPU::InitCompilerOptions(arch, config::CompilationMode::DefaultHW);
+    auto initCompilerOptions = VPU::InitCompilerOptions(platform, config::CompilationMode::DefaultHW);
     VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
     ASSERT_TRUE(mlir::succeeded(pm.run(module.get())));
 
@@ -497,11 +494,11 @@ TEST_F(MLIR_VPU_TestDividedTiles, changeRankDividedTiles) {
                     %6 = VPU.ShapeCast {shape = [1, 16, 256, 512]} inputs(%5 : tensor<1x4x256x2048xf16, {order = #NHWC}>) -> tensor<1x16x256x512xf16, {order = #NHWC}>
                     %7 = VPU.PermuteCast(%arg3) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x2048x4x256xf16, {order = #NWCH}> -> tensor<1x4x256x2048xf16, {order = #NHWC}>
                     %8 = VPU.ShapeCast {shape = [1, 16, 256, 512]} inputs(%7 : tensor<1x4x256x2048xf16, {order = #NHWC}>) -> tensor<1x16x256x512xf16, {order = #NHWC}>
-                    %9 = VPU.NCE.Eltwise(%8, %6) {is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, 
-                    op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, 
-                    clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], 
-                    bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>} -> tensor<1x16x256x512xf16, {order = #NHWC}> 
-                VPU.Yield %9 
+                    %9 = VPU.NCE.Eltwise(%8, %6) {is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+                    op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64,
+                    clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00],
+                    bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>} -> tensor<1x16x256x512xf16, {order = #NHWC}>
+                VPU.Yield %9
               }
               return %0 : tensor<1x16x256x512xf16, {order = #NHWC}>
 
@@ -515,10 +512,8 @@ TEST_F(MLIR_VPU_TestDividedTiles, changeRankDividedTiles) {
     auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
     ASSERT_TRUE(func != nullptr);
 
-    const auto archKind = ArchKind::NPU40XX;
-
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    auto initCompilerOptions = VPU::InitCompilerOptions(archKind, config::CompilationMode::DefaultHW);
+    auto initCompilerOptions = VPU::InitCompilerOptions(Platform::NPU4000, config::CompilationMode::DefaultHW);
 
     VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
 
@@ -540,6 +535,151 @@ TEST_F(MLIR_VPU_TestDividedTiles, changeRankDividedTiles) {
         auto outputShape = getShape(lastOp->getResult(0));
         auto strategy = Shape(parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(vf.getTilingStrategy())));
         const auto tiles = fillDividedTiles(lastOp, operations, strategy, outputShape, alignFunction);
+
+        ASSERT_TRUE(mlir::succeeded(tiles));
+    });
+}
+
+TEST_F(MLIR_VPU_TestDividedTiles, alignmentPropagation) {
+    mlir::MLIRContext ctx(registry);
+    constexpr StringLiteral inputIR = R"(
+        #loc0 = loc(unknown)
+        #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+        #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+        #CWNH = affine_map<(d0, d1, d2, d3) -> (d1, d3, d0, d2)>
+        module @main {
+            func.func @main(%arg0: tensor<1x2048x4096x1xf16, {order = #NHWC}>, %arg1: tensor<1x1x4096x2048xf16>) -> tensor<1x1x4096x2048xf16> {
+                %cst = const.Declare tensor<2048x1x1x4xsi32> = dense<1> : tensor<2048x1x1x4xsi32>
+                %cst_0 = const.Declare tensor<2048x2048x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<2048x2048xf16>, [#const.Reshape<[2048, 2048, 1, 1]>, #const.Reorder<#NHWC>]
+
+                %0 = VPU.VerticalFusion (%arg0 as %arg2: tensor<1x2048x4096x1xf16, {order = #NHWC}>, %cst_0 as %arg3: tensor<2048x2048x1x1xf16, {order = #NHWC}>, %cst as %arg4: tensor<2048x1x1x4xsi32>, %arg1 as %arg5: tensor<1x1x4096x2048xf16>) attributes {tilingStrategy = [1, 1, 48, 3]} -> tensor<1x1x4096x2048xf16> {
+                    %1 = VPU.NCE.Convolution(%arg2, %arg3, %arg4) rawFilterShape [2048, 2048, 1, 1] {mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>, resultSegmentSizes = array<i32: 1, 0, 0, 0>, strides = [1, 1]} : tensor<1x2048x4096x1xf16, {order = #NHWC}>, tensor<2048x2048x1x1xf16, {order = #NHWC}>, tensor<2048x1x1x4xsi32> -> tensor<1x2048x4096x1xf16, {order = #NHWC}>
+                    %2 = VPU.PermuteCast(%1) {dst_order = #NCHW, mem_perm = #CWNH} : tensor<1x2048x4096x1xf16, {order = #NHWC}> -> tensor<4096x2048x1x1xf16>
+                    %3 = VPU.AffineReshape(%2) {dim_mapping = [[0, 1, 2], [3], [3], [3]], shape_value = [1, 1, 4096, 2048]} : tensor<4096x2048x1x1xf16> -> tensor<1x1x4096x2048xf16>
+                    %4 = VPU.Multiply(%3, %arg5) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x1x4096x2048xf16>, tensor<1x1x4096x2048xf16> -> tensor<1x1x4096x2048xf16>
+                    VPU.Yield %4
+                }
+
+                return %0 : tensor<1x1x4096x2048xf16>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
+    auto initCompilerOptions = VPU::InitCompilerOptions(Platform::NPU4000, config::CompilationMode::DefaultHW);
+
+    VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
+
+    ASSERT_TRUE(mlir::succeeded(pm.run(module.get())));
+
+    // in current test dynamic alignment function is not needed
+    const auto alignFunction = [](auto*) -> bool {
+        return false;
+    };
+
+    func->walk([&](VPU::VerticalFusionOp vf) {
+        VPU::VF::v2::VFConfig config(vf);
+
+        auto outputs = config.getOutputs();
+        ASSERT_TRUE(outputs.size() == 1);
+        auto* lastOp = outputs.front();
+        auto outputShape = getShape(lastOp->getResult(0));
+        auto strategy = Shape(parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(vf.getTilingStrategy())));
+        const auto tiles =
+                fillDividedTiles(lastOp, config.getVFOperations().getArrayRef(), strategy, outputShape, alignFunction);
+
+        ASSERT_TRUE(mlir::succeeded(tiles));
+        // check that alignment is propagated to the rest tiles
+        auto firstTile = tiles.value().front();
+
+        auto inputs = config.getInputs();
+        ASSERT_TRUE(inputs.size() == 1);
+
+        auto firstOperation = inputs.front();
+        auto channelAlignOp = mlir::dyn_cast<IE::AlignedChannelsOpInterface>(firstOperation);
+        ASSERT_TRUE(channelAlignOp != nullptr);
+        // Dims4D::Act::W -> AffineReshape -> PermuteCast -> Dims4D::Act::C,
+        // check that alignment is propagated through these transformations
+        ASSERT_EQ(firstTile.shape[Dims4D::Act::W] % channelAlignOp.getOutputChannelAlignment(), 0);
+    });
+}
+
+TEST_F(MLIR_VPU_TestDividedTiles, optinalAlignmentForVF) {
+    mlir::MLIRContext ctx(registry);
+    constexpr StringLiteral inputIR = R"(
+        #loc0 = loc(unknown)
+        #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+        #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+        #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+        #NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+
+        !qElemType = !quant.uniform<i8:f16, 0.025219376414429909:55>
+        module @main {
+            func.func @main(%arg0: tensor<1x2048x375x4xf16, {order = #NHWC}>, %arg1: tensor<1x16x1500x32xf16, {order = #NHWC}>) -> tensor<1x512x375x4xf16, {order = #NHWC}> {
+                %cst = const.Declare tensor<512x2048x1x1x!qElemType, {order = #NHWC}> = dense<1.0> : tensor<512x2048x1x1xf16>, [#const.CastElemType<i8>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
+                %cst_0 = const.Declare tensor<512x1x1x4xsi32> = dense<1> : tensor<512x1x1x4xsi32>
+                %cst_1 = const.Declare tensor<512x1x1x4xsi32> = dense<1> : tensor<512x1x1x4xsi32>
+                %cst_2 = const.Declare tensor<512x16x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<512x16x1x1xf16>, [#const.Reorder<#NHWC>]
+                
+                %0 = VPU.VerticalFusion (%arg0 as %arg2: tensor<1x2048x375x4xf16, {order = #NHWC}>, %cst as %arg3: tensor<512x2048x1x1x!qElemType, {order = #NHWC}>, %cst_0 as %arg4: tensor<512x1x1x4xsi32>, %arg1 as %arg5: tensor<1x16x1500x32xf16, {order = #NHWC}>, %cst_2 as %arg6: tensor<512x16x1x1xf16, {order = #NHWC}>, %cst_1 as %arg7: tensor<512x1x1x4xsi32>) attributes {scenario = #VPU.vf_scenario<VF_PIPELINING>, tilingStrategy = [1, 1, 25, 1]} -> tensor<1x512x375x4xf16, {order = #NHWC}> {
+                    %1 = VPU.NCE.Convolution(%arg2, %arg3, %arg4) rawFilterShape [512, 2048, 1, 1] {mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, prelu_alpha = [1.000000e+00], adder = 0.000000e+00 : f64>, resultSegmentSizes = array<i32: 1, 0, 0, 0>, strides = [1, 1]} : tensor<1x2048x375x4xf16, {order = #NHWC}>, tensor<512x2048x1x1x!qElemType, {order = #NHWC}>, tensor<512x1x1x4xsi32> -> tensor<1x512x375x4xf16, {order = #NHWC}> 
+                    %2 = VPU.AffineReshape(%1) {dim_mapping = [[0], [1], [2], [2, 3]], shape_value = [1, 512, 1500, 1]} : tensor<1x512x375x4xf16, {order = #NHWC}> -> tensor<1x512x1500x1xf16, {order = #NHWC}>
+                    %3 = VPU.PermuteCast(%2) {dst_order = #NCHW, mem_perm = affine_map<(d0, d1, d2, d3) -> (d1, d3, d0, d2)>} : tensor<1x512x1500x1xf16, {order = #NHWC}> -> tensor<1500x512x1x1xf16>
+                    %4 = VPU.AffineReshape(%3) {dim_mapping = [[0, 1, 2], [3], [3], [3]], shape_value = [1, 1, 1500, 512]} : tensor<1500x512x1x1xf16> -> tensor<1x1x1500x512xf16>
+                    %5 = VPU.PermuteCast(%4) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x1x1500x512xf16> -> tensor<1x1x1500x512xf16, {order = #NHWC}>
+                    %6 = VPU.ShapeCast {shape = [1, 16, 1500, 32]} inputs(%5 : tensor<1x1x1500x512xf16, {order = #NHWC}>) -> tensor<1x16x1500x32xf16, {order = #NHWC}>
+                    %7 = VPU.NCE.Eltwise(%arg5, %6) {is_inplace = true, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>} -> tensor<1x16x1500x32xf16, {order = #NHWC}> 
+                    %8 = VPU.ShapeCast {shape = [1, 1, 1500, 512]} inputs(%7 : tensor<1x16x1500x32xf16, {order = #NHWC}>) -> tensor<1x1x1500x512xf16, {order = #NHWC}>
+                    %9 = VPU.PermuteCast(%8) {dst_order = #NCHW, mem_perm = #NWCH} : tensor<1x1x1500x512xf16, {order = #NHWC}> -> tensor<1x1x1500x512xf16>
+                    %10 = VPU.AffineReshape(%9) {dim_mapping = [[0], [0], [1], [2, 3]], shape_value = [1, 1500, 512, 1]} : tensor<1x1x1500x512xf16> -> tensor<1x1500x512x1xf16>
+                    %11 = VPU.MVN(%10) {across_channels = false, eps = 9.9999997473787516E-6 : f64, normalize_variance = true} : tensor<1x1500x512x1xf16> -> tensor<1x1500x512x1xf16>
+                    %12 = VPU.PermuteCast(%11) {dst_order = #NHWC, mem_perm = #NCWH} : tensor<1x1500x512x1xf16> -> tensor<1x512x1500x1xf16, {order = #NHWC}>
+                    %13 = VPU.AffineReshape(%12) {dim_mapping = [[0], [1], [2, 3], [3]], shape_value = [1, 512, 375, 4]} : tensor<1x512x1500x1xf16, {order = #NHWC}> -> tensor<1x512x375x4xf16, {order = #NHWC}>
+                    %14 = VPU.NCE.DepthConvolution(%13, %arg6, %arg7) rawFilterShape [512, 1, 1, 1] {mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, prelu_alpha = [1.000000e+00], adder = 0.000000e+00 : f64>, strides = [1, 1]} -> tensor<1x512x375x4xf16, {order = #NHWC}> 
+                    VPU.Yield %14
+                }
+
+                return %0 : tensor<1x512x375x4xf16, {order = #NHWC}> 
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    const auto platform = Platform::NPU5010;
+
+    mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
+    auto initCompilerOptions = VPU::InitCompilerOptions(platform, config::CompilationMode::DefaultHW);
+
+    VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
+
+    ASSERT_TRUE(mlir::succeeded(pm.run(module.get())));
+
+    // in current test dynamic alignment function is not needed
+    const auto alignFunction = [](auto*) -> bool {
+        return false;
+    };
+
+    func->walk([&](VPU::VerticalFusionOp vf) {
+        VPU::VF::v2::VFConfig config(vf);
+
+        auto outputs = config.getOutputs();
+        ASSERT_TRUE(outputs.size() == 1);
+        auto* lastOp = outputs.front();
+        auto outputShape = getShape(lastOp->getResult(0));
+        auto strategy = Shape(parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(vf.getTilingStrategy())));
+        const auto tiles =
+                fillDividedTiles(lastOp, config.getVFOperations().getArrayRef(), strategy, outputShape, alignFunction);
 
         ASSERT_TRUE(mlir::succeeded(tiles));
     });

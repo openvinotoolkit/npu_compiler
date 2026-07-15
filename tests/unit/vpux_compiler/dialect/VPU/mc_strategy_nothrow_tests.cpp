@@ -22,12 +22,11 @@ using MLIR_VPU_ClusteringStrategyNoThrow = vpux::VPU::arch40xx::UnitTest;
 TEST_F(MLIR_VPU_ClusteringStrategyNoThrow, SWLayer_ClusteringStrategy) {
     constexpr llvm::StringLiteral inputIR = R"(
 #loc0 = loc(unknown)
-    module @main attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
+    module @test attributes {config.compilationMode = #config.compilation_mode<DefaultHW>, config.platform = #config.platform<NPU4000>} {
         config.PipelineOptions @Options {
             config.Option @config.EnableODULocalRegion : false
         }
         config.Resources 6 of @NCE at 1.700000e+03 MHz {
-            config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
             config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
             config.ExecutorResource 2 of @SHAVE_ACT
             config.ExecutorResource 1 of @DPU
@@ -108,6 +107,6 @@ TEST_F(MLIR_VPU_ClusteringStrategyNoThrow, SWLayer_ClusteringStrategy) {
     auto layerCostModel = VPU::CostModelConfig::createLayerCostModel(&ctx);
     vpux::VPU::StrategyManager strategyManager(func, tileOp.getCount(), enablePrefetchTiling,
                                                VPU::MCOptimizationScope::SUBGRAPH, siblingsOpsAnalysis, layerCostModel,
-                                               vpux::Logger::global());
+                                               false, vpux::Logger::global());
     EXPECT_NO_THROW(strategyManager.assignMultiClusterStrategy(true));
 }

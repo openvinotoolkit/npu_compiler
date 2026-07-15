@@ -6,10 +6,13 @@
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/utils/concat_utils.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/gather_dma_constants.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/walk_utils.hpp"
@@ -23,6 +26,143 @@ namespace vpux::IE {
 using namespace vpux;
 
 namespace {
+
+//
+// MergeParallelGatherSameIndices
+//
+// Fuses N parallel embedding Gathers sharing the same token index into one Gather.
+// Requires all Gather outputs to be direct inputs of a single downstream ConcatOp.
+//
+// Before:
+//   table_0 ──┐         table_1 ──┐         table_N-1 ──┐
+//   Gather(·,idx)    Gather(·,idx)    ...   Gather(·,idx)
+//       │                │                       │
+//       └────────────────┴───── Concat ───────────┘
+//
+// After:
+//   Concat(table_0,..,table_N-1) ──┐
+//   Add(idx, [0,S,2S,..(N-1)S]) ───┤  S = table_size
+//                           Gather ─┤
+//                          Reshape ──► (same shape as original Concat output)
+//
+
+class MergeParallelGatherSameIndices final : public mlir::OpRewritePattern<IE::ConcatOp> {
+public:
+    MergeParallelGatherSameIndices(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::ConcatOp>(ctx), _log(log) {
+        setDebugName("MergeParallelGatherSameIndices");
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::ConcatOp concatOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult MergeParallelGatherSameIndices::matchAndRewrite(IE::ConcatOp concatOp,
+                                                                    mlir::PatternRewriter& rewriter) const {
+    _log.trace("Got ConcatOp '{0}'", concatOp->getLoc());
+
+    const int64_t numGathers = checked_cast<int64_t>(concatOp.getInputs().size());
+    if (numGathers < 2) {
+        return mlir::failure();
+    }
+    if (!IE::getConcatAxis(concatOp).has_value()) {
+        return mlir::failure();
+    }
+
+    // All inputs must be single-use GatherOps sharing the same indices value.
+    SmallVector<IE::GatherOp> gatherOps;
+    gatherOps.reserve(numGathers);
+    for (auto input : concatOp.getInputs()) {
+        auto g = mlir::dyn_cast_if_present<IE::GatherOp>(input.getDefiningOp());
+        if (g == nullptr || !g->hasOneUse()) {
+            return mlir::failure();
+        }
+        gatherOps.push_back(g);
+    }
+
+    // Indices must be a 1-D single-token tensor [1] of si32 or si64.
+    const auto indices = gatherOps.front().getIndices();
+    const auto indicesType = mlir::cast<NDTypeInterface>(indices.getType());
+    const auto indicesElemType = indicesType.getElementType();
+    if (!indicesElemType.isInteger(32) && !indicesElemType.isInteger(64)) {
+        return mlir::failure();
+    }
+    const auto indicesShape = indicesType.getShape();
+    if (indicesShape.size() != 1 || indicesShape[Dim(0)] != 1) {
+        return mlir::failure();
+    }
+
+    // All GatherOps must share axis, batch_dims == 0, indicesRank, and constant table of equal shape.
+    auto anchor = gatherOps.front();
+    if (!anchor.getAxisValue().has_value() || anchor.getBatchDims() != 0) {
+        return mlir::failure();
+    }
+    const auto anchorAxis = anchor.getAxisValue().value();
+    const auto anchorTableShape = getShape(anchor.getInput());
+
+    SmallVector<mlir::Value> tableInputs;
+    tableInputs.reserve(numGathers);
+
+    for (auto g : gatherOps) {
+        if (!g.getAxisValue().has_value() || g.getAxisValue().value() != anchorAxis) {
+            return mlir::failure();
+        }
+        if (g.getBatchDims() != 0) {
+            return mlir::failure();
+        }
+        if (g.getIndicesRankAttr() != anchor.getIndicesRankAttr()) {
+            return mlir::failure();
+        }
+        if (g.getInput().getDefiningOp<Const::DeclareOp>() == nullptr) {
+            return mlir::failure();
+        }
+        if (getShape(g.getInput()) != anchorTableShape) {
+            return mlir::failure();
+        }
+        if (g.getIndices() != indices) {
+            return mlir::failure();
+        }
+        tableInputs.push_back(g.getInput());
+    }
+
+    // Guard for si32: the largest offset (numGathers-1)*tableSize must fit in int32.
+    const int64_t tableSize = anchorTableShape[Dim(anchorAxis)];
+    if (!indicesElemType.isInteger(64) && (numGathers - 1) * tableSize > std::numeric_limits<int32_t>::max()) {
+        return mlir::failure();
+    }
+
+    _log.trace("Merging {0} parallel GatherOps into single Gather+Reshape", numGathers);
+
+    auto concatTables = rewriter.create<IE::ConcatOp>(concatOp->getLoc(), tableInputs, Dim(anchorAxis));
+    const auto offsetType = mlir::RankedTensorType::get({numGathers}, indicesElemType);
+    auto makeOffsets = [&](auto zeroTag) -> mlir::Value {
+        using T = decltype(zeroTag);
+        SmallVector<T> vals(numGathers);
+        for (int64_t i = 0; i < numGathers; ++i) {
+            vals[i] = checked_cast<T>(i * tableSize);
+        }
+        return Const::createConst(rewriter, concatOp->getLoc(), offsetType, ArrayRef<T>(vals));
+    };
+    mlir::Value offsetConst = indicesElemType.isInteger(64) ? makeOffsets(int64_t{0}) : makeOffsets(int32_t{0});
+
+    auto numpyAttr = IE::AutoBroadcastTypeAttr::get(rewriter.getContext(), IE::AutoBroadcastType::NUMPY);
+    auto mergedIdx = rewriter.create<IE::AddOp>(concatOp->getLoc(), indices, offsetConst, numpyAttr,
+                                                /*post_op=*/nullptr, /*clamp=*/nullptr,
+                                                /*output_padding=*/nullptr, /*input_padding=*/nullptr);
+
+    auto mergedGather = rewriter.create<IE::GatherOp>(
+            concatOp->getLoc(), concatTables.getOutput(), mergedIdx.getOutput(), /*axis=*/nullptr,
+            anchor.getAxisValueAttr(), anchor.getBatchDims(), anchor.getIndicesRankAttr());
+
+    const auto concatShape = getShape(concatOp.getOutput());
+    auto reshaped = rewriter.create<IE::ReshapeOp>(concatOp->getLoc(), mergedGather.getOutput(),
+                                                   getIntArrayAttr(rewriter.getContext(), concatShape));
+
+    rewriter.replaceOp(concatOp, reshaped.getOutput());
+    return mlir::success();
+}
 
 class ConvertToGather final : public mlir::OpRewritePattern<IE::ConcatOp> {
 public:
@@ -322,6 +462,7 @@ void ConvertParallelSlicesToGatherPass::safeRunOnFunc() {
     _maxGatherDMAElementSize = VPU::getGatherDMAMaxElementSize(arch);
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<ConvertToGather>(&ctx, _maxGatherDMAIndicesListLength, _maxGatherDMAElementSize, _log);
+    patterns.add<MergeParallelGatherSameIndices>(&ctx, _log);
 
     collectOpsAndApplyPatterns(func, std::move(patterns));
 }

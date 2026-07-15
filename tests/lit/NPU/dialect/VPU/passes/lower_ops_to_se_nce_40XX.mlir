@@ -49,10 +49,9 @@ func.func @InterpolateNearestLargeChannels(%input: tensor<1x144x3x3xf16, {order 
     // CHECK-SAME:      : tensor<144x144x1x1xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
     // CHECK:       [[WEIGHTS_TABLE:%.+]] = const.Declare tensor<144x1x1x4xsi32>
 
-    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Interpolate([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]])
+    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Interpolate([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [144, 144, 1, 1]
     // CHECK-SAME:      {mode = #VPU.nce_interpolate_mode<NEAREST>,
     // CHECK-SAME:       ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
-    // CHECK-SAME:       rawFilterShape = [144, 144, 1, 1],
     // CHECK-SAME:       strides = [1, 1]}
     // CHECK-SAME:      -> tensor<1x144x6x6xf16, {order = #NHWC}>
 
@@ -103,10 +102,9 @@ func.func @InterpolateBilinearAsymmetricLargeChannels(%input: tensor<1x144x3x3xf
     // CHECK-SAME:      : tensor<144x144x2x2xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
     // CHECK:       [[WEIGHTS_TABLE:%.+]] = const.Declare tensor<144x1x1x4xsi32>
 
-    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Interpolate([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]])
+    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Interpolate([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [144, 144, 2, 2]
     // CHECK-SAME:      {mode = #VPU.nce_interpolate_mode<BILINEAR>,
     // CHECK-SAME:      ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
-    // CHECK-SAME:       rawFilterShape = [144, 144, 2, 2],
     // CHECK-SAME:       strides = [1, 1]}
     // CHECK-SAME:      -> tensor<1x144x6x6xf16, {order = #NHWC}>
 
@@ -157,10 +155,9 @@ func.func @InterpolateBilinearHalfPixelLargeChannels(%input: tensor<1x144x3x3xf1
     // CHECK-SAME:      : tensor<144x144x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
     // CHECK:       [[WEIGHTS_TABLE:%.+]] = const.Declare tensor<144x1x1x4xsi32>
 
-    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Interpolate([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]])
+    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Interpolate([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [144, 144, 3, 3]
     // CHECK-SAME:      {mode = #VPU.nce_interpolate_mode<BILINEAR>,
     // CHECK-SAME:      ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
-    // CHECK-SAME:       rawFilterShape = [144, 144, 3, 3],
     // CHECK-SAME:       strides = [1, 1]}
     // CHECK-SAME:      -> tensor<1x144x6x6xf16, {order = #NHWC}>
 
@@ -211,10 +208,9 @@ func.func @InterpolateBilinearPytorchHalfPixelLargeChannels(%input: tensor<1x144
     // CHECK-SAME:      : tensor<144x144x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
     // CHECK:       [[WEIGHTS_TABLE:%.+]] = const.Declare tensor<144x1x1x4xsi32>
 
-    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Interpolate([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]])
+    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Interpolate([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [144, 144, 3, 3]
     // CHECK-SAME:      {mode = #VPU.nce_interpolate_mode<BILINEAR>,
     // CHECK-SAME:      ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
-    // CHECK-SAME:       rawFilterShape = [144, 144, 3, 3],
     // CHECK-SAME:       strides = [1, 1]}
     // CHECK-SAME:      -> tensor<1x144x6x6xf16, {order = #NHWC}>
 
@@ -268,10 +264,9 @@ func.func @InterpolateBilinearAlignCornersWithLargeChannels(%input: tensor<1x144
     // CHECK-SAME:      : tensor<144x144x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
     // CHECK:       [[WEIGHTS_TABLE:%.+]] = const.Declare tensor<144x1x1x4xsi32>
 
-    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Interpolate([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]])
+    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Interpolate([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [144, 144, 3, 3]
     // CHECK-SAME:      {mode = #VPU.nce_interpolate_mode<BILINEAR>,
     // CHECK-SAME:      ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
-    // CHECK-SAME:       rawFilterShape = [144, 144, 3, 3],
     // CHECK-SAME:       strides = [1, 1]}
     // CHECK-SAME:      -> tensor<1x144x7x7xf16, {order = #NHWC}>
 

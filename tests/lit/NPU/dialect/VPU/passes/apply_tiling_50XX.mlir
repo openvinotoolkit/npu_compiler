@@ -11,7 +11,6 @@
 // CHECK-LABEL: @NCEConvWithUnpaddedOutputChannels
 module @NCEConvWithUnpaddedOutputChannels {
     config.Resources 3 of @NCE at 6.000000e+02 MHz {
-        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
         config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
     config.PipelineOptions @Options {
@@ -19,12 +18,12 @@ module @NCEConvWithUnpaddedOutputChannels {
     }
     // CHECK: ([[INPUT:%.+]]: tensor<1x16x512x512xf16, {order = #NHWC}>, [[WEIGHTS:%.+]]: tensor<3x16x1x1xf16, {order = #NHWC}>, [[WEIGHTS_TABLE:%.+]]: tensor<16x1x1x4xsi32>)
     func.func @main(%input: tensor<1x16x512x512xf16, {order = #NHWC}>, %weights: tensor<3x16x1x1xf16, {order = #NHWC}>, %weights_table: tensor<16x1x1x4xsi32>) -> tensor<1x3x512x512xf16, {order = #NHWC}> {
-        %0 = VPU.NCE.Convolution(%input, %weights, %weights_table) {
+        %0 = VPU.NCE.Convolution(%input, %weights, %weights_table) rawFilterShape [3, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             input_padding = [0, 13, 0, 0],
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            rawFilterShape = [3, 16, 1, 1],
+
             strides = [1, 1],
             tilingStrategy = [1, 1, 3, 1]
         } : tensor<1x16x512x512xf16, {order = #NHWC}>, tensor<3x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x3x512x512xf16, {order = #NHWC}>
@@ -52,7 +51,6 @@ module @NCEConvWithUnpaddedOutputChannels {
 // CHECK-LABEL: @NCEDepthConvWithUnpaddedOutputChannels
 module @NCEDepthConvWithUnpaddedOutputChannels {
     config.Resources 3 of @NCE at 6.000000e+02 MHz {
-        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
         config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
     config.PipelineOptions @Options {
@@ -60,12 +58,12 @@ module @NCEDepthConvWithUnpaddedOutputChannels {
     }
     // CHECK: ([[INPUT:%.+]]: tensor<1x16x512x512xf16, {order = #NHWC}>, [[WEIGHTS:%.+]]: tensor<3x1x4x8xf16, {order = #NHWC}>, [[WEIGHTS_TABLE:%.+]]: tensor<16x1x1x4xsi32>)
     func.func @main(%input: tensor<1x16x512x512xf16, {order = #NHWC}>, %weights: tensor<3x1x4x8xf16, {order = #NHWC}>, %weights_table: tensor<16x1x1x4xsi32>) -> tensor<1x3x509x505xf16, {order = #NHWC}> {
-        %0 = VPU.NCE.DepthConvolution(%input, %weights, %weights_table) {
+        %0 = VPU.NCE.DepthConvolution(%input, %weights, %weights_table) rawFilterShape [3, 1, 4, 8] {
             input_padding = [0, 13, 0, 0],
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            rawFilterShape = [3, 1, 4, 8],
+
             strides = [1, 1],
             tilingStrategy = [1, 1, 3, 1]
         } -> tensor<1x3x509x505xf16, {order = #NHWC}>
@@ -93,7 +91,6 @@ module @NCEDepthConvWithUnpaddedOutputChannels {
 // CHECK-LABEL: @NCEMaxPoolWithUnpaddedOutputChannels
 module @NCEMaxPoolWithUnpaddedOutputChannels {
     config.Resources 3 of @NCE at 6.000000e+02 MHz {
-        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
         config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
     config.PipelineOptions @Options {
@@ -101,7 +98,7 @@ module @NCEMaxPoolWithUnpaddedOutputChannels {
     }
     // CHECK: ([[INPUT:%.+]]: tensor<1x16x512x512xf16, {order = #NHWC}>)
     func.func @main(%arg0: tensor<1x16x512x512xf16, {order = #NHWC}>) -> tensor<1x3x512x512xf16, {order = #NHWC}> {
-        %0 = VPU.NCE.MaxPool(%arg0) {
+        %0 = VPU.NCE.MaxPool(%arg0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             input_padding = [0, 13, 0, 0],
             kernel_size = [1, 1],
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
@@ -134,7 +131,6 @@ module @NCEMaxPoolWithUnpaddedOutputChannels {
 // CHECK-LABEL: @NCEAvgPoolWithUnpaddedOutputChannels
 module @NCEAvgPoolWithUnpaddedOutputChannels {
     config.Resources 3 of @NCE at 6.000000e+02 MHz {
-        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
         config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
     config.PipelineOptions @Options {
@@ -175,7 +171,6 @@ module @NCEAvgPoolWithUnpaddedOutputChannels {
 // CHECK-LABEL: @NCEEltwiseWithUnpaddedOutputChannels
 module @NCEEltwiseWithUnpaddedOutputChannels {
     config.Resources 3 of @NCE at 6.000000e+02 MHz {
-        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
         config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
     config.PipelineOptions @Options {
@@ -211,7 +206,6 @@ module @NCEEltwiseWithUnpaddedOutputChannels {
 #NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
 
 config.Resources 3 of @NCE at 2.100000e+03 MHz {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU
@@ -237,7 +231,7 @@ func.func @FlashSDPA8kSeqLen(%arg0: tensor<1x1x8192x32xf16>, %arg1: tensor<1x1x1
 
     %result_running_output, %result_running_max, %result_running_sum =
         VPU.FlashSDPA(%arg0, %arg1, %value_reordered, %cst_2, %cst_1, %cst_0, %cst, %cst_5, %cst_4, %cst_3, %arg3) {
-                is_head = true, is_tail = true, kv_num_blocks = 1 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+                is_head = true, is_tail = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 source_seq_len_pad_size = 0 : i64, tilingStrategy = [1, 1, 2, 1]
             } : tensor<1x1x8192x32xf16>, tensor<1x1x128x32xf16>, tensor<1x1x128x64xf16, {order = #NCWH}>,
                 tensor<1x1x8192x128xf16>, tensor<1x1x2x256xsi32>, tensor<1x1x128x4xsi32>,
@@ -269,7 +263,7 @@ func.func @FlashSDPA8kSeqLen(%arg0: tensor<1x1x8192x32xf16>, %arg1: tensor<1x1x1
     // CHECK-SAME:              VPU.FlashSDPA([[QUERY0]], [[KEY]], [[VALUE_REORDERED]], [[IN_AUX0]],
     // CHECK-SAME:                            [[DPU_DESCRIPTORS_BUF]], [[WEIGHTS_TABLE_0]], [[WEIGHTS_TABLE_1]],
     // CHECK-SAME:                            [[IN_OUT0]], [[IN_MAX0]], [[IN_SUM0]], [[ATTENTION_MASK0]]) {
-    // CHECK-SAME:                      is_head = true, is_tail = true, kv_num_blocks = 1 : i64
+    // CHECK-SAME:                      is_head = true, is_tail = true
     // CHECK-SAME:                      multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
     // CHECK-SAME:                      source_seq_len_pad_size = 0 : i64
     // CHECK-SAME:                  -> tensor<1x1x4128x64xf16>, tensor<1x1x4128x1xf16>, tensor<1x1x4128x1xf32>
@@ -280,7 +274,7 @@ func.func @FlashSDPA8kSeqLen(%arg0: tensor<1x1x8192x32xf16>, %arg1: tensor<1x1x1
     // CHECK-SAME:              VPU.FlashSDPA([[QUERY1]], [[KEY]], [[VALUE_REORDERED]], [[IN_AUX1]],
     // CHECK-SAME:                            [[DPU_DESCRIPTORS_BUF]], [[WEIGHTS_TABLE_0]], [[WEIGHTS_TABLE_1]],
     // CHECK-SAME:                            [[IN_OUT1]], [[IN_MAX1]], [[IN_SUM1]], [[ATTENTION_MASK1]])
-    // CHECK-SAME:                      is_head = true, is_tail = true, kv_num_blocks = 1 : i64
+    // CHECK-SAME:                      is_head = true, is_tail = true
     // CHECK-SAME:                      multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
     // CHECK-SAME:                      source_seq_len_pad_size = 0 : i64
     // CHECK-SAME:                  -> tensor<1x1x4064x64xf16>, tensor<1x1x4064x1xf16>, tensor<1x1x4064x1xf32>
@@ -295,7 +289,6 @@ func.func @FlashSDPA8kSeqLen(%arg0: tensor<1x1x8192x32xf16>, %arg1: tensor<1x1x1
 #NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
 
 config.Resources 3 of @NCE at 2.100000e+03 MHz {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU
@@ -322,7 +315,6 @@ func.func @FlashSDPATargetSeqLenEqual1(%arg0: tensor<1x24x1x64xf16>, %arg1: tens
         VPU.FlashSDPA(%arg0, %arg1, %value_reordered, %cst_2, %cst_1, %cst_0, %cst, %cst_5, %cst_4, %cst_3) {
                 is_head = true,
                 is_tail = true,
-                kv_num_blocks = 1 : i64,
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
                 source_seq_len_pad_size = 0 : i64,
                 tilingStrategy = [1, 2, 1, 1]
@@ -358,7 +350,7 @@ func.func @FlashSDPATargetSeqLenEqual1(%arg0: tensor<1x24x1x64xf16>, %arg1: tens
     // CHECK-SAME:          VPU.FlashSDPA([[QUERY0]], [[KEY0]], [[VALUE0]], [[IN_AUX]],
     // CHECK-SAME:                        [[DPU_DESCRIPTORS_BUF]], [[WEIGHTS_TABLE_0]], [[WEIGHTS_TABLE_1]],
     // CHECK-SAME:                        [[IN_OUT0]], [[IN_MAX0]], [[IN_SUM0]]) {
-    // CHECK-SAME:              is_head = true, is_tail = true, kv_num_blocks = 1 : i64,
+    // CHECK-SAME:              is_head = true, is_tail = true,
     // CHECK-SAME:              multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>
     // CHECK-SAME:              source_seq_len_pad_size = 0 : i64
 
@@ -370,7 +362,7 @@ func.func @FlashSDPATargetSeqLenEqual1(%arg0: tensor<1x24x1x64xf16>, %arg1: tens
     // CHECK-SAME:          VPU.FlashSDPA([[QUERY1]], [[KEY1]], [[VALUE1]], [[IN_AUX]],
     // CHECK-SAME:                        [[DPU_DESCRIPTORS_BUF]], [[WEIGHTS_TABLE_0]], [[WEIGHTS_TABLE_1]],
     // CHECK-SAME:                        [[IN_OUT1]], [[IN_MAX1]], [[IN_SUM1]]) {
-    // CHECK-SAME:              is_head = true, is_tail = true, kv_num_blocks = 1 : i64,
+    // CHECK-SAME:              is_head = true, is_tail = true,
     // CHECK-SAME:              multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>
     // CHECK-SAME:              source_seq_len_pad_size = 0 : i64
 

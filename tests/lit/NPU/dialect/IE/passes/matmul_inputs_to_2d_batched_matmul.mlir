@@ -506,6 +506,40 @@ func.func @NotConvertMatMulWithBatchToGroupConvInCaseOutputChannelNonOne(%arg0: 
 
 // -----
 
+// CHECK-LABEL: @BroadcastMatmulIsUnrolled
+// CHECK-SAME:  [[ARG0:%.+]]: tensor<1x1x3x3xf32>, [[ARG1:%.+]]: tensor<1x4x3x3xf32>
+func.func @BroadcastMatmulIsUnrolled(%arg0: tensor<1x1x3x3xf32>, %arg1: tensor<1x4x3x3xf32>) -> tensor<1x4x3x3xf32> {
+    %0 = IE.MatMul(%arg0, %arg1) : tensor<1x1x3x3xf32>, tensor<1x4x3x3xf32> -> tensor<1x4x3x3xf32>
+    return %0 : tensor<1x4x3x3xf32>
+
+    // input1 (batch=1) is reshaped once and reused for all 4 matmuls.
+    // CHECK:       [[RESHAPE_IN0:%.+]] = IE.AffineReshape([[ARG0]])
+    // CHECK-SAME{LITERAL}:  {dim_mapping = [[0], [0], [0], [1]], shape_value = [3, 3]} : tensor<1x1x3x3xf32> -> tensor<3x3xf32>
+    // input2 (batch=4) is sliced into 4 individual matrices.
+    // CHECK:       [[SLICE0:%.+]] = IE.Slice [[ARG1]] [0, 0, 0, 0] [1, 1, 3, 3] : tensor<1x4x3x3xf32> to tensor<1x1x3x3xf32>
+    // CHECK:       [[RESHAPE0:%.+]] = IE.AffineReshape([[SLICE0]])
+    // CHECK-SAME{LITERAL}:  {dim_mapping = [[0], [0], [0], [1]], shape_value = [3, 3]} : tensor<1x1x3x3xf32> -> tensor<3x3xf32>
+    // CHECK:       [[SLICE1:%.+]] = IE.Slice [[ARG1]] [0, 1, 0, 0] [1, 1, 3, 3] : tensor<1x4x3x3xf32> to tensor<1x1x3x3xf32>
+    // CHECK:       [[RESHAPE1:%.+]] = IE.AffineReshape([[SLICE1]])
+    // CHECK-SAME{LITERAL}:  {dim_mapping = [[0], [0], [0], [1]], shape_value = [3, 3]} : tensor<1x1x3x3xf32> -> tensor<3x3xf32>
+    // CHECK:       [[SLICE2:%.+]] = IE.Slice [[ARG1]] [0, 2, 0, 0] [1, 1, 3, 3] : tensor<1x4x3x3xf32> to tensor<1x1x3x3xf32>
+    // CHECK:       [[RESHAPE2:%.+]] = IE.AffineReshape([[SLICE2]])
+    // CHECK-SAME{LITERAL}:  {dim_mapping = [[0], [0], [0], [1]], shape_value = [3, 3]} : tensor<1x1x3x3xf32> -> tensor<3x3xf32>
+    // CHECK:       [[SLICE3:%.+]] = IE.Slice [[ARG1]] [0, 3, 0, 0] [1, 1, 3, 3] : tensor<1x4x3x3xf32> to tensor<1x1x3x3xf32>
+    // CHECK:       [[RESHAPE3:%.+]] = IE.AffineReshape([[SLICE3]])
+    // CHECK-SAME{LITERAL}:  {dim_mapping = [[0], [0], [0], [1]], shape_value = [3, 3]} : tensor<1x1x3x3xf32> -> tensor<3x3xf32>
+    // CHECK:       [[MATMUL0:%.+]] = IE.MatMul([[RESHAPE_IN0]], [[RESHAPE0]]) : tensor<3x3xf32>, tensor<3x3xf32> -> tensor<3x3xf32>
+    // CHECK:       [[MATMUL1:%.+]] = IE.MatMul([[RESHAPE_IN0]], [[RESHAPE1]]) : tensor<3x3xf32>, tensor<3x3xf32> -> tensor<3x3xf32>
+    // CHECK:       [[MATMUL2:%.+]] = IE.MatMul([[RESHAPE_IN0]], [[RESHAPE2]]) : tensor<3x3xf32>, tensor<3x3xf32> -> tensor<3x3xf32>
+    // CHECK:       [[MATMUL3:%.+]] = IE.MatMul([[RESHAPE_IN0]], [[RESHAPE3]]) : tensor<3x3xf32>, tensor<3x3xf32> -> tensor<3x3xf32>
+    // CHECK:       [[CONCAT:%.+]] = IE.Concat([[MATMUL0]], [[MATMUL1]], [[MATMUL2]], [[MATMUL3]]) {per_axis = #IE.Concat<axis = 0 : i64>} : tensor<3x3xf32>, tensor<3x3xf32>, tensor<3x3xf32>, tensor<3x3xf32> -> tensor<12x3xf32>
+    // CHECK:       [[OUT:%.+]] = IE.AffineReshape([[CONCAT]])
+    // CHECK-SAME{LITERAL}:  {dim_mapping = [[0, 1, 2], [3]], shape_value = [1, 4, 3, 3]} : tensor<12x3xf32> -> tensor<1x4x3x3xf32>
+    // CHECK:       return [[OUT]] : tensor<1x4x3x3xf32>
+}
+
+// -----
+
 // CHECK-LABEL: @NotConvertMatMulWithBatchToGroupConvInCaseLargeInputChannel
 // CHECK-SAME:    [[INPUT0:%.+]]: tensor<1x16x4x16xf32>, [[INPUT1:%.+]]: tensor<1x16x1x16xf32>
 func.func @NotConvertMatMulWithBatchToGroupConvInCaseLargeInputChannel(%arg0: tensor<1x16x4x16xf32>, %arg1: tensor<1x16x1x16xf32>) -> tensor<1x16x4x1xf32> {
@@ -516,4 +550,40 @@ func.func @NotConvertMatMulWithBatchToGroupConvInCaseLargeInputChannel(%arg0: te
     // CHECK: [[MATMUL:%.+]] = IE.MatMul([[INPUT0]], [[INPUT1]]) {transpose_b} : tensor<1x16x4x16xf32>, tensor<1x16x1x16xf32> -> tensor<1x16x4x1xf32>
 
     // CHECK: return [[MATMUL]] : tensor<1x16x4x1xf32>
+}
+
+// -----
+
+// Test: Broadcastable multi-batch MatMul that would collapse into incompatible flattened batches.
+// [2,3,4,16] x [2,1,16,8]: after adjustTo3DShape → [6,4,16] x [2,16,8], batches 6 vs 2 are
+// incompatible (neither equal nor 1). The rewriter must leave the MatMul unchanged.
+
+// CHECK-LABEL: @MatMulBroadcastBatchIncompatibleAfterFlatten
+// CHECK-SAME:    [[INPUT0:%.+]]: tensor<2x3x4x16xf16>, [[INPUT1:%.+]]: tensor<2x1x16x8xf16>
+func.func @MatMulBroadcastBatchIncompatibleAfterFlatten(%arg0: tensor<2x3x4x16xf16>, %arg1: tensor<2x1x16x8xf16>) -> tensor<2x3x4x8xf16> {
+    %0 = IE.MatMul(%arg0, %arg1) : tensor<2x3x4x16xf16>, tensor<2x1x16x8xf16> -> tensor<2x3x4x8xf16>
+
+    return %0 : tensor<2x3x4x8xf16>
+
+    // CHECK: [[MATMUL:%.+]] = IE.MatMul([[INPUT0]], [[INPUT1]]) : tensor<2x3x4x16xf16>, tensor<2x1x16x8xf16> -> tensor<2x3x4x8xf16>
+
+    // CHECK: return [[MATMUL]] : tensor<2x3x4x8xf16>
+}
+
+// -----
+
+// Test: Per-dim batch mismatch where flattened products coincidentally match.
+// [2,1,4,16] x [1,2,16,8]: both flatten to batch=2, but per-dim batches [2,1] vs [1,2] differ.
+// Collapsing would incorrectly pair elements. The rewriter must leave the MatMul unchanged.
+
+// CHECK-LABEL: @MatMulPerDimBatchMismatchSameProduct
+// CHECK-SAME:    [[INPUT0:%.+]]: tensor<2x1x4x16xf16>, [[INPUT1:%.+]]: tensor<1x2x16x8xf16>
+func.func @MatMulPerDimBatchMismatchSameProduct(%arg0: tensor<2x1x4x16xf16>, %arg1: tensor<1x2x16x8xf16>) -> tensor<2x2x4x8xf16> {
+    %0 = IE.MatMul(%arg0, %arg1) : tensor<2x1x4x16xf16>, tensor<1x2x16x8xf16> -> tensor<2x2x4x8xf16>
+
+    return %0 : tensor<2x2x4x8xf16>
+
+    // CHECK: [[MATMUL:%.+]] = IE.MatMul([[INPUT0]], [[INPUT1]]) : tensor<2x1x4x16xf16>, tensor<1x2x16x8xf16> -> tensor<2x2x4x8xf16>
+
+    // CHECK: return [[MATMUL]] : tensor<2x2x4x8xf16>
 }

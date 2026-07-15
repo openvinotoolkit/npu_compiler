@@ -86,10 +86,10 @@ func.func @ConvertSprLUTToConstWithDistributedOp(%data: !InputDistributedType,
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @ConvertSprLUTToConstMemRef
-func.func @ConvertSprLUTToConstMemRef(%data: memref<1x16x16x16xf16, #NHWC, @CMX_NN>,
-                                      %weights: memref<16x16x1x1xf16, #NHWC, @CMX_NN>)
-                                      -> memref<1x16x16x16xf16, #NHWC, @CMX_NN> {
-    %conv_cmx_outbuf = memref.alloc() : memref<1x16x16x16xf16, #NHWC, @CMX_NN>
+func.func @ConvertSprLUTToConstMemRef(%data: memref<1x16x16x16xf16, {order = #NHWC}, @CMX_NN>,
+                                      %weights: memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>)
+                                      -> memref<1x16x16x16xf16, {order = #NHWC}, @CMX_NN> {
+    %conv_cmx_outbuf = memref.alloc() : memref<1x16x16x16xf16, {order = #NHWC}, @CMX_NN>
 
     %nce_output = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 366 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
                             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
@@ -98,11 +98,11 @@ func.func @ConvertSprLUTToConstMemRef(%data: memref<1x16x16x16xf16, #NHWC, @CMX_
                             mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
                             task_type = #VPUIP.nce_task_type<CONV>
                         }>
-                        input(%data: memref<1x16x16x16xf16, #NHWC, @CMX_NN>)
-                        weights(%weights: memref<16x16x1x1xf16, #NHWC, @CMX_NN>)
-                        parent_input(%data: memref<1x16x16x16xf16, #NHWC, @CMX_NN>)
-                        parent_output(%conv_cmx_outbuf : memref<1x16x16x16xf16, #NHWC, @CMX_NN>)
-                        outputs(%conv_cmx_outbuf : memref<1x16x16x16xf16, #NHWC, @CMX_NN>) -> memref<1x16x16x16xf16, #NHWC, @CMX_NN> variants : {
+                        input(%data: memref<1x16x16x16xf16, {order = #NHWC}, @CMX_NN>)
+                        weights(%weights: memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>)
+                        parent_input(%data: memref<1x16x16x16xf16, {order = #NHWC}, @CMX_NN>)
+                        parent_output(%conv_cmx_outbuf : memref<1x16x16x16xf16, {order = #NHWC}, @CMX_NN>)
+                        outputs(%conv_cmx_outbuf : memref<1x16x16x16xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x16x16x16xf16, {order = #NHWC}, @CMX_NN> variants : {
         DPUTask {cluster_id = 0 : i64, inEnd = [15, 5, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [15, 5, 15], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 1 : i64, inEnd = [15, 4, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [15, 4, 15], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 2 : i64, inEnd = [15, 4, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [15, 4, 15], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
@@ -115,7 +115,7 @@ func.func @ConvertSprLUTToConstMemRef(%data: memref<1x16x16x16xf16, #NHWC, @CMX_
                                     sprlut = dense<0> : tensor<224xui16>>}
     }
 
-    return %nce_output : memref<1x16x16x16xf16, #NHWC, @CMX_NN>
+    return %nce_output : memref<1x16x16x16xf16, {order = #NHWC}, @CMX_NN>
 }
 
 // CHECK:       [[SPRLUT_CONST:%.+]] = const.Declare memref<224xui16> = dense<0> : tensor<224xui16>

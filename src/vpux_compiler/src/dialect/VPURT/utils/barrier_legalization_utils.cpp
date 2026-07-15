@@ -156,20 +156,6 @@ size_t VPURT::countIndependentTaskExecutors(mlir::func::FuncOp func) {
     return dmaPortNum * dmaChannels + numTiles * (numDpuExecutorsPerTile + numShaveExecutorsPerTile);
 }
 
-bool VPURT::verifyOneWaitBarrierPerTask(mlir::func::FuncOp funcOp, Logger log) {
-    bool hasOneWaitBarrierPerTask = true;
-    funcOp->walk([&](VPURT::TaskOp taskOp) {
-        if (taskOp.getWaitBarriers().size() > 1) {
-            log.warning("Task '{0}' has more than one wait barrier", taskOp.getLoc());
-            hasOneWaitBarrierPerTask = false;
-            return mlir::WalkResult::interrupt();
-        }
-        return mlir::WalkResult::advance();
-    });
-
-    return hasOneWaitBarrierPerTask;
-}
-
 // simulate execution of tasks an barriers to generate an order for tasks an barriers which will represent execution
 // order tasks and barriers in IR to match that order - required for virtual to physical barrier mapping
 // orderByConsumption = false, barriers are ordered based on first producer, orderByConsumption = true: barriers are
@@ -335,34 +321,36 @@ void VPURT::orderExecutionTasksAndBarriers(mlir::func::FuncOp funcOp, BarrierInf
     barrierInfo = vpux::BarrierInfo{funcOp};
 }
 
-size_t VPURT::getFinalBarriersCount(mlir::func::FuncOp funcOp) {
+size_t VPURT::getFinalBarriersCount(mlir::func::FuncOp funcOp, VPURT::BarrierOpInterface* lastBarrierOp) {
     size_t finalBarriersCount = 0;
-    auto barrierOps = to_small_vector(funcOp.getOps<VPURT::DeclareVirtualBarrierOp>());
-
-    for (auto& barrierOp : barrierOps) {
+    VPURT::BarrierOpInterface lastBarrierOpInFunc = nullptr;
+    funcOp->walk([&](VPURT::BarrierOpInterface barrierOp) {
+        lastBarrierOpInFunc = barrierOp;
         if (barrierOp.getIsFinalBarrier()) {
             finalBarriersCount++;
         }
+    });
+
+    if (lastBarrierOp != nullptr) {
+        *lastBarrierOp = lastBarrierOpInFunc;
     }
 
     return finalBarriersCount;
 }
 
 bool VPURT::addFinalBarrierIfNotExists(mlir::func::FuncOp funcOp, Logger log) {
-    auto finalBarriersCount = VPURT::getFinalBarriersCount(funcOp);
+    VPURT::BarrierOpInterface lastBarrierOp = nullptr;
+    auto finalBarriersCount = VPURT::getFinalBarriersCount(funcOp, &lastBarrierOp);
     VPUX_THROW_WHEN(finalBarriersCount > 1, "Found multiple final barriers.");
     if (finalBarriersCount > 0) {
         return false;
     }
 
-    auto findInsertPoint = [&]() {
-        auto barrierOpsIt = funcOp.getOps<VPURT::DeclareVirtualBarrierOp>();
-        if (barrierOpsIt.empty()) {
+    // Final barrier does not exist, need to create one
+    auto getInsertionPoint = [&]() {
+        if (lastBarrierOp == nullptr) {
             return &funcOp.getBody().front().front();
         }
-        auto lastBarrierOpIter = barrierOpsIt.begin();
-        std::advance(lastBarrierOpIter, std::distance(barrierOpsIt.begin(), barrierOpsIt.end()) - 1);
-        auto lastBarrierOp = *lastBarrierOpIter;
         return lastBarrierOp.getOperation();
     };
 
@@ -380,10 +368,11 @@ bool VPURT::addFinalBarrierIfNotExists(mlir::func::FuncOp funcOp, Logger log) {
         return false;
     };
 
+    auto firstAndLastOpsInQueue = VPURT::getTaskQueuesFirstAndLastOp(funcOp);
     auto isNewFinalBarrierOpRequired = [&]() {
         // If any of the final tasks don't update any barrier then new barrier is required.
         // This will happen when final barrier has not yet been created.
-        for (auto taskQueueFirstAndLastOp : vpux::VPURT::getTaskQueuesFirstAndLastOp(funcOp)) {
+        for (auto taskQueueFirstAndLastOp : firstAndLastOpsInQueue) {
             auto& lastOpInQueue = taskQueueFirstAndLastOp.second.second;
             if (lastOpInQueue.getUpdateBarriers().empty()) {
                 return true;
@@ -398,25 +387,18 @@ bool VPURT::addFinalBarrierIfNotExists(mlir::func::FuncOp funcOp, Logger log) {
     if (isNewFinalBarrierOpRequired()) {
         // create new barrier and update it by FIFO final tasks
         auto ctx = funcOp.getContext();
-        auto insertPoint = findInsertPoint();
+        auto insertPoint = getInsertionPoint();
         mlir::OpBuilder builder(funcOp);
         builder.setInsertionPointAfter(insertPoint);
         auto loc = mlir::NameLoc::get(mlir::StringAttr::get(ctx, "finishing_barrier"));
         auto barrierOp = builder.create<VPURT::DeclareVirtualBarrierOp>(loc, /*isFinalBarrier=*/true);
         auto finalBarrier = barrierOp.getBarrier();
 
-        for (auto taskQueueFirstAndLastOp : vpux::VPURT::getTaskQueuesFirstAndLastOp(funcOp)) {
+        for (auto taskQueueFirstAndLastOp : firstAndLastOpsInQueue) {
             auto& lastOpInQueue = taskQueueFirstAndLastOp.second.second;
-            if (auto skipOp = mlir::dyn_cast<VPUIP::SkipDMAOp>(lastOpInQueue.getInnerTaskOp())) {
-                builder.setInsertionPointAfter(lastOpInQueue);
-
-                auto syncDMA = VPUIP::createSyncDMA(builder, skipOp.getInput(), skipOp.getOutputBuff(), 0, {}, {});
-                syncDMA.getUpdateBarriersMutable().assign(finalBarrier);
-            } else {
-                if (lastOpInQueue.getUpdateBarriers().empty()) {
-                    log.trace("Add finishing barrier for {0}", lastOpInQueue->getLoc());
-                    lastOpInQueue.getUpdateBarriersMutable().assign(finalBarrier);
-                }
+            if (lastOpInQueue.getUpdateBarriers().empty()) {
+                log.trace("Add finishing barrier for {0}", lastOpInQueue->getLoc());
+                lastOpInQueue.getUpdateBarriersMutable().assign(finalBarrier);
             }
         }
     } else {
@@ -425,7 +407,7 @@ bool VPURT::addFinalBarrierIfNotExists(mlir::func::FuncOp funcOp, Logger log) {
         // the final barrier. Such connections could have been optimized in the legalization pipeline and do not need to
         // be created.
         std::set<VPURT::DeclareVirtualBarrierOp> newFinalBarriers;
-        for (auto taskQueueFirstAndLastOp : vpux::VPURT::getTaskQueuesFirstAndLastOp(funcOp)) {
+        for (auto taskQueueFirstAndLastOp : firstAndLastOpsInQueue) {
             auto& lastOpInQueue = taskQueueFirstAndLastOp.second.second;
             for (auto bar : lastOpInQueue.getUpdateBarriers()) {
                 auto barrierOp = bar.getDefiningOp<VPURT::DeclareVirtualBarrierOp>();

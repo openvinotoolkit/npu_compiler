@@ -11,6 +11,10 @@
 using namespace ov::test::utils;
 namespace ov {
 namespace test {
+
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ReverseLayerTest);
+
 class ReverseLayerTestCommon : public ReverseLayerTest, public VpuOv2LayerTest {
     void SetUp() override {
         std::vector<size_t> input_shape;

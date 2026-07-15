@@ -8,12 +8,10 @@
 #include "vpux/compiler/dialect/core/IR/strided_dmas_utils.hpp"
 #include "vpux/compiler/utils/dma_transaction_utils.hpp"
 
+#include <algorithm>
+
 namespace vpux {
 namespace vpumi40xx2vpuasm {
-
-llvm::SmallVector<mlir::FlatSymbolRefAttr> NNDMARewriter::getSymbolicNames(VPUMI40XX::NNDMAOp op, size_t) {
-    return createSymbolicName(op);
-}
 
 VPUIP::DMADescriptorAttr NNDMARewriter::getDmaDescriptorAttr(VPUMI40XX::NNDMAOp op, mlir::MLIRContext* ctx) const {
     const auto inputType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType());
@@ -52,7 +50,7 @@ VPUIP::DMADescriptorAttr NNDMARewriter::getDmaDescriptorAttr(VPUMI40XX::NNDMAOp 
         if (inputTransferRank == 2) {
             srcPlaneStride = reducedDimsInput.strides[0];
             numPlanes = inputTotalLength / reducedDimsInput.dims[0];
-            planeLen = inputTotalLength / numPlanes;
+            planeLen = reducedDimsInput.dims[0];
         }
     } else {
         const auto outputType = mlir::cast<vpux::NDTypeInterface>(outputBuffers[0].getType());
@@ -87,7 +85,7 @@ VPUIP::DMADescriptorAttr NNDMARewriter::getDmaDescriptorAttr(VPUMI40XX::NNDMAOp 
             srcPlaneStride = reducedDimsInput.strides[0];
             dstPlaneStride = reducedDimsOutput.strides[0];
             numPlanes = inputTotalLength / reducedDimsInput.dims[0];
-            planeLen = inputTotalLength / numPlanes;
+            planeLen = reducedDimsInput.dims[0];
         } else if (inputTransferRank == 2) {
             const auto outputTotalSizeBits =
                     alignMemSize(outputType.getNumElements() * vpux::getElemTypeSize(outputType), Byte(1));
@@ -96,7 +94,7 @@ VPUIP::DMADescriptorAttr NNDMARewriter::getDmaDescriptorAttr(VPUMI40XX::NNDMAOp 
             // 3D to 2D transaction
             srcPlaneStride = reducedDimsInput.strides[0];
             numPlanes = inputTotalLength / reducedDimsInput.dims[0];
-            planeLen = inputTotalLength / numPlanes;
+            planeLen = reducedDimsInput.dims[0];
 
             const uint32_t outputPlaneLen = outputTotalLength / numPlanes;
             if (outputTotalLength == static_cast<int64_t>(dstWidth)) {
@@ -142,7 +140,7 @@ VPUIP::DMADescriptorAttr NNDMARewriter::getDmaDescriptorAttr(VPUMI40XX::NNDMAOp 
 
     auto attr = [&ctx](uint64_t val) -> mlir::IntegerAttr {
         auto i32Type = mlir::IntegerType::get(ctx, sizeof(uint32_t) * CHAR_BIT);
-        return mlir::IntegerAttr::get(i32Type, val);
+        return mlir::IntegerAttr::get(i32Type, static_cast<int64_t>(val));
     };
 
     auto transactionAttr =
@@ -154,6 +152,8 @@ VPUIP::DMADescriptorAttr NNDMARewriter::getDmaDescriptorAttr(VPUMI40XX::NNDMAOp 
 
 mlir::FailureOr<SymbolizationResult> NNDMARewriter::symbolize(VPUMI40XX::NNDMAOp op, SymbolMapper& mapper,
                                                               mlir::ConversionPatternRewriter& rewriter) const {
+    constexpr auto maxTilesPerDma = 6;
+
     mlir::MLIRContext* ctx = rewriter.getContext();
     auto result = op.getResult();
 
@@ -163,22 +163,28 @@ mlir::FailureOr<SymbolizationResult> NNDMARewriter::symbolize(VPUMI40XX::NNDMAOp
 
     // Checking for CMX broadcast conditions, so first buff should be the same with all other buffers in the list
     auto outputBuffers = op.getOutputBuffs();
+    const auto numOutputs = outputBuffers.size();
+
+    SmallVector<mlir::Attribute> outputSyms;
+    outputSyms.reserve(numOutputs);
+    SmallVector<int64_t, maxTilesPerDma> tileIdx;
+    if (!outputBuffers.empty()) {
+        tileIdx.reserve(numOutputs);
+    }
+
     bool isCmxNN = false;
     if (!outputBuffers.empty()) {
-        auto firstBuff = std::begin(op.getOutputBuffs());
-        isCmxNN = mlir::cast<vpux::NDTypeInterface>(firstBuff.getBase()->get().getType()).getMemoryKind() ==
-                  vpux::VPU::MemoryKind::CMX_NN;
+        const auto firstOutputType = mlir::cast<vpux::NDTypeInterface>(outputBuffers.front().getType());
+        isCmxNN = firstOutputType.getMemoryKind() == vpux::VPU::MemoryKind::CMX_NN;
     }
-    llvm::SmallVector<mlir::Attribute> outputSyms(outputBuffers.size());
-    llvm::SmallVector<int64_t, 6> tileIdx;
-    for (auto output : llvm::enumerate(outputBuffers)) {
-        auto outputIt = mapper.find(output.value());
+
+    for (auto outputBuff : outputBuffers) {
+        auto outputIt = mapper.find(outputBuff);
         VPUX_THROW_WHEN(outputIt == mapper.end(), "Cannot find symbol name entry for {0}", op.getOperationName());
 
-        outputSyms[output.index()] = outputIt->getSecond();
+        outputSyms.push_back(outputIt->getSecond());
         if (isCmxNN) {
-            tileIdx.push_back(
-                    mlir::cast<vpux::NDTypeInterface>(output.value().getType()).getMemSpace().getIndex().value());
+            tileIdx.push_back(mlir::cast<vpux::NDTypeInterface>(outputBuff.getType()).getMemSpace().getIndex().value());
         }
     }
 
@@ -237,9 +243,9 @@ mlir::FailureOr<SymbolizationResult> NNDMARewriter::symbolize(VPUMI40XX::NNDMAOp
 
     auto newOp = rewriter.create<VPUASM::NNDMAOp>(
             op.getLoc(), symName, taskIdx, taskLocation, nextLink, input, outputs, waitAttr, updateAttr, startAfter,
-            cleanAfter, accelerationMode, op.getIsOutOfOrder(), op.getIsCritical(), op.getEnableMsc(),
-            actCompressionSizeEntryAttr, sparsityMapAttr, transaction, descriptor, dmaHwpIdAttr, cmxTiles, indicesAttr,
-            addressingModeAttr, skipDmaAttr, fetchDmaAttr);
+            cleanAfter, accelerationMode, op.getDmaEncodingAlgoAttr(), op.getIsOutOfOrder(), op.getIsCritical(),
+            op.getEnableMsc(), actCompressionSizeEntryAttr, sparsityMapAttr, transaction, descriptor, dmaHwpIdAttr,
+            cmxTiles, indicesAttr, addressingModeAttr, skipDmaAttr, fetchDmaAttr);
 
     if (auto strided = op->getAttr(vpux::stridedInputAttrName)) {
         newOp->setAttr(vpux::stridedInputAttrName, strided);

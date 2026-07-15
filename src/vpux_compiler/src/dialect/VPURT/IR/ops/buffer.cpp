@@ -152,7 +152,9 @@ void vpux::VPURT::DeclareBufferOp::serialize(elf::writer::BinaryDataSection<uint
 
 size_t vpux::VPURT::DeclareBufferOp::getBinarySize() {
     const auto type = mlir::cast<vpux::NDTypeInterface>(getBuffer().getType());
-    return ELF::getOpBinarySize(type);
+    const auto sectionIndices = getNonEmptySectionIndex();
+    VPUX_THROW_UNLESS(!sectionIndices.empty(), "DeclareBufferOp has empty section index");
+    return ELF::getBufferBinarySize(type, getOperation(), getSection(), sectionIndices.front());
 }
 
 size_t vpux::VPURT::DeclareBufferOp::getAlignmentRequirements() {

@@ -445,3 +445,92 @@ func.func @MultiplyDynamic(%arg0: tensor<1x16x?x?xf16, {bounds = #const.OpaqueI6
     // CHECK: [[RESULT:%.+]] = IE.Multiply([[INPUT_0]], [[INPUT_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 800, 1280]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x16x1x1xf16> -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 800, 1280]> : tensor<4xsi64>, order = #NCHW}>
     // CHECK: return [[RESULT]] : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 800, 1280]> : tensor<4xsi64>, order = #NCHW}>
 }
+
+// -----
+
+// CHECK-LABEL: @SwapMultiplyWithMatmulSplatBroadcastConst
+// When a splat const has been broadcast via IE.Tile to a multi-element shape
+// (e.g. 1x4x32x128), moving it past MatMul would produce a shape mismatch.
+// The pass must create a new scalar [1] const with the same splat value.
+//
+// CHECK-SAME:      [[INPUT1:%.+]]: tensor<1x4x32x128xf32>,
+// CHECK-SAME:      [[INPUT2:%.+]]: tensor<1x4x16x128xf32>
+func.func @SwapMultiplyWithMatmulSplatBroadcastConst(
+        %arg0: tensor<1x4x32x128xf32>,
+        %arg1: tensor<1x4x16x128xf32>) -> tensor<1x4x16x32xf32> {
+    // Splat const with same shape as arg0 — simulates the IE.Tile-broadcast pattern.
+    // All elements are identical (splat), so it qualifies as "single data input".
+    %cst = const.Declare tensor<1x4x32x128xf32> = dense<0.5> : tensor<1x4x32x128xf32>
+    // Multiply input: 1x4x32x128.  After MatMul(arg1, ...) {transpose_b}:
+    //   arg1=1x4x16x128, cst^T=1x4x128x32 → output 1x4x16x32 (incompatible with cst shape)
+    %0 = IE.Multiply(%arg0, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x4x32x128xf32>, tensor<1x4x32x128xf32> -> tensor<1x4x32x128xf32>
+    %1 = IE.MatMul(%arg1, %0) {transpose_b} : tensor<1x4x16x128xf32>, tensor<1x4x32x128xf32> -> tensor<1x4x16x32xf32>
+
+    return %1 : tensor<1x4x16x32xf32>
+
+    // The original splat-broadcast const should NOT appear in the output.
+    // CHECK-NOT: const.Declare tensor<1x4x32x128xf32>
+
+    // A new scalar [1xf32] const with the same splat value must be created.
+    // CHECK-DAG: [[SCALAR_CST:%.+]] = const.Declare tensor<1xf32> = dense<5.000000e-01> : tensor<1xf32>
+
+    // MatMul is moved before Multiply.
+    // CHECK: [[MATMUL:%.+]] = IE.MatMul([[INPUT2]], [[INPUT1]]) {transpose_b} : tensor<1x4x16x128xf32>, tensor<1x4x32x128xf32> -> tensor<1x4x16x32xf32>
+
+    // Multiply uses the scalar const (NUMPY broadcast).
+    // CHECK: [[MULTIPLY:%.+]] = IE.Multiply([[MATMUL]], [[SCALAR_CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x4x16x32xf32>, tensor<1xf32> -> tensor<1x4x16x32xf32>
+    // CHECK: return [[MULTIPLY]] : tensor<1x4x16x32xf32>
+}
+
+// -----
+
+// CHECK-LABEL: @SwapMultiplyWithMatmulSplatBroadcastConst_AutoBroadcastRewrite
+// When the original Multiply uses NONE (shapes are identical), creating a scalar const
+// requires rewriting the cloned op's auto_broadcast to NUMPY for verification to pass.
+//
+// CHECK-SAME:      [[INPUT1:%.+]]: tensor<1x4x32x128xf32>,
+// CHECK-SAME:      [[INPUT2:%.+]]: tensor<1x4x16x128xf32>
+func.func @SwapMultiplyWithMatmulSplatBroadcastConst_AutoBroadcastRewrite(
+        %arg0: tensor<1x4x32x128xf32>,
+        %arg1: tensor<1x4x16x128xf32>) -> tensor<1x4x16x32xf32> {
+    %cst = const.Declare tensor<1x4x32x128xf32> = dense<0.5> : tensor<1x4x32x128xf32>
+    // Original Multiply uses NONE_OR_EXPLICIT because shapes are identical (no actual broadcast needed).
+    %0 = IE.Multiply(%arg0, %cst) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} : tensor<1x4x32x128xf32>, tensor<1x4x32x128xf32> -> tensor<1x4x32x128xf32>
+    %1 = IE.MatMul(%arg1, %0) {transpose_b} : tensor<1x4x16x128xf32>, tensor<1x4x32x128xf32> -> tensor<1x4x16x32xf32>
+
+    return %1 : tensor<1x4x16x32xf32>
+
+    // CHECK-NOT: const.Declare tensor<1x4x32x128xf32>
+    // CHECK-DAG: [[SCALAR_CST:%.+]] = const.Declare tensor<1xf32> = dense<5.000000e-01> : tensor<1xf32>
+    // CHECK: [[MATMUL:%.+]] = IE.MatMul([[INPUT2]], [[INPUT1]]) {transpose_b} : tensor<1x4x16x128xf32>, tensor<1x4x32x128xf32> -> tensor<1x4x16x32xf32>
+    
+    // The rewritten Multiply MUST use NUMPY (not NONE_OR_EXPLICIT) to broadcast the scalar const.
+    // CHECK: [[MULTIPLY:%.+]] = IE.Multiply([[MATMUL]], [[SCALAR_CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x4x16x32xf32>, tensor<1xf32> -> tensor<1x4x16x32xf32>
+    // CHECK: return [[MULTIPLY]] : tensor<1x4x16x32xf32>
+}
+
+// -----
+
+// CHECK-LABEL: @SwapDivideWithMatmulSplatBroadcastConst_AutoBroadcastRewrite
+// Same test for IE.Divide to ensure both Multiply and Divide handle the auto_broadcast rewrite.
+//
+// CHECK-SAME:      [[INPUT1:%.+]]: tensor<1x4x32x128xf32>,
+// CHECK-SAME:      [[INPUT2:%.+]]: tensor<1x4x16x128xf32>
+func.func @SwapDivideWithMatmulSplatBroadcastConst_AutoBroadcastRewrite(
+        %arg0: tensor<1x4x32x128xf32>,
+        %arg1: tensor<1x4x16x128xf32>) -> tensor<1x4x16x32xf32> {
+    %cst = const.Declare tensor<1x4x32x128xf32> = dense<2.0> : tensor<1x4x32x128xf32>
+    // Original Divide uses NONE_OR_EXPLICIT because shapes are identical.
+    %0 = IE.Divide(%arg0, %cst) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} : tensor<1x4x32x128xf32>, tensor<1x4x32x128xf32> -> tensor<1x4x32x128xf32>
+    %1 = IE.MatMul(%arg1, %0) {transpose_b} : tensor<1x4x16x128xf32>, tensor<1x4x32x128xf32> -> tensor<1x4x16x32xf32>
+
+    return %1 : tensor<1x4x16x32xf32>
+
+    // CHECK-NOT: const.Declare tensor<1x4x32x128xf32>
+    // CHECK-DAG: [[SCALAR_CST:%.+]] = const.Declare tensor<1xf32> = dense<2.000000e+00> : tensor<1xf32>
+    // CHECK: [[MATMUL:%.+]] = IE.MatMul([[INPUT2]], [[INPUT1]]) {transpose_b} : tensor<1x4x16x128xf32>, tensor<1x4x32x128xf32> -> tensor<1x4x16x32xf32>
+    
+    // The rewritten Divide MUST use NUMPY (not NONE_OR_EXPLICIT) to broadcast the scalar const.
+    // CHECK: [[DIVIDE:%.+]] = IE.Divide([[MATMUL]], [[SCALAR_CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x4x16x32xf32>, tensor<1xf32> -> tensor<1x4x16x32xf32>
+    // CHECK: return [[DIVIDE]] : tensor<1x4x16x32xf32>
+}

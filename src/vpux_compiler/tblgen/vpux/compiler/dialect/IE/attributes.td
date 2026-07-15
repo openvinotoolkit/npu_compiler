@@ -742,6 +742,7 @@ def IE_RoPEMode :
                 I64EnumAttrCase<"SPLIT_HALF", 0>,
                 I64EnumAttrCase<"INTERLEAVED", 1>,
                 I64EnumAttrCase<"PAIRWISE", 2>,
+                I64EnumAttrCase<"PAIRWISE_INTERLEAVED", 3>,
             ]
         > {
 }

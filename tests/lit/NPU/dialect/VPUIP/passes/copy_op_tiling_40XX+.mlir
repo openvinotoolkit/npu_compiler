@@ -12,14 +12,14 @@
 // CHECK-SAME:  [[ARG_0:%[^:]+]]: memref<1x256x2048x8192xf16>
 // CHECK-SAME:  [[ARG_1:%[^:]+]]: memref<1x256x2048x8192xf16>
 func.func @LegalizeCopy(
-        %arg0: memref<1x256x2048x8192xf16, #NCHW>,
-        %arg1: memref<1x256x2048x8192xf16, #NCHW>)
-        -> memref<1x256x2048x8192xf16, #NCHW> {
-    %0 = VPUIP.Copy inputs(%arg0 : memref<1x256x2048x8192xf16, #NCHW>)
-                   outputs(%arg1 : memref<1x256x2048x8192xf16, #NCHW>)
-                   -> memref<1x256x2048x8192xf16, #NCHW>
+        %arg0: memref<1x256x2048x8192xf16>,
+        %arg1: memref<1x256x2048x8192xf16>)
+        -> memref<1x256x2048x8192xf16> {
+    %0 = VPUIP.Copy inputs(%arg0 : memref<1x256x2048x8192xf16>)
+                   outputs(%arg1 : memref<1x256x2048x8192xf16>)
+                   -> memref<1x256x2048x8192xf16>
 
-    return %0 : memref<1x256x2048x8192xf16, #NCHW>
+    return %0 : memref<1x256x2048x8192xf16>
 
     // Currently, large Copy nodes are tiled C-wise
 
@@ -88,13 +88,13 @@ func.func @LegalizeCopy(
 // CHECK-SAME:  [[ARG_1:%[^:]+]]: memref<1x256x2048x8192xf16>
 func.func @LegalizeStridedCopy(
         %arg0: memref<1x256x2048x8192xf16, {order = #NCHW, strides = [8589934592, 16777216, 8192, 1]}>,
-        %arg1: memref<1x256x2048x8192xf16, #NCHW>)
-        -> memref<1x256x2048x8192xf16, #NCHW> {
+        %arg1: memref<1x256x2048x8192xf16>)
+        -> memref<1x256x2048x8192xf16> {
     %0 = VPUIP.Copy inputs(%arg0 : memref<1x256x2048x8192xf16, {order = #NCHW, strides = [8589934592, 16777216, 8192, 1]}>)
-                   outputs(%arg1 : memref<1x256x2048x8192xf16, #NCHW>)
-                   -> memref<1x256x2048x8192xf16, #NCHW>
+                   outputs(%arg1 : memref<1x256x2048x8192xf16>)
+                   -> memref<1x256x2048x8192xf16>
 
-    return %0 : memref<1x256x2048x8192xf16, #NCHW>
+    return %0 : memref<1x256x2048x8192xf16>
 
     // Currently, large Copy nodes are tiled C-wise
     // If the Copy is strided, the strides should be preserved
@@ -163,14 +163,14 @@ func.func @LegalizeStridedCopy(
 // CHECK-SAME:  [[ARG_0:%[^:]+]]: memref<1x127x2048x8192xf16>
 // CHECK-SAME:  [[ARG_1:%[^:]+]]: memref<1x127x2048x8192xf16>
 func.func @DoNotLegalizeCopy(
-        %arg0: memref<1x127x2048x8192xf16, #NCHW>,
-        %arg1: memref<1x127x2048x8192xf16, #NCHW>)
-        -> memref<1x127x2048x8192xf16, #NCHW> {
-    %0 = VPUIP.Copy inputs(%arg0 : memref<1x127x2048x8192xf16, #NCHW>)
-                   outputs(%arg1 : memref<1x127x2048x8192xf16, #NCHW>)
-                   -> memref<1x127x2048x8192xf16, #NCHW>
+        %arg0: memref<1x127x2048x8192xf16>,
+        %arg1: memref<1x127x2048x8192xf16>)
+        -> memref<1x127x2048x8192xf16> {
+    %0 = VPUIP.Copy inputs(%arg0 : memref<1x127x2048x8192xf16>)
+                   outputs(%arg1 : memref<1x127x2048x8192xf16>)
+                   -> memref<1x127x2048x8192xf16>
 
-    return %0 : memref<1x127x2048x8192xf16, #NCHW>
+    return %0 : memref<1x127x2048x8192xf16>
 
     // Small enough Copy nodes should not be affected by the pass
 
@@ -320,11 +320,11 @@ func.func @DoNotSplit5DCopyWithLevel3Striding(
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!InputType = memref<3x512x2048x8192x!quant.uniform<u8:f16, 1.2608227898092832:124>, #NHWC, @DDR>
+!InputType = memref<3x512x2048x8192x!quant.uniform<u8:f16, 1.2608227898092832:124>, {order = #NHWC}, @DDR>
 !OutputType = memref<3x512x2048x8192x!quant.uniform<u8:f16, 1.2608227898092832:124>, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
 
 // CHECK-LABEL: @RecursiveSplitLargeCopy
-// CHECK-SAME:  [[ARG_0:%[^:]+]]: memref<3x512x2048x8192x!qElemType, #NHWC, @DDR>
+// CHECK-SAME:  [[ARG_0:%[^:]+]]: memref<3x512x2048x8192x!qElemType, {order = #NHWC}, @DDR>
 // CHECK-SAME:  [[ARG_1:%[^:]+]]: memref<3x512x2048x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
 func.func @RecursiveSplitLargeCopy(
         %arg0: !InputType,
@@ -338,15 +338,15 @@ func.func @RecursiveSplitLargeCopy(
     return %0 : !OutputType
     // First split across N axis
     // CHECK:       [[SUBVIEW_0:%.+]] = VPUIP.SubView [[ARG_0]] [0, 0, 0, 0] [1, 512, 2048, 8192]
-    // CHECK-SAME:         memref<3x512x2048x8192x!qElemType, #NHWC, @DDR>
-    // CHECK-SAME:      to memref<1x512x2048x8192x!qElemType, #NHWC, @DDR>
+    // CHECK-SAME:         memref<3x512x2048x8192x!qElemType, {order = #NHWC}, @DDR>
+    // CHECK-SAME:      to memref<1x512x2048x8192x!qElemType, {order = #NHWC}, @DDR>
     // CHECK:       [[SUBVIEW_1:%.+]] = VPUIP.SubView [[ARG_1]] [0, 0, 0, 0] [1, 512, 2048, 8192]
     // CHECK-SAME:         memref<3x512x2048x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
     // CHECK-SAME:      to memref<1x512x2048x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
 
     // Next 4 splits across H axis
     // CHECK:       [[SUBVIEW_2:%.+]] = VPUIP.SubView [[SUBVIEW_0]] [0, 0, 0, 0] [1, 512, 1023, 8192]
-    // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, #NHWC, @DDR>
+    // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, {order = #NHWC}, @DDR>
     // CHECK-SAME:      to memref<1x512x1023x8192x!qElemType, {order = #NHWC, strides = [8589934592, 1, 4194304, 512]}, @DDR>
     // CHECK:       [[SUBVIEW_3:%.+]] = VPUIP.SubView [[SUBVIEW_1]] [0, 0, 0, 0] [1, 512, 1023, 8192]
     // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
@@ -356,7 +356,7 @@ func.func @RecursiveSplitLargeCopy(
     // CHECK-SAME:          -> memref<1x512x1023x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
 
     // CHECK:       [[SUBVIEW_4:%.+]] = VPUIP.SubView [[SUBVIEW_0]] [0, 0, 1023, 0] [1, 512, 1023, 8192]
-    // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, #NHWC, @DDR>
+    // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, {order = #NHWC}, @DDR>
     // CHECK-SAME:      to memref<1x512x1023x8192x!qElemType, {order = #NHWC, strides = [8589934592, 1, 4194304, 512]}, @DDR>
     // CHECK:       [[SUBVIEW_5:%.+]] = VPUIP.SubView [[SUBVIEW_1]] [0, 0, 1023, 0] [1, 512, 1023, 8192]
     // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
@@ -366,7 +366,7 @@ func.func @RecursiveSplitLargeCopy(
     // CHECK-SAME:          -> memref<1x512x1023x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
 
     // CHECK:       [[SUBVIEW_6:%.+]] = VPUIP.SubView [[SUBVIEW_0]] [0, 0, 2046, 0] [1, 512, 1, 8192]
-    // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, #NHWC, @DDR>
+    // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, {order = #NHWC}, @DDR>
     // CHECK-SAME:      to memref<1x512x1x8192x!qElemType, {order = #NHWC, strides = [8589934592, 1, 4194304, 512]}, @DDR>
     // CHECK:       [[SUBVIEW_7:%.+]] = VPUIP.SubView [[SUBVIEW_1]] [0, 0, 2046, 0] [1, 512, 1, 8192]
     // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
@@ -376,7 +376,7 @@ func.func @RecursiveSplitLargeCopy(
     // CHECK-SAME:          -> memref<1x512x1x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
 
     // CHECK:       [[SUBVIEW_8:%.+]] = VPUIP.SubView [[SUBVIEW_0]] [0, 0, 2047, 0] [1, 512, 1, 8192]
-    // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, #NHWC, @DDR>
+    // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, {order = #NHWC}, @DDR>
     // CHECK-SAME:      to memref<1x512x1x8192x!qElemType, {order = #NHWC, strides = [8589934592, 1, 4194304, 512]}, @DDR>
     // CHECK:       [[SUBVIEW_9:%.+]] = VPUIP.SubView [[SUBVIEW_1]] [0, 0, 2047, 0] [1, 512, 1, 8192]
     // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
@@ -392,14 +392,14 @@ func.func @RecursiveSplitLargeCopy(
 
 
     // CHECK:       [[SUBVIEW_10:%.+]] = VPUIP.SubView [[ARG_0]] [1, 0, 0, 0] [1, 512, 2048, 8192]
-    // CHECK-SAME:         memref<3x512x2048x8192x!qElemType, #NHWC, @DDR>
-    // CHECK-SAME:      to memref<1x512x2048x8192x!qElemType, #NHWC, @DDR>
+    // CHECK-SAME:         memref<3x512x2048x8192x!qElemType, {order = #NHWC}, @DDR>
+    // CHECK-SAME:      to memref<1x512x2048x8192x!qElemType, {order = #NHWC}, @DDR>
     // CHECK:       [[SUBVIEW_11:%.+]] = VPUIP.SubView [[ARG_1]] [1, 0, 0, 0] [1, 512, 2048, 8192]
     // CHECK-SAME:         memref<3x512x2048x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
     // CHECK-SAME:      to memref<1x512x2048x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
 
     // CHECK:       [[SUBVIEW_12:%.+]] = VPUIP.SubView [[SUBVIEW_10]] [0, 0, 0, 0] [1, 512, 1023, 8192]
-    // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, #NHWC, @DDR>
+    // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, {order = #NHWC}, @DDR>
     // CHECK-SAME:      to memref<1x512x1023x8192x!qElemType, {order = #NHWC, strides = [8589934592, 1, 4194304, 512]}, @DDR>
     // CHECK:       [[SUBVIEW_13:%.+]] = VPUIP.SubView [[SUBVIEW_11]] [0, 0, 0, 0] [1, 512, 1023, 8192]
     // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
@@ -409,7 +409,7 @@ func.func @RecursiveSplitLargeCopy(
     // CHECK-SAME:          -> memref<1x512x1023x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
 
     // CHECK:       [[SUBVIEW_14:%.+]] = VPUIP.SubView [[SUBVIEW_10]] [0, 0, 1023, 0] [1, 512, 1023, 8192]
-    // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, #NHWC, @DDR>
+    // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, {order = #NHWC}, @DDR>
     // CHECK-SAME:      to memref<1x512x1023x8192x!qElemType, {order = #NHWC, strides = [8589934592, 1, 4194304, 512]}, @DDR>
     // CHECK:       [[SUBVIEW_15:%.+]] = VPUIP.SubView [[SUBVIEW_11]] [0, 0, 1023, 0] [1, 512, 1023, 8192]
     // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
@@ -419,7 +419,7 @@ func.func @RecursiveSplitLargeCopy(
     // CHECK-SAME:          -> memref<1x512x1023x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
 
     // CHECK:       [[SUBVIEW_16:%.+]] = VPUIP.SubView [[SUBVIEW_10]] [0, 0, 2046, 0] [1, 512, 1, 8192]
-    // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, #NHWC, @DDR>
+    // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, {order = #NHWC}, @DDR>
     // CHECK-SAME:      to memref<1x512x1x8192x!qElemType, {order = #NHWC, strides = [8589934592, 1, 4194304, 512]}, @DDR>
     // CHECK:       [[SUBVIEW_17:%.+]] = VPUIP.SubView [[SUBVIEW_11]] [0, 0, 2046, 0] [1, 512, 1, 8192]
     // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
@@ -429,7 +429,7 @@ func.func @RecursiveSplitLargeCopy(
     // CHECK-SAME:          -> memref<1x512x1x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
 
     // CHECK:       [[SUBVIEW_18:%.+]] = VPUIP.SubView [[SUBVIEW_10]] [0, 0, 2047, 0] [1, 512, 1, 8192]
-    // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, #NHWC, @DDR>
+    // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, {order = #NHWC}, @DDR>
     // CHECK-SAME:      to memref<1x512x1x8192x!qElemType, {order = #NHWC, strides = [8589934592, 1, 4194304, 512]}, @DDR>
     // CHECK:       [[SUBVIEW_19:%.+]] = VPUIP.SubView [[SUBVIEW_11]] [0, 0, 2047, 0] [1, 512, 1, 8192]
     // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
@@ -444,14 +444,14 @@ func.func @RecursiveSplitLargeCopy(
 
 
     // CHECK:       [[SUBVIEW_20:%.+]] = VPUIP.SubView [[ARG_0]] [2, 0, 0, 0] [1, 512, 2048, 8192]
-    // CHECK-SAME:         memref<3x512x2048x8192x!qElemType, #NHWC, @DDR>
-    // CHECK-SAME:      to memref<1x512x2048x8192x!qElemType, #NHWC, @DDR>
+    // CHECK-SAME:         memref<3x512x2048x8192x!qElemType, {order = #NHWC}, @DDR>
+    // CHECK-SAME:      to memref<1x512x2048x8192x!qElemType, {order = #NHWC}, @DDR>
     // CHECK:       [[SUBVIEW_21:%.+]] = VPUIP.SubView [[ARG_1]] [2, 0, 0, 0] [1, 512, 2048, 8192]
     // CHECK-SAME:         memref<3x512x2048x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
     // CHECK-SAME:      to memref<1x512x2048x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
 
     // CHECK:       [[SUBVIEW_22:%.+]] = VPUIP.SubView [[SUBVIEW_20]] [0, 0, 0, 0] [1, 512, 1023, 8192]
-    // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, #NHWC, @DDR>
+    // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, {order = #NHWC}, @DDR>
     // CHECK-SAME:      to memref<1x512x1023x8192x!qElemType, {order = #NHWC, strides = [8589934592, 1, 4194304, 512]}, @DDR>
     // CHECK:       [[SUBVIEW_23:%.+]] = VPUIP.SubView [[SUBVIEW_21]] [0, 0, 0, 0] [1, 512, 1023, 8192]
     // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
@@ -461,7 +461,7 @@ func.func @RecursiveSplitLargeCopy(
     // CHECK-SAME:          -> memref<1x512x1023x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
 
     // CHECK:       [[SUBVIEW_24:%.+]] = VPUIP.SubView [[SUBVIEW_20]] [0, 0, 1023, 0] [1, 512, 1023, 8192]
-    // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, #NHWC, @DDR>
+    // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, {order = #NHWC}, @DDR>
     // CHECK-SAME:      to memref<1x512x1023x8192x!qElemType, {order = #NHWC, strides = [8589934592, 1, 4194304, 512]}, @DDR>
     // CHECK:       [[SUBVIEW_25:%.+]] = VPUIP.SubView [[SUBVIEW_21]] [0, 0, 1023, 0] [1, 512, 1023, 8192]
     // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
@@ -471,7 +471,7 @@ func.func @RecursiveSplitLargeCopy(
     // CHECK-SAME:          -> memref<1x512x1023x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
 
     // CHECK:       [[SUBVIEW_26:%.+]] = VPUIP.SubView [[SUBVIEW_20]] [0, 0, 2046, 0] [1, 512, 1, 8192]
-    // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, #NHWC, @DDR>
+    // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, {order = #NHWC}, @DDR>
     // CHECK-SAME:      to memref<1x512x1x8192x!qElemType, {order = #NHWC, strides = [8589934592, 1, 4194304, 512]}, @DDR>
     // CHECK:       [[SUBVIEW_27:%.+]] = VPUIP.SubView [[SUBVIEW_21]] [0, 0, 2046, 0] [1, 512, 1, 8192]
     // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
@@ -481,7 +481,7 @@ func.func @RecursiveSplitLargeCopy(
     // CHECK-SAME:          -> memref<1x512x1x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>
 
     // CHECK:       [[SUBVIEW_28:%.+]] = VPUIP.SubView [[SUBVIEW_20]] [0, 0, 2047, 0] [1, 512, 1, 8192]
-    // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, #NHWC, @DDR>
+    // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, {order = #NHWC}, @DDR>
     // CHECK-SAME:      to memref<1x512x1x8192x!qElemType, {order = #NHWC, strides = [8589934592, 1, 4194304, 512]}, @DDR>
     // CHECK:       [[SUBVIEW_29:%.+]] = VPUIP.SubView [[SUBVIEW_21]] [0, 0, 2047, 0] [1, 512, 1, 8192]
     // CHECK-SAME:         memref<1x512x2048x8192x!qElemType, {order = #NHWC, strides = [34359738368, 1, 16777216, 512]}, @DDR>

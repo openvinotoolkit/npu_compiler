@@ -18,35 +18,35 @@ module @depthToSpace {
     DataInfo "output_0" : tensor<1x4x6x12xf16>
   }
 
-  func.func @UnrollDepthToSpaceDMABlockFirstNHWC(%arg0: memref<1x16x3x6xf16, #NHWC>, %arg1: memref<1x4x6x12xf16, #NHWC>) -> memref<1x4x6x12xf16, #NHWC> {
+  func.func @UnrollDepthToSpaceDMABlockFirstNHWC(%arg0: memref<1x16x3x6xf16, {order = #NHWC}>, %arg1: memref<1x4x6x12xf16, {order = #NHWC}>) -> memref<1x4x6x12xf16, {order = #NHWC}> {
     %0 = VPURT.ConfigureBarrier<0> -> !VPURT.Barrier
     %1 = VPURT.ConfigureBarrier<1> -> !VPURT.Barrier
     %2 = VPURT.ConfigureBarrier<2> <{isFinalBarrier}> -> !VPURT.Barrier
 
-    %3 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x3x6xf16, #NHWC, [@CMX_NN, 0]>
+    %3 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x3x6xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %4 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x1x6xf16, {order = #NHWC, strides = [288, 1, 96, 16]}, [@CMX_NN, 0]>
     %5 = VPURT.DeclareBuffer <CMX_NN> [0] <192> -> memref<1x16x2x6xf16, {order = #NHWC, strides = [288, 1, 96, 16]}, [@CMX_NN, 0]>
-    %6 = VPURT.DeclareBuffer <CMX_NN> [0] <1024> -> memref<1x4x6x12xf16, #NHWC, [@CMX_NN, 0]>
+    %6 = VPURT.DeclareBuffer <CMX_NN> [0] <1024> -> memref<1x4x6x12xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %7 = VPURT.DeclareBuffer <CMX_NN> [0] <1024> -> memref<1x4x2x12xf16, {order = #NHWC, strides = [288, 1, 48, 4]}, [@CMX_NN, 0]>
     %8 = VPURT.DeclareBuffer <CMX_NN> [0] <1216> -> memref<1x4x4x12xf16, {order = #NHWC, strides = [288, 1, 48, 4]}, [@CMX_NN, 0]>
 
-    //CHECK:    [[INPUT:%.+]]: memref<1x16x3x6xf16, #NHWC>
-    //CHECK:    [[OUTPUT:%.+]]: memref<1x4x6x12xf16, #NHWC>
+    //CHECK:    [[INPUT:%.+]]: memref<1x16x3x6xf16, {order = #NHWC}>
+    //CHECK:    [[OUTPUT:%.+]]: memref<1x4x6x12xf16, {order = #NHWC}>
 
     //CHECK:    [[BARRIER_0:%.+]] = VPUMI40XX.ConfigureBarrier
     //CHECK:    [[BARRIER_1:%.+]] = VPUMI40XX.ConfigureBarrier
     //CHECK:    [[BARRIER_2:%.+]] = VPUMI40XX.ConfigureBarrier
 
-    //CHECK:    [[INPUT_BUFFER_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x3x6xf16, #NHWC, [@CMX_NN, 0]>
+    //CHECK:    [[INPUT_BUFFER_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x3x6xf16, {order = #NHWC}, [@CMX_NN, 0]>
     //CHECK:    [[INPUT_BUFFER_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x1x6xf16, {order = #NHWC, strides = [288, 1, 96, 16]}, [@CMX_NN, 0]>
     //CHECK:    [[INPUT_BUFFER_2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <192> -> memref<1x16x2x6xf16, {order = #NHWC, strides = [288, 1, 96, 16]}, [@CMX_NN, 0]>
 
-    //CHECK:    [[OUTPUT_BUFFER_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1024> -> memref<1x4x6x12xf16, #NHWC, [@CMX_NN, 0]>
+    //CHECK:    [[OUTPUT_BUFFER_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1024> -> memref<1x4x6x12xf16, {order = #NHWC}, [@CMX_NN, 0]>
     //CHECK:    [[OUTPUT_BUFFER_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1024> -> memref<1x4x2x12xf16, {order = #NHWC, strides = [288, 1, 48, 4]}, [@CMX_NN, 0]>
     //CHECK:    [[OUTPUT_BUFFER_2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1216> -> memref<1x4x4x12xf16, {order = #NHWC, strides = [288, 1, 48, 4]}, [@CMX_NN, 0]>
 
     VPURT.Task updates(%0 : !VPURT.Barrier) {
-      %9 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%arg0 : memref<1x16x3x6xf16, #NHWC>) outputs(%3 : memref<1x16x3x6xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x16x3x6xf16, #NHWC, [@CMX_NN, 0]>
+      %9 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%arg0 : memref<1x16x3x6xf16, {order = #NHWC}>) outputs(%3 : memref<1x16x3x6xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x16x3x6xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
     //CHECK-NOT:  VPUIP.NNDMA
@@ -60,8 +60,8 @@ module @depthToSpace {
     //CHECK-SAME: acceleration_mode(<DISABLE>)
     //CHECK-SAME: dma_transaction
     //CHECK-SAME:     #VPUMI40XX.NNDMATransaction
-    //CHECK-SAME:         inputType = memref<1x16x3x6xf16, #NHWC>
-    //CHECK-SAME:         outputType = memref<1x16x3x6xf16, #NHWC, [@CMX_NN, 0]>
+    //CHECK-SAME:         inputType = memref<1x16x3x6xf16, {order = #NHWC}>
+    //CHECK-SAME:         outputType = memref<1x16x3x6xf16, {order = #NHWC}, [@CMX_NN, 0]>
     //CHECK-SAME: -> !VPURegMapped.Index<0:0:0>
 
     VPURT.Task waits(%0 : !VPURT.Barrier) updates(%1 : !VPURT.Barrier) {
@@ -111,7 +111,7 @@ module @depthToSpace {
     //CHECK-SAME: -> !VPURegMapped.Index<1:1:0>
 
     VPURT.Task waits(%1 : !VPURT.Barrier) updates(%2 : !VPURT.Barrier) {
-      %9 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%6 : memref<1x4x6x12xf16, #NHWC, [@CMX_NN, 0]>) outputs(%arg1 : memref<1x4x6x12xf16, #NHWC>) -> memref<1x4x6x12xf16, #NHWC>
+      %9 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%6 : memref<1x4x6x12xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%arg1 : memref<1x4x6x12xf16, {order = #NHWC}>) -> memref<1x4x6x12xf16, {order = #NHWC}>
     }
 
     //CHECK-NOT:  VPUIP.NNDMA
@@ -127,10 +127,10 @@ module @depthToSpace {
     //CHECK-SAME: acceleration_mode(<DISABLE>)
     //CHECK-SAME: dma_transaction
     //CHECK-SAME:     #VPUMI40XX.NNDMATransaction
-    //CHECK-SAME:         inputType = memref<1x4x6x12xf16, #NHWC, [@CMX_NN, 0]>
-    //CHECK-SAME:         outputType = memref<1x4x6x12xf16, #NHWC>
+    //CHECK-SAME:         inputType = memref<1x4x6x12xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    //CHECK-SAME:         outputType = memref<1x4x6x12xf16, {order = #NHWC}>
     //CHECK-SAME: -> !VPURegMapped.Index<0:1:1>
 
-    return %arg1 : memref<1x4x6x12xf16, #NHWC>
+    return %arg1 : memref<1x4x6x12xf16, {order = #NHWC}>
   }
 }

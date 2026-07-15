@@ -16,6 +16,7 @@
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
+#include "vpux/compiler/utils/types.hpp"
 
 namespace vpux::VPUIP {
 #define GEN_PASS_DECL_CONVERTTODMA
@@ -125,14 +126,14 @@ VPUIP::GenericReshapeOp createGenericReshape(VPUIP::SwKernelOp swKernelOp, mlir:
 }
 
 VPUIP::PermuteDMAOp createPermuteDMA(VPUIP::SwKernelOp swKernelOp, mlir::Value input, vpux::NDTypeInterface inType,
-                                     DimsOrder dimsOrderDMA, vpux::NDTypeInterface outType,
+                                     const DimsOrder& dimsOrderDMA, vpux::NDTypeInterface outType,
                                      mlir::PatternRewriter& rewriter) {
     auto memPermDMA = dimsOrderDMA.toAffineMap(rewriter.getContext());
     auto permDMAType = inType;
     auto permDMAMemShape = Shape(inType.getMemShape().raw());
-    auto permDMANewMemShape =
-            Shape({permDMAMemShape[dimsOrderDMA.toPermutation()[0]], permDMAMemShape[dimsOrderDMA.toPermutation()[1]],
-                   permDMAMemShape[dimsOrderDMA.toPermutation()[2]], permDMAMemShape[dimsOrderDMA.toPermutation()[3]]});
+    const auto permDMAOrder = dimsOrderDMA.toPermutation();
+    auto permDMANewMemShape = Shape({permDMAMemShape[permDMAOrder[0]], permDMAMemShape[permDMAOrder[1]],
+                                     permDMAMemShape[permDMAOrder[2]], permDMAMemShape[permDMAOrder[3]]});
     permDMAType = VPUIP::changeShapeWithMemShape(&permDMAType, permDMANewMemShape, outType.getDimsOrder());
     auto permMemRefType = mlir::dyn_cast<mlir::MemRefType>(permDMAType);
     VPUX_THROW_WHEN(permMemRefType == nullptr, "Unexpected output type for first VPUIP::permuteDMAOp at '{0}'",
@@ -176,10 +177,9 @@ VPUIP::GenericReshapeOp convertMemPermuteNHCWAsDMA(VPUIP::SwKernelOp swKernelOp,
     auto inGenReshapeType = mlir::dyn_cast<vpux::NDTypeInterface>(inGenReshapeOp.getOutput().getType());
 
     // Create first permuteDMAOp: permutation is [d0, d2, d1, d3]
-    auto dimsOrderDMA = DimsOrder::NHCW;
-    auto memPermDMA = dimsOrderDMA.toAffineMap(rewriter.getContext());
+    auto memPermDMA = DimsOrder::NHCW.toAffineMap(rewriter.getContext());
     auto firstPermDmaOp =
-            createPermuteDMA(swKernelOp, inGenReshapeOp, inGenReshapeType, dimsOrderDMA, outType, rewriter);
+            createPermuteDMA(swKernelOp, inGenReshapeOp, inGenReshapeType, DimsOrder::NHCW, outType, rewriter);
     auto firstPermDMAType = mlir::dyn_cast<vpux::NDTypeInterface>(firstPermDmaOp.getOutput().getType());
 
     // Create genericReshapeOp for second permuteDMAOp
@@ -290,10 +290,10 @@ VPUIP::GenericReshapeOp convertMemPermuteHCNWOrNWHC(VPUIP::SwKernelOp swKernelOp
     auto inGenReshapeType = mlir::dyn_cast<vpux::NDTypeInterface>(inGenReshapeOp.getOutput().getType());
 
     // Create first permuteDMAOp
-    auto dimsOrderDMA =
-            mergedPerm == DimsOrder::HCNW.toAffineMap(rewriter.getContext()) ? DimsOrder::NHCW : DimsOrder::NCWH;
-    auto firstPermDmaOp =
-            createPermuteDMA(swKernelOp, inGenReshapeOp, inGenReshapeType, dimsOrderDMA, outType, rewriter);
+    auto firstPermDmaOp = createPermuteDMA(
+            swKernelOp, inGenReshapeOp, inGenReshapeType,
+            mergedPerm == DimsOrder::HCNW.toAffineMap(rewriter.getContext()) ? DimsOrder::NHCW : DimsOrder::NCWH,
+            outType, rewriter);
     auto firstPermDMAType = mlir::dyn_cast<vpux::NDTypeInterface>(firstPermDmaOp.getOutput().getType());
 
     // Create genericReshapeOp for later permuteDMAOp
@@ -355,9 +355,8 @@ VPUIP::GenericReshapeOp convertMemPermuteCWNH(VPUIP::SwKernelOp swKernelOp, mlir
     auto inGenReshapeType = mlir::dyn_cast<vpux::NDTypeInterface>(inGenReshapeOp.getOutput().getType());
 
     // Create 3rd permuteDMAOp
-    auto dimsOrderDMA = DimsOrder::NHCW;
     auto thirdPermDmaOp =
-            createPermuteDMA(swKernelOp, inGenReshapeOp, inGenReshapeType, dimsOrderDMA, outType, rewriter);
+            createPermuteDMA(swKernelOp, inGenReshapeOp, inGenReshapeType, DimsOrder::NHCW, outType, rewriter);
 
     const auto outMergedPerm = DimsOrder::NCHW.toAffineMap(rewriter.getContext());
     return createGenericReshape(swKernelOp, thirdPermDmaOp, outType, outMergedPerm, rewriter);
@@ -395,9 +394,8 @@ VPUIP::GenericReshapeOp convertMemPermuteHNWCAsDMA(VPUIP::SwKernelOp swKernelOp,
     auto inGenReshapeOp = createGenericReshape(swKernelOp, input, outType, mergedPerm, rewriter);
     auto inGenReshapeType = mlir::dyn_cast<vpux::NDTypeInterface>(inGenReshapeOp.getOutput().getType());
     // Create first permuteDMAOp: permutation is [d0, d2, d1, d3]
-    auto dimsOrderDMA = DimsOrder::NHCW;
     auto firstPermDmaOp =
-            createPermuteDMA(swKernelOp, inGenReshapeOp, inGenReshapeType, dimsOrderDMA, outType, rewriter);
+            createPermuteDMA(swKernelOp, inGenReshapeOp, inGenReshapeType, DimsOrder::NHCW, outType, rewriter);
     auto firstPermDMAType = mlir::dyn_cast<vpux::NDTypeInterface>(firstPermDmaOp.getOutput().getType());
     // Create genericReshapeOp for second permuteDMAOp
     auto midGenReshapeType = firstPermDMAType;
@@ -410,9 +408,8 @@ VPUIP::GenericReshapeOp convertMemPermuteHNWCAsDMA(VPUIP::SwKernelOp swKernelOp,
             rewriter.create<VPUIP::GenericReshapeOp>(swKernelOp->getLoc(), midGenReshapeType, firstPermDmaOp);
     auto midGenReshapeOutType = mlir::dyn_cast<vpux::NDTypeInterface>(midGenReshapeOp.getOutput().getType());
     // Create second permuteDMAOp: permutation is [d0, d1, d3, d2]
-    auto secondDimsOrderDMA = DimsOrder::NCWH;
     auto secondPermDmaOp =
-            createPermuteDMA(swKernelOp, midGenReshapeOp, midGenReshapeOutType, secondDimsOrderDMA, outType, rewriter);
+            createPermuteDMA(swKernelOp, midGenReshapeOp, midGenReshapeOutType, DimsOrder::NCWH, outType, rewriter);
     // Create genericReshapeOp for output
     return rewriter.create<VPUIP::GenericReshapeOp>(swKernelOp->getLoc(), outType, secondPermDmaOp);
 }
@@ -449,9 +446,8 @@ VPUIP::GenericReshapeOp convertMemPermuteHCWNAsDMA(VPUIP::SwKernelOp swKernelOp,
     auto inGenReshapeOp = createGenericReshape(swKernelOp, input, outType, mergedPerm, rewriter);
     auto inGenReshapeType = mlir::dyn_cast<vpux::NDTypeInterface>(inGenReshapeOp.getOutput().getType());
     // Create first permuteDMAOp: permutation is [d0, d2, d1, d3]
-    auto dimsOrderDMA = DimsOrder::NHCW;
     auto firstPermDmaOp =
-            createPermuteDMA(swKernelOp, inGenReshapeOp, inGenReshapeType, dimsOrderDMA, outType, rewriter);
+            createPermuteDMA(swKernelOp, inGenReshapeOp, inGenReshapeType, DimsOrder::NHCW, outType, rewriter);
     auto firstPermDMAType = mlir::dyn_cast<vpux::NDTypeInterface>(firstPermDmaOp.getOutput().getType());
     // Create genericReshapeOp for second permuteDMAOp
     auto midGenReshapeType = firstPermDMAType;
@@ -464,9 +460,8 @@ VPUIP::GenericReshapeOp convertMemPermuteHCWNAsDMA(VPUIP::SwKernelOp swKernelOp,
             rewriter.create<VPUIP::GenericReshapeOp>(swKernelOp->getLoc(), midGenReshapeType, firstPermDmaOp);
     auto midGenReshapeOutType = mlir::dyn_cast<vpux::NDTypeInterface>(midGenReshapeOp.getOutput().getType());
     // Create second permuteDMAOp: permutation is [d0, d1, d3, d2]
-    auto secondDimsOrderDMA = DimsOrder::NCWH;
     auto secondPermDmaOp =
-            createPermuteDMA(swKernelOp, midGenReshapeOp, midGenReshapeOutType, secondDimsOrderDMA, outType, rewriter);
+            createPermuteDMA(swKernelOp, midGenReshapeOp, midGenReshapeOutType, DimsOrder::NCWH, outType, rewriter);
     // Create genericReshapeOp for output
     return rewriter.create<VPUIP::GenericReshapeOp>(swKernelOp->getLoc(), outType, secondPermDmaOp);
 }
@@ -640,9 +635,8 @@ mlir::LogicalResult ConvertToDMAPass::SwKernelMemPermuteConverter::matchAndRewri
 
     // create the 1st permuteDMA Op [d0, d1, d2, d3] -> [d0, d2, d3, d1], permutation is [d0, d2, d3, d1]
     auto memPermFirst = mlir::AffineMap::getPermutationMap(SmallVector<unsigned>{0, 2, 3, 1}, rewriter.getContext());
-    auto newPermuteMemRefType = mlir::MemRefType::get(
-            permuteMemRefType.getShape(), permuteMemRefType.getElementType(),
-            dstOutOrder.toAffineMap(rewriter.getContext()),
+    auto newPermuteMemRefType = vpux::getMemRefType(
+            ShapeRef(permuteMemRefType.getShape()), permuteMemRefType.getElementType(), dstOutOrder,
             IndexedSymbolAttr::get(rewriter.getContext(), stringifyEnum(VPU::MemoryKind::CMX_NN), 0));
 
     auto allocPermuteOp = rewriter.create<mlir::memref::AllocOp>(swKernelOp->getLoc(), newPermuteMemRefType);
@@ -989,17 +983,16 @@ mlir::LogicalResult ConvertToDMAPass::UpsamplingOpConverter::matchAndRewrite(VPU
 
     auto outputMemRefType = mlir::cast<mlir::MemRefType>(outputType);
     auto outputBuffer = origOp.getOutputBuff();
+    auto memSpace = IndexedSymbolAttr::get(ctx, stringifyEnum(VPU::MemoryKind::CMX_NN), 0);
     if (isOutputBenefitMoveIntoCMX) {
-        auto newOutputType =
-                outputType.changeMemSpace(IndexedSymbolAttr::get(ctx, stringifyEnum(VPU::MemoryKind::CMX_NN), 0));
+        auto newOutputType = outputType.changeMemSpace(memSpace);
         outputMemRefType = mlir::cast<mlir::MemRefType>(newOutputType);
         outputBuffer = rewriter.create<mlir::memref::AllocOp>(origOp.getLoc(), outputMemRefType);
     }
 
     const auto inputType = mlir::cast<NDTypeInterface>(origOp.getInput().getType());
-    const auto zeroType =
-            mlir::cast<NDTypeInterface>(mlir::MemRefType::get(outputType.getShape().raw(), inputType.getElementType()))
-                    .changeDimsOrder(inputType.getDimsOrder());
+    const auto zeroType = mlir::cast<NDTypeInterface>(
+            vpux::getMemRefType(outputType.getShape(), inputType.getElementType(), inputType.getDimsOrder()));
     auto constZeros = Const::createZerosConst(rewriter, origOp.getLoc(), mlir::cast<mlir::MemRefType>(zeroType));
     auto copyZeroOp = rewriter.create<VPUIP::CopyOp>(origOp->getLoc(), constZeros, outputBuffer);
 

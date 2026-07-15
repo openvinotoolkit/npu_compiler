@@ -21,6 +21,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <utility>
 
 using namespace vpux;
 
@@ -448,4 +449,40 @@ TEST_F(MLIR_DimsOrderTest, isCompatibleLayoutTest) {
         EXPECT_EQ(expOrder.isCompatibleLayout(memRefType), isCompatible) << printToString(
                 "expOrder = {0} memRefType = {1} isCompatible = {2}", expOrder, memRefType, isCompatible);
     }
+}
+
+TEST_F(MLIR_DimsOrderTest, copyMoveSemanticsPreserveState) {
+    const auto base = DimsOrder::NHCW;
+    const auto expectedCode = base.code();
+    const auto expectedInvCode = base.invertedCode();
+    const auto expectedNumDims = base.numDims();
+    const auto expectedPerm = base.toPermutation();
+
+    const DimsOrder copyCtor(base);
+    EXPECT_EQ(copyCtor.code(), expectedCode);
+    EXPECT_EQ(copyCtor.invertedCode(), expectedInvCode);
+    EXPECT_EQ(copyCtor.numDims(), expectedNumDims);
+    EXPECT_EQ(copyCtor.toPermutation(), expectedPerm);
+
+    DimsOrder copyAssign = DimsOrder::CHW;
+    copyAssign = base;
+    EXPECT_EQ(copyAssign.code(), expectedCode);
+    EXPECT_EQ(copyAssign.invertedCode(), expectedInvCode);
+    EXPECT_EQ(copyAssign.numDims(), expectedNumDims);
+    EXPECT_EQ(copyAssign.toPermutation(), expectedPerm);
+
+    DimsOrder moveCtorSource = base;
+    DimsOrder moveCtor(std::move(moveCtorSource));
+    EXPECT_EQ(moveCtor.code(), expectedCode);
+    EXPECT_EQ(moveCtor.invertedCode(), expectedInvCode);
+    EXPECT_EQ(moveCtor.numDims(), expectedNumDims);
+    EXPECT_EQ(moveCtor.toPermutation(), expectedPerm);
+
+    DimsOrder moveAssignSource = base;
+    DimsOrder moveAssign = DimsOrder::CHW;
+    moveAssign = std::move(moveAssignSource);
+    EXPECT_EQ(moveAssign.code(), expectedCode);
+    EXPECT_EQ(moveAssign.invertedCode(), expectedInvCode);
+    EXPECT_EQ(moveAssign.numDims(), expectedNumDims);
+    EXPECT_EQ(moveAssign.toPermutation(), expectedPerm);
 }

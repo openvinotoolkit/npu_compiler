@@ -50,9 +50,9 @@ func.func @SplitNCEPermute(%arg0: tensor<1x3x224x224xf16>) -> tensor<1x4x224x224
 
 // CHECK-LABEL: @SplitMultiClusterNCEConv
 func.func @SplitMultiClusterNCEConv(%input: !inputqElemType, %weights: !weightsqElemType, %weights_table: !wtqElemType) -> !outqElemType {
-  %conv = VPU.NCE.Convolution(%input, %weights, %weights_table) {mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEFp<mode = <NOOP>,
+  %conv = VPU.NCE.Convolution(%input, %weights, %weights_table) rawFilterShape [16, 1024, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEFp<mode = <NOOP>,
         clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
-        rawFilterShape = [16, 1024, 3, 3], strides = [1, 1]} : !inputqElemType, !weightsqElemType, !wtqElemType -> !outqElemType
+         strides = [1, 1]} : !inputqElemType, !weightsqElemType, !wtqElemType -> !outqElemType
   return %conv : !outqElemType
     // CHECK:    [[CONV:%.+]] = VPU.NCE.Convolution
     // CHECK:    VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 7, 18] pad [1, 1, 0, 0] <CUBOID_16x16> attributes {cluster_id = 0 : i64}
@@ -79,9 +79,9 @@ func.func @SplitMultiClusterNCEConv(%input: !inputqElemType, %weights: !weightsq
 
 // CHECK-LABEL: @SplitMultiClusterNCEDWConv
 func.func @SplitMultiClusterNCEDWConv(%input: !inputqElemType, %weights: !weightsqElemType, %weights_table: !wtqElemType) -> !outqElemType {
-    %dwconv = VPU.NCE.DepthConvolution(%input, %weights, %weights_table) {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEFp<mode = <NOOP>,
+    %dwconv = VPU.NCE.DepthConvolution(%input, %weights, %weights_table) rawFilterShape [256, 1, 3, 3] {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEFp<mode = <NOOP>,
             clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
-            rawFilterShape = [256, 1, 3, 3], strides = [1, 1]} -> !outqElemType
+             strides = [1, 1]} -> !outqElemType
     return %dwconv : !outqElemType
 
     // Track E#159358. Fix the channel split to avoid too many workloads

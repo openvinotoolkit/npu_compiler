@@ -81,30 +81,51 @@ void vpux::VPURT::TaskOp::getEffects(SmallVectorImpl<MemoryEffect>& effects) {
 }
 
 VPURT::TaskQueueType vpux::VPURT::getTaskQueueType(TaskOp taskOp, bool ignoreIndexForNce) {
-    TaskQueueType queueType;
-    queueType.type = taskOp.getExecutorKind();
-    if (queueType.type == config::ExecutorKind::DPU && !ignoreIndexForNce) {
-        auto* wrappedTaskOp = taskOp.getInnerTaskOp();
-        auto nceTask = mlir::dyn_cast<VPUIP::NCEClusterTaskOp>(wrappedTaskOp);
-        VPUX_THROW_WHEN(nceTask == nullptr || nceTask.getVariants().getOps<VPUIP::DPUTaskOp>().empty(),
-                        "Could not get DPU task");
-        auto dpuTask = *(nceTask.getVariants().getOps<VPUIP::DPUTaskOp>().begin());
-        queueType.id = dpuTask.getClusterId().value_or(0);
-    } else if (queueType.type == config::ExecutorKind::SHAVE_ACT && !ignoreIndexForNce) {
-        auto* wrappedTaskOp = taskOp.getInnerTaskOp();
-        auto swKernelOp = mlir::dyn_cast<VPUIP::SwKernelOp>(wrappedTaskOp);
-        VPUX_THROW_WHEN(swKernelOp == nullptr, "Could not get SW kernel task");
-        auto numTiles = config::getNumOfTiles(swKernelOp);
-        auto tileIndex = swKernelOp.getTileIndex().value_or(0);
-        auto listIndex = swKernelOp.getListIndex().value_or(0);
-        queueType.id = getShaveQueueIdEncoding(numTiles, tileIndex, listIndex);
-    } else if (queueType.type == config::ExecutorKind::DMA_NN) {
-        auto* wrappedTaskOp = taskOp.getInnerTaskOp();
+    TaskQueueType queueType(config::ExecutorKind::UNKNOWN, 0);
+    // Keep queue type resolution local to this helper. The wrapped inner op is inspected
+    // directly below to derive both executor kind and queue id for the handled task kinds.
+    // TaskOp::getExecutorKind() is only used in the fallback path.
+    auto* wrappedTaskOp = taskOp.getInnerTaskOp();
+    if (auto nceTask = mlir::dyn_cast<VPUIP::NCEClusterTaskOp>(wrappedTaskOp)) {
+        queueType.type = config::ExecutorKind::DPU;
+        if (!ignoreIndexForNce) {
+            auto& variantsRegion = nceTask.getVariants();
+            VPUX_THROW_WHEN(variantsRegion.empty(), "Could not get DPU task");
 
-        auto dmaTask = mlir::dyn_cast<VPUIP::DMATypeOpInterface>(wrappedTaskOp);
-        VPUX_THROW_WHEN(dmaTask == nullptr, "Not a DMA task");
+            VPUIP::DPUTaskOp dpuTask = nullptr;
+
+            // Fast path: expect the first operation in the first block to be the DPU task.
+            auto& variantsRegionFront = variantsRegion.front();
+            if (!variantsRegionFront.empty()) {
+                dpuTask = mlir::dyn_cast<VPUIP::DPUTaskOp>(variantsRegionFront.front());
+            }
+
+            // Fallback: search for the first DPUTaskOp in the entire variants region.
+            if (dpuTask == nullptr) {
+                auto dpuVariantOps = variantsRegion.getOps<VPUIP::DPUTaskOp>();
+                if (dpuVariantOps.begin() != dpuVariantOps.end()) {
+                    dpuTask = *dpuVariantOps.begin();
+                }
+            }
+            VPUX_THROW_WHEN(dpuTask == nullptr,
+                            "No VPUIP::DPUTaskOp found in NCE variants region while resolving VPURT task queue type");
+            queueType.id = dpuTask.getClusterId().value_or(0);
+        }
+    } else if (auto swKernelOp = mlir::dyn_cast<VPUIP::SwKernelOp>(wrappedTaskOp)) {
+        queueType.type = config::ExecutorKind::SHAVE_ACT;
+        if (!ignoreIndexForNce) {
+            auto numTiles = config::getNumOfTiles(swKernelOp);
+            auto tileIndex = swKernelOp.getTileIndex().value_or(0);
+            auto listIndex = swKernelOp.getListIndex().value_or(0);
+            queueType.id = getShaveQueueIdEncoding(numTiles, tileIndex, listIndex);
+        }
+    } else if (auto dmaTask = mlir::dyn_cast<VPUIP::DMATypeOpInterface>(wrappedTaskOp)) {
+        queueType.type = config::ExecutorKind::DMA_NN;
         queueType.id = getDMAQueueIdEncoding(VPUIP::getDMAPortValue(wrappedTaskOp), dmaTask.getChannelType());
     } else {
+        // Fallback for task kinds that are not handled above and do not carry extra queue-id info.
+        // This is not a hot path.
+        queueType.type = taskOp.getExecutorKind();
         queueType.id = 0;
     }
     return queueType;

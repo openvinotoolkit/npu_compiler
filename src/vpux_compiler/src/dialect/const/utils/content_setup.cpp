@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/attr_interfaces.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
+#include "vpux/compiler/utils/stable_hash.hpp"
 #ifdef BACKGROUND_FOLDING_ENABLED
 #include "vpux/compiler/dialect/const/utils/constant_folding_cache.hpp"
 #endif
@@ -14,18 +15,22 @@
 
 namespace vpux::Const {
 namespace detail {
-ContentSetupBase::ContentSetupBase(mlir::Type baseType, ArrayRef<TransformAttrInterface> transformations)
-        : _baseType(mlir::cast_if_present<NDTypeInterface>(baseType)), _transformations(transformations) {
+ContentSetupBase::ContentSetupBase(vpux::Const::TraceId id, mlir::Type baseType,
+                                   ArrayRef<TransformAttrInterface> transformations)
+        : Base(id), _baseType(mlir::cast_if_present<NDTypeInterface>(baseType)), _transformations(transformations) {
     VPUX_THROW_WHEN(_baseType == nullptr, "base type must not be null");
 }
 
 ContentSetupBase::ContentSetupBase(ContentSetupBase&& other)
-        : _baseType(std::exchange(other._baseType, nullptr)), _transformations(std::move(other._transformations)) {
+        : Base(static_cast<Base&&>(other)),
+          _baseType(std::exchange(other._baseType, nullptr)),
+          _transformations(std::move(other._transformations)) {
 }
 
 ContentSetupBase& ContentSetupBase::operator=(ContentSetupBase&& other) {
     ContentSetupBase tmp(std::move(other));
     // avoids calling move assignment operator when using std::swap(*this, tmp)
+    Base::operator=(static_cast<Base&&>(tmp));
     std::swap(_baseType, tmp._baseType);
     std::swap(_transformations, tmp._transformations);
     return *this;
@@ -117,7 +122,7 @@ SpecializedContentSetup<T> SpecializedContentSetup<T>::reverse(Dim axis) {
     return addTransformation(Const::ReverseAttr::get(getIntAttr(getContext(), axis.ind())));
 }
 template <typename T>
-SpecializedContentSetup<T> SpecializedContentSetup<T>::reorder(vpux::DimsOrder newOrder) {
+SpecializedContentSetup<T> SpecializedContentSetup<T>::reorder(const vpux::DimsOrder& newOrder) {
     return addTransformation(Const::ReorderAttr::get(mlir::AffineMapAttr::get(newOrder.toAffineMap(getContext()))));
 }
 template <typename T>
@@ -131,16 +136,17 @@ SpecializedContentSetup<T> SpecializedContentSetup<T>::subview(vpux::ShapeRef of
             Const::SubViewAttr::get(getIntArrayAttr(getContext(), offset), getIntArrayAttr(getContext(), shape)));
 }
 template <typename T>
-SpecializedContentSetup<T> SpecializedContentSetup<T>::transpose(vpux::DimsOrder newOrder) {
+SpecializedContentSetup<T> SpecializedContentSetup<T>::transpose(const vpux::DimsOrder& newOrder) {
     return addTransformation(Const::TransposeAttr::get(mlir::AffineMapAttr::get(newOrder.toAffineMap(getContext()))));
 }
 template <typename T>
-SpecializedContentSetup<T> SpecializedContentSetup<T>::memPermute(vpux::DimsOrder dstOrder, vpux::DimsOrder memPerm) {
+SpecializedContentSetup<T> SpecializedContentSetup<T>::memPermute(const vpux::DimsOrder& dstOrder,
+                                                                  const vpux::DimsOrder& memPerm) {
     return addTransformation(Const::MemPermuteAttr::get(mlir::AffineMapAttr::get(dstOrder.toAffineMap(getContext())),
                                                         mlir::AffineMapAttr::get(memPerm.toAffineMap(getContext()))));
 }
 template <typename T>
-SpecializedContentSetup<T> SpecializedContentSetup<T>::layoutCast(vpux::DimsOrder dstOrder) {
+SpecializedContentSetup<T> SpecializedContentSetup<T>::layoutCast(const vpux::DimsOrder& dstOrder) {
     return addTransformation(Const::LayoutCastAttr::get(mlir::AffineMapAttr::get(dstOrder.toAffineMap(getContext()))));
 }
 template <typename T>
@@ -203,6 +209,39 @@ template <typename T>
 SpecializedContentSetup<T> SpecializedContentSetup<T>::gatherElements(mlir::IntegerAttr axisAttr,
                                                                       mlir::DenseElementsAttr indicesAttr) {
     return addTransformation(Const::GatherElementsAttr::get(axisAttr, indicesAttr));
+}
+template <typename T>
+SpecializedContentSetup<T> SpecializedContentSetup<T>::cumSum(mlir::IntegerAttr axis, mlir::BoolAttr exclusive,
+                                                              mlir::BoolAttr reverse) {
+    return addTransformation(Const::CumSumAttr::get(axis, exclusive, reverse));
+}
+
+template <typename T>
+SpecializedContentSetup<T> SpecializedContentSetup<T>::logicalNot() {
+    return addTransformation(Const::LogicalNotAttr::get(getContext()));
+}
+
+mlir::ElementsAttr getDummyBaseContent(mlir::MLIRContext* ctx) {
+    // hardcode a very specific element type - insane type
+    // that is guaranteed to never be present in reality
+    auto elemType = mlir::Float80Type::get(ctx);
+
+    // Zero-shaped tensor: holds no data. Used as a placeholder base for transformations
+    // that carry their own data (e.g. ConcatAttr). Accessing its memory is undefined.
+    auto tensorType = mlir::RankedTensorType::get({0}, elemType);
+    return mlir::DenseElementsAttr::getFromRawBuffer(tensorType, ArrayRef<char>{});
+}
+
+bool isDummyBaseContent(mlir::ElementsAttr baseContent) {
+    return baseContent == getDummyBaseContent(baseContent.getContext());
+}
+
+ContentAttr createConcatContentAttr(mlir::MLIRContext* ctx, mlir::ArrayAttr staticOffsets, int64_t axis,
+                                    mlir::ArrayRef<ContentAttr> inputContents) {
+    const auto baseContent = getDummyBaseContent(ctx);
+    auto axisAttr = mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 64), axis);
+    auto concatAttr = Const::ConcatAttr::get(ctx, axisAttr, staticOffsets, ContentArrayAttr::get(ctx, inputContents));
+    return ContentAttr::get(baseContent, ArrayRef<TransformAttrInterface>{concatAttr});
 }
 
 // Note: this lists explicit template instantiations. we know exactly how many

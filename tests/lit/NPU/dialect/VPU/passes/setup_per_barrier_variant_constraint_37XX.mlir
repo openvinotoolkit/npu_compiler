@@ -17,8 +17,7 @@ module @mainModule attributes { config.platform = #config.platform<NPU3720> } {
 // CHECK: module @mainModule attributes
 // CHECK: config.PipelineOptions @Options
 // CHECK: config.Option @config.UseDedicatedFifoPerShaveEngine : false
-// CHECK: config.Option @config.BarrierMaxVariantSum : 256
-// CHECK: config.Option @config.BarrierMaxVariantCount : 256
+// CHECK: config.Option @config.BarrierMaxSlotCount : 256
 // CHECK: config.Option @config.MetadataMaxVariantCount : 256
 // CHECK: config.Option @config.MetadataMaxInvariantCount : 32
 // CHECK: config.Option @config.MetadataMaxKernelInvocationCount : 64

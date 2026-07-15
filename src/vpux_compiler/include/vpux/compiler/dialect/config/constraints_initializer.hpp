@@ -9,19 +9,7 @@
 
 #include <mlir/IR/MLIRContext.h>
 
-#include <variant>
-
 namespace vpux::config {
-
-using PlatformOrArch = std::variant<Platform, ArchKind>;
-
-inline ArchKind getArch(PlatformOrArch target) {
-    if (std::holds_alternative<Platform>(target)) {
-        return getArch(std::get<Platform>(target));
-    } else {
-        return std::get<ArchKind>(target);
-    }
-}
 
 //
 // IConstraintsInitializer
@@ -29,7 +17,7 @@ inline ArchKind getArch(PlatformOrArch target) {
 
 class IConstraintsInitializer {
 public:
-    virtual void initialize(mlir::MLIRContext* context, PlatformOrArch target) = 0;
+    virtual void initialize(mlir::MLIRContext* context) = 0;
     virtual ~IConstraintsInitializer() = default;
 };
 

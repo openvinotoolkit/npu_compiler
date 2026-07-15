@@ -6,6 +6,7 @@
 #pragma once
 
 #include "vpux/compiler/dialect/VPU/interfaces/cost_model_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/interfaces/dpu_tiler.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
@@ -96,8 +97,9 @@ VPUNN::VPUDevice getVPUDeviceType(mlir::Operation* op);
 
 bool isVPUNNSupportedElementType(mlir::Type type, config::ArchKind arch);
 std::optional<VPUNN::DataType> getVPUNNElementType(mlir::Type type);
-VPUNN::Layout getVPUNNLayout(vpux::DimsOrder vpuxLayout);
-VPUNN::VPUTensor getVPUTensor(ShapeRef shape, mlir::Type elemType, vpux::DimsOrder layout = vpux::DimsOrder::NHWC);
+VPUNN::Layout getVPUNNLayout(const vpux::DimsOrder& vpuxLayout);
+VPUNN::VPUTensor getVPUTensor(ShapeRef shape, mlir::Type elemType,
+                              const vpux::DimsOrder& layout = vpux::DimsOrder::NHWC);
 VPUNN::ExecutionMode getExecutionMode(VPU::MPEMode mpeMode);
 VPUNN::VPULayerStrategy getVPULayerStrategy(VPU::MultiClusterStrategy mcStrategy, size_t nDPUs, size_t nTiles,
                                             config::ArchKind arch, size_t nSHVs = 1, bool prefetching = false,
@@ -108,7 +110,15 @@ std::vector<VPUNN::DPULayer> getPerClusterDPULayers(VPU::NCEOpInterface nceOp, c
                                                     Logger log);
 std::vector<VPUNN::SHAVEWorkload> getPerClusterShaveWorkloads(VPU::SWOpInterface swOp,
                                                               const VPUIP::ShaveWorkloadCostParams& params, Logger log);
+std::vector<VPUNN::SHAVEWorkload> getPerClusterShaveWorkloads(
+        VPU::SWOpInterface swOp, const VPUIP::ShaveWorkloadCostParams& params, Logger log,
+        std::vector<std::pair<NDTypeInterface, TensorDistributionMap>> tileTypes);
 VPUNN::DPUWorkload getDPUWorkload(const VPUIP::WorkloadCostParams& tileParams, const VPUIP::WorkloadTile& wl);
+
+// Strips the group dimension from a 5D shape [G,N,C,H,W].
+// Returns a 4D [N,C,H,W] shape for use with the VPUNN cost model.
+Shape stripGroupDim(ShapeRef s);
+
 VPUIP::WorkloadCostParams getWorkloadCostParam(VPU::NCEOpInterface nceOp, config::ArchKind arch, int64_t numDPU,
                                                int64_t numTiles = 1,
                                                std::optional<VPU::MultiClusterStrategy> mcStrategy = std::nullopt);

@@ -774,6 +774,132 @@ func.func @AvgPoolWithPostOpOutstandingDequantNoRemoval(%arg0: tensor<1x16x16x16
 
 // -----
 
+!qElemType = !quant.uniform<u8:f16, 0.39215686274509803>
+
+// CHECK-LABEL: func.func @GroupConvWithNonReluPostOpOutstandingDequantNoRemoval
+// CHECK-SAME:    ([[INPUT:%.+]]: tensor<1x16x3x3xf16>) -> tensor<1x16x3x3xf16>
+func.func @GroupConvWithNonReluPostOpOutstandingDequantNoRemoval(%arg0: tensor<1x16x3x3xf16>) -> tensor<1x16x3x3xf16> {
+  %cst = const.Declare tensor<16x1x1x1xf16> = dense<1.000000e+00> : tensor<16x1x1x1xf16>
+  %0 = IE.GroupConvolution(%arg0, %cst) {
+    dilations = [1, 1],
+    groups = 16 : i64,
+    pads_begin = [0, 0],
+    pads_end = [0, 0],
+    post_op = #IE.Gelu<>,
+    strides = [1, 1]
+  } : tensor<1x16x3x3xf16>, tensor<16x1x1x1xf16> -> tensor<1x16x3x3x!qElemType>
+  %1 = IE.Dequantize(%0) {dstElemType = f16} : tensor<1x16x3x3x!qElemType> -> tensor<1x16x3x3xf16>
+  return %1 : tensor<1x16x3x3xf16>
+
+  // CHECK-DAG:  [[CST:%.+]] = const.Declare tensor<16x1x1x1xf16>
+
+  // CHECK:      [[VAL0:%.+]] = IE.GroupConvolution([[INPUT]], [[CST]]) {
+  // CHECK-SAME:   dilations = [1, 1]
+  // CHECK-SAME:   groups = 16 : i64,
+  // CHECK-SAME:   pads_begin = [0, 0],
+  // CHECK-SAME:   pads_end = [0, 0],
+  // CHECK-SAME:   post_op = #IE.Gelu<>,
+  // CHECK-SAME:   strides = [1, 1]
+  // CHECK-SAME: } : tensor<1x16x3x3xf16>, tensor<16x1x1x1xf16> -> tensor<1x16x3x3x!qElemType>
+
+  // CHECK:      [[VAL1:%.+]] = IE.Dequantize([[VAL0]]) {
+  // CHECK-SAME:   dstElemType = f16
+  // CHECK-SAME: } : tensor<1x16x3x3x!qElemType> -> tensor<1x16x3x3xf16>
+
+  // CHECK:      return [[VAL1]] : tensor<1x16x3x3xf16>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 0.39215686274509803>
+
+// CHECK-LABEL: func.func @AddWithNonReluPostOpOutstandingDequantNoRemoval
+// CHECK-SAME:    ([[INPUT:%.+]]: tensor<1x16x3x3xf16>) -> tensor<1x16x3x3xf16>
+func.func @AddWithNonReluPostOpOutstandingDequantNoRemoval(%arg0: tensor<1x16x3x3xf16>) -> tensor<1x16x3x3xf16> {
+  %0 = IE.Add(%arg0, %arg0) {
+    auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
+    post_op = #IE.Gelu<>
+  } : tensor<1x16x3x3xf16>, tensor<1x16x3x3xf16> -> tensor<1x16x3x3x!qElemType>
+  %1 = IE.Dequantize(%0) {dstElemType = f16} : tensor<1x16x3x3x!qElemType> -> tensor<1x16x3x3xf16>
+  return %1 : tensor<1x16x3x3xf16>
+
+  // CHECK:      [[VAL0:%.+]] = IE.Add([[INPUT]], [[INPUT]]) {
+  // CHECK-SAME:   auto_broadcast = #IE.auto_broadcast_type<NUMPY>
+  // CHECK-SAME:   post_op = #IE.Gelu<>
+  // CHECK-SAME: } : tensor<1x16x3x3xf16>, tensor<1x16x3x3xf16> -> tensor<1x16x3x3x!qElemType>
+
+  // CHECK:      [[VAL1:%.+]] = IE.Dequantize([[VAL0]]) {
+  // CHECK-SAME:   dstElemType = f16
+  // CHECK-SAME: } : tensor<1x16x3x3x!qElemType> -> tensor<1x16x3x3xf16>
+
+  // CHECK:      return [[VAL1]] : tensor<1x16x3x3xf16>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 0.39215686274509803>
+
+// CHECK-LABEL: func.func @GroupConvWithNonReluPostOpOutstandingDequantNoRemoval
+// CHECK-SAME:    ([[INPUT:%.+]]: tensor<1x16x3x3xf16>) -> tensor<1x16x3x3xf16>
+func.func @GroupConvWithNonReluPostOpOutstandingDequantNoRemoval(%arg0: tensor<1x16x3x3xf16>) -> tensor<1x16x3x3xf16> {
+  %cst = const.Declare tensor<16x1x1x1xf16> = dense<1.000000e+00> : tensor<16x1x1x1xf16>
+  %0 = IE.GroupConvolution(%arg0, %cst) {
+    dilations = [1, 1],
+    groups = 16 : i64,
+    pads_begin = [0, 0],
+    pads_end = [0, 0],
+    post_op = #IE.Gelu<>,
+    strides = [1, 1]
+  } : tensor<1x16x3x3xf16>, tensor<16x1x1x1xf16> -> tensor<1x16x3x3x!qElemType>
+  %1 = IE.Dequantize(%0) {dstElemType = f16} : tensor<1x16x3x3x!qElemType> -> tensor<1x16x3x3xf16>
+  return %1 : tensor<1x16x3x3xf16>
+
+  // CHECK-DAG:  [[CST:%.+]] = const.Declare tensor<16x1x1x1xf16>
+
+  // CHECK:      [[VAL0:%.+]] = IE.GroupConvolution([[INPUT]], [[CST]]) {
+  // CHECK-SAME:   dilations = [1, 1]
+  // CHECK-SAME:   groups = 16 : i64,
+  // CHECK-SAME:   pads_begin = [0, 0],
+  // CHECK-SAME:   pads_end = [0, 0],
+  // CHECK-SAME:   post_op = #IE.Gelu<>,
+  // CHECK-SAME:   strides = [1, 1]
+  // CHECK-SAME: } : tensor<1x16x3x3xf16>, tensor<16x1x1x1xf16> -> tensor<1x16x3x3x!qElemType>
+
+  // CHECK:      [[VAL1:%.+]] = IE.Dequantize([[VAL0]]) {
+  // CHECK-SAME:   dstElemType = f16
+  // CHECK-SAME: } : tensor<1x16x3x3x!qElemType> -> tensor<1x16x3x3xf16>
+
+  // CHECK:      return [[VAL1]] : tensor<1x16x3x3xf16>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 0.39215686274509803>
+
+// CHECK-LABEL: func.func @AddWithNonReluPostOpOutstandingDequantNoRemoval
+// CHECK-SAME:    ([[INPUT:%.+]]: tensor<1x16x3x3xf16>) -> tensor<1x16x3x3xf16>
+func.func @AddWithNonReluPostOpOutstandingDequantNoRemoval(%arg0: tensor<1x16x3x3xf16>) -> tensor<1x16x3x3xf16> {
+  %0 = IE.Add(%arg0, %arg0) {
+    auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
+    post_op = #IE.Gelu<>
+  } : tensor<1x16x3x3xf16>, tensor<1x16x3x3xf16> -> tensor<1x16x3x3x!qElemType>
+  %1 = IE.Dequantize(%0) {dstElemType = f16} : tensor<1x16x3x3x!qElemType> -> tensor<1x16x3x3xf16>
+  return %1 : tensor<1x16x3x3xf16>
+
+  // CHECK:      [[VAL0:%.+]] = IE.Add([[INPUT]], [[INPUT]]) {
+  // CHECK-SAME:   auto_broadcast = #IE.auto_broadcast_type<NUMPY>
+  // CHECK-SAME:   post_op = #IE.Gelu<>
+  // CHECK-SAME: } : tensor<1x16x3x3xf16>, tensor<1x16x3x3xf16> -> tensor<1x16x3x3x!qElemType>
+
+  // CHECK:      [[VAL1:%.+]] = IE.Dequantize([[VAL0]]) {
+  // CHECK-SAME:   dstElemType = f16
+  // CHECK-SAME: } : tensor<1x16x3x3x!qElemType> -> tensor<1x16x3x3xf16>
+
+  // CHECK:      return [[VAL1]] : tensor<1x16x3x3xf16>
+}
+
+// -----
+
 !qElemType = !quant.uniform<u8:f16, 0.045763225181429994>
 
 // CHECK-LABEL: func.func @ConvWithReluPostOpAndDequantize
@@ -847,6 +973,36 @@ func.func @MaxPoolDequantize(%arg0: tensor<4x64x200x63x!qElemType>) -> tensor<4x
   // CHECK-SAME:  } : tensor<4x64x1x1x!qElemType> -> tensor<4x64x1x1xf16>
 
   // CHECK:       return [[VAL3]] : tensor<4x64x1x1xf16>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 0.12009554844276578:255>
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: func.func @MaxPoolNoFuseDequantizeThroughOp
+// CHECK-SAME:    ([[INPUT:%.+]]: tensor<4x64x200x63x!qElemType>) -> tensor<4x25x9x64xf16>
+func.func @MaxPoolNoFuseDequantizeThroughOp(%arg0: tensor<4x64x200x63x!qElemType>) -> tensor<4x25x9x64xf16> {
+  %0 = IE.MaxPool(%arg0) {kernel_size = [8, 7], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [8, 7]} : tensor<4x64x200x63x!qElemType> -> tensor<4x64x25x9x!qElemType>
+  %1 = IE.Transpose(%0) {order_value = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>} : tensor<4x64x25x9x!qElemType> -> tensor<4x25x9x64x!qElemType>
+  %2 = IE.Dequantize(%1) {dstElemType = f16} : tensor<4x25x9x64x!qElemType> -> tensor<4x25x9x64xf16>
+
+  return %2 : tensor<4x25x9x64xf16>
+
+  // CHECK:       [[MAXPOOL:%.+]] = IE.MaxPool([[INPUT]]) {
+  // CHECK-SAME:    kernel_size = [8, 7]
+  // CHECK-SAME:  } : tensor<4x64x200x63x!qElemType> -> tensor<4x64x25x9x!qElemType>
+
+  // CHECK:       [[TRANSPOSE:%.+]] = IE.Transpose([[MAXPOOL]]) {
+  // CHECK-SAME:    order_value = #NHWC
+  // CHECK-SAME:  } : tensor<4x64x25x9x!qElemType> -> tensor<4x25x9x64x!qElemType>
+
+  // CHECK:       [[DQ:%.+]] = IE.Dequantize([[TRANSPOSE]]) {
+  // CHECK-SAME:    dstElemType = f16
+  // CHECK-SAME:  } : tensor<4x25x9x64x!qElemType> -> tensor<4x25x9x64xf16>
+
+  // CHECK:       return [[DQ]] : tensor<4x25x9x64xf16>
 }
 
 // -----

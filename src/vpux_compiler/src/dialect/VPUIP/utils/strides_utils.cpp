@@ -84,5 +84,34 @@ bool isDDRCopyEfficient(vpux::NDTypeInterface tensorType, config::ArchKind arch)
     return true;
 }
 
+// Ignore size-1 dimensions only at the boundaries. A leading of size 1 does not affect the traversed memory region,
+// but a middle/trailing size-1 dim is still part of the compactness relation between
+// its neighboring dimensions and must preserve the expected stride chain.
+bool isEffectivelyStrided(vpux::NDTypeInterface type) {
+    const auto memShape = type.getMemShape();
+    const auto memStrides = type.getMemStrides();
+    const auto elemSize = type.getElemTypeSize();
+    const auto rank = memShape.size();
+
+    size_t first = 0;
+    while (first < rank && memShape[MemDim(first)] == 1) {
+        ++first;
+    }
+    for (size_t ind{first}; ind < rank; ++ind) {
+        const auto dim = MemDim(ind);
+        if (ind == rank - 1) {
+            if (memStrides[dim] != elemSize) {
+                return true;
+            }
+        } else {
+            const auto nextDim = MemDim(ind + 1);
+            if (memStrides[dim] != memStrides[nextDim] * memShape[nextDim]) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 }  // namespace VPUIP
 }  // namespace vpux

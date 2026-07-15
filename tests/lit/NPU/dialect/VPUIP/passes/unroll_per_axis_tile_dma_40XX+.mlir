@@ -18,12 +18,12 @@
 func.func @UnrollPerAxisTileDMAWrapInClusterDUPLICATED() -> !OutputDistributed {
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %bar1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    %0 = VPURT.DeclareBuffer <DDR> <64> -> memref<1x1x1x1xf16, #NHWC, @DDR>
+    %0 = VPURT.DeclareBuffer <DDR> <64> -> memref<1x1x1x1xf16, {order = #NHWC}, @DDR>
     %1 = VPURT.DeclareBuffer <CMX_NN> <0> -> !OutputDistributed
 
     VPURT.Task waits(%bar0 : !VPURT.Barrier) updates(%bar1 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
       VPUIP.PerAxisTileDMA <{axis = 1 : i64, tiles = 512 : i64}>
-            inputs(%0 : memref<1x1x1x1xf16, #NHWC, @DDR>)
+            inputs(%0 : memref<1x1x1x1xf16, {order = #NHWC}, @DDR>)
             outputs(%1 : !OutputDistributed) -> !OutputDistributed
     }
     return %1 : !OutputDistributed
@@ -67,12 +67,12 @@ func.func @UnrollPerAxisTileDMAWrapInClusterDUPLICATED() -> !OutputDistributed {
 func.func @UnrollPerAxisTileDMAWrapInClusterDUPLICATEDExplicitDistribution() -> !OutputDistributed {
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %bar1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    %0 = VPURT.DeclareBuffer <DDR> <64> -> memref<1x1x1x1xf16, #NHWC, @DDR>
+    %0 = VPURT.DeclareBuffer <DDR> <64> -> memref<1x1x1x1xf16, {order = #NHWC}, @DDR>
     %1 = VPURT.DeclareBuffer <CMX_NN> <0> -> !OutputDistributed
 
     VPURT.Task waits(%bar0 : !VPURT.Barrier) updates(%bar1 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
       VPUIP.PerAxisTileDMA <{axis = 1 : i64, tiles = 512 : i64}>
-            inputs(%0 : memref<1x1x1x1xf16, #NHWC, @DDR>)
+            inputs(%0 : memref<1x1x1x1xf16, {order = #NHWC}, @DDR>)
             outputs(%1 : !OutputDistributed) -> !OutputDistributed
     }
     return %1 : !OutputDistributed
@@ -115,12 +115,12 @@ func.func @UnrollPerAxisTileDMAWrapInClusterSEGMENTED() -> !OutputDistributed {
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %bar1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    %input = VPURT.DeclareBuffer <DDR> <64> -> memref<1x2x35x16xf16, #NHWC, @DDR>
+    %input = VPURT.DeclareBuffer <DDR> <64> -> memref<1x2x35x16xf16, {order = #NHWC}, @DDR>
     %output = VPURT.DeclareBuffer <CMX_NN> <0> -> !OutputDistributed
 
     VPURT.Task waits(%bar0 : !VPURT.Barrier) updates(%bar1 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
       VPUIP.PerAxisTileDMA <{axis = 1 : i64, port = 0 : i64, tiles = 8 : i64}>
-            inputs(%input : memref<1x2x35x16xf16, #NHWC, @DDR>)
+            inputs(%input : memref<1x2x35x16xf16, {order = #NHWC}, @DDR>)
             outputs(%output : !OutputDistributed) -> !OutputDistributed
     }
 
@@ -179,12 +179,12 @@ func.func @UnrollPerAxisTileDMAExplicitSEGMENTED() -> !OutputDistributed {
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %bar1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    %input = VPURT.DeclareBuffer <DDR> <64> -> memref<1x2x35x16xf16, #NHWC, @DDR>
+    %input = VPURT.DeclareBuffer <DDR> <64> -> memref<1x2x35x16xf16, {order = #NHWC}, @DDR>
     %output = VPURT.DeclareBuffer <CMX_NN> <0> -> !OutputDistributed
 
     VPURT.Task waits(%bar0 : !VPURT.Barrier) updates(%bar1 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
       VPUIP.PerAxisTileDMA <{axis = 1 : i64, port = 0 : i64, tiles = 8 : i64}>
-            inputs(%input : memref<1x2x35x16xf16, #NHWC, @DDR>)
+            inputs(%input : memref<1x2x35x16xf16, {order = #NHWC}, @DDR>)
             outputs(%output : !OutputDistributed) -> !OutputDistributed
     }
 
@@ -241,12 +241,12 @@ func.func @UnrollPerAxisTileDMAWrapInClusterOVERLAPPED() -> !OutputDistributed {
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %bar1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    %input = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x240x120xf16, #NHWC, @DDR>
+    %input = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x240x120xf16, {order = #NHWC}, @DDR>
     %output = VPURT.DeclareBuffer <CMX_NN> <0> -> !OutputDistributed
 
     VPURT.Task waits(%bar0 : !VPURT.Barrier) updates(%bar1 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
       VPUIP.PerAxisTileDMA <{axis = 3 : i64, port = 0 : i64, tiles = 2 : i64}>
-            inputs(%input : memref<1x3x240x120xf16, #NHWC, @DDR>)
+            inputs(%input : memref<1x3x240x120xf16, {order = #NHWC}, @DDR>)
             outputs(%output : !OutputDistributed) -> !OutputDistributed
     }
 
@@ -304,12 +304,12 @@ func.func @UnrollPerAxisTileDMAExplicitOVERLAPPED() -> !OutputDistributed {
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %bar1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    %input = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x240x120xf16, #NHWC, @DDR>
+    %input = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x240x120xf16, {order = #NHWC}, @DDR>
     %output = VPURT.DeclareBuffer <CMX_NN> <0> -> !OutputDistributed
 
     VPURT.Task waits(%bar0 : !VPURT.Barrier) updates(%bar1 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
       VPUIP.PerAxisTileDMA <{axis = 3 : i64, port = 0 : i64, tiles = 2 : i64}>
-            inputs(%input : memref<1x3x240x120xf16, #NHWC, @DDR>)
+            inputs(%input : memref<1x3x240x120xf16, {order = #NHWC}, @DDR>)
             outputs(%output : !OutputDistributed) -> !OutputDistributed
     }
 

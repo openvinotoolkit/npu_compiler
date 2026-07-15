@@ -3,16 +3,20 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/dialect/HostExec/IR/attributes.hpp"
 #include "vpux/compiler/dialect/HostExec/transforms/passes.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 #include "vpux/utils/core/range.hpp"
+#include "vpux/utils/core/small_vector.hpp"
 
 #include <mlir/Dialect/Async/IR/Async.h>
 #include <mlir/Dialect/ControlFlow/IR/ControlFlowOps.h>
+#include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
 #include <mlir/IR/Operation.h>
+#include <mlir/IR/SymbolTable.h>
 #include <mlir/Interfaces/CallInterfaces.h>
 #include <mlir/Support/LLVM.h>
 #include <unordered_map>
@@ -62,19 +66,34 @@ void wrapIntoAsyncRegion(mlir::Operation* op,
 
     log.trace("Create 'async.execute' Operation");
 
-    const auto bodyBuilder = [op](mlir::OpBuilder& builder, mlir::Location loc, mlir::ValueRange) {
+    const bool allResultsUnused = op->use_empty();
+
+    const auto bodyBuilder = [op, allResultsUnused](mlir::OpBuilder& builder, mlir::Location loc, mlir::ValueRange) {
         auto* newOp = builder.clone(*op);
-        builder.create<mlir::async::YieldOp>(loc, newOp->getResults());
+        if (allResultsUnused) {
+            builder.create<mlir::async::YieldOp>(loc, mlir::ValueRange{});
+        } else {
+            builder.create<mlir::async::YieldOp>(loc, newOp->getResults());
+        }
     };
 
     OpBuilderLogger builderLog(log.nest());
     mlir::OpBuilder builder(op, &builderLog);
 
-    auto execOp = builder.create<mlir::async::ExecuteOp>(op->getLoc(), op->getResultTypes(), std::nullopt, std::nullopt,
-                                                         bodyBuilder);
+    const auto resultTypes =
+            allResultsUnused ? SmallVector<mlir::Type>{} : SmallVector<mlir::Type>(op->getResultTypes());
+    auto execOp = builder.create<mlir::async::ExecuteOp>(op->getLoc(), mlir::TypeRange{resultTypes},
+                                                         /* dependencies */ mlir::ValueRange{},
+                                                         /* operands */ mlir::ValueRange{}, bodyBuilder);
     if (auto forOp = getTopParentOpOfType<mlir::scf::ForOp>(op); forOp != nullptr) {
         builder.create<mlir::async::AddToGroupOp>(op->getLoc(), execOp.getToken(),
                                                   forOpToAsyncGroupMap[forOp.getOperation()]);
+    }
+
+    if (allResultsUnused) {
+        log.trace("All results unused — skipping 'async.await' generation");
+        op->erase();
+        return;
     }
 
     log.trace("Create 'async.await' Operations per each original result");
@@ -136,6 +155,64 @@ void makeIndexSwitchReturnVoid(mlir::scf::IndexSwitchOp op) {
     op.erase();
 }
 
+bool shouldStripReturnValues(mlir::func::FuncOp func) {
+    return HostExec::isHostCompileInferenceExecFunc(func) || vpux::config::isPureHostCompileFunc(func);
+}
+
+void removeAllHostFuncReturnValues(mlir::ModuleOp module, const Logger& log) {
+    SmallVector<mlir::func::FuncOp> functionsToStrip;
+    module.walk([&](mlir::func::FuncOp func) {
+        if (!func.getResultTypes().empty() && shouldStripReturnValues(func)) {
+            functionsToStrip.push_back(func);
+        }
+    });
+
+    if (functionsToStrip.empty()) {
+        return;
+    }
+
+    // Strip func.return operands
+    for (auto func : functionsToStrip) {
+        for (auto& block : func.getBody()) {
+            if (auto returnOp = mlir::dyn_cast<mlir::func::ReturnOp>(block.getTerminator())) {
+                log.trace("Remove return operands from func.return at '{0}'", returnOp.getLoc());
+                mlir::OpBuilder builder(returnOp);
+                builder.create<mlir::func::ReturnOp>(returnOp.getLoc());
+                returnOp.erase();
+            }
+        }
+    }
+
+    // Update func.call sites for stripped callees
+    mlir::DenseSet<mlir::func::FuncOp> stripSet(functionsToStrip.begin(), functionsToStrip.end());
+    module.walk([&](mlir::func::CallOp callOp) {
+        if (callOp.getNumResults() == 0) {
+            return;
+        }
+        auto callee = mlir::SymbolTable::lookupNearestSymbolFrom<mlir::func::FuncOp>(callOp, callOp.getCalleeAttr());
+        if (!callee || !stripSet.count(callee)) {
+            return;
+        }
+        for (auto result : callOp.getResults()) {
+            VPUX_THROW_WHEN(!result.use_empty(),
+                            "func.call result at '{0}' still has uses after return-value stripping — "
+                            "the caller must also have its return values stripped",
+                            callOp.getLoc());
+        }
+        log.trace("Drop results from func.call to '{0}' at '{1}'", callOp.getCallee(), callOp.getLoc());
+        mlir::OpBuilder builder(callOp);
+        builder.create<mlir::func::CallOp>(callOp.getLoc(), mlir::TypeRange{}, callOp.getCallee(),
+                                           callOp.getArgOperands());
+        callOp.erase();
+    });
+
+    // Update function types
+    for (auto func : functionsToStrip) {
+        auto newFuncType = mlir::FunctionType::get(func.getContext(), func.getArgumentTypes(), mlir::TypeRange{});
+        func.setType(newFuncType);
+    }
+}
+
 //
 // PrepareHostFuncForAsyncExecutionPass
 //
@@ -143,25 +220,38 @@ void makeIndexSwitchReturnVoid(mlir::scf::IndexSwitchOp op) {
 class PrepareHostFuncForAsyncExecutionPass final :
         public HostExec::impl::PrepareHostFuncForAsyncExecutionBase<PrepareHostFuncForAsyncExecutionPass> {
 public:
-    explicit PrepareHostFuncForAsyncExecutionPass(Logger log) {
+    explicit PrepareHostFuncForAsyncExecutionPass(bool removeReturnValues, Logger log) {
         Base::initLogger(log, Base::getArgumentName());
+        this->removeReturnValues = removeReturnValues;
     }
 
 private:
-    void safeRunOnFunc() final;
+    void safeRunOnModule() final;
 };
 
-void PrepareHostFuncForAsyncExecutionPass::safeRunOnFunc() {
-    getOperation().walk(makeIndexSwitchReturnVoid);
+void PrepareHostFuncForAsyncExecutionPass::safeRunOnModule() {
+    auto module = getOperation();
 
-    std::unordered_map<mlir::Operation*, mlir::async::CreateGroupOp> forOpToAsyncGroupMap;
-    const auto wrapCallOpsIntoAsyncRegion = [&](mlir::Operation* op) {
-        _log.trace("Process Layer Operation '{0}' at '{1}'", op->getName(), op->getLoc());
-        if (mlir::isa<mlir::CallOpInterface>(op)) {
-            wrapIntoAsyncRegion(op, forOpToAsyncGroupMap, _log.nest());
+    if (removeReturnValues) {
+        removeAllHostFuncReturnValues(module, _log);
+    }
+
+    module.walk([&](mlir::func::FuncOp func) {
+        if (!HostExec::isHostCompileInferenceExecFunc(func)) {
+            _log.debug("Skip function: \"{0}\" as it isn't suitable for the processing", func.getName());
+            return;
         }
-    };
-    getOperation().walk(wrapCallOpsIntoAsyncRegion);
+        func.walk(makeIndexSwitchReturnVoid);
+
+        std::unordered_map<mlir::Operation*, mlir::async::CreateGroupOp> forOpToAsyncGroupMap;
+        const auto wrapCallOpsIntoAsyncRegion = [&](mlir::Operation* op) {
+            _log.trace("Process Layer Operation '{0}' at '{1}'", op->getName(), op->getLoc());
+            if (mlir::isa<mlir::CallOpInterface>(op)) {
+                wrapIntoAsyncRegion(op, forOpToAsyncGroupMap, _log.nest());
+            }
+        };
+        func.walk(wrapCallOpsIntoAsyncRegion);
+    });
 }
 
 }  // namespace
@@ -170,6 +260,7 @@ void PrepareHostFuncForAsyncExecutionPass::safeRunOnFunc() {
 // createPrepareHostFuncForAsyncExecutionPass
 //
 
-std::unique_ptr<mlir::Pass> vpux::HostExec::createPrepareHostFuncForAsyncExecutionPass(Logger log) {
-    return std::make_unique<PrepareHostFuncForAsyncExecutionPass>(log);
+std::unique_ptr<mlir::Pass> vpux::HostExec::createPrepareHostFuncForAsyncExecutionPass(bool removeReturnValues,
+                                                                                       Logger log) {
+    return std::make_unique<PrepareHostFuncForAsyncExecutionPass>(removeReturnValues, log);
 }

@@ -7,11 +7,8 @@
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/ops.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPUIPDPU/lower_to_registers.hpp"
 
-#include <npu_40xx_nnrt.hpp>
-
 using namespace vpux;
 using namespace vpux::VPURegMapped;
-using namespace npu40xx;
 using namespace NPUReg40XX;
 
 namespace vpux {

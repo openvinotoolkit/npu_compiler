@@ -100,8 +100,24 @@ public:
 
 mlir::LogicalResult ConvertConstToAttr::matchAndRewrite(IE::NonMaxSuppressionOp nmsOp,
                                                         mlir::PatternRewriter& rewriter) const {
-    if (nmsOp.getMaxOutputBoxesPerClassValue().has_value() && nmsOp.getIouThresholdValue().has_value() &&
-        nmsOp.getScoreThresholdValue().has_value() && nmsOp.getSoftNmsSigmaValue().has_value()) {
+    // The iou/score thresholds may stay as runtime operands because the act-shave kernel reads them
+    // from scalar input tensors. They are folded into attributes only when backed by a splat
+    // constant. max_output_boxes_per_class and soft_nms_sigma must be compile-time known (they drive
+    // output-shape inference and auxiliary-buffer sizing), so they are always folded into attributes.
+    const auto isRuntimeOperand = [](mlir::Value operand) {
+        return operand != nullptr && operand.getDefiningOp<Const::DeclareOp>() == nullptr;
+    };
+    const bool iouIsRuntime = isRuntimeOperand(nmsOp.getIouThreshold());
+    const bool scoreIsRuntime = isRuntimeOperand(nmsOp.getScoreThreshold());
+
+    // Nothing left to fold once every operand that can become an attribute already has, and the
+    // remaining iou/score operands are the runtime ones that are intentionally preserved. This guard
+    // prevents the canonicalizer from looping.
+    const bool maxBoxesDone = nmsOp.getMaxOutputBoxesPerClass() == nullptr;
+    const bool iouDone = nmsOp.getIouThreshold() == nullptr || iouIsRuntime;
+    const bool scoreDone = nmsOp.getScoreThreshold() == nullptr || scoreIsRuntime;
+    const bool softNmsDone = nmsOp.getSoftNmsSigma() == nullptr;
+    if (maxBoxesDone && iouDone && scoreDone && softNmsDone) {
         return mlir::failure();
     }
 
@@ -113,11 +129,17 @@ mlir::LogicalResult ConvertConstToAttr::matchAndRewrite(IE::NonMaxSuppressionOp 
 
     double softNMSSigmaValue = extractNMSAttrValue(nmsOp.getSoftNmsSigma(), nmsOp.getSoftNmsSigmaValueAttr());
 
+    // Preserve runtime iou/score threshold operands; the act-shave kernel consumes them directly. The
+    // *_value attributes are still populated (0.0 for runtime operands) to keep the kernel parameter
+    // struct layout stable, but they are ignored by the kernel when the operands are present.
+    mlir::Value iouThresholdOperand = iouIsRuntime ? nmsOp.getIouThreshold() : nullptr;
+    mlir::Value scoreThresholdOperand = scoreIsRuntime ? nmsOp.getScoreThreshold() : nullptr;
+
     rewriter.replaceOpWithNewOp<IE::NonMaxSuppressionOp>(
-            nmsOp, nmsOp.getInBoxCoords(), nmsOp.getInBoxScores(), nullptr, nullptr, nullptr, nullptr,
-            nmsOp.getBoxEncoding(), nmsOp.getSortResultDescending(), rewriter.getI64IntegerAttr(maxBoxesPerClassValue),
-            rewriter.getF64FloatAttr(iouThresholdValue), rewriter.getF64FloatAttr(scoreThresholdValue),
-            rewriter.getF64FloatAttr(softNMSSigmaValue));
+            nmsOp, nmsOp.getInBoxCoords(), nmsOp.getInBoxScores(), nullptr, iouThresholdOperand, scoreThresholdOperand,
+            nullptr, nmsOp.getBoxEncoding(), nmsOp.getSortResultDescending(),
+            rewriter.getI64IntegerAttr(maxBoxesPerClassValue), rewriter.getF64FloatAttr(iouThresholdValue),
+            rewriter.getF64FloatAttr(scoreThresholdValue), rewriter.getF64FloatAttr(softNMSSigmaValue));
 
     return mlir::success();
 }

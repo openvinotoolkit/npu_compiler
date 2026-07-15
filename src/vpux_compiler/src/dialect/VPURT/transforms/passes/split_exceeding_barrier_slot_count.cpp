@@ -34,11 +34,11 @@ void SplitExceedingBarrierSlotCountPass::safeRunOnFunc() {
     auto& barrierInfo = getAnalysis<BarrierInfo>();
 
     const auto maxAvailableSlots = maxVariantCount.hasValue() ? checked_cast<size_t>(maxVariantCount.getValue())
-                                                              : VPUIP::getBarrierMaxVariantCount(func);
+                                                              : VPUIP::getBarrierMaxSlotCount(func);
 
     // A hw limit from VPUX40XX - variants sum of one barrier cann't exceed maxVariantSum
-    const auto maxSlotsSum = maxVariantSum.hasValue() ? checked_cast<size_t>(maxVariantSum.getValue())
-                                                      : VPUIP::getBarrierMaxVariantSum(func);
+    const auto maxSlotsSum =
+            maxVariantSum.hasValue() ? checked_cast<size_t>(maxVariantSum.getValue()) : maxAvailableSlots;
     bool maxSlotsSumLimitEnabled = false;
     // TODO: we may need more clear way to set maxSlotsSumLimitEnabled after more Arch need this
     if (maxSlotsSum < maxAvailableSlots) {
@@ -48,7 +48,7 @@ void SplitExceedingBarrierSlotCountPass::safeRunOnFunc() {
                "consumers)",
                maxSlotsSumLimitEnabled ? maxSlotsSum : maxAvailableSlots);
 
-    const auto availableSlots = vpux::VPUIP::getAvailableSlots(maxSlotsSum, maxAvailableSlots);
+    const auto availableSlots = vpux::VPUIP::getAvailableSlots(func, maxAvailableSlots);
     // verify each task individually satisfies variant count
     func->walk([&](VPURT::TaskOp taskOp) {
         VPUX_THROW_UNLESS(!vpux::VPUIP::hasDistributedOperand(taskOp), "Task op should not be distributed: '{0}'",

@@ -364,3 +364,18 @@ func.func @NotConvertSubByteI4PerAxisQuantize(%arg0 : tensor<1x4xf16>) -> tensor
 
     // CHECK:  return [[DEQUANTIZE]] : tensor<1x4xf16>
 }
+
+// -----
+
+!qElemType = !quant.uniform<i8:f16, 1.000000e+00>
+
+// CHECK-LABEL:  func.func @NotConvertSignedI8Dequantize
+// CHECK-SAME:    ([[INPUT:%.+]]: tensor<1x3x16x16x!qElemType>)
+func.func @NotConvertSignedI8Dequantize(%arg0 : tensor<1x3x16x16x!qElemType>) -> tensor<1x3x16x16xf16> {
+    %0 = IE.Dequantize(%arg0) {dstElemType = f16} : tensor<1x3x16x16x!qElemType> -> tensor<1x3x16x16xf16>
+
+    // CHECK:  [[DEQUANTIZE:%.+]] = IE.Dequantize([[INPUT]]) {dstElemType = f16} : tensor<1x3x16x16x!qElemType> -> tensor<1x3x16x16xf16>
+    // CHECK:  return [[DEQUANTIZE]] : tensor<1x3x16x16xf16>
+
+    return %0 : tensor<1x3x16x16xf16>
+}

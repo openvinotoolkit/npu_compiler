@@ -127,9 +127,9 @@ mlir::LogicalResult FoldConvStrideKernel::matchAndRewrite(IE::ConvolutionOp conv
     newStride[Dims4D::Strides::X] = 1;
     rewriter.replaceOpWithNewOp<IE::ConvolutionOp>(
             convOp, convOp.getType(), inputShapeCastOp, newFilter, convOp.getBias(), convOp.getScale(),
-            getIntArrayAttr(ctx, newStride.raw()), convOp.getPadsBeginAttr(), convOp.getPadsEndAttr(),
-            convOp.getDilationsAttr(), convOp.getPostOpAttr(), convOp.getClampAttr(), convOp.getStaticScaleAttr(),
-            convOp.getOutputPaddingAttr(), /*inputPadding=*/nullptr);
+            convOp.getZeroPoints(), getIntArrayAttr(ctx, newStride.raw()), convOp.getPadsBeginAttr(),
+            convOp.getPadsEndAttr(), convOp.getDilationsAttr(), convOp.getPostOpAttr(), convOp.getClampAttr(),
+            convOp.getStaticScaleAttr(), convOp.getOutputPaddingAttr(), /*inputPadding=*/nullptr);
     return mlir::success();
 }
 
@@ -150,15 +150,21 @@ private:
     Logger _log;
 };
 
-mlir::Value reshapeBias(mlir::PatternRewriter& rewriter, mlir::Value bias, ShapeRef outShape) {
+mlir::Value reshapeBias(mlir::PatternRewriter& rewriter, mlir::Value bias, ShapeRef outShape, bool inputIsQuantized) {
     if (bias == nullptr) {
         return nullptr;
     }
     auto cst = bias.getDefiningOp<Const::DeclareOp>();
+    // A non-null bias is always a Const::DeclareOp here: the caller (AdjustConvShape::matchAndRewrite)
+    // runs getAdjustConvShapeParameters first, which rejects any convolution whose bias is not
+    // constant, so cst cannot be null at this point.
     auto biasShape = getShape(bias);
     auto biasCxW = biasShape[Dims4D::Act::C] * biasShape[Dims4D::Act::W];
     auto outCxW = outShape[Dims4D::Act::C] * outShape[Dims4D::Act::W];
-    if (biasCxW == 1) {
+    // A splat bias only needs to be materialized to the expanded OC for quantized-input
+    // convolutions: their NCE lowering builds a rescaled weights-table bias that requires
+    // bias size == OC. Float convolutions consume a splat bias directly, so leave them unchanged.
+    if (biasCxW == 1 && (outCxW == 1 || !inputIsQuantized)) {
         return bias;
     }
     auto contentAttrSetup = cst.transformContentAttr();
@@ -262,19 +268,32 @@ bool isExpandBetweenAdjacentConvLayers(IE::ConvolutionOp convOp, Logger log) {
 bool isSliceBetweenAdjacentConvLayers(IE::ConvolutionOp convOp, Logger log) {
     auto iface = mlir::cast<IE::AlignedChannelsOpInterface>(convOp.getOperation());
     const int64_t alignedInputChannel = iface.getInputChannelAlignment();
+    const int64_t alignedOutputChannel = iface.getOutputChannelAlignment();
+
+    // If the conv's OC expansion factor is very large, the compute savings from shape adjustment
+    // far outweigh the cost of an extra Slice between adjacent conv layers.
+    // Convolutions with post-ops are excluded: fused activations prevent the ShapeCast pattern
+    // from being profitable enough to override the adjacent-conv heuristic.
+    auto outputShape = getShape(convOp.getOutput());
+    auto oc = outputShape[Dims4D::Act::C];
+    auto expandedOC = (oc + alignedOutputChannel - 1) / alignedOutputChannel * alignedOutputChannel;
+    static constexpr int64_t OC_EXPANSION_BYPASS_RATIO = 4;
+    if (convOp.getPostOpAttr() == nullptr && expandedOC > OC_EXPANSION_BYPASS_RATIO * oc) {
+        return false;
+    }
 
     auto parentConv = convOp.getInput().getDefiningOp<IE::ConvolutionOp>();
     if (parentConv == nullptr) {
         return false;
     }
     iface = mlir::cast<IE::AlignedChannelsOpInterface>(parentConv.getOperation());
-    const int64_t alignedOutputChannel = iface.getOutputChannelAlignment();
+    const int64_t parentAlignedOutputChannel = iface.getOutputChannelAlignment();
 
-    if (alignedOutputChannel != alignedInputChannel) {
+    if (parentAlignedOutputChannel != alignedInputChannel) {
         return false;
     }
 
-    auto isParentConvOCAligned = getShape(parentConv.getOutput())[Dims4D::Act::C] % alignedOutputChannel == 0;
+    auto isParentConvOCAligned = getShape(parentConv.getOutput())[Dims4D::Act::C] % parentAlignedOutputChannel == 0;
     auto isSliceBetween =
             !isParentConvOCAligned && mlir::failed(getAdjustConvShapeParameters(parentConv, parentConv.getFilter(),
                                                                                 getShape(parentConv.getOutput()), log));
@@ -399,7 +418,8 @@ mlir::LogicalResult AdjustConvShape::matchAndRewrite(IE::ConvolutionOp convOp, m
     auto newStride = std::move(strides);
     newStride[Dims4D::Strides::X] = 1;
 
-    auto newBias = reshapeBias(rewriter, convOp.getBias(), newOutputShape);
+    const auto inputIsQuantized = mlir::isa<mlir::quant::QuantizedType>(inNDInterface.getElementType());
+    auto newBias = reshapeBias(rewriter, convOp.getBias(), newOutputShape, inputIsQuantized);
 
     const auto dstType = inNDInterface.changeShape(newInputShape);
     const auto targetShapeAttr = getIntArrayAttr(ctx, newInputShape.raw());
@@ -419,9 +439,10 @@ mlir::LogicalResult AdjustConvShape::matchAndRewrite(IE::ConvolutionOp convOp, m
     auto inputShapeCastOp =
             rewriter.create<IE::ShapeCastOp>(convOp.getLoc(), dstType, maybePaddedInput, targetShapeAttr);
     auto newConvOp = rewriter.create<IE::ConvolutionOp>(
-            convOp.getLoc(), inputShapeCastOp, newFilter, newBias, /*scale*/ nullptr, getIntArrayAttr(ctx, newStride),
-            getIntArrayAttr(ctx, padBVect), getIntArrayAttr(ctx, padEVect), convOp.getDilationsAttr(),
-            convOp.getPostOpAttr(), convOp.getClampAttr(), convOp.getStaticScaleAttr(), /*outputPadding=*/nullptr,
+            convOp.getLoc(), inputShapeCastOp, newFilter, newBias, /*scale*/ nullptr, /*zero_points*/ nullptr,
+            getIntArrayAttr(ctx, newStride), getIntArrayAttr(ctx, padBVect), getIntArrayAttr(ctx, padEVect),
+            convOp.getDilationsAttr(), convOp.getPostOpAttr(), convOp.getClampAttr(), convOp.getStaticScaleAttr(),
+            /*outputPadding=*/nullptr,
             /*inputPadding=*/nullptr);
 
     auto newConvType = mlir::cast<vpux::NDTypeInterface>(newConvOp.getOutput().getType());

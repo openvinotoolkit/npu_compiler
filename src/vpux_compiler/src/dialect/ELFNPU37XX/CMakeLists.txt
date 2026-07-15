@@ -19,12 +19,12 @@ add_npu_library(npu_compiler_dialect_elfnpu37xx
         npu_compiler_utils
         npu_core_utils
         npu_logger
+        npu_compiler_dialect_config
       PRIVATE
         npu_elf
         openvino::npu_al
         # E#98178: remove dependency on firmware headers
         npu_37xx_firmware_headers
-        npu_compiler_dialect_config
         npu_compiler_dialect_vpuasm
         npu_compiler_dialect_vpuip_utils
 )

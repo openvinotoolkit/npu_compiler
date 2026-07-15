@@ -14,6 +14,7 @@
 
 namespace vpux::VPUIP {
 
+namespace {
 NDTypeInterface changeShape(NDTypeInterface originType, ShapeRef shape, ShapeRef offset) {
     const auto elemType = originType.getElementType();
     if (auto qType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(elemType)) {
@@ -86,18 +87,27 @@ mlir::AffineMap getLogicalTransposeFromMemPermute(NDTypeInterface inType, NDType
 
     return mlir::AffineMap::getPermutationMap(mappingOutToInLogical, ctx);
 }
+}  // namespace
 
 bool isMultiClusterPermuteDMA(VPUIP::PermuteDMAOp permuteDMAOp) {
     auto inDistributedType = mlir::dyn_cast<vpux::VPUIP::DistributedBufferType>(permuteDMAOp.getInput().getType());
     auto outDistributedType =
             mlir::dyn_cast<vpux::VPUIP::DistributedBufferType>(permuteDMAOp.getOutputBuff().getType());
 
-    // Dispatch between single cluster and multi-cluster tasks.
-    //  - multi-cluster tasks have at least one distributed buffer and do not have DMADescriptorAttr
-    //  - single cluster tasks either do not have any distributed buffers or have DMADescriptorAttr resulted
-    //  from multi-cluster task unrolling
-    //  - only form of single-cluster tasks with distributed buffers is with DUPLICATED output buffer
-    return ((inDistributedType || outDistributedType) && !permuteDMAOp.getDmaDescriptorAttr());
+    if (inDistributedType) {
+        return true;
+    }
+    if (outDistributedType) {
+        auto mode = outDistributedType.getDistribution().getMode().getValue();
+        auto outputBuffer = permuteDMAOp.getOutputBuff().getDefiningOp<VPURT::DeclareBufferOp>();
+        auto sectionIndex = outputBuffer.getSectionIndex();
+
+        auto hasSectionIndexSet = sectionIndex.has_value() && !sectionIndex.value().empty();
+
+        return mode != VPU::DistributionMode::DUPLICATED || !hasSectionIndexSet;
+    }
+
+    return false;
 }
 
 SingleClusterPermuteDMARewriter::SingleClusterPermuteDMARewriter(mlir::MLIRContext* ctx, int64_t dmaPortCount,
@@ -338,8 +348,12 @@ mlir::LogicalResult SingleClusterPermuteDMARewriter::unroll(VPUIP::PermuteDMAOp 
     return mlir::success();
 }
 
-MultiClusterPermuteDMARewriter::MultiClusterPermuteDMARewriter(mlir::MLIRContext* ctx, int64_t dmaPortCount, Logger log)
-        : mlir::OpRewritePattern<VPUIP::PermuteDMAOp>(ctx), _dmaPortCount(dmaPortCount), _log(log) {
+MultiClusterPermuteDMARewriter::MultiClusterPermuteDMARewriter(mlir::MLIRContext* ctx, int64_t dmaPortCount,
+                                                               bool useDMADescriptorAttr, Logger log)
+        : mlir::OpRewritePattern<VPUIP::PermuteDMAOp>(ctx),
+          _dmaPortCount(dmaPortCount),
+          _useDMADescriptorAttr(useDMADescriptorAttr),
+          _log(std::move(log)) {
     setDebugName("MultiClusterPermuteDMARewriter");
 }
 
@@ -387,8 +401,7 @@ mlir::LogicalResult MultiClusterPermuteDMARewriter::matchAndRewrite(VPUIP::Permu
         const auto mode = distributionAttr.getMode().getValue();
         if (mode == VPU::DistributionMode::SEGMENTED || mode == VPU::DistributionMode::OVERLAPPED) {
             return unrollSegmentedOrOverlappedOutput(permuteDMAOp, outDistributedType, memPerm, rewriter);
-        } else if (VPU::bitEnumContainsAny(mode, VPU::DistributionMode::DUPLICATED) ||
-                   VPU::bitEnumContainsAny(mode, VPU::DistributionMode::MULTICASTED)) {
+        } else if (VPU::bitEnumContainsAny(mode, VPU::DistributionMode::DUPLICATED)) {
             return unrollDuplicatedOutput(permuteDMAOp, outDistributedType, memPerm, rewriter);
         } else {
             VPUX_THROW("Unsupported distributed mode");
@@ -481,17 +494,39 @@ mlir::LogicalResult MultiClusterPermuteDMARewriter::unrollSegmentedOrOverlappedO
     auto mergedInputShape = VPUIP::getPermuteDMAInputShape(inputType, outputType, memPerm, _log).value();
     auto mergedOutputShape = VPUIP::getPermuteDMAOutputShape(inputType, outputType, memPerm, _log).value();
     auto mergedMemPerm = VPUIP::getPermuteDMAMergedMemPerm(inputType, memPerm);
-    auto dmaDescriptorGenerator = VPUIP::PermuteDmaDescriptorGenerator(ctx, mergedMemPerm, _log);
-    auto elemTypeSize = Byte(inputType.getElemTypeSize());
-
-    // calculate the dma descriptors and ddr offsets
-    SmallVector<VPUIP::DMADescriptorAttr> subDmaDescriptors;
-    SmallVector<Byte> ddrOffsets;
-    SmallVector<Shape> subMergedOutputShapes;
+    auto elemTypeSizeBits = inputType.getElemTypeSize();
 
     const auto mergedOutputDimList = VPUIP::getPermuteDMAOutputMergedDimList(outputType, mergedOutputShape);
     auto tileDimForMergedOutput =
             VPUIP::getTileDimForPermuteDMA(inputType, outputType, memPerm, distributedType, _log).value();
+
+    if (elemTypeSizeBits.count() < CHAR_BIT) {
+        // Only support HWC -> WHC permute for sub-byte data types
+        if (mergedMemPerm != mlir::AffineMap::getPermutationMap(SmallVector<unsigned>{1, 0, 2}, ctx)) {
+            return mlir::failure();
+        }
+
+        // Sub byte data type doesn't allow to split on inner most dimension since it may cause non byte-aligned access
+        if (static_cast<size_t>(tileDimForMergedOutput.ind()) == mergedOutputShape.size() - 1) {
+            return mlir::failure();
+        }
+
+        auto isByteAligned = [&](int64_t dimSize) {
+            return (dimSize * elemTypeSizeBits.count()) % CHAR_BIT == 0;
+        };
+
+        const auto inputInnerDim = mergedOutputShape.back();
+        const auto outputInnerDim = mergedInputShape.back();
+        if (!isByteAligned(inputInnerDim) || !isByteAligned(outputInnerDim)) {
+            return mlir::failure();
+        }
+    }
+
+    // Merge inner most dimension before converting to bytes (swap-front only)
+    if (mergedMemPerm == mlir::AffineMap::getPermutationMap(SmallVector<unsigned>{1, 0, 2}, ctx)) {
+        elemTypeSizeBits *= mergedInputShape.back();
+    }
+    auto elemTypeSize = elemTypeSizeBits.to<Byte>();
 
     const auto numTileSize = parseIntArrayAttr<int64_t>(distributionAttr.getNumTiles());
     const auto tileDimIter = std::find_if(numTileSize.begin(), numTileSize.end(), [](const int64_t dim) {
@@ -503,7 +538,7 @@ mlir::LogicalResult MultiClusterPermuteDMARewriter::unrollSegmentedOrOverlappedO
     auto getSrcOffset = [&](vpux::ShapeRef offset) -> vpux::Byte {
         auto outputShape = originalOutputType.getShape();
 
-        const auto splitDimList = mergedOutputDimList[tileDimForMergedOutput.ind()];
+        const auto& splitDimList = mergedOutputDimList[tileDimForMergedOutput.ind()];
         VPUX_THROW_UNLESS(std::any_of(splitDimList.begin(), splitDimList.end(),
                                       [&](vpux::Dim dim) {
                                           return dim == tileDim;
@@ -514,14 +549,24 @@ mlir::LogicalResult MultiClusterPermuteDMARewriter::unrollSegmentedOrOverlappedO
         return Byte(totalOffsetSize / outputShape[tileDim] * offset[tileDim] * elemTypeSize.count());
     };
 
+    SmallVector<Byte> ddrOffsets;
+    SmallVector<Shape> subMergedOutputShapes;
+    SmallVector<VPUIP::DMADescriptorAttr> subDmaDescriptors(numClusters);
+
     for (int64_t clusterId = 0; clusterId < numClusters; ++clusterId) {
-        auto mergedSubOutputShape =
-                VPUIP::getPermuteDMAOutputShape(inTypes[clusterId], outTypes[clusterId], memPerm, _log).value();
         ddrOffsets.push_back(getSrcOffset(perClusterShapeOffsets[clusterId]));
-        subMergedOutputShapes.push_back(mergedSubOutputShape);
+        if (_useDMADescriptorAttr) {
+            auto mergedSubOutputShape =
+                    VPUIP::getPermuteDMAOutputShape(inTypes[clusterId], outTypes[clusterId], memPerm, _log).value();
+            subMergedOutputShapes.push_back(mergedSubOutputShape);
+        }
     }
-    subDmaDescriptors = dmaDescriptorGenerator.generate(mergedInputShape, mergedOutputShape, subMergedOutputShapes,
-                                                        tileDimForMergedOutput, elemTypeSize);
+
+    if (_useDMADescriptorAttr) {
+        auto dmaDescriptorGenerator = VPUIP::PermuteDmaDescriptorGenerator(ctx, mergedMemPerm, _log);
+        subDmaDescriptors = dmaDescriptorGenerator.generate(mergedInputShape, mergedOutputShape, subMergedOutputShapes,
+                                                            tileDimForMergedOutput, elemTypeSize);
+    }
 
     int64_t dmaPort = 0;
     auto inputInsertionPoint = input.getDefiningOp();
@@ -605,15 +650,24 @@ mlir::LogicalResult MultiClusterPermuteDMARewriter::unrollDuplicatedOutput(VPUIP
         return VPUIP::createNewDeclareBuffer(rewriter, insertionPoint, declBuff, newType, Byte(0));
     };
 
-    auto mergedInputShape = VPUIP::getPermuteDMAInputShape(inputType, outputType, memPerm, _log).value();
-    auto mergedOutputShape = VPUIP::getPermuteDMAOutputShape(inputType, outputType, memPerm, _log).value();
-    auto mergedMemPerm = VPUIP::getPermuteDMAMergedMemPerm(inputType, memPerm);
-    auto dmaDescriptorGenerator = VPUIP::PermuteDmaDescriptorGenerator(ctx, mergedMemPerm, _log);
-    auto elemTypeSize = Byte(inputType.getElemTypeSize());
+    VPUIP::DMADescriptorAttr subDmaDescriptor;
+    if (_useDMADescriptorAttr) {
+        auto mergedInputShape = VPUIP::getPermuteDMAInputShape(inputType, outputType, memPerm, _log).value();
+        auto mergedOutputShape = VPUIP::getPermuteDMAOutputShape(inputType, outputType, memPerm, _log).value();
+        auto mergedMemPerm = VPUIP::getPermuteDMAMergedMemPerm(inputType, memPerm);
+        auto dmaDescriptorGenerator = VPUIP::PermuteDmaDescriptorGenerator(ctx, mergedMemPerm, _log);
+        auto elemTypeSizeBits = inputType.getElemTypeSize();
 
-    // calculate the dma descriptor
-    VPUIP::DMADescriptorAttr subDmaDescriptor =
-            dmaDescriptorGenerator.generate(mergedInputShape, mergedOutputShape, elemTypeSize);
+        // Merge inner most dimension before converting to bytes (swap-front only)
+        if (mergedMemPerm == mlir::AffineMap::getPermutationMap(SmallVector<unsigned>{1, 0, 2}, ctx)) {
+            elemTypeSizeBits *= mergedInputShape.back();
+        }
+        auto elemTypeSize = elemTypeSizeBits.to<Byte>();
+
+        // calculate the dma descriptor
+        subDmaDescriptor = dmaDescriptorGenerator.generate(mergedInputShape, mergedOutputShape, elemTypeSize);
+    }
+
     const auto newInputType =
             getPerClusterInputType(inputType, outputType, memPerm, perClusterOutShape, perClusterShapeOffset);
 
@@ -660,9 +714,6 @@ mlir::LogicalResult MultiClusterPermuteDMARewriter::unrollDuplicatedInputAndOutp
     const auto input = permuteDMAOp.getInput();
     const auto output = permuteDMAOp.getOutputBuff();
 
-    const auto inputType = mlir::cast<vpux::NDTypeInterface>(input.getType());
-    const auto outputType = mlir::cast<vpux::NDTypeInterface>(output.getType());
-
     const auto inDistributedType = mlir::dyn_cast<vpux::VPUIP::DistributedBufferType>(input.getType());
     const auto outDistributedType = mlir::dyn_cast<vpux::VPUIP::DistributedBufferType>(output.getType());
 
@@ -684,15 +735,26 @@ mlir::LogicalResult MultiClusterPermuteDMARewriter::unrollDuplicatedInputAndOutp
 
     rewriter.setInsertionPointAfter(vpurtTask);
 
-    auto mergedInputShape = VPUIP::getPermuteDMAInputShape(inputType, outputType, memPerm, _log).value();
-    auto mergedOutputShape = VPUIP::getPermuteDMAOutputShape(inputType, outputType, memPerm, _log).value();
-    auto mergedMemPerm = VPUIP::getPermuteDMAMergedMemPerm(inputType, memPerm);
-    auto dmaDescriptorGenerator = VPUIP::PermuteDmaDescriptorGenerator(ctx, mergedMemPerm, _log);
-    auto elemTypeSize = Byte(inputType.getElemTypeSize());
+    VPUIP::DMADescriptorAttr subDmaDescriptor;
+    if (_useDMADescriptorAttr) {
+        const auto inputType = mlir::cast<vpux::NDTypeInterface>(input.getType());
+        const auto outputType = mlir::cast<vpux::NDTypeInterface>(output.getType());
 
-    // calculate the dma descriptor
-    VPUIP::DMADescriptorAttr subDmaDescriptor =
-            dmaDescriptorGenerator.generate(mergedInputShape, mergedOutputShape, elemTypeSize);
+        auto mergedInputShape = VPUIP::getPermuteDMAInputShape(inputType, outputType, memPerm, _log).value();
+        auto mergedOutputShape = VPUIP::getPermuteDMAOutputShape(inputType, outputType, memPerm, _log).value();
+        auto mergedMemPerm = VPUIP::getPermuteDMAMergedMemPerm(inputType, memPerm);
+        auto dmaDescriptorGenerator = VPUIP::PermuteDmaDescriptorGenerator(ctx, mergedMemPerm, _log);
+        auto elemTypeSizeBits = inputType.getElemTypeSize();
+
+        // Merge inner most dimension before converting to bytes (swap-front only)
+        if (mergedMemPerm == mlir::AffineMap::getPermutationMap(SmallVector<unsigned>{1, 0, 2}, ctx)) {
+            elemTypeSizeBits *= mergedInputShape.back();
+        }
+        auto elemTypeSize = elemTypeSizeBits.to<Byte>();
+
+        // calculate the dma descriptor
+        subDmaDescriptor = dmaDescriptorGenerator.generate(mergedInputShape, mergedOutputShape, elemTypeSize);
+    }
 
     // create new input buffer
     auto inDeclBuff = input.getDefiningOp<VPURT::DeclareBufferOp>();
@@ -739,22 +801,31 @@ mlir::LogicalResult MultiClusterPermuteDMARewriter::unrollDuplicatedInput(VPUIP:
     VPUX_THROW_UNLESS(VPU::bitEnumContainsAny(inMode, VPU::DistributionMode::DUPLICATED), "Unsupported mode");
 
     const auto inputType = mlir::dyn_cast<vpux::NDTypeInterface>(inDistributedType.getCompactType());
-    const auto outputType = mlir::cast<vpux::NDTypeInterface>(output.getType());
 
     auto vpurtTask = permuteDMAOp->getParentOfType<VPURT::TaskOp>();
     VPUX_THROW_WHEN(vpurtTask == nullptr, "Can not get VPURT.TaskOp for {0}", permuteDMAOp);
 
     rewriter.setInsertionPointAfter(vpurtTask);
 
-    auto mergedInputShape = VPUIP::getPermuteDMAInputShape(inputType, outputType, memPerm, _log).value();
-    auto mergedOutputShape = VPUIP::getPermuteDMAOutputShape(inputType, outputType, memPerm, _log).value();
-    auto mergedMemPerm = VPUIP::getPermuteDMAMergedMemPerm(inputType, memPerm);
-    auto dmaDescriptorGenerator = VPUIP::PermuteDmaDescriptorGenerator(ctx, mergedMemPerm, _log);
-    auto elemTypeSize = Byte(inputType.getElemTypeSize());
+    VPUIP::DMADescriptorAttr subDmaDescriptor;
+    if (_useDMADescriptorAttr) {
+        const auto outputType = mlir::cast<vpux::NDTypeInterface>(output.getType());
 
-    // calculate the dma descriptor
-    VPUIP::DMADescriptorAttr subDmaDescriptor =
-            dmaDescriptorGenerator.generate(mergedInputShape, mergedOutputShape, elemTypeSize);
+        auto mergedInputShape = VPUIP::getPermuteDMAInputShape(inputType, outputType, memPerm, _log).value();
+        auto mergedOutputShape = VPUIP::getPermuteDMAOutputShape(inputType, outputType, memPerm, _log).value();
+        auto mergedMemPerm = VPUIP::getPermuteDMAMergedMemPerm(inputType, memPerm);
+        auto dmaDescriptorGenerator = VPUIP::PermuteDmaDescriptorGenerator(ctx, mergedMemPerm, _log);
+        auto elemTypeSizeBits = inputType.getElemTypeSize();
+
+        // Merge inner most dimension before converting to bytes (swap-front only)
+        if (mergedMemPerm == mlir::AffineMap::getPermutationMap(SmallVector<unsigned>{1, 0, 2}, ctx)) {
+            elemTypeSizeBits *= mergedInputShape.back();
+        }
+        auto elemTypeSize = elemTypeSizeBits.to<Byte>();
+
+        // calculate the dma descriptor
+        subDmaDescriptor = dmaDescriptorGenerator.generate(mergedInputShape, mergedOutputShape, elemTypeSize);
+    }
 
     // create new input buffer
     auto inDeclBuff = input.getDefiningOp<VPURT::DeclareBufferOp>();

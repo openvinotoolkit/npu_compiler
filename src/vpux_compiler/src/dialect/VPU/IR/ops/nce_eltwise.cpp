@@ -42,22 +42,47 @@ bool vpux::VPU::NCEEltwiseOp::fitIntoCMX(vpux::NDTypeInterface input1, vpux::NDT
         return VPU::NCEEltwiseOp::fitIntoCMX(input1, input2, reservedMem);
     }
 
-    auto totalAvailableCMXSize = reservedMem.count() == 0 ? getTotalCMXSize(getOperation()).count()
-                                                          : getTotalCMXFragmentationAwareSize(getOperation()).count();
-    SmallVector<Byte> buffers = {input1.getTotalAllocSize(), input2.getTotalAllocSize(), output.getTotalAllocSize()};
+    const auto OC = output.getShape()[Dims4D::Act::C];
+
+    const bool sameOperands = (this->getInput1() == this->getInput2());
+    SmallVector<Byte> buffers = sameOperands ? SmallVector<Byte>{input1.getTotalAllocSize(), output.getTotalAllocSize()}
+                                             : SmallVector<Byte>{input1.getTotalAllocSize(), input2.getTotalAllocSize(),
+                                                                 output.getTotalAllocSize()};
+
+    const auto op = getOperation();
+
     auto ppeAttr = getPpe();
     addSprLutBufferIfPresent(ppeAttr, buffers);
 
-    return vpux::VPU::calculateAlignedBuffersMemoryRequirement(config::getArch(getOperation()), buffers).count() +
+    if (mlir::failed(NCEInvariant::getWeightTableBuffers(op, buffers, OC))) {
+        VPUX_THROW("getWeightTableBuffers function failed");
+    }
+
+    auto totalAvailableCMXSize =
+            reservedMem.count() == 0 ? getTotalCMXSize(op).count() : getTotalCMXFragmentationAwareSize(op).count();
+
+    return vpux::VPU::calculateAlignedBuffersMemoryRequirement(config::getArch(op), buffers).count() +
                    reservedMem.count() <=
            totalAvailableCMXSize;
 }
 
 bool vpux::VPU::NCEEltwiseOp::fitIntoCMX(vpux::NDTypeInterface input1, vpux::NDTypeInterface input2, Byte reservedMem) {
-    auto totalAvailableCMXSize = reservedMem.count() == 0 ? getTotalCMXSize(getOperation()).count()
-                                                          : getTotalCMXFragmentationAwareSize(getOperation()).count();
-    SmallVector<Byte> buffers = {input1.getTotalAllocSize(), input2.getTotalAllocSize()};
-    return vpux::VPU::calculateAlignedBuffersMemoryRequirement(config::getArch(getOperation()), buffers).count() +
+    const auto OC = input1.getShape()[Dims4D::Act::C];
+    const auto op = getOperation();
+
+    const bool sameOperands = (this->getInput1() == this->getInput2());
+    SmallVector<Byte> buffers = sameOperands
+                                        ? SmallVector<Byte>{input1.getTotalAllocSize()}
+                                        : SmallVector<Byte>{input1.getTotalAllocSize(), input2.getTotalAllocSize()};
+
+    if (mlir::failed(NCEInvariant::getWeightTableBuffers(op, buffers, OC))) {
+        VPUX_THROW("getWeightTableBuffers function failed");
+    }
+
+    auto totalAvailableCMXSize =
+            reservedMem.count() == 0 ? getTotalCMXSize(op).count() : getTotalCMXFragmentationAwareSize(op).count();
+
+    return vpux::VPU::calculateAlignedBuffersMemoryRequirement(config::getArch(op), buffers).count() +
                    reservedMem.count() <=
            totalAvailableCMXSize;
 }
@@ -196,9 +221,13 @@ bool VPU::NCEEltwiseOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy strategy, 
     auto nceOp = mlir::cast<VPU::NCEEltwiseOp>(getOperation());
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(nceOp->getResult(0).getType());
     auto numClusters = VPU::getOptimalNumClusters(nceOp, outputType.getShape(), strategy);
+    auto output = mlir::cast<vpux::NDTypeInterface>(getOutput().getType());
 
     auto totalAvailableCMXSize = reservedMem.count() == 0 ? getTotalCMXSize(getOperation()).count()
                                                           : getTotalCMXFragmentationAwareSize(getOperation()).count();
+
+    // These depend on a particular tile
+    const auto OC = output.getShape()[Dims4D::Act::C];
 
     SmallVector<Byte> buffers = {VPU::getTotalAllocSizeWithDistribution(
                                          getInput1().getType(),
@@ -215,6 +244,11 @@ bool VPU::NCEEltwiseOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy strategy, 
         buffers.push_back(VPU::getTotalAllocSizeWithDistribution(
                 getOutput().getType(), getOutputDistributionAttrFromOp(nceOp, getOutput().getType(), numClusters,
                                                                        strategy, siblingsAnalysis)));
+    }
+
+    const auto op = getOperation();
+    if (mlir::failed(NCEInvariant::getWeightTableBuffers(op, buffers, OC))) {
+        VPUX_THROW("getWeightTableBuffers function failed");
     }
 
     return vpux::VPU::calculateAlignedBuffersMemoryRequirement(config::getArch(getOperation()), buffers).count() +
@@ -294,9 +328,35 @@ static mlir::LogicalResult verifyEltwiseKernel(vpux::NDTypeInterface input1, vpu
     // Input types can also differ when both of them are quantized. E.g. scale value for Eltwise Multiply
     auto input1ElemType = input1.getElementType();
     auto input2ElemType = input2.getElementType();
+    auto outputElemType = output.getElementType();
 
-    if (!mlir::isa<mlir::quant::QuantizedType>(input1ElemType) &&
-        !mlir::isa<mlir::quant::QuantizedType>(input2ElemType)) {
+    const bool anyPerAxisQuantized = mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(input1ElemType) ||
+                                     mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(input2ElemType) ||
+                                     mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(outputElemType);
+
+    if (anyPerAxisQuantized) {
+        if (eltwiseType != VPU::EltwiseType::ADD) {
+            return mlir::failure();
+        }
+        if (mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(input1ElemType) &&
+            mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(input2ElemType) &&
+            !mlir::isa<mlir::quant::QuantizedType>(outputElemType)) {
+            // Dequantize direction: per-axis inputs → float output.
+            if (!isSupportedEltwisePerAxisQuantization(input1ElemType, input2ElemType)) {
+                return mlir::failure();
+            }
+        } else if (!mlir::isa<mlir::quant::QuantizedType>(input1ElemType) &&
+                   !mlir::isa<mlir::quant::QuantizedType>(input2ElemType) &&
+                   mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(outputElemType)) {
+            // Quantize direction: float inputs → per-axis output.
+            if (!isSupportedEltwisePerAxisQuantization(outputElemType)) {
+                return mlir::failure();
+            }
+        } else {
+            return mlir::failure();
+        }
+    } else if (!mlir::isa<mlir::quant::QuantizedType>(input1ElemType) &&
+               !mlir::isa<mlir::quant::QuantizedType>(input2ElemType)) {
         if (input1ElemType != input2ElemType) {
             return mlir::failure();
         }
@@ -341,8 +401,12 @@ mlir::LogicalResult vpux::VPU::NCEEltwiseOp::verifyEltwiseCMX(mlir::Location loc
                                                               vpux::NDTypeInterface outputType, Logger log) {
     log.setName("NCEInvariant");
 
-    auto bufferTypes = isInplace ? SmallVector<vpux::NDTypeInterface>{firstInputType, secondInputType}
-                                 : SmallVector<vpux::NDTypeInterface>{firstInputType, secondInputType, outputType};
+    const bool sameInputs = secondInputType == nullptr;
+    auto bufferTypes =
+            isInplace ? (sameInputs ? SmallVector<vpux::NDTypeInterface>{firstInputType}
+                                    : SmallVector<vpux::NDTypeInterface>{firstInputType, secondInputType})
+                      : (sameInputs ? SmallVector<vpux::NDTypeInterface>{firstInputType, outputType}
+                                    : SmallVector<vpux::NDTypeInterface>{firstInputType, secondInputType, outputType});
     auto requiredCMX = VPU::getRequiredCMXSizeForNCEOps(bufferTypes, 0);
 
     const auto cmxSize = vpux::VPU::getTotalCMXSize(module);

@@ -17,6 +17,7 @@
 #include "openvino/openvino.hpp"
 #include "openvino/runtime/core.hpp"
 
+namespace VCLTest {
 bool hasOption(const char* option, int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         if (std::string(argv[i]) == option) {
@@ -244,3 +245,4 @@ int getName(const std::string& inputblobFileName, std::string& outputBlobFileNam
 
     return 0;
 }
+}  // namespace VCLTest

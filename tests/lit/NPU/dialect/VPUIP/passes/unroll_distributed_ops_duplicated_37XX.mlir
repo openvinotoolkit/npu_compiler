@@ -18,17 +18,17 @@
     num_clusters = 2
 }>
 
-!type_CMX_memref = memref<1x4x512x1xf16, #NCWH, @CMX_NN>
+!type_CMX_memref = memref<1x4x512x1xf16, {order = #NCWH}, @CMX_NN>
 !type_CMX_tensor = tensor<1x4x512x512xf16, {mem_space = @CMX_NN, order = #NCWH}>
 
 
-!Input_DDR  = memref<1x4x512x1xf16, #NCWH, @DDR>
-!Output_DDR = memref<1x4x512x1xf16, #NCWH, @DDR>
+!Input_DDR  = memref<1x4x512x1xf16, {order = #NCWH}, @DDR>
+!Output_DDR = memref<1x4x512x1xf16, {order = #NCWH}, @DDR>
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
 module @VPU.SW {
-    func.func private @builtin_MVN(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i1, i1, f64) attributes {VPU.kernel_code = "mvn1.cpp", VPU.kernel_entry = "mvn1"}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_MVN(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i1, i1, f64) attributes {VPU.kernel_code = "mvn1.cpp", VPU.kernel_entry = "mvn1"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
 // SW operation with distributed type of input, and output - splitting strategy for SOK intended for full activation
@@ -65,13 +65,13 @@ func.func @UnrollSWOpInterface(%input0: !Input_DDR, %output: !Output_DDR) -> !Ou
 //CHECK:    [[BAR_0:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 //CHECK:    [[BAR_1:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 //CHECK:    VPURT.Task waits([[BAR_0]] : !VPURT.Barrier) updates([[BAR_1]] : !VPURT.Barrier) {
-//CHECK:       VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_MVN inputs({{%.+}} as [[ARG_2:%[^:]+]]: memref<1x4x512x1xf16, #NCWH, [@CMX_NN, 0]>) outputs({{%.+}} as [[ARG_3:%[^:]+]]: memref<1x4x512x1xf16, #NCWH, [@CMX_NN, 0]>) on tile 0 -> memref<1x4x512x1xf16, #NCWH, [@CMX_NN, 0]>{
-//CHECK:        VPUIP.SW.Kernel.run {attrs = [false, true, 1.0013580322265625E-5]}([[ARG_2]], [[ARG_3]]) : memref<1x4x512x1xf16, #NCWH, [@CMX_NN, 0]>, memref<1x4x512x1xf16, #NCWH, [@CMX_NN, 0]>
+//CHECK:       VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_MVN inputs({{%.+}} as [[ARG_2:%[^:]+]]: memref<1x4x512x1xf16, {order = #NCWH}, [@CMX_NN, 0]>) outputs({{%.+}} as [[ARG_3:%[^:]+]]: memref<1x4x512x1xf16, {order = #NCWH}, [@CMX_NN, 0]>) on tile 0 -> memref<1x4x512x1xf16, {order = #NCWH}, [@CMX_NN, 0]>{
+//CHECK:        VPUIP.SW.Kernel.run {attrs = [false, true, 1.0013580322265625E-5]}([[ARG_2]], [[ARG_3]]) : memref<1x4x512x1xf16, {order = #NCWH}, [@CMX_NN, 0]>, memref<1x4x512x1xf16, {order = #NCWH}, [@CMX_NN, 0]>
 //CHECK:      }
 //CHECK:    }
 
 //CHECK:    VPURT.Task waits([[BAR_0]] : !VPURT.Barrier) updates([[BAR_1]] : !VPURT.Barrier) {
-//CHECK:       VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_MVN inputs({{%.+}} as [[ARG_2:%[^:]+]]: memref<1x4x512x1xf16, #NCWH, [@CMX_NN, 1]>) outputs({{%.+}} as [[ARG_3:%[^:]+]]: memref<1x4x512x1xf16, #NCWH, [@CMX_NN, 1]>) on tile 1 -> memref<1x4x512x1xf16, #NCWH, [@CMX_NN, 1]>{
-//CHECK:        VPUIP.SW.Kernel.run {attrs = [false, true, 1.0013580322265625E-5]}([[ARG_2]], [[ARG_3]]) : memref<1x4x512x1xf16, #NCWH, [@CMX_NN, 1]>, memref<1x4x512x1xf16, #NCWH, [@CMX_NN, 1]>
+//CHECK:       VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_MVN inputs({{%.+}} as [[ARG_2:%[^:]+]]: memref<1x4x512x1xf16, {order = #NCWH}, [@CMX_NN, 1]>) outputs({{%.+}} as [[ARG_3:%[^:]+]]: memref<1x4x512x1xf16, {order = #NCWH}, [@CMX_NN, 1]>) on tile 1 -> memref<1x4x512x1xf16, {order = #NCWH}, [@CMX_NN, 1]>{
+//CHECK:        VPUIP.SW.Kernel.run {attrs = [false, true, 1.0013580322265625E-5]}([[ARG_2]], [[ARG_3]]) : memref<1x4x512x1xf16, {order = #NCWH}, [@CMX_NN, 1]>, memref<1x4x512x1xf16, {order = #NCWH}, [@CMX_NN, 1]>
 //CHECK:      }
 //CHECK:    }

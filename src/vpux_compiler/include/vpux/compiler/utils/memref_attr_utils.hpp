@@ -11,7 +11,7 @@
 namespace vpux {
 class DimsOrder;
 
-DimsOrder inferNewDimsOrder(DimsOrder origOrder, size_t numShapeDims);
+DimsOrder inferNewDimsOrder(const DimsOrder& origOrder, size_t numShapeDims);
 
 /// @brief Checks if the given type is mlir::MemRefType with mlir::StridedLayoutAttr
 bool hasStridedLayout(mlir::Type type);

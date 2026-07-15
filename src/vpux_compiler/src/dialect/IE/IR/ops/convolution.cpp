@@ -4,16 +4,25 @@
 //
 
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
+#include <llvm/Support/Casting.h>
+#include <mlir/IR/Value.h>
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
+#include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/verifier_utils.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
 using namespace vpux;
@@ -99,11 +108,90 @@ mlir::LogicalResult FuseConvAndSlice::matchAndRewrite(IE::ConvolutionOp convOp, 
     return mlir::success();
 }
 
+class FuseMaxPoolConvertScaleAndStaticScale final : public mlir::OpRewritePattern<IE::ConvolutionOp> {
+public:
+    using mlir::OpRewritePattern<IE::ConvolutionOp>::OpRewritePattern;
+
+    void initialize() {
+        setDebugName("FuseMaxPoolConvertScaleAndStaticScale");
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::ConvolutionOp convOp, mlir::PatternRewriter& rewriter) const final;
+};
+
+mlir::LogicalResult FuseMaxPoolConvertScaleAndStaticScale::matchAndRewrite(IE::ConvolutionOp convOp,
+                                                                           mlir::PatternRewriter& rewriter) const {
+    const auto staticScaleAttr = convOp.getStaticScaleAttr();
+    if (staticScaleAttr == nullptr) {
+        return matchFailed(rewriter, convOp, "Missing static_scale attribute");
+    }
+
+    const auto scaleOperand = convOp.getScale();
+    if (scaleOperand == nullptr) {
+        return matchFailed(rewriter, convOp, "Missing scale operand");
+    }
+
+    mlir::Value lastValue = scaleOperand;
+
+    while (auto viewLikeOp = llvm::dyn_cast_if_present<IE::ViewLikeOpInterface>(lastValue.getDefiningOp())) {
+        if (!viewLikeOp->getResult(0).hasOneUse()) {
+            return matchFailed(rewriter, convOp, "IE.AffineReshape has multiple uses");
+        }
+        lastValue = viewLikeOp->getOperand(0);
+    }
+
+    auto maxPoolOp = lastValue.getDefiningOp<IE::MaxPoolOp>();
+    if (maxPoolOp == nullptr) {
+        return matchFailed(rewriter, convOp, "Scale is not produced by IE.MaxPool");
+    }
+    if (!maxPoolOp.getOutput().hasOneUse()) {
+        return matchFailed(rewriter, convOp, "IE.MaxPool has multiple uses");
+    }
+
+    if (!IE::isIdentityPooling(maxPoolOp)) {
+        return matchFailed(rewriter, convOp, "MaxPool is not a dummy identity pool");
+    }
+
+    auto newStaticScale = staticScaleAttr.getValueAsDouble();
+
+    const auto maxPoolStaticScaleAttr = maxPoolOp.getStaticScaleAttr();
+    if (maxPoolStaticScaleAttr != nullptr && !isDoubleEqual(maxPoolStaticScaleAttr.getValueAsDouble(), 1.0)) {
+        newStaticScale *= maxPoolStaticScaleAttr.getValueAsDouble();
+    }
+
+    rewriter.modifyOpInPlace(maxPoolOp, [&] {
+        maxPoolOp.setStaticScaleAttr(
+                mlir::FloatAttr::get(mlir::Float32Type::get(maxPoolOp.getContext()), newStaticScale));
+    });
+
+    rewriter.replaceOpWithNewOp<IE::ConvolutionOp>(
+            convOp, convOp.getOutput().getType(), convOp.getInput(), convOp.getFilter(), convOp.getBias(),
+            convOp.getScale(), convOp.getZeroPoints(), convOp.getStridesAttr(), convOp.getPadsBeginAttr(),
+            convOp.getPadsEndAttr(), convOp.getDilationsAttr(), convOp.getPostOpAttr(), convOp.getClampAttr(),
+            /*static_scale=*/nullptr, convOp.getOutputPaddingAttr(), convOp.getInputPaddingAttr());
+
+    return mlir::success();
+}
+
 }  // namespace
 
 //
 // Convolution
 //
+
+mlir::LogicalResult vpux::IE::ConvolutionOp::verify() {
+    if (mlir::failed(isTypeSignedOrUnsigned(*this, getFilter()))) {
+        return mlir::failure();
+    }
+
+    if (const auto zp = getZeroPoints()) {
+        if (mlir::failed(isZeroPointsTypeValidForQuantization(*this, zp))) {
+            return mlir::failure();
+        }
+    }
+    return mlir::success();
+}
 
 mlir::LogicalResult vpux::IE::ConvolutionOp::inferReturnTypeComponents(
         mlir::MLIRContext* ctx, std::optional<mlir::Location> optLoc, mlir::ValueShapeRange operands,
@@ -144,6 +232,7 @@ mlir::LogicalResult vpux::IE::ConvolutionOp::inferReturnTypeComponents(
 void vpux::IE::ConvolutionOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns,
                                                           mlir::MLIRContext* context) {
     patterns.add<FuseConvAndSlice>(context);
+    patterns.add<FuseMaxPoolConvertScaleAndStaticScale>(context);
 }
 
 //
@@ -272,28 +361,29 @@ mlir::LogicalResult vpux::IE::ConvolutionOp::reifyResultShapes(mlir::OpBuilder& 
 void vpux::IE::ConvolutionOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState, mlir::Value input,
                                     mlir::Value filter, mlir::ArrayAttr strides, mlir::ArrayAttr padsBegin,
                                     mlir::ArrayAttr padsEnd, mlir::ArrayAttr dilations) {
-    build(odsBuilder, odsState, input, filter, nullptr, nullptr, strides, padsBegin, padsEnd, dilations, nullptr,
-          nullptr, nullptr, nullptr, nullptr);
+    build(odsBuilder, odsState, input, filter, nullptr, nullptr, nullptr, strides, padsBegin, padsEnd, dilations,
+          nullptr, nullptr, nullptr, nullptr, nullptr);
 }
 
 void vpux::IE::ConvolutionOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState, mlir::Value input,
-                                    mlir::Value filter, mlir::Value bias, mlir::Value scale, mlir::ArrayAttr strides,
-                                    mlir::ArrayAttr padsBegin, mlir::ArrayAttr padsEnd, mlir::ArrayAttr dilations) {
-    build(odsBuilder, odsState, input, filter, bias, scale, strides, padsBegin, padsEnd, dilations, nullptr, nullptr,
-          nullptr, nullptr, nullptr);
+                                    mlir::Value filter, mlir::Value bias, mlir::Value scale, mlir::Value zero_points,
+                                    mlir::ArrayAttr strides, mlir::ArrayAttr padsBegin, mlir::ArrayAttr padsEnd,
+                                    mlir::ArrayAttr dilations) {
+    build(odsBuilder, odsState, input, filter, bias, scale, zero_points, strides, padsBegin, padsEnd, dilations,
+          nullptr, nullptr, nullptr, nullptr, nullptr);
 }
 
 void vpux::IE::ConvolutionOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState, mlir::Type outType,
                                     mlir::Value input, mlir::Value filter, mlir::ArrayAttr strides,
                                     mlir::ArrayAttr padsBegin, mlir::ArrayAttr padsEnd, mlir::ArrayAttr dilations) {
-    build(odsBuilder, odsState, outType, input, filter, nullptr, nullptr, strides, padsBegin, padsEnd, dilations,
-          nullptr, nullptr, nullptr, nullptr, nullptr);
+    build(odsBuilder, odsState, outType, input, filter, nullptr, nullptr, nullptr, strides, padsBegin, padsEnd,
+          dilations, nullptr, nullptr, nullptr, nullptr, nullptr);
 }
 
 void vpux::IE::ConvolutionOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState, mlir::Type outType,
                                     mlir::Value input, mlir::Value filter, mlir::Value bias, mlir::Value scale,
-                                    mlir::ArrayAttr strides, mlir::ArrayAttr padsBegin, mlir::ArrayAttr padsEnd,
-                                    mlir::ArrayAttr dilations) {
-    build(odsBuilder, odsState, outType, input, filter, bias, scale, strides, padsBegin, padsEnd, dilations, nullptr,
-          nullptr, nullptr, nullptr, nullptr);
+                                    mlir::Value zero_points, mlir::ArrayAttr strides, mlir::ArrayAttr padsBegin,
+                                    mlir::ArrayAttr padsEnd, mlir::ArrayAttr dilations) {
+    build(odsBuilder, odsState, outType, input, filter, bias, scale, zero_points, strides, padsBegin, padsEnd,
+          dilations, nullptr, nullptr, nullptr, nullptr, nullptr);
 }

@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2026 Intel Corporation.
+// Copyright (C) 2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -73,8 +73,11 @@ public:
         const auto isUnsigned = baseInputElemType.isUnsignedInteger();
 
         auto typeRange = getStorageParams(baseInputElemType);
-        const auto minValue = static_cast<int64_t>(std::get<0>(typeRange));
-        const auto maxValue = static_cast<int64_t>(std::get<1>(typeRange));
+        if (mlir::failed(typeRange)) {
+            return mlir::failure();
+        }
+        const auto minValue = static_cast<int64_t>(std::get<0>(*typeRange));
+        const auto maxValue = static_cast<int64_t>(std::get<1>(*typeRange));
 
         const auto quantElemType = mlir::quant::UniformQuantizedType::get(
                 (isUnsigned) ? 0 : mlir::quant::QuantizationFlags::Signed, baseInputElemType, rewriter.getF16Type(),

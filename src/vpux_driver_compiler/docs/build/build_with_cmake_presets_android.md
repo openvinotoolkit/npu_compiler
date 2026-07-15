@@ -68,7 +68,7 @@ cmake -G Ninja -B build-android -S . --preset cid-linux \
   -DANDROID_PLATFORM=android-34 \
   -DANDROID_STL=c++_shared \
   -DCMAKE_CXX_FLAGS_INIT='-frtti'
-cmake --build build-android --parallel $(nproc) --target npu_driver_compiler
+cmake --build build-android --parallel $(nproc) --target openvino_intel_npu_compiler openvino_intel_npu_compiler_loader
 
 # Optional, compress and pack all CiD targets
 cpack -V -D CPACK_COMPONENTS_ALL=CiD -D CPACK_CMAKE_GENERATOR=Ninja -D CPACK_PACKAGE_FILE_NAME="${CONFIG}" -G "TGZ"

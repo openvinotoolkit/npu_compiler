@@ -11,16 +11,16 @@ module @Test_1 {
     VPUASM.DeclareTaskBuffer @DeclareTaskBuffer_DPUInvariant_0 idx(!VPURegMapped.Index<0:0:0>) <DPUInvariant>
     VPUASM.DeclareTaskBuffer @DeclareTaskBuffer_DPUVariant_0 idx(!VPURegMapped.Index<0:0:0>) <DPUVariant>
     VPUASM.DeclareTaskBuffer @DeclareTaskBuffer_DPUVariant_1 idx(!VPURegMapped.Index<0:0:1>) <DPUVariant>
-    VPUASM.DeclareBuffer @DeclareBuffer_ActOut !VPUASM.Buffer< "CMX_NN"[0] <128> : memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
-    VPUASM.DeclareBuffer @DeclareBuffer_ActIn !VPUASM.Buffer< "CMX_NN"[0] <131200> : memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
+    VPUASM.DeclareBuffer @DeclareBuffer_ActOut !VPUASM.Buffer< "CMX_NN"[0] <128> : memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
+    VPUASM.DeclareBuffer @DeclareBuffer_ActIn !VPUASM.Buffer< "CMX_NN"[0] <131200> : memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
 
     VPUIPDPU.DPUInvariant @DPUInvariant_0 <{task_index = !VPURegMapped.Index<0:0:0>, task_location = @DeclareTaskBuffer_DPUInvariant_0, input = @DeclareBuffer_ActIn, output = @DeclareBuffer_ActOut, nce_task_type = #VPUIP.nce_task_type<MAXPOOL>}>
         DPUCfg : {
-            ^bb0(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                 %act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>,
-                 %sparse_out: memref<1x16x64x64xi1, #NHWC, [@CMX_NN, 0]>):
+            ^bb0(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                 %act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                 %sparse_out: memref<1x16x64x64xi1, {order = #NHWC}, [@CMX_NN, 0]>):
             VPUIPDPU.IDUCfg {
-                VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>)
+                VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>)
             }
             VPUIPDPU.PPECfg {
                 VPUIPDPU.PPEFpAddMultBypass bypass_mode(ON)
@@ -30,8 +30,8 @@ module @Test_1 {
                 VPUIPDPU.ODUDataReuse activation_reuse(NTHW_8)
                 VPUIPDPU.ODUPermuteData permute_mode(PERMUTE_ZXY)
                 VPUIPDPU.ODUSwizzleData swizzle_key(SWIZZLE_KEY_1)
-                VPUIPDPU.ODUSparsity %sparse_out: memref<1x16x64x64xi1, #NHWC, [@CMX_NN, 0]>
-                VPUIPDPU.ODUOutActivations out_activations(%act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>) data_width(ODU_DTYPE_16BIT)
+                VPUIPDPU.ODUSparsity %sparse_out: memref<1x16x64x64xi1, {order = #NHWC}, [@CMX_NN, 0]>
+                VPUIPDPU.ODUOutActivations out_activations(%act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>) data_width(ODU_DTYPE_16BIT)
                 VPUIPDPU.ODUWriteCombineBuffer activations_mode(WCB_COMBINE_BY_ADDRESS) sparsity_mode(WCB_COMBINE_BY_CONTEXT)
             }
         }
@@ -61,14 +61,14 @@ module @Test_1 {
 }
 
 //CHECK:    VPUIPDPU.DPUInvariant @DPUInvariant_0 <{input = @DeclareBuffer_ActIn, nce_task_type = #VPUIP.nce_task_type<MAXPOOL>, output = @DeclareBuffer_ActOut, task_index = !VPURegMapped.Index<0:0:0>, task_location = @DeclareTaskBuffer_DPUInvariant_0}> DPUCfg : {
-//CHECK:    ^bb0([[ARG_0:%.+]]: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>, [[ARG_1:%.+]]: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>, [[ARG_2:%.+]]: memref<1x16x64x64xi1, #NHWC, [@CMX_NN, 0]>):
+//CHECK:    ^bb0([[ARG_0:%.+]]: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>, [[ARG_1:%.+]]: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>, [[ARG_2:%.+]]: memref<1x16x64x64xi1, {order = #NHWC}, [@CMX_NN, 0]>):
 //CHECK:      VPUIPDPU.ODUCfg {
 //CHECK:        VPUIPDPU.ODUOutTensorSize dim_x(64) dim_y(64) dim_z(16)
 //CHECK:        VPUIPDPU.ODUDataReuse activation_reuse(NTHW_8)
 //CHECK:        VPUIPDPU.ODUPermuteData permute_mode(PERMUTE_ZXY)
 //CHECK:        VPUIPDPU.ODUSwizzleData swizzle_key(SWIZZLE_KEY_1)
-//CHECK:        VPUIPDPU.ODUSparsity [[ARG_2]] : memref<1x16x64x64xi1, #NHWC, [@CMX_NN, 0]>
-//CHECK:        VPUIPDPU.ODUOutActivations out_activations([[ARG_1]] : memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>) data_width(ODU_DTYPE_16BIT)
+//CHECK:        VPUIPDPU.ODUSparsity [[ARG_2]] : memref<1x16x64x64xi1, {order = #NHWC}, [@CMX_NN, 0]>
+//CHECK:        VPUIPDPU.ODUOutActivations out_activations([[ARG_1]] : memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>) data_width(ODU_DTYPE_16BIT)
 //CHECK:        VPUIPDPU.ODUWriteCombineBuffer activations_mode(WCB_COMBINE_BY_ADDRESS) sparsity_mode(WCB_COMBINE_BY_CONTEXT)
 //CHECK:      }
 //CHECK:    }
@@ -92,16 +92,16 @@ module @Test_1 {
 module @Test_2 {
     VPUASM.DeclareTaskBuffer @DeclareTaskBuffer_DPUInvariant_0 idx(!VPURegMapped.Index<0:0:0>) <DPUInvariant>
     VPUASM.DeclareTaskBuffer @DeclareTaskBuffer_DPUVariant_0 idx(!VPURegMapped.Index<0:0:0>) <DPUVariant>
-    VPUASM.DeclareBuffer @DeclareBuffer_ActOut !VPUASM.Buffer< "CMX_NN"[0] <128> : memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
-    VPUASM.DeclareBuffer @DeclareBuffer_ActIn !VPUASM.Buffer< "CMX_NN"[0] <131200> : memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
+    VPUASM.DeclareBuffer @DeclareBuffer_ActOut !VPUASM.Buffer< "CMX_NN"[0] <128> : memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
+    VPUASM.DeclareBuffer @DeclareBuffer_ActIn !VPUASM.Buffer< "CMX_NN"[0] <131200> : memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
 
     VPUIPDPU.DPUInvariant @DPUInvariant_0 <{input = @DeclareBuffer_ActIn, nce_task_type = #VPUIP.nce_task_type<MAXPOOL>, output = @DeclareBuffer_ActOut, task_index = !VPURegMapped.Index<0:0:0>, task_location = @DeclareTaskBuffer_DPUInvariant_0}>
         DPUCfg : {
-            ^bb0(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                 %act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>,
-                 %sparse_out: memref<1x16x64x64xi1, #NHWC, [@CMX_NN, 0]>):
+            ^bb0(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                 %act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                 %sparse_out: memref<1x16x64x64xi1, {order = #NHWC}, [@CMX_NN, 0]>):
             VPUIPDPU.IDUCfg {
-                VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>)
+                VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>)
             }
             VPUIPDPU.PPECfg {
                 VPUIPDPU.PPEFpAddMultBypass bypass_mode(ON)
@@ -110,7 +110,7 @@ module @Test_2 {
                 VPUIPDPU.ODUOutTensorSize dim_x(64) dim_y(64) dim_z(16)
                 VPUIPDPU.ODUPermuteData permute_mode(PERMUTE_ZXY)
                 VPUIPDPU.ODUSparsity compression_enabled(true) sparse_value(0)
-                VPUIPDPU.ODUOutActivations out_activations(%act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>)
+                VPUIPDPU.ODUOutActivations out_activations(%act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>)
                 VPUIPDPU.ODUWriteCombineBuffer activations_mode(WCB_COMBINE_BY_ADDRESS)
             }
         }
@@ -122,12 +122,12 @@ module @Test_2 {
 }
 
 //CHECK:    VPUIPDPU.DPUInvariant @DPUInvariant_0 <{input = @DeclareBuffer_ActIn, nce_task_type = #VPUIP.nce_task_type<MAXPOOL>, output = @DeclareBuffer_ActOut, task_index = !VPURegMapped.Index<0:0:0>, task_location = @DeclareTaskBuffer_DPUInvariant_0}> DPUCfg : {
-//CHECK:    ^bb0([[ARG_0:%.+]]: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>, [[ARG_1:%.+]]: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>, [[ARG_2:%.+]]: memref<1x16x64x64xi1, #NHWC, [@CMX_NN, 0]>):
+//CHECK:    ^bb0([[ARG_0:%.+]]: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>, [[ARG_1:%.+]]: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>, [[ARG_2:%.+]]: memref<1x16x64x64xi1, {order = #NHWC}, [@CMX_NN, 0]>):
 //CHECK:      VPUIPDPU.ODUCfg {
 //CHECK:        VPUIPDPU.ODUOutTensorSize dim_x(64) dim_y(64) dim_z(16)
 //CHECK:        VPUIPDPU.ODUPermuteData permute_mode(PERMUTE_ZXY)
 //CHECK:        VPUIPDPU.ODUSparsity compression_enabled(true) sparse_value(0)
-//CHECK:        VPUIPDPU.ODUOutActivations out_activations([[ARG_1]] : memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>)
+//CHECK:        VPUIPDPU.ODUOutActivations out_activations([[ARG_1]] : memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>)
 //CHECK:        VPUIPDPU.ODUWriteCombineBuffer activations_mode(WCB_COMBINE_BY_ADDRESS)
 //CHECK:      }
 //CHECK:    }
@@ -141,16 +141,16 @@ module @Test_2 {
 module @Test_3 {
     VPUASM.DeclareTaskBuffer @DeclareTaskBuffer_DPUInvariant_0 idx(!VPURegMapped.Index<0:0:0>) <DPUInvariant>
     VPUASM.DeclareTaskBuffer @DeclareTaskBuffer_DPUVariant_0 idx(!VPURegMapped.Index<0:0:0>) <DPUVariant>
-    VPUASM.DeclareBuffer @DeclareBuffer_ActOut !VPUASM.Buffer< "CMX_NN"[0] <128> : memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
-    VPUASM.DeclareBuffer @DeclareBuffer_ActIn !VPUASM.Buffer< "CMX_NN"[0] <131200> : memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
+    VPUASM.DeclareBuffer @DeclareBuffer_ActOut !VPUASM.Buffer< "CMX_NN"[0] <128> : memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
+    VPUASM.DeclareBuffer @DeclareBuffer_ActIn !VPUASM.Buffer< "CMX_NN"[0] <131200> : memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
 
     VPUIPDPU.DPUInvariant @DPUInvariant_0 <{input = @DeclareBuffer_ActIn, nce_task_type = #VPUIP.nce_task_type<MAXPOOL>, output = @DeclareBuffer_ActOut, task_index = !VPURegMapped.Index<0:0:0>, task_location = @DeclareTaskBuffer_DPUInvariant_0}>
         DPUCfg : {
-            ^bb0(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                 %act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>,
-                 %sparse_out: memref<1x16x64x64xi1, #NHWC, [@CMX_NN, 0]>):
+            ^bb0(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                 %act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                 %sparse_out: memref<1x16x64x64xi1, {order = #NHWC}, [@CMX_NN, 0]>):
             VPUIPDPU.IDUCfg {
-                VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>)
+                VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>)
             }
             VPUIPDPU.PPECfg {
                 VPUIPDPU.PPEFpAddMultBypass bypass_mode(ON)
@@ -160,8 +160,8 @@ module @Test_3 {
                 VPUIPDPU.ODUDataReuse activation_reuse(NTHW_16)
                 VPUIPDPU.ODUPermuteData permute_mode(PERMUTE_YXZ)
                 VPUIPDPU.ODUSwizzleData swizzle_key(SWIZZLE_KEY_1)
-                VPUIPDPU.ODUSparsity %sparse_out: memref<1x16x64x64xi1, #NHWC, [@CMX_NN, 0]> sparse_value(0)
-                VPUIPDPU.ODUOutActivations out_activations(%act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>) data_width(ODU_DTYPE_16BIT)
+                VPUIPDPU.ODUSparsity %sparse_out: memref<1x16x64x64xi1, {order = #NHWC}, [@CMX_NN, 0]> sparse_value(0)
+                VPUIPDPU.ODUOutActivations out_activations(%act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>) data_width(ODU_DTYPE_16BIT)
                 VPUIPDPU.ODUWriteCombineBuffer activations_mode(WCB_COMBINE_BY_ADDRESS) sparsity_mode(WCB_COMBINE_BY_CONTEXT)
             }
         }
@@ -190,14 +190,14 @@ module @Test_3 {
 }
 
 //CHECK:    VPUIPDPU.DPUInvariant @DPUInvariant_0 <{input = @DeclareBuffer_ActIn, nce_task_type = #VPUIP.nce_task_type<MAXPOOL>, output = @DeclareBuffer_ActOut, task_index = !VPURegMapped.Index<0:0:0>, task_location = @DeclareTaskBuffer_DPUInvariant_0}> DPUCfg : {
-//CHECK:    ^bb0([[ARG_0:%.+]]: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>, [[ARG_1:%.+]]: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>, [[ARG_2:%.+]]: memref<1x16x64x64xi1, #NHWC, [@CMX_NN, 0]>):
+//CHECK:    ^bb0([[ARG_0:%.+]]: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>, [[ARG_1:%.+]]: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>, [[ARG_2:%.+]]: memref<1x16x64x64xi1, {order = #NHWC}, [@CMX_NN, 0]>):
 //CHECK:      VPUIPDPU.ODUCfg {
 //CHECK:        VPUIPDPU.ODUOutTensorSize dim_x(64) dim_y(64) dim_z(16)
 //CHECK:        VPUIPDPU.ODUDataReuse activation_reuse(NTHW_16)
 //CHECK:        VPUIPDPU.ODUPermuteData permute_mode(PERMUTE_YXZ)
 //CHECK:        VPUIPDPU.ODUSwizzleData swizzle_key(SWIZZLE_KEY_1)
-//CHECK:        VPUIPDPU.ODUSparsity [[ARG_2]] : memref<1x16x64x64xi1, #NHWC, [@CMX_NN, 0]> sparse_value(0)
-//CHECK:        VPUIPDPU.ODUOutActivations out_activations([[ARG_1]] : memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>) data_width(ODU_DTYPE_16BIT)
+//CHECK:        VPUIPDPU.ODUSparsity [[ARG_2]] : memref<1x16x64x64xi1, {order = #NHWC}, [@CMX_NN, 0]> sparse_value(0)
+//CHECK:        VPUIPDPU.ODUOutActivations out_activations([[ARG_1]] : memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>) data_width(ODU_DTYPE_16BIT)
 //CHECK:        VPUIPDPU.ODUWriteCombineBuffer activations_mode(WCB_COMBINE_BY_ADDRESS) sparsity_mode(WCB_COMBINE_BY_CONTEXT)
 //CHECK:      }
 //CHECK:    }

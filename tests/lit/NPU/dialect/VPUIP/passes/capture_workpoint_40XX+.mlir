@@ -7,7 +7,7 @@
 // REQUIRES: platform-NPU4000 || platform-NPU5010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-!dataType = memref<1x16x4x4xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
+!dataType = memref<1x16x4x4xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>
 !frcRegType = memref<1xui64, @Register>
 !frcCmxType = memref<1xui64, [@CMX_NN, 0]>
 
@@ -67,11 +67,11 @@ module @Graph {
 // CHECK:        profilingOutputsInfo
 // CHECK-NEXT:      DataInfo "dma" : tensor<2xui64>
 // CHECK-NEXT:      DataInfo "pll" : tensor<16xui32>
-// CHECK:        func.func @main([[ARG_0:%[^:]+]]: memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>,
-// CHECK-SAME:      [[ARG_1:%[^:]+]]: memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>,
+// CHECK:        func.func @main([[ARG_0:%[^:]+]]: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+// CHECK-SAME:      [[ARG_1:%[^:]+]]: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>,
 // CHECK-SAME:      [[ARG_2:%[^:]+]]: memref<2xui64>,
 // CHECK-SAME:      [[ARG_3:%[^:]+]]: memref<16xui32>) -> (
-// CHECK-SAME:      memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>,
+// CHECK-SAME:      memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>,
 // CHECK-SAME:      memref<2xui64>, memref<16xui32>) {
 
 // CHECK-NOT:       VPURT.DeclareBuffer <Register> <537403424> -> memref<1xui32, @Register>

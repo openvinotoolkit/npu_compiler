@@ -12,6 +12,7 @@ struct DynDQShapes {
     const ov::Shape _input;
     const ov::Shape _weightShape;
     const ov::Shape _scaleShape;
+    const ov::Shape _reshapeShape;
     const bool _transposeB;
 };
 using DynDQParams = std::tuple<ov::element::Type, ov::element::Type, DynDQShapes>;
@@ -55,13 +56,21 @@ public:
         const auto quantScale = std::make_shared<ov::opset1::Parameter>(ov::element::f16, inputDynamicShapes.at(2));
         const auto convert0 = std::make_shared<ov::opset1::Convert>(weights->output(0), ov::element::f16);
         const auto mul = std::make_shared<ov::opset1::Multiply>(convert0->output(0), quantScale->output(0));
-        const auto convert1 = std::make_shared<ov::opset1::Convert>(mul->output(0), _matmulOpType);
+
+        std::vector<int64_t> shapePatternValues(shapes._reshapeShape.begin(), shapes._reshapeShape.end());
+        const auto shapePattern = std::make_shared<ov::opset1::Constant>(
+                ov::element::i64, ov::Shape({shapes._reshapeShape.size()}), shapePatternValues);
+        const auto reshape = std::make_shared<ov::opset1::Reshape>(mul->output(0), shapePattern, false);
+        const auto convert1 = std::make_shared<ov::opset1::Convert>(reshape->output(0), _matmulOpType);
 
         const auto matmul = std::make_shared<ov::opset1::MatMul>(
-                input->output(0), _matmulOpType == ov::element::f16 ? mul->output(0) : convert1->output(0), false,
+                input->output(0), _matmulOpType == ov::element::f16 ? reshape->output(0) : convert1->output(0), false,
                 shapes._transposeB);
 
-        const auto results = ov::ResultVector{std::make_shared<ov::opset1::Result>(matmul->output(0))};
+        const auto scales = ov::opset1::Constant::create(_matmulOpType, {1}, std::vector<float>{2.f});
+        const auto staticScaleMultiply = std::make_shared<ov::opset1::Multiply>(matmul->output(0), scales);
+
+        const auto results = ov::ResultVector{std::make_shared<ov::opset1::Result>(staticScaleMultiply->output(0))};
         function = std::make_shared<ov::Model>(results, ov::ParameterVector{input, weights, quantScale},
                                                "MatMulWithDynDQ");
     }
@@ -99,11 +108,20 @@ const std::vector<DynDQShapes> testShapes = {
         /*case1=*/{/*_input=*/{1, 1, 4096},
                    /*_weightShape=*/{4096, 4096},
                    /*_scaleShape=*/{4096, 1},
+                   /*_reshapeShape=*/{4096, 4096},
                    /*_transposeB=*/true},
-        /*case2=*/{/*_input=*/{1, 64, 8192},
-                   /*_weightShape=*/{3072, 8192},
-                   /*_scaleShape=*/{3072, 1},
-                   /*_transposeB=*/true}};
+        /*case2=*/
+        {/*_input=*/{1, 64, 8192},
+         /*_weightShape=*/{3072, 8192},
+         /*_scaleShape=*/{3072, 1},
+         /*_reshapeShape=*/{3072, 8192},
+         /*_transposeB=*/true},
+        /*case3=*/
+        {/*_input=*/{1, 1, 512},
+         /*_weightShape=*/{9216, 4, 128},
+         /*_scaleShape=*/{9216, 4, 1},
+         /*_reshapeShape=*/{9216, 512},
+         /*_transposeB=*/true}};
 
 INSTANTIATE_TEST_SUITE_P(DynDQ_FP16_NF4, MatMulWithDynDQTestCommon,
                          ::testing::Combine(::testing::Values(ov::element::f16), ::testing::Values(ov::element::nf4),

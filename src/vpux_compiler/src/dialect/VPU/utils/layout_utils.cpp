@@ -253,7 +253,7 @@ void vpux::VPU::inferLayoutInfoSameInOutSpecificDimsOrder(IE::LayerLayoutInfo& i
         return;
     }
 
-    const auto supportedOrderIt = llvm::find_if(supportedLayouts, [mainOrder](DimsOrder order) {
+    const auto supportedOrderIt = llvm::find_if(supportedLayouts, [mainOrder](const DimsOrder& order) {
         return order.numDims() == mainOrder.numDims();
     });
 
@@ -295,7 +295,7 @@ void vpux::VPU::inferSameMultipleInOutSpecificDimsOrder(IE::LayerLayoutInfo& inf
         return;
     }
 
-    const auto supportedOrderIt = llvm::find_if(supportedLayouts, [mainOrder](DimsOrder order) {
+    const auto supportedOrderIt = llvm::find_if(supportedLayouts, [mainOrder](const DimsOrder& order) {
         return order.numDims() == mainOrder.numDims();
     });
 

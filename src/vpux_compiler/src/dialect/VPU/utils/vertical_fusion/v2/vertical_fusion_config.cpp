@@ -157,6 +157,11 @@ void VFConfig::init() {
                                 notInput = true;
                                 break;
                             }
+
+                            if (!_vfOps.contains(parent)) {
+                                break;
+                            }
+
                             parent = parent->getOperand(0).getDefiningOp();
                         }
                     }

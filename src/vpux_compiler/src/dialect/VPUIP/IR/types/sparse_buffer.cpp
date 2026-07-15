@@ -329,7 +329,7 @@ NDTypeInterface VPUIP::SparseBufferType::changeShapeElemType(ShapeRef shape, mli
                                         getSparsityCompression(), getSeAttr());
 }
 
-NDTypeInterface VPUIP::SparseBufferType::changeDimsOrder(DimsOrder order) const {
+NDTypeInterface VPUIP::SparseBufferType::changeDimsOrder(const DimsOrder& order) const {
     const auto ndData = mlir::cast<vpux::NDTypeInterface>(getData());
     const auto data = ndData.changeDimsOrder(order);
 

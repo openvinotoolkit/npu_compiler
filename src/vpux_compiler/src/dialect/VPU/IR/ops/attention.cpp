@@ -25,7 +25,7 @@ using namespace vpux;
 
 int64_t getAuxDataBufferLineWidthFromCSize(mlir::ModuleOp moduleOp, int64_t shapeC, int64_t dimS, int64_t dimEv,
                                            /*optional*/ vpux::VPU::MultiClusterStrategyAttr multiClusterStrategy,
-                                           bool hasSink) {
+                                           bool hasSink, bool hasMask) {
     bool noPingPongBuffer = (shapeC == 1);
     if (multiClusterStrategy) {
         vpux::VPU::MultiClusterStrategy msVal = multiClusterStrategy.getValue();
@@ -43,8 +43,10 @@ int64_t getAuxDataBufferLineWidthFromCSize(mlir::ModuleOp moduleOp, int64_t shap
     }
     auto auxLineSize = dimS;
     const bool useSmPostNorm = (dimEv + 256) < dimS;
-    if (useSmPostNorm ||
-        hasSink) {  // if sink is present, online softmax is used, so need extra space for max and sumexp
+    // Extra space for max/sumexp buffers when post-norm is required.
+    // hasMask allocates post-norm space unconditionally: mask-aware kernel always uses post-norm,
+    // and the minor over-allocation when the feature is disabled is harmless.
+    if (useSmPostNorm || hasSink || hasMask) {
         // extra space for softmax post normalization: targetSequenceL * sizeof(float).
         // As targetSequenceL is tilled, I added for above buffer 32 bytes for every float entry on every line, to keep
         // alignment requirements of DPU accesses buffers.
@@ -58,7 +60,7 @@ int64_t getAuxDataBufferLineWidthFromCSize(mlir::ModuleOp moduleOp, int64_t shap
 int64_t getAuxDataBufferLineWidthFromInputs(mlir::ModuleOp moduleOp, mlir::Value inputQ, mlir::Value inputK,
                                             mlir::Value inputV,
                                             /*optional*/ vpux::VPU::MultiClusterStrategyAttr multiClusterStrategy,
-                                            bool hasSink) {
+                                            bool hasSink, bool hasMask) {
     const auto inputQType = mlir::cast<vpux::NDTypeInterface>(inputQ.getType());
     const auto inputKType = mlir::cast<vpux::NDTypeInterface>(inputK.getType());
     const auto inputVType = mlir::cast<vpux::NDTypeInterface>(inputV.getType());
@@ -69,7 +71,7 @@ int64_t getAuxDataBufferLineWidthFromInputs(mlir::ModuleOp moduleOp, mlir::Value
     const auto dimS = inputVType.getShape()[Dims4D::Act::W];
     const auto dimEv = inputVType.getShape()[Dims4D::Act::H];
 
-    return getAuxDataBufferLineWidthFromCSize(moduleOp, maxC, dimS, dimEv, multiClusterStrategy, hasSink);
+    return getAuxDataBufferLineWidthFromCSize(moduleOp, maxC, dimS, dimEv, multiClusterStrategy, hasSink, hasMask);
 }
 
 mlir::Type calculateDpuStorageType(mlir::ModuleOp moduleOp, mlir::Value inputQ, int64_t dimS, int64_t dimEv,
@@ -144,8 +146,8 @@ mlir::Type calculateDpuStorageType(mlir::ModuleOp moduleOp, mlir::Value inputQ, 
 SmallVector<mlir::Type> getAuxiliaryBufferTypes(mlir::ModuleOp moduleOp, mlir::Value inputQ, mlir::Value inputK,
                                                 mlir::Value inputV, mlir::IntegerAttr padSizeAttr,
                                                 std::vector<int32_t>& resultDpuStorageData,
-                                                vpux::VPU::MultiClusterStrategyAttr multiClusterStrategy,
-                                                bool hasSink) {
+                                                vpux::VPU::MultiClusterStrategyAttr multiClusterStrategy, bool hasSink,
+                                                bool hasMask) {
     const auto inputVType = mlir::cast<vpux::NDTypeInterface>(inputV.getType());
     const auto inputVShape = inputVType.getShape();
     const auto inputQType = mlir::cast<vpux::NDTypeInterface>(inputQ.getType());
@@ -157,8 +159,8 @@ SmallVector<mlir::Type> getAuxiliaryBufferTypes(mlir::ModuleOp moduleOp, mlir::V
     const auto dimL = inputQShape[Dim(2)];
 
     const auto dataStorageType = [&]() -> mlir::Type {
-        const auto lineWidth =
-                getAuxDataBufferLineWidthFromInputs(moduleOp, inputQ, inputK, inputV, multiClusterStrategy, hasSink);
+        const auto lineWidth = getAuxDataBufferLineWidthFromInputs(moduleOp, inputQ, inputK, inputV,
+                                                                   multiClusterStrategy, hasSink, hasMask);
         SmallVector<int64_t> bufferShape({1, 1, dimL, lineWidth});
         return mlir::RankedTensorType::get(bufferShape, getUInt8Type(inputQ.getContext()));
     }();
@@ -184,7 +186,7 @@ void vpux::VPU::AttentionOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationS
 
     std::vector<int32_t> dpuStorageData;
     auto auxBufferTypes = getAuxiliaryBufferTypes(moduleOp, inputQ, inputK, inputV, padSizeAttr, dpuStorageData,
-                                                  nullptr, inputSink != nullptr);
+                                                  nullptr, inputSink != nullptr, inputMask != nullptr);
     VPUX_THROW_WHEN(auxBufferTypes.size() != 2, "Expected 2 auxiliary buffer types, got {0}", auxBufferTypes.size());
     auto dataStorage = VPU::createEmptyAuxiliaryBuffer(odsBuilder, odsState.location, auxBufferTypes[0]);
     auto dpuStorage = createDpuStorageConstant(odsBuilder, odsState.location, auxBufferTypes[1], dpuStorageData);
@@ -231,7 +233,7 @@ llvm::LogicalResult VPU::AttentionOp::verify() {
     std::vector<int32_t> dpuStorageData;
     auto expectedAuxBuffTypes =
             getAuxiliaryBufferTypes(moduleOp, getInputQ(), getInputK(), getInputV(), getPadSizeSAttr(), dpuStorageData,
-                                    MultiClusterStrategyAttr(), getInputSink() != nullptr);
+                                    MultiClusterStrategyAttr(), getInputSink() != nullptr, getInputMask() != nullptr);
     if (expectedAuxBuffTypes.size() != 2) {
         return errorAt(getOperation(), "Expected two reference auxiliary buffer types, but got {0}",
                        expectedAuxBuffTypes.size());
@@ -338,8 +340,8 @@ bool vpux::VPU::AttentionOp::isSupported(IE::AttentionOp origOp) {
         buffersSize.push_back(Byte(sSL * fp16Size));
     }
 
-    buffersSize.push_back(
-            Byte(getAuxDataBufferLineWidthFromCSize(module, 1, sSL, eV, nullptr, origOp.getInputSink() != nullptr)));
+    buffersSize.push_back(Byte(getAuxDataBufferLineWidthFromCSize(
+            module, 1, sSL, eV, nullptr, origOp.getInputSink() != nullptr, origOp.getInputMask() != nullptr)));
 
     std::vector<int32_t> dpuStorageData;
     auto dpuStorageType = calculateDpuStorageType(module, origOp.getInputQ(), sSL, eV, e, qShape[rank - 2],
@@ -416,7 +418,7 @@ InputTiling vpux::VPU::AttentionOp::backInferTileInfo(const vpux::TileInfo& outp
     dataStorageTile.shape[Dims4D::Act::W] = getAuxDataBufferLineWidthFromCSize(
             getOperation()->getParentOfType<mlir::ModuleOp>(), outputTile.shape[Dims4D::Act::C],
             inVTile.shape[Dims4D::Act::W], outputTile.shape[Dims4D::Act::W], getMultiClusterStrategyAttr(),
-            getInputSink() != nullptr);
+            getInputSink() != nullptr, getInputMask() != nullptr);
 
     // InputQ, inputK and InputV are mandatory
     InputTiling inTiles = TilingInfo{{std::move(inQTile), std::move(inKTile), std::move(inVTile)}};

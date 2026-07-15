@@ -24,12 +24,14 @@ add_npu_library(${TARGET_NAME}
         openvino::npu_al
         npu_compiler_dialect_vpurt
         npu_compiler_dialect_const
+        npu_compiler_dialect_hostexec
         npu_compiler_dialect_ie_utils
         npu_compiler_dialect_net
         npu_compiler_dialect_vpu_transforms
         npu_compiler_dialect_vpu_utils
         npu_compiler_dialect_vpuip_interfaces
         npu_compiler_dialect_vpuip_utils
+        npu_compiler_dialect_shave
         npu_logger
 )
 

@@ -21,7 +21,7 @@ def IE_AddOp :
                 Commutative,
                 IE_EltwiseOp,
                 DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface, ["shouldJITCompile"]>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
                 DeclareOpInterfaceMethods<StaticShapeOpInterface>
             ]
         > {
@@ -30,6 +30,8 @@ def IE_AddOp :
     let arguments = (ins
         RankedTensorOf<[F16, F32, F64, SI32, SI64, UI8, UI16, UI32, UI64, quant_QuantizedType]>:$input1,
         RankedTensorOf<[F16, F32, F64, SI32, SI64, UI8, UI16, UI32, UI64, quant_QuantizedType]>:$input2,
+        // Placeholder for future scales-as-input support
+        Optional<AnyRankedTensor>:$scales,
 
         IE_AutoBroadcastTypeAttr:$auto_broadcast,
         OptionalAttr<IE_PostOpAttrInterface>:$post_op,
@@ -42,6 +44,62 @@ def IE_AddOp :
         RankedTensorOf<[F16, F32, F64, SI32, SI64, UI8, UI16, UI32, UI64, quant_QuantizedType]>:$output
     );
 
+    // Backward-compatible builders: omit the reserved `scales` operand (passed as null).
+    // Use the full generated builder to supply a scales tensor when support is added.
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::Value":$input1,
+            "::mlir::Value":$input2,
+            "vpux::IE::AutoBroadcastTypeAttr":$auto_broadcast,
+            CArg<"vpux::IE::PostOpAttr", "{}">:$post_op,
+            CArg<"mlir::DictionaryAttr", "{}">:$clamp,
+            CArg<"mlir::ArrayAttr", "{}">:$output_padding,
+            CArg<"mlir::ArrayAttr", "{}">:$input_padding
+        ), [{
+            build($_builder, $_state, input1, input2, /*scales=*/::mlir::Value{},
+                  auto_broadcast, post_op, clamp, output_padding, input_padding);
+        }]>,
+        OpBuilder<(ins
+            "::mlir::Type":$result_type,
+            "::mlir::Value":$input1,
+            "::mlir::Value":$input2,
+            "vpux::IE::AutoBroadcastTypeAttr":$auto_broadcast,
+            CArg<"vpux::IE::PostOpAttr", "{}">:$post_op,
+            CArg<"mlir::DictionaryAttr", "{}">:$clamp,
+            CArg<"mlir::ArrayAttr", "{}">:$output_padding,
+            CArg<"mlir::ArrayAttr", "{}">:$input_padding
+        ), [{
+            build($_builder, $_state, result_type, input1, input2, /*scales=*/::mlir::Value{},
+                  auto_broadcast, post_op, clamp, output_padding, input_padding);
+        }]>,
+        OpBuilder<(ins
+            "::mlir::Value":$input1,
+            "::mlir::Value":$input2,
+            "vpux::IE::AutoBroadcastType":$auto_broadcast,
+            CArg<"vpux::IE::PostOpAttr", "{}">:$post_op,
+            CArg<"mlir::DictionaryAttr", "{}">:$clamp,
+            CArg<"mlir::ArrayAttr", "{}">:$output_padding,
+            CArg<"mlir::ArrayAttr", "{}">:$input_padding
+        ), [{
+            build($_builder, $_state, input1, input2, /*scales=*/::mlir::Value{},
+                  auto_broadcast, post_op, clamp, output_padding, input_padding);
+        }]>,
+        OpBuilder<(ins
+            "::mlir::Type":$result_type,
+            "::mlir::Value":$input1,
+            "::mlir::Value":$input2,
+            "vpux::IE::AutoBroadcastType":$auto_broadcast,
+            CArg<"vpux::IE::PostOpAttr", "{}">:$post_op,
+            CArg<"mlir::DictionaryAttr", "{}">:$clamp,
+            CArg<"mlir::ArrayAttr", "{}">:$output_padding,
+            CArg<"mlir::ArrayAttr", "{}">:$input_padding
+        ), [{
+            build($_builder, $_state, result_type, input1, input2, /*scales=*/::mlir::Value{},
+                  auto_broadcast, post_op, clamp, output_padding, input_padding);
+        }]>
+    ];
+
+    let hasVerifier = 1;
     let hasFolder = 1;
 
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_MIXED_PRECISION];
@@ -53,7 +111,7 @@ def IE_DivideOp :
             [
                 DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
                 IE_EltwiseOp,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine Divide layer";
@@ -75,7 +133,7 @@ def IE_FloorModOp :
             "FloorMod",
             [
                 IE_EltwiseOp,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine FloorMod layer";
@@ -98,7 +156,7 @@ def IE_MaximumOp :
             [
                 DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
                 IE_EltwiseOp,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine Maximum layer";
@@ -121,7 +179,7 @@ def IE_MinimumOp :
             [
                 DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
                 IE_EltwiseOp,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine Minimum layer";
@@ -143,7 +201,7 @@ def IE_ModOp :
             "Mod",
             [
                 IE_EltwiseOp,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine Mod layer";
@@ -165,7 +223,7 @@ def IE_MultiplyOp :
             "Multiply",
             [
                 DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
                 DeclareOpInterfaceMethods<StaticShapeOpInterface, ["requiresStaticShape"]>,
                 Commutative,
                 IE_EltwiseOp
@@ -176,6 +234,8 @@ def IE_MultiplyOp :
     let arguments = (ins
         RankedTensorOf<[F16, F32, F64, SI32, SI64, UI8, UI16, UI32, UI64, quant_QuantizedType]>:$input1,
         RankedTensorOf<[F16, F32, F64, SI32, SI64, UI8, UI16, UI32, UI64, quant_QuantizedType]>:$input2,
+        // Placeholder for future scales-as-input support
+        Optional<AnyRankedTensor>:$scales,
 
         IE_AutoBroadcastTypeAttr:$auto_broadcast,
         OptionalAttr<IE_PostOpAttrInterface>:$post_op,
@@ -188,6 +248,62 @@ def IE_MultiplyOp :
         RankedTensorOf<[F16, F32, F64, SI32, SI64, UI8, UI16, UI32, UI64, quant_QuantizedType]>:$output
     );
 
+    // Backward-compatible builders: omit the reserved `scales` operand (passed as null).
+    // Use the full generated builder to supply a scales tensor when support is added.
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::Value":$input1,
+            "::mlir::Value":$input2,
+            "vpux::IE::AutoBroadcastTypeAttr":$auto_broadcast,
+            CArg<"vpux::IE::PostOpAttr", "{}">:$post_op,
+            CArg<"mlir::DictionaryAttr", "{}">:$clamp,
+            CArg<"mlir::ArrayAttr", "{}">:$output_padding,
+            CArg<"mlir::ArrayAttr", "{}">:$input_padding
+        ), [{
+            build($_builder, $_state, input1, input2, /*scales=*/::mlir::Value{},
+                  auto_broadcast, post_op, clamp, output_padding, input_padding);
+        }]>,
+        OpBuilder<(ins
+            "::mlir::Type":$result_type,
+            "::mlir::Value":$input1,
+            "::mlir::Value":$input2,
+            "vpux::IE::AutoBroadcastTypeAttr":$auto_broadcast,
+            CArg<"vpux::IE::PostOpAttr", "{}">:$post_op,
+            CArg<"mlir::DictionaryAttr", "{}">:$clamp,
+            CArg<"mlir::ArrayAttr", "{}">:$output_padding,
+            CArg<"mlir::ArrayAttr", "{}">:$input_padding
+        ), [{
+            build($_builder, $_state, result_type, input1, input2, /*scales=*/::mlir::Value{},
+                  auto_broadcast, post_op, clamp, output_padding, input_padding);
+        }]>,
+        OpBuilder<(ins
+            "::mlir::Value":$input1,
+            "::mlir::Value":$input2,
+            "vpux::IE::AutoBroadcastType":$auto_broadcast,
+            CArg<"vpux::IE::PostOpAttr", "{}">:$post_op,
+            CArg<"mlir::DictionaryAttr", "{}">:$clamp,
+            CArg<"mlir::ArrayAttr", "{}">:$output_padding,
+            CArg<"mlir::ArrayAttr", "{}">:$input_padding
+        ), [{
+            build($_builder, $_state, input1, input2, /*scales=*/::mlir::Value{},
+                  auto_broadcast, post_op, clamp, output_padding, input_padding);
+        }]>,
+        OpBuilder<(ins
+            "::mlir::Type":$result_type,
+            "::mlir::Value":$input1,
+            "::mlir::Value":$input2,
+            "vpux::IE::AutoBroadcastType":$auto_broadcast,
+            CArg<"vpux::IE::PostOpAttr", "{}">:$post_op,
+            CArg<"mlir::DictionaryAttr", "{}">:$clamp,
+            CArg<"mlir::ArrayAttr", "{}">:$output_padding,
+            CArg<"mlir::ArrayAttr", "{}">:$input_padding
+        ), [{
+            build($_builder, $_state, result_type, input1, input2, /*scales=*/::mlir::Value{},
+                  auto_broadcast, post_op, clamp, output_padding, input_padding);
+        }]>
+    ];
+
+    let hasVerifier = 1;
     let hasFolder = 1;
 
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_MIXED_PRECISION];
@@ -198,7 +314,7 @@ def IE_PowerOp :
             "Power",
             [
                 IE_EltwiseOp,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine Power layer";
@@ -269,14 +385,16 @@ def IE_SubtractOp :
             [
                 DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
                 IE_EltwiseOp,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine Subtract layer";
 
     let arguments = (ins
-        RankedTensorOf<[F16, F32, F64, SI32, SI64, UI8, UI16, UI32, UI64, quant_QuantizedType]>:$input1,
-        RankedTensorOf<[F16, F32, F64, SI32, SI64, UI8, UI16, UI32, UI64, quant_QuantizedType]>:$input2,
+        RankedTensorOf<[F16, F32, F64, SI8, SI32, SI64, UI8, UI16, UI32, UI64, quant_QuantizedType]>:$input1,
+        RankedTensorOf<[F16, F32, F64, SI8, SI32, SI64, UI8, UI16, UI32, UI64, quant_QuantizedType]>:$input2,
+        // Placeholder for future scales-as-input support
+        Optional<AnyRankedTensor>:$scales,
 
         IE_AutoBroadcastTypeAttr:$auto_broadcast,
         OptionalAttr<IE_PostOpAttrInterface>:$post_op,
@@ -286,9 +404,65 @@ def IE_SubtractOp :
     );
 
     let results = (outs
-        RankedTensorOf<[F16, F32, F64, SI32, SI64, UI8, UI16, UI32, UI64, quant_QuantizedType]>:$output
+        RankedTensorOf<[F16, F32, F64, SI8, SI32, SI64, UI8, UI16, UI32, UI64, quant_QuantizedType]>:$output
     );
 
+    // Backward-compatible builders: omit the reserved `scales` operand (passed as null).
+    // Use the full generated builder to supply a scales tensor when support is added.
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::Value":$input1,
+            "::mlir::Value":$input2,
+            "vpux::IE::AutoBroadcastTypeAttr":$auto_broadcast,
+            CArg<"vpux::IE::PostOpAttr", "{}">:$post_op,
+            CArg<"mlir::DictionaryAttr", "{}">:$clamp,
+            CArg<"mlir::ArrayAttr", "{}">:$output_padding,
+            CArg<"mlir::ArrayAttr", "{}">:$input_padding
+        ), [{
+            build($_builder, $_state, input1, input2, /*scales=*/::mlir::Value{},
+                  auto_broadcast, post_op, clamp, output_padding, input_padding);
+        }]>,
+        OpBuilder<(ins
+            "::mlir::Type":$result_type,
+            "::mlir::Value":$input1,
+            "::mlir::Value":$input2,
+            "vpux::IE::AutoBroadcastTypeAttr":$auto_broadcast,
+            CArg<"vpux::IE::PostOpAttr", "{}">:$post_op,
+            CArg<"mlir::DictionaryAttr", "{}">:$clamp,
+            CArg<"mlir::ArrayAttr", "{}">:$output_padding,
+            CArg<"mlir::ArrayAttr", "{}">:$input_padding
+        ), [{
+            build($_builder, $_state, result_type, input1, input2, /*scales=*/::mlir::Value{},
+                  auto_broadcast, post_op, clamp, output_padding, input_padding);
+        }]>,
+        OpBuilder<(ins
+            "::mlir::Value":$input1,
+            "::mlir::Value":$input2,
+            "vpux::IE::AutoBroadcastType":$auto_broadcast,
+            CArg<"vpux::IE::PostOpAttr", "{}">:$post_op,
+            CArg<"mlir::DictionaryAttr", "{}">:$clamp,
+            CArg<"mlir::ArrayAttr", "{}">:$output_padding,
+            CArg<"mlir::ArrayAttr", "{}">:$input_padding
+        ), [{
+            build($_builder, $_state, input1, input2, /*scales=*/::mlir::Value{},
+                  auto_broadcast, post_op, clamp, output_padding, input_padding);
+        }]>,
+        OpBuilder<(ins
+            "::mlir::Type":$result_type,
+            "::mlir::Value":$input1,
+            "::mlir::Value":$input2,
+            "vpux::IE::AutoBroadcastType":$auto_broadcast,
+            CArg<"vpux::IE::PostOpAttr", "{}">:$post_op,
+            CArg<"mlir::DictionaryAttr", "{}">:$clamp,
+            CArg<"mlir::ArrayAttr", "{}">:$output_padding,
+            CArg<"mlir::ArrayAttr", "{}">:$input_padding
+        ), [{
+            build($_builder, $_state, result_type, input1, input2, /*scales=*/::mlir::Value{},
+                  auto_broadcast, post_op, clamp, output_padding, input_padding);
+        }]>
+    ];
+
+    let hasVerifier = 1;
     let hasFolder = 1;
 
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_MIXED_PRECISION];

@@ -137,10 +137,16 @@ void AdaptLLVMFuncsForShavePass::safeRunOnModule() {
     auto moduleOp = getOperation();
     auto func = net::getMainFunc(moduleOp);
     _swModule = VPUIP::getVPUSWModule(moduleOp, _log);
+    llvm::DenseSet<mlir::SymbolRefAttr> adaptedFuncs;
 
-    func.walk([&](VPUIP::SwKernelOp swKernelOp) {
+    func.walk([&](VPUIP::SwKernelOp swKernelOp) -> mlir::WalkResult {
         auto swLayerFuncSym = swKernelOp.getKernelFunction();
+        if (adaptedFuncs.count(swLayerFuncSym) > 0) {
+            return mlir::WalkResult::skip();
+        }
+        adaptedFuncs.insert(swLayerFuncSym);
         adaptFuncForShave(swLayerFuncSym);
+        return mlir::WalkResult::skip();
     });
 }
 

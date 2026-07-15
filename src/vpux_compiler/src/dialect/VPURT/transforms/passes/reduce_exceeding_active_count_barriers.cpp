@@ -46,8 +46,6 @@ private:
     bool _checkDependencyWhenLinearizing = true;
     bool _rebuildControlMap = true;
     const bool _considerTaskFifoDependency = false;
-    bool _mergeWaitBarriersIteratively = false;
-    bool _considerTaskExecutorType = false;
 
     bool _unevenVariantSplitFlag = false;
     SmallVector<llvm::BitVector> _taskControlMap;
@@ -270,28 +268,28 @@ void ReduceExceedingActiveCountBarriersPass::safeRunOnFunc() {
     auto func = getOperation();
     auto module = func->getParentOfType<mlir::ModuleOp>();
     auto arch = config::getArch(module);
-
-    const auto numBarriersToUse = numBarriers.hasValue() ? checked_cast<size_t>(numBarriers.getValue())
-                                                         : checked_cast<size_t>(VPUIP::getNumAvailableBarriers(func));
-    const auto maxAvailableSlots = maxVariantCount.hasValue() ? checked_cast<size_t>(maxVariantCount.getValue())
-                                                              : VPUIP::getBarrierMaxVariantCount(func);
-    const auto maxSlotsSum = VPUIP::getBarrierMaxVariantSum(func);
-    _log.trace("There are {0} physical barriers and {1} slots for each barrier", numBarriersToUse, maxAvailableSlots);
-    _log.trace("Run-time limit for sum of producers and consumers per barrier: {0}", maxSlotsSum);
-
-    bool maxSlotsSumLimitEnabled = false;
-    if (maxSlotsSum < maxAvailableSlots) {
-        maxSlotsSumLimitEnabled = true;
+    auto wlmFlag = !config::isArchVPUX3XXX(arch);
+    if (wlmFlag) {
+        _log.trace("The pass is not required for WLM schedules.");
+        return;
     }
 
+    const auto useVariantCount = maxVariantCount.hasValue();
+    const auto numBarriersToUse = numBarriers.hasValue() ? checked_cast<size_t>(numBarriers.getValue())
+                                                         : checked_cast<size_t>(VPUIP::getNumAvailableBarriers(func));
+    const auto maxAvailableSlots =
+            useVariantCount ? checked_cast<size_t>(maxVariantCount.getValue()) : VPUIP::getBarrierMaxSlotCount(func);
+    _log.trace("There are {0} physical barriers and {1} slots for each barrier", numBarriersToUse, maxAvailableSlots);
+    _log.trace("Run-time limit for sum of producers and consumers per barrier: {0}", maxAvailableSlots);
+
+    bool maxSlotsSumLimitEnabled = false;
+
     // divide slots equally between producers and consumers and split barriers if needed
-    _availableSlots = VPUIP::getAvailableSlots(maxSlotsSum, maxAvailableSlots);
+    _availableSlots =
+            useVariantCount ? maxVariantCount.getValue() / 2 : VPUIP::getAvailableSlots(func, maxAvailableSlots);
 
     VPUX_THROW_UNLESS(numBarriersToUse > 1, "Not possible to satisfy barrier requirement numBarriersToUse '{0}'",
                       numBarriersToUse);
-
-    auto wlmFlag = (config::getWorkloadManagementStatus(module) == WorkloadManagementStatus::ENABLED) &&
-                   !config::isArchVPUX3XXX(arch);
 
     auto& barrierInfo = getAnalysis<BarrierInfo>();
     if (barrierInfo.getNumOfBarrierOps() <= numBarriersToUse) {
@@ -302,17 +300,6 @@ void ReduceExceedingActiveCountBarriersPass::safeRunOnFunc() {
 
     if (_unevenVariantSplitFlag) {
         barrierInfo.enableUnevenVariantSplit();
-    }
-
-    if (wlmFlag) {
-        // In case of WLM all tasks need to be driven by single barrier as this is one of the constraints
-        // to make each schedule feasible for WLM enabling
-        _mergeWaitBarriersIteratively = true;
-        // For some models, strictly enforcing 1-wait barrier per task can lead to performance regression when tasks
-        // executor type is not taken into account when batches of tasks must be linearized. Taking into account tasks
-        // executor type can help avoid placing tasks from same engine under different barriers, thus not preventing
-        // them from running in parallel.
-        _considerTaskExecutorType = true;
     }
 
     VPURT::BarrierSimulator barrierSim(func, wlmFlag, barrierInfo);
@@ -330,7 +317,7 @@ void ReduceExceedingActiveCountBarriersPass::safeRunOnFunc() {
         _log.trace("Barrier simulation passed with '{0}' barriers, no issues with exceeding barriers count",
                    numBarriersToUse);
 
-        if (!wlmFlag || VPURT::verifyBarriersForTaskDescriptorFetch(barrierInfo, func, std::nullopt)) {
+        if (VPURT::verifyBarriersForTaskDescriptorFetch(barrierInfo, func, std::nullopt)) {
             barrierInfo.clearAttributes();
             return;
         }
@@ -348,18 +335,11 @@ void ReduceExceedingActiveCountBarriersPass::safeRunOnFunc() {
         if (!mlir::succeeded(barrierSim.checkProducerAndConsumerCount(_log))) {
             _log.trace("Active barrier slot count is not valid, will split barriers");
             // split barriers that violate the slot count limits
-            barrierInfo.splitBarriersWithExceedingVariantCount(_availableSlots, maxSlotsSum, maxSlotsSumLimitEnabled);
+            barrierInfo.splitBarriersWithExceedingVariantCount(_availableSlots, maxAvailableSlots,
+                                                               maxSlotsSumLimitEnabled);
             VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log);
         }
 
-        // merge parallel wait barriers respecting limits of slot count per barrier
-        if (wlmFlag) {
-            if (barrierInfo.ensureTasksDrivenBySingleBarrier(_availableSlots, _mergeWaitBarriersIteratively,
-                                                             _considerTaskExecutorType)) {
-                // IR was modified
-                VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log);
-            }
-        }
         // remove unused barriers before simulation of assigning physical barriers in order to avoid creating batches
         // that cannot be linearized (eg. containing only final barrier)
         removeUnusedBarriers(func, barrierInfo);
@@ -432,12 +412,6 @@ void ReduceExceedingActiveCountBarriersPass::safeRunOnFunc() {
     VPURT::postProcessBarrierOps(func);
 
     VPUX_THROW_UNLESS(VPURT::verifyBarrierSlots(func, _log), "Barrier slot count check failed");
-    if (wlmFlag) {
-        auto hasOneWaitBarrierPerTask = VPURT::verifyOneWaitBarrierPerTask(func, _log);
-        if (_mergeWaitBarriersIteratively) {
-            VPUX_THROW_UNLESS(hasOneWaitBarrierPerTask, "Encountered task with more than one wait barrier");
-        }
-    }
 }
 
 }  // namespace

@@ -9,14 +9,14 @@
 !MemRef = memref<1x32x4x4xf16, @DDR>
 
 module @VPU.SW {
-    func.func private @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
+    func.func nested @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
         attributes {
             VPU.kernel_code = "softmax.cpp",
             VPU.kernel_entry = "softmax"
         }
 }
 
-func.func private @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
+func.func nested @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
     %res = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>}
             @VPU.SW::@builtin_softmax
             inputs(%in as %arg0: !MemRef)
@@ -50,14 +50,14 @@ func.func @NoRepetitions(%arg: !MemRef, %out_arg: !MemRef) -> !MemRef {
 !MemRef = memref<1x32x4x4xf16, @DDR>
 
 module @VPU.SW {
-    func.func private @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
+    func.func nested @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
         attributes {
             VPU.kernel_code = "softmax.cpp",
             VPU.kernel_entry = "softmax"
         }
 }
 
-func.func private @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
+func.func nested @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
     %res = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>}
             @VPU.SW::@builtin_softmax
             inputs(%in as %arg0: !MemRef)
@@ -103,19 +103,19 @@ func.func @NoOpRepetition(%arg: !MemRef, %out_arg1: !MemRef, %out_arg2: !MemRef)
 !MemRef = memref<1x32x4x4xf16, @DDR>
 
 module @VPU.SW {
-    func.func private @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
+    func.func nested @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
         attributes {
             VPU.kernel_code = "softmax.cpp",
             VPU.kernel_entry = "softmax"
         }
-    func.func private @builtin_sigmoid(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>)
+    func.func nested @builtin_sigmoid(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>)
         attributes {
             VPU.kernel_code = "activation_sigmoid.cpp",
             VPU.kernel_entry = "activation_sigmoid"
         }
 }
 
-func.func private @foo(%in: !MemRef, %out0: !MemRef, %out1: !MemRef) -> (!MemRef, !MemRef) {
+func.func nested @foo(%in: !MemRef, %out0: !MemRef, %out1: !MemRef) -> (!MemRef, !MemRef) {
     %0 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>}
             @VPU.SW::@builtin_softmax
             inputs(%in as %arg0: !MemRef)
@@ -151,14 +151,14 @@ func.func @SameValueOutputs(%arg: !MemRef, %out_arg: !MemRef) -> !MemRef {
 !MemRef = memref<1x32x4x4xf16, @DDR>
 
 module @VPU.SW {
-    func.func private @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
+    func.func nested @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
         attributes {
             VPU.kernel_code = "softmax.cpp",
             VPU.kernel_entry = "softmax"
         }
 }
 
-func.func private @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
+func.func nested @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
     %res = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>}
             @VPU.SW::@builtin_softmax
             inputs(%in as %arg0: !MemRef)
@@ -196,14 +196,14 @@ func.func @SameRootOutputs(%arg: !MemRef, %out_arg: !MemRef) -> !MemRef {
 !MemRef = memref<1x32x4x4xf16, @DDR>
 
 module @VPU.SW {
-    func.func private @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
+    func.func nested @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
         attributes {
             VPU.kernel_code = "softmax.cpp",
             VPU.kernel_entry = "softmax"
         }
 }
 
-func.func private @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
+func.func nested @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
     %res = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>}
             @VPU.SW::@builtin_softmax
             inputs(%in as %arg0: !MemRef)
@@ -246,14 +246,14 @@ func.func @InputUpdate(%arg: !MemRef, %out_arg: !MemRef) -> !MemRef {
 !MemRef = memref<1x32x4x4xf16, @DDR>
 
 module @VPU.SW {
-    func.func private @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
+    func.func nested @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
         attributes {
             VPU.kernel_code = "softmax.cpp",
             VPU.kernel_entry = "softmax"
         }
 }
 
-func.func private @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
+func.func nested @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
     %res = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>}
             @VPU.SW::@builtin_softmax
             inputs(%in as %arg0: !MemRef)
@@ -293,19 +293,19 @@ func.func @OutputUpdate(%arg: !MemRef, %out_arg0: !MemRef, %out_arg1: !MemRef)
 !MemRef = memref<1x32x4x4xf16, @DDR>
 
 module @VPU.SW {
-    func.func private @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
+    func.func nested @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
         attributes {
             VPU.kernel_code = "softmax.cpp",
             VPU.kernel_entry = "softmax"
         }
-    func.func private @builtin_sigmoid(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>)
+    func.func nested @builtin_sigmoid(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>)
         attributes {
             VPU.kernel_code = "activation_sigmoid.cpp",
             VPU.kernel_entry = "activation_sigmoid"
         }
 }
 
-func.func private @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
+func.func nested @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
     %res = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>}
             @VPU.SW::@builtin_softmax
             inputs(%in as %arg0: !MemRef)
@@ -366,19 +366,19 @@ func.func @OutputUpdateMultiUsers(%arg: !MemRef, %out_arg0: !MemRef, %out_arg1: 
 !MemRef = memref<1x32x4x4xf16, @DDR>
 
 module @VPU.SW {
-    func.func private @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
+    func.func nested @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
         attributes {
             VPU.kernel_code = "softmax.cpp",
             VPU.kernel_entry = "softmax"
         }
-    func.func private @builtin_sigmoid(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>)
+    func.func nested @builtin_sigmoid(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>)
         attributes {
             VPU.kernel_code = "activation_sigmoid.cpp",
             VPU.kernel_entry = "activation_sigmoid"
         }
 }
 
-func.func private @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
+func.func nested @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
     %res = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>}
             @VPU.SW::@builtin_softmax
             inputs(%in as %arg0: !MemRef)
@@ -437,14 +437,14 @@ func.func @ResultMultiUsers(%arg: !MemRef, %out_arg0: !MemRef, %out_arg1: !MemRe
 !MemRef = memref<1x32x4x4xf16, @DDR>
 
 module @VPU.SW {
-    func.func private @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
+    func.func nested @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
         attributes {
             VPU.kernel_code = "softmax.cpp",
             VPU.kernel_entry = "softmax"
         }
 }
 
-func.func private @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
+func.func nested @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
     %res = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>}
             @VPU.SW::@builtin_softmax
             inputs(%in as %arg0: !MemRef)
@@ -495,14 +495,14 @@ func.func @OutputUpdateImmediateTrailingCopy(%arg: !MemRef, %out_arg0: !MemRef, 
 !MemRef = memref<1x32x4x4xf16, @DDR>
 
 module @VPU.SW {
-    func.func private @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
+    func.func nested @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
         attributes {
             VPU.kernel_code = "softmax.cpp",
             VPU.kernel_entry = "softmax"
         }
 }
 
-func.func private @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
+func.func nested @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
     %res = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>}
             @VPU.SW::@builtin_softmax
             inputs(%in as %arg0: !MemRef)
@@ -553,14 +553,14 @@ func.func @OutputUpdateDelayedTrailingCopy(%arg: !MemRef, %out_arg0: !MemRef, %o
 !MemRef = memref<1x32x4x4xf16, @DDR>
 
 module @VPU.SW {
-    func.func private @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
+    func.func nested @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
         attributes {
             VPU.kernel_code = "softmax.cpp",
             VPU.kernel_entry = "softmax"
         }
 }
 
-func.func private @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
+func.func nested @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
     %res = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>}
             @VPU.SW::@builtin_softmax
             inputs(%in as %arg0: !MemRef)
@@ -611,19 +611,19 @@ func.func @ChainCalls(%arg: !MemRef, %out_arg: !MemRef) -> !MemRef {
 !MemRef = memref<1x32x4x4xf16, @DDR>
 
 module @VPU.SW {
-    func.func private @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
+    func.func nested @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
         attributes {
             VPU.kernel_code = "softmax.cpp",
             VPU.kernel_entry = "softmax"
         }
-    func.func private @builtin_sigmoid(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>)
+    func.func nested @builtin_sigmoid(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>)
         attributes {
             VPU.kernel_code = "activation_sigmoid.cpp",
             VPU.kernel_entry = "activation_sigmoid"
         }
 }
 
-func.func private @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
+func.func nested @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
     %res = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>}
             @VPU.SW::@builtin_softmax
             inputs(%in as %arg0: !MemRef)
@@ -687,19 +687,19 @@ func.func @InplaceArg(%arg: !MemRef, %out_arg0: !MemRef, %out_arg1: !MemRef)
 !MemRef2 = memref<1x64x4x4xf16, @DDR>
 
 module @VPU.SW {
-    func.func private @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
+    func.func nested @builtin_softmax(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>, %axis : i64)
         attributes {
             VPU.kernel_code = "softmax.cpp",
             VPU.kernel_entry = "softmax"
         }
-    func.func private @builtin_sigmoid(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>)
+    func.func nested @builtin_sigmoid(%input : memref<*xf16, @DDR>, %output : memref<*xf16, @DDR>)
         attributes {
             VPU.kernel_code = "activation_sigmoid.cpp",
             VPU.kernel_entry = "activation_sigmoid"
         }
 }
 
-func.func private @foo(%in: !MemRef, %out: !MemRef, %out2: !MemRef) -> (!MemRef, !MemRef) {
+func.func nested @foo(%in: !MemRef, %out: !MemRef, %out2: !MemRef) -> (!MemRef, !MemRef) {
     %res0 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>}
             @VPU.SW::@builtin_softmax
             inputs(%in as %arg0: !MemRef)
@@ -721,7 +721,7 @@ func.func private @foo(%in: !MemRef, %out: !MemRef, %out2: !MemRef) -> (!MemRef,
     return %res0, %res1 : !MemRef, !MemRef
 }
 
-func.func private @bar(%in: !MemRef, %in2: !MemRef, %out: !MemRef2) -> !MemRef2 {
+func.func nested @bar(%in: !MemRef, %in2: !MemRef, %out: !MemRef2) -> !MemRef2 {
     %res = VPUIP.ConcatView inputs(%in, %in2: !MemRef, !MemRef) outputs(%out: !MemRef2) -> !MemRef2
     return %res : !MemRef2
 }
@@ -808,7 +808,7 @@ func.func @DifferentRepetitions(%arg0: !MemRef, %out_arg0: !MemRef, %out_arg1: !
 !MemRef = memref<1x32x4x4xf16, @DDR>
 !MemRefStrided = memref<1x32x4x4xf16, {order = #NCHW, strides = [1024, 16, 4, 1]}, @DDR>
 
-func.func private @foo(%in: !MemRefStrided, %out: !MemRef) -> !MemRef {
+func.func nested @foo(%in: !MemRefStrided, %out: !MemRef) -> !MemRef {
     %res = VPUIP.Copy inputs(%in : !MemRefStrided) outputs(%out : !MemRef) -> !MemRef
     return %res : !MemRef
 }

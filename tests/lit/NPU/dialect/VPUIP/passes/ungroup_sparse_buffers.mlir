@@ -50,13 +50,13 @@ func.func @SparseCopy(%arg0: memref<32x16x3x3xf16>, %arg1: memref<32x16x3x3xi1>)
   num_clusters = 2 : i64
 }>
 
-!Data_DDR = memref<32x16x3x3xf16, #NHWC>
+!Data_DDR = memref<32x16x3x3xf16, {order = #NHWC}>
 !SM_DDR = memref<32x1x1x256xi1>
 
-!Data_CMX = memref<32x16x3x3xf16, #NHWC, @CMX_NN>
+!Data_CMX = memref<32x16x3x3xf16, {order = #NHWC}, @CMX_NN>
 !SM_CMX = memref<32x1x1x256xi1, @CMX_NN>
 
-// CHECK:       func.func @SparseCopyDistributed([[ARG0:%.+]]: memref<32x16x3x3xf16, #NHWC>, [[ARG1:%.+]]: memref<32x1x1x256xi1>)
+// CHECK:       func.func @SparseCopyDistributed([[ARG0:%.+]]: memref<32x16x3x3xf16, {order = #NHWC}>, [[ARG1:%.+]]: memref<32x1x1x256xi1>)
 // CHECK-SAME:      -> (!VPUIP.DistributedBuffer<32x16x3x3xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>,
 // CHECK-SAME:          !VPUIP.DistributedBuffer<32x1x1x256xi1, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>)
 func.func @SparseCopyDistributed(%arg0: !Data_DDR, %arg1: !SM_DDR) -> (!Data_Distributed, !SM_Distributed) {

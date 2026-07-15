@@ -11,8 +11,6 @@
 
 #include <mlir/IR/Types.h>
 
-using namespace vpux;
-
 namespace vpux::VPU::arch40xx {
 
 SmallVector<int64_t> getChannelsSupportedByKernelOptimization(ArrayRef<int64_t> workloadsChannels, int64_t maxSlotsSum);

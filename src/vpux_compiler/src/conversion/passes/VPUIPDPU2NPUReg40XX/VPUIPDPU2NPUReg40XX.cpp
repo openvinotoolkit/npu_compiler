@@ -21,8 +21,6 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
-#include <npu_40xx_nnrt.hpp>
-
 namespace vpux {
 #define GEN_PASS_DECL_CONVERTVPUIPDPU2NPUREG40XX
 #define GEN_PASS_DEF_CONVERTVPUIPDPU2NPUREG40XX
@@ -32,7 +30,6 @@ namespace vpux {
 using namespace vpux;
 using namespace vpux::VPURegMapped;
 using namespace vpux::vpuipdpu2npureg40xx;
-using namespace npu40xx;
 
 namespace {
 

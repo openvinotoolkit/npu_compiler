@@ -40,6 +40,9 @@ struct NPUConstraints {
 
     // Minimum ELF ABI version required to support dynamic strides if applicable
     std::optional<Version> dynamicStridesMinElfAbiVersion;
+
+    // Maximum kernel size supported by the target DPU, used for optimizations that require this information.
+    uint32_t maxKernelSize = 0;
 };
 
 // ConfigCache inside of the MLIRContext to be able to access NPUConstraints from other modules.
@@ -60,6 +63,8 @@ public:
     void setConstraints(const NPUConstraints& npuConstraints) {
         _npuConstraints = npuConstraints;
     }
+
+    friend const NPUConstraints& updateMaxKernelSize(mlir::MLIRContext* context, uint32_t maxKernelSize);
 };
 
 /**
@@ -71,5 +76,7 @@ void setNPUConstraints(mlir::MLIRContext* context, const NPUConstraints& constra
  * @brief Get constraints struct cached in the MLIRContext.
  */
 const NPUConstraints& getNPUConstraints(mlir::MLIRContext* context);
+
+const NPUConstraints& updateMaxKernelSize(mlir::MLIRContext* context, uint32_t maxKernelSize);
 
 }  // namespace vpux::config

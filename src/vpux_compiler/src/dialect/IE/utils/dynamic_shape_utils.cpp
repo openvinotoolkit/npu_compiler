@@ -69,7 +69,7 @@ bool needsStaticShape(mlir::Operation* op) {
 // e.g. ?x16x32x4 NCHW -> contiguous
 //      1x32x?x10 NHWC -> contiguous
 //      1x14x10x? NCHW -> strided
-bool isDynamicDataContiguous(vpux::ShapeRef shape, vpux::DimsOrder order) {
+bool isDynamicDataContiguous(vpux::ShapeRef shape, const vpux::DimsOrder& order) {
     bool foundDynamicDim = false;
     for (size_t idx = 0; idx < shape.size(); idx++) {
         const auto dimPos = order.dimAt(idx);

@@ -3,18 +3,70 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "intel_npu/runtime/npu_vm_runtime.hpp"
+#include "npu_bytecode_utils/logger.hpp"
+#include "npu_bytecode_utils/network_description.hpp"
+#include "npu_interpreter_runtime/npu_vm_runtime.hpp"
+#include "npu_interpreter_runtime/virtual_machine.h"
+#include "utils/network_metadata.hpp"
+#include "utils/parameters.hpp"
 
-#include "vpux/utils/bytecode/virtual_machine/virtual_machine.hpp"
-
-#include <intel_npu/utils/logger/logger.hpp>
-
+#include <algorithm>
+#include <cstring>
+#include <exception>
+#include <limits>
+#include <memory>
+#include <string>
+#include <utility>
 #include <vector>
 
 /// Opaque runtime object holding the VirtualMachine instance.
 struct _npu_vm_runtime_handle_t {
-    vpux::bytecode::VirtualMachine vm;
+    intel_npu::vm::NetworkMetadata metadata;
+    npu_vm_module* module{};
 };
+
+namespace {
+
+constexpr uint32_t MAX_GRAPH_ARG_DIMS = ZE_MAX_GRAPH_ARGUMENT_DIMENSIONS_SIZE;
+constexpr uint32_t MAX_GRAPH_TENSOR_REF_DIMS = ZE_MAX_GRAPH_TENSOR_REF_DIMS;
+
+ze_graph_argument_precision_t toZeGraphPrecision(const ov::element::Type& precision) {
+    static const std::vector<std::pair<ov::element::Type, ze_graph_argument_precision_t>> precisions = {
+            {ov::element::f64, ZE_GRAPH_ARGUMENT_PRECISION_FP64},
+            {ov::element::f32, ZE_GRAPH_ARGUMENT_PRECISION_FP32},
+            {ov::element::f16, ZE_GRAPH_ARGUMENT_PRECISION_FP16},
+            {ov::element::bf16, ZE_GRAPH_ARGUMENT_PRECISION_BF16},
+            {ov::element::u64, ZE_GRAPH_ARGUMENT_PRECISION_UINT64},
+            {ov::element::u32, ZE_GRAPH_ARGUMENT_PRECISION_UINT32},
+            {ov::element::u16, ZE_GRAPH_ARGUMENT_PRECISION_UINT16},
+            {ov::element::u8, ZE_GRAPH_ARGUMENT_PRECISION_UINT8},
+            {ov::element::u4, ZE_GRAPH_ARGUMENT_PRECISION_UINT4},
+            {ov::element::u1, ZE_GRAPH_ARGUMENT_PRECISION_BIN},
+            {ov::element::i64, ZE_GRAPH_ARGUMENT_PRECISION_INT64},
+            {ov::element::i32, ZE_GRAPH_ARGUMENT_PRECISION_INT32},
+            {ov::element::i16, ZE_GRAPH_ARGUMENT_PRECISION_INT16},
+            {ov::element::i8, ZE_GRAPH_ARGUMENT_PRECISION_INT8},
+            {ov::element::i4, ZE_GRAPH_ARGUMENT_PRECISION_INT4},
+            {ov::element::nf4, ZE_GRAPH_ARGUMENT_PRECISION_NF4},
+            {ov::element::boolean, ZE_GRAPH_ARGUMENT_PRECISION_BOOLEAN},
+    };
+
+    const auto it = std::find_if(precisions.begin(), precisions.end(), [&](const auto& entry) {
+        return entry.first == precision;
+    });
+    return it != precisions.end() ? it->second : ZE_GRAPH_ARGUMENT_PRECISION_UNKNOWN;
+}
+
+void copyString(char* dst, size_t dstSize, const std::string& src) {
+    if (dst == nullptr || dstSize == 0) {
+        return;
+    }
+
+    std::strncpy(dst, src.c_str(), dstSize - 1);
+    dst[dstSize - 1] = '\0';
+}
+
+}  // namespace
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,9 +89,6 @@ DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeGetAPIVersi
 DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeCreate(const npu_vm_runtime_blob_desc_t* desc,
                                                                             npu_vm_runtime_handle_t* phRuntime,
                                                                             npu_vm_runtime_properties_t* pProperties) {
-    auto log = intel_npu::Logger::global();
-    log.setName("npuVMRuntimeCreate");
-
     if (desc == nullptr || phRuntime == nullptr || pProperties == nullptr) {
         return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
     }
@@ -48,19 +97,37 @@ DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeCreate(cons
     }
 
     try {
-        const std::vector<uint8_t> bytecode(desc->pInput, desc->pInput + desc->inputSize);
+        const auto bytecodePtr = desc->pInput;
+        const auto bytecodeSize = desc->inputSize;
 
-        auto* handle = new _npu_vm_runtime_handle_t();
-        if (!handle->vm.parse(bytecode)) {
-            delete handle;
+        auto handle = std::make_unique<_npu_vm_runtime_handle_t>();
+        if (npu_vm_parse_module(bytecodePtr, bytecodeSize, &handle->module) != NPU_VM_SUCCESS) {
             return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
         }
-        *phRuntime = handle;
-        // TODO: populate pProperties from parsed bytecode metadata
-        pProperties->numOfSubGraphs = 0;
-        pProperties->numOfGraphArgs = 0;
+        auto metadata = intel_npu::vm::getNetworkMetadata(handle->module);
+        if (metadata.has_value()) {
+            handle->metadata = std::move(metadata.value());
+            if (handle->metadata.numCmdLists == 0 ||
+                (handle->metadata.inputs.size() + handle->metadata.outputs.size()) == 0) {
+                npu_vm_destroy_module(handle->module);
+                handle->module = nullptr;
+                NPU_VM_LOG_ERROR(
+                        "Metadata section is present but contains invalid data (numCmdLists or inputs/outputs)");
+                return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+            }
+            pProperties->numOfSubGraphs = static_cast<uint32_t>(handle->metadata.numCmdLists);
+            pProperties->numOfGraphArgs =
+                    static_cast<uint32_t>(handle->metadata.inputs.size() + handle->metadata.outputs.size());
+        } else {
+            NPU_VM_LOG_WARN("Bytecode blob does not contain metadata section. Set conservatively "
+                            "numOfGraphArgs=2 and numOfSubGraphs=1 to allow for basic functionality.");
+            pProperties->numOfSubGraphs =
+                    1;  // if metadata is missing, assume a single subgraph with all inputs and outputs
+            pProperties->numOfGraphArgs = 2;  // at least one input and one output
+        }
+        *phRuntime = handle.release();
     } catch (const std::exception& e) {
-        log.error("Exception while creating runtime: %s", e.what());
+        NPU_VM_LOG_ERROR("Exception while creating runtime: {}", e.what());
         return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
     }
 
@@ -71,35 +138,155 @@ DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeDestroy(npu
     if (hRuntime == nullptr) {
         return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
     }
+    if (hRuntime->module != nullptr) {
+        npu_vm_destroy_module(hRuntime->module);
+    }
     delete hRuntime;
     return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
 
-DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL
-npuVMRuntimeGetMetadata(npu_vm_runtime_handle_t hRuntime, uint32_t /*argIndex*/,
-                        ze_graph_argument_properties_3_t* pGraphArgumentProperties,
-                        ze_graph_argument_metadata_t* pGraphArgumentMetadata, int64_t* upperBound) {
+DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeGetMetadata(
+        npu_vm_runtime_handle_t hRuntime, uint32_t argIndex, ze_graph_argument_properties_3_t* pGraphArgumentProperties,
+        ze_graph_argument_metadata_t* pGraphArgumentMetadata, int64_t* upperBound) {
     if (hRuntime == nullptr || pGraphArgumentProperties == nullptr || pGraphArgumentMetadata == nullptr ||
         upperBound == nullptr) {
         return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
     }
-    // TODO: implement metadata retrieval
-    return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+
+    try {
+        const intel_npu::vm::IODescriptor* descriptor = nullptr;
+        ze_graph_argument_type_t argType = ZE_GRAPH_ARGUMENT_TYPE_INPUT;
+
+        const auto inputCount = hRuntime->metadata.inputs.size();
+        const auto outputCount = hRuntime->metadata.outputs.size();
+
+        if (argIndex < inputCount) {
+            descriptor = &hRuntime->metadata.inputs[argIndex];
+            argType = ZE_GRAPH_ARGUMENT_TYPE_INPUT;
+        } else if (argIndex < inputCount + outputCount) {
+            descriptor = &hRuntime->metadata.outputs[argIndex - inputCount];
+            argType = ZE_GRAPH_ARGUMENT_TYPE_OUTPUT;
+        } else {
+            return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+        }
+
+        *pGraphArgumentProperties = {};
+        pGraphArgumentProperties->stype = ZE_STRUCTURE_TYPE_GRAPH_ARGUMENT_PROPERTIES_3;
+        pGraphArgumentProperties->pNext = nullptr;
+        pGraphArgumentProperties->type = argType;
+        pGraphArgumentProperties->networkPrecision = toZeGraphPrecision(descriptor->precision);
+        pGraphArgumentProperties->devicePrecision = toZeGraphPrecision(descriptor->precision);
+        pGraphArgumentProperties->networkLayout = ZE_GRAPH_ARGUMENT_LAYOUT_ANY;
+        pGraphArgumentProperties->deviceLayout = ZE_GRAPH_ARGUMENT_LAYOUT_ANY;
+        pGraphArgumentProperties->quantReverseScale = 1.0f;
+        pGraphArgumentProperties->quantZeroPoint = 0;
+        pGraphArgumentProperties->associated_tensor_names_count = 0;
+
+        copyString(pGraphArgumentProperties->name, ZE_MAX_GRAPH_ARGUMENT_NAME, descriptor->nameFromCompiler);
+        copyString(pGraphArgumentProperties->debug_friendly_name, ZE_MAX_GRAPH_ARGUMENT_NAME,
+                   descriptor->nodeFriendlyName.empty() ? descriptor->nameFromCompiler : descriptor->nodeFriendlyName);
+
+        for (uint32_t i = 0; i < MAX_GRAPH_ARG_DIMS; ++i) {
+            pGraphArgumentProperties->dims[i] = 0;
+            upperBound[i] = 0;
+        }
+
+        const auto rank = descriptor->shapeFromCompiler.rank();
+        if (rank.is_static()) {
+            const auto rankLength = static_cast<size_t>(rank.get_length());
+            const auto cappedRank = std::min(rankLength, static_cast<size_t>(MAX_GRAPH_ARG_DIMS));
+            pGraphArgumentProperties->dims_count = static_cast<uint32_t>(cappedRank);
+
+            for (uint32_t i = 0; i < pGraphArgumentProperties->dims_count; ++i) {
+                const auto dim = descriptor->shapeFromCompiler[i];
+                if (!dim.is_dynamic() && dim.get_length() >= 0 &&
+                    static_cast<uint64_t>(dim.get_length()) <= std::numeric_limits<uint32_t>::max()) {
+                    const auto dimVal = static_cast<uint32_t>(dim.get_length());
+                    pGraphArgumentProperties->dims[i] = dimVal;
+                    upperBound[i] = static_cast<int64_t>(dimVal);
+                }
+            }
+        } else {
+            pGraphArgumentProperties->dims_count = 0;
+        }
+
+        *pGraphArgumentMetadata = {};
+        pGraphArgumentMetadata->stype = ZE_STRUCTURE_TYPE_GRAPH_ARGUMENT_METADATA;
+        pGraphArgumentMetadata->pNext = nullptr;
+        pGraphArgumentMetadata->type = argType;
+        pGraphArgumentMetadata->data_type = ZE_GRAPH_METADATA_TYPE_UNDEFINED;
+
+        std::vector<std::string> tensorNames(descriptor->outputTensorNames.begin(),
+                                             descriptor->outputTensorNames.end());
+        std::sort(tensorNames.begin(), tensorNames.end());
+
+        const auto tensorNameCount = static_cast<uint32_t>(
+                std::min(tensorNames.size(), static_cast<size_t>(ZE_MAX_GRAPH_TENSOR_NAMES_SIZE)));
+        pGraphArgumentMetadata->tensor_names_count = tensorNameCount;
+        for (uint32_t i = 0; i < tensorNameCount; ++i) {
+            copyString(pGraphArgumentMetadata->tensor_names[i], ZE_MAX_GRAPH_ARGUMENT_NAME, tensorNames[i]);
+        }
+
+        // copy tensors names to associated_tensor_names
+        pGraphArgumentProperties->associated_tensor_names_count = pGraphArgumentMetadata->tensor_names_count;
+        for (uint32_t i = 0; i < tensorNameCount; i++) {
+            copyString(pGraphArgumentProperties->associated_tensor_names[i], ZE_MAX_GRAPH_ARGUMENT_NAME,
+                       tensorNames[i]);
+        }
+
+        const auto friendlyName =
+                descriptor->nodeFriendlyName.empty() ? descriptor->nameFromCompiler : descriptor->nodeFriendlyName;
+        copyString(pGraphArgumentMetadata->friendly_name, ZE_MAX_GRAPH_ARGUMENT_NAME, friendlyName);
+        copyString(pGraphArgumentMetadata->input_name, ZE_MAX_GRAPH_ARGUMENT_NAME, descriptor->nameFromCompiler);
+
+        for (uint32_t i = 0; i < MAX_GRAPH_TENSOR_REF_DIMS; ++i) {
+            pGraphArgumentMetadata->shape[i] = 0;
+        }
+
+        const auto& metadataShape = descriptor->shapeFromIRModel.has_value() ? descriptor->shapeFromIRModel.value()
+                                                                             : descriptor->shapeFromCompiler;
+        const auto metadataRank = metadataShape.rank();
+        if (metadataRank.is_static()) {
+            const auto rankLength = static_cast<size_t>(metadataRank.get_length());
+            const auto cappedRank = std::min(rankLength, static_cast<size_t>(MAX_GRAPH_TENSOR_REF_DIMS));
+            pGraphArgumentMetadata->shape_size = static_cast<uint32_t>(cappedRank);
+
+            for (uint32_t i = 0; i < pGraphArgumentMetadata->shape_size; ++i) {
+                const auto dim = metadataShape[i];
+                pGraphArgumentMetadata->shape[i] = dim.is_dynamic() ? std::numeric_limits<uint64_t>::max()
+                                                                    : static_cast<uint64_t>(dim.get_length());
+            }
+        } else {
+            pGraphArgumentMetadata->shape_size = 0;
+        }
+    } catch (const std::exception& e) {
+        NPU_VM_LOG_ERROR("Exception while getting metadata: {}", e.what());
+        return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    } catch (...) {
+        NPU_VM_LOG_ERROR("Unknown exception while getting metadata");
+        return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    }
+
+    return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
 
 DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeExecute(npu_vm_runtime_handle_t hRuntime,
                                                                              npu_vm_runtime_execute_params_t* pParams) {
-    auto log = intel_npu::Logger::global();
-    log.setName("npuVMRuntimeExecute");
-
-    if (hRuntime == nullptr || pParams == nullptr) {
+    if (hRuntime == nullptr || pParams == nullptr || pParams->executionContext == nullptr) {
         return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
     }
-
     try {
-        hRuntime->vm.run();
+        auto engine = reinterpret_cast<npu_vm_engine*>(pParams->executionContext);
+        if (npu_vm_reset_state(engine, /*resetExecutionContext=*/true) != NPU_VM_SUCCESS) {
+            NPU_VM_LOG_ERROR("Failed to reset engine state before inference");
+            return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+        }
+        if (npu_vm_infer(engine, pParams) != NPU_VM_SUCCESS) {
+            NPU_VM_LOG_ERROR("Inference failed for the given parameters");
+            return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+        }
     } catch (const std::exception& e) {
-        log.error("Exception while executing model: %s", e.what());
+        NPU_VM_LOG_ERROR("Exception while executing model: {}", e.what());
         return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
     }
 
@@ -108,20 +295,86 @@ DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeExecute(npu
 
 DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimePredictOutputShape(
         npu_vm_runtime_handle_t hRuntime, npu_vm_runtime_predict_output_shape_params_t* pParams) {
-    if (hRuntime == nullptr || pParams == nullptr) {
+    if (hRuntime == nullptr || hRuntime->module == nullptr || pParams == nullptr) {
         return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
     }
-    // TODO: implement output shape prediction
-    return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+
+    try {
+        // Note: Create a temporary instance of the engine to call the output shape prediction function, since this
+        // function is called before the execution context is created. Ideally, the execution context should be created
+        // before output shape prediction, but it requires changes in NPU plugin flow, so this temporary instance is
+        // used. If the execution engine creation is moved before output shape prediction in the future, this code can
+        // be simplified by reusing the same engine instance (via npu_vm_runtime_handle_t)
+        npu_vm_engine* engine = nullptr;
+        if (npu_vm_new_engine(&engine) != NPU_VM_SUCCESS) {
+            return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+        }
+        if (npu_vm_load_module(engine, hRuntime->module) != NPU_VM_SUCCESS) {
+            npu_vm_destroy_engine(engine);
+            return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+        }
+        npu_vm_runtime_predict_output_shape_params_t2 params2 = {};
+        params2.pInputs = pParams->pInputs;
+        params2.numOfInputs = pParams->numOfInputs;
+        params2.pOutputs = pParams->pOutputs;
+        params2.numOfOutputs = pParams->numOfOutputs;
+        // Execution context is not available at this point, and the output shape prediction function should not require
+        // it
+        params2.executionContext = nullptr;
+        if (npu_vm_predict_output_shape(engine, &params2) != NPU_VM_SUCCESS) {
+            NPU_VM_LOG_ERROR("Output shape prediction failed for the given parameters");
+            npu_vm_destroy_engine(engine);
+            return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+        }
+        if (npu_vm_destroy_engine(engine) != NPU_VM_SUCCESS) {
+            NPU_VM_LOG_ERROR("Failed to destroy engine after output shape prediction");
+            return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+        }
+    } catch (const std::exception& e) {
+        NPU_VM_LOG_ERROR("Exception while executing output shape prediction: {}", e.what());
+        return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    }
+
+    return NPU_VM_RUNTIME_RESULT_SUCCESS;
+}
+
+DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimePredictOutputShape2(
+        npu_vm_runtime_handle_t hRuntime, npu_vm_runtime_predict_output_shape_params_t2* pParams) {
+    if (hRuntime == nullptr || pParams == nullptr || pParams->executionContext == nullptr) {
+        return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
+    }
+
+    try {
+        auto* engine = reinterpret_cast<npu_vm_engine*>(pParams->executionContext);
+        // Note: The execution context state is not reset, as it will be reset when the main inference takes place (i.e.
+        // when npuVMRuntimeExecute is called)
+        if (npu_vm_reset_state(engine, /*resetExecutionContext=*/false) != NPU_VM_SUCCESS) {
+            NPU_VM_LOG_ERROR("Failed to reset engine state before output shape prediction");
+            return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+        }
+        if (npu_vm_predict_output_shape(engine, pParams) != NPU_VM_SUCCESS) {
+            NPU_VM_LOG_ERROR("Output shape prediction failed for the given parameters");
+            return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+        }
+    } catch (const std::exception& e) {
+        NPU_VM_LOG_ERROR("Exception while executing output shape prediction: {}", e.what());
+        return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    }
+
+    return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
 
 DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL
-npuVMRuntimeCreateMemRef(int64_t /*dimsCount*/, npu_vm_runtime_mem_ref_handle_t* phMemRef) {
-    if (phMemRef == nullptr) {
+npuVMRuntimeCreateMemRef(int64_t dimsCount, npu_vm_runtime_mem_ref_handle_t* phMemRef) {
+    if (phMemRef == nullptr || dimsCount <= 0) {
         return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
     }
-    // TODO: implement MemRef creation
-    return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    auto handle = new (std::nothrow) npu_vm_runtime_mem_ref(dimsCount);
+    if (handle == nullptr) {
+        return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    }
+    *phMemRef = reinterpret_cast<npu_vm_runtime_mem_ref_handle_t>(handle);
+    return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
 
 DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL
@@ -129,18 +382,29 @@ npuVMRuntimeDestroyMemRef(npu_vm_runtime_mem_ref_handle_t hMemRef) {
     if (hMemRef == nullptr) {
         return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
     }
-    // TODO: implement MemRef destruction
-    return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    auto memRef = reinterpret_cast<npu_vm_runtime_mem_ref*>(hMemRef);
+    delete memRef;
+    return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
 
-DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL
-npuVMRuntimeSetMemRef(npu_vm_runtime_mem_ref_handle_t hMemRef, const void* /*basePtr*/, const void* /*data*/,
-                      int64_t /*offset*/, int64_t* /*pSizes*/, int64_t* /*pStrides*/, int64_t /*dimsCount*/) {
-    if (hMemRef == nullptr) {
+DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeSetMemRef(npu_vm_runtime_mem_ref_handle_t hMemRef,
+                                                                               const void* basePtr, const void* data,
+                                                                               int64_t offset, int64_t* pSizes,
+                                                                               int64_t* pStrides, int64_t dimsCount) {
+    if (hMemRef == nullptr || pSizes == nullptr || pStrides == nullptr) {
         return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
     }
-    // TODO: implement MemRef update
-    return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+
+    auto memRef = reinterpret_cast<npu_vm_runtime_mem_ref*>(hMemRef);
+    if (dimsCount != memRef->dimsCount) {
+        return NPU_VM_RUNTIME_RESULT_ERROR_UNSUPPORTED_DIM_COUNT;
+    }
+    memRef->basePtr = basePtr;
+    memRef->data = data;
+    memRef->offset = offset;
+    std::copy(pSizes, pSizes + dimsCount, memRef->sizes.begin());
+    std::copy(pStrides, pStrides + dimsCount, memRef->strides.begin());
+    return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
 
 DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL
@@ -150,17 +414,35 @@ npuVMRuntimeParseMemRef(npu_vm_runtime_mem_ref_handle_t hMemRef, const void** pB
         pStrides == nullptr || pDimsCount == nullptr) {
         return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
     }
-    // TODO: implement MemRef parsing
-    return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+
+    auto memRef = reinterpret_cast<npu_vm_runtime_mem_ref*>(hMemRef);
+    *pBasePtr = memRef->basePtr;
+    *pData = memRef->data;
+    *pOffset = memRef->offset;
+    std::copy(memRef->sizes.begin(), memRef->sizes.end(), pSizes);
+    std::copy(memRef->strides.begin(), memRef->strides.end(), pStrides);
+    *pDimsCount = memRef->dimsCount;
+    return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
 
 DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeCreateExecutionContext(
         npu_vm_runtime_handle_t hRuntime, npu_vm_runtime_execution_context_handle_t* phExecutionHandle) {
-    if (hRuntime == nullptr || phExecutionHandle == nullptr) {
+    if (hRuntime == nullptr || hRuntime->module == nullptr || phExecutionHandle == nullptr) {
         return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
     }
-    // TODO: implement execution context creation
-    return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    // The execution context is represented by an instance of the VM engine, whose lifetime is managed by the
+    // npuVMRuntimeCreateExecutionContext and npuVMRuntimeDestroyExecutionContext functions. In the end-to-end flow, the
+    // engine is created once per inference request, then reused for subsequent inferences
+    npu_vm_engine* engine = nullptr;
+    if (npu_vm_new_engine(&engine) != NPU_VM_SUCCESS) {
+        return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    }
+    if (npu_vm_load_module(engine, hRuntime->module) != NPU_VM_SUCCESS) {
+        npu_vm_destroy_engine(engine);
+        return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    }
+    *phExecutionHandle = reinterpret_cast<npu_vm_runtime_execution_context_handle_t>(engine);
+    return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
 
 DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL
@@ -168,8 +450,11 @@ npuVMRuntimeDestroyExecutionContext(npu_vm_runtime_execution_context_handle_t ph
     if (phExecutionHandle == nullptr) {
         return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
     }
-    // TODO: implement execution context destruction
-    return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    auto engine = reinterpret_cast<npu_vm_engine*>(phExecutionHandle);
+    if (npu_vm_destroy_engine(engine) != NPU_VM_SUCCESS) {
+        return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    }
+    return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
 
 DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL

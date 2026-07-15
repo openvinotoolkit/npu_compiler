@@ -126,7 +126,7 @@ void M2IProfilingPass::safeRunOnModule() {
 
     // Declare and create additional output from network
     const unsigned outputDdrSize = m2iTasks.size() * M2I_PROFILING_SIZE_BYTES_50XX;
-    const auto outputResultDdr = mlir::MemRefType::get({outputDdrSize}, getUInt8Type(ctx));
+    const auto outputResultDdr = vpux::getMemRefType({outputDdrSize}, getUInt8Type(ctx));
     auto profilingResult = addNewProfilingOutput(ctx, netFunc, netInfo, outputResultDdr, profiling::ExecutorType::M2I);
 
     SmallVector<mlir::Value> concatResults;
@@ -217,7 +217,7 @@ mlir::Value M2IProfilingPass::copyToDdr(mlir::OpBuilder& builder, ArrayRef<mlir:
     }
 
     auto* ctx = builder.getContext();
-    const auto resultType = mlir::MemRefType::get(
+    const auto resultType = vpux::getMemRefType(
             {static_cast<int64_t>(totalNumElements) * M2I_PROFILING_SIZE_BYTES_50XX}, getUInt8Type(ctx));
 
     auto subDDR = builder.create<VPUIP::SubViewOp>(

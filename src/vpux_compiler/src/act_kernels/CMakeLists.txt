@@ -17,7 +17,8 @@ add_npu_library(npu_compiler_act_kernels
         MLIRIR
         MLIRFuncDialect
     TARGET_SOURCES PRIVATE
-        $<TARGET_OBJECTS:act_shave_kernels_lib>)
+        $<TARGET_OBJECTS:act_shave_kernels_lib>
+        $<TARGET_OBJECTS:rt_kernel_lib>)
 
 target_include_directories(npu_compiler_act_kernels
     PUBLIC

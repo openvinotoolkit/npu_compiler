@@ -119,8 +119,8 @@ mlir::Value createPaddingConstForConcat(ArrayRef<int64_t> constShape, mlir::Loca
     const auto padDataStorage = Const::createConstContent(padDataStorageType, ArrayRef(static_cast<float>(padValue)));
 
     const auto padDataType = mlir::RankedTensorType::get(constShape, origElemType);
-    auto padDataAttr =
-            Const::ContentAttr::get(padDataStorage, Const::ContentSetup(padDataStorageType).castElemType(origElemType));
+    auto padDataAttr = Const::ContentAttr::get(
+            padDataStorage, Const::ContentSetup(padDataStorage, padDataStorageType).castElemType(origElemType));
 
     auto constant = rewriter.create<Const::DeclareOp>(loc, padDataType, std::move(padDataAttr));
 

@@ -11,14 +11,15 @@
 #include <unordered_set>
 #include <vector>
 
-#include "npu_driver_compiler.h"
 #include "openvino/core/layout.hpp"
 #include "openvino/core/model.hpp"
 #include "openvino/core/rt_info/weightless_caching_attributes.hpp"
 #include "openvino/runtime/core.hpp"
 #include "serialize_utils.hpp"
+#include "vcl_api.hpp"
 #include "vcl_metadata.hpp"
 
+namespace VCLTest {
 void storeWeightlessCacheAttribute(const std::shared_ptr<ov::Model>& model) {
     size_t constantId = 0;
     for (auto&& node : model->get_ordered_ops()) {
@@ -355,7 +356,7 @@ vcl_result_t saveVclAllocatorBlobWS(vcl_compiler_handle_t& compiler, vcl_executa
         }
         std::cout << str.str() << std::endl;
 
-        size_t alignedSize = vcl::utils::align_size_to_standard_page_size(blobSize);
+        size_t alignedSize = VCLTest::utils::align_size_to_standard_page_size(blobSize);
         size_t paddingSize = alignedSize - blobSize;
         if (paddingSize > 0) {
             std::vector<char> padding(paddingSize, 0);
@@ -408,8 +409,8 @@ vcl_result_t saveVclAllocatorBlobWS(vcl_compiler_handle_t& compiler, vcl_executa
     // The batch size is not available in this context, using a default value.
     const std::optional<int64_t> batchSize = std::nullopt;
 
-    vcl::Metadata<vcl::CURRENT_METADATA_VERSION> metadata(totalBlobSize, vcl::CURRENT_OPENVINO_VERSION, initBlobSizes,
-                                                          batchSize, inputLayouts, outputLayouts);
+    VCLTest::Metadata<VCLTest::CURRENT_METADATA_VERSION> metadata(
+            totalBlobSize, VCLTest::CURRENT_OPENVINO_VERSION, initBlobSizes, batchSize, inputLayouts, outputLayouts);
     metadata.write(outFile);
 
     std::cout << "The output name: " << blobFileName << std::endl;
@@ -424,6 +425,9 @@ vcl_result_t saveVclAllocatorBlobWS(vcl_compiler_handle_t& compiler, vcl_executa
 
 vcl_result_t simulateVclCompilerAllocator(std::map<std::string, std::string>& buildConfig,
                                           const std::shared_ptr<ov::Model>& model, const char* blobFileName) {
+    std::cout << "  VCL step: Load VCL library." << std::endl;
+    (void)VCLApi::getInstance();
+
     vcl_result_t ret = VCL_RESULT_SUCCESS;
     std::cout << "  VCL step: Create compiler." << std::endl;
     struct CompilerHandle {
@@ -598,6 +602,9 @@ vcl_result_t simulateVclCompilerAllocator(std::map<std::string, std::string>& bu
 }
 
 vcl_result_t simulateVclCompilerAllocatorOldVersion(int argc, char** argv, const char* blobFileName) {
+    std::cout << "  VCL step: Load VCL library." << std::endl;
+    (void)VCLApi::getInstance();
+
     vcl_result_t ret = VCL_RESULT_SUCCESS;
     vcl_version_info_t compilerVersion;
     vcl_version_info_t profilingVersion;
@@ -909,3 +916,4 @@ vcl_result_t simulateVclCompilerAllocatorOldVersion(int argc, char** argv, const
     }
     return ret;
 }
+}  // namespace VCLTest

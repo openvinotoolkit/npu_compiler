@@ -17,8 +17,8 @@ module @SingleHswishFP16 attributes {config.platform = #config.platform<NPU4000>
   }
   VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096]
     module @VPU.SW {
-      func.func private @builtin_hswish(memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "activation_hswish.cpp", VPU.kernel_entry = "activation_hswish"}
-      func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+      func.func nested @builtin_hswish(memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "activation_hswish.cpp", VPU.kernel_entry = "activation_hswish"}
+      func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
     }
   VPUASM.InputBindings inputDeclarations : {
     VPUASM.DeclareBuffer @input_0_buffDecl !VPUASM.Buffer< "NetworkInput"[0] <0> : memref<1x1x1x1000xf16, @DDR> :  swizzling(0)>

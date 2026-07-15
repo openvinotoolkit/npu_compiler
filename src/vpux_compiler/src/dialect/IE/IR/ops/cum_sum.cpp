@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/IE/IR/ops/arithmetic.hpp"
+#include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/error.hpp"
@@ -95,4 +96,32 @@ mlir::LogicalResult ConvertConstToAttr::matchAndRewrite(IE::CumSumOp cumsumOp, m
 
 void vpux::IE::CumSumOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns, mlir::MLIRContext* context) {
     patterns.insert<ConvertConstToAttr>(context);
+}
+
+//
+// fold
+//
+
+mlir::OpFoldResult vpux::IE::CumSumOp::fold(FoldAdaptor adaptor) {
+    if (!getAxisValue().has_value()) {
+        return nullptr;
+    }
+
+    auto attr = mlir::dyn_cast_or_null<Const::ContentAttr>(adaptor.getOperands()[0]);
+    if (attr == nullptr) {
+        return nullptr;
+    }
+
+    const auto inputType = mlir::cast<mlir::RankedTensorType>(getInput().getType());
+    VPUX_THROW_UNLESS(inputType.hasStaticShape(), "CumSum does not support dynamic shapes");
+
+    int64_t axisVal = getAxisValue().value();
+    VPUX_THROW_UNLESS(axisVal >= 0 && axisVal < inputType.getRank(), "CumSum: axis {0} out of range for rank {1}",
+                      axisVal, inputType.getRank());
+
+    auto axisAttr = mlir::IntegerAttr::get(mlir::IntegerType::get(getContext(), 64), axisVal);
+    auto exclusiveAttr = mlir::BoolAttr::get(getContext(), getExclusive());
+    auto reverseAttr = mlir::BoolAttr::get(getContext(), getReverse());
+
+    return attr.transform().cumSum(axisAttr, exclusiveAttr, reverseAttr).get();
 }

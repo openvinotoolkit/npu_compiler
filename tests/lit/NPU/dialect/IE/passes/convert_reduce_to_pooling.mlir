@@ -376,3 +376,98 @@ func.func @ConvertReduceMaxToPoolingWithNonConsecutiveAxes(%arg0: tensor<1x3136x
   // CHECK:    [[RESHAPE_OUT_1:%.+]] = IE.Reshape([[RESHAPE_OUT]]) {shape_value = [3136]} : tensor<1x3136x1xf16> -> tensor<3136xf16>
   // CHECK:    return [[RESHAPE_OUT_1]] : tensor<3136xf16>
 }
+
+// -----
+
+// Reduce N axis with H=1 and W channel-aligned: Reshape + Transpose (NWCH) + AvgPool +
+// Multiply + Transpose (NHWC) + Reshape avoids Expand/Slice on the channel dim.
+
+// CHECK-LABEL: @ConvertReduceSumBatchAxisAlignedW
+// CHECK-SAME: [[INPUT:%.+]]: tensor<4x32x1x16xf16>
+func.func @ConvertReduceSumBatchAxisAlignedW(%arg0: tensor<4x32x1x16xf16>) -> tensor<32x1x16xf16> {
+  %0 = IE.ReduceSum(%arg0) {axes_value = [0]} : tensor<4x32x1x16xf16> -> tensor<32x1x16xf16>
+  return %0 : tensor<32x1x16xf16>
+
+  // CHECK-NOT:   ReduceSum
+  // CHECK-DAG:   [[CST:%.+]] = const.Declare tensor<1xf16> = dense<4.000000e+00> : tensor<1xf16>
+  // CHECK:       [[RESHAPE_IN:%.+]] = IE.Reshape([[INPUT]]) {shape_value = [1, 4, 32, 16]} : tensor<4x32x1x16xf16> -> tensor<1x4x32x16xf16>
+  // CHECK:       [[TRANSPOSE_IN:%.+]] = IE.Transpose([[RESHAPE_IN]]) {order_value = #NWCH} : tensor<1x4x32x16xf16> -> tensor<1x16x4x32xf16>
+  // CHECK:       [[AVG_POOL:%.+]] = IE.AvgPool([[TRANSPOSE_IN]]) {exclude_pads, kernel_size = [4, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x4x32xf16> -> tensor<1x16x1x32xf16>
+  // CHECK:       [[MUL:%.+]] = IE.Multiply([[AVG_POOL]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x1x32xf16>, tensor<1xf16> -> tensor<1x16x1x32xf16>
+  // CHECK:       [[TRANSPOSE_OUT:%.+]] = IE.Transpose([[MUL]]) {order_value = #NHWC} : tensor<1x16x1x32xf16> -> tensor<1x1x32x16xf16>
+  // CHECK:       [[RESHAPE_OUT:%.+]] = IE.Reshape([[TRANSPOSE_OUT]]) {shape_value = [32, 1, 16]} : tensor<1x1x32x16xf16> -> tensor<32x1x16xf16>
+  // CHECK:       return [[RESHAPE_OUT]] : tensor<32x1x16xf16>
+}
+
+// -----
+
+// Same as above with keep_dims: the final Reshape restores the kept N=1 dim.
+
+// CHECK-LABEL: @ConvertReduceSumBatchAxisAlignedWKeepDims
+// CHECK-SAME: [[INPUT:%.+]]: tensor<4x32x1x16xf16>
+func.func @ConvertReduceSumBatchAxisAlignedWKeepDims(%arg0: tensor<4x32x1x16xf16>) -> tensor<1x32x1x16xf16> {
+  %0 = IE.ReduceSum(%arg0) {axes_value = [0], keep_dims} : tensor<4x32x1x16xf16> -> tensor<1x32x1x16xf16>
+  return %0 : tensor<1x32x1x16xf16>
+
+  // CHECK-NOT:   ReduceSum
+  // CHECK-DAG:   [[CST:%.+]] = const.Declare tensor<1xf16> = dense<4.000000e+00> : tensor<1xf16>
+  // CHECK:       [[RESHAPE_IN:%.+]] = IE.Reshape([[INPUT]]) {shape_value = [1, 4, 32, 16]} : tensor<4x32x1x16xf16> -> tensor<1x4x32x16xf16>
+  // CHECK:       [[TRANSPOSE_IN:%.+]] = IE.Transpose([[RESHAPE_IN]]) {order_value = #NWCH} : tensor<1x4x32x16xf16> -> tensor<1x16x4x32xf16>
+  // CHECK:       [[AVG_POOL:%.+]] = IE.AvgPool([[TRANSPOSE_IN]]) {exclude_pads, kernel_size = [4, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x4x32xf16> -> tensor<1x16x1x32xf16>
+  // CHECK:       [[MUL:%.+]] = IE.Multiply([[AVG_POOL]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x1x32xf16>, tensor<1xf16> -> tensor<1x16x1x32xf16>
+  // CHECK:       [[TRANSPOSE_OUT:%.+]] = IE.Transpose([[MUL]]) {order_value = #NHWC} : tensor<1x16x1x32xf16> -> tensor<1x1x32x16xf16>
+  // CHECK:       [[RESHAPE_OUT:%.+]] = IE.Reshape([[TRANSPOSE_OUT]]) {shape_value = [1, 32, 1, 16]} : tensor<1x1x32x16xf16> -> tensor<1x32x1x16xf16>
+  // CHECK:       return [[RESHAPE_OUT]] : tensor<1x32x1x16xf16>
+}
+
+// -----
+
+// ReduceMean on N axis with H=1 and W channel-aligned: no Multiply step compared to ReduceSum.
+
+// CHECK-LABEL: @ConvertReduceMeanBatchAxisAlignedW
+// CHECK-SAME: [[INPUT:%.+]]: tensor<4x32x1x16xf16>
+func.func @ConvertReduceMeanBatchAxisAlignedW(%arg0: tensor<4x32x1x16xf16>) -> tensor<32x1x16xf16> {
+  %0 = IE.ReduceMean(%arg0) {axes_value = [0]} : tensor<4x32x1x16xf16> -> tensor<32x1x16xf16>
+  return %0 : tensor<32x1x16xf16>
+
+  // CHECK-NOT:   ReduceMean
+  // CHECK:       [[RESHAPE_IN:%.+]] = IE.Reshape([[INPUT]]) {shape_value = [1, 4, 32, 16]} : tensor<4x32x1x16xf16> -> tensor<1x4x32x16xf16>
+  // CHECK:       [[TRANSPOSE_IN:%.+]] = IE.Transpose([[RESHAPE_IN]]) {order_value = #NWCH} : tensor<1x4x32x16xf16> -> tensor<1x16x4x32xf16>
+  // CHECK:       [[AVG_POOL:%.+]] = IE.AvgPool([[TRANSPOSE_IN]]) {exclude_pads, kernel_size = [4, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x4x32xf16> -> tensor<1x16x1x32xf16>
+  // CHECK-NOT:   IE.Multiply
+  // CHECK:       [[TRANSPOSE_OUT:%.+]] = IE.Transpose([[AVG_POOL]]) {order_value = #NHWC} : tensor<1x16x1x32xf16> -> tensor<1x1x32x16xf16>
+  // CHECK:       [[RESHAPE_OUT:%.+]] = IE.Reshape([[TRANSPOSE_OUT]]) {shape_value = [32, 1, 16]} : tensor<1x1x32x16xf16> -> tensor<32x1x16xf16>
+  // CHECK:       return [[RESHAPE_OUT]] : tensor<32x1x16xf16>
+}
+
+// -----
+
+// H != 1: new path is not applicable; falls back to the generic batch-dim reshape path.
+
+// CHECK-LABEL: @DoNotConvertReduceSumBatchAxisNonUnitH
+// CHECK-SAME: [[INPUT:%.+]]: tensor<4x32x2x16xf16>
+func.func @DoNotConvertReduceSumBatchAxisNonUnitH(%arg0: tensor<4x32x2x16xf16>) -> tensor<32x2x16xf16> {
+  %0 = IE.ReduceSum(%arg0) {axes_value = [0]} : tensor<4x32x2x16xf16> -> tensor<32x2x16xf16>
+  return %0 : tensor<32x2x16xf16>
+
+  // CHECK-NOT:   ReduceSum
+  // New path would produce shape_value = [1, 4, 32, 16]; old path produces [1, 1, 4, 1024].
+  // CHECK:       [[RESHAPE_IN:%.+]] = IE.Reshape([[INPUT]]) {shape_value = [1, 1, 4, 1024]} : tensor<4x32x2x16xf16> -> tensor<1x1x4x1024xf16>
+  // CHECK:       [[AVG_POOL:%.+]] = IE.AvgPool([[RESHAPE_IN]]) {exclude_pads, kernel_size = [4, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x1x4x1024xf16> -> tensor<1x1x1x1024xf16>
+}
+
+// -----
+
+// W not channel-aligned: new path is not applicable; falls back to the generic batch-dim reshape path.
+
+// CHECK-LABEL: @DoNotConvertReduceSumBatchAxisUnalignedW
+// CHECK-SAME: [[INPUT:%.+]]: tensor<4x32x1x12xf16>
+func.func @DoNotConvertReduceSumBatchAxisUnalignedW(%arg0: tensor<4x32x1x12xf16>) -> tensor<32x1x12xf16> {
+  %0 = IE.ReduceSum(%arg0) {axes_value = [0]} : tensor<4x32x1x12xf16> -> tensor<32x1x12xf16>
+  return %0 : tensor<32x1x12xf16>
+
+  // CHECK-NOT:   ReduceSum
+  // New path would produce shape_value = [1, 4, 32, 12]; old path produces [1, 1, 4, 384].
+  // CHECK:       [[RESHAPE_IN:%.+]] = IE.Reshape([[INPUT]]) {shape_value = [1, 1, 4, 384]} : tensor<4x32x1x12xf16> -> tensor<1x1x4x384xf16>
+  // CHECK:       [[AVG_POOL:%.+]] = IE.AvgPool([[RESHAPE_IN]]) {exclude_pads, kernel_size = [4, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x1x4x384xf16> -> tensor<1x1x1x384xf16>
+}

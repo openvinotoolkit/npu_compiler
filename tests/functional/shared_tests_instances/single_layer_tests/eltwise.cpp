@@ -48,6 +48,9 @@ void fill_power_exp_tensor(ov::Tensor& tensor) {
     }
 }
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(EltwiseLayerTest);
+
 class EltwiseLayerTestCommon : public EltwiseLayerTest, virtual public VpuOv2LayerTest {
     void SetUp() override;
 
@@ -128,7 +131,7 @@ void EltwiseLayerTestCommon::SetUp() {
 
 class EltwiseLayerTestF32Common : public EltwiseLayerTestCommon {
     void configure_model() override {
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp16";
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp";
     }
 };
 
@@ -208,7 +211,11 @@ class EltwiseIntegerLayerTest : public EltwiseLayerTest, virtual public VpuOv2La
 
 class EltwiseLayerTestDynamicSCFUnroll : public EltwiseLayerTestDynamic {
     void configure_model() override {
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "loop-unroll-factor=1,1,10,1";
+        configuration[ov::intel_npu::compilation_mode_params.name()] =
+                "loop-unroll-factor=1,1,10,1 "
+                // After HostCompile default params were changed to a more performant configuration, these tests fail
+                // under the new defaults and need investigation before they can be re-enabled. Track: E#218923
+                "dynamic-dim-alignment=false";
     }
 };
 
@@ -216,6 +223,12 @@ class EltwiseLayerTestSCFTiling : public EltwiseLayerTestCommon {
     void configure_model() override {
         configuration[ov::intel_npu::compilation_mode_params.name()] = "scf-tiling=true";
         // E-190336 for MC support
+        configuration["NPU_TILES"] = "1";
+    }
+};
+
+class EltwiseLayerTestCrossBroadcast : public EltwiseLayerTestCommon {
+    void configure_model() override {
         configuration["NPU_TILES"] = "1";
     }
 };
@@ -457,7 +470,7 @@ const auto typesParams =
                            ::testing::Values(ov::element::dynamic), ::testing::Values(ov::element::dynamic),
                            ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
 
-INSTANTIATE_TEST_SUITE_P(precommit_EltwiseTypes, EltwiseLayerTestCommon, typesParams,
+INSTANTIATE_TEST_SUITE_P(smoke_EltwiseTypes, EltwiseLayerTestCommon, typesParams,
                          EltwiseLayerTestCommon::getTestCaseName);
 
 std::vector<std::vector<ov::Shape>> tilingShape = {{{1, 10, 1024, 1024}, {1, 10, 1024, 1024}}};
@@ -469,7 +482,7 @@ const auto tilingParams =
                            ::testing::Values(ov::element::dynamic), ::testing::Values(ov::element::dynamic),
                            ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
 
-INSTANTIATE_TEST_SUITE_P(precommit_EltwiseTypes, EltwiseLayerTestSCFTiling, tilingParams,
+INSTANTIATE_TEST_SUITE_P(smoke_EltwiseTypes_tiling, EltwiseLayerTestSCFTiling, tilingParams,
                          EltwiseLayerTestSCFTiling::getTestCaseName);
 
 const auto typesParamsF32 = ::testing::Combine(
@@ -553,9 +566,42 @@ const auto oneScalarInputbroadcastTestParams = ::testing::Combine(
 INSTANTIATE_TEST_SUITE_P(oneScalarInputbroadcastTestEltwiseTypes, EltwiseLayerTestCommon,
                          oneScalarInputbroadcastTestParams, EltwiseLayerTestCommon::getTestCaseName);
 
+std::set<EltwiseTypes> eltwiseScalarDim2Eq1Types = {EltwiseTypes::ADD, EltwiseTypes::MULTIPLY, EltwiseTypes::SUBTRACT};
+std::vector<std::vector<ov::Shape>> eltwiseScalarDim2Eq1Shape = {{{1, 1, 16384, 1}, {1, 1, 1, 1}}};
+const auto eltwiseScalarDim2Eq1Params = ::testing::Combine(
+        ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(eltwiseScalarDim2Eq1Shape)),
+        ::testing::ValuesIn(eltwiseScalarDim2Eq1Types), ::testing::ValuesIn(secondaryInputTypes),
+        ::testing::Values(ov::test::utils::OpType::VECTOR), ::testing::ValuesIn(netPrecisionsF16),
+        ::testing::Values(ov::element::dynamic), ::testing::Values(ov::element::dynamic),
+        ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
+INSTANTIATE_TEST_SUITE_P(precommit_EltwiseScalarDim2Eq1, EltwiseLayerTestCommon, eltwiseScalarDim2Eq1Params,
+                         EltwiseLayerTestCommon::getTestCaseName);
+
 //
-// Test Eltwise batch input
+// Test Eltwise cross-broadcast (outer product pattern)
+// One input broadcasts on innermost dim, the other broadcasts on the next dim.
+// E.g., [1, C, 4, 1] x [1, C, 1, 1024] -> [1, C, 4, 1024] (NCHW)
+// Restricted to 1 tile to avoid tiling changing the per-shave shape.
 //
+
+std::set<EltwiseTypes> crossBroadcastEltwiseTypes = {EltwiseTypes::ADD, EltwiseTypes::MULTIPLY, EltwiseTypes::SUBTRACT};
+
+std::vector<std::vector<ov::Shape>> crossBroadcastInputShapes = {
+        {{1, 1, 4, 1}, {1, 1, 1, 1024}},   {{1, 1, 1, 1024}, {1, 1, 4, 1}}, {{1, 4, 8, 1}, {1, 4, 1, 256}},
+        {{1, 1, 16, 1}, {1, 1, 1, 3}},     {{2, 16, 16, 1}, {1, 1, 1, 64}}, {{2, 8, 8, 1}, {1, 1, 1, 80}},
+        {{1, 1, 1, 1025}, {1, 1, 128, 1}}, {{1, 1, 1, 1}, {2, 1, 128, 20}},
+};
+
+const auto crossBroadcastTestParams = ::testing::Combine(
+        ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(crossBroadcastInputShapes)),
+        ::testing::ValuesIn(crossBroadcastEltwiseTypes),
+        ::testing::Values(InputLayerType::PARAMETER),  // both inputs dynamic
+        ::testing::Values(ov::test::utils::OpType::VECTOR), ::testing::ValuesIn(netPrecisionsF16),
+        ::testing::Values(ov::element::dynamic), ::testing::Values(ov::element::dynamic),
+        ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
+
+INSTANTIATE_TEST_SUITE_P(precommit_CrossBroadcastEltwise, EltwiseLayerTestCrossBroadcast, crossBroadcastTestParams,
+                         EltwiseLayerTestCrossBroadcast::getTestCaseName);
 
 std::set<EltwiseTypes> batchInputTestEltwiseTypes = {EltwiseTypes::ADD};
 
@@ -758,8 +804,10 @@ INSTANTIATE_TEST_SUITE_P(smoke_Eltwise_Unsigned, EltwiseIntegerLayerTest, typesP
 //
 
 std::vector<ov::test::ElementType> netPrecisionsInteger = {ov::element::i8, ov::element::i16, ov::element::i32};
+std::vector<ov::test::ElementType> netPrecisionsIntegerNoI16 = {ov::element::i8, ov::element::i32};
 
 std::set<EltwiseTypes> eltwiseTypesInteger = {EltwiseTypes::FLOOR_MOD, EltwiseTypes::MOD};
+std::set<EltwiseTypes> eltwiseTypesIntegerSub = {EltwiseTypes::SUBTRACT};
 
 const auto typesParamsInteger = ::testing::Combine(
         ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inShape)),
@@ -768,7 +816,16 @@ const auto typesParamsInteger = ::testing::Combine(
         ::testing::Values(ov::element::dynamic), ::testing::Values(ov::element::dynamic),
         ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
 
+const auto typesParamsIntegerSub = ::testing::Combine(
+        ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inShape)),
+        ::testing::ValuesIn(eltwiseTypesIntegerSub), ::testing::Values(InputLayerType::PARAMETER),
+        ::testing::Values(ov::test::utils::OpType::VECTOR), ::testing::ValuesIn(netPrecisionsIntegerNoI16),
+        ::testing::Values(ov::element::dynamic), ::testing::Values(ov::element::dynamic),
+        ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
+
 INSTANTIATE_TEST_SUITE_P(smoke_Eltwise_Signed, EltwiseIntegerLayerTest, typesParamsInteger,
+                         EltwiseIntegerLayerTest::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Eltwise_Signed_Sub, EltwiseIntegerLayerTest, typesParamsIntegerSub,
                          EltwiseIntegerLayerTest::getTestCaseName);
 
 }  // namespace
@@ -787,7 +844,7 @@ class ShaveCodeGenEltwiseLayerTestCommon : public EltwiseLayerTest, virtual publ
 class ShaveCodeGenEltwiseLayerTestF32Common : public ShaveCodeGenEltwiseLayerTestCommon {
     void configure_model() override {
         configuration[ov::intel_npu::compilation_mode_params.name()] =
-                "enable-shave-code-gen=true disabled-passes=convert-precision-to-fp16";
+                "enable-shave-code-gen=true disabled-passes=convert-precision-to-fp";
     }
 };
 

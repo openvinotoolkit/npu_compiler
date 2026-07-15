@@ -95,7 +95,15 @@ mlir::OpFoldResult vpux::IE::ExpandOp::fold(FoldAdaptor adaptor) {
     if (const auto attr = mlir::dyn_cast_or_null<Const::ContentAttr>(operands[0])) {
         const auto padsBefore = Shape(parseIntArrayAttr<int64_t>(getPadsBegin()));
         const auto padsAfter = Shape(parseIntArrayAttr<int64_t>(getPadsEnd()));
-        return static_cast<Const::ContentAttr>(attr).transform().padWithZero(padsBefore, padsAfter).get();
+        auto contentSetup = static_cast<Const::ContentAttr>(attr).transform().padWithZero(padsBefore, padsAfter);
+
+        const auto outputOrder = mlir::cast<NDTypeInterface>(getOutput().getType()).getDimsOrder();
+        const auto inferredContentType = attr.getType().pad(padsBefore, padsAfter);
+        if (inferredContentType.getDimsOrder() != outputOrder) {
+            contentSetup = contentSetup.reorder(outputOrder);
+        }
+
+        return contentSetup.get();
     }
 
     return nullptr;

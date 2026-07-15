@@ -9,10 +9,10 @@
 #include "vpux/compiler/NPU37XX/dialect/VPU/impl/singleton_initializer.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPU/impl/singleton_initializer.hpp"
 #include "vpux/compiler/NPU50XX/dialect/VPU/impl/singleton_initializer.hpp"
+#include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/utils/core/error.hpp"
 #include "vpux/utils/core/func_ref.hpp"
 
-#include <functional>
 #include <memory>
 
 using namespace vpux;
@@ -20,47 +20,55 @@ using namespace vpux;
 namespace {
 
 struct SingletonInitializers {
-    FuncRef<void(mlir::MLIRContext*, std::optional<config::Platform>)> initializeSingletonCache;
-    FuncRef<void(mlir::MLIRContext*)> initializePPEVersionConfig;
+    std::optional<config::Platform> platform;
+    FuncRef<void(mlir::MLIRContext*, std::optional<config::Platform>)> singletonCacheFn;
+    FuncRef<void(mlir::MLIRContext*)> ppeVersionConfigFn;
+
+    void initializeSingletonCache(mlir::MLIRContext* context) const {
+        singletonCacheFn(context, platform);
+    }
+
+    void initializePPEVersionConfig(mlir::MLIRContext* context) const {
+        ppeVersionConfigFn(context);
+    }
 };
 
-SingletonInitializers getSingletonInitializer(config::ArchKind arch) {
-    switch (arch) {
-    case config::ArchKind::NPU37XX:
-        return {VPU::arch37xx::initializeSingletonCache, VPU::arch37xx::initializePPEVersionConfig};
-    case config::ArchKind::NPU40XX:
-        return {VPU::arch40xx::initializeSingletonCache, VPU::arch37xx::initializePPEVersionConfig};
-    case config::ArchKind::NPU50XX:
-        return {VPU::arch50xx::initializeSingletonCache, VPU::arch50xx::initializePPEVersionConfig};
+SingletonInitializers getSingletonInitializer(config::Platform platform) {
+    switch (platform) {
+    case config::Platform::NPU3720:
+        return {platform, VPU::arch37xx::initializeSingletonCache, VPU::arch37xx::initializePPEVersionConfig};
+    case config::Platform::NPU4000:
+        return {platform, VPU::arch40xx::initializeSingletonCache, VPU::arch37xx::initializePPEVersionConfig};
+    case config::Platform::NPU5010:
+    case config::Platform::NPU5020:
+        return {platform, VPU::arch50xx::initializeSingletonCache, VPU::arch50xx::initializePPEVersionConfig};
     default:
-        VPUX_THROW("Unsupported arch kind: {0}", arch);
+        VPUX_THROW("Unsupported platform: {0}", platform);
     }
 }
 
 }  // namespace
 
-namespace vpux {
-namespace VPU {
+namespace vpux::VPU {
 
 // Extension class to register constraints for a specific architecture
 class SingletonExtension : public mlir::DialectExtension<SingletonExtension, VPUDialect> {
 public:
-    explicit SingletonExtension(const DeviceVersion& deviceVersion): _deviceVersion(deviceVersion) {
+    explicit SingletonExtension(config::Platform platform): _platform(platform) {
     }
 
     void apply(mlir::MLIRContext* context, VPUDialect* /*dialect*/) const override {
-        auto singletonInitializer = getSingletonInitializer(_deviceVersion.arch);
-        singletonInitializer.initializeSingletonCache(context, _deviceVersion.platform);
+        auto singletonInitializer = getSingletonInitializer(_platform);
+        singletonInitializer.initializeSingletonCache(context);
         singletonInitializer.initializePPEVersionConfig(context);
     }
 
 private:
-    DeviceVersion _deviceVersion;
+    config::Platform _platform;
 };
 
-void initializeSingletons(mlir::DialectRegistry& registry, const DeviceVersion& deviceVersion) {
-    registry.addExtension(mlir::TypeID::get<SingletonExtension>(), std::make_unique<SingletonExtension>(deviceVersion));
+void initializeSingletons(mlir::DialectRegistry& registry, config::Platform platform) {
+    registry.addExtension(mlir::TypeID::get<SingletonExtension>(), std::make_unique<SingletonExtension>(platform));
 }
 
-}  // namespace VPU
-}  // namespace vpux
+}  // namespace vpux::VPU

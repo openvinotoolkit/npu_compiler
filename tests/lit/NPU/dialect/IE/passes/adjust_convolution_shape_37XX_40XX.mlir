@@ -601,3 +601,28 @@ func.func @NotConvertGroupConvForPadding(%arg0: tensor<1x1x64x128xf16, {order = 
   // CHECK:       [[GROUPCONV:%.+]] = IE.GroupConvolution
   // CHECK:       return [[GROUPCONV]]
 }
+
+// -----
+
+// Test that AdjustConvShape proceeds for a conv with high OC expansion ratio (>4)
+// even when fed by a parent conv with unaligned OC that would otherwise block the optimization.
+// This exercises the early-return bypass in isSliceBetweenAdjacentConvLayers.
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+// CHECK-LABEL: @AdjustConvShapeHighExpansionRatioWithParentConv
+// CHECK-SAME:    ([[ARG_0:%[^:]+]]: tensor<1x3x130x178xf16, {order = #NHWC}>)
+func.func @AdjustConvShapeHighExpansionRatioWithParentConv(%arg0: tensor<1x3x130x178xf16, {order = #NHWC}>) -> tensor<1x1x128x176xf16, {order = #NHWC}> {
+  %parent_filter = const.Declare tensor<24x3x3x3xf16, {order = #NHWC}> = dense<1.250000e-01> : tensor<24x3x3x3xf16>, [#const.Reorder<#NHWC>]
+  %child_filter = const.Declare tensor<1x24x1x1xf16, {order = #NHWC}> = dense<1.250000e-01> : tensor<1x24x1x1xf16>, [#const.Reorder<#NHWC>]
+  %parent = IE.Convolution(%arg0, %parent_filter) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x3x130x178xf16, {order = #NHWC}>, tensor<24x3x3x3xf16, {order = #NHWC}> -> tensor<1x24x128x176xf16, {order = #NHWC}>
+  %child = IE.Convolution(%parent, %child_filter) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x24x128x176xf16, {order = #NHWC}>, tensor<1x24x1x1xf16, {order = #NHWC}> -> tensor<1x1x128x176xf16, {order = #NHWC}>
+  return %child : tensor<1x1x128x176xf16, {order = #NHWC}>
+
+  // CHECK-DAG:   [[PARENT_FILTER:%.+]] = const.Declare tensor<24x3x3x3xf16, {order = #NHWC}>
+  // CHECK-DAG:   [[CHILD_FILTER:%.+]] = const.Declare tensor<16x384x1x1xf16, {order = #NHWC}>
+  // CHECK:       [[PARENT:%.+]] = IE.Convolution([[ARG_0]], [[PARENT_FILTER]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
+  // CHECK:       [[INPUT_CAST:%.+]] = IE.ShapeCast {shape = [1, 384, 128, 11]} inputs([[PARENT]] : tensor<1x24x128x176xf16, {order = #NHWC}>) -> tensor<1x384x128x11xf16, {order = #NHWC}>
+  // CHECK:       [[CONV_RET:%.+]] = IE.Convolution([[INPUT_CAST]], [[CHILD_FILTER]])
+  // CHECK:       [[RET_CAST:%.+]] = IE.ShapeCast {shape = [1, 1, 128, 176]} inputs([[CONV_RET]] : tensor<1x16x128x11xf16, {order = #NHWC}>) -> tensor<1x1x128x176xf16, {order = #NHWC}>
+  // CHECK:       return [[RET_CAST]]
+}

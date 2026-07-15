@@ -338,7 +338,7 @@ void iterativeDfs(
     }
 }
 
-std::tuple<int64_t, int64_t, int64_t> OpChainAnalysis::getForOpParams(mlir::scf::ForOp forOp) {
+std::tuple<int64_t, int64_t, int64_t> OpChainAnalysis::getLoopBoundsAndStep(mlir::scf::ForOp forOp) {
     auto lowerBoundOpt = getIntegerFromValue(forOp.getLowerBound(), true);
     auto upperBoundOpt = getIntegerFromValue(forOp.getUpperBound(), true);
     auto stepOpt = getIntegerFromValue(forOp.getStep(), true);
@@ -426,7 +426,7 @@ bool OpChainAnalysis::generateValueMap(llvm::ArrayRef<mlir::Value> blockOperands
         }
         if (auto forOp = mlir::dyn_cast<mlir::scf::ForOp>(dimInductionArg.getOwner()->getParentOp())) {
             SmallVector<int64_t> vals;
-            auto [low, high, step] = getForOpParams(forOp);
+            auto [low, high, step] = getLoopBoundsAndStep(forOp);
             for (auto i = low; i < high; i += step) {
                 vals.push_back(i);
             }

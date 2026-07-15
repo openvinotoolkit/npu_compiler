@@ -29,7 +29,7 @@ func.func @AssignSplitCandidateToBroadcastDMA(%arg0: !DummyT) -> !DummyT {
     %2 = VPURT.DeclareBuffer <CMX_NN> [0, 1, 2, 3, 4, 5] <163840> -> !DistributedType
 
     VPURT.Task waits(%0 : !VPURT.Barrier) updates(%1 : !VPURT.Barrier) {
-      %3 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst : memref<1x1x1x368768xf16, #NCHW>) outputs(%2 : !DistributedType) -> !DistributedType
+      %3 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst : memref<1x1x1x368768xf16>) outputs(%2 : !DistributedType) -> !DistributedType
     }
 
     // CHECK:       [[NNDMA:%.+]] = VPUIP.NNDMA <{port = 0 : i64, split_candidate = true}>
@@ -73,7 +73,7 @@ func.func @AssignSplitCandidateWhenAnotherPortIsTotallyIdle(%arg0: !DummyT) -> !
       %7 = VPUIP.NNDMA <{port = 1 : i64}> inputs(%2 : memref<1x16x1x8xf16, [@CMX_NN, 5]>) outputs(%3 : memref<1x16x1x8xf16, {order = #NCHW, strides = [81920, 64, 8, 1]}, @DDR>) -> memref<1x16x1x8xf16, {order = #NCHW, strides = [81920, 64, 8, 1]}, @DDR>
     }
     VPURT.Task waits(%0 : !VPURT.Barrier) updates(%1 : !VPURT.Barrier) {
-      %7 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst : memref<1x1x1x368768xf16, #NCHW>) outputs(%4 : !DistributedType) -> !DistributedType
+      %7 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst : memref<1x1x1x368768xf16>) outputs(%4 : !DistributedType) -> !DistributedType
     }
     VPURT.Task waits(%1 : !VPURT.Barrier) {
       %7 = VPUIP.NNDMA <{port = 1 : i64}> inputs(%5 : memref<1x16x2x8xf16, [@CMX_NN, 1]>) outputs(%6 : memref<1x16x2x8xf16, {order = #NCHW, strides = [81920, 64, 8, 1]}, @DDR>) -> memref<1x16x2x8xf16, {order = #NCHW, strides = [81920, 64, 8, 1]}, @DDR>
@@ -113,7 +113,7 @@ func.func @AssignSplitCandidateWhenAnotherPortIsPartiallyIdle(%arg0: !DummyT) ->
     %cst = const.Declare memref<1x1x1x368768xf16> = dense<1.0> : memref<1x1x1x368768xf16>
 
     VPURT.Task {
-      %4 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst : memref<1x1x1x368768xf16, #NCHW>) outputs(%1 : !DistributedType) -> !DistributedType
+      %4 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst : memref<1x1x1x368768xf16>) outputs(%1 : !DistributedType) -> !DistributedType
     }
     VPURT.Task {
       %5 = VPUIP.NNDMA <{port = 1 : i64}> inputs(%2 : memref<1x16x2x8xf16, [@CMX_NN, 1]>) outputs(%3 : memref<1x16x2x8xf16, {order = #NCHW, strides = [81920, 64, 8, 1]}, @DDR>) -> memref<1x16x2x8xf16, {order = #NCHW, strides = [81920, 64, 8, 1]}, @DDR>
@@ -185,12 +185,12 @@ func.func @AssignSplitCandidateToCMX2DDRDMA(%arg0: !DummyT) -> !DummyT {
 // CHECK-LABEL: @NotAssignSplitCandidateForCompressCandidate
 func.func @NotAssignSplitCandidateForCompressCandidate(%arg0: !DummyT) -> !DummyT {
     %0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x512x7x28xf16, {allocSize = 203872 : i64, compression = #VPUIP.Compression<CompressionCandidate>, order = #NHWC}, @DDR>
-    %1 = VPURT.DeclareBuffer <CMX_NN> [2] <901888> -> memref<1x512x7x28xf16, #NHWC, [@CMX_NN, 2]>
+    %1 = VPURT.DeclareBuffer <CMX_NN> [2] <901888> -> memref<1x512x7x28xf16, {order = #NHWC}, [@CMX_NN, 2]>
 
     VPURT.Task {
       %2 = VPUIP.NNDMA <{compress_candidate, port = 0 : i64, spillId = 0 : i64}>
           inputs(%0 : memref<1x512x7x28xf16, {allocSize = 203872 : i64, compression = #VPUIP.Compression<CompressionCandidate>, order = #NHWC}, @DDR>)
-          outputs(%1 : memref<1x512x7x28xf16, #NHWC, [@CMX_NN, 2]>) -> memref<1x512x7x28xf16, #NHWC, [@CMX_NN, 2]>
+          outputs(%1 : memref<1x512x7x28xf16, {order = #NHWC}, [@CMX_NN, 2]>) -> memref<1x512x7x28xf16, {order = #NHWC}, [@CMX_NN, 2]>
     }
 
     // CHECK:       [[NNDMA:%.+]] = VPUIP.NNDMA <{compress_candidate, port = 0 : i64, spillId = 0 : i64}>
@@ -207,13 +207,13 @@ func.func @NotAssignSplitCandidateForCompressCandidate(%arg0: !DummyT) -> !Dummy
 
 // CHECK-LABEL: @AvoidTrivialSplitCandidate
 func.func @AvoidTrivialSplitCandidate(%arg0: !DummyT) -> !DummyT {
-    %0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x1x1x1000xf16, #NHWC, @DDR>
-    %1 = VPURT.DeclareBuffer <CMX_NN> [2] <901888> -> memref<1x1x1x1000xf16, #NHWC, [@CMX_NN, 2]>
+    %0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x1x1x1000xf16, {order = #NHWC}, @DDR>
+    %1 = VPURT.DeclareBuffer <CMX_NN> [2] <901888> -> memref<1x1x1x1000xf16, {order = #NHWC}, [@CMX_NN, 2]>
 
     VPURT.Task {
       %2 = VPUIP.NNDMA <{port = 0 : i64, spillId = 0 : i64}>
-          inputs(%0 : memref<1x1x1x1000xf16, #NHWC, @DDR>)
-          outputs(%1 : memref<1x1x1x1000xf16, #NHWC, [@CMX_NN, 2]>) -> memref<1x1x1x1000xf16, #NHWC, [@CMX_NN, 2]>
+          inputs(%0 : memref<1x1x1x1000xf16, {order = #NHWC}, @DDR>)
+          outputs(%1 : memref<1x1x1x1000xf16, {order = #NHWC}, [@CMX_NN, 2]>) -> memref<1x1x1x1000xf16, {order = #NHWC}, [@CMX_NN, 2]>
     }
 
     // CHECK:       [[NNDMA:%.+]] = VPUIP.NNDMA <{port = 0 : i64, spillId = 0 : i64}>

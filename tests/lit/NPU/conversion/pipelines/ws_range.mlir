@@ -14,5 +14,5 @@
 //           Reshape
 
 // CHECK: func.func @main() -> tensor<16xf32> {
-// CHECK: [[CST:%.+]] = const.Declare tensor<16xf32>
+// CHECK:   [[CST:%.+]] = const.Declare tensor<16xf32>
 // CHECK:   return [[CST]] : tensor<16xf32>

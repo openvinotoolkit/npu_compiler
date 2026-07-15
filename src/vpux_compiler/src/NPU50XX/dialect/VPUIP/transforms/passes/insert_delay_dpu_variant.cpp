@@ -21,6 +21,8 @@ namespace vpux::VPUIP::arch50xx {
 
 #include <mlir/IR/Builders.h>
 
+using namespace vpux;
+
 //
 // InsertDelayDPUVariant
 //

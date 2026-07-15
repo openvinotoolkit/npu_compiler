@@ -2167,6 +2167,28 @@ TEST_F(NPU50xxPpeIfcUnitTest, FpPPE_MaxPool_U8_U8_CLAMP) {
     EXPECT_EQ(fpPpeAttr.getSprlut(), nullptr);
 }
 
+TEST_F(NPU50xxPpeIfcUnitTest, FpPPE_MaxPool_U8_U8_CLAMP_SCALE) {
+    mlir::OwningOpRef<mlir::ModuleOp> module = mlir::ModuleOp::create(_loc);
+    auto op = createMaxPool(mlir::OpBuilder::atBlockEnd(module->getBody()), getU8Type(), getU8Type(), nullptr,
+                            createClamp(0.0, 6.0), 0.5);
+    ASSERT_NE(op, nullptr);
+    auto ppeAttr = _ppeIfc->retrievePPEAttribute(op);
+    ASSERT_NE(ppeAttr, nullptr);
+    auto fpPpeAttr = mlir::dyn_cast<vpux::VPU::PPEFpAttr>(ppeAttr);
+    ASSERT_NE(fpPpeAttr, nullptr) << "Failed to specialize PPE attribute";
+
+    EXPECT_EQ(fpPpeAttr.getMode().getValue(), vpux::VPU::PPEMode::NOOP);
+    EXPECT_FP_ATTR_NEAR(fpPpeAttr.getClampLow(), 128.0);
+    EXPECT_FP_ATTR_NEAR(fpPpeAttr.getClampHigh(), 383.0);
+    EXPECT_FP_ATTR_NEAR(fpPpeAttr.getScale(), 0.5);
+    EXPECT_FP_ATTR_ARRAY_NEAR(fpPpeAttr.getPreluAlpha(), {1.0});
+    EXPECT_FP_ATTR_NEAR(fpPpeAttr.getBias(), 0.0);
+    EXPECT_FP_ATTR_NEAR(fpPpeAttr.getAdder(), 0.0);
+    EXPECT_EQ(fpPpeAttr.getIn1Mult(), nullptr);
+    EXPECT_EQ(fpPpeAttr.getIn2Mult(), nullptr);
+    EXPECT_EQ(fpPpeAttr.getSprlut(), nullptr);
+}
+
 TEST_F(NPU50xxPpeIfcUnitTest, FpPPE_Subtract_F16_F16_U8_LEAKY_RELU) {
     mlir::OwningOpRef<mlir::ModuleOp> module = mlir::ModuleOp::create(_loc);
     auto op = createSubtract(mlir::OpBuilder::atBlockEnd(module->getBody()), getF16Type(), getF16Type(), getU8Type(),

@@ -117,7 +117,7 @@ mlir::LogicalResult FusePermuteRewrite::matchAndRewrite(IE::ReorderOp origOp, ml
     const auto permQuantOutType = origOp.getOutput().getType();
     const auto permQuantElemType = mlir::cast<vpux::NDTypeInterface>(permQuantOutType).getElementType();
     const auto dstElemTypeAttr = mlir::TypeAttr::get(permQuantElemType);
-    const auto permQuantLoc = appendLoc(origOp->getLoc(), "PermuteQuantize");
+    const auto permQuantLoc = takeOpLoc(origOp, "PermuteQuantize");
     auto permuteQuantizeOp = rewriter.create<IE::PermuteQuantizeOp>(
             permQuantLoc, permQuantOutType, curInput, origOp.getDstOrderAttr(), memPermAttr, dstElemTypeAttr,
             getIntArrayAttr(ctx, noPadBeginEnd), getIntArrayAttr(ctx, noPadBeginEnd));

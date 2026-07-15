@@ -9,9 +9,6 @@
 #include "vpux/compiler/NPU50XX/dialect/VPUIPDPU/ops.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/utils.hpp"
 
-using namespace vpux::VPURegMapped;
-using namespace npu40xx;
-
 // Helper trait to detect if Type_Fields has Field_ppe_sb_dtype member
 template <typename T, typename = void>
 struct has_Field_ppe_sb_dtypeType : std::false_type {};
@@ -216,17 +213,21 @@ void lowerToRegIDUEltWiseCfgOp(VPUIPDPU::IDUEltWiseCfgOp op, DpuInvariantDescrip
     auto elopScaleBFpAttr = mlir::dyn_cast_or_null<mlir::FloatAttr>(op.getElopScaleBAttr());
     if (elopScaleAFpAttr && elopScaleBFpAttr) {
         if (op.getBf16FlowOn()) {
-            auto elopScaleAFp = checked_cast_reg<typename OldTableGen_Type_Fields::Field_elop_scale_a_bfpType>(
-                    elopScaleAFpAttr.getValueAsDouble());
-            auto elopScaleBFp = checked_cast_reg<typename OldTableGen_Type_Fields::Field_elop_scale_b_bfpType>(
-                    elopScaleBFpAttr.getValueAsDouble());
+            auto elopScaleAFp =
+                    vpux::VPURegMapped::checked_cast_reg<typename OldTableGen_Type_Fields::Field_elop_scale_a_bfpType>(
+                            elopScaleAFpAttr.getValueAsDouble());
+            auto elopScaleBFp =
+                    vpux::VPURegMapped::checked_cast_reg<typename OldTableGen_Type_Fields::Field_elop_scale_b_bfpType>(
+                            elopScaleBFpAttr.getValueAsDouble());
             descriptor.template write<typename NewTableGen_Type_Fields::Field_elop_scale_a_bfpType>(elopScaleAFp);
             descriptor.template write<typename NewTableGen_Type_Fields::Field_elop_scale_b_bfpType>(elopScaleBFp);
         } else {
-            auto elopScaleAFp = checked_cast_reg<typename OldTableGen_Type_Fields::Field_elop_scale_a_fpType>(
-                    elopScaleAFpAttr.getValueAsDouble());
-            auto elopScaleBFp = checked_cast_reg<typename OldTableGen_Type_Fields::Field_elop_scale_b_fpType>(
-                    elopScaleBFpAttr.getValueAsDouble());
+            auto elopScaleAFp =
+                    vpux::VPURegMapped::checked_cast_reg<typename OldTableGen_Type_Fields::Field_elop_scale_a_fpType>(
+                            elopScaleAFpAttr.getValueAsDouble());
+            auto elopScaleBFp =
+                    vpux::VPURegMapped::checked_cast_reg<typename OldTableGen_Type_Fields::Field_elop_scale_b_fpType>(
+                            elopScaleBFpAttr.getValueAsDouble());
             descriptor.template write<typename NewTableGen_Type_Fields::Field_elop_scale_a_fpType>(elopScaleAFp);
             descriptor.template write<typename NewTableGen_Type_Fields::Field_elop_scale_b_fpType>(elopScaleBFp);
         }

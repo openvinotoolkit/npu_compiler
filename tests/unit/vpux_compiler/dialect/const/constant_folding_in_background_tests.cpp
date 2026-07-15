@@ -33,7 +33,7 @@ std::pair<Const::ContentAttr, SmallVector<float>> createContentAttrSameTransform
     const float baseValue = 1.0f;
     const auto baseType = mlir::RankedTensorType::get({numElements}, mlir::Float32Type::get(ctx));
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(baseValue));
-    Const::ContentSetup contentAttrSetup(baseType);
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
 
     const size_t numTransformations = 5;
     for (size_t i = 0; i < numTransformations; ++i) {
@@ -51,9 +51,11 @@ std::pair<Const::ContentAttr, SmallVector<float>> createContentAttrMixedTransfor
     const float baseValue = 0.0f;
     const auto baseType = mlir::RankedTensorType::get({numElements}, mlir::Float32Type::get(ctx));
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(baseValue));
-    auto contentAttr = Const::ContentAttr::get(
-            baseAttr,
-            Const::ContentSetup(baseType).padWithZero({10}, {10}).add(1.0).rescale(3.0).subview({0}, {numElements}));
+    auto contentAttr = Const::ContentAttr::get(baseAttr, Const::ContentSetup(baseAttr, baseType)
+                                                                 .padWithZero({10}, {10})
+                                                                 .add(1.0)
+                                                                 .rescale(3.0)
+                                                                 .subview({0}, {numElements}));
 
     const float expectedValue = 3.0f;
     SmallVector<float> expectedFoldedResults(numElements, expectedValue);

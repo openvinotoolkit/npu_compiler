@@ -6,9 +6,7 @@
 #pragma once
 
 #include "vpux/compiler/conversion/passes/VPUMI40XX2VPUASM/symbolization_type_converter.hpp"
-#include "vpux/compiler/dialect/VPUMI40XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
-#include "vpux/compiler/dialect/VPURegMapped/types.hpp"
 #include "vpux/compiler/utils/symbolization.hpp"
 
 namespace vpux {
@@ -27,19 +25,14 @@ public:
             : SymbolizationPattern<OperationType>(netFunc, typeConverter, mapper, sectionMap, ctx), _log(log) {
     }
 
-    // E#69730: would be cleaner to type-check at template level if Op itself declares the OneResult interface
-    llvm::SmallVector<mlir::FlatSymbolRefAttr> getSymbolicNames(OperationType op, size_t) override {
-        return this->createSymbolicName(op);
-    }
-
 protected:
     mlir::ArrayAttr vectorizeBarriers(mlir::Operation::operand_range&& barrierRange) const {
         mlir::MLIRContext* ctx = this->getContext();
         llvm::SmallVector<mlir::Attribute> barrierVec(barrierRange.size());
 
-        auto u8Attr = [&ctx](uint8_t value) -> mlir::IntegerAttr {
-            auto u8Type = mlir::IntegerType::get(ctx, 8, mlir::IntegerType::Unsigned);
-            return mlir::IntegerAttr::get(u8Type, value);
+        auto u16Attr = [&ctx](uint16_t value) -> mlir::IntegerAttr {
+            auto u16Type = mlir::IntegerType::get(ctx, 16, mlir::IntegerType::Unsigned);
+            return mlir::IntegerAttr::get(u16Type, value);
         };
 
         for (auto barrier : llvm::enumerate(barrierRange)) {
@@ -48,7 +41,7 @@ protected:
             // hard-cast since it should a by-default-expected relationship
             auto barrierOp = mlir::cast<VPUMI40XX::ConfigureBarrierOp>(barrierVal.getDefiningOp());
 
-            barrierVec[barrierIdx] = u8Attr(barrierOp.getId());
+            barrierVec[barrierIdx] = u16Attr(barrierOp.getId());
         }
 
         return mlir::ArrayAttr::get(ctx, barrierVec);

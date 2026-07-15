@@ -4,11 +4,14 @@
 //
 
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
+#include "vpux/compiler/dialect/HostExec/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/image.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/Shave/IR/dialect.hpp"
+#include "vpux/compiler/dialect/Shave/IR/ops/meta-ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/activation.hpp"
@@ -31,6 +34,7 @@
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/interfaces/nce_invariant.hpp"
@@ -531,6 +535,24 @@ public:
             return true;
         }
 
+        // When ODU D2S/S2D is active, tiles are in post-ODU space.  Each scaled dimension must
+        // produce an integer pre-ODU tile: pre_dim = post_dim * divisor / multiplier, so
+        // (post_dim * divisor) must be divisible by multiplier.
+        const auto oduScales = VPU::getODUScaling(origOp);
+        if (!oduScales.empty()) {
+            for (const auto& tile : tiles) {
+                for (auto d : irange(oduScales.size())) {
+                    const auto& scale = oduScales[d];
+                    if (scale.multiplier == 1) {
+                        continue;
+                    }
+                    if ((tile.shape[Dim(d)] * scale.divisor) % scale.multiplier != 0) {
+                        return false;
+                    }
+                }
+            }
+        }
+
         if (VPU::isTilingWLRestrictedDepthwise(mlir::cast<MainOpType>(origOp), tiles)) {
             return false;
         }
@@ -642,6 +664,7 @@ public:
             mlir::Operation* origOp,
             mlir::SmallVectorImpl<mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>& effects) const {
         vpux::VPUIP::getLayerEffects(origOp, effects);
+        vpux::HostExec::getOpEffects(origOp, effects);
     }
 };
 
@@ -836,6 +859,7 @@ void vpux::VPUIP::VPUIPDialect::setupExtraInterfaces(mlir::DialectRegistry& regi
         VPU::ProposalOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::ReverseOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::ScatterUpdateOp::attachInterface<SoftwareLayerOpModel>(*ctx);
+        VPU::ScatterUpdateSwDmaOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::ScatterElementsUpdateOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::ReverseSequenceOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::FloorModOp::attachInterface<SoftwareLayerOpModel>(*ctx);
@@ -926,10 +950,13 @@ void vpux::VPUIP::VPUIPDialect::setupExtraInterfaces(mlir::DialectRegistry& regi
         VPU::DynamicDataMaskOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::SDPAOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::AttentionOp::attachInterface<SoftwareLayerOpModel>(*ctx);
-        VPU::ExternalKernelOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::FlashSDPAOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::YuvToRgbOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::ReduceSquareOp::attachInterface<SoftwareLayerOpModel>(*ctx);
+    });
+
+    registry.addExtension(+[](mlir::MLIRContext* ctx, vpux::Shave::ShaveDialect*) {
+        Shave::ExternalKernelOp::attachInterface<SoftwareLayerOpModel>(*ctx);
     });
 
     // When implementing a new SW core, remove the corresponding operation from setupExtraInterfacesAdditional

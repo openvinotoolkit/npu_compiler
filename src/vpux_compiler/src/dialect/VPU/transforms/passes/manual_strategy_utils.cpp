@@ -412,19 +412,19 @@ std::unique_ptr<mlir::Pass> VPU::createManualStrategyUtilsPass(
 LoopAttributes vpux::getLoopAttributes(mlir::Operation* op) {
     auto tilingLoopIndexAttr = op->getAttrOfType<TilingLoopIndexAttr>(TILING_LOOP_INDEX_ATTR_NAME);
     auto vfLoopIndexAttr = op->getAttrOfType<VFLoopIndexAttr>(VF_LOOP_INDEX_ATTR_NAME);
-    auto vfLoopLayerIndexAttr = op->getAttrOfType<VFLoopLayerIndexAttr>(VF_LOOP_LAYER_INDEX_ATTR_NAME);
-    return LoopAttributes(tilingLoopIndexAttr, vfLoopIndexAttr, vfLoopLayerIndexAttr);
+    auto vfLoopTileIndexAttr = op->getAttrOfType<VFLoopTileIndexAttr>(VF_LOOP_TILE_INDEX_ATTR_NAME);
+    return LoopAttributes(tilingLoopIndexAttr, vfLoopIndexAttr, vfLoopTileIndexAttr);
 }
 
 void vpux::copyLoopAttributes(mlir::Operation* srcOp, mlir::Operation* dstOp) {
-    const auto [tilingLoopIndexAttr, vfLoopIndexAttr, vfLoopLayerIndexAttr] = getLoopAttributes(srcOp);
+    const auto [tilingLoopIndexAttr, vfLoopIndexAttr, vfLoopTileIndexAttr] = getLoopAttributes(srcOp);
     if (tilingLoopIndexAttr != nullptr) {
         dstOp->setAttr(TILING_LOOP_INDEX_ATTR_NAME, tilingLoopIndexAttr);
     }
     if (vfLoopIndexAttr != nullptr) {
         dstOp->setAttr(VF_LOOP_INDEX_ATTR_NAME, vfLoopIndexAttr);
     }
-    if (vfLoopLayerIndexAttr != nullptr) {
-        dstOp->setAttr(VF_LOOP_LAYER_INDEX_ATTR_NAME, vfLoopLayerIndexAttr);
+    if (vfLoopTileIndexAttr != nullptr) {
+        dstOp->setAttr(VF_LOOP_TILE_INDEX_ATTR_NAME, vfLoopTileIndexAttr);
     }
 }

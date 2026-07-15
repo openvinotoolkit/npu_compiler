@@ -2824,7 +2824,7 @@ func.func @NotConvertSplitOpTo4DWithSmallTensorRank(%arg0: tensor<3x1575x72xf16>
 // CHECK-SAME:  [[INPUT0:%.+]]: tensor<1x6000x400xf32>, [[INPUT1:%.+]]: tensor<1xf32>, [[INPUT2:%.+]]: tensor<1xf32>
 func.func @DynamicQuantize(%arg0: tensor<1x6000x400xf32>, %arg1: tensor<1xf32>, %arg2: tensor<1xf32>)
 -> (tensor<1x6000x400xui8>, tensor<1xf32>, tensor<1xui8>) {
-    %output, %scale, %zero_point = IE.DynamicQuantize(%arg0, %arg1, %arg2) {operandSegmentSizes = array<i32: 1, 1, 1>} : tensor<1x6000x400xf32>, tensor<1xf32>, tensor<1xf32> -> tensor<1x6000x400xui8>, tensor<1xf32>, tensor<1xui8>
+    %output, %scale, %zero_point = IE.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = ui8, operandSegmentSizes = array<i32: 1, 1, 1>} : tensor<1x6000x400xf32>, tensor<1xf32>, tensor<1xf32> -> tensor<1x6000x400xui8>, tensor<1xf32>, tensor<1xui8>
     return %output, %scale, %zero_point : tensor<1x6000x400xui8>, tensor<1xf32>, tensor<1xui8>
 
     // CHECK: [[RESHAPE2:%.+]] = IE.AffineReshape([[INPUT2]])
@@ -2838,7 +2838,7 @@ func.func @DynamicQuantize(%arg0: tensor<1x6000x400xf32>, %arg1: tensor<1xf32>, 
     // CHECK:               tensor<1x6000x400xf32> -> tensor<1x1x6000x400xf32>
 
     // CHECK: [[OUTPUT:%.+]], [[SCALE:%.+]], [[ZP:%.+]] = IE.DynamicQuantize([[RESHAPE0]], [[RESHAPE1]], [[RESHAPE2]])
-    // CHECK: {operandSegmentSizes = array<i32: 1, 1, 1>} : tensor<1x1x6000x400xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>
+    // CHECK: {dstElemType = ui8, operandSegmentSizes = array<i32: 1, 1, 1>} : tensor<1x1x6000x400xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>
     // CHECK: -> tensor<1x1x6000x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
 
     // CHECK: [[OUTRESHAPE2:%.+]] = IE.AffineReshape([[ZP]])
@@ -2938,12 +2938,12 @@ func.func @ConvertRollOpWith4DInputData(%arg0: tensor<1x1x1x16xf16>) -> tensor<1
     %1 = IE.Roll(%arg0, %shift, %axes) : tensor<1x1x1x16xf16>, tensor<1xsi64>, tensor<1xsi64> -> tensor<1x1x1x16xf16>
     return %1 : tensor<1x1x1x16xf16>
 
-    // CHECK:    [[SHIFT:%.+]] = const.Declare tensor<1x1x1x2xsi32>
-    // CHECK-SAME{LITERAL}: dense<[[[[0, 5]]]]> : tensor<1x1x1x2xsi32>
-    // CHECK:    [[AXES:%.+]] = const.Declare tensor<1x1x1x2xsi32>
-    // CHECK-SAME{LITERAL}:  dense<[[[[2, 3]]]]> : tensor<1x1x1x2xsi32>
+    // CHECK:    [[SHIFT:%.+]] = const.Declare tensor<1x1x1x1xsi32>
+    // CHECK-SAME: dense<5> : tensor<1x1x1x1xsi32>
+    // CHECK:    [[AXES:%.+]] = const.Declare tensor<1x1x1x1xsi32>
+    // CHECK-SAME:  dense<3> : tensor<1x1x1x1xsi32>
 
-    // CHECK:    [[ROLL:%.+]] = IE.Roll([[DATA]], [[SHIFT]], [[AXES]]) : tensor<1x1x1x16xf16>, tensor<1x1x1x2xsi32>, tensor<1x1x1x2xsi32> -> tensor<1x1x1x16xf16>
+    // CHECK:    [[ROLL:%.+]] = IE.Roll([[DATA]], [[SHIFT]], [[AXES]]) : tensor<1x1x1x16xf16>, tensor<1x1x1x1xsi32>, tensor<1x1x1x1xsi32> -> tensor<1x1x1x16xf16>
 
     // CHECK:    return [[ROLL]] : tensor<1x1x1x16xf16>
 
@@ -3199,7 +3199,13 @@ func.func @SemiDynamicAdd5D(%arg0: !dynType, %arg1: tensor<1x1x1x1x128xf16>) -> 
     return %0 : !dynType
 
     // CHECK:    [[SHAPE_OUT:%.+]] = const.Declare tensor<5xsi32> = dense<[1, 1, -1, 1, 128]> : tensor<5xsi32>
-    // CHECK:    [[SHAPE_IN:%.+]] = const.Declare tensor<4xsi32> = dense<[1, -1, 1, 128]> : tensor<4xsi32>
+    // CHECK:    [[SHAPE_IN:%.+]] = const.Declare tensor<4xsi32>
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense<1>
+    // CHECK-SAME: dense<[1, -1, 128, 1]>
+    // CHECK-SAME: #const.SubView
+    // CHECK-SAME: dense<1>
+    // CHECK-SAME: dense<128>
 
     // CHECK:    [[RESHAPE_IN_0:%.+]] = IE.DynamicReshape([[INPUT_0]], [[SHAPE_IN]]) {output_bounds = [1, 500, 1, 128], output_shape = [1, -9223372036854775808, 1, 128]} : tensor<1x1x?x1x128xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 500, 1, 128]> : tensor<5xsi64>, order = #NCDHW}>, tensor<4xsi32> -> tensor<1x?x1x128xf16, {bounds = #const.OpaqueI64Elements<[1, 500, 1, 128]> : tensor<4xsi64>, order = #NCHW}>
     // CHECK:    [[RESHAPE_IN_1:%.+]] = IE.AffineReshape([[INPUT_1]]) {
@@ -3245,9 +3251,21 @@ func.func @FullyDynamicAdd5D(%arg0: !dynType1, %arg1: !dynType2) -> !dynType1 {
     %0 = IE.Add(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : !dynType1, !dynType2 -> !dynType1
     return %0 : !dynType1
 
-    // CHECK:    [[SHAPE_IN_1:%.+]] = const.Declare tensor<4xsi32> = dense<[1, 1, -1, 1]> : tensor<4xsi32>
+    // CHECK:    [[SHAPE_IN_1:%.+]] = const.Declare tensor<4xsi32>
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense<1>
+    // CHECK-SAME: dense<1>
+    // CHECK-SAME: dense<[1, -1, 1, 1]>
+    // CHECK-SAME: #const.SubView
+    // CHECK-SAME: dense<1>
     // CHECK:    [[SHAPE_OUT:%.+]] = const.Declare tensor<5xsi32> = dense<[1, 1, -1, 1, 128]> : tensor<5xsi32>
-    // CHECK:    [[SHAPE_IN_0:%.+]] = const.Declare tensor<4xsi32> = dense<[1, 1, -1, 128]> : tensor<4xsi32>
+    // CHECK:    [[SHAPE_IN_0:%.+]] = const.Declare tensor<4xsi32>
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense<1>
+    // CHECK-SAME: dense<1>
+    // CHECK-SAME: dense<[1, -1, 128, 1]>
+    // CHECK-SAME: #const.SubView
+    // CHECK-SAME: dense<128>
 
     // CHECK:    [[RESHAPE_IN_0:%.+]] = IE.DynamicReshape([[INPUT_0]], [[SHAPE_IN_0]]) {output_bounds = [1, 1, 500, 128], output_shape = [1, 1, -9223372036854775808, 128]} : tensor<1x1x?x1x128xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 500, 1, 128]> : tensor<5xsi64>, order = #NCDHW}>, tensor<4xsi32> -> tensor<1x1x?x128xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 500, 128]> : tensor<4xsi64>, order = #NCHW}>
     // CHECK:    [[RESHAPE_IN_1:%.+]] = IE.DynamicReshape([[INPUT_1]], [[SHAPE_IN_1]]) {output_bounds = [1, 1, 500, 1], output_shape = [1, 1, -9223372036854775808, 1]} : tensor<1x1x?x1x1xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 500, 1, 1]> : tensor<5xsi64>, order = #NCDHW}>, tensor<4xsi32> -> tensor<1x1x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 500, 1]> : tensor<4xsi64>, order = #NCHW}>
@@ -3627,4 +3645,51 @@ func.func @ConvertFullyTrivialShapeMultiplyTo4D(%arg0: tensor<1x1x1x1x1xf16>, %a
     // CHECK:       [[RESHAPE_OUT:%.+]] = IE.AffineReshape([[MUL]])
     // CHECK-SAME{LITERAL}:     dim_mapping = [[0], [1], [2], [3, 4]], shape_value = [1, 1, 1, 1, 1]} : tensor<1x1x1x1xf16> -> tensor<1x1x1x1x1xf16>
     // CHECK:       return [[RESHAPE_OUT]] : tensor<1x1x1x1x1xf16>
+}
+
+// -----
+
+// CHECK-LABEL: func.func @Convert5DRollOpTo4D
+// CHECK-SAME:      [[DATA:%.+]]: tensor<1x8x56x56x16xf16>
+func.func @Convert5DRollOpTo4D(%arg0: tensor<1x8x56x56x16xf16>) -> tensor<1x8x56x56x16xf16> {
+    %shift = const.Declare tensor<1xsi64> = dense<4> : tensor<1xsi64>
+    %axes  = const.Declare tensor<1xsi64> = dense<3> : tensor<1xsi64>
+    %0 = IE.Roll(%arg0, %shift, %axes) : tensor<1x8x56x56x16xf16>, tensor<1xsi64>, tensor<1xsi64> -> tensor<1x8x56x56x16xf16>
+    return %0 : tensor<1x8x56x56x16xf16>
+
+    // Trivial dim 0 (size=1, not in axis set {3}) is squeezed to reach 4D.
+    // Axis [3] is remapped via oldToNew to [2].
+
+    // CHECK:    [[AXES:%.+]] = const.Declare tensor<1x1x1x1xsi32>
+    // CHECK-SAME: dense<2> : tensor<1x1x1x1xsi32>
+    // CHECK:    [[SHIFT:%.+]] = const.Declare tensor<1x1x1x1xsi32>
+    // CHECK-SAME: dense<4> : tensor<1x1x1x1xsi32>
+
+    // CHECK:    [[RESHAPE_IN:%.+]] = IE.AffineReshape([[DATA]])
+    // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [0], [1], [2], [3]], shape_value = [8, 56, 56, 16]} : tensor<1x8x56x56x16xf16> -> tensor<8x56x56x16xf16>
+
+    // CHECK:    [[ROLL:%.+]] = IE.Roll([[RESHAPE_IN]], [[SHIFT]], [[AXES]]) : tensor<8x56x56x16xf16>, tensor<1x1x1x1xsi32>, tensor<1x1x1x1xsi32> -> tensor<8x56x56x16xf16>
+
+    // CHECK:    [[RESHAPE_OUT:%.+]] = IE.AffineReshape([[ROLL]])
+    // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [4]], shape_value = [1, 8, 56, 56, 16]} : tensor<8x56x56x16xf16> -> tensor<1x8x56x56x16xf16>
+
+    // CHECK:    return [[RESHAPE_OUT]] : tensor<1x8x56x56x16xf16>
+}
+
+// -----
+
+// CHECK-LABEL: func.func @NotConvert5DRollOpNoSqueezableDims
+// CHECK-SAME:      [[DATA:%.+]]: tensor<2x8x56x56x16xf16>
+func.func @NotConvert5DRollOpNoSqueezableDims(%arg0: tensor<2x8x56x56x16xf16>) -> tensor<2x8x56x56x16xf16> {
+    %shift = const.Declare tensor<2xsi64> = dense<[3, 4]> : tensor<2xsi64>
+    %axes  = const.Declare tensor<2xsi64> = dense<[1, 2]> : tensor<2xsi64>
+    %0 = IE.Roll(%arg0, %shift, %axes) : tensor<2x8x56x56x16xf16>, tensor<2xsi64>, tensor<2xsi64> -> tensor<2x8x56x56x16xf16>
+    return %0 : tensor<2x8x56x56x16xf16>
+
+    // No trivial dims that are not in axes: cannot reach 4D by squeezing, so the op stays legal.
+
+    // CHECK:    [[SHIFT:%.+]] = const.Declare tensor<2xsi64>
+    // CHECK:    [[AXES:%.+]]  = const.Declare tensor<2xsi64>
+    // CHECK:    [[ROLL:%.+]] = IE.Roll([[DATA]], [[SHIFT]], [[AXES]]) : tensor<2x8x56x56x16xf16>, tensor<2xsi64>, tensor<2xsi64> -> tensor<2x8x56x56x16xf16>
+    // CHECK:    return [[ROLL]] : tensor<2x8x56x56x16xf16>
 }

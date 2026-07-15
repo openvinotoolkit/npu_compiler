@@ -195,22 +195,18 @@ mlir::LogicalResult DequantizeWithNCERewriter::matchAndRewrite(IE::DequantizeOp 
         if (!quantizedLayerOp.isMixPrecisionSupported(!isPerChannel)) {
             return matchFailed(rewriter, origOp, "Producer {0} is not supported", maybeQuantizedLayerOp->getName());
         }
-        mlir::Attribute postOpAttr = llvm::TypeSwitch<mlir::Operation*, mlir::Attribute>(maybeQuantizedLayerOp)
-                                             .Case<IE::AvgPoolOp, IE::ConvolutionOp>([](auto op) {
-                                                 return op.getPostOpAttr();
-                                             })
-                                             .Default([](auto) {
-                                                 return nullptr;
-                                             });
+        auto layerWithPostOp = mlir::dyn_cast<IE::LayerWithPostOpInterface>(maybeQuantizedLayerOp);
 
-        // Check if postOp exists and is NOT ReLU - preserve Dequantize in that case
-        // postOpAttr can be IE::ReluAttr (#IE.Relu<>) or other post-op attributes
-        if (postOpAttr != nullptr && !mlir::isa<IE::ReluAttr>(postOpAttr)) {
-            return matchFailed(rewriter, origOp, "{0} has non-ReLU postOp, preserving Dequantize",
-                               maybeQuantizedLayerOp->getName().getStringRef());
-        }
-        auto layerWithPostOp = mlir::dyn_cast_or_null<IE::LayerWithPostOpInterface>(maybeQuantizedLayerOp);
-        if (layerWithPostOp != nullptr && layerWithPostOp.hasPPE()) {
+        if (layerWithPostOp != nullptr) {
+            // Check if postOp exists and is NOT ReLU - preserve Dequantize in that case
+            // postOpAttr can be IE::ReluAttr (#IE.Relu<>) or other post-op attributes
+            auto postOpAttr = layerWithPostOp.getPostOp();
+            if (postOpAttr != nullptr && !mlir::isa<IE::ReluAttr>(postOpAttr)) {
+                return matchFailed(rewriter, origOp, "{0} has non-ReLU postOp, preserving Dequantize",
+                                   maybeQuantizedLayerOp->getName().getStringRef());
+            }
+
+            // Check if clamp attribute exists and is supported if fusing were to occur
             auto clampAttr = layerWithPostOp.getClampAttr();
             if (clampAttr != nullptr) {
                 auto minValue = clampAttr.getAs<mlir::FloatAttr>("min").getValueAsDouble();

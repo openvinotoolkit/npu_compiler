@@ -18,35 +18,24 @@
 
 namespace vpux {
 namespace IE {
-using CheckPostOpFunctor = llvm::function_ref<bool(IE::LayerWithPostOpInterface layerWithPostOp,
-                                                   bool isPerAxisQuantizedOutput, bool isFloatInput)>;
-
-using SupportedMixedPrecisionFunctor = std::function<bool(mlir::Operation*, const bool isPReLUSupported, Logger log)>;
 
 class FloatOutConvRewriter final : public mlir::OpRewritePattern<IE::ConvolutionOp> {
 public:
-    FloatOutConvRewriter(mlir::MLIRContext* ctx, const SupportedMixedPrecisionFunctor& isMixPrecisionSupported,
-                         Logger log)
-            : mlir::OpRewritePattern<IE::ConvolutionOp>(ctx),
-              _isMixPrecisionSupported(isMixPrecisionSupported),
-              _log(log) {
+    FloatOutConvRewriter(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::ConvolutionOp>(ctx), _log(log) {
     }
 
 public:
     mlir::LogicalResult matchAndRewrite(IE::ConvolutionOp convolutionOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
-    const SupportedMixedPrecisionFunctor _isMixPrecisionSupported;
     Logger _log;
 };
 
 class FloatOutGroupConvRewriter final : public mlir::OpRewritePattern<IE::GroupConvolutionOp> {
 public:
-    FloatOutGroupConvRewriter(mlir::MLIRContext* ctx, const SupportedMixedPrecisionFunctor& isMixPrecisionSupported,
-                              Logger log)
-            : mlir::OpRewritePattern<IE::GroupConvolutionOp>(ctx),
-              _isMixPrecisionSupported(isMixPrecisionSupported),
-              _log(log) {
+    FloatOutGroupConvRewriter(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::GroupConvolutionOp>(ctx), _log(log) {
     }
 
 public:
@@ -54,17 +43,13 @@ public:
                                         mlir::PatternRewriter& rewriter) const final;
 
 private:
-    const SupportedMixedPrecisionFunctor _isMixPrecisionSupported;
     Logger _log;
 };
 
 class FloatOutTransposedConvRewriter final : public mlir::OpRewritePattern<IE::TransposedConvolutionOp> {
 public:
-    FloatOutTransposedConvRewriter(mlir::MLIRContext* ctx,
-                                   const SupportedMixedPrecisionFunctor& isMixPrecisionSupported, Logger log)
-            : mlir::OpRewritePattern<IE::TransposedConvolutionOp>(ctx),
-              _isMixPrecisionSupported(isMixPrecisionSupported),
-              _log(log) {
+    FloatOutTransposedConvRewriter(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::TransposedConvolutionOp>(ctx), _log(log) {
     }
 
 public:
@@ -72,85 +57,67 @@ public:
                                         mlir::PatternRewriter& rewriter) const final;
 
 private:
-    const SupportedMixedPrecisionFunctor _isMixPrecisionSupported;
     Logger _log;
 };
 
 class FloatOutAvgPoolRewriter final : public mlir::OpRewritePattern<IE::AvgPoolOp> {
 public:
-    FloatOutAvgPoolRewriter(mlir::MLIRContext* ctx, const SupportedMixedPrecisionFunctor& isMixPrecisionSupported,
-                            Logger log)
-            : mlir::OpRewritePattern<IE::AvgPoolOp>(ctx), _isMixPrecisionSupported(isMixPrecisionSupported), _log(log) {
+    FloatOutAvgPoolRewriter(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::AvgPoolOp>(ctx), _log(log) {
     }
 
 public:
     mlir::LogicalResult matchAndRewrite(IE::AvgPoolOp avgPoolOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
-    const SupportedMixedPrecisionFunctor _isMixPrecisionSupported;
     Logger _log;
 };
 
 class FloatOutAddRewriter final : public mlir::OpRewritePattern<IE::AddOp> {
 public:
-    FloatOutAddRewriter(mlir::MLIRContext* ctx, const SupportedMixedPrecisionFunctor& isMixPrecisionSupported,
-                        const bool allowDifferentScales, Logger log)
-            : mlir::OpRewritePattern<IE::AddOp>(ctx),
-              _isMixPrecisionSupported(isMixPrecisionSupported),
-              _allowDifferentScales(allowDifferentScales),
-              _log(log) {
+    FloatOutAddRewriter(mlir::MLIRContext* ctx, const bool allowDifferentScales, Logger log)
+            : mlir::OpRewritePattern<IE::AddOp>(ctx), _allowDifferentScales(allowDifferentScales), _log(log) {
     }
 
 public:
     mlir::LogicalResult matchAndRewrite(IE::AddOp origOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
-    const SupportedMixedPrecisionFunctor _isMixPrecisionSupported;
     const bool _allowDifferentScales;
     Logger _log;
 };
 
 class QuantizeWithNCERewriter final : public mlir::OpRewritePattern<IE::QuantizeOp> {
 public:
-    QuantizeWithNCERewriter(mlir::MLIRContext* ctx, const SupportedMixedPrecisionFunctor& isMixPrecisionSupported,
-                            CheckPostOpFunctor checkPostOp, bool isPerAxesSupported, Logger log)
-            : mlir::OpRewritePattern<IE::QuantizeOp>(ctx),
-              _isMixPrecisionSupported(isMixPrecisionSupported),
-              _checkPostOp(checkPostOp),
-              _isPerAxesSupported(isPerAxesSupported),
-              _log(log) {
+    QuantizeWithNCERewriter(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::QuantizeOp>(ctx), _log(log) {
     }
 
 public:
     mlir::LogicalResult matchAndRewrite(IE::QuantizeOp origOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
-    const SupportedMixedPrecisionFunctor _isMixPrecisionSupported;
-    CheckPostOpFunctor _checkPostOp;
-    bool _isPerAxesSupported;
     Logger _log;
 };
 
 template <typename ConcreteOp>
 class MixedFloatInQuantWeightsRewriter final : public mlir::OpRewritePattern<ConcreteOp> {
 public:
-    MixedFloatInQuantWeightsRewriter(mlir::MLIRContext* ctx,
-                                     const SupportedMixedPrecisionFunctor& isMixPrecisionSupported, Logger log)
-            : mlir::OpRewritePattern<ConcreteOp>(ctx), _isMixPrecisionSupported(isMixPrecisionSupported), _log(log) {
+    MixedFloatInQuantWeightsRewriter(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<ConcreteOp>(ctx), _log(log) {
     }
 
 public:
     mlir::LogicalResult matchAndRewrite(ConcreteOp convOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
-    const SupportedMixedPrecisionFunctor _isMixPrecisionSupported;
     Logger _log;
 };
 
 template <typename ConcreteOp>
 mlir::LogicalResult MixedFloatInQuantWeightsRewriter<ConcreteOp>::matchAndRewrite(
         ConcreteOp convOp, mlir::PatternRewriter& rewriter) const {
-    if (!_isMixPrecisionSupported(convOp, true, _log)) {
+    auto quantizedLayerOp = mlir::dyn_cast<IE::QuantizedLayerOpInterface>(convOp.getOperation());
+    if (!quantizedLayerOp || !quantizedLayerOp.isMixPrecisionSupported(true)) {
         return mlir::failure();
     }
 
@@ -241,16 +208,27 @@ mlir::LogicalResult MixedFloatInQuantWeightsRewriter<ConcreteOp>::matchAndRewrit
 
 class FloatOutMatMulRewriter final : public mlir::OpRewritePattern<IE::MatMulOp> {
 public:
-    FloatOutMatMulRewriter(mlir::MLIRContext* ctx, const SupportedMixedPrecisionFunctor& isMixPrecisionSupported,
-                           Logger log)
-            : mlir::OpRewritePattern<IE::MatMulOp>(ctx), _isMixPrecisionSupported(isMixPrecisionSupported), _log(log) {
+    FloatOutMatMulRewriter(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::MatMulOp>(ctx), _log(log) {
     }
 
 public:
     mlir::LogicalResult matchAndRewrite(IE::MatMulOp matmulOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
-    const SupportedMixedPrecisionFunctor _isMixPrecisionSupported;
+    Logger _log;
+};
+
+template <typename ConcreteOp>
+class MixedFloatInQuantWeightsWithDynamicDequantizeRewriter final : public mlir::OpRewritePattern<ConcreteOp> {
+public:
+    MixedFloatInQuantWeightsWithDynamicDequantizeRewriter(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<ConcreteOp>(ctx), _log(log) {
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(ConcreteOp convOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
     Logger _log;
 };
 

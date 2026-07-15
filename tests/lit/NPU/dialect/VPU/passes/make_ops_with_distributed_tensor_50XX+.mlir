@@ -15,11 +15,11 @@ config.Resources 3 of @NCE at 1.700000e+03 MHz
 // CHECK-SAME:    ([[ARG0:%.+]]: tensor<1x64x28x28xf16, {order = #NHWC}>
 func.func @ConvMulticlusterSOHOverlapped(%arg0: tensor<1x64x28x28xf16, {order = #NHWC}>) -> tensor<1x80x28x28xf16, {order = #NHWC}> {
     %cst_0 = const.Declare tensor<80x64x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<80x64x3x3xf16>, [#const.Reorder<#NHWC>]
-    %0 = VPU.NCE.Convolution(%arg0, %cst_0) {
+    %0 = VPU.NCE.Convolution(%arg0, %cst_0) rawFilterShape [80, 64, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
-        rawFilterShape = [80, 64, 3, 3],
+        
         strides = [1, 1]}
       : tensor<1x64x28x28xf16, {order = #NHWC}>, tensor<80x64x3x3xf16, {order = #NHWC}> -> tensor<1x80x28x28xf16, {order = #NHWC}>
     return %0 : tensor<1x80x28x28xf16, {order = #NHWC}>
@@ -39,7 +39,8 @@ func.func @ConvMulticlusterSOHOverlapped(%arg0: tensor<1x64x28x28xf16, {order = 
 // CHECK-SAME{LITERAL}:                                                compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
 // CHECK-SAME{LITERAL}:                                                memory_shapes = [[80, 64, 3, 3], [80, 64, 3, 3], [80, 64, 3, 3]],
 // CHECK-SAME{LITERAL}:                                                memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
-// CHECK:               [[CONV:%.+]] = VPU.NCE.Convolution([[IN_CP0]], [[IN_CP1]]) {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [80, 64, 3, 3], strides = [1, 1]}
+// CHECK:               [[CONV:%.+]] = VPU.NCE.Convolution([[IN_CP0]], [[IN_CP1]]) rawFilterShape [80, 64, 3, 3] {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK-SAME:                                                         strides = [1, 1]}
 // CHECK-SAME{LITERAL}:                                                -> !VPU.DistributedTensor<1x80x28x28xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
 // CHECK-SAME{LITERAL}:                                                compute_shapes = [[1, 80, 10, 28], [1, 80, 9, 28], [1, 80, 9, 28]],
 // CHECK-SAME{LITERAL}:                                                compute_offsets = [[0, 0, 0, 0], [0, 0, 10, 0], [0, 0, 19, 0]],
@@ -68,7 +69,7 @@ config.Resources 3 of @NCE at 1.700000e+03 MHz
 
 func.func @DepthConvDistributedTensorSOHOverlapped(%arg0: tensor<1x32x112x112xf16, {order = #NHWC}>) -> tensor<1x32x112x112xf16, {order = #NHWC}> {
     %cst_0 = const.Declare tensor<32x16x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<32x16x1x1xf16>, [#const.Reorder<#NHWC>]
-    %0 = VPU.NCE.DepthConvolution(%arg0, %cst_0) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, rawFilterShape = [32, 1, 3, 3], strides = [1, 1]} -> tensor<1x32x112x112xf16, {order = #NHWC}>
+    %0 = VPU.NCE.DepthConvolution(%arg0, %cst_0) rawFilterShape [32, 1, 3, 3] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,  strides = [1, 1]} -> tensor<1x32x112x112xf16, {order = #NHWC}>
     return %0 : tensor<1x32x112x112xf16, {order = #NHWC}>
 
 // CHECK:    [[WEIGHTS:%.+]]  = const.Declare tensor<32x16x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<32x16x1x1xf16>, [#const.Reorder<#NHWC>]
@@ -85,7 +86,8 @@ func.func @DepthConvDistributedTensorSOHOverlapped(%arg0: tensor<1x32x112x112xf1
 // CHECK-SAME{LITERAL}:                                                    compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
 // CHECK-SAME{LITERAL}:                                                    memory_shapes = [[32, 16, 1, 1], [32, 16, 1, 1], [32, 16, 1, 1]],
 // CHECK-SAME{LITERAL}:                                                    memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
-// CHECK:               [[DEPTH_CONV:%.+]] = VPU.NCE.DepthConvolution([[IN_CP0]], [[IN_CP1]]) {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [32, 1, 3, 3], strides = [1, 1]}
+// CHECK:               [[DEPTH_CONV:%.+]] = VPU.NCE.DepthConvolution([[IN_CP0]], [[IN_CP1]]) rawFilterShape [32, 1, 3, 3] {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK-SAME:                                                             strides = [1, 1]}
 // CHECK-SAME{LITERAL}:                                                    -> !VPU.DistributedTensor<1x32x112x112xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
 // CHECK-SAME{LITERAL}:                                                    compute_shapes = [[1, 32, 38, 112], [1, 32, 37, 112], [1, 32, 37, 112]],
 // CHECK-SAME{LITERAL}:                                                    compute_offsets = [[0, 0, 0, 0], [0, 0, 38, 0], [0, 0, 75, 0]],
@@ -114,7 +116,7 @@ config.Resources 3 of @NCE at 1.700000e+03 MHz
 // CHECK-LABEL: @MaxPoolMulticlusterSOHOverlapped
 // CHECK-SAME:    ([[ARG0:%.+]]: tensor<1x32x112x112xf16, {order = #NHWC}>
 func.func @MaxPoolMulticlusterSOHOverlapped(%arg0: tensor<1x32x112x112xf16, {order = #NHWC}>) -> tensor<1x32x112x112xf16, {order = #NHWC}> {
-    %0 = VPU.NCE.MaxPool(%arg0) {
+    %0 = VPU.NCE.MaxPool(%arg0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
@@ -129,7 +131,8 @@ func.func @MaxPoolMulticlusterSOHOverlapped(%arg0: tensor<1x32x112x112xf16, {ord
 // CHECK-SAME{LITERAL}:                                                    compute_offsets = [[0, 0, 0, 0], [0, 0, 38, 0], [0, 0, 75, 0]],
 // CHECK-SAME{LITERAL}:                                                    memory_shapes = [[1, 32, 38, 112], [1, 32, 37, 112], [1, 32, 37, 112]],
 // CHECK-SAME{LITERAL}:                                                    memory_offsets = [[0, 0, 0, 0], [0, 0, 38, 0], [0, 0, 75, 0]]}>
-// CHECK:               [[MAXPOOL:%.+]] = VPU.NCE.MaxPool([[IN_CP0]]) {kernel_size = [1, 1], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, strides = [1, 1]}
+// CHECK:               [[MAXPOOL:%.+]] = VPU.NCE.MaxPool([[IN_CP0]]) {kernel_size = [1, 1], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
+// CHECK-SAME:                                                             strides = [1, 1]}
 // CHECK-SAME{LITERAL}:                                                    -> !VPU.DistributedTensor<1x32x112x112xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
 // CHECK-SAME{LITERAL}:                                                    compute_shapes = [[1, 32, 38, 112], [1, 32, 37, 112], [1, 32, 37, 112]],
 // CHECK-SAME{LITERAL}:                                                    compute_offsets = [[0, 0, 0, 0], [0, 0, 38, 0], [0, 0, 75, 0]],
@@ -259,11 +262,11 @@ func.func @SparseConvMulticlusterSOHOverlapped(%arg0 : tensor<1x64x28x28xf16, {o
         -> !VPU.SparseTensor<data=tensor<80x64x3x3xf16, {order = #NHWC}>,
                              sparsity_map=tensor<80x1x1x640xi1>, is_weights>
 
-    %0 = VPU.NCE.Convolution(%input_sparse, %weights_sparse) {
+    %0 = VPU.NCE.Convolution(%input_sparse, %weights_sparse) rawFilterShape [80, 64, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 01 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
-            rawFilterShape = [80, 64, 3, 3],
+            
             strides = [1, 1]
         } : !VPU.SparseTensor<data=tensor<1x64x28x28xf16, {order = #NHWC}>, sparsity_map=tensor<1x64x28x28xi1, {order = #NHWC}>>, !VPU.SparseTensor<data=tensor<80x64x3x3xf16, {order = #NHWC}>, sparsity_map=tensor<80x1x1x640xi1>, is_weights> -> !VPU.SparseTensor<data=tensor<1x80x28x28xf16, {order = #NHWC}>,
                                sparsity_map=tensor<1x80x28x28xi1, {order = #NHWC}>> {
@@ -300,7 +303,8 @@ func.func @SparseConvMulticlusterSOHOverlapped(%arg0 : tensor<1x64x28x28xf16, {o
 // CHECK-SAME{LITERAL}:                                                    compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
 // CHECK-SAME{LITERAL}:                                                    memory_shapes = [[80, 1, 1, 640], [80, 1, 1, 640], [80, 1, 1, 640]],
 // CHECK-SAME{LITERAL}:                                                    memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>, is_weights>
-// CHECK:               [[CONV:%.+]] = VPU.NCE.Convolution([[IN_CP0]], [[IN_CP1]]) {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [80, 64, 3, 3], strides = [1, 1]}
+// CHECK:               [[CONV:%.+]] = VPU.NCE.Convolution([[IN_CP0]], [[IN_CP1]]) rawFilterShape [80, 64, 3, 3] {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK-SAME:                                                             strides = [1, 1]}
 // CHECK-SAME{LITERAL}:                                                    -> !VPU.SparseTensor<data=!VPU.DistributedTensor<1x80x28x28xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
 // CHECK-SAME{LITERAL}:                                                    compute_shapes = [[1, 80, 10, 28], [1, 80, 9, 28], [1, 80, 9, 28]],
 // CHECK-SAME{LITERAL}:                                                    compute_offsets = [[0, 0, 0, 0], [0, 0, 10, 0], [0, 0, 19, 0]],
@@ -498,8 +502,8 @@ func.func @EltwiseInputsSameOffsets(%arg0: tensor<1x128x72x72xf16, {order = #NHW
     %cst = const.Declare tensor<64x128x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<64x128x1x1xf16>, [#const.Reorder<#NHWC>]
     %cst_1 = const.Declare tensor<64x16x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<64x16x1x1xf16>, [#const.Reorder<#NHWC>]
 
-    %0 = VPU.NCE.Convolution(%arg0, %cst) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, rawFilterShape = [64, 128, 1, 1], strides = [1, 1]} : tensor<1x128x72x72xf16, {order = #NHWC}>, tensor<64x128x1x1xf16, {order = #NHWC}> -> tensor<1x64x72x72xf16, {order = #NHWC}>
-    %1 = VPU.NCE.DepthConvolution(%0, %cst_1) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, rawFilterShape = [64, 1, 3, 3], strides = [1, 1]} -> tensor<1x64x72x72xf16, {order = #NHWC}>
+    %0 = VPU.NCE.Convolution(%arg0, %cst) rawFilterShape [64, 128, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,  strides = [1, 1]} : tensor<1x128x72x72xf16, {order = #NHWC}>, tensor<64x128x1x1xf16, {order = #NHWC}> -> tensor<1x64x72x72xf16, {order = #NHWC}>
+    %1 = VPU.NCE.DepthConvolution(%0, %cst_1) rawFilterShape [64, 1, 3, 3] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,  strides = [1, 1]} -> tensor<1x64x72x72xf16, {order = #NHWC}>
     %2 = VPU.Concat(%0, %1) {static_offsets = [[0, 0, 0, 0], [0, 64, 0, 0]]} : tensor<1x64x72x72xf16, {order = #NHWC}>, tensor<1x64x72x72xf16, {order = #NHWC}> -> tensor<1x128x72x72xf16, {order = #NHWC}>
 
     %3 = VPU.NCE.Eltwise(%2, %arg1) {
@@ -524,8 +528,9 @@ func.func @EltwiseInputsSameOffsets(%arg0: tensor<1x128x72x72xf16, {order = #NHW
 // CHECK-SAME{LITERAL}:                                                    compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
 // CHECK-SAME{LITERAL}:                                                    memory_shapes = [[64, 128, 1, 1], [64, 128, 1, 1], [64, 128, 1, 1]],
 // CHECK-SAME{LITERAL}:                                                    memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
-// CHECK:               [[OUT_CONV:%.+]] = VPU.NCE.Convolution([[INPUT0_CP]], [[WT0_CP]]) {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-// CHECK-SAME{LITERAL}:                                                    ppe = #VPU.PPEStub<>, rawFilterShape = [64, 128, 1, 1], strides = [1, 1]}
+// CHECK:               [[OUT_CONV:%.+]] = VPU.NCE.Convolution([[INPUT0_CP]], [[WT0_CP]]) rawFilterShape [64, 128, 1, 1] {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+// CHECK-SAME{LITERAL}:                                                    ppe = #VPU.PPEStub<>, 
+// CHECK-SAME:          strides = [1, 1]}
 // CHECK-SAME{LITERAL}:                                                    -> !VPU.DistributedTensor<1x64x72x72xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
 // CHECK-SAME{LITERAL}:                                                    compute_shapes = [[1, 64, 24, 72], [1, 64, 24, 72], [1, 64, 24, 72]],
 // CHECK-SAME{LITERAL}:                                                    compute_offsets = [[0, 0, 0, 0], [0, 0, 24, 0], [0, 0, 48, 0]],
@@ -549,8 +554,9 @@ func.func @EltwiseInputsSameOffsets(%arg0: tensor<1x128x72x72xf16, {order = #NHW
 // CHECK-SAME{LITERAL}:                                                    compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
 // CHECK-SAME{LITERAL}:                                                    memory_shapes = [[64, 16, 1, 1], [64, 16, 1, 1], [64, 16, 1, 1]],
 // CHECK-SAME{LITERAL}:                                                    memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
-// CHECK:               [[OUT_DCONV:%.+]] = VPU.NCE.DepthConvolution([[CONV_CP1]], [[WT1_CP]]) {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-// CHECK-SAME{LITERAL}:                                                    ppe = #VPU.PPEStub<>, rawFilterShape = [64, 1, 3, 3], strides = [1, 1]}
+// CHECK:               [[OUT_DCONV:%.+]] = VPU.NCE.DepthConvolution([[CONV_CP1]], [[WT1_CP]]) rawFilterShape [64, 1, 3, 3] {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+// CHECK-SAME{LITERAL}:                                                    ppe = #VPU.PPEStub<>, 
+// CHECK-SAME:          strides = [1, 1]}
 // CHECK-SAME{LITERAL}:                                                    -> !VPU.DistributedTensor<1x64x72x72xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
 // CHECK-SAME{LITERAL}:                                                    compute_shapes = [[1, 64, 24, 72], [1, 64, 24, 72], [1, 64, 24, 72]],
 // CHECK-SAME{LITERAL}:                                                    compute_offsets = [[0, 0, 0, 0], [0, 0, 24, 0], [0, 0, 48, 0]],
@@ -661,11 +667,11 @@ func.func @UnrollSOKDequantConv(%input: tensor<1x512x5x5xf16, {order = #NHWC}>) 
             #const.Reorder<#NHWC>
         ]
     %dequant = VPU.Dequantize(%weights) {dstElemType = f16, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1024x512x1x1x!qElemType, {order = #NHWC}> -> tensor<1024x512x1x1xf16, {order = #NHWC}>
-    %conv = VPU.NCE.Convolution(%input, %dequant) {
+    %conv = VPU.NCE.Convolution(%input, %dequant) rawFilterShape [1024, 512, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
-            rawFilterShape = [1024, 512, 1, 1], strides = [1, 1]
+             strides = [1, 1]
             } : tensor<1x512x5x5xf16, {order = #NHWC}>, tensor<1024x512x1x1xf16, {order = #NHWC}> -> tensor<1x1024x5x5xf16, {order = #NHWC}>
 
     return %conv : tensor<1x1024x5x5xf16, {order = #NHWC}>
@@ -1046,5 +1052,37 @@ func.func @RoPEAssignedSplitOverHeightDiffH(%arg0: tensor<1x32x64x64xf16>, %arg1
 
 // CHECK:    [[UNROLLED_OUT:%.+]] = VPU.UnrolledType([[ROPE]]
 // CHECK-SAME:   -> tensor<1x32x64x64xf16>
+}
+}
+
+// -----
+
+// Verify that VPU.SoftMax with an optional 'max' operand correctly distributes
+// both operands when using SplitOverHeight multi-cluster strategy.
+// The 'max' tensor (axis dim=1, size=1) must be tiled on H with the same segments as 'input'.
+
+module @executors {
+config.Resources 3 of @NCE at 1.700000e+03 MHz
+
+// CHECK-LABEL: @SoftMaxWithMaxSplitOverHeight
+// CHECK-SAME: ([[INPUT:%.+]]: tensor<1x4x256x256xf16>, [[MAX:%.+]]: tensor<1x1x256x256xf16>)
+func.func @SoftMaxWithMaxSplitOverHeight(%input: tensor<1x4x256x256xf16>, %max: tensor<1x1x256x256xf16>) -> tensor<1x4x256x256xf16> {
+    %0 = VPU.SoftMax(%input, %max) {axisInd = 1 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x4x256x256xf16>, tensor<1x1x256x256xf16> -> tensor<1x4x256x256xf16>
+    return %0 : tensor<1x4x256x256xf16>
+
+    // CHECK:    [[DIST_IN:%.+]] = VPU.UnrolledType([[INPUT]] : tensor<1x4x256x256xf16>)
+    // CHECK-SAME{LITERAL}:   -> !VPU.DistributedTensor<1x4x256x256xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments, compute_shapes = [[1, 4, 86, 256], [1, 4, 85, 256], [1, 4, 85, 256]], compute_offsets = [[0, 0, 0, 0], [0, 0, 86, 0], [0, 0, 171, 0]], memory_shapes = [[1, 4, 86, 256], [1, 4, 85, 256], [1, 4, 85, 256]], memory_offsets = [[0, 0, 0, 0], [0, 0, 86, 0], [0, 0, 171, 0]]}>
+
+    // CHECK:    [[DIST_MAX:%.+]] = VPU.UnrolledType([[MAX]] : tensor<1x1x256x256xf16>)
+    // CHECK-SAME{LITERAL}:   -> !VPU.DistributedTensor<1x1x256x256xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments, compute_shapes = [[1, 1, 86, 256], [1, 1, 85, 256], [1, 1, 85, 256]], compute_offsets = [[0, 0, 0, 0], [0, 0, 86, 0], [0, 0, 171, 0]], memory_shapes = [[1, 1, 86, 256], [1, 1, 85, 256], [1, 1, 85, 256]], memory_offsets = [[0, 0, 0, 0], [0, 0, 86, 0], [0, 0, 171, 0]]}>
+
+    // CHECK:    [[SOFTMAX:%.+]] = VPU.SoftMax([[DIST_IN]], [[DIST_MAX]]) {axisInd = 1 : i64}
+    // CHECK-SAME:   !VPU.DistributedTensor<1x4x256x256xf16
+    // CHECK-SAME:   !VPU.DistributedTensor<1x1x256x256xf16
+    // CHECK-SAME:   -> !VPU.DistributedTensor<1x4x256x256xf16
+
+    // CHECK:    [[OUT:%.+]] = VPU.UnrolledType([[SOFTMAX]]
+    // CHECK-SAME:   -> tensor<1x4x256x256xf16>
+    // CHECK:    return [[OUT]] : tensor<1x4x256x256xf16>
 }
 }

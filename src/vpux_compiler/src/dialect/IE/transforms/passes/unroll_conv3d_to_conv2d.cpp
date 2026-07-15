@@ -397,7 +397,7 @@ mlir::LogicalResult ConvGeneralRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp 
                 auto conv = mlir::dyn_cast_or_null<IE::ConvolutionOp>(origOp.getOperation());
                 newConvOp = rewriter.create<IE::ConvolutionOp>(
                         newLoc, lastOp->getResult(0), slicedFilters[depthIndex], /*bias=*/nullptr, /*scale*/ nullptr,
-                        stridesAttr, padBeginAttr, padEndAttr, dilationsAttr,
+                        /*zero_points=*/nullptr, stridesAttr, padBeginAttr, padEndAttr, dilationsAttr,
                         /*post_opAttr=*/nullptr, /*clamp=*/nullptr, conv.getStaticScaleAttr(),
                         origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
             }

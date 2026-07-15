@@ -24,7 +24,7 @@
 #include "vpux/compiler/dialect/VPU/utils/sprlut_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
-#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
+#include "vpux/compiler/dialect/config/constraints.hpp"
 
 #include <openvino/op/convolution.hpp>
 #include <openvino/op/parameter.hpp>
@@ -50,7 +50,13 @@ mlir::LogicalResult vpux::VPU::NCEInterpolateOp::inferReturnTypes(
 
     const auto dataPaddingBelow = ov::CoordinateDiff({0, 0});
     const auto dataPaddingAbove = ov::CoordinateDiff({0, 0});
-    const auto filterShape = Shape(parseIntArrayAttr<int64_t>(op.getRawFilterShape()));
+    const auto filterShape = Shape(op.getStaticRawFilterShape());
+    const auto KY = filterShape[Dims4D::Filter::KY];
+    const auto KX = filterShape[Dims4D::Filter::KX];
+
+    VPUX_THROW_WHEN(mlir::ShapedType::isDynamic(KY) || mlir::ShapedType::isDynamic(KX),
+                    "Dynamic kernel size is not supported for NCE operations");
+
     const auto filterStrides = Shape(parseIntArrayAttr<int64_t>(op.getStrides()));
     const auto filterDilations = ov::Strides({1, 1});
 
@@ -98,6 +104,24 @@ mlir::LogicalResult vpux::VPU::NCEInterpolateOp::verify() {
     return mlir::success();
 }
 
+/*
+ * Return the mixed raw filter shape by combining the static and dynamic raw filter shape values into a single
+ * SmallVector of OpFoldResults.
+ */
+SmallVector<mlir::OpFoldResult> vpux::VPU::NCEInterpolateOp::getMixedRawFilterShape() {
+    mlir::Builder builder(getContext());
+    return mlir::getMixedValues(getStaticRawFilterShape(), getRawFilterShape(), builder);
+}
+
+/*
+ * Return the constant raw filter shape by extracting the constant values from the mixed raw filter shape.
+ */
+SmallVector<int64_t> vpux::VPU::NCEInterpolateOp::getConstRawFilterShape() {
+    auto vals = mlir::getConstantIntValues(getMixedRawFilterShape());
+    VPUX_THROW_WHEN(!vals.has_value(), "Cannot get constant raw filter shape from NCEInterpolateOp '{0}'", getLoc());
+    return vals.value();
+}
+
 mlir::LogicalResult vpux::VPU::NCEInterpolateOp::verifyKernel(IE::InterpolateOp origOp, Logger log) {
     log.setName("NCEInvariant");
     const auto logCb = [&](const formatv_object_base& msg) {
@@ -118,7 +142,7 @@ mlir::LogicalResult vpux::VPU::NCEInterpolateOp::verifyKernel(IE::InterpolateOp 
 
 TilingInfo vpux::VPU::NCEInterpolateOp::backInferTileInfo(const vpux::TileInfo& outputTile, vpux::Logger log) {
     const auto origInputShape = getShape(getInput());
-    const auto origFilterShape = Shape(parseIntArrayAttr<int64_t>(getRawFilterShape()));
+    const auto origFilterShape = Shape(getConstRawFilterShape());
 
     // This op incorporates bias values in WeightsTable
     const auto origBiasShape = ShapeRef();
@@ -139,6 +163,10 @@ TilingInfo vpux::VPU::NCEInterpolateOp::backInferTileInfo(const vpux::TileInfo& 
     if (nceOp.getWeightsTable()) {
         inputTiling.tiles.push_back(
                 VPU::getWeightsTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
+    }
+    if (nceOp.getWeightTableDataPtr()) {
+        inputTiling.tiles.push_back(
+                VPU::getDataPointerTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
     }
     if (nceOp.getWeightTableScale()) {
         inputTiling.tiles.push_back(VPU::getScaleTableTile(this, outputTile));
@@ -262,8 +290,8 @@ vpux::NDTypeInterface vpux::VPU::NCEInterpolateOp::getDistributedTypeForOpOperan
     } else if (operand.get() == origOp.getWeights()) {
         return VPU::getDistributedWeightsTypeForOpOperand(clusteredOp, origOp.getWeights(), strategy,
                                                           hasExplicitDistributedAttr, siblingsAnalysis);
-    } else if (operand.get() == origOp.getWeightsTable() || operand.get() == origOp.getWeightTableScale() ||
-               operand.get() == origOp.getWeightTableBias()) {
+    } else if (operand.get() == origOp.getWeightsTable() || operand.get() == origOp.getWeightTableDataPtr() ||
+               operand.get() == origOp.getWeightTableScale() || operand.get() == origOp.getWeightTableBias()) {
         return VPU::getDistributedWeightsTypeForOpOperand(clusteredOp, operand.get(), strategy,
                                                           hasExplicitDistributedAttr, siblingsAnalysis);
     }

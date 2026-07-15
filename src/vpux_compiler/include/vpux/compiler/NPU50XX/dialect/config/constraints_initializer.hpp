@@ -10,12 +10,16 @@
 namespace vpux::config {
 
 //
-// Initializing architecture-specific constraints in context
+// Initializing platform-specific constraints in context
 //
 
 class ConstraintsInitializer50XX final : public IConstraintsInitializer {
 public:
-    void initialize(mlir::MLIRContext* context, PlatformOrArch target) override;
+    explicit ConstraintsInitializer50XX(config::Platform platform);
+    void initialize(mlir::MLIRContext* context) override;
+
+private:
+    config::Platform _platform;
 };
 
 }  // namespace vpux::config

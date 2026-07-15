@@ -65,7 +65,8 @@ mlir::LogicalResult IE::generalRewrite(mlir::Operation* origOp, mlir::PatternRew
         paddedInput = origOp->getOperand(0);
     } else {
         log.trace("Expand input tensor");
-        paddedInput = IE::paddingChannel(origOp, rewriter, origOp->getOperand(0), inPadsEnd, Dims4D::Act::C.ind());
+        paddedInput = IE::paddingChannel(origOp, rewriter, origOp->getOperand(0), inPadsEnd, Dims4D::Act::C.ind(),
+                                         "expand_input");
     }
 
     log.trace("Create new operation with extended input and output");
@@ -81,10 +82,10 @@ mlir::LogicalResult IE::generalRewrite(mlir::Operation* origOp, mlir::PatternRew
         const auto outShape = outputType.getShape();
         auto offsets = calcOutputSliceOffset(origOp, outPadsEnd);
 
-        auto sliceOp =
-                rewriter.replaceOpWithNewOp<IE::SliceOp>(origOp, origOp->getResult(0).getType(), newOp->getResult(0),
-                                                         getIntArrayAttr(ctx, offsets), getIntArrayAttr(ctx, outShape));
-        extendOpLoc(sliceOp, "slice_out");
+        auto sliceOp = rewriter.create<IE::SliceOp>(takeOpLoc(newOp, "slice_out"), origOp->getResult(0).getType(),
+                                                    newOp->getResult(0), getIntArrayAttr(ctx, offsets),
+                                                    getIntArrayAttr(ctx, outShape));
+        rewriter.replaceOp(origOp, sliceOp.getResult());
     }
 
     return mlir::success();
@@ -119,10 +120,11 @@ mlir::LogicalResult IE::MaxPoolRewriter::matchAndRewrite(IE::MaxPoolOp origOp, m
         auto [inputPaddingAttr, outputPaddingAttr] =
                 getPaddingAttributes(origOp, expandedInput, inChanPadEnd, outPadAfter);
 
-        return rewriter.create<IE::MaxPoolOp>(origOp.getLoc(), newOutputType, expandedInput, origOp.getKernelSize(),
-                                              origOp.getStrides(), origOp.getPadsBegin(), origOp.getPadsEnd(),
-                                              origOp.getRoundingType(), origOp.getPostOpAttr(), origOp.getClampAttr(),
-                                              outputPaddingAttr, inputPaddingAttr);
+        return rewriter.create<IE::MaxPoolOp>(takeOpLoc(origOp, "expanded"), newOutputType, expandedInput,
+                                              origOp.getKernelSize(), origOp.getStrides(), origOp.getPadsBegin(),
+                                              origOp.getPadsEnd(), origOp.getRoundingType(), origOp.getPostOpAttr(),
+                                              origOp.getClampAttr(), origOp.getStaticScaleAttr(), outputPaddingAttr,
+                                              inputPaddingAttr);
     };
 
     return generalRewrite(origOp, rewriter, opCreator, IE::extractMeaningfulOutput, _log.nest());
@@ -151,8 +153,8 @@ mlir::LogicalResult IE::ConvolutionRewriter::matchAndRewrite(IE::ConvolutionOp o
                 Shape biasPadsEnd(biasShape.size(), 0);
                 biasPadsEnd[Dims4D::Act::C] = checked_cast<uint32_t>(outChanPadEnd);
 
-                paddedBiases = rewriter.createOrFold<IE::ExpandOp>(
-                        appendLoc(origOp->getLoc(), "bias"), origOp.getBias(), std::nullopt, ShapeRef(biasPadsEnd));
+                paddedBiases = rewriter.createOrFold<IE::ExpandOp>(takeOpLoc(origOp, "expand_bias"), origOp.getBias(),
+                                                                   std::nullopt, ShapeRef(biasPadsEnd));
             }
         }
 
@@ -166,10 +168,10 @@ mlir::LogicalResult IE::ConvolutionRewriter::matchAndRewrite(IE::ConvolutionOp o
         auto [inputPaddingAttr, outputPaddingAttr] =
                 getPaddingAttributes(origOp, expandedInput, inChanPadEnd, outPadAfter);
 
-        return rewriter.create<IE::ConvolutionOp>(origOp.getLoc(), newOutputType, expandedInput, paddedFilter,
-                                                  paddedBiases, origOp.getScale(), origOp.getStrides(),
-                                                  origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getDilations(),
-                                                  origOp.getPostOpAttr(), origOp.getClampAttr(),
+        return rewriter.create<IE::ConvolutionOp>(takeOpLoc(origOp, "expanded"), newOutputType, expandedInput,
+                                                  paddedFilter, paddedBiases, origOp.getScale(), origOp.getZeroPoints(),
+                                                  origOp.getStrides(), origOp.getPadsBegin(), origOp.getPadsEnd(),
+                                                  origOp.getDilations(), origOp.getPostOpAttr(), origOp.getClampAttr(),
                                                   origOp.getStaticScaleAttr(), outputPaddingAttr, inputPaddingAttr);
     };
 
@@ -216,7 +218,8 @@ mlir::LogicalResult IE::MatMulRewriter::matchAndRewrite(IE::MatMulOp origOp, mli
         return std::make_pair(inputChannelPad, outputChannelPad);
     };
 
-    auto expandDimension = [&](auto dataToExpand, auto dimToExpand, auto pad, auto rank, bool isInput) mutable {
+    auto expandDimension = [&](auto dataToExpand, auto dimToExpand, auto pad, auto rank, bool isInput,
+                               StringRef inputName) mutable {
         const auto dataType = mlir::cast<vpux::NDTypeInterface>(dataToExpand.getType());
         const auto quantizedType = mlir::dyn_cast_or_null<mlir::quant::UniformQuantizedType>(dataType.getElementType());
         if (quantizedType && isInput) {
@@ -228,7 +231,7 @@ mlir::LogicalResult IE::MatMulRewriter::matchAndRewrite(IE::MatMulOp origOp, mli
             concatInputs.push_back(dataToExpand);
             concatInputs.push_back(generateZeroConst(origOp.getLoc(), dataType, ShapeRef(padsEnd), rewriter));
 
-            return rewriter.createOrFold<IE::ConcatOp>(appendLoc(dataToExpand.getLoc(), "concat"), concatInputs,
+            return rewriter.createOrFold<IE::ConcatOp>(takeOpLoc(origOp, "concat_{0}", inputName), concatInputs,
                                                        dimToExpand);
         } else {
             if (!mlir::isa<mlir::FloatType>(dataType.getElementType())) {
@@ -239,8 +242,7 @@ mlir::LogicalResult IE::MatMulRewriter::matchAndRewrite(IE::MatMulOp origOp, mli
             Shape padsEnd(rank, 0);
             padsEnd[dimToExpand] = pad;
 
-            return rewriter.createOrFold<IE::ExpandOp>(appendLoc(dataToExpand.getLoc(), "{0}_{1}", padsBegin, padsEnd),
-                                                       dataToExpand,
+            return rewriter.createOrFold<IE::ExpandOp>(takeOpLoc(origOp, "expand_{0}", inputName), dataToExpand,
                                                        getIntArrayAttr(rewriter, ArrayRef(padsBegin.raw())),
                                                        getIntArrayAttr(rewriter, ArrayRef(padsEnd.raw())));
         }
@@ -259,16 +261,16 @@ mlir::LogicalResult IE::MatMulRewriter::matchAndRewrite(IE::MatMulOp origOp, mli
         if (inputChannelPad != 0) {
             expandedInput1 =
                     expandDimension(expandedInput1, origOp.getTransposeA() ? Dim(input1Rank - 2) : Dim(input1Rank - 1),
-                                    inputChannelPad, input1Rank, true);
+                                    inputChannelPad, input1Rank, true, "in1");
             expandedInput2 =
                     expandDimension(expandedInput2, origOp.getTransposeB() ? Dim(input2Rank - 1) : Dim(input2Rank - 2),
-                                    inputChannelPad, input2Rank, true);
+                                    inputChannelPad, input2Rank, true, "in2_ic");
         }
 
         if (outputChannelPad != 0) {
             expandedInput2 =
                     expandDimension(expandedInput2, origOp.getTransposeB() ? Dim(input2Rank - 2) : Dim(input2Rank - 1),
-                                    outputChannelPad, input2Rank, false);
+                                    outputChannelPad, input2Rank, false, "in2_oc");
         }
 
         return std::make_pair(expandedInput1, expandedInput2);
@@ -292,7 +294,7 @@ mlir::LogicalResult IE::MatMulRewriter::matchAndRewrite(IE::MatMulOp origOp, mli
         auto newSlice = rewriter.replaceOpWithNewOp<IE::SliceOp>(origOp, opToSlice->getResult(0),
                                                                  getIntArrayAttr(rewriter, sliceOffsets),
                                                                  getIntArrayAttr(rewriter, outShape));
-        extendOpLoc(newSlice, "slice_out");
+        extendOpLoc(newSlice, "matmul_slice_out");
     };
 
     auto [inputChannelPad, outputChannelPad] = getPadsForChannels();
@@ -300,7 +302,7 @@ mlir::LogicalResult IE::MatMulRewriter::matchAndRewrite(IE::MatMulOp origOp, mli
     auto newOutputType = inferOutputType(outputChannelPad);
 
     auto newOp = cloneMatMulOp(rewriter, origOp, newOutputType, expandedInput1, expandedInput2);
-    newOp->setLoc(appendLoc(origOp.getLoc(), "expanded"));
+    extendOpLoc(newOp, "expanded");
 
     sliceOutput(newOp);
 
@@ -327,8 +329,8 @@ mlir::LogicalResult IE::GroupConvolutionRewriter::matchAndRewrite(IE::GroupConvo
             Shape filterPadsEnd(filterShape.size(), 0);
             filterPadsEnd[Dims4D::Filter::OC] = outChanPadEnd;
 
-            paddedFilter =
-                    IE::paddingChannel(origOp, rewriter, origOp.getFilter(), filterPadsEnd, Dims4D::Filter::OC.ind());
+            paddedFilter = IE::paddingChannel(origOp, rewriter, origOp.getFilter(), filterPadsEnd,
+                                              Dims4D::Filter::OC.ind(), "expand_filter");
         }
 
         mlir::Value paddedBiases;
@@ -342,8 +344,8 @@ mlir::LogicalResult IE::GroupConvolutionRewriter::matchAndRewrite(IE::GroupConvo
                 Shape biasPadsEnd(biasShape.size(), 0);
                 biasPadsEnd[Dims4D::Act::C] = checked_cast<uint32_t>(outChanPadEnd);
 
-                paddedBiases =
-                        IE::paddingChannel(origOp, rewriter, origOp.getBias(), biasPadsEnd, Dims4D::Act::C.ind());
+                paddedBiases = IE::paddingChannel(origOp, rewriter, origOp.getBias(), biasPadsEnd, Dims4D::Act::C.ind(),
+                                                  "expand_bias");
             }
         }
 
@@ -359,8 +361,8 @@ mlir::LogicalResult IE::GroupConvolutionRewriter::matchAndRewrite(IE::GroupConvo
                 getPaddingAttributes(origOp, expandedInput, inChanPadEnd, outPadAfter);
 
         return rewriter.create<IE::GroupConvolutionOp>(
-                origOp.getLoc(), newOutputType, expandedInput, paddedFilter, paddedBiases, origOp.getStrides(),
-                origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getDilations(),
+                takeOpLoc(origOp, "expanded"), newOutputType, expandedInput, paddedFilter, paddedBiases,
+                origOp.getStrides(), origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getDilations(),
                 getIntAttr(getContext(), newConvOutShape[Dims4D::Act::C]), origOp.getPostOpAttr(),
                 origOp.getClampAttr(), outputPaddingAttr, inputPaddingAttr);
     };
@@ -406,10 +408,10 @@ mlir::LogicalResult IE::InterpolateRewriter::matchAndRewrite(IE::InterpolateOp o
                 getPaddingAttributes(origOp, expandedInput, inChanPadEnd, outPadAfter);
 
         return rewriter.create<IE::InterpolateOp>(
-                origOp.getLoc(), newOutputType, expandedInput, sizesInput, origOp.getScales(), origOp.getAxes(),
-                sizesAttr, origOp.getScalesAttrAttr(), origOp.getAxesAttrAttr(), origOp.getTileOffsetAttrAttr(),
-                origOp.getInitialInputDimsAttrAttr(), origOp.getInitialOutputDimsAttrAttr(), origOp.getAttrAttr(),
-                outputPaddingAttr, inputPaddingAttr);
+                takeOpLoc(origOp, "expanded"), newOutputType, expandedInput, sizesInput, origOp.getScales(),
+                origOp.getAxes(), sizesAttr, origOp.getScalesAttrAttr(), origOp.getAxesAttrAttr(),
+                origOp.getTileOffsetAttrAttr(), origOp.getInitialInputDimsAttrAttr(),
+                origOp.getInitialOutputDimsAttrAttr(), origOp.getAttrAttr(), outputPaddingAttr, inputPaddingAttr);
     };
 
     const auto calcOutputSliceOffset = [&](mlir::Operation*, ShapeRef outPadsEnd) -> SmallVector<int64_t> {
@@ -444,8 +446,8 @@ mlir::LogicalResult IE::TransposedConvolutionRewriter::matchAndRewrite(IE::Trans
                 Shape biasPadsEnd(biasShape.size(), 0);
                 biasPadsEnd[Dims4D::Act::C] = checked_cast<uint32_t>(outChanPadEnd);
 
-                paddedBiases =
-                        IE::paddingChannel(origOp, rewriter, origOp.getBias(), biasPadsEnd, Dims4D::Act::C.ind());
+                paddedBiases = IE::paddingChannel(origOp, rewriter, origOp.getBias(), biasPadsEnd, Dims4D::Act::C.ind(),
+                                                  "expand_bias");
             }
         }
 
@@ -460,8 +462,8 @@ mlir::LogicalResult IE::TransposedConvolutionRewriter::matchAndRewrite(IE::Trans
                 getPaddingAttributes(origOp, expandedInput, inChanPadEnd, outPadAfter);
 
         return rewriter.create<IE::TransposedConvolutionOp>(
-                origOp.getLoc(), newOutputType, expandedInput, paddedFilter, origOp.getOutputShape(), paddedBiases,
-                origOp.getStrides(), origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getDilations(),
+                takeOpLoc(origOp, "expanded"), newOutputType, expandedInput, paddedFilter, origOp.getOutputShape(),
+                paddedBiases, origOp.getStrides(), origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getDilations(),
                 origOp.getSpatialOutputPaddingAttr(), origOp.getPostOpAttr(), origOp.getClampAttr(), outputPaddingAttr,
                 inputPaddingAttr);
     };
@@ -492,11 +494,11 @@ mlir::LogicalResult IE::PadRewriter::matchAndRewrite(IE::PadOp origOp, mlir::Pat
         auto [inputPaddingAttr, outputPaddingAttr] =
                 getPaddingAttributes(origOp, expandedInput, inChanPadEnd, outPadAfter);
 
-        return rewriter.create<IE::PadOp>(origOp.getLoc(), newOutputType, expandedInput, origOp.getPadsBegin(),
-                                          origOp.getPadsEnd(), origOp.getPadValue(), origOp.getPadsBeginAttrAttr(),
-                                          origOp.getPadsEndAttrAttr(), origOp.getPadValueAttrAttr(),
-                                          origOp.getModeAttr(), outputPaddingAttr, inputPaddingAttr,
-                                          origOp.getOutputShapeAttr(), origOp.getOutputBoundsAttr());
+        return rewriter.create<IE::PadOp>(takeOpLoc(origOp, "expanded"), newOutputType, expandedInput,
+                                          origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getPadValue(),
+                                          origOp.getPadsBeginAttrAttr(), origOp.getPadsEndAttrAttr(),
+                                          origOp.getPadValueAttrAttr(), origOp.getModeAttr(), outputPaddingAttr,
+                                          inputPaddingAttr, origOp.getOutputShapeAttr(), origOp.getOutputBoundsAttr());
     };
 
     const auto calcOutputSliceOffset = [&](mlir::Operation*, ShapeRef outPadsEnd) -> SmallVector<int64_t> {
@@ -525,11 +527,11 @@ mlir::LogicalResult IE::AvgPoolRewriter::matchAndRewrite(IE::AvgPoolOp origOp, m
         auto [inputPaddingAttr, outputPaddingAttr] =
                 getPaddingAttributes(origOp, expandedInput, inChanPadEnd, outPadAfter);
 
-        return rewriter.create<IE::AvgPoolOp>(origOp.getLoc(), newOutputType, expandedInput, origOp.getKernelSize(),
-                                              origOp.getStrides(), origOp.getPadsBegin(), origOp.getPadsEnd(),
-                                              origOp.getRoundingType(), origOp.getExcludePads(), origOp.getPostOpAttr(),
-                                              origOp.getClampAttr(), origOp.getStaticScaleAttr(), outputPaddingAttr,
-                                              inputPaddingAttr);
+        return rewriter.create<IE::AvgPoolOp>(takeOpLoc(origOp, "expanded"), newOutputType, expandedInput,
+                                              origOp.getKernelSize(), origOp.getStrides(), origOp.getPadsBegin(),
+                                              origOp.getPadsEnd(), origOp.getRoundingType(), origOp.getExcludePads(),
+                                              origOp.getPostOpAttr(), origOp.getClampAttr(),
+                                              origOp.getStaticScaleAttr(), outputPaddingAttr, inputPaddingAttr);
     };
 
     return generalRewrite(origOp, rewriter, opCreator, IE::extractMeaningfulOutput, _log.nest());
@@ -545,8 +547,9 @@ mlir::LogicalResult IE::SoftMaxRewriter::matchAndRewrite(IE::SoftMaxOp origOp, m
     const auto opCreator = [&](mlir::Value expandedInput, int64_t inChanPadEnd,
                                int64_t outChanPadsEnd) -> mlir::Operation* {
         _log.trace("Expand SoftMax with pad {0} in {1} out", inChanPadEnd, outChanPadsEnd);
-        return rewriter.create<IE::SoftMaxOp>(origOp->getLoc(), expandedInput, origOp.getAxisIndAttr(),
-                                              getIntAttr(rewriter.getContext(), inChanPadEnd));
+        return rewriter.create<IE::SoftMaxOp>(takeOpLoc(origOp, "expanded"), expandedInput, origOp.getAxisIndAttr(),
+                                              getIntAttr(rewriter.getContext(), inChanPadEnd),
+                                              origOp.getDstElemTypeAttr(), origOp.getMaskAwareAttr());
     };
 
     return generalRewrite(origOp, rewriter, opCreator, IE::extractMeaningfulOutput, _log.nest());
@@ -561,16 +564,16 @@ mlir::LogicalResult IE::AttentionRewriter::matchAndRewrite(IE::AttentionOp origO
     _log.trace("[{0}] Got AttentionRewriter layer at '{1}'", getDebugName(), origOp->getLoc());
     auto expandDimensions = [origOp, &rewriter](auto dataToExpand, auto dimsToExpand, ArrayRef<int64_t> pad, auto rank,
                                                 const std::string& suffix) mutable {
-        auto newLoc = appendLoc(origOp.getLoc(), suffix);
         const Shape padsBegin(rank, 0);
         auto iterator = dataToExpand;
         for (auto i : dimsToExpand | indexed) {
             Shape padsEnd(rank, 0);
             padsEnd[Dim(i.value())] = pad[i.index()];
             if (pad[i.index()]) {
-                iterator = rewriter.createOrFold<IE::ExpandOp>(appendLoc(newLoc, "_{0}", i.index()), iterator,
-                                                               getIntArrayAttr(rewriter, ArrayRef(padsBegin.raw())),
-                                                               getIntArrayAttr(rewriter, ArrayRef(padsEnd.raw())));
+                iterator =
+                        rewriter.createOrFold<IE::ExpandOp>(takeOpLoc(origOp, "{0}_{1}", suffix, i.index()), iterator,
+                                                            getIntArrayAttr(rewriter, ArrayRef(padsBegin.raw())),
+                                                            getIntArrayAttr(rewriter, ArrayRef(padsEnd.raw())));
             }
         }
         return iterator;
@@ -645,9 +648,9 @@ mlir::LogicalResult IE::AttentionRewriter::matchAndRewrite(IE::AttentionOp origO
         }
     }
 
-    auto attention = rewriter.create<IE::AttentionOp>(origOp.getLoc(), expandedInQ, expandedInK, expandedInV,
-                                                      paddedAttentionMask, origOp.getInputScale(), paddedSink,
-                                                      paddedBias, getIntAttr(rewriter.getContext(), inSPad));
+    auto attention = rewriter.create<IE::AttentionOp>(
+            takeOpLoc(origOp, "expanded"), expandedInQ, expandedInK, expandedInV, paddedAttentionMask,
+            origOp.getInputScale(), paddedSink, paddedBias, getIntAttr(rewriter.getContext(), inSPad));
 
     if (inEvPad) {
         _log.trace("Slice Attention output with padding {0}", inEvPad);
@@ -694,7 +697,7 @@ mlir::LogicalResult vpux::IE::FlashSDPARewriter::matchAndRewrite(IE::FlashSDPAOp
     auto valuePadEnd = Shape{0, 0, vEmbeddingPad, sourceSeqLenPad};
     auto runningOutputPadEnd = Shape{0, 0, 0, vEmbeddingPad};
 
-    auto expand = [&rewriter](mlir::Value value, ShapeRef padsEnd) -> mlir::Value {
+    auto expand = [origOp, &rewriter](mlir::Value value, ShapeRef padsEnd, StringRef operandName) -> mlir::Value {
         // pads_end must contain at most one non-zero value.
         for (auto [index, padEnd] : enumerate(padsEnd)) {
             if (padEnd == 0) {
@@ -706,7 +709,7 @@ mlir::LogicalResult vpux::IE::FlashSDPARewriter::matchAndRewrite(IE::FlashSDPAOp
             auto padsEndOneDim = SmallVector<int64_t>(padsEnd.size());
             padsEndOneDim[index] = padEnd;
 
-            auto loc = appendLoc(value.getLoc(), "pad_{0}", Dim(index));
+            auto loc = takeOpLoc(origOp, "expand_{0}_dim{1}", operandName, index);
             value = rewriter.createOrFold<IE::ExpandOp>(loc, value, getIntArrayAttr(rewriter, padsBegin),
                                                         getIntArrayAttr(rewriter, padsEndOneDim));
         }
@@ -714,21 +717,21 @@ mlir::LogicalResult vpux::IE::FlashSDPARewriter::matchAndRewrite(IE::FlashSDPAOp
         return value;
     };
 
-    auto paddedQuery = expand(origOp.getQuery(), queryPadEnd);
-    auto paddedKey = expand(origOp.getKey(), keyPadEnd);
-    auto paddedValue = expand(origOp.getValue(), valuePadEnd);
-    auto paddedRunningOutput = expand(origOp.getInputRunningOutput(), runningOutputPadEnd);
+    auto paddedQuery = expand(origOp.getQuery(), queryPadEnd, "query");
+    auto paddedKey = expand(origOp.getKey(), keyPadEnd, "key");
+    auto paddedValue = expand(origOp.getValue(), valuePadEnd, "value");
+    auto paddedRunningOutput = expand(origOp.getInputRunningOutput(), runningOutputPadEnd, "running_output");
 
     auto paddedAttentionMask = mlir::Value{origOp.getAttentionMask()};
     if (paddedAttentionMask != nullptr) {
         auto attentionMaskPadsEnd = Shape{0, 0, 0, sourceSeqLenPad};
-        paddedAttentionMask = expand(origOp.getAttentionMask(), attentionMaskPadsEnd);
+        paddedAttentionMask = expand(origOp.getAttentionMask(), attentionMaskPadsEnd, "attention_mask");
     }
 
     auto newOp = rewriter.create<IE::FlashSDPAOp>(
-            origOp.getLoc(), paddedQuery, paddedKey, paddedValue, paddedRunningOutput, origOp.getInputRunningMax(),
-            origOp.getInputRunningSum(), paddedAttentionMask, origOp.getIsHeadAttr(), origOp.getIsTailAttr(),
-            getIntAttr(rewriter, sourceSeqLenPad));
+            takeOpLoc(origOp, "expanded"), paddedQuery, paddedKey, paddedValue, paddedRunningOutput,
+            origOp.getInputRunningMax(), origOp.getInputRunningSum(), paddedAttentionMask, origOp.getIsHeadAttr(),
+            origOp.getIsTailAttr(), getIntAttr(rewriter, sourceSeqLenPad));
 
     if (vEmbeddingPad == 0) {
         _log.trace("Output channels are already aligned");

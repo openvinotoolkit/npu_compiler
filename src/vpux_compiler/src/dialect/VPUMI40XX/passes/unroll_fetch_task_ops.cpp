@@ -14,6 +14,7 @@
 
 #include "vpux/compiler/utils/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/types.hpp"
 #include "vpux/compiler/utils/walk_utils.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
@@ -83,11 +84,13 @@ mlir::LogicalResult RewriteFetchTaskToDma::matchAndRewrite(VPURegMapped::FetchTa
     const auto memSpaceCMX = vpux::IndexedSymbolAttr::get(ctx, stringifyEnum(VPU::MemoryKind::CMX_NN),
                                                           primaryTaskOpStart.getIndexType().getTileIdx());
 
-    auto primaryMemrefDDR = mlir::MemRefType::get({primaryCount, primarySize}, rewriter.getIntegerType(8, false));
+    auto primaryMemrefDDR =
+            vpux::getMemRefType(ShapeRef({primaryCount, primarySize}), rewriter.getIntegerType(8, false));
     auto primaryMemrefCMX = mlir::cast<mlir::MemRefType>(
             mlir::cast<vpux::NDTypeInterface>(primaryMemrefDDR).changeMemSpace(memSpaceCMX));
 
-    auto secondaryMemrefDDR = mlir::MemRefType::get({secondaryCount, secondarySize}, rewriter.getIntegerType(8, false));
+    auto secondaryMemrefDDR =
+            vpux::getMemRefType(ShapeRef({secondaryCount, secondarySize}), rewriter.getIntegerType(8, false));
     auto secondaryMemrefCMX = mlir::cast<mlir::MemRefType>(
             mlir::cast<vpux::NDTypeInterface>(secondaryMemrefDDR).changeMemSpace(memSpaceCMX));
 

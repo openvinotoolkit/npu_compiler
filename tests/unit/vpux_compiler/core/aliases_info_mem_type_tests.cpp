@@ -26,8 +26,8 @@ TEST_F(MLIR_AliasesInfoMemType, CmxAndDdrDma) {
     constexpr llvm::StringLiteral inputIR = R"(
         #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-        !Type_DDR = memref<1x1x1x5120xui8, #NCHW, @DDR>
-        !Type_CMX = memref<1x1x1x5120xui8, #NCHW, [@CMX_NN, 0]>
+        !Type_DDR = memref<1x1x1x5120xui8, {order = #NCHW}, @DDR>
+        !Type_CMX = memref<1x1x1x5120xui8, {order = #NCHW}, [@CMX_NN, 0]>
 
         module @test {
             func.func @main() -> !Type_DDR {

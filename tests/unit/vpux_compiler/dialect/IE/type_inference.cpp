@@ -84,7 +84,7 @@ using BinaryOpTestParams = std::tuple<SmallVector<int64_t>, DimsOrder, SmallVect
 
 // This workaround is needed because using DimsOrder::NWHC to initialize global variables (as needed for gtest test
 // instances) is undefined behaviour.
-SmallVector<BinaryOpTestParams> getBinaryOpTestCases() {
+std::vector<BinaryOpTestParams> getBinaryOpTestCases() {
     return {BinaryOpTestParams{{2, 2, 2, 2}, vpux::DimsOrder::NWHC, {2, 2}, vpux::DimsOrder::CN},
             BinaryOpTestParams{{2, 2}, vpux::DimsOrder::CN, {2, 2, 2, 2}, vpux::DimsOrder::NWHC},
             BinaryOpTestParams{{9, 9, 9, 9}, vpux::DimsOrder::HWCN, {9, 9, 9, 9}, vpux::DimsOrder::NCWH}};

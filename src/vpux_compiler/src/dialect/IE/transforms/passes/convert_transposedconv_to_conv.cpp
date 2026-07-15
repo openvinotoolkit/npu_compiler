@@ -104,12 +104,13 @@ mlir::LogicalResult TransposedConvolutionConversion::matchAndRewrite(IE::Transpo
     auto padsEnd = getIntArrayAttr(getContext(), SmallVector<int64_t>{0, 0});
     auto dilations = getIntArrayAttr(getContext(), SmallVector<int64_t>{1, 1});
 
-    auto resultOP = rewriter.create<IE::ConvolutionOp>(origOp.getLoc(), paddingOutput, origOp.getFilter(),
-                                                       origOp.getBias(), /*scale*/ nullptr, strides, padsBegin, padsEnd,
-                                                       dilations, origOp.getPostOpAttr(), origOp.getClampAttr(),
-                                                       /*staticScale=*/nullptr, origOp.getOutputPaddingAttr(),
-                                                       origOp.getInputPaddingAttr())
-                            .getOutput();
+    auto resultOP =
+            rewriter.create<IE::ConvolutionOp>(origOp.getLoc(), paddingOutput, origOp.getFilter(), origOp.getBias(),
+                                               /*scale*/ nullptr, /*zero_points*/ nullptr, strides, padsBegin, padsEnd,
+                                               dilations, origOp.getPostOpAttr(), origOp.getClampAttr(),
+                                               /*staticScale=*/nullptr, origOp.getOutputPaddingAttr(),
+                                               origOp.getInputPaddingAttr())
+                    .getOutput();
 
     const auto nceOutputShape = mlir::cast<vpux::NDTypeInterface>(resultOP.getType()).getShape();
     if (origOp.getOutputShape() != nullptr && nceOutputShape != outputShape) {

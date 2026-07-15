@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include <vpux/utils/core/error.hpp>
 #include "vpux/compiler/core/barrier_info.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
@@ -146,6 +147,8 @@ void AddPlaceholderFetchDMAsPass::planFetchDMAAndBarriersInsertionPerQueue(Block
         FetchDMAData fetchDMAData;
         auto insertionIndex = barrierInfo.getIndex(firstTaskOp);
         fetchDMAData.insertionPoint = insertionIndex;
+        VPUX_THROW_WHEN(executionGroup[groupIdx].empty(),
+                        "Execution group {0} is empty, cannot determine FetchDMA attr", groupIdx);
         fetchDMAData.fetchDmaAttr = VPURT::getFetchDMAAttr(groupIdx, barrierInfo, executionGroup[groupIdx].front());
         emptyInsertions.fetchDMAsToInsert.push_back(fetchDMAData);
     }
@@ -214,8 +217,10 @@ void AddPlaceholderFetchDMAsPass::planFetchDMAAndBarriersInsertionPerQueue(Block
             auto dummyBarrierOneProducer = firstTaskParentGroup;
             // If parent group only has one task, then we cannot enqueue in parallel to parent
             if (firstTaskParentGroup == lastTaskParentGroup) {
-                dummyBarrierOneProducer = lastTaskGrandParentGroup;
-                _log.trace("Parent group has single task, setting dummyBarrierOneProducer to lastTaskGrandParentGroup");
+                VPUX_THROW("Parent group has single task, but should have at least two, check amount of "
+                           "variants/ranges. executionGroupIdx={0}, firstTaskParentGroup={1}, "
+                           "lastTaskParentGroup={2}",
+                           groupIdx, firstTaskParentGroup, lastTaskParentGroup);
             }
 
             auto dummyBarrierTwoConsumer = lastTaskParentGroup;
@@ -261,7 +266,7 @@ void AddPlaceholderFetchDMAsPass::planFetchDMAAndBarriersInsertionPerQueue(Block
                     emptyInsertions.barrierAddConsumerProducerMap[{barTwoDummyIdx, VPURT::Type::Dummy}].first;
             consumersToAdd.push_back({dummyBarrierTwoConsumer, VPURT::Type::Real});
         }
-
+        VPUX_THROW_WHEN(travelingGroup.empty(), "Traveling execution group {0} is empty", groupIdx);
         fetchDMAData.fetchDmaAttr = VPURT::getFetchDMAAttr(groupIdx, barrierInfo, travelingGroup.front());
         emptyInsertions.fetchDMAsToInsert.push_back(fetchDMAData);
 

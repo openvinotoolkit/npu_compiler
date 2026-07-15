@@ -29,6 +29,8 @@ namespace vpux::VPUIP {
 #include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
 }  // namespace vpux::VPUIP
 
+using namespace vpux;
+
 namespace {
 class LegalizeStridedDmasPass final : public VPUIP::impl::LegalizeStridedDmasBase<LegalizeStridedDmasPass> {
 public:

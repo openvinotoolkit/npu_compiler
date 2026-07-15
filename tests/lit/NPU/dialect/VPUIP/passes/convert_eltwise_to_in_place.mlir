@@ -10,8 +10,8 @@
 
 !qElemType = !quant.uniform<u8:f16, 0.0047491008160161037:146>
 
-!qTypeCMX = memref<1x32x103x512x!qElemType, #NHWC, @CMX_NN>
-!qTypeDDR = memref<1x32x103x512x!qElemType, #NHWC>
+!qTypeCMX = memref<1x32x103x512x!qElemType, {order = #NHWC}, @CMX_NN>
+!qTypeDDR = memref<1x32x103x512x!qElemType, {order = #NHWC}>
 
 !DistributedType1 = !VPUIP.DistributedBuffer<
     1x32x103x512x!qElemType,
@@ -93,10 +93,10 @@ func.func @InplaceEltwiseToEltwise(%in1: !qTypeDDR, %in2: !qTypeDDR, %in3: !qTyp
 
 !qElemType = !quant.uniform<u8:f16, 0.0047491008160161037:146>
 
-!qTypeCMX = memref<1x32x103x512x!qElemType, #NHWC, @CMX_NN>
-!qTypeDDR = memref<1x32x206x256x!qElemType, #NHWC>
-!qTypeConvCMX = memref<1x32x206x256x!qElemType, #NHWC, @CMX_NN>
-!qTypeConvDDR = memref<1x32x206x256x!qElemType, #NHWC>
+!qTypeCMX = memref<1x32x103x512x!qElemType, {order = #NHWC}, @CMX_NN>
+!qTypeDDR = memref<1x32x206x256x!qElemType, {order = #NHWC}>
+!qTypeConvCMX = memref<1x32x206x256x!qElemType, {order = #NHWC}, @CMX_NN>
+!qTypeConvDDR = memref<1x32x206x256x!qElemType, {order = #NHWC}>
 
 !DistributedType1 = !VPUIP.DistributedBuffer<
     1x32x206x256x!qElemType,
@@ -116,7 +116,7 @@ func.func @InplaceEltwiseToEltwise(%in1: !qTypeDDR, %in2: !qTypeDDR, %in3: !qTyp
 
 // CHECK-LABEL: InPlaceEltwiseWithSiblingsOnBothInputs
 func.func @InPlaceEltwiseWithSiblingsOnBothInputs(
-    %weights0 : memref<32x32x1x1xf16, #NHWC, @CMX_NN>)
+    %weights0 : memref<32x32x1x1xf16, {order = #NHWC}, @CMX_NN>)
       -> (!DistributedType1, !DistributedType2, !DistributedType1) {
     %in1 = memref.alloc() : !qTypeDDR
     %in2 = memref.alloc() : !qTypeDDR
@@ -153,7 +153,7 @@ func.func @InPlaceEltwiseWithSiblingsOnBothInputs(
     %convOutBuff0 = VPURT.AllocDistributed -> !DistributedType2
     %conv0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
         input(%conv0InCMX : !DistributedType1)
-        weights(%weights0 : memref<32x32x1x1xf16, #NHWC, @CMX_NN>)
+        weights(%weights0 : memref<32x32x1x1xf16, {order = #NHWC}, @CMX_NN>)
         parent_input(%conv0InCMX : !DistributedType1)
         parent_output(%convOutBuff0 : !DistributedType2)
         outputs(%convOutBuff0 : !DistributedType2)
@@ -168,7 +168,7 @@ func.func @InPlaceEltwiseWithSiblingsOnBothInputs(
     %convOutBuff1 = VPURT.AllocDistributed -> !DistributedType1
     %conv1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
         input(%eltwiseIn2CMX : !DistributedType1)
-        weights(%weights0 : memref<32x32x1x1xf16, #NHWC, @CMX_NN>)
+        weights(%weights0 : memref<32x32x1x1xf16, {order = #NHWC}, @CMX_NN>)
         parent_input(%eltwiseIn2CMX : !DistributedType1)
         parent_output(%convOutBuff0 : !DistributedType2)
         outputs(%convOutBuff0 : !DistributedType2)
@@ -208,7 +208,7 @@ func.func @InPlaceEltwiseWithSiblingsOnBothInputs(
 
 !qTypeCMX1 = memref<1x1x2048x1xf16, {order = #NHWC, strides = [2048, 1, 1, 1]}, @CMX_NN>
 !qTypeCMX2 = memref<1x1x2048x1xf16, {order = #NHWC, strides = [2048, 1, 1, 1]}, @CMX_NN>
-!qTypeCMX3 = memref<1x1x4096x1xf16, #NHWC, @CMX_NN>
+!qTypeCMX3 = memref<1x1x4096x1xf16, {order = #NHWC}, @CMX_NN>
 
 !DistributedType1 = !VPUIP.DistributedBuffer<
     1x1x4096x1xf16,
@@ -278,7 +278,7 @@ func.func @InPlaceEltwiseWithSiblingsOnBothInputs(
 // CHECK-LABEL: CreateShapeCastOpBeforeDistributedCastOp
 // CHECK-SAME: [[ARG0:%.+]]: !VPUIP.DistributedBuffer<1x1x2048x1xf16,
 // CHECK-SAME: [[ARG1:%.+]]: !VPUIP.DistributedBuffer<1x1x4096x1xf16,
-// CHECK-SAME: [[ARG2:%.+]]: memref<1x1x4096x1xf16, #NHWC, @CMX_NN>
+// CHECK-SAME: [[ARG2:%.+]]: memref<1x1x4096x1xf16, {order = #NHWC}, @CMX_NN>
 func.func @CreateShapeCastOpBeforeDistributedCastOp (%in1 : !DistributedType3, %in2 : !DistributedType2, %in3 : !qTypeCMX3) -> (!DistributedType5) {
     %eltwise_1_cmx_buf = VPURT.AllocDistributed -> !DistributedType1
     %eltwise_1_concat = VPUIP.ConcatView
@@ -334,7 +334,7 @@ func.func @CreateShapeCastOpBeforeDistributedCastOp (%in1 : !DistributedType3, %
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 
-!qTypeCMX = memref<1x512x32x64xf16, #NHWC, @CMX_NN>
+!qTypeCMX = memref<1x512x32x64xf16, {order = #NHWC}, @CMX_NN>
 
 !DistributedType = !VPUIP.DistributedBuffer<
     1x64x512x32xf16,
@@ -427,27 +427,27 @@ func.func @NotCreateShapeCastOpWithLayoutChange () -> (!DistributedType1) {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: CreateShapeCastOpSingleClusterCase
-// CHECK-SAME: ([[IN1:%.+]]: memref<1x1x1620x1xf16, #NHWC, @CMX_NN>,
-// CHECK-SAME:  [[IN2:%.+]]: memref<1x1x1580x1xf16, #NHWC, @CMX_NN>,
-// CHECK-SAME:  [[IN3:%.+]]: memref<1x1x3200x1xf16, #NHWC, @CMX_NN>)
-// CHECK-SAME: -> memref<1x16x20x10xf16, #NHWC, @CMX_NN> {
-func.func @CreateShapeCastOpSingleClusterCase (%in1 : memref<1x1x1620x1xf16, #NHWC, @CMX_NN>, %in2 : memref<1x1x1580x1xf16, #NHWC, @CMX_NN>, %in3 : memref<1x1x3200x1xf16, #NHWC, @CMX_NN>) -> (memref<1x16x20x10xf16, #NHWC, @CMX_NN>) {
-    %buf_0 = memref.alloc() : memref<1x1x3200x1xf16, #NHWC, @CMX_NN>
-    %buf_1 = memref.alloc() : memref<1x16x20x10xf16, #NHWC, @CMX_NN>
+// CHECK-SAME: ([[IN1:%.+]]: memref<1x1x1620x1xf16, {order = #NHWC}, @CMX_NN>,
+// CHECK-SAME:  [[IN2:%.+]]: memref<1x1x1580x1xf16, {order = #NHWC}, @CMX_NN>,
+// CHECK-SAME:  [[IN3:%.+]]: memref<1x1x3200x1xf16, {order = #NHWC}, @CMX_NN>)
+// CHECK-SAME: -> memref<1x16x20x10xf16, {order = #NHWC}, @CMX_NN> {
+func.func @CreateShapeCastOpSingleClusterCase (%in1 : memref<1x1x1620x1xf16, {order = #NHWC}, @CMX_NN>, %in2 : memref<1x1x1580x1xf16, {order = #NHWC}, @CMX_NN>, %in3 : memref<1x1x3200x1xf16, {order = #NHWC}, @CMX_NN>) -> (memref<1x16x20x10xf16, {order = #NHWC}, @CMX_NN>) {
+    %buf_0 = memref.alloc() : memref<1x1x3200x1xf16, {order = #NHWC}, @CMX_NN>
+    %buf_1 = memref.alloc() : memref<1x16x20x10xf16, {order = #NHWC}, @CMX_NN>
 
     %concat = VPUIP.ConcatView
-      inputs(%in1, %in2 : memref<1x1x1620x1xf16, #NHWC, @CMX_NN>, memref<1x1x1580x1xf16, #NHWC, @CMX_NN>)
-      outputs(%buf_0 : memref<1x1x3200x1xf16, #NHWC, @CMX_NN>) -> memref<1x1x3200x1xf16, #NHWC, @CMX_NN>
+      inputs(%in1, %in2 : memref<1x1x1620x1xf16, {order = #NHWC}, @CMX_NN>, memref<1x1x1580x1xf16, {order = #NHWC}, @CMX_NN>)
+      outputs(%buf_0 : memref<1x1x3200x1xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x1x3200x1xf16, {order = #NHWC}, @CMX_NN>
     %shape_cast = VPUIP.ShapeCast {
       shape = [1, 16, 20, 10]}
-      inputs(%concat : memref<1x1x3200x1xf16, #NHWC, @CMX_NN>) -> memref<1x16x20x10xf16, #NHWC, @CMX_NN>
+      inputs(%concat : memref<1x1x3200x1xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x16x20x10xf16, {order = #NHWC}, @CMX_NN>
     %eltwise = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 10507 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
           is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
-          input(%in3 : memref<1x1x3200x1xf16, #NHWC, @CMX_NN>)
-          weights(%shape_cast : memref<1x16x20x10xf16, #NHWC, @CMX_NN>)
-          parent_input(%in3 : memref<1x1x3200x1xf16, #NHWC, @CMX_NN>)
-          parent_output(%buf_1 : memref<1x16x20x10xf16, #NHWC, @CMX_NN>)
-          outputs(%buf_1 : memref<1x16x20x10xf16, #NHWC, @CMX_NN>) -> memref<1x16x20x10xf16, #NHWC, @CMX_NN>
+          input(%in3 : memref<1x1x3200x1xf16, {order = #NHWC}, @CMX_NN>)
+          weights(%shape_cast : memref<1x16x20x10xf16, {order = #NHWC}, @CMX_NN>)
+          parent_input(%in3 : memref<1x1x3200x1xf16, {order = #NHWC}, @CMX_NN>)
+          parent_output(%buf_1 : memref<1x16x20x10xf16, {order = #NHWC}, @CMX_NN>)
+          outputs(%buf_1 : memref<1x16x20x10xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x16x20x10xf16, {order = #NHWC}, @CMX_NN>
           variants : {
             DPUTask {
               mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [10, 20, 16], outStart = [0, 0, 0],
@@ -458,27 +458,27 @@ func.func @CreateShapeCastOpSingleClusterCase (%in1 : memref<1x1x1620x1xf16, #NH
               }
           }
 
-    return %eltwise : memref<1x16x20x10xf16, #NHWC, @CMX_NN>
+    return %eltwise : memref<1x16x20x10xf16, {order = #NHWC}, @CMX_NN>
 
-  // CHECK: [[BUF_0:%.+]] = memref.alloc() : memref<1x1x3200x1xf16, #NHWC, @CMX_NN>
+  // CHECK: [[BUF_0:%.+]] = memref.alloc() : memref<1x1x3200x1xf16, {order = #NHWC}, @CMX_NN>
   // CHECK-NOT: [[BUF_1:%.+]] = memref.alloc()
 
   // CHECK-NEXT: [[CREATED_SHAPE_CAST:%.+]] = VPUIP.ShapeCast
   // CHECK-SAME: {shape = [1, 16, 20, 10]}
-  // CHECK-SAME: inputs([[BUF_0]] : memref<1x1x3200x1xf16, #NHWC, @CMX_NN>) -> memref<1x16x20x10xf16, #NHWC, @CMX_NN>
+  // CHECK-SAME: inputs([[BUF_0]] : memref<1x1x3200x1xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x16x20x10xf16, {order = #NHWC}, @CMX_NN>
 
   // CHECK-NEXT: [[CONCAT:%.+]] = VPUIP.ConcatView
-  // CHECK-SAME: outputs([[BUF_0]] : memref<1x1x3200x1xf16, #NHWC, @CMX_NN>) -> memref<1x1x3200x1xf16, #NHWC, @CMX_NN>
+  // CHECK-SAME: outputs([[BUF_0]] : memref<1x1x3200x1xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x1x3200x1xf16, {order = #NHWC}, @CMX_NN>
   // CHECK-NEXT: [[SHAPE_CAST:%.+]] = VPUIP.ShapeCast
 
   // CHECK-NEXT: [[ELTWISE:%.+]] =  VPUIP.NCEClusterTask
-  // CHECK-SAME: input([[IN3]] : memref<1x1x3200x1xf16, #NHWC, @CMX_NN>)
-  // CHECK-SAME: weights([[SHAPE_CAST]] : memref<1x16x20x10xf16, #NHWC, @CMX_NN>)
-  // CHECK-SAME: parent_input([[IN3]] : memref<1x1x3200x1xf16, #NHWC, @CMX_NN>)
-  // CHECK-SAME: parent_output([[CREATED_SHAPE_CAST]] : memref<1x16x20x10xf16, #NHWC, @CMX_NN>)
-  // CHECK-SAME: outputs([[CREATED_SHAPE_CAST]] : memref<1x16x20x10xf16, #NHWC, @CMX_NN>) -> memref<1x16x20x10xf16, #NHWC, @CMX_NN> variants :
+  // CHECK-SAME: input([[IN3]] : memref<1x1x3200x1xf16, {order = #NHWC}, @CMX_NN>)
+  // CHECK-SAME: weights([[SHAPE_CAST]] : memref<1x16x20x10xf16, {order = #NHWC}, @CMX_NN>)
+  // CHECK-SAME: parent_input([[IN3]] : memref<1x1x3200x1xf16, {order = #NHWC}, @CMX_NN>)
+  // CHECK-SAME: parent_output([[CREATED_SHAPE_CAST]] : memref<1x16x20x10xf16, {order = #NHWC}, @CMX_NN>)
+  // CHECK-SAME: outputs([[CREATED_SHAPE_CAST]] : memref<1x16x20x10xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x16x20x10xf16, {order = #NHWC}, @CMX_NN> variants :
 
-  // CHECK: return [[ELTWISE]] : memref<1x16x20x10xf16, #NHWC, @CMX_NN>
+  // CHECK: return [[ELTWISE]] : memref<1x16x20x10xf16, {order = #NHWC}, @CMX_NN>
 
 }
 
@@ -488,10 +488,10 @@ func.func @CreateShapeCastOpSingleClusterCase (%in1 : memref<1x1x1620x1xf16, #NH
 
 !qElemType = !quant.uniform<u8:f16, 0.0047491008160161037:146>
 
-!qTypeCMX = memref<1x32x103x512x!qElemType, #NHWC, @CMX_NN>
-!qTypeDDR = memref<1x32x103x512x!qElemType, #NHWC>
-!outCMX = memref<1x32x103x512xf16, #NHWC, @CMX_NN>
-!outDDR = memref<1x32x103x512xf16, #NHWC>
+!qTypeCMX = memref<1x32x103x512x!qElemType, {order = #NHWC}, @CMX_NN>
+!qTypeDDR = memref<1x32x103x512x!qElemType, {order = #NHWC}>
+!outCMX = memref<1x32x103x512xf16, {order = #NHWC}, @CMX_NN>
+!outDDR = memref<1x32x103x512xf16, {order = #NHWC}>
 
 !DistributedType1 = !VPUIP.DistributedBuffer<
     1x32x103x512x!qElemType,
@@ -511,7 +511,7 @@ func.func @CreateShapeCastOpSingleClusterCase (%in1 : memref<1x1x1620x1xf16, #NH
 
 // expected-error@+1 {{Failed to convert Eltwise to in-place Eltwise}}
 func.func @IllegalInPlaceEltwise(
-    %weights0 : memref<32x32x1x1xf16, #NHWC, @CMX_NN>, %weightsTable0 : memref<32x1x1x4xsi32, @CMX_NN>)
+    %weights0 : memref<32x32x1x1xf16, {order = #NHWC}, @CMX_NN>, %weightsTable0 : memref<32x1x1x4xsi32, @CMX_NN>)
       -> (!DistributedType2) {
     %in1 = memref.alloc() : !qTypeDDR
     %in2 = memref.alloc() : !qTypeDDR
@@ -549,25 +549,25 @@ func.func @IllegalInPlaceEltwise(
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 
-!qTypeCMX = memref<1x256x16x64xf16, #NWCH, @CMX_NN>
-!qTypeCMX0 = memref<1x16x64x256xf16, #NHWC , @CMX_NN>
+!qTypeCMX = memref<1x256x16x64xf16, {order = #NWCH}, @CMX_NN>
+!qTypeCMX0 = memref<1x16x64x256xf16, {order = #NHWC}, @CMX_NN>
 
 // CHECK-LABEL: ConvertInplaceForDifferentShapeAndDimsOrder
-// CHECK-SAME: ([[INPUT:%.+]]: memref<1x256x16x64xf16, #NHWC, @CMX_NN>,
-// CHECK-SAME:  [[WEIGHTS:%.+]]: memref<1x16x64x256xf16, #NHWC>)
-func.func @ConvertInplaceForDifferentShapeAndDimsOrder(%input: memref<1x256x16x64xf16, #NHWC, @CMX_NN>,
-    %weights: memref<1x16x64x256xf16, #NHWC>)
+// CHECK-SAME: ([[INPUT:%.+]]: memref<1x256x16x64xf16, {order = #NHWC}, @CMX_NN>,
+// CHECK-SAME:  [[WEIGHTS:%.+]]: memref<1x16x64x256xf16, {order = #NHWC}>)
+func.func @ConvertInplaceForDifferentShapeAndDimsOrder(%input: memref<1x256x16x64xf16, {order = #NHWC}, @CMX_NN>,
+    %weights: memref<1x16x64x256xf16, {order = #NHWC}>)
     -> !qTypeCMX0 {
 
   %alloc = memref.alloc() : !qTypeCMX
-  %0 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967195 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, tiling_loop_index = 0 : i64} <{is_permute_quantize, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%input : memref<1x256x16x64xf16, #NHWC, @CMX_NN>) weights(%input : memref<1x256x16x64xf16, #NHWC, @CMX_NN>) parent_input(%input : memref<1x256x16x64xf16, #NHWC, @CMX_NN>) parent_output(%alloc : !qTypeCMX) outputs(%alloc : !qTypeCMX) -> !qTypeCMX variants : {
+  %0 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967195 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, tiling_loop_index = 0 : i64} <{is_permute_quantize, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%input : memref<1x256x16x64xf16, {order = #NHWC}, @CMX_NN>) weights(%input : memref<1x256x16x64xf16, {order = #NHWC}, @CMX_NN>) parent_input(%input : memref<1x256x16x64xf16, {order = #NHWC}, @CMX_NN>) parent_output(%alloc : !qTypeCMX) outputs(%alloc : !qTypeCMX) -> !qTypeCMX variants : {
     DPUTask {inEnd = [63, 15, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [63, 15, 255], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
   } PPE : {
     PPETask {ppe = #VPU.PPEFp<mode = <ADD>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 5.000000e-01 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>}
   }
   %1 = VPUIP.ViewOp %0 : !qTypeCMX to !qTypeCMX0
   %alloc_0 = memref.alloc() : !qTypeCMX0
-  %2 = VPUIP.Copy inputs(%weights : memref<1x16x64x256xf16, #NHWC>) outputs(%alloc_0 : !qTypeCMX0) -> !qTypeCMX0
+  %2 = VPUIP.Copy inputs(%weights : memref<1x16x64x256xf16, {order = #NHWC}>) outputs(%alloc_0 : !qTypeCMX0) -> !qTypeCMX0
   %alloc_1 = memref.alloc() : !qTypeCMX0
   %3 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 10253 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, tiling_loop_index = 1 : i64} <{eltwise_type = #VPU.eltwise_type<ADD>, is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%1 : !qTypeCMX0) weights(%2 : !qTypeCMX0) parent_input(%1 : !qTypeCMX0) parent_output(%alloc_1 : !qTypeCMX0) outputs(%alloc_1 : !qTypeCMX0) -> !qTypeCMX0 variants : {
     DPUTask {inEnd = [255, 63, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [255, 63, 15], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
@@ -577,29 +577,29 @@ func.func @ConvertInplaceForDifferentShapeAndDimsOrder(%input: memref<1x256x16x6
 
   return %3: !qTypeCMX0
 
-  // CHECK: [[BUFF_0:%.+]] = memref.alloc() : memref<1x256x16x64xf16, #NWCH, @CMX_NN>
-  // CHECK: [[VIEW_0:%.+]] = VPUIP.ViewOp [[BUFF_0]] : memref<1x256x16x64xf16, #NWCH, @CMX_NN> to memref<1x16x64x256xf16, #NHWC, @CMX_NN>
-  
+  // CHECK: [[BUFF_0:%.+]] = memref.alloc() : memref<1x256x16x64xf16, {order = #NWCH}, @CMX_NN>
+  // CHECK: [[VIEW_0:%.+]] = VPUIP.ViewOp [[BUFF_0]] : memref<1x256x16x64xf16, {order = #NWCH}, @CMX_NN> to memref<1x16x64x256xf16, {order = #NHWC}, @CMX_NN>
+
   // CHECK: [[NCE_0:%.+]] = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967195 : i64, tiling_loop_index = 0 : i64} <{is_permute_quantize,
   // CHECK-SAME: task_type = #VPUIP.nce_task_type<ELTWISE>}>
-  // CHECK-SAME: input([[INPUT]] : memref<1x256x16x64xf16, #NHWC, @CMX_NN>)
-  // CHECK-SAME: weights([[INPUT]] : memref<1x256x16x64xf16, #NHWC, @CMX_NN>)
-  // CHECK-SAME: parent_input([[INPUT]] : memref<1x256x16x64xf16, #NHWC, @CMX_NN>)
-  // CHECK-SAME: parent_output([[BUFF_0]] : memref<1x256x16x64xf16, #NWCH, @CMX_NN>)
-  // CHECK-SAME: outputs([[BUFF_0]] : memref<1x256x16x64xf16, #NWCH, @CMX_NN>) -> memref<1x256x16x64xf16, #NWCH, @CMX_NN>
+  // CHECK-SAME: input([[INPUT]] : memref<1x256x16x64xf16, {order = #NHWC}, @CMX_NN>)
+  // CHECK-SAME: weights([[INPUT]] : memref<1x256x16x64xf16, {order = #NHWC}, @CMX_NN>)
+  // CHECK-SAME: parent_input([[INPUT]] : memref<1x256x16x64xf16, {order = #NHWC}, @CMX_NN>)
+  // CHECK-SAME: parent_output([[BUFF_0]] : memref<1x256x16x64xf16, {order = #NWCH}, @CMX_NN>)
+  // CHECK-SAME: outputs([[BUFF_0]] : memref<1x256x16x64xf16, {order = #NWCH}, @CMX_NN>) -> memref<1x256x16x64xf16, {order = #NWCH}, @CMX_NN>
 
-  
-  // CHECK: [[VIEW_1:%.+]] = VPUIP.ViewOp [[NCE_0]] : memref<1x256x16x64xf16, #NWCH, @CMX_NN> to memref<1x16x64x256xf16, #NHWC, @CMX_NN>
-  // CHECK: [[BUFF_1:%.+]] = memref.alloc() : memref<1x16x64x256xf16, #NHWC, @CMX_NN>
-  // CHECK: [[COPY_0:%.+]] = VPUIP.Copy inputs([[WEIGHTS]] : memref<1x16x64x256xf16, #NHWC>) outputs([[BUFF_1]] : memref<1x16x64x256xf16, #NHWC, @CMX_NN>) -> memref<1x16x64x256xf16, #NHWC, @CMX_NN>
-  
+
+  // CHECK: [[VIEW_1:%.+]] = VPUIP.ViewOp [[NCE_0]] : memref<1x256x16x64xf16, {order = #NWCH}, @CMX_NN> to memref<1x16x64x256xf16, {order = #NHWC}, @CMX_NN>
+  // CHECK: [[BUFF_1:%.+]] = memref.alloc() : memref<1x16x64x256xf16, {order = #NHWC}, @CMX_NN>
+  // CHECK: [[COPY_0:%.+]] = VPUIP.Copy inputs([[WEIGHTS]] : memref<1x16x64x256xf16, {order = #NHWC}>) outputs([[BUFF_1]] : memref<1x16x64x256xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x16x64x256xf16, {order = #NHWC}, @CMX_NN>
+
   // CHECK: [[NCE_1:%.+]] = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 10253 : i64, tiling_loop_index = 1 : i64} <{eltwise_type = #VPU.eltwise_type<ADD>, is_inplace = true,
   // CHECK-SAME: task_type = #VPUIP.nce_task_type<ELTWISE>}
-  // CHECK-SAME: input([[VIEW_1]] : memref<1x16x64x256xf16, #NHWC, @CMX_NN>)
-  // CHECK-SAME: weights([[COPY_0]] : memref<1x16x64x256xf16, #NHWC, @CMX_NN>)
-  // CHECK-SAME: parent_input([[VIEW_1]] : memref<1x16x64x256xf16, #NHWC, @CMX_NN>)
-  // CHECK-SAME: parent_output([[VIEW_0]] : memref<1x16x64x256xf16, #NHWC, @CMX_NN>)
-  // CHECK-SAME: outputs([[VIEW_0]] : memref<1x16x64x256xf16, #NHWC, @CMX_NN>) -> memref<1x16x64x256xf16, #NHWC, @CMX_NN>
-  
-  // CHECK: return [[NCE_1]] : memref<1x16x64x256xf16, #NHWC, @CMX_NN>
+  // CHECK-SAME: input([[VIEW_1]] : memref<1x16x64x256xf16, {order = #NHWC}, @CMX_NN>)
+  // CHECK-SAME: weights([[COPY_0]] : memref<1x16x64x256xf16, {order = #NHWC}, @CMX_NN>)
+  // CHECK-SAME: parent_input([[VIEW_1]] : memref<1x16x64x256xf16, {order = #NHWC}, @CMX_NN>)
+  // CHECK-SAME: parent_output([[VIEW_0]] : memref<1x16x64x256xf16, {order = #NHWC}, @CMX_NN>)
+  // CHECK-SAME: outputs([[VIEW_0]] : memref<1x16x64x256xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x16x64x256xf16, {order = #NHWC}, @CMX_NN>
+
+  // CHECK: return [[NCE_1]] : memref<1x16x64x256xf16, {order = #NHWC}, @CMX_NN>
 }

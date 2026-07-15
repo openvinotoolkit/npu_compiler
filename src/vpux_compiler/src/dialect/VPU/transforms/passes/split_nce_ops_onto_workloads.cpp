@@ -84,7 +84,8 @@ public:
     mlir::LogicalResult matchAndRewrite(VPU::NCEOpInterface origOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
-    VPUNN::LayerSplitInfo retrieveLayerSplitInfoFromVPUNN(VPU::NCEOpInterface nceOp, uint32_t& cost, Logger log) const;
+    std::optional<VPUNN::LayerSplitInfo> retrieveLayerSplitInfoFromVPUNN(VPU::NCEOpInterface nceOp, uint32_t& cost,
+                                                                         Logger log) const;
 
 private:
     int64_t _numDPU;
@@ -97,9 +98,8 @@ private:
     Logger _log;
 };
 
-VPUNN::LayerSplitInfo NCEWorkloadSplitPreSplitRewrite::retrieveLayerSplitInfoFromVPUNN(VPU::NCEOpInterface nceOp,
-                                                                                       uint32_t& cost,
-                                                                                       Logger log) const {
+std::optional<VPUNN::LayerSplitInfo> NCEWorkloadSplitPreSplitRewrite::retrieveLayerSplitInfoFromVPUNN(
+        VPU::NCEOpInterface nceOp, uint32_t& cost, Logger log) const {
     const auto costParams = getWorkloadCostParam(nceOp, _arch, _numDPU, _numTiles);
 
     auto perClusterVPUNNLayers = VPU::getPerClusterDPULayers(nceOp, costParams, log);
@@ -108,11 +108,14 @@ VPUNN::LayerSplitInfo NCEWorkloadSplitPreSplitRewrite::retrieveLayerSplitInfoFro
             _layerCostModel->LayersPreSplit(perClusterVPUNNLayers, _numDPU, /*input_in_ddr=*/false,
                                             /*output_in_ddr=*/false, /*prefetching=*/true, layerSplitInfo),
             log);
-    VPUX_THROW_WHEN(layerSplitInfo.empty(), "layerSplitInfo is empty with cost '{0}'", cost);
+    if (layerSplitInfo.empty()) {
+        log.warning("layerSplitInfo is empty with cost '{0}' for op {1}", cost, nceOp);
+        return std::nullopt;
+    }
     if (cost >= VPU::INVALID_COST_BASE) {
         log.warning("Get invalid cost for op {0}", nceOp);
         printVPUNNLayers(perClusterVPUNNLayers, log);
-        VPUX_THROW("Cost is Invalid");
+        return std::nullopt;
     }
     return layerSplitInfo;
 }
@@ -125,18 +128,22 @@ mlir::LogicalResult NCEWorkloadSplitPreSplitRewrite::matchAndRewrite(VPU::NCEOpI
         return genericNCEWorkloadSplit(nceOp, rewriter, _arch, _numDPU, _costModel, _log);
     }
     uint32_t cost = 0;
-    auto layerSplitInfo = retrieveLayerSplitInfoFromVPUNN(nceOp, cost, _log);
+    auto maybeLayerSplitInfo = retrieveLayerSplitInfoFromVPUNN(nceOp, cost, _log);
+    if (!maybeLayerSplitInfo.has_value()) {
+        _log.trace("Failed to retrieve layer split info from VPUNN, falling back to heuristic mode for op {0}",
+                   nceOp->getName());
+        return genericNCEWorkloadSplit(nceOp, rewriter, _arch, _numDPU, _costModel, _log);
+    }
+    auto layerSplitInfo = maybeLayerSplitInfo.value();
 
     // Track E#159358
     // VPUNN will update the workload split logic to meet max workload requirement
     // This check can be removed when VPUNN submodule is updated
-    const auto maxAvailableSlots = VPUIP::getBarrierMaxVariantCount(nceOp);
-    const auto maxSlotsSum = VPUIP::getBarrierMaxVariantSum(nceOp);
-    const auto availableSlot = std::min(maxAvailableSlots, maxSlotsSum) / 2;
+    const auto availableVariantsPerInvariant = vpux::VPUIP::getMaxNumberOfDpuVariantsPerInvariant(nceOp) / 2;
     for (auto item : layerSplitInfo) {
         // item OneTileLayerInfo
         auto workloadCost = item.best_intra_tile_split;
-        if (workloadCost.second.size() > availableSlot) {
+        if (workloadCost.second.size() > availableVariantsPerInvariant) {
             _log.trace("There are too many workloads, Use heuristic mode for op {0}'", nceOp->getName());
             return genericNCEWorkloadSplit(nceOp, rewriter, _arch, _numDPU, _costModel, _log);
         }

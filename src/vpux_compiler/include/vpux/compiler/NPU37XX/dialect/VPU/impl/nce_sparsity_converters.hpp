@@ -8,8 +8,6 @@
 #include <mlir/IR/Types.h>
 #include "vpux/compiler/dialect/VPU/transforms/factories/nce_sparsity_converters.hpp"
 
-using namespace vpux;
-
 namespace vpux::VPU::arch37xx {
 
 NCESparsity::IntOrFloatType getScale(uint8_t shift, int16_t mult, double rescale, mlir::Type inputType);

@@ -128,10 +128,14 @@ func.func @MergeParallelLayers(%arg0: tensor<1x1x2x256xf32>, %arg1: tensor<1x153
 
     return %33 : tensor<1x1x512xf32>
 
-    // CHECK:       [[CST:%.+]] = const.Declare tensor<1x1x2x1xf32> =
-    // CHECK-SAME{LITERAL}:     dense<[[[[3.000000e-01], [1.000000e-01]]]]> : tensor<1x1x2x1xf32>
-    // CHECK:       [[CST_0:%.+]] = const.Declare tensor<1x1x2x1xf32> =
-    // CHECK-SAME{LITERAL}:     dense<[[[[4.000000e-01], [2.000000e-01]]]]> : tensor<1x1x2x1xf32>
+    // CHECK:       [[CST:%.+]] = const.Declare tensor<1x1x2x1xf32>
+    // CHECK-SAME:       #const.Concat
+    // CHECK-SAME:       dense<3.000000e-01>
+    // CHECK-SAME:       dense<1.000000e-01>
+    // CHECK:       [[CST_0:%.+]] = const.Declare tensor<1x1x2x1xf32>
+    // CHECK-SAME:       #const.Concat
+    // CHECK-SAME:       dense<4.000000e-01>
+    // CHECK-SAME:       dense<2.000000e-01>
 
     // CHECK:       [[MUL_0:%.+]] = IE.Multiply([[INPUT_0]], [[CST_0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x2x256xf32>, tensor<1x1x2x1xf32> -> tensor<1x1x2x256xf32>
 

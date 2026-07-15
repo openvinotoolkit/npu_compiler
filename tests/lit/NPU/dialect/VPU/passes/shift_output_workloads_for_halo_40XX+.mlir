@@ -62,10 +62,10 @@ func.func @ConvSOHOverlapped(%arg0: !Input_DDR) -> !Output_DDR {
 
     %weights_cmx = VPU.Copy(%weights) { out_mem_space = @CMX_NN } : !Weights_DDR -> !WeightsDistributed
 
-    %output_cmx = VPU.NCE.Convolution(%input_cmx, %weights_cmx) {
+    %output_cmx = VPU.NCE.Convolution(%input_cmx, %weights_cmx) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                rawFilterShape = [16, 16, 1, 1],
+                
                 strides = [1, 1]
             } : !InputDistributed, !WeightsDistributed -> !OutputDistributed {
                 VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 8, 33] pad [0, 0, 0, 0] #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 0 : i64}
@@ -189,10 +189,10 @@ func.func @SparseConvSOHOverlapped(%arg0: !InputDataDistributed, %arg1: !InputSM
 
     %weights_cmx = VPU.Copy(%weights) { out_mem_space = @CMX_NN } : !Weights_DDR -> !WeightsDistributed
 
-    %output_cmx = VPU.NCE.Convolution(%input_sparse, %weights_cmx) {
+    %output_cmx = VPU.NCE.Convolution(%input_sparse, %weights_cmx) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                rawFilterShape = [16, 16, 1, 1],
+                
                 strides = [1, 1]
             } : !Input_CMX, !WeightsDistributed -> !Output_CMX {
                 VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 8, 33] pad [0, 0, 0, 0] #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 0 : i64}
@@ -280,10 +280,10 @@ func.func @ConvSOHOverlappedMultipleWorkloads(%arg0: !Input_DDR) -> !Output_DDR 
 
     %weights_cmx = VPU.Copy(%weights) { out_mem_space = @CMX_NN } : !Weights_DDR -> !WeightsDistributed
 
-    %output_cmx = VPU.NCE.Convolution(%input_cmx, %weights_cmx) {
+    %output_cmx = VPU.NCE.Convolution(%input_cmx, %weights_cmx) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                rawFilterShape = [16, 16, 1, 1],
+                
                 strides = [1, 1]
             } : !InputDistributed, !WeightsDistributed -> !OutputDistributed {
                 VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 8, 33] pad [0, 0, 0, 0] #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 0 : i64}
@@ -373,10 +373,10 @@ func.func @ConvSOHOverlappedNoOverlapAtStart(%arg0: !Input_DDR) -> !Output_DDR {
 
     %weights_cmx = VPU.Copy(%weights) { out_mem_space = @CMX_NN } : !Weights_DDR -> !WeightsDistributed
 
-    %output_cmx = VPU.NCE.Convolution(%input_cmx, %weights_cmx) {
+    %output_cmx = VPU.NCE.Convolution(%input_cmx, %weights_cmx) rawFilterShape [16, 16, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-                rawFilterShape = [16, 16, 3, 3],
+                
                 strides = [1, 1]
             } : !InputDistributed, !WeightsDistributed -> !OutputDistributed {
                 VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 11, 33]pad [1, 1, 1, 0] #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 0 : i64}
@@ -459,10 +459,10 @@ func.func @ConvSOKNoChange(%arg0: !Input_DDR) -> !Output_DDR {
 
     %weights_cmx = VPU.Copy(%weights) { out_mem_space = @CMX_NN } : !Weights_DDR -> !WeightsDistributed
 
-    %output_cmx = VPU.NCE.Convolution(%input_cmx, %weights_cmx) {
+    %output_cmx = VPU.NCE.Convolution(%input_cmx, %weights_cmx) rawFilterShape [32, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                rawFilterShape = [32, 16, 1, 1],
+                
                 strides = [1, 1]
             } : !InputDistributed, !WeightsDistributed -> !OutputDistributed {
                 VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 30, 33] pad [0, 0, 0, 0] <CUBOID_16x16> attributes {cluster_id = 0 : i64}

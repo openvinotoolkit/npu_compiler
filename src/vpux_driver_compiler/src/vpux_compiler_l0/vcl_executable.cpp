@@ -5,24 +5,31 @@
 
 #include "vcl_executable.hpp"
 
+#include "vpux/utils/ov/profiling_utils.hpp"
+
+#include <memory>
+
 using namespace vpux;
 
 namespace VPUXDriverCompiler {
-VPUXExecutableL0::VPUXExecutableL0(const std::shared_ptr<const NetworkDescription>& networkDesc, bool enableProfiling,
-                                   VCLLogger* vclLogger)
-        : _networkDesc(networkDesc), enableProfiling(enableProfiling), _logger(vclLogger) {
+VPUXExecutableL0::VPUXExecutableL0(const std::shared_ptr<const NetworkDescription>& networkDesc,
+                                   const intel_npu::Config& config, std::shared_ptr<VCLLogger> vclLogger)
+        : _networkDesc(networkDesc), _config(config), _logger(std::move(vclLogger)) {
 }
 
+VPUXExecutableL0::VPUXExecutableL0(const std::string& compatibilityString, std::shared_ptr<VCLLogger> vclLogger)
+        : _config(std::nullopt), _compatibilityString(compatibilityString), _logger(std::move(vclLogger)) {
+}
+
+VPUXExecutableL0::~VPUXExecutableL0() = default;
+
 vcl_result_t VPUXExecutableL0::serializeNetwork() {
-    StopWatch stopWatch;
-    if (enableProfiling) {
-        stopWatch.start();
+    if (_config.has_value()) {
+        [[maybe_unused]] const auto scopedStopWatch = vpux::startScopedTimer(_config.value(), [this](double deltaMs) {
+            _logger->info("getCompiledNetwork time: {0} ms", deltaMs);
+        });
     }
 
-    if (enableProfiling) {
-        stopWatch.stop();
-        _logger->info("getCompiledNetwork time: {0} ms", stopWatch.delta_ms());
-    }
     return VCL_RESULT_SUCCESS;
 }
 
@@ -30,6 +37,9 @@ vcl_result_t VPUXExecutableL0::getNetworkSize(uint64_t* blobSize) const {
     if (blobSize == nullptr) {
         _logger->outputError("Can not return blob size for NULL argument!");
         return VCL_RESULT_ERROR_INVALID_ARGUMENT;
+    }
+    if (!_networkDesc) {
+        return VCL_RESULT_ERROR_INVALID_NULL_HANDLE;
     }
     const auto& blob = _networkDesc->compiledNetwork;
     *blobSize = blob.size();
@@ -43,23 +53,23 @@ vcl_result_t VPUXExecutableL0::getNetworkSize(uint64_t* blobSize) const {
 }
 
 vcl_result_t VPUXExecutableL0::exportNetwork(uint8_t* blobOut, uint64_t blobSize) const {
+    if (!_networkDesc) {
+        return VCL_RESULT_ERROR_INVALID_NULL_HANDLE;
+    }
     const auto& blob = _networkDesc->compiledNetwork;
     if (!blobOut || blobSize != blob.size()) {
         _logger->outputError("Invalid argument to export network");
         return VCL_RESULT_ERROR_INVALID_ARGUMENT;
     }
 
-    StopWatch stopWatch;
-    if (enableProfiling) {
-        stopWatch.start();
+    if (_config.has_value()) {
+        [[maybe_unused]] const auto scopedStopWatch = vpux::startScopedTimer(_config.value(), [this](double deltaMs) {
+            _logger->info("exportNetwork time: {0} ms", deltaMs);
+        });
     }
 
     memcpy(blobOut, blob.data(), blobSize);
 
-    if (enableProfiling) {
-        stopWatch.stop();
-        _logger->info("exportNetwork time: {0} ms", stopWatch.delta_ms());
-    }
     return VCL_RESULT_SUCCESS;
 }
 

@@ -420,3 +420,48 @@ func.func @NotFoldStrideIntoKernelWhenWidthPadding(%arg0: tensor<1x256x150x150xf
 
   // CHECK:       return [[CONV_RET]]
 }
+
+// -----
+
+!qInput = !quant.uniform<u8:f16, 0.04>
+!qFilter = !quant.uniform<u8:f16, 0.0058:128>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @AdjustPerTensorQuant1x1Conv
+// CHECK-SAME:     ([[ARG0:%.+]]: tensor<1x24x512x512x!qElemType, {order = #NHWC}>)
+func.func @AdjustPerTensorQuant1x1Conv(%arg0: tensor<1x24x512x512x!qInput, {order = #NHWC}>) -> tensor<1x1x512x512xf16, {order = #NHWC}> {
+    %weights = const.Declare tensor<1x24x1x1x!qFilter, {order = #NHWC}> = dense<1.0> : tensor<1x24x1x1xf16>, [#const.CastElemType<ui8>, #const.CastElemType<!qFilter>, #const.Reorder<#NHWC>]
+    %bias = const.Declare tensor<1x1x1x1xf16> = dense<1.0> : tensor<1x1x1x1xf16>
+    %0 = IE.Convolution(%arg0, %weights, %bias) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x24x512x512x!qInput, {order = #NHWC}>, tensor<1x24x1x1x!qFilter, {order = #NHWC}>, tensor<1x1x1x1xf16> -> tensor<1x1x512x512xf16, {order = #NHWC}>
+    return %0 : tensor<1x1x512x512xf16, {order = #NHWC}>
+
+    // CHECK:       [[INPUT_CAST:%.+]] = IE.ShapeCast {shape = [1, 384, 512, 32]}
+    // CHECK-SAME:      inputs([[ARG0]] : tensor<1x24x512x512x!qElemType, {order = #NHWC}>)
+    // CHECK-SAME:      -> tensor<1x384x512x32x!qElemType, {order = #NHWC}>
+    // CHECK:       [[CONV_RET:%.+]] = IE.Convolution([[INPUT_CAST]]
+    // CHECK-SAME:      -> tensor<1x16x512x32xf16, {order = #NHWC}>
+    // CHECK:       [[RET_CAST:%.+]] = IE.ShapeCast {shape = [1, 1, 512, 512]}
+    // CHECK-SAME:      inputs([[CONV_RET]] : tensor<1x16x512x32xf16, {order = #NHWC}>)
+    // CHECK-SAME:      -> tensor<1x1x512x512xf16, {order = #NHWC}>
+    // CHECK:       return [[RET_CAST]]
+}
+
+// -----
+
+!qInput = !quant.uniform<u8:f16, 0.04>
+!qFilter = !quant.uniform<u8:f16, 0.0058:128>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @NotAdjustPerTensorQuant1x1ConvWhenChannelAligned
+// CHECK-SAME:     ([[ARG0:%.+]]: tensor<1x64x192x288x!qElemType, {order = #NHWC}>)
+func.func @NotAdjustPerTensorQuant1x1ConvWhenChannelAligned(%arg0: tensor<1x64x192x288x!qInput, {order = #NHWC}>) -> tensor<1x1x192x288xf16, {order = #NHWC}> {
+    %weights = const.Declare tensor<1x64x1x1x!qFilter, {order = #NHWC}> = dense<1.0> : tensor<1x64x1x1xf16>, [#const.CastElemType<ui8>, #const.CastElemType<!qFilter>, #const.Reorder<#NHWC>]
+    %bias = const.Declare tensor<1x1x1x1xf16> = dense<1.0> : tensor<1x1x1x1xf16>
+    %0 = IE.Convolution(%arg0, %weights, %bias) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x64x192x288x!qInput, {order = #NHWC}>, tensor<1x64x1x1x!qFilter, {order = #NHWC}>, tensor<1x1x1x1xf16> -> tensor<1x1x192x288xf16, {order = #NHWC}>
+    return %0 : tensor<1x1x192x288xf16, {order = #NHWC}>
+
+    // CHECK-NOT:   IE.ShapeCast
+    // CHECK:       [[CONV_RET:%.+]] = IE.Convolution([[ARG0]]
+    // CHECK-SAME:      -> tensor<1x1x192x288xf16, {order = #NHWC}>
+    // CHECK:       return [[CONV_RET]]
+}

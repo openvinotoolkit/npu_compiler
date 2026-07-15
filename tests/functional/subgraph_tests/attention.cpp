@@ -27,12 +27,13 @@ enum class AttentionType {
 };
 
 enum class AttentionOption {
-    SCALE_CONST,  // Create scale as constant (computed: 1/sqrt(d)) instead of parameter
-    SCALE_Q,      // Apply scale to Q input (PATTERN only): (scale * Q) @ K.T
-    SCALE_K,      // Apply scale to K input (PATTERN only): Q @ (scale * K).T
-    CAUSAL_MASK,  // Generate causal mask constant
-    CAUSAL_FLAG,  // Set causal flag for SDPA operation (SDPA only)
-    BOOLEAN_MASK  // Use boolean mask type (true=keep, false=mask).
+    SCALE_CONST,    // Create scale as constant (computed: 1/sqrt(d)) instead of parameter
+    SCALE_Q,        // Apply scale to Q input (PATTERN only): (scale * Q) @ K.T
+    SCALE_K,        // Apply scale to K input (PATTERN only): Q @ (scale * K).T
+    CAUSAL_MASK,    // Generate causal mask constant
+    CAUSAL_FLAG,    // Set causal flag for SDPA operation (SDPA only)
+    BOOLEAN_MASK,   // Use boolean mask type (true=keep, false=mask).
+    FULL_LINE_MASK  // Generate mask with some rows fully masked (at FP16 lowest)
 };
 
 // Shape configuration separate from AttentionType (for Combine)
@@ -70,6 +71,7 @@ public:
         bool causalMask = false;
         bool causalFlag = false;
         bool booleanMask = false;
+        bool fullLineMask = false;
 
         explicit OptionFlags(const std::vector<AttentionOption>& options) {
             for (const auto& opt : options) {
@@ -91,6 +93,9 @@ public:
                     break;
                 case AttentionOption::BOOLEAN_MASK:
                     booleanMask = true;
+                    break;
+                case AttentionOption::FULL_LINE_MASK:
+                    fullLineMask = true;
                     break;
                 }
             }
@@ -321,6 +326,9 @@ public:
                 case AttentionOption::BOOLEAN_MASK:
                     result << "BOOLEAN_MASK";
                     break;
+                case AttentionOption::FULL_LINE_MASK:
+                    result << "FULL_LINE_MASK";
+                    break;
                 }
                 if (i < params.options.size() - 1) {
                     result << "+";
@@ -335,6 +343,8 @@ public:
     void generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) override {
         VpuOv2LayerTest::inputs.clear();
         const auto& funcInputs = VpuOv2LayerTest::function->inputs();
+        const auto& shapeConfig = std::get<0>(GetParam());
+        const OptionFlags opts(shapeConfig.options);
 
         for (size_t i = 0; i < funcInputs.size(); ++i) {
             ov::test::utils::InputGenerateData in_data;
@@ -344,14 +354,56 @@ public:
 
             ov::Tensor tensorData = ov::test::utils::create_and_fill_tensor(funcInputs[i].get_element_type(),
                                                                             targetInputStaticShapes[i], in_data);
+
+            // For FULL_LINE_MASK, use a hash-based pseudo-random scheme to decide which rows are masked.
+            // First and last rows are always masked to guarantee coverage. Remaining rows are masked
+            // when a simple hash of the row index falls below ~1/3 of the range, providing non-periodic variety.
+            if (opts.fullLineMask && i == 3) {
+                const auto& shape = targetInputStaticShapes[i];
+                const auto cols = shape.back();
+                const auto totalSize = ov::shape_size(shape);
+                const auto numRows = totalSize / cols;
+                const auto shouldMask = [numRows](size_t row) {
+                    if (row == 0 || row == numRows - 1) {
+                        return true;
+                    }
+                    // Mixing function: multiply by a large odd constant and xor-shift.
+                    uint32_t h = static_cast<uint32_t>(row) * 2654435761u;
+                    h ^= h >> 16;
+                    return (h % 3) == 0;
+                };
+                const auto elemType = funcInputs[i].get_element_type();
+                if (elemType == ov::element::f32) {
+                    auto* data = tensorData.data<float>();
+                    const float maskedValue = std::numeric_limits<float>::lowest();
+                    for (size_t row = 0; row < numRows; ++row) {
+                        if (shouldMask(row)) {
+                            std::fill(data + row * cols, data + (row + 1) * cols, maskedValue);
+                        }
+                    }
+                } else if (elemType == ov::element::f16) {
+                    auto* data = tensorData.data<ov::float16>();
+                    const ov::float16 maskedValue = std::numeric_limits<ov::float16>::lowest();
+                    for (size_t row = 0; row < numRows; ++row) {
+                        if (shouldMask(row)) {
+                            std::fill(data + row * cols, data + (row + 1) * cols, maskedValue);
+                        }
+                    }
+                }
+            }
+
             VpuOv2LayerTest::inputs.insert({funcInputs[i].get_node_shared_ptr(), tensorData});
         }
     }
 
     void SetUp() override {
-        inType = outType = ov::element::f16;
         const auto& [shapeConfig, attentionType] = GetParam();
         const AttentionParams testParams(shapeConfig, attentionType);
+        const OptionFlags setupOpts(testParams.options);
+
+        // Use FP32 for FULL_LINE_MASK: reference runs Add in FP32 where float_lowest + score = float_lowest.
+        // NPU compiler internally converts to FP16, exercising the mask-aware kernel path.
+        inType = outType = setupOpts.fullLineMask ? ov::element::f32 : ov::element::f16;
 
         // Validate parameters
         validateAttentionParams(testParams);
@@ -597,6 +649,10 @@ class AttentionTestDecompose : public AttentionTestCommon {
     }
 };
 
+// Attention on NPU4 is always decomposed. NPU4 runs only the dedicated smoke_DecomposeNPU4 suite,
+// so this subclass exclusively registers the NPU4000 test.
+class AttentionTestDecomposeNPU4 : public AttentionTestDecompose {};
+
 TEST_P(AttentionTestCommon, NPU5010_HW) {
     abs_threshold = 0.012;
     setDefaultHardwareMode();
@@ -607,6 +663,12 @@ TEST_P(AttentionTestDecompose, NPU5010_HW) {
     abs_threshold = 0.012;
     setDefaultHardwareMode();
     run(Platform::NPU5010);
+}
+
+TEST_P(AttentionTestDecomposeNPU4, NPU4000_HW) {
+    abs_threshold = 0.012;
+    setDefaultHardwareMode();
+    run(Platform::NPU4000);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -720,6 +782,29 @@ INSTANTIATE_TEST_SUITE_P(
         AttentionTestDecompose::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(
+        smoke_DecomposeNPU4, AttentionTestDecomposeNPU4,
+        ::testing::Combine(
+                ::testing::ValuesIn(std::vector<AttentionShapeConfig>{
+                        // MHA Decomposition configurations
+                        {{1, 4, 16, 32}, {1, 4, 24, 32}, {1, 4, 24, 64}, {}, {}, {}, {}},
+                        {{1, 4, 16, 32}, {1, 4, 24, 32}, {1, 4, 24, 64}, {1, 4, 16, 24}, {}, {}, {}},
+                        {{1, 4, 16, 32}, {1, 4, 24, 32}, {1, 4, 24, 64}, {1, 1, 16, 24}, {}, {}, {}},
+                        {{1, 4, 16, 32}, {1, 4, 24, 32}, {1, 4, 24, 64}, {}, {1}, {}, {}},
+                        {{1, 4, 16, 32}, {1, 4, 24, 32}, {1, 4, 24, 64}, {1, 4, 16, 24}, {1}, {}, {}},
+                        {{1, 4, 16, 32}, {1, 4, 24, 32}, {1, 4, 24, 64}, {1, 4, 16, 24}, {1}, {1, 4, 16, 24}, {}},
+                        {{1, 4, 16, 32}, {1, 4, 24, 32}, {1, 4, 24, 64}, {1, 1, 16, 24}, {1}, {1, 1, 1, 24}, {}},
+                        {{1, 4, 16, 32},
+                         {1, 4, 24, 32},
+                         {1, 4, 24, 64},
+                         {1, 4, 16, 24},
+                         {1},
+                         {},
+                         {AttentionOption::BOOLEAN_MASK}},
+                }),
+                ::testing::Values(AttentionType::SDPA, AttentionType::PATTERN)),
+        AttentionTestDecomposeNPU4::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(
         smoke_LegalConfigs, AttentionTestDecompose,
         ::testing::Combine(
                 ::testing::ValuesIn(std::vector<AttentionShapeConfig>{
@@ -729,7 +814,6 @@ INSTANTIATE_TEST_SUITE_P(
                         {{1, 12, 3600, 64}, {1, 12, 3600, 64}, {1, 12, 3600, 64}, {}, {}, {}, {}},
                         {{1, 8, 300, 64}, {1, 8, 300, 64}, {1, 8, 300, 64}, {}, {}, {}, {}},
                         {{1, 16, 577, 64}, {1, 16, 577, 64}, {1, 16, 577, 64}, {}, {}, {}, {}},
-                        {{1, 12, 577, 64}, {1, 12, 577, 64}, {1, 12, 577, 64}, {}, {}, {}, {}},
                         {{1, 10, 1024, 64}, {1, 10, 1024, 64}, {1, 10, 1024, 64}, {}, {}, {}, {}},
                         {{1, 10, 1024, 64}, {1, 10, 77, 64}, {1, 10, 77, 64}, {}, {}, {}, {}},
                         {{1, 20, 256, 64}, {1, 20, 256, 64}, {1, 20, 256, 64}, {}, {}, {}, {}},
@@ -744,4 +828,74 @@ INSTANTIATE_TEST_SUITE_P(
                 }),
                 ::testing::Values(AttentionType::PATTERN)),
         AttentionTestDecompose::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_FullLineMask, AttentionTestCommon,
+                         ::testing::Combine(::testing::ValuesIn(std::vector<AttentionShapeConfig>{
+                                                    // sSL <= 32: short inner softmax path
+                                                    {{1, 2, 64, 32},
+                                                     {1, 2, 16, 32},
+                                                     {1, 2, 16, 32},
+                                                     {1, 2, 64, 16},
+                                                     {1},
+                                                     {},
+                                                     {AttentionOption::FULL_LINE_MASK}},
+                                                    {{1, 2, 64, 32},
+                                                     {1, 2, 16, 32},
+                                                     {1, 2, 16, 32},
+                                                     {1, 1, 64, 16},
+                                                     {1},
+                                                     {},
+                                                     {AttentionOption::FULL_LINE_MASK}},
+                                                    {{1, 1, 8, 16},
+                                                     {1, 1, 32, 16},
+                                                     {1, 1, 32, 16},
+                                                     {1, 1, 8, 32},
+                                                     {1},
+                                                     {},
+                                                     {AttentionOption::FULL_LINE_MASK}},
+                                                    // sSL > 32: wider inner softmax path
+                                                    {{1, 2, 16, 32},
+                                                     {1, 2, 48, 32},
+                                                     {1, 2, 48, 32},
+                                                     {1, 2, 16, 48},
+                                                     {1},
+                                                     {},
+                                                     {AttentionOption::FULL_LINE_MASK}},
+                                                    {{1, 2, 16, 32},
+                                                     {1, 2, 64, 32},
+                                                     {1, 2, 64, 32},
+                                                     {1, 1, 16, 64},
+                                                     {1},
+                                                     {},
+                                                     {AttentionOption::FULL_LINE_MASK}},
+                                                    {{1, 1, 1, 32},
+                                                     {1, 1, 48, 32},
+                                                     {1, 1, 48, 32},
+                                                     {1, 1, 1, 48},
+                                                     {1},
+                                                     {},
+                                                     {AttentionOption::FULL_LINE_MASK}},
+                                                    {{1, 12, 512, 64},
+                                                     {1, 12, 512, 64},
+                                                     {1, 12, 512, 64},
+                                                     {1, 1, 1, 512},
+                                                     {1},
+                                                     {},
+                                                     {AttentionOption::FULL_LINE_MASK}},
+                                            }),
+                                            ::testing::Values(AttentionType::SDPA)),
+                         AttentionTestCommon::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(
+        smoke_GQA, AttentionTestCommon,
+        ::testing::Combine(
+                ::testing::ValuesIn(std::vector<AttentionShapeConfig>{
+                        {{1, 64, 1024, 128}, {1, 8, 1024, 128}, {1, 8, 1024, 128}, {1, 1, 1024, 1024}, {1}, {}, {}},
+                        {{1, 32, 1024, 128}, {1, 8, 1024, 128}, {1, 8, 1024, 128}, {1, 1, 1024, 1024}, {1}, {}, {}},
+                        {{1, 28, 1024, 128}, {1, 4, 1024, 128}, {1, 4, 1024, 128}, {1, 1, 1024, 1024}, {1}, {}, {}},
+                        {{1, 32, 1, 128}, {1, 2, 1152, 128}, {1, 2, 1152, 128}, {1, 1, 1, 1152}, {1}, {}, {}},
+                        {{1, 32, 1, 128}, {1, 2, 1152, 128}, {1, 2, 1152, 128}, {1, 32, 1, 1152}, {1}, {}, {}},
+                }),
+                ::testing::Values(AttentionType::PATTERN)),
+        AttentionTestCommon::getTestCaseName);
 }  // namespace ov::test

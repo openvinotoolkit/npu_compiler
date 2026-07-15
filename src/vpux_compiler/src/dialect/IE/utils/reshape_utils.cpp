@@ -353,5 +353,62 @@ vpux::DimsOrder returnBestDimOrder(const vpux::DimsOrder& initialDimOrder, Small
     return DimsOrder::fromPermutation(inputCodeOrder);
 }
 
+// Computes the output shape_value for an AffineReshapeOp when the input shape changes.
+// dim_mapping[i] lists the output dimensions that input dimension i maps to:
+//   - passthrough / merge: one output dim per input dim group → output[j] = product of contributing input dims
+//   - split: one input dim maps to N output dims → keep original sub-dim ratios, adjust the first sub-dim
+std::optional<SmallVector<int64_t>> computeShapeValueFromAffineReshape(IE::AffineReshapeOp affineReshape,
+                                                                       ArrayRef<int64_t> newInputShape) {
+    const auto dimMapping = parseIntArrayOfArrayAttr<int64_t>(affineReshape.getDimMapping());
+    const auto origOutputShape = parseIntArrayAttr<int64_t>(affineReshape.getShapeValue());
+
+    const auto numOutDims = origOutputShape.size();
+
+    // Guard against rank mismatch between the new input shape and the dim mapping.
+    if (newInputShape.size() != dimMapping.size()) {
+        return std::nullopt;
+    }
+
+    SmallVector<int64_t> newOutputShape(numOutDims, 1);
+
+    for (size_t inDim = 0; inDim < dimMapping.size(); ++inDim) {
+        const auto& outDims = dimMapping[inDim];
+
+        // Dynamic dimensions cannot be statically split or merged.
+        if (newInputShape[inDim] == mlir::ShapedType::kDynamic) {
+            return std::nullopt;
+        }
+
+        if (outDims.size() == 1) {
+            // Passthrough or merge: accumulate product of input dims into the single output dim.
+            if (static_cast<size_t>(outDims[0]) >= numOutDims) {
+                return std::nullopt;
+            }
+            newOutputShape[outDims[0]] *= newInputShape[inDim];
+        } else {
+            // Split: input dim inDim is split into multiple output dims.
+            // Keep all sub-dims except the first unchanged; adjust the first to absorb any size difference.
+            int64_t tail = 1;
+            for (size_t k = 1; k < outDims.size(); ++k) {
+                if (static_cast<size_t>(outDims[k]) >= numOutDims) {
+                    return std::nullopt;
+                }
+                newOutputShape[outDims[k]] = origOutputShape[outDims[k]];
+                tail *= origOutputShape[outDims[k]];
+            }
+            if (static_cast<size_t>(outDims[0]) >= numOutDims) {
+                return std::nullopt;
+            }
+            if (tail == 0 || newInputShape[inDim] % tail != 0) {
+                // The new input dimension cannot be evenly split using the original sub-dim ratios.
+                return std::nullopt;
+            }
+            newOutputShape[outDims[0]] = newInputShape[inDim] / tail;
+        }
+    }
+
+    return newOutputShape;
+}
+
 }  // namespace IE
 }  // namespace vpux

@@ -30,13 +30,13 @@ module @OneDMABCastToSlices024 {
         VPUASM.DeclareTaskBuffer @DeclareTaskBuffer_DMA_0 idx(!VPURegMapped.Index<0:0:0>) <DMA>
       }
       ELF.CreateLogicalSection @buffer.CMX_NN.0 aligned(64) secType(VPU_SHT_CMX_WORKSPACE) secFlags("SHF_NONE") secLocation(<CMX_NN>) {
-      VPUASM.DeclareBuffer @DeclareBuffer4 !VPUASM.Buffer< "CMX_NN"[0] <0> : memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
+      VPUASM.DeclareBuffer @DeclareBuffer4 !VPUASM.Buffer< "CMX_NN"[0] <0> : memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
       }
       ELF.CreateLogicalSection @buffer.CMX_NN.2 aligned(64) secType(VPU_SHT_CMX_WORKSPACE) secFlags("SHF_NONE") secLocation(<CMX_NN>) {
-        VPUASM.DeclareBuffer @DeclareBuffer5 !VPUASM.Buffer< "CMX_NN"[2] <0> : memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 2]> :  swizzling(0)>
+        VPUASM.DeclareBuffer @DeclareBuffer5 !VPUASM.Buffer< "CMX_NN"[2] <0> : memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 2]> :  swizzling(0)>
       }
       ELF.CreateLogicalSection @buffer.CMX_NN.4 aligned(64) secType(VPU_SHT_CMX_WORKSPACE) secFlags("SHF_NONE") secLocation(<CMX_NN>) {
-        VPUASM.DeclareBuffer @DeclareBuffer6 !VPUASM.Buffer< "CMX_NN"[4] <0> : memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 4]> :  swizzling(0)>
+        VPUASM.DeclareBuffer @DeclareBuffer6 !VPUASM.Buffer< "CMX_NN"[4] <0> : memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 4]> :  swizzling(0)>
       }
 
       ELF.CreateSection @text.nndma0 aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
@@ -77,13 +77,13 @@ module @OneDMABCastToSlices135 {
         VPUASM.DeclareTaskBuffer @DeclareTaskBuffer_DMA_0 idx(!VPURegMapped.Index<0:0:0>) <DMA>
       }
       ELF.CreateLogicalSection @buffer.CMX_NN.0 aligned(64) secType(VPU_SHT_CMX_WORKSPACE) secFlags("SHF_NONE") secLocation(<CMX_NN>) {
-      VPUASM.DeclareBuffer @DeclareBuffer4 !VPUASM.Buffer< "CMX_NN"[0] <0> : memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
+      VPUASM.DeclareBuffer @DeclareBuffer4 !VPUASM.Buffer< "CMX_NN"[0] <0> : memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
       }
       ELF.CreateLogicalSection @buffer.CMX_NN.2 aligned(64) secType(VPU_SHT_CMX_WORKSPACE) secFlags("SHF_NONE") secLocation(<CMX_NN>) {
-        VPUASM.DeclareBuffer @DeclareBuffer5 !VPUASM.Buffer< "CMX_NN"[2] <0> : memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 2]> :  swizzling(0)>
+        VPUASM.DeclareBuffer @DeclareBuffer5 !VPUASM.Buffer< "CMX_NN"[2] <0> : memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 2]> :  swizzling(0)>
       }
       ELF.CreateLogicalSection @buffer.CMX_NN.4 aligned(64) secType(VPU_SHT_CMX_WORKSPACE) secFlags("SHF_NONE") secLocation(<CMX_NN>) {
-        VPUASM.DeclareBuffer @DeclareBuffer6 !VPUASM.Buffer< "CMX_NN"[4] <0> : memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 4]> :  swizzling(0)>
+        VPUASM.DeclareBuffer @DeclareBuffer6 !VPUASM.Buffer< "CMX_NN"[4] <0> : memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 4]> :  swizzling(0)>
       }
 
       ELF.CreateSection @text.nndma0 aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {

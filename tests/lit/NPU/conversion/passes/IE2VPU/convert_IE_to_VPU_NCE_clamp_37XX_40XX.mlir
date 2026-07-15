@@ -162,7 +162,7 @@ func.func @ConvolutionFloatClamp0to192(%input: tensor<1x16x128x128xf16, {order =
     // CHECK-DAG:    [[WEIGHTS:%.+]] = const.Declare tensor<64x16x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<64x16x3x3xf16, {order = #NHWC}>
     // CHECK-DAG:    [[BIAS:%.+]] = const.Declare tensor<64x1x1x4xsi32>
 
-    // CHECK:        [[CONV:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS]], [[BIAS]]) {
+    // CHECK:        [[CONV:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS]], [[BIAS]]) rawFilterShape [64, 16, 3, 3] {
     // CHECK-SAME:        pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>,
     // CHECK-SAME:        ppe = #VPU.PPEInt<
     // CHECK-SAME:            mode = <LRELUX>,
@@ -170,7 +170,6 @@ func.func @ConvolutionFloatClamp0to192(%input: tensor<1x16x128x128xf16, {order =
     // CHECK-SAME:            clamp_high = 23040 : i64,
     // CHECK-SAME:            lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64
     // CHECK-SAME:        >,
-    // CHECK-SAME:        rawFilterShape = [64, 16, 3, 3],
     // CHECK-SAME:        strides = [2, 2]
     // CHECK-SAME:    }
     // CHECK-SAME:    -> tensor<1x64x64x64xf16, {order = #NHWC}>
@@ -198,7 +197,7 @@ func.func @ConvolutionLReluFloatClamp0to192(%input: tensor<1x16x128x128xf16, {or
     // CHECK-DAG:    [[WEIGHTS:%.+]] = const.Declare tensor<64x16x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<64x16x3x3xf16, {order = #NHWC}>
     // CHECK-DAG:    [[BIAS:%.+]] = const.Declare tensor<64x1x1x4xsi32>
 
-    // CHECK:        [[CONV:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS]], [[BIAS]]) {
+    // CHECK:        [[CONV:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS]], [[BIAS]]) rawFilterShape [64, 16, 3, 3] {
     // CHECK-SAME:        pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>,
     // CHECK-SAME:        ppe = #VPU.PPEInt<
     // CHECK-SAME:            mode = <LRELUX>,
@@ -206,7 +205,6 @@ func.func @ConvolutionLReluFloatClamp0to192(%input: tensor<1x16x128x128xf16, {or
     // CHECK-SAME:            clamp_high = 23040 : i64,
     // CHECK-SAME:            lrelu_mult = 1638 : i64, lrelu_shift = 14 : i64, fp_prelu_alpha = 0.10000000149011612 : f64
     // CHECK-SAME:        >,
-    // CHECK-SAME:        rawFilterShape = [64, 16, 3, 3],
     // CHECK-SAME:        strides = [2, 2]
     // CHECK-SAME:    }
     // CHECK-SAME:    -> tensor<1x64x64x64xf16, {order = #NHWC}>

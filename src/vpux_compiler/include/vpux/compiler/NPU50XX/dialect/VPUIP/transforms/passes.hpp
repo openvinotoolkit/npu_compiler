@@ -43,6 +43,13 @@ struct DefaultHWOptions :
                                     ::llvm::cl::desc("Enables loop allocation for tiling and vertical fusion regions"),
                                     ::llvm::cl::init(true)};
 
+    // TODO: E#216928 - remove flag when VF region scheduler feature fully enabled.
+    BoolOption enableVfUndefinedScheduler{
+            *this, "enable-vf-undefined-scheduler",
+            ::llvm::cl::desc("Route VF regions through UndefinedVF (currently returns an empty schedule and falls back "
+                             "to the legacy VF allocation path)"),
+            ::llvm::cl::init(false)};
+
     // TODO: E#118871 Switch this option to true by default
     BoolOption enableBarrierSchedWithFunctionOutlining{
             *this, "barrier-sched-with-function-outlining",

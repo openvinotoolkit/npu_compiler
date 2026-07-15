@@ -8,9 +8,19 @@
 
 namespace vpux::bitc {
 
-#define BYTE_ALIGN(x) static_cast<uint32_t>(((x + 7) / 8) * 8)
-
 const uint32_t BLOCK_SIZE{64u};
+
+// Internal definitions
+constexpr size_t NIBBLE_BITS = 4u;
+constexpr size_t NIBBLE_MASK = 0xFul;
+constexpr size_t BYTE_BITS = 8u;
+constexpr size_t BYTE_MASK = 0xFFul;
+constexpr size_t BYTE_SIZE_SHIFT = 3u;
+
+constexpr uint32_t BYTE_ALIGN(uint32_t x) {
+    return (x + 7) & ~7;
+}
+
 enum class CompressionType : uint32_t { eofr, lastblk, uncmprsd, cmprsd };
 
 enum class DecoderAlgorithm : uint32_t {

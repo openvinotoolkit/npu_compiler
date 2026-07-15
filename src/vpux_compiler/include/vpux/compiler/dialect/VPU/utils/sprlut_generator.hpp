@@ -126,6 +126,20 @@ constexpr auto HSWISH_POS_BYPASS_HIGH = std::numeric_limits<float>::infinity();
 
 constexpr auto HSWISH_ERROR = 0.0002f;
 
+// Reciprocal_Softmax
+//      over [1, 8192]
+//      this SprLUT is to be used only for SoftMax decomposition
+
+constexpr auto RCP_SFM_POS_SMALL_SAT_LOW = 0.f;
+constexpr auto RCP_SFM_POS_SMALL_SAT_HIGH = 1.f;
+constexpr auto RCP_SFM_POS_SMALL_SAT_VALUE = std::numeric_limits<ov::float16>::max();
+
+constexpr auto RCP_SFM_POS_LARGE_SAT_LOW = 8192.f;
+constexpr auto RCP_SFM_POS_LARGE_SAT_HIGH = std::numeric_limits<float>::infinity();
+constexpr auto RCP_SFM_POS_LARGE_SAT_VALUE = (1.f / 8192.f);
+
+constexpr auto RCP_SFM_ERROR = 0.003f;
+
 //
 // Lut config
 //

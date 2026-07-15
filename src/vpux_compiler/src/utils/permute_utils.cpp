@@ -66,7 +66,7 @@ SmallVector<int64_t> vpux::getPermutateDims(MemShapeRef inShape, mlir::AffineMap
     return permutateDims;
 }
 
-bool vpux::isTrivialReorder(DimsOrder inOrder, DimsOrder outOrder, ShapeRef shape) {
+bool vpux::isTrivialReorder(const DimsOrder& inOrder, const DimsOrder& outOrder, ShapeRef shape) {
     auto inPerm = inOrder.toPermutation();
     auto outPerm = outOrder.toPermutation();
     const auto shapeIsOne = [&](const Dim& perm) -> bool {
@@ -79,9 +79,10 @@ bool vpux::isTrivialReorder(DimsOrder inOrder, DimsOrder outOrder, ShapeRef shap
     return inPerm == outPerm;
 }
 
-mlir::AffineMap vpux::getPermutationFromOrders(DimsOrder inOrder, DimsOrder outOrder, mlir::MLIRContext* ctx) {
-    auto inPerm = inOrder.toPermutation();
-    auto outPerm = outOrder.toPermutation();
+mlir::AffineMap vpux::getPermutationFromOrders(const DimsOrder& inOrder, const DimsOrder& outOrder,
+                                               mlir::MLIRContext* ctx) {
+    const auto& inPerm = inOrder.toPermutation();
+    const auto& outPerm = outOrder.toPermutation();
     SmallVector<uint32_t> memPerm(inPerm.size());
     for (auto p : outPerm | indexed) {
         memPerm[p.index()] = static_cast<uint32_t>(inOrder.dimPos(p.value()));
@@ -90,9 +91,8 @@ mlir::AffineMap vpux::getPermutationFromOrders(DimsOrder inOrder, DimsOrder outO
     return mlir::AffineMap::getPermutationMap(ArrayRef(memPerm), ctx);
 }
 
-DimsOrder vpux::applyPermutation(const DimsOrder srcOrder, const DimsOrder dstOrder) {
-    const auto srcPermutation = srcOrder.toPermutation();
-    const auto dstPermutation = dstOrder.toPermutation();
+DimsOrder vpux::applyPermutation(const DimsOrder& srcOrder, const DimsOrder& dstOrder) {
+    const auto& dstPermutation = dstOrder.toPermutation();
     DimArr result;
     const auto getDimAt = [&](const Dim& perm) -> Dim {
         return srcOrder.dimAt(perm.ind());
@@ -102,7 +102,7 @@ DimsOrder vpux::applyPermutation(const DimsOrder srcOrder, const DimsOrder dstOr
 }
 
 // change order like from CNHW to NCHW
-DimsOrder vpux::moveD0ToTheFront(DimsOrder inOrder) {
+DimsOrder vpux::moveD0ToTheFront(const DimsOrder& inOrder) {
     SmallVector<vpux::Dim> perm = {Dim(0)};
     auto permutation = inOrder.toPermutation();
     std::copy_if(permutation.begin(), permutation.end(), std::back_inserter(perm), [](const Dim dim) {
@@ -251,8 +251,9 @@ NDTypeInterface vpux::inferNewTypeWithMemPerm(NDTypeInterface oldType, mlir::Aff
 
 // for a given input and a output requirement(outOrdr and outShape), the function is trying to find a permutation that
 // can use permuteCastOp to convert input to output requirement.
-std::optional<mlir::AffineMap> vpux::tryToFindPermutationForPermuteCast(NDTypeInterface inputType, DimsOrder outOrder,
-                                                                        ShapeRef outShape, mlir::MLIRContext* ctx) {
+std::optional<mlir::AffineMap> vpux::tryToFindPermutationForPermuteCast(NDTypeInterface inputType,
+                                                                        const DimsOrder& outOrder, ShapeRef outShape,
+                                                                        mlir::MLIRContext* ctx) {
     const auto inMemShape = inputType.getMemShape().raw();
     const auto outMemShape = outOrder.toMemoryOrder(outShape).raw();
 
@@ -339,7 +340,8 @@ std::optional<mlir::AffineMap> vpux::tryToFindPermutationForPermuteCast(NDTypeIn
     The function returns Dim(3) as the result, indicating that the logical dimension C in the source order [NWHC] maps
     to logical dimension W in the destination order [NCWH] after applying the permutation.
  */
-Dim vpux::inferDimAfterPermutation(Dim dim, DimsOrder srcOrder, DimsOrder dstOrder, mlir::AffineMap perm) {
+Dim vpux::inferDimAfterPermutation(Dim dim, const DimsOrder& srcOrder, const DimsOrder& dstOrder,
+                                   mlir::AffineMap perm) {
     const auto srcMemDim = srcOrder.toMemDim(dim);
     const auto dstDimPos = DimsOrder::fromAffineMap(perm).dimPos(Dim(srcMemDim.ind()));
     return dstOrder.dimAt(dstDimPos);

@@ -177,8 +177,9 @@ mlir::LogicalResult SplitConvToMultiConvWithAddConverter::matchAndRewrite(IE::Co
         if (origOp.getBias() != nullptr && idx == numSplits - 1) {
             bias = origOp.getBias();
         }
-        auto newConv = cloneConvolutionOp(rewriter, origOp, newInput, newFilter, bias, origOp.getScale(),
-                                          takeOpLoc(origOp, "conv_slice_" + std::to_string(idx)));
+        auto newConv =
+                cloneConvolutionOp(rewriter, origOp, newInput, newFilter, bias, origOp.getScale(),
+                                   origOp.getZeroPoints(), takeOpLoc(origOp, "conv_slice_" + std::to_string(idx)));
         convSlices.push_back(newConv.getOutput());
     }
 

@@ -16,6 +16,7 @@
 
 #include <npu_40xx_nnrt.hpp>
 
+using namespace vpux;
 using namespace NPUReg50XX;
 using namespace NPUReg50XX::Descriptors;
 using namespace npu40xx;
@@ -104,7 +105,9 @@ mlir::LogicalResult MappedInferenceRewriter::matchAndRewrite(VPUASM::MappedInfer
         stackFrames = VPUASM::getCMXStackFrames(moduleOp);
     }
 
-    auto isActKernelInvocations = origOp.getActKernelInvocationsCount().size() > 0;
+    auto isActKernelInvocations = llvm::any_of(actKernelInvocationsCountVec, [](int64_t count) {
+        return count > 0;
+    });
     NPUReg40XX::fillNNrtConfig<NPUReg50XX::ActShaveRtOp>(mi.shv_rt_configs, origOp, origOp.getActShaveRt(), stackSize,
                                                          isActShaveProfilingEnabled, isActKernelInvocations,
                                                          stackFrames);

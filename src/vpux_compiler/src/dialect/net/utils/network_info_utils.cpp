@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
 #include "vpux/compiler/dialect/core/IR/strided_dmas_utils.hpp"
+#include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/utils/core/error.hpp"
 
@@ -90,6 +91,21 @@ mlir::func::FuncOp findEntryPointFunc(mlir::Operation* op, Logger& log) {
     }
 
     return netFunc;
+}
+
+SmallVector<int64_t> getBoundsFromDataInfo(ArrayRef<net::DataInfoOp> dataInfos, size_t index) {
+    if (index >= dataInfos.size()) {
+        return {};
+    }
+
+    auto dataInfo = dataInfos[index];
+    const auto userType = dataInfo.getUserType();
+    const auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(userType);
+    if (boundedType == nullptr) {
+        return {};
+    }
+
+    return to_small_vector(boundedType.getBounds());
 }
 
 bool isArgStrided(mlir::ModuleOp module, size_t argIndex) {

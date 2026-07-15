@@ -177,8 +177,8 @@ inline bool keepIntTypeQuantization(mlir::Operation* op) {
     }
 
     auto isValidSignedUsecase = [](mlir::Operation* op) -> bool {
-        // Consider only Convolution and GroupConvolution as valid usecase for mixed precision
-        if (mlir::isa<IE::ConvolutionOp, IE::GroupConvolutionOp>(op)) {
+        // Consider Convolution, GroupConvolution and MatMul as valid usecase for mixed precision
+        if (mlir::isa<IE::ConvolutionOp, IE::GroupConvolutionOp, IE::MatMulOp>(op)) {
             // Check if the quantization is compatible with mixed precision usecase
             auto isQuantizationFusable = [&op](const mlir::quant::QuantizedType filterType) -> bool {
                 const auto isPerChannelQuantType = mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(filterType);
@@ -194,7 +194,7 @@ inline bool keepIntTypeQuantization(mlir::Operation* op) {
             const auto activationProducerOp = op->getOperand(0).getDefiningOp();
             const auto filterProducerOp = op->getOperand(1).getDefiningOp();
             if ((activationProducerOp == nullptr || !mlir::isa<IE::DequantizeOp>(activationProducerOp)) &&
-                filterProducerOp != nullptr && mlir::isa<IE::DequantizeOp>(filterProducerOp)) {
+                filterProducerOp != nullptr && mlir::isa<IE::DequantizeOp, IE::DynamicDequantizeOp>(filterProducerOp)) {
                 const auto filterElemType =
                         mlir::cast<vpux::NDTypeInterface>(filterProducerOp->getOperand(0).getType()).getElementType();
                 const auto quantFilterElemType = mlir::dyn_cast<mlir::quant::QuantizedType>(filterElemType);
@@ -205,6 +205,12 @@ inline bool keepIntTypeQuantization(mlir::Operation* op) {
             const auto quantFilterElemType = mlir::dyn_cast<mlir::quant::QuantizedType>(filterElemType);
             return !mlir::isa<mlir::quant::QuantizedType>(inputElemType) && quantFilterElemType != nullptr &&
                    isQuantizationFusable(quantFilterElemType);
+        }
+
+        // GatherOp uses its first operand as an embedding table: keep the I8 storage type.
+        // DynamicDequantize’s SHAVE kernel does not support U8 quantized inputs.
+        if (mlir::isa<IE::GatherOp, IE::DynamicDequantizeOp>(op)) {
+            return true;
         }
 
         return op->getNumOperands() == 1;
@@ -283,7 +289,7 @@ mlir::LogicalResult ConstRewriter::matchAndRewrite(Const::DeclareOp origOp, OpAd
     return mlir::success();
 }
 
-bool keepIntTypeForSIResult(mlir::Operation* op) {
+bool keepIntTypeForSIResultOrConcatInput(mlir::Operation* op) {
     std::function<bool(mlir::Operation*)> searchForReturn = [&](mlir::Operation* currentOp) -> bool {
         for (auto user : currentOp->getUsers()) {
             if (mlir::isa<mlir::func::ReturnOp>(user)) {
@@ -294,6 +300,20 @@ bool keepIntTypeForSIResult(mlir::Operation* op) {
                 }
             } else if (IE::isPureViewOp(user) ||
                        mlir::isa<IE::QuantizeCastOp, IE::ConcatOp, IE::SliceOp, IE::TransposeOp>(user)) {
+                // If a Concat has a signed-integer block argument operand,
+                // all its inputs must stay as signed integers to match.
+                if (auto concatOp = mlir::dyn_cast<IE::ConcatOp>(user)) {
+                    const auto hasIntBlockArg = llvm::any_of(concatOp->getOperands(), [](mlir::Value operand) {
+                        if (!mlir::isa<mlir::BlockArgument>(operand)) {
+                            return false;
+                        }
+                        const auto elemType = mlir::cast<vpux::NDTypeInterface>(operand.getType()).getElementType();
+                        return elemType.isSignedInteger();
+                    });
+                    if (hasIntBlockArg) {
+                        return true;
+                    }
+                }
                 if (searchForReturn(user)) {
                     return true;
                 }
@@ -351,14 +371,14 @@ void ConvertWeightsToU8Pass::safeRunOnFunc() {
         if (mixedPrecisionUsers == std::distance(constUsers.begin(), constUsers.end())) {
             return true;
         }
-        return typeConverter.isLegal(constOp);
+        return typeConverter.isLegal(constOp.getOperation());
     };
 
     mlir::ConversionTarget target(ctx);
     target.addDynamicallyLegalOp<Const::DeclareOp>(isLegalConstDeclareOp);
     target.markUnknownOpDynamicallyLegal([&](mlir::Operation* op) {
         if (mlir::isa<IE::LayerOpInterface>(op)) {
-            if (keepIntTypeForSIResult(op) || IE::keepIntTypeForSIWeightsAsInputOrConst(op)) {
+            if (keepIntTypeForSIResultOrConcatInput(op) || IE::keepIntTypeForSIWeightsAsInputOrConst(op)) {
                 return true;
             }
 

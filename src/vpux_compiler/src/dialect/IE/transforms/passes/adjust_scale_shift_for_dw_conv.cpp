@@ -29,10 +29,7 @@ static const int32_t MAX_SCALE_SHIFT_N = 16;
 
 mlir::LogicalResult mergeNCAndRewrite(mlir::PatternRewriter& rewriter, mlir::MLIRContext* ctx, mlir::Location loc,
                                       IE::ScaleShiftOp origScaleShiftOp) {
-    static const auto N = Dims4D::Act::N;
-    static const auto C = Dims4D::Act::C;
-    static const auto H = Dims4D::Act::H;
-    static const auto W = Dims4D::Act::W;
+    using namespace Dims4D::Act;
 
     auto activation = origScaleShiftOp.getInput();
     auto origOutShape = getShape(origScaleShiftOp->getResult(0));
@@ -101,9 +98,10 @@ private:
 mlir::LogicalResult AdjustScaleShiftForDWConvPass::ScaleShiftOpConverter::matchAndRewrite(
         IE::ScaleShiftOp origOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
+    using namespace Dims4D::Act;
 
     auto inputShape = getShape(origOp.getInput());
-    if (inputShape.size() != 4 || inputShape[Dims4D::Act::N] == 1) {
+    if (inputShape.size() != 4 || inputShape[N] == 1) {
         return mlir::failure();
     }
 
@@ -115,12 +113,12 @@ mlir::LogicalResult AdjustScaleShiftForDWConvPass::ScaleShiftOpConverter::matchA
     // BroadCast weight can be finished at compile stage. No additional time overhead.
     // Otherwise, It will introduce a Tile Op.
     // The experiment show there is no benefits when batch size < MAX_SCALE_SHIFT_N
-    if (!VPU::isNullOrConstWithSingleValue(origOp.getWeights()) && inputShape[Dims4D::Act::N] < MAX_SCALE_SHIFT_N) {
+    if (!VPU::isNullOrConstWithSingleValue(origOp.getWeights()) && inputShape[N] < MAX_SCALE_SHIFT_N) {
         _log.trace("No benefit due to Weights is not splat constant and N smaller than '{0}'", MAX_SCALE_SHIFT_N);
         return mlir::failure();
     }
 
-    if (!VPU::isNullOrConstWithSingleValue(origOp.getBiases()) && inputShape[Dims4D::Act::N] < MAX_SCALE_SHIFT_N) {
+    if (!VPU::isNullOrConstWithSingleValue(origOp.getBiases()) && inputShape[N] < MAX_SCALE_SHIFT_N) {
         _log.trace("No benefit due to Biases is not splat constant and N smaller than '{0}'", MAX_SCALE_SHIFT_N);
         return mlir::failure();
     }

@@ -11,9 +11,6 @@
 #include "vpux/compiler/utils/types.hpp"
 #include "vpux/utils/core/array_ref.hpp"
 
-using namespace mlir;
-using namespace llvm;
-
 namespace vpux {
 namespace type {
 
@@ -40,7 +37,8 @@ public:
     ArrayRef<double> getQuantiles() const;
 
     // Get a quantile float type with specified quantile table.
-    static QuantileType get(MLIRContext* ctx, Type storageType, Type quantileType, ArrayRef<double> quantiles = {});
+    static QuantileType get(mlir::MLIRContext* ctx, Type storageType, Type quantileType,
+                            ArrayRef<double> quantiles = {});
 
     /// Methods for support type inquiry through isa, cast, and dyn_cast.
     static bool classof(mlir::Type type);

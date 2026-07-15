@@ -45,7 +45,18 @@ void reorderOperations(mlir::ArrayRef<mlir::Operation*> operations) {
             continue;
         }
 
-        auto* firstUser = getFirstUser(origOp->getResult(0));
+        // Find the earliest first-user across all results to preserve dominance
+        // for multi-result ops (e.g. NCE ops with a fused reduce output).
+        mlir::Operation* firstUser = nullptr;
+        for (auto result : origOp->getResults()) {
+            auto* candidate = getFirstUser(result);
+            if (candidate == nullptr) {
+                continue;
+            }
+            if (firstUser == nullptr || candidate->isBeforeInBlock(firstUser)) {
+                firstUser = candidate;
+            }
+        }
 
         if (firstUser != nullptr) {
             origOp->moveBefore(firstUser);

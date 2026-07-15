@@ -11,8 +11,10 @@
 
 using namespace vpux;
 
-void config::ConstraintsInitializer50XX::initialize(mlir::MLIRContext* context,
-                                                    [[maybe_unused]] PlatformOrArch target) {
+config::ConstraintsInitializer50XX::ConstraintsInitializer50XX(config::Platform platform): _platform(platform) {
+}
+
+void config::ConstraintsInitializer50XX::initialize(mlir::MLIRContext* context) {
     NPUConstraints constraints;
 
     constraints.frequencyTable.base = arch50xx::FREQ_BASE;
@@ -22,10 +24,12 @@ void config::ConstraintsInitializer50XX::initialize(mlir::MLIRContext* context,
     constraints.mappedInferenceFormat = NPUConstraints::MappedInferenceFormat::MappedInference;
     constraints.baseElfAbiVersion = config::Version(2, 0, 0);
     constraints.dynamicStridesMinElfAbiVersion = config::Version(2, 1, 0);
-    if (std::holds_alternative<Platform>(target) && std::get<Platform>(target) == Platform::NPU5020) {
+    if (_platform == config::Platform::NPU5020) {
         constraints.mappedInferenceFormat = NPUConstraints::MappedInferenceFormat::ManagedMappedInference;
         constraints.baseElfAbiVersion = config::Version(2, 2, 0);
     }
+
+    constraints.maxKernelSize = arch50xx::DPU_MAX_KERNEL_SIZE;
 
     setNPUConstraints(context, constraints);
 }

@@ -47,7 +47,6 @@ namespace {
 //
 
 constexpr StringLiteral platformAttrName = config::PlatformAttr::name;
-constexpr StringLiteral archAttrName = "config.arch";
 constexpr StringLiteral abiVersionName = "config.elf_version";
 constexpr StringLiteral revisionIDAttrName = "config.revisionID";
 constexpr Byte DDR_HEAP_SIZE = 64000_MB;
@@ -58,7 +57,6 @@ constexpr StringLiteral bandwidthAttrName = "config.bandwidth"; /*!< This attrib
                       */
 
 constexpr StringLiteral compilationModeAttrName = "config.compilationMode";
-constexpr StringLiteral hostBackendModeAttrName = "config.hostBackendMode";
 
 }  // namespace
 
@@ -92,21 +90,21 @@ StringLiteral vpux::config::getMemoryBandwidthAttrName() {
     return bandwidthAttrName;
 }
 
-//
-// HostBackendMode
-//
-
-void vpux::config::setHostBackendMode(mlir::ModuleOp module, HostBackendMode mode) {
-    module->setAttr(hostBackendModeAttrName, config::HostBackendModeAttr::get(module.getContext(), mode));
+bool vpux::config::isHostCompileMode(CompilationMode mode) {
+    return mode == CompilationMode::HostCompile || mode == CompilationMode::HostCompile_JIT ||
+           mode == CompilationMode::HostCompile_Interpreter;
 }
 
-config::HostBackendMode vpux::config::getHostBackendMode(mlir::ModuleOp module) {
-    if (auto attr = module->getAttr(hostBackendModeAttrName)) {
-        VPUX_THROW_UNLESS(mlir::isa<config::HostBackendModeAttr>(attr),
-                          "Module attribute '{0}' has unsupported value '{1}'", hostBackendModeAttrName, attr);
-        return mlir::cast<config::HostBackendModeAttr>(attr).getValue();
-    }
-    return config::HostBackendMode::JIT;
+bool vpux::config::isHostCompileMode(mlir::Operation* op) {
+    return isHostCompileMode(getCompilationMode(op));
+}
+
+bool vpux::config::isHostCompileInterpreterMode(CompilationMode mode) {
+    return mode == CompilationMode::HostCompile_Interpreter;
+}
+
+bool vpux::config::isHostCompileInterpreterMode(mlir::Operation* op) {
+    return isHostCompileInterpreterMode(getCompilationMode(op));
 }
 
 //
@@ -163,76 +161,43 @@ void setResources(mlir::ModuleOp module, const Resources& res, const SetResource
         return numOfDMAPortsVal;
     };
 
-    config::ResourcesOp nceCluster;
+    const auto platform = config::getPlatform(module);
+    const auto workspaceCMXSize = availableCMXMemory.value_or(VPU::getPlatformCapabilities(platform).cmxWorkspaceSize);
 
     const auto ddrSymbolAttr = mlir::SymbolRefAttr::get(module.getContext(), stringifyEnum(VPU::MemoryKind::DDR));
     const auto cmxSymbolAttr = mlir::SymbolRefAttr::get(module.getContext(), stringifyEnum(VPU::MemoryKind::CMX_NN));
-    const auto cmxFragAwareSymbolAttr = mlir::SymbolRefAttr::get(module.getContext(), VPU::CMX_NN_FragmentationAware);
+
+    // Common setup: every arch has exactly one global resource op, one tile executor, and one DPU sub-executor.
+    config::ResourcesOp nceCluster;
+    auto globalResource = funcs.addGlobalResources();
+    nceCluster = funcs.addTileExecutor(numOfDPUGroups);
+    funcs.addSubExecutor(nceCluster, config::ExecutorKind::DPU, 1);
 
     switch (kind) {
     case config::ArchKind::NPU37XX: {
-        const auto workspaceCMXSize =
-                availableCMXMemory.has_value() ? availableCMXMemory.value() : VPUX37XX_CMX_WORKSPACE_SIZE;
-        const auto workspaceFragmentationAwareSize =
-                availableCMXMemory.has_value()
-                        ? Byte(static_cast<double>(availableCMXMemory.value().count()) * FRAGMENTATION_AVOID_RATIO)
-                        : VPUX37XX_CMX_WORKSPACE_FRAGMENTATION_AWARE_SIZE;
-
-        auto globalResource = funcs.addGlobalResources();
-        funcs.addSubExecutor(globalResource, config::ExecutorKind::DMA_NN, getNumOfDMAPortsVal(VPUX37XX_MAX_DMA_PORTS));
+        funcs.addSubExecutor(globalResource, config::ExecutorKind::DMA_NN, getNumOfDMAPortsVal(MAX_DMA_PORTS_2));
         funcs.addInnerMemoryWithAttrs(globalResource, ddrSymbolAttr, DDR_HEAP_SIZE, 0.6, 8);
-
-        nceCluster = funcs.addTileExecutor(numOfDPUGroups);
-        funcs.addSubExecutor(nceCluster, config::ExecutorKind::DPU, 1);
         funcs.addSubExecutor(nceCluster, config::ExecutorKind::SHAVE_NN, 1);
-        funcs.addSubExecutor(nceCluster, config::ExecutorKind::SHAVE_ACT, VPUX37XX_MAX_SHAVES_PER_TILE);
+        funcs.addSubExecutor(nceCluster, config::ExecutorKind::SHAVE_ACT, MAX_SHAVES_PER_TILE_2);
         funcs.addInnerMemoryWithAttrs(nceCluster, cmxSymbolAttr, workspaceCMXSize, 1.0, 32);
-        funcs.addInnerMemory(nceCluster, cmxFragAwareSymbolAttr, workspaceFragmentationAwareSize);
-
         break;
     }
     case config::ArchKind::NPU40XX: {
-        const auto workspaceCMXSize =
-                availableCMXMemory.has_value() ? availableCMXMemory.value() : VPUX40XX_CMX_WORKSPACE_SIZE;
-        const auto workspaceFragmentationAwareSize =
-                availableCMXMemory.has_value()
-                        ? Byte(static_cast<double>(availableCMXMemory.value().count()) * FRAGMENTATION_AVOID_RATIO)
-                        : VPUX40XX_CMX_WORKSPACE_FRAGMENTATION_AWARE_SIZE;
-
-        auto globalResource = funcs.addGlobalResources();
         funcs.addSubExecutor(globalResource, config::ExecutorKind::DMA_NN,
-                             getNumOfDMAPortsVal(std::min(numOfDPUGroups, VPUX40XX_MAX_DMA_PORTS)));
+                             getNumOfDMAPortsVal(std::min(numOfDPUGroups, MAX_DMA_PORTS_2)));
         funcs.addSubExecutor(globalResource, config::ExecutorKind::M2I, 1);
         funcs.addInnerMemoryWithAttrs(globalResource, ddrSymbolAttr, DDR_HEAP_SIZE, 0.6, 64);
-
-        nceCluster = funcs.addTileExecutor(numOfDPUGroups);
-        funcs.addSubExecutor(nceCluster, config::ExecutorKind::DPU, 1);
-        funcs.addSubExecutor(nceCluster, config::ExecutorKind::SHAVE_ACT, VPUX40XX_MAX_SHAVES_PER_TILE);
+        funcs.addSubExecutor(nceCluster, config::ExecutorKind::SHAVE_ACT, MAX_SHAVES_PER_TILE_2);
         funcs.addInnerMemoryWithAttrs(nceCluster, cmxSymbolAttr, workspaceCMXSize, 1.0, 64);
-        funcs.addInnerMemory(nceCluster, cmxFragAwareSymbolAttr, workspaceFragmentationAwareSize);
-
         break;
     }
     case config::ArchKind::NPU50XX: {
-        const auto workspaceCMXSize =
-                availableCMXMemory.has_value() ? availableCMXMemory.value() : VPUX50XX_CMX_WORKSPACE_SIZE;
-        const auto workspaceFragmentationAwareSize =
-                availableCMXMemory.has_value()
-                        ? Byte(static_cast<double>(availableCMXMemory.value().count()) * FRAGMENTATION_AVOID_RATIO)
-                        : VPUX50XX_CMX_WORKSPACE_FRAGMENTATION_AWARE_SIZE;
-
-        auto globalResource = funcs.addGlobalResources();
         funcs.addInnerMemoryWithAttrs(globalResource, ddrSymbolAttr, DDR_HEAP_SIZE, 0.6, 64);
         funcs.addSubExecutor(globalResource, config::ExecutorKind::DMA_NN,
-                             getNumOfDMAPortsVal(std::min(numOfDPUGroups, VPUX50XX_MAX_DMA_PORTS)));
+                             getNumOfDMAPortsVal(static_cast<int>(VPU::getMaxDMAPorts(platform))));
         funcs.addSubExecutor(globalResource, config::ExecutorKind::M2I, 1);
-
-        nceCluster = funcs.addTileExecutor(numOfDPUGroups);
-        funcs.addSubExecutor(nceCluster, config::ExecutorKind::DPU, 1);
-        funcs.addSubExecutor(nceCluster, config::ExecutorKind::SHAVE_ACT, VPUX50XX_MAX_SHAVES_PER_TILE);
+        funcs.addSubExecutor(nceCluster, config::ExecutorKind::SHAVE_ACT, MAX_SHAVES_PER_TILE_2);
         funcs.addInnerMemoryWithAttrs(nceCluster, cmxSymbolAttr, workspaceCMXSize, 1.0, 64);
-        funcs.addInnerMemory(nceCluster, cmxFragAwareSymbolAttr, workspaceFragmentationAwareSize);
-
         break;
     }
     default:
@@ -244,22 +209,13 @@ void setResources(mlir::ModuleOp module, const Resources& res, const SetResource
 }
 }  // namespace
 
-void vpux::config::setArch(mlir::ModuleOp module, std::optional<config::Platform> platform, config::ArchKind kind,
-                           int numOfDPUGroups, std::optional<int> numOfDMAPorts, std::optional<Byte> availableCMXMemory,
-                           bool allowCustomValues) {
-    const bool hasArch = module->hasAttr(platformAttrName) || module->hasAttr(archAttrName);
-    VPUX_THROW_WHEN(!allowCustomValues && hasArch,
+void vpux::config::setParamInModule(mlir::ModuleOp module, config::Platform platform, int numOfDPUGroups,
+                                    std::optional<int> numOfDMAPorts, std::optional<Byte> availableCMXMemory,
+                                    bool allowCustomValues) {
+    const bool hasPlatform = module->hasAttr(platformAttrName);
+    VPUX_THROW_WHEN(hasPlatform && !allowCustomValues,
                     "Target platform is already set, probably you run '--init-compiler' twice");
-    if (!hasArch) {
-        if (platform.has_value()) {
-            VPUX_THROW_WHEN(kind != config::ArchKind::UNKNOWN && getArch(platform.value()) != kind,
-                            "Platform mismatch.");
-            module->setAttr(platformAttrName, config::PlatformAttr::get(module.getContext(), platform.value()));
-
-        } else {
-            module->setAttr(archAttrName, config::ArchKindAttr::get(module.getContext(), kind));
-        }
-    }
+    module->setAttr(platformAttrName, config::PlatformAttr::get(module.getContext(), platform));
 
     const auto addGlobalResource = [&]() {
         VPUX_THROW_WHEN(!allowCustomValues && config::hasGlobalResource(module),
@@ -326,21 +282,18 @@ config::ArchKind vpux::config::getArch(config::Platform platform) {
         return config::ArchKind::NPU37XX;
     case config::Platform::NPU4000:
         return config::ArchKind::NPU40XX;
-    case config::Platform::NPU5000:
     case config::Platform::NPU5010:
     case config::Platform::NPU5020:
         return config::ArchKind::NPU50XX;
+    default:
+        return config::ArchKind::UNKNOWN;
     }
-
-    return config::ArchKind::UNKNOWN;
 }
 
-std::optional<config::Platform> vpux::config::getPlatform(mlir::Operation* op) {
-    auto module = getModuleOp(op);
-    if (auto attr = module->getAttr(platformAttrName)) {
-        return mlir::cast<config::PlatformAttr>(attr).getValue();
-    }
-    return std::nullopt;
+config::Platform vpux::config::getPlatform(mlir::Operation* op) {
+    auto attr = getModuleOp(op)->getAttr(platformAttrName);
+    VPUX_THROW_WHEN(attr == nullptr, "Module does not have a platform attribute");
+    return mlir::cast<config::PlatformAttr>(attr).getValue();
 }
 
 config::ArchKind vpux::config::getArch(mlir::Operation* op) {
@@ -348,18 +301,12 @@ config::ArchKind vpux::config::getArch(mlir::Operation* op) {
     if (auto attr = module->getAttr(platformAttrName)) {
         auto platform = mlir::cast<config::PlatformAttr>(attr).getValue();
         return getArch(platform);
-    } else if (auto attr = module->getAttr(archAttrName)) {
-        return mlir::cast<config::ArchKindAttr>(attr).getValue();
     }
     return config::ArchKind::UNKNOWN;
 }
 
 bool vpux::config::isArchVPUX3XXX(config::ArchKind arch) {
     return (arch == config::ArchKind::NPU37XX);
-}
-
-bool vpux::config::isArchVPUX5XXX(config::ArchKind arch) {
-    return (arch == config::ArchKind::NPU50XX);
 }
 
 //
@@ -401,6 +348,11 @@ bool config::hasCompileMethodDebatch(mlir::ModuleOp module) {
     return module != nullptr ? module->hasAttr(debatchCompileMethod) : false;
 }
 
+void config::removeCompileMethodDebatch(mlir::ModuleOp module) {
+    if (module != nullptr) {
+        module->removeAttr(debatchCompileMethod);
+    }
+}
 //
 // PureHostCompileFunc
 //

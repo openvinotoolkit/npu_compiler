@@ -28,15 +28,6 @@ struct RepeatingBlocksOptions : mlir::PassPipelineOptions<RepeatingBlocksOptions
             llvm::cl::init(vpux::IE::RepeatingBlocksOptions::WEIGHTS_AS_INPUTS_DEFAULT)};
 };
 
-struct RepeatingBlocksSeparateFunctionsOptions : mlir::PassPipelineOptions<RepeatingBlocksSeparateFunctionsOptions> {
-    vpux::IntOption minOpsInBlock{
-            *this, "min-ops-in-block", llvm::cl::desc("Minimum number of operations allowed per block"),
-            ::llvm::cl::init(vpux::IE::RepeatingBlocksSeparateFunctionsOptions::MIN_OPS_IN_BLOCK_DEFAULT)};
-    vpux::IntOption maxNumIterations{
-            *this, "max-num-iterations", llvm::cl::desc("Maximum number of iterations to find a solution"),
-            llvm::cl::init(vpux::IE::RepeatingBlocksSeparateFunctionsOptions::MAX_NUM_ITERATIONS_DEFAULT)};
-};
-
 struct BatchingOptions : mlir::PassPipelineOptions<BatchingOptions> {};
 
 }  // namespace
@@ -102,18 +93,6 @@ OutlinerPassOptions OutlinerPassOptions::createFromString(StringRef param) {
             bool weightsAsInputs = opt->weightsAsInputs;
 
             options._options.emplace_back(RepeatingBlocksOptions{minOpsInBlock, maxNumIterations, weightsAsInputs});
-        } else if (modeStringTrimmed == "repeating-blocks-separate-functions") {
-            auto opt = ::RepeatingBlocksSeparateFunctionsOptions::createFromString(argumentStringTrimmed);
-            VPUX_THROW_WHEN(opt.get() == nullptr,
-                            "Cannot create repeating-blocks-separate-functions options from string: {0}",
-                            argumentStringTrimmed);
-            VPUX_THROW_WHEN(opt->minOpsInBlock < 0, "min-ops-in-block must be non-negative");
-            VPUX_THROW_WHEN(opt->maxNumIterations < 0, "max-num-iterations must be non-negative");
-
-            size_t minOpsInBlock = opt->minOpsInBlock;
-            size_t maxNumIterations = opt->maxNumIterations;
-
-            options._options.emplace_back(RepeatingBlocksSeparateFunctionsOptions{minOpsInBlock, maxNumIterations});
         } else if (modeStringTrimmed == "batching") {
             auto opt = ::BatchingOptions::createFromString(argumentStringTrimmed);
             VPUX_THROW_WHEN(opt.get() == nullptr, "Cannot create batching options from string: {0}",

@@ -6,7 +6,6 @@
 #include "vpux/compiler/dialect/VPU/IR/native_attributes/distribution_info.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
-#include "vpux/utils/core/optional.hpp"
 
 using namespace vpux;
 
@@ -15,41 +14,47 @@ VPU::DistributionInfo vpux::VPU::DistributionInfo::getClassFromAttr(vpux::VPU::D
         return {};
     }
 
-    auto mode = distributionAttr.getMode().getValue();
-    auto numClusters = distributionAttr.getNumClusters().getInt();
+    // Parsed vectors are moved into the result to avoid the deep copy that the ArrayRef-based
+    // constructor would otherwise perform. Default-constructed members already match the
+    // "attribute not present" case, so each field is only set when the attribute is present.
+    VPU::DistributionInfo distribution;
+    distribution.setDistributionMode(distributionAttr.getMode().getValue());
+    distribution.setNumClusters(distributionAttr.getNumClusters().getInt());
 
-    auto numTiles = distributionAttr.getNumTiles() ? parseIntArrayAttr<int64_t>(distributionAttr.getNumTiles())
-                                                   : SmallVector<int64_t>{};
-    auto kernel = distributionAttr.getKernel() ? parseIntArrayAttr<int64_t>(distributionAttr.getKernel())
-                                               : SmallVector<int64_t>{};
-    auto strides = distributionAttr.getStrides() ? parseIntArrayAttr<int64_t>(distributionAttr.getStrides())
-                                                 : SmallVector<int64_t>{};
-    auto pad = distributionAttr.getPads() ? vpux::VPU::Padding::getClassFromAttr(distributionAttr.getPads())
-                                          : std::optional<vpux::VPU::Padding>(std::nullopt);
-    auto alignment = distributionAttr.getAlignment() ? parseIntArrayAttr<int64_t>(distributionAttr.getAlignment())
-                                                     : SmallVector<int64_t>{};
-    auto uniformDistributedSegments = distributionAttr.getUniformDistributedSegments() ? true : false;
-    auto computeShapes = distributionAttr.getComputeShapes()
-                                 ? parseIntArrayOfArrayAttr<int64_t>(distributionAttr.getComputeShapes())
-                                 : SmallVector<SmallVector<int64_t>>{};
-    auto computeOffsets = distributionAttr.getComputeOffsets()
-                                  ? parseIntArrayOfArrayAttr<int64_t>(distributionAttr.getComputeOffsets())
-                                  : SmallVector<SmallVector<int64_t>>{};
-    auto memoryShapes = distributionAttr.getMemoryShapes()
-                                ? parseIntArrayOfArrayAttr<int64_t>(distributionAttr.getMemoryShapes())
-                                : SmallVector<SmallVector<int64_t>>{};
-    auto memoryOffsets = distributionAttr.getMemoryOffsets()
-                                 ? parseIntArrayOfArrayAttr<int64_t>(distributionAttr.getMemoryOffsets())
-                                 : SmallVector<SmallVector<int64_t>>{};
-    auto equalMemoryAndComputeView = distributionAttr.getEqualMemoryAndComputeView() ? true : false;
-    std::optional<SmallVector<int64_t>> memoryNumTiles =
-            distributionAttr.getMemoryNumTiles()
-                    ? std::make_optional(parseIntArrayAttr<int64_t>(distributionAttr.getMemoryNumTiles()))
-                    : std::nullopt;
+    if (distributionAttr.getNumTiles()) {
+        distribution.setNumTiles(parseIntArrayAttr<int64_t>(distributionAttr.getNumTiles()));
+    }
+    if (distributionAttr.getKernel()) {
+        distribution.setKernel(parseIntArrayAttr<int64_t>(distributionAttr.getKernel()));
+    }
+    if (distributionAttr.getStrides()) {
+        distribution.setStrides(parseIntArrayAttr<int64_t>(distributionAttr.getStrides()));
+    }
+    if (distributionAttr.getPads()) {
+        distribution.setPadding(vpux::VPU::Padding::getClassFromAttr(distributionAttr.getPads()));
+    }
+    if (distributionAttr.getAlignment()) {
+        distribution.setAlignment(parseIntArrayAttr<int64_t>(distributionAttr.getAlignment()));
+    }
+    distribution.setUniformDistributedSegments(distributionAttr.getUniformDistributedSegments() != nullptr);
+    if (distributionAttr.getComputeShapes()) {
+        distribution.setComputeShapes(parseIntArrayOfArrayAttr<int64_t>(distributionAttr.getComputeShapes()));
+    }
+    if (distributionAttr.getComputeOffsets()) {
+        distribution.setComputeOffsets(parseIntArrayOfArrayAttr<int64_t>(distributionAttr.getComputeOffsets()));
+    }
+    if (distributionAttr.getMemoryShapes()) {
+        distribution.setMemoryShapes(parseIntArrayOfArrayAttr<int64_t>(distributionAttr.getMemoryShapes()));
+    }
+    if (distributionAttr.getMemoryOffsets()) {
+        distribution.setMemoryOffsets(parseIntArrayOfArrayAttr<int64_t>(distributionAttr.getMemoryOffsets()));
+    }
+    distribution.setEqualMemoryAndComputeView(distributionAttr.getEqualMemoryAndComputeView() != nullptr);
+    if (distributionAttr.getMemoryNumTiles()) {
+        distribution.setMemoryNumTiles(parseIntArrayAttr<int64_t>(distributionAttr.getMemoryNumTiles()));
+    }
 
-    return vpux::VPU::DistributionInfo(mode, numTiles, kernel, strides, pad, numClusters, alignment,
-                                       uniformDistributedSegments, computeShapes, computeOffsets, memoryShapes,
-                                       memoryOffsets, equalMemoryAndComputeView, memoryNumTiles);
+    return distribution;
 }
 
 VPU::DistributionInfoAttr vpux::VPU::DistributionInfo::getAttrFromClass(
@@ -101,7 +106,7 @@ void VPU::DistributionInfo::printFormat(llvm::raw_ostream& stream) const {
     ListFormatProvider::format(_numTiles, stream, {});
     printTo(stream, ", kernel = ");
     ListFormatProvider::format(_kernel, stream, {});
-    printTo(stream, ", {0}", _pad.has_value() ? _pad : Padding{});
+    printTo(stream, ", {0}", _pad.value_or(Padding{}));
     printTo(stream, ", strides = ");
     ListFormatProvider::format(_strides, stream, {});
     printTo(stream, ", num_clusters = {0}", _numClusters);

@@ -33,6 +33,50 @@ func.func @ReifyReLUShape(%IN: !BoundedType) -> (!BoundedType, index) {
 
 !BoundedType = tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
 
+// CHECK-LABEL: @ReifyTanhShape
+func.func @ReifyTanhShape(%IN: !BoundedType) -> (!BoundedType, index) {
+    // CHECK: [[IN:%.+]]: tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
+    %IDX_3 = arith.constant 3 : index
+    // CHECK: [[IDX_3:%.+]] = arith.constant 3 : index
+
+    %TANH = IE.Tanh(%IN) : !BoundedType -> !BoundedType
+    // CHECK: [[TANH:%.+]] = IE.Tanh([[IN]])
+
+    %DIM_3 = tensor.dim %TANH, %IDX_3 : !BoundedType
+    // CHECK: [[DIM_3:%.+]] = tensor.dim [[IN]], [[IDX_3]]
+
+    return %TANH, %DIM_3 : !BoundedType, index
+    // CHECK: return [[TANH]], [[DIM_3]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!BoundedType = tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
+
+// CHECK-LABEL: @ReifyClampShape
+func.func @ReifyClampShape(%IN: !BoundedType) -> (!BoundedType, index) {
+    // CHECK: [[IN:%.+]]: tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
+    %IDX_3 = arith.constant 3 : index
+    // CHECK: [[IDX_3:%.+]] = arith.constant 3 : index
+
+    %CLAMP = IE.Clamp(%IN) {max = 1.000000e+00 : f64, min = -1.000000e+00 : f64} : !BoundedType -> !BoundedType
+    // CHECK: [[CLAMP:%.+]] = IE.Clamp([[IN]])
+
+    %DIM_3 = tensor.dim %CLAMP, %IDX_3 : !BoundedType
+    // CHECK: [[DIM_3:%.+]] = tensor.dim [[IN]], [[IDX_3]]
+
+    return %CLAMP, %DIM_3 : !BoundedType, index
+    // CHECK: return [[CLAMP]], [[DIM_3]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!BoundedType = tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
+
 // CHECK-LABEL: @ReifyAddShape
 // CHECK-SAME: [[IN1:%.+]]: tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>,
 // CHECK-SAME: [[IN2:%.+]]: tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
@@ -1115,7 +1159,7 @@ func.func @ReifyConvertShape(%IN: !InBoundedType) -> (!OutBoundedType, index) {
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 !InterpInType = tensor<1x3x4x6xf16>
-!InterpOutType = tensor<?x?x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+!InterpOutType = tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
 
 // CHECK-LABEL: @ReifyInterpolateDynamicScalesShape
 // CHECK-SAME: [[ARG0:%.+]]: tensor<1x3x4x6xf16>, [[ARG1:%.+]]: tensor<2xf32>
@@ -1150,6 +1194,102 @@ func.func @ReifyInterpolateDynamicScalesShape(%IN: !InterpInType, %SCALES: tenso
     // CHECK: [[DIM_3_REIFIED:%.+]] = arith.index_cast [[W_I64]] : i64 to index
 
     return %INTERP, %DIM_2, %DIM_3 : !InterpOutType, index, index
+    // CHECK: return [[INTERP]], [[DIM_2_REIFIED]], [[DIM_3_REIFIED]]
+}
+
+// -----
+
+// Verify that reifyResultShapes for IE.Interpolate correctly strips an IE.Convert
+// wrapper on the scales operand, so the @output_shape BFS never traverses IE-dialect ops.
+// The scales are passed as a runtime f32 tensor wrapped in IE.Convert from f16.
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!InterpInConvType = tensor<1x3x4x6xf16>
+!InterpOutConvType = tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+
+// CHECK-LABEL: @ReifyInterpolateScalesWrappedInConvert
+// CHECK-SAME: [[ARG0:%.+]]: tensor<1x3x4x6xf16>, [[ARG1:%.+]]: tensor<2xf16>
+func.func @ReifyInterpolateScalesWrappedInConvert(%IN: !InterpInConvType, %SCALES_F16: tensor<2xf16>) -> (!InterpOutConvType, index, index) {
+    %IDX_2 = arith.constant 2 : index
+    %IDX_3 = arith.constant 3 : index
+    // CHECK: [[CST_W:%.+]] = arith.constant 6.000000e+00 : f64
+    // CHECK: [[C1:%.+]] = arith.constant 1 : index
+    // CHECK: [[CST_H:%.+]] = arith.constant 4.000000e+00 : f64
+    // CHECK: [[C0:%.+]] = arith.constant 0 : index
+
+    // IE.Convert wraps the f16 scales into f32 — reifyResultShapes must look through it.
+    %SCALES_F32 = IE.Convert(%SCALES_F16) {dstElemType = f32} : tensor<2xf16> -> tensor<2xf32>
+
+    %SIZES = const.Declare tensor<2xsi32> = dense<0> : tensor<2xsi32>
+    %AXES = const.Declare tensor<2xsi64> = dense<[2, 3]> : tensor<2xsi64>
+
+    %INTERP = IE.Interpolate(%IN, %SIZES, %SCALES_F32, %AXES) {
+        attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SCALES>, coord_mode = <HALF_PIXEL>, nearest_mode = <FLOOR>, antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>,
+        operandSegmentSizes = array<i32: 1, 1, 1, 1>
+    } : !InterpInConvType, tensor<2xsi32>, tensor<2xf32>, tensor<2xsi64> -> !InterpOutConvType
+    // CHECK: [[INTERP:%.+]] = IE.Interpolate([[ARG0]],
+
+    %DIM_2 = tensor.dim %INTERP, %IDX_2 : !InterpOutConvType
+    %DIM_3 = tensor.dim %INTERP, %IDX_3 : !InterpOutConvType
+    // Scales must be extracted from the original f16 arg, not from the IE.Convert output.
+    // CHECK: [[SCALE_H:%.+]] = tensor.extract [[ARG1]]{{\[}}[[C0]]{{\]}} : tensor<2xf16>
+    // CHECK: [[SCALE_H_F64:%.+]] = arith.extf [[SCALE_H]] : f16 to f64
+    // CHECK: [[H_MUL:%.+]] = arith.mulf [[SCALE_H_F64]], [[CST_H]] : f64
+    // CHECK: [[H_I64:%.+]] = arith.fptosi [[H_MUL]] : f64 to i64
+    // CHECK: [[DIM_2_REIFIED:%.+]] = arith.index_cast [[H_I64]] : i64 to index
+    // CHECK: [[SCALE_W:%.+]] = tensor.extract [[ARG1]]{{\[}}[[C1]]{{\]}} : tensor<2xf16>
+    // CHECK: [[SCALE_W_F64:%.+]] = arith.extf [[SCALE_W]] : f16 to f64
+    // CHECK: [[W_MUL:%.+]] = arith.mulf [[SCALE_W_F64]], [[CST_W]] : f64
+    // CHECK: [[W_I64:%.+]] = arith.fptosi [[W_MUL]] : f64 to i64
+    // CHECK: [[DIM_3_REIFIED:%.+]] = arith.index_cast [[W_I64]] : i64 to index
+
+    return %INTERP, %DIM_2, %DIM_3 : !InterpOutConvType, index, index
+    // CHECK: return [[INTERP]], [[DIM_2_REIFIED]], [[DIM_3_REIFIED]]
+}
+
+// -----
+
+// Verify that reifyResultShapes for IE.Interpolate handles missing axes operand/attr
+// by defaulting to [0, ..., rank-1] via getInterpAxesVal.
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!InterpInNoAxesType = tensor<1x3x4x6xf16>
+!InterpOutNoAxesType = tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+
+// CHECK-LABEL: @ReifyInterpolateScalesNoAxesAttr
+// CHECK-SAME: [[ARG0:%.+]]: tensor<1x3x4x6xf16>, [[ARG1:%.+]]: tensor<4xf32>
+func.func @ReifyInterpolateScalesNoAxesAttr(%IN: !InterpInNoAxesType, %SCALES: tensor<4xf32>) -> (!InterpOutNoAxesType, index, index) {
+    %IDX_2 = arith.constant 2 : index
+    %IDX_3 = arith.constant 3 : index
+    // CHECK: [[CST_W:%.+]] = arith.constant 6.000000e+00 : f64
+    // CHECK: [[C3:%.+]] = arith.constant 3 : index
+    // CHECK: [[CST_H:%.+]] = arith.constant 4.000000e+00 : f64
+    // CHECK: [[C2:%.+]] = arith.constant 2 : index
+
+    // No axes operand and no axes_attr — getInterpAxesVal defaults to [0,1,2,3].
+    // Before the fix, extractIntVector returned failure when both were absent.
+    %INTERP = IE.Interpolate(%IN, %SCALES) {
+        attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SCALES>, coord_mode = <HALF_PIXEL>, nearest_mode = <FLOOR>, antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>,
+        operandSegmentSizes = array<i32: 1, 0, 1, 0>
+    } : !InterpInNoAxesType, tensor<4xf32> -> !InterpOutNoAxesType
+    // CHECK: [[INTERP:%.+]] = IE.Interpolate([[ARG0]], [[ARG1]])
+
+    %DIM_2 = tensor.dim %INTERP, %IDX_2 : !InterpOutNoAxesType
+    %DIM_3 = tensor.dim %INTERP, %IDX_3 : !InterpOutNoAxesType
+    // CHECK: [[SCALE_H:%.+]] = tensor.extract [[ARG1]]{{\[}}[[C2]]{{\]}} : tensor<4xf32>
+    // CHECK: [[SCALE_H_F64:%.+]] = arith.extf [[SCALE_H]] : f32 to f64
+    // CHECK: [[H_MUL:%.+]] = arith.mulf [[SCALE_H_F64]], [[CST_H]] : f64
+    // CHECK: [[H_I64:%.+]] = arith.fptosi [[H_MUL]] : f64 to i64
+    // CHECK: [[DIM_2_REIFIED:%.+]] = arith.index_cast [[H_I64]] : i64 to index
+    // CHECK: [[SCALE_W:%.+]] = tensor.extract [[ARG1]]{{\[}}[[C3]]{{\]}} : tensor<4xf32>
+    // CHECK: [[SCALE_W_F64:%.+]] = arith.extf [[SCALE_W]] : f32 to f64
+    // CHECK: [[W_MUL:%.+]] = arith.mulf [[SCALE_W_F64]], [[CST_W]] : f64
+    // CHECK: [[W_I64:%.+]] = arith.fptosi [[W_MUL]] : f64 to i64
+    // CHECK: [[DIM_3_REIFIED:%.+]] = arith.index_cast [[W_I64]] : i64 to index
+
+    return %INTERP, %DIM_2, %DIM_3 : !InterpOutNoAxesType, index, index
     // CHECK: return [[INTERP]], [[DIM_2_REIFIED]], [[DIM_3_REIFIED]]
 }
 

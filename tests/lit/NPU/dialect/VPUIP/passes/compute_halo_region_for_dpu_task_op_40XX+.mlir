@@ -10,11 +10,11 @@
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 !Input0 = memref<
-    1x16x16x32xf16, #NHWC, [@CMX_NN, 0]
+    1x16x16x32xf16, {order = #NHWC}, [@CMX_NN, 0]
 >
 
 !Input1 = memref<
-    1x16x16x32xf16, #NHWC, [@CMX_NN, 1]
+    1x16x16x32xf16, {order = #NHWC}, [@CMX_NN, 1]
 >
 
 !OutputITI0 = !VPUIP.ITIBuffer<
@@ -41,15 +41,15 @@ net.NetworkInfo
         DataInfo "output1" : tensor<1x16x17x32xf16>
     }
 
-func.func @main(%arg0:  memref<1x16x17x32xf16, #NHWC, [@CMX_NN, 0]>, %arg1:  memref<1x16x17x32xf16, #NHWC, [@CMX_NN, 1]>) -> (memref<1x16x17x32xf16, #NHWC, [@CMX_NN, 0]>, memref<1x16x17x32xf16, #NHWC, [@CMX_NN, 1]>) {
+func.func @main(%arg0:  memref<1x16x17x32xf16, {order = #NHWC}, [@CMX_NN, 0]>, %arg1:  memref<1x16x17x32xf16, {order = #NHWC}, [@CMX_NN, 1]>) -> (memref<1x16x17x32xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x16x17x32xf16, {order = #NHWC}, [@CMX_NN, 1]>) {
     %input0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> !Input0
     %input1 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> !Input1
 
     %output0 = VPURT.DeclareBuffer <CMX_NN> [0] <17408> ->  !OutputITI0
     %output1 = VPURT.DeclareBuffer <CMX_NN> [1] <17408> ->  !OutputITI1
 
-    %weights0 = VPURT.DeclareBuffer <CMX_NN> [0] <34816> -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
-    %weights1 = VPURT.DeclareBuffer <CMX_NN> [1] <34816> -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 1]>
+    %weights0 = VPURT.DeclareBuffer <CMX_NN> [0] <34816> -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %weights1 = VPURT.DeclareBuffer <CMX_NN> [1] <34816> -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>
 
     VPURT.Task {
         VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
@@ -59,7 +59,7 @@ func.func @main(%arg0:  memref<1x16x17x32xf16, #NHWC, [@CMX_NN, 0]>, %arg1:  mem
                 task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%input0: !Input0)
-            weights(%weights0: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
+            weights(%weights0: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
             parent_input(%input0: !Input0)
             parent_output(%output0: !OutputITI0)
             output_ITI_buff(%output1 : !OutputITI1)
@@ -96,7 +96,7 @@ func.func @main(%arg0:  memref<1x16x17x32xf16, #NHWC, [@CMX_NN, 0]>, %arg1:  mem
                 task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%input1: !Input1)
-            weights(%weights1: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 1]>)
+            weights(%weights1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>)
             parent_input(%input1: !Input1)
             parent_output(%output1: !OutputITI1)
             output_ITI_buff(%output0: !OutputITI0)
@@ -125,7 +125,7 @@ func.func @main(%arg0:  memref<1x16x17x32xf16, #NHWC, [@CMX_NN, 0]>, %arg1:  mem
             }
     }
 
-    return %arg0, %arg1: memref<1x16x17x32xf16, #NHWC, [@CMX_NN, 0]>, memref<1x16x17x32xf16, #NHWC, [@CMX_NN, 1]>
+    return %arg0, %arg1: memref<1x16x17x32xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x16x17x32xf16, {order = #NHWC}, [@CMX_NN, 1]>
 }
 
 }
@@ -164,15 +164,15 @@ func.func @main(%arg0:  memref<1x16x17x32xf16, #NHWC, [@CMX_NN, 0]>, %arg1:  mem
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 !Input0 = memref<
-    1x16x32x17xf16, #NHWC, [@CMX_NN, 0]
+    1x16x32x17xf16, {order = #NHWC}, [@CMX_NN, 0]
 >
 
 !Input1 = memref<
-    1x16x32x17xf16, #NHWC, [@CMX_NN, 1]
+    1x16x32x17xf16, {order = #NHWC}, [@CMX_NN, 1]
 >
 
 !Input2 = memref<
-    1x16x32x17xf16, #NHWC, [@CMX_NN, 2]
+    1x16x32x17xf16, {order = #NHWC}, [@CMX_NN, 2]
 >
 
 !OutputITI0 = !VPUIP.ITIBuffer<
@@ -216,7 +216,7 @@ net.NetworkInfo
         DataInfo "output2" : tensor<1x16x32x18xf16>
     }
 
-func.func @main(%arg0:  memref<1x16x32x17xf16>, %arg1:  memref<1x16x32x17xf16>, %arg2:  memref<1x16x32x17xf16>, %arg3:  memref<1x16x32x18xf16, #NHWC, [@CMX_NN, 0]>, %arg4:  memref<1x16x32x19xf16, #NHWC, [@CMX_NN, 1]>, %arg5:  memref<1x16x32x18xf16, #NHWC, [@CMX_NN, 2]>) -> (memref<1x16x32x18xf16, #NHWC, [@CMX_NN, 0]>, memref<1x16x32x19xf16, #NHWC, [@CMX_NN, 1]>, memref<1x16x32x18xf16, #NHWC, [@CMX_NN, 2]>) {
+func.func @main(%arg0:  memref<1x16x32x17xf16>, %arg1:  memref<1x16x32x17xf16>, %arg2:  memref<1x16x32x17xf16>, %arg3:  memref<1x16x32x18xf16, {order = #NHWC}, [@CMX_NN, 0]>, %arg4:  memref<1x16x32x19xf16, {order = #NHWC}, [@CMX_NN, 1]>, %arg5:  memref<1x16x32x18xf16, {order = #NHWC}, [@CMX_NN, 2]>) -> (memref<1x16x32x18xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x16x32x19xf16, {order = #NHWC}, [@CMX_NN, 1]>, memref<1x16x32x18xf16, {order = #NHWC}, [@CMX_NN, 2]>) {
     %input0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> !Input0
     %input1 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> !Input1
     %input2 = VPURT.DeclareBuffer <CMX_NN> [2] <0> -> !Input2
@@ -225,9 +225,9 @@ func.func @main(%arg0:  memref<1x16x32x17xf16>, %arg1:  memref<1x16x32x17xf16>, 
     %output1 = VPURT.DeclareBuffer <CMX_NN> [1] <18432> ->  !OutputITI1
     %output2 = VPURT.DeclareBuffer <CMX_NN> [2] <18432> ->  !OutputITI2
 
-    %weights0 = VPURT.DeclareBuffer <CMX_NN> [0] <37888> -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
-    %weights1 = VPURT.DeclareBuffer <CMX_NN> [1] <37888> -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 1]>
-    %weights2 = VPURT.DeclareBuffer <CMX_NN> [2] <37888> -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 2]>
+    %weights0 = VPURT.DeclareBuffer <CMX_NN> [0] <37888> -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %weights1 = VPURT.DeclareBuffer <CMX_NN> [1] <37888> -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>
+    %weights2 = VPURT.DeclareBuffer <CMX_NN> [2] <37888> -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 2]>
 
     VPURT.Task {
         VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
@@ -237,7 +237,7 @@ func.func @main(%arg0:  memref<1x16x32x17xf16>, %arg1:  memref<1x16x32x17xf16>, 
                 task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%input0: !Input0)
-            weights(%weights0: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
+            weights(%weights0: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
             parent_input(%input0: !Input0)
             parent_output(%output0: !OutputITI0)
             output_ITI_buff(%output1 : !OutputITI1)
@@ -274,7 +274,7 @@ func.func @main(%arg0:  memref<1x16x32x17xf16>, %arg1:  memref<1x16x32x17xf16>, 
                 task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%input1: !Input1)
-            weights(%weights1: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 1]>)
+            weights(%weights1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>)
             parent_input(%input1: !Input1)
             parent_output(%output1: !OutputITI1)
             output_ITI_buff(%output0, %output2: !OutputITI0, !OutputITI2)
@@ -311,7 +311,7 @@ func.func @main(%arg0:  memref<1x16x32x17xf16>, %arg1:  memref<1x16x32x17xf16>, 
                 task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%input2: !Input2)
-            weights(%weights2: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 2]>)
+            weights(%weights2: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 2]>)
             parent_input(%input2: !Input2)
             parent_output(%output2: !OutputITI2)
             output_ITI_buff(%output1: !OutputITI1)
@@ -340,7 +340,7 @@ func.func @main(%arg0:  memref<1x16x32x17xf16>, %arg1:  memref<1x16x32x17xf16>, 
             }
     }
 
-    return %arg3, %arg4, %arg5: memref<1x16x32x18xf16, #NHWC, [@CMX_NN, 0]>, memref<1x16x32x19xf16, #NHWC, [@CMX_NN, 1]>, memref<1x16x32x18xf16, #NHWC, [@CMX_NN, 2]>
+    return %arg3, %arg4, %arg5: memref<1x16x32x18xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x16x32x19xf16, {order = #NHWC}, [@CMX_NN, 1]>, memref<1x16x32x18xf16, {order = #NHWC}, [@CMX_NN, 2]>
 }
 
 }
@@ -402,15 +402,15 @@ func.func @main(%arg0:  memref<1x16x32x17xf16>, %arg1:  memref<1x16x32x17xf16>, 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 !Input0 = memref<
-    1x16x10x10xf16, #NHWC, [@CMX_NN, 0]
+    1x16x10x10xf16, {order = #NHWC}, [@CMX_NN, 0]
 >
 
 !Input1 = memref<
-    1x16x10x10xf16, #NHWC, [@CMX_NN, 1]
+    1x16x10x10xf16, {order = #NHWC}, [@CMX_NN, 1]
 >
 
 !Input2 = memref<
-    1x16x10x10xf16, #NHWC, [@CMX_NN, 2]
+    1x16x10x10xf16, {order = #NHWC}, [@CMX_NN, 2]
 >
 
 !OutputITI0 = !VPUIP.ITIBuffer<
@@ -486,7 +486,7 @@ net.NetworkInfo
         DataInfo "output2" : tensor<1x96x10x10xf16>
     }
 
-func.func @main(%arg0:  memref<1x16x10x10xf16>, %arg1:  memref<1x16x10x10xf16>, %arg2:  memref<1x16x10x10xf16>, %arg3:  memref<1x96x10x10xf16, #NHWC, [@CMX_NN, 0]>, %arg4:  memref<1x96x10x10xf16, #NHWC, [@CMX_NN, 1]>, %arg5:  memref<1x96x10x10xf16, #NHWC, [@CMX_NN, 2]>) -> (memref<1x96x10x10xf16, #NHWC, [@CMX_NN, 0]>, memref<1x96x10x10xf16, #NHWC, [@CMX_NN, 1]>, memref<1x96x10x10xf16, #NHWC, [@CMX_NN, 2]>) {
+func.func @main(%arg0:  memref<1x16x10x10xf16>, %arg1:  memref<1x16x10x10xf16>, %arg2:  memref<1x16x10x10xf16>, %arg3:  memref<1x96x10x10xf16, {order = #NHWC}, [@CMX_NN, 0]>, %arg4:  memref<1x96x10x10xf16, {order = #NHWC}, [@CMX_NN, 1]>, %arg5:  memref<1x96x10x10xf16, {order = #NHWC}, [@CMX_NN, 2]>) -> (memref<1x96x10x10xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x96x10x10xf16, {order = #NHWC}, [@CMX_NN, 1]>, memref<1x96x10x10xf16, {order = #NHWC}, [@CMX_NN, 2]>) {
     %input0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> !Input0
     %input1 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> !Input1
     %input2 = VPURT.DeclareBuffer <CMX_NN> [2] <0> -> !Input2
@@ -495,9 +495,9 @@ func.func @main(%arg0:  memref<1x16x10x10xf16>, %arg1:  memref<1x16x10x10xf16>, 
     %output1 = VPURT.DeclareBuffer <CMX_NN> [1] <3200> ->  !OutputITI1
     %output2 = VPURT.DeclareBuffer <CMX_NN> [2] <3200> ->  !OutputITI2
 
-    %weights0 = VPURT.DeclareBuffer <CMX_NN> [0] <22400> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
-    %weights1 = VPURT.DeclareBuffer <CMX_NN> [1] <22400> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 1]>
-    %weights2 = VPURT.DeclareBuffer <CMX_NN> [2] <22400> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 2]>
+    %weights0 = VPURT.DeclareBuffer <CMX_NN> [0] <22400> -> memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %weights1 = VPURT.DeclareBuffer <CMX_NN> [1] <22400> -> memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>
+    %weights2 = VPURT.DeclareBuffer <CMX_NN> [2] <22400> -> memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 2]>
 
     VPURT.Task {
         VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
@@ -507,7 +507,7 @@ func.func @main(%arg0:  memref<1x16x10x10xf16>, %arg1:  memref<1x16x10x10xf16>, 
                 task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%input0: !Input0)
-            weights(%weights0: memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
+            weights(%weights0: memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
             parent_input(%input0: !Input0)
             parent_output(%output0: !OutputITI0)
             output_ITI_buff(%output1, %output2 : !OutputITI1, !OutputITI2)
@@ -544,7 +544,7 @@ func.func @main(%arg0:  memref<1x16x10x10xf16>, %arg1:  memref<1x16x10x10xf16>, 
                 task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%input1: !Input1)
-            weights(%weights1: memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 1]>)
+            weights(%weights1: memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>)
             parent_input(%input1: !Input1)
             parent_output(%output1: !OutputITI1)
             output_ITI_buff(%output0, %output2: !OutputITI0, !OutputITI2)
@@ -581,7 +581,7 @@ func.func @main(%arg0:  memref<1x16x10x10xf16>, %arg1:  memref<1x16x10x10xf16>, 
                 task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%input2: !Input2)
-            weights(%weights2: memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 2]>)
+            weights(%weights2: memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 2]>)
             parent_input(%input2: !Input2)
             parent_output(%output2: !OutputITI2)
             output_ITI_buff(%output0, %output1: !OutputITI0, !OutputITI1)
@@ -610,7 +610,7 @@ func.func @main(%arg0:  memref<1x16x10x10xf16>, %arg1:  memref<1x16x10x10xf16>, 
             }
     }
 
-    return %arg3, %arg4, %arg5: memref<1x96x10x10xf16, #NHWC, [@CMX_NN, 0]>, memref<1x96x10x10xf16, #NHWC, [@CMX_NN, 1]>, memref<1x96x10x10xf16, #NHWC, [@CMX_NN, 2]>
+    return %arg3, %arg4, %arg5: memref<1x96x10x10xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x96x10x10xf16, {order = #NHWC}, [@CMX_NN, 1]>, memref<1x96x10x10xf16, {order = #NHWC}, [@CMX_NN, 2]>
 }
 
 }
@@ -663,19 +663,19 @@ func.func @main(%arg0:  memref<1x16x10x10xf16>, %arg1:  memref<1x16x10x10xf16>, 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 !Input0 = memref<
-    1x16x16x16xf16, #NHWC, [@CMX_NN, 0]
+    1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]
 >
 
 !Input1 = memref<
-    1x16x16x16xf16, #NHWC, [@CMX_NN, 1]
+    1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 1]
 >
 
 !Input2 = memref<
-    1x16x16x16xf16, #NHWC, [@CMX_NN, 2]
+    1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 2]
 >
 
 !Input3 = memref<
-    1x16x16x16xf16, #NHWC, [@CMX_NN, 3]
+    1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 3]
 >
 
 !OutputITI0 = !VPUIP.ITIBuffer<
@@ -786,7 +786,7 @@ net.NetworkInfo
         DataInfo "output3" : tensor<1x64x18x16xf16>
     }
 
-func.func @main(%arg0:  memref<1x16x16x16xf16>, %arg1:  memref<1x16x16x16xf16>, %arg2:  memref<1x16x16x16xf16>, %arg3:  memref<1x16x16x16xf16>, %arg4:  memref<1x64x18x16xf16, #NHWC, [@CMX_NN, 0]>, %arg5:  memref<1x64x18x16xf16, #NHWC, [@CMX_NN, 1]>, %arg6:  memref<1x64x18x16xf16, #NHWC, [@CMX_NN, 2]>, %arg7:  memref<1x64x18x16xf16, #NHWC, [@CMX_NN, 3]>) -> (memref<1x64x18x16xf16, #NHWC, [@CMX_NN, 0]>, memref<1x64x18x16xf16, #NHWC, [@CMX_NN, 1]>, memref<1x64x18x16xf16, #NHWC, [@CMX_NN, 2]>, memref<1x64x18x16xf16, #NHWC, [@CMX_NN, 3]>) {
+func.func @main(%arg0:  memref<1x16x16x16xf16>, %arg1:  memref<1x16x16x16xf16>, %arg2:  memref<1x16x16x16xf16>, %arg3:  memref<1x16x16x16xf16>, %arg4:  memref<1x64x18x16xf16, {order = #NHWC}, [@CMX_NN, 0]>, %arg5:  memref<1x64x18x16xf16, {order = #NHWC}, [@CMX_NN, 1]>, %arg6:  memref<1x64x18x16xf16, {order = #NHWC}, [@CMX_NN, 2]>, %arg7:  memref<1x64x18x16xf16, {order = #NHWC}, [@CMX_NN, 3]>) -> (memref<1x64x18x16xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x64x18x16xf16, {order = #NHWC}, [@CMX_NN, 1]>, memref<1x64x18x16xf16, {order = #NHWC}, [@CMX_NN, 2]>, memref<1x64x18x16xf16, {order = #NHWC}, [@CMX_NN, 3]>) {
     %input0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> !Input0
     %input1 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> !Input1
     %input2 = VPURT.DeclareBuffer <CMX_NN> [2] <0> -> !Input2
@@ -797,10 +797,10 @@ func.func @main(%arg0:  memref<1x16x16x16xf16>, %arg1:  memref<1x16x16x16xf16>, 
     %output2 = VPURT.DeclareBuffer <CMX_NN> [2] <8192> ->  !OutputITI2
     %output3 = VPURT.DeclareBuffer <CMX_NN> [3] <8192> ->  !OutputITI3
 
-    %weights0 = VPURT.DeclareBuffer <CMX_NN> [0] <45056> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
-    %weights1 = VPURT.DeclareBuffer <CMX_NN> [1] <45056> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 1]>
-    %weights2 = VPURT.DeclareBuffer <CMX_NN> [2] <45056> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 2]>
-    %weights3 = VPURT.DeclareBuffer <CMX_NN> [3] <45056> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 3]>
+    %weights0 = VPURT.DeclareBuffer <CMX_NN> [0] <45056> -> memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %weights1 = VPURT.DeclareBuffer <CMX_NN> [1] <45056> -> memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>
+    %weights2 = VPURT.DeclareBuffer <CMX_NN> [2] <45056> -> memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 2]>
+    %weights3 = VPURT.DeclareBuffer <CMX_NN> [3] <45056> -> memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 3]>
 
     VPURT.Task {
         VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
@@ -810,7 +810,7 @@ func.func @main(%arg0:  memref<1x16x16x16xf16>, %arg1:  memref<1x16x16x16xf16>, 
                 task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%input0: !Input0)
-            weights(%weights0: memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
+            weights(%weights0: memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
             parent_input(%input0: !Input0)
             parent_output(%output0: !OutputITI0)
             output_ITI_buff(%output1, %output2, %output3 : !OutputITI1, !OutputITI2, !OutputITI3)
@@ -847,7 +847,7 @@ func.func @main(%arg0:  memref<1x16x16x16xf16>, %arg1:  memref<1x16x16x16xf16>, 
                 task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%input1: !Input1)
-            weights(%weights1: memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 1]>)
+            weights(%weights1: memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>)
             parent_input(%input1: !Input1)
             parent_output(%output1: !OutputITI1)
             output_ITI_buff(%output0, %output2, %output3: !OutputITI0, !OutputITI2, !OutputITI3)
@@ -884,7 +884,7 @@ func.func @main(%arg0:  memref<1x16x16x16xf16>, %arg1:  memref<1x16x16x16xf16>, 
                 task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%input2: !Input2)
-            weights(%weights2: memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 2]>)
+            weights(%weights2: memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 2]>)
             parent_input(%input2: !Input2)
             parent_output(%output2: !OutputITI2)
             output_ITI_buff(%output0, %output1, %output3: !OutputITI0, !OutputITI1, !OutputITI3)
@@ -939,7 +939,7 @@ func.func @main(%arg0:  memref<1x16x16x16xf16>, %arg1:  memref<1x16x16x16xf16>, 
                 task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%input3: !Input3)
-            weights(%weights3: memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 3]>)
+            weights(%weights3: memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 3]>)
             parent_input(%input3: !Input3)
             parent_output(%output3: !OutputITI3)
             output_ITI_buff(%output0, %output1, %output2: !OutputITI0, !OutputITI1, !OutputITI2)
@@ -968,7 +968,7 @@ func.func @main(%arg0:  memref<1x16x16x16xf16>, %arg1:  memref<1x16x16x16xf16>, 
             }
     }
 
-    return %arg4, %arg5, %arg6, %arg7: memref<1x64x18x16xf16, #NHWC, [@CMX_NN, 0]>, memref<1x64x18x16xf16, #NHWC, [@CMX_NN, 1]>, memref<1x64x18x16xf16, #NHWC, [@CMX_NN, 2]>, memref<1x64x18x16xf16, #NHWC, [@CMX_NN, 3]>
+    return %arg4, %arg5, %arg6, %arg7: memref<1x64x18x16xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x64x18x16xf16, {order = #NHWC}, [@CMX_NN, 1]>, memref<1x64x18x16xf16, {order = #NHWC}, [@CMX_NN, 2]>, memref<1x64x18x16xf16, {order = #NHWC}, [@CMX_NN, 3]>
 }
 
 }
@@ -1056,19 +1056,19 @@ func.func @main(%arg0:  memref<1x16x16x16xf16>, %arg1:  memref<1x16x16x16xf16>, 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 !Input0 = memref<
-    1x16x20x16xf16, #NHWC, [@CMX_NN, 0]
+    1x16x20x16xf16, {order = #NHWC}, [@CMX_NN, 0]
 >
 
 !Input1 = memref<
-    1x16x20x16xf16, #NHWC, [@CMX_NN, 1]
+    1x16x20x16xf16, {order = #NHWC}, [@CMX_NN, 1]
 >
 
 !Input2 = memref<
-    1x16x20x16xf16, #NHWC, [@CMX_NN, 2]
+    1x16x20x16xf16, {order = #NHWC}, [@CMX_NN, 2]
 >
 
 !Input3 = memref<
-    1x16x20x16xf16, #NHWC, [@CMX_NN, 3]
+    1x16x20x16xf16, {order = #NHWC}, [@CMX_NN, 3]
 >
 
 !OutputITI0 = !VPUIP.ITIBuffer<
@@ -1149,7 +1149,7 @@ net.NetworkInfo
         DataInfo "output3" : tensor<1x16x22x17xf16>
     }
 
-func.func @main(%arg0:  memref<1x16x20x16xf16>, %arg1:  memref<1x16x20x16xf16>, %arg2:  memref<1x16x20x16xf16>, %arg3:  memref<1x16x20x16xf16>, %arg4:  memref<1x16x22x17xf16, #NHWC, [@CMX_NN, 0]>, %arg5:  memref<1x16x22x17xf16, #NHWC, [@CMX_NN, 1]>, %arg6:  memref<1x16x22x17xf16, #NHWC, [@CMX_NN, 2]>, %arg7:  memref<1x16x22x17xf16, #NHWC, [@CMX_NN, 3]>) -> (memref<1x16x22x17xf16, #NHWC, [@CMX_NN, 0]>, memref<1x16x22x17xf16, #NHWC, [@CMX_NN, 1]>, memref<1x16x22x17xf16, #NHWC, [@CMX_NN, 2]>, memref<1x16x22x17xf16, #NHWC, [@CMX_NN, 3]>) {
+func.func @main(%arg0:  memref<1x16x20x16xf16>, %arg1:  memref<1x16x20x16xf16>, %arg2:  memref<1x16x20x16xf16>, %arg3:  memref<1x16x20x16xf16>, %arg4:  memref<1x16x22x17xf16, {order = #NHWC}, [@CMX_NN, 0]>, %arg5:  memref<1x16x22x17xf16, {order = #NHWC}, [@CMX_NN, 1]>, %arg6:  memref<1x16x22x17xf16, {order = #NHWC}, [@CMX_NN, 2]>, %arg7:  memref<1x16x22x17xf16, {order = #NHWC}, [@CMX_NN, 3]>) -> (memref<1x16x22x17xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x16x22x17xf16, {order = #NHWC}, [@CMX_NN, 1]>, memref<1x16x22x17xf16, {order = #NHWC}, [@CMX_NN, 2]>, memref<1x16x22x17xf16, {order = #NHWC}, [@CMX_NN, 3]>) {
     %input0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> !Input0
     %input1 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> !Input1
     %input2 = VPURT.DeclareBuffer <CMX_NN> [2] <0> -> !Input2
@@ -1160,10 +1160,10 @@ func.func @main(%arg0:  memref<1x16x20x16xf16>, %arg1:  memref<1x16x20x16xf16>, 
     %output2 = VPURT.DeclareBuffer <CMX_NN> [2] <10880> ->  !OutputITI2
     %output3 = VPURT.DeclareBuffer <CMX_NN> [3] <10880> ->  !OutputITI3
 
-    %weights0 = VPURT.DeclareBuffer <CMX_NN> [0] <22848> -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
-    %weights1 = VPURT.DeclareBuffer <CMX_NN> [1] <22848> -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 1]>
-    %weights2 = VPURT.DeclareBuffer <CMX_NN> [2] <22848> -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 2]>
-    %weights3 = VPURT.DeclareBuffer <CMX_NN> [3] <22848> -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 3]>
+    %weights0 = VPURT.DeclareBuffer <CMX_NN> [0] <22848> -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %weights1 = VPURT.DeclareBuffer <CMX_NN> [1] <22848> -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>
+    %weights2 = VPURT.DeclareBuffer <CMX_NN> [2] <22848> -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 2]>
+    %weights3 = VPURT.DeclareBuffer <CMX_NN> [3] <22848> -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 3]>
 
     VPURT.Task {
         VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
@@ -1173,7 +1173,7 @@ func.func @main(%arg0:  memref<1x16x20x16xf16>, %arg1:  memref<1x16x20x16xf16>, 
                 task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%input0: !Input0)
-            weights(%weights0: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
+            weights(%weights0: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
             parent_input(%input0: !Input0)
             parent_output(%output0: !OutputITI0)
             output_ITI_buff(%output1, %output2, %output3 : !OutputITI1, !OutputITI2, !OutputITI3)
@@ -1210,7 +1210,7 @@ func.func @main(%arg0:  memref<1x16x20x16xf16>, %arg1:  memref<1x16x20x16xf16>, 
                 task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%input1: !Input1)
-            weights(%weights1: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 1]>)
+            weights(%weights1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>)
             parent_input(%input1: !Input1)
             parent_output(%output1: !OutputITI1)
             output_ITI_buff(%output0, %output2, %output3: !OutputITI0, !OutputITI2, !OutputITI3)
@@ -1247,7 +1247,7 @@ func.func @main(%arg0:  memref<1x16x20x16xf16>, %arg1:  memref<1x16x20x16xf16>, 
                 task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%input2: !Input2)
-            weights(%weights2: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 2]>)
+            weights(%weights2: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 2]>)
             parent_input(%input2: !Input2)
             parent_output(%output2: !OutputITI2)
             output_ITI_buff(%output0, %output1, %output3: !OutputITI0, !OutputITI1, !OutputITI3)
@@ -1275,7 +1275,7 @@ func.func @main(%arg0:  memref<1x16x20x16xf16>, %arg1:  memref<1x16x20x16xf16>, 
                 task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%input3: !Input3)
-            weights(%weights3: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 3]>)
+            weights(%weights3: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 3]>)
             parent_input(%input3: !Input3)
             parent_output(%output3: !OutputITI3)
             output_ITI_buff(%output0, %output1, %output2: !OutputITI0, !OutputITI1, !OutputITI2)
@@ -1322,7 +1322,7 @@ func.func @main(%arg0:  memref<1x16x20x16xf16>, %arg1:  memref<1x16x20x16xf16>, 
             }
     }
 
-    return %arg4, %arg5, %arg6, %arg7: memref<1x16x22x17xf16, #NHWC, [@CMX_NN, 0]>, memref<1x16x22x17xf16, #NHWC, [@CMX_NN, 1]>, memref<1x16x22x17xf16, #NHWC, [@CMX_NN, 2]>, memref<1x16x22x17xf16, #NHWC, [@CMX_NN, 3]>
+    return %arg4, %arg5, %arg6, %arg7: memref<1x16x22x17xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x16x22x17xf16, {order = #NHWC}, [@CMX_NN, 1]>, memref<1x16x22x17xf16, {order = #NHWC}, [@CMX_NN, 2]>, memref<1x16x22x17xf16, {order = #NHWC}, [@CMX_NN, 3]>
 }
 
 }
@@ -1403,15 +1403,15 @@ func.func @main(%arg0:  memref<1x16x20x16xf16>, %arg1:  memref<1x16x20x16xf16>, 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 !Input0 = memref<
-    1x16x10x10xf16, #NHWC, [@CMX_NN, 0]
+    1x16x10x10xf16, {order = #NHWC}, [@CMX_NN, 0]
 >
 
 !Input1 = memref<
-    1x16x10x10xf16, #NHWC, [@CMX_NN, 1]
+    1x16x10x10xf16, {order = #NHWC}, [@CMX_NN, 1]
 >
 
 !Input2 = memref<
-    1x16x10x10xf16, #NHWC, [@CMX_NN, 2]
+    1x16x10x10xf16, {order = #NHWC}, [@CMX_NN, 2]
 >
 
 !OutputITI0 = !VPUIP.ITIBuffer<
@@ -1487,7 +1487,7 @@ net.NetworkInfo
         DataInfo "output2" : tensor<1x96x10x10xf16>
     }
 
-func.func @main(%arg0:  memref<1x16x10x10xf16>, %arg1:  memref<1x16x10x10xf16>, %arg2:  memref<1x16x10x10xf16>, %arg3:  memref<1x96x10x10xf16, #NHWC, [@CMX_NN, 0]>, %arg4:  memref<1x96x10x10xf16, #NHWC, [@CMX_NN, 1]>, %arg5:  memref<1x96x10x10xf16, #NHWC, [@CMX_NN, 2]>) -> (memref<1x96x10x10xf16, #NHWC, [@CMX_NN, 0]>, memref<1x96x10x10xf16, #NHWC, [@CMX_NN, 1]>, memref<1x96x10x10xf16, #NHWC, [@CMX_NN, 2]>) {
+func.func @main(%arg0:  memref<1x16x10x10xf16>, %arg1:  memref<1x16x10x10xf16>, %arg2:  memref<1x16x10x10xf16>, %arg3:  memref<1x96x10x10xf16, {order = #NHWC}, [@CMX_NN, 0]>, %arg4:  memref<1x96x10x10xf16, {order = #NHWC}, [@CMX_NN, 1]>, %arg5:  memref<1x96x10x10xf16, {order = #NHWC}, [@CMX_NN, 2]>) -> (memref<1x96x10x10xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x96x10x10xf16, {order = #NHWC}, [@CMX_NN, 1]>, memref<1x96x10x10xf16, {order = #NHWC}, [@CMX_NN, 2]>) {
     %input0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> !Input0
     %input1 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> !Input1
     %input2 = VPURT.DeclareBuffer <CMX_NN> [2] <0> -> !Input2
@@ -1496,9 +1496,9 @@ func.func @main(%arg0:  memref<1x16x10x10xf16>, %arg1:  memref<1x16x10x10xf16>, 
     %output1 = VPURT.DeclareBuffer <CMX_NN> [1] <3200> ->  !OutputITI1
     %output2 = VPURT.DeclareBuffer <CMX_NN> [2] <3200> ->  !OutputITI2
 
-    %weights0 = VPURT.DeclareBuffer <CMX_NN> [0] <22400> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
-    %weights1 = VPURT.DeclareBuffer <CMX_NN> [1] <22400> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 1]>
-    %weights2 = VPURT.DeclareBuffer <CMX_NN> [2] <22400> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 2]>
+    %weights0 = VPURT.DeclareBuffer <CMX_NN> [0] <22400> -> memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %weights1 = VPURT.DeclareBuffer <CMX_NN> [1] <22400> -> memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>
+    %weights2 = VPURT.DeclareBuffer <CMX_NN> [2] <22400> -> memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 2]>
 
     VPURT.Task {
         VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
@@ -1508,7 +1508,7 @@ func.func @main(%arg0:  memref<1x16x10x10xf16>, %arg1:  memref<1x16x10x10xf16>, 
                 task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%input0: !Input0)
-            weights(%weights0: memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
+            weights(%weights0: memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
             parent_input(%input0: !Input0)
             parent_output(%output0: !OutputITI0)
             output_ITI_buff(%output1, %output2 : !OutputITI1, !OutputITI2)
@@ -1545,7 +1545,7 @@ func.func @main(%arg0:  memref<1x16x10x10xf16>, %arg1:  memref<1x16x10x10xf16>, 
                 task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%input1: !Input1)
-            weights(%weights1: memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 1]>)
+            weights(%weights1: memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>)
             parent_input(%input1: !Input1)
             parent_output(%output1: !OutputITI1)
             output_ITI_buff(%output0, %output2: !OutputITI0, !OutputITI2)
@@ -1582,7 +1582,7 @@ func.func @main(%arg0:  memref<1x16x10x10xf16>, %arg1:  memref<1x16x10x10xf16>, 
                 task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%input2: !Input2)
-            weights(%weights2: memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 2]>)
+            weights(%weights2: memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 2]>)
             parent_input(%input2: !Input2)
             parent_output(%output2: !OutputITI2)
             output_ITI_buff(%output0, %output1: !OutputITI0, !OutputITI1)
@@ -1611,7 +1611,7 @@ func.func @main(%arg0:  memref<1x16x10x10xf16>, %arg1:  memref<1x16x10x10xf16>, 
             }
     }
 
-    return %arg3, %arg4, %arg5: memref<1x96x10x10xf16, #NHWC, [@CMX_NN, 0]>, memref<1x96x10x10xf16, #NHWC, [@CMX_NN, 1]>, memref<1x96x10x10xf16, #NHWC, [@CMX_NN, 2]>
+    return %arg3, %arg4, %arg5: memref<1x96x10x10xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x96x10x10xf16, {order = #NHWC}, [@CMX_NN, 1]>, memref<1x96x10x10xf16, {order = #NHWC}, [@CMX_NN, 2]>
 }
 
 }
@@ -1665,15 +1665,15 @@ func.func @main(%arg0:  memref<1x16x10x10xf16>, %arg1:  memref<1x16x10x10xf16>, 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 !Input0 = memref<
-    1x16x10x10xf16, #NHWC, [@CMX_NN, 0]
+    1x16x10x10xf16, {order = #NHWC}, [@CMX_NN, 0]
 >
 
 !Input1 = memref<
-    1x16x10x10xf16, #NHWC, [@CMX_NN, 1]
+    1x16x10x10xf16, {order = #NHWC}, [@CMX_NN, 1]
 >
 
 !Input2 = memref<
-    1x16x10x10xf16, #NHWC, [@CMX_NN, 2]
+    1x16x10x10xf16, {order = #NHWC}, [@CMX_NN, 2]
 >
 
 !OutputITI0 = !VPUIP.ITIBuffer<
@@ -1758,9 +1758,9 @@ func.func @main(%arg0:  memref<1x16x10x10xf16>, %arg1:  memref<1x16x10x10xf16>, 
     %output1 = VPURT.DeclareBuffer <CMX_NN> [1] <3200> ->  !OutputITI1
     %output2 = VPURT.DeclareBuffer <CMX_NN> [2] <3200> ->  !OutputITI2
 
-    %weights0 = VPURT.DeclareBuffer <CMX_NN> [0] <22400> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
-    %weights1 = VPURT.DeclareBuffer <CMX_NN> [1] <22400> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 1]>
-    %weights2 = VPURT.DeclareBuffer <CMX_NN> [2] <22400> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 2]>
+    %weights0 = VPURT.DeclareBuffer <CMX_NN> [0] <22400> -> memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %weights1 = VPURT.DeclareBuffer <CMX_NN> [1] <22400> -> memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>
+    %weights2 = VPURT.DeclareBuffer <CMX_NN> [2] <22400> -> memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 2]>
 
     VPURT.Task {
         VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
@@ -1770,7 +1770,7 @@ func.func @main(%arg0:  memref<1x16x10x10xf16>, %arg1:  memref<1x16x10x10xf16>, 
                 task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%input0: !Input0)
-            weights(%weights0: memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
+            weights(%weights0: memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
             parent_input(%input0: !Input0)
             parent_output(%output0: !OutputITI0)
             output_ITI_buff(%output1, %output2 : !OutputITI1, !OutputITI2)
@@ -1807,7 +1807,7 @@ func.func @main(%arg0:  memref<1x16x10x10xf16>, %arg1:  memref<1x16x10x10xf16>, 
                 task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%input1: !Input1)
-            weights(%weights1: memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 1]>)
+            weights(%weights1: memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>)
             parent_input(%input1: !Input1)
             parent_output(%output1: !OutputITI1)
             output_ITI_buff(%output0, %output2: !OutputITI0, !OutputITI2)
@@ -1844,7 +1844,7 @@ func.func @main(%arg0:  memref<1x16x10x10xf16>, %arg1:  memref<1x16x10x10xf16>, 
                 task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%input2: !Input2)
-            weights(%weights2: memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 2]>)
+            weights(%weights2: memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 2]>)
             parent_input(%input2: !Input2)
             parent_output(%output2: !OutputITI2)
             output_ITI_buff(%output0, %output1: !OutputITI0, !OutputITI1)

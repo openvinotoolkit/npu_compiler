@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2024-2025 Intel Corporation
+// Copyright (C) 2024-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/VPU/utils/cost_model/layer_vpunn_cost.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/precomputed_strategy_table_cache.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sibling_ops_analysis.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
@@ -149,11 +150,14 @@ bool OutputPipelineTilingPass::isTilingAdjustmentBeneficial(VPU::NCEOpInterface 
 }
 
 void OutputPipelineTilingPass::safeRunOnFunc() {
+    auto func = getOperation();
+
     if (!_enablePrefetchTiling) {
+        func->walk([](mlir::Operation* op) {
+            op->removeAttr(VPU::pinnedStrategy);
+        });
         return;
     }
-
-    auto func = getOperation();
     auto module = func->getParentOfType<mlir::ModuleOp>();
     auto maybeLayerCostModelAnalysis = getCachedParentAnalysis<VPU::LayerCostModelAnalysis>(module);
     auto layerCostModel =
@@ -173,6 +177,11 @@ void OutputPipelineTilingPass::safeRunOnFunc() {
 
         if (mlir::isa<VPU::NCEMatMulOp>(origOp)) {
             // E126102: Skip MatMulOp since it does not support cost, but this pass is cost based.
+            return;
+        }
+
+        if (origOp->hasAttr(VPU::pinnedStrategy)) {
+            _log.nest().trace("Skip output pipeline tiling for pinned op at {0}", origOp->getLoc());
             return;
         }
 
@@ -266,6 +275,11 @@ void OutputPipelineTilingPass::safeRunOnFunc() {
             adjustTiling();
             origOp->removeAttr(outputPipeliningMinFragmentation);
         }
+    });
+
+    // Clean up the temporary pinnedStrategy attribute after output pipelining decisions are made.
+    func->walk([](mlir::Operation* op) {
+        op->removeAttr(VPU::pinnedStrategy);
     });
 }
 

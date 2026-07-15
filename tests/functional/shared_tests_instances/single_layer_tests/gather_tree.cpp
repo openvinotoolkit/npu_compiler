@@ -12,6 +12,9 @@ using ov::test::utils::InputLayerType;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(GatherTreeLayerTest);
+
 class GatherTreeLayerTestCommon : public GatherTreeLayerTest, virtual public VpuOv2LayerTest {};
 
 TEST_P(GatherTreeLayerTestCommon, NPU3720_HW) {

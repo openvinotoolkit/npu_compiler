@@ -6,6 +6,7 @@
 #pragma once
 
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/Shave/IR/dialect.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
@@ -43,8 +44,8 @@ std::unique_ptr<mlir::Pass> createShaveKernelSimplifyPass(Logger log = Logger::g
 std::unique_ptr<mlir::Pass> createFlattenEltwiseKernelPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createShaveStackAllocationPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createMoveKernelResultsToArgumentsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createParametricCapsuleTilingPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createOneShotBufferizeSWKernelsPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createStripFuncQuantTypesCodeGenPass(Logger log = Logger::global());
 
 //
 // Registration

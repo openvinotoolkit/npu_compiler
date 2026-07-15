@@ -78,19 +78,19 @@ func.func @DistributedTensors(%input: !DistributedTensor) -> !DistributedTensorC
 
 // CHECK: func.func @SparseTensors(
 // CHECK-SAME:  !VPUIP.SparseBuffer<
-// CHECK-SAME:      data=memref<1x4x8x16xf16, #NHWC>
-// CHECK-SAME:      sparsity_map=memref<1x1x1x512xi1, #NHWC>>
+// CHECK-SAME:      data=memref<1x4x8x16xf16, {order = #NHWC}>
+// CHECK-SAME:      sparsity_map=memref<1x1x1x512xi1, {order = #NHWC}>>
 // CHECK-SAME: ) -> !VPUIP.SparseBuffer<
-// CHECK-SAME:          data=memref<1x4x8x16xf16, #NHWC, @CMX_NN>,
-// CHECK-SAME:          sparsity_map=memref<1x1x1x512xi1, #NHWC, @CMX_NN>>
+// CHECK-SAME:          data=memref<1x4x8x16xf16, {order = #NHWC}, @CMX_NN>,
+// CHECK-SAME:          sparsity_map=memref<1x1x1x512xi1, {order = #NHWC}, @CMX_NN>>
 func.func @SparseTensors(%input: !SparseTensor) -> !SparseTensorCmx {
     %output = VPU.Copy(%input) {out_mem_space = @CMX_NN} : !SparseTensor -> !SparseTensorCmx
     return %output : !SparseTensorCmx
 
     // CHECK: return
     // CHECK-SAME: !VPUIP.SparseBuffer<
-    // CHECK-SAME:  data=memref<1x4x8x16xf16, #NHWC, @CMX_NN>,
-    // CHECK-SAME:  sparsity_map=memref<1x1x1x512xi1, #NHWC, @CMX_NN>>
+    // CHECK-SAME:  data=memref<1x4x8x16xf16, {order = #NHWC}, @CMX_NN>,
+    // CHECK-SAME:  sparsity_map=memref<1x1x1x512xi1, {order = #NHWC}, @CMX_NN>>
 }
 
 // -----
@@ -99,17 +99,17 @@ func.func @SparseTensors(%input: !SparseTensor) -> !SparseTensorCmx {
 
 // CHECK: func.func @TensorsWithBounds(
 // CHECK-SAME:  !VPUIP.BoundedBuffer<
-// CHECK-SAME:      data=memref<1x18x3x3xf32, #NHWC>,
+// CHECK-SAME:      data=memref<1x18x3x3xf32, {order = #NHWC}>,
 // CHECK-SAME:      dynamic_shape=memref<4xsi32>>
 // CHECK-SAME: ) -> !VPUIP.BoundedBuffer<
-// CHECK-SAME:          data=memref<1x18x3x3xf32, #NHWC, @CMX_NN>,
+// CHECK-SAME:          data=memref<1x18x3x3xf32, {order = #NHWC}, @CMX_NN>,
 // CHECK-SAME:          dynamic_shape=memref<4xsi32, @CMX_NN>
 func.func @TensorsWithBounds(%arg0: tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NHWC}>) -> tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NHWC, mem_space = @CMX_NN}> {
     %0 = VPU.Copy(%arg0) {out_mem_space = @CMX_NN} : tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NHWC}> -> tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NHWC, mem_space = @CMX_NN}>
     return %0 : tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NHWC, mem_space = @CMX_NN}>
     // CHECK: return
     // CHECK-SAME: !VPUIP.BoundedBuffer<
-    // CHECK-SAME:  data=memref<1x18x3x3xf32, #NHWC, @CMX_NN>,
+    // CHECK-SAME:  data=memref<1x18x3x3xf32, {order = #NHWC}, @CMX_NN>,
     // CHECK-SAME:  dynamic_shape=memref<4xsi32, @CMX_NN>
 }
 
@@ -119,17 +119,17 @@ func.func @TensorsWithBounds(%arg0: tensor<1x18x3x3xf32, {dynamic_dims_mask = #c
 
 // CHECK: func.func @TensorsWithBounds(
 // CHECK-SAME:  !VPUIP.BoundedBuffer<
-// CHECK-SAME:      data=memref<1x18x3x3xf32, #NHWC>,
+// CHECK-SAME:      data=memref<1x18x3x3xf32, {order = #NHWC}>,
 // CHECK-SAME:      dynamic_shape=memref<4xsi32>>
 // CHECK-SAME: ) -> !VPUIP.BoundedBuffer<
-// CHECK-SAME:          data=memref<1x18x3x3xf32, #NHWC>,
+// CHECK-SAME:          data=memref<1x18x3x3xf32, {order = #NHWC}>,
 // CHECK-SAME:          dynamic_shape=memref<4xsi32>
 func.func @TensorsWithBounds(%arg0: tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NHWC}>) -> tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NHWC}> {
     %0 = VPU.ReLU(%arg0) : tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NHWC}> -> tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NHWC}>
     return %0 : tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NHWC}>
     // CHECK: return
     // CHECK-SAME: !VPUIP.BoundedBuffer<
-    // CHECK-SAME:  data=memref<1x18x3x3xf32, #NHWC>,
+    // CHECK-SAME:  data=memref<1x18x3x3xf32, {order = #NHWC}>,
     // CHECK-SAME:  dynamic_shape=memref<4xsi32>
 }
 

@@ -84,7 +84,8 @@ void RecomputeSparsityPtrsPass::safeRunOnFunc() {
         const auto wtShape = VPU::NCESparsity::inferWeightsTableShape(
                 newWeightsTableValues.size() / VPU::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC);
         auto newWeightsTable =
-                VPU::createWeightsTableTensor(builder, weightsTableConstOp.getLoc(), newWeightsTableValues, wtShape);
+                VPU::createTensorFromTableData<int32_t>(builder, weightsTableConstOp.getLoc(), newWeightsTableValues,
+                                                        wtShape, getSInt32Type(builder.getContext()));
 
         it = localWeightsTableCache.insert({pair, newWeightsTable}).first;
         return it->second;

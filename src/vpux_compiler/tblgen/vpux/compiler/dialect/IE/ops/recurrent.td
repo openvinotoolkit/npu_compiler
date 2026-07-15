@@ -231,7 +231,7 @@ def IE_LSTMSequenceOp :
             "LSTMSequence",
             [
                 AttrSizedOperandSegments,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine LSTMSequence layer";

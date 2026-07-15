@@ -22,6 +22,8 @@
 #include "vpux/compiler/NPU50XX/dialect/VPUIPDPU/ops_interfaces.hpp"
 
 #include "vpux/compiler/ShaveCodeGen/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/Shave/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 
 namespace vpux {
 
@@ -32,6 +34,7 @@ void InterfacesRegistry50XX::registerInterfaces(mlir::DialectRegistry& registry)
     IE::arch40xx::registerExecutorOpInterfaces(registry);
     // NB: arch50xx has its own QuantizedLayerOpModel implementation
     IE::arch50xx::registerQuantizedLayerOpInterfaces(registry);
+    IE::arch50xx::registerAlignedChannelsOpInterfaces(registry);
     IE::arch50xx::registerMPEEngineInfoOpInterfaces(registry);
     // NB: arch37xx::SEOpModel can be re-used for 50XX
     IE::arch37xx::registerSEOpInterfaces(registry);
@@ -47,7 +50,6 @@ void InterfacesRegistry50XX::registerInterfaces(mlir::DialectRegistry& registry)
     // NB: arch50xx::registerClusterBroadcastingOpInterfaces uses its own logic
     VPU::arch50xx::registerClusterBroadcastingOpInterfaces(registry);
     VPU::arch40xx::registerSCFTilingOpsInterfaces(registry);
-    VPUIP::arch50xx::registerAlignedChannelsOpInterfaces(registry);
     // NB: arch40xx::AlignedWorkloadChannelsOp can be re-used for 50XX
     VPUIP::arch40xx::registerAlignedWorkloadChannelsOpInterfaces(registry);
     // NB: arch40xx::BufferizableOp can be re-used for 50XX
@@ -58,7 +60,11 @@ void InterfacesRegistry50XX::registerInterfaces(mlir::DialectRegistry& registry)
     VPUIPDPU::arch40xx::registerVerifiersOpInterfaces(registry);
     VPU::arch50xx::registerICostModelUtilsInterface(registry);
     VPU::arch50xx::registerSWTilingInfoOpInterface(registry);
+    VPU::arch50xx::registerPPECapabilityInterface(registry);
     ShaveCodeGen::registerShaveCodeGenOpInterfaces(registry);
+    Shave::registerShaveOpInterfaces(registry);
+    VPU::arch50xx::registerLayerWithDmaInterface(registry);
+    VPU::registerAlignedChannelsOpInterfacesVPU(registry);
 }
 
 }  // namespace vpux

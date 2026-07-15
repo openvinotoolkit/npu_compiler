@@ -10,6 +10,7 @@
 #include "vpux/compiler/NPU40XX/dialect/VPU/impl/mc_strategy_getter.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPU/impl/nce_workload_channels.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPU/impl/sparsity_constraint.hpp"
+#include "vpux/compiler/NPU50XX/conversion/impl/convert_IE_to_VPU_NCE_strategy.hpp"
 #include "vpux/compiler/NPU50XX/dialect/VPU/impl/small_kernel_optimization.hpp"
 #include "vpux/compiler/dialect/VPU/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
@@ -109,6 +110,10 @@ class StrategyFactory50XX : public VPU::StrategyFactory {
 
     bool isNCEPermuteOffsetsCorrectionNeeded(VPU::NCEOpInterface) override {
         return false;
+    }
+
+    std::unique_ptr<IConvertIEToVPUNCEStrategy> getConvertIEToVPUNCEStrategy(const Logger& log) override {
+        return std::make_unique<vpux::arch50xx::ConvertIEToVPUNCEStrategy>(log, config::ArchKind::NPU50XX);
     }
 };
 }  // namespace vpux::VPU

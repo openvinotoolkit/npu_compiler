@@ -8,8 +8,8 @@
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
   module @VPU.SW {
-    func.func private @builtin_MemPermute(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_MemPermute(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 
 // CHECK-LABEL: @ConvertMemPermuteNCHWToNHCW
@@ -57,43 +57,43 @@ func.func @ConvertMemPermuteNCHWToNHCW(%arg0: memref<6x4x8x512xf16, @DDR>)
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
   module @VPU.SW {
-    func.func private @builtin_MemPermute(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_MemPermute(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 
 // CHECK-LABEL: @ConvertMemPermuteNCHWToNHCWWithDifferentDimsOrder
 // CHECK-SAME:    [[INPUT:%.+]]: memref<6x4x8x512xf16, @DDR>
 func.func @ConvertMemPermuteNCHWToNHCWWithDifferentDimsOrder(%arg0: memref<6x4x8x512xf16, @DDR>)
-                                       -> memref<6x512x8x4xf16, #NHWC, @DDR> {
+                                       -> memref<6x512x8x4xf16, {order = #NHWC}, @DDR> {
     %0 = memref.alloc() : memref<6x4x8x512xf16, [@CMX_NN, 0]>
     %1 = VPUIP.Copy
         inputs(%arg0 : memref<6x4x8x512xf16, @DDR>)
         outputs(%0 : memref<6x4x8x512xf16, [@CMX_NN, 0]>)  ->  memref<6x4x8x512xf16, [@CMX_NN, 0]>
 
-    %2 = memref.alloc() : memref<6x512x8x4xf16, #NHWC, [@CMX_NN, 0]>
+    %2 = memref.alloc() : memref<6x512x8x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %3 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>}
                 @VPU.SW::@builtin_MemPermute
                 inputs(%1 as %arg2: memref<6x4x8x512xf16, [@CMX_NN, 0]>)
-                outputs(%2 as %arg3: memref<6x512x8x4xf16, #NHWC, [@CMX_NN, 0]>)
-                on tile 0 -> memref<6x512x8x4xf16, #NHWC, [@CMX_NN, 0]>{
+                outputs(%2 as %arg3: memref<6x512x8x4xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+                on tile 0 -> memref<6x512x8x4xf16, {order = #NHWC}, [@CMX_NN, 0]>{
             VPUIP.SW.Kernel.run {attrs = [[0, 2, 1, 3]]}(%arg2, %arg3)
-                : memref<6x4x8x512xf16, [@CMX_NN, 0]>, memref<6x512x8x4xf16, #NHWC, [@CMX_NN, 0]>
+                : memref<6x4x8x512xf16, [@CMX_NN, 0]>, memref<6x512x8x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
-    %4 = memref.alloc() : memref<6x512x8x4xf16, #NHWC, @DDR>
+    %4 = memref.alloc() : memref<6x512x8x4xf16, {order = #NHWC}, @DDR>
     %5 = VPUIP.Copy
-        inputs(%3 : memref<6x512x8x4xf16, #NHWC, [@CMX_NN, 0]>)
-        outputs(%4 : memref<6x512x8x4xf16, #NHWC, @DDR>)  ->  memref<6x512x8x4xf16, #NHWC, @DDR>
+        inputs(%3 : memref<6x512x8x4xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+        outputs(%4 : memref<6x512x8x4xf16, {order = #NHWC}, @DDR>)  ->  memref<6x512x8x4xf16, {order = #NHWC}, @DDR>
 
-    return %5: memref<6x512x8x4xf16, #NHWC, @DDR>
+    return %5: memref<6x512x8x4xf16, {order = #NHWC}, @DDR>
 
     // CHECK:   [[COPY_BUFF_0:%.+]] = memref.alloc() : memref<6x4x8x512xf16, [@CMX_NN, 0]>
     // CHECK:    [[COPY_0:%.+]] = VPUIP.Copy
     // CHECK-SAME:     inputs([[INPUT]]
     // CHECK-SAME:     outputs([[COPY_BUFF_0]]
-    // CHECK:   [[PERMUTE_DMA_BUFF_0:%.+]] = memref.alloc() : memref<6x512x8x4xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:   [[PERMUTE_DMA_BUFF_0:%.+]] = memref.alloc() : memref<6x512x8x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
     // CHECK:   [[PERMUTE_DMA_0:%.+]] = VPUIP.PermuteDMA <{mem_perm = #NHCW}> inputs([[COPY_0]]{{.+}}) outputs([[PERMUTE_DMA_BUFF_0]]{{.+}})
-    // CHECK:   [[COPY_BUFF_1:%.+]] = memref.alloc() : memref<6x512x8x4xf16, #NHWC, @DDR>
+    // CHECK:   [[COPY_BUFF_1:%.+]] = memref.alloc() : memref<6x512x8x4xf16, {order = #NHWC}, @DDR>
     // CHECK:    [[COPY_1:%.+]] = VPUIP.Copy
     // CHECK-SAME:     inputs([[PERMUTE_DMA_0]]
     // CHECK-SAME:     outputs([[COPY_BUFF_1]]
@@ -106,8 +106,8 @@ func.func @ConvertMemPermuteNCHWToNHCWWithDifferentDimsOrder(%arg0: memref<6x4x8
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
   module @VPU.SW {
-    func.func private @builtin_MemPermute(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_MemPermute(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 
 // CHECK-LABEL: @ConvertMemPermuteNCHWToHCNW
@@ -155,8 +155,8 @@ func.func @ConvertMemPermuteNCHWToHCNW(%arg0: memref<6x4x8x512xf16, @DDR>)
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
   module @VPU.SW {
-    func.func private @builtin_MemPermute(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_MemPermute(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 
 // CHECK-LABEL: @ConvertMemPermuteNCHWToNWHC
@@ -202,8 +202,8 @@ func.func @ConvertMemPermuteNCHWToNWHC(%arg0: memref<6x4x8x512xf16, @DDR>)
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
   module @VPU.SW {
-    func.func private @builtin_MemPermute(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_MemPermute(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 
 // CHECK-LABEL: @ConvertMemPermuteNCHWToCWNH
@@ -249,8 +249,8 @@ func.func @ConvertMemPermuteNCHWToCWNH(%arg0: memref<86x4x256x4xf16, @DDR>)
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
   module @VPU.SW {
-    func.func private @builtin_MemPermute(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_MemPermute(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 
 // CHECK-LABEL: @ConvertMemPermuteNCHWToHNWC
@@ -296,8 +296,8 @@ func.func @ConvertMemPermuteNCHWToHNWC(%arg0: memref<4x4x86x256xf16, @DDR>)
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
   module @VPU.SW {
-    func.func private @builtin_MemPermute(memref<*x!quant.uniform<i4:f16, 1.000000e+00>, [@CMX_NN, 0]>, memref<*x!quant.uniform<i4:f16, 1.000000e+00>, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_MemPermute(memref<*x!quant.uniform<i4:f16, 1.000000e+00>, [@CMX_NN, 0]>, memref<*x!quant.uniform<i4:f16, 1.000000e+00>, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 
 // CHECK-LABEL: @ConvertMemPermuteI4
@@ -334,8 +334,8 @@ func.func @ConvertMemPermuteI4(%arg0: memref<86x4x256x4x!quant.uniform<i4:f16, 1
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
   module @VPU.SW {
-    func.func private @builtin_MemPermute(memref<*x!quant.uniform<i4:f16, 1.000000e+00>, [@CMX_NN, 0]>, memref<*x!quant.uniform<i4:f16, 1.000000e+00>, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_MemPermute(memref<*x!quant.uniform<i4:f16, 1.000000e+00>, [@CMX_NN, 0]>, memref<*x!quant.uniform<i4:f16, 1.000000e+00>, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 
 // CHECK-LABEL: @DoNotConvertMemPermuteI4
@@ -372,8 +372,8 @@ func.func @DoNotConvertMemPermuteI4(%arg0: memref<86x4x255x4x!quant.uniform<i4:f
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
   module @VPU.SW {
-    func.func private @builtin_MemPermute(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_MemPermute(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 
 // CHECK-LABEL: @ConvertMemPermuteNCHWToWCHN
@@ -421,27 +421,27 @@ func.func @ConvertMemPermuteNCHWToWCHN(%arg0: memref<4x2x121x3xf16, @DDR>)
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
   module @VPU.SW {
-    func.func private @builtin_MemPermute(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_MemPermute(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 
 // CHECK-LABEL: @ConvertMemPermuteNCHWToWCHNWithDifferentDimsOrder
-// CHECK-SAME:    [[INPUT:%.+]]: memref<4x3x2x121xf16, #NHWC, @DDR>
-func.func @ConvertMemPermuteNCHWToWCHNWithDifferentDimsOrder(%arg0: memref<4x3x2x121xf16, #NHWC, @DDR>)
+// CHECK-SAME:    [[INPUT:%.+]]: memref<4x3x2x121xf16, {order = #NHWC}, @DDR>
+func.func @ConvertMemPermuteNCHWToWCHNWithDifferentDimsOrder(%arg0: memref<4x3x2x121xf16, {order = #NHWC}, @DDR>)
                                        -> memref<3x2x121x4xf16, @DDR> {
-    %0 = memref.alloc() : memref<4x3x2x121xf16, #NHWC, [@CMX_NN, 0]>
+    %0 = memref.alloc() : memref<4x3x2x121xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %1 = VPUIP.Copy
-        inputs(%arg0 : memref<4x3x2x121xf16, #NHWC, @DDR>)
-        outputs(%0 : memref<4x3x2x121xf16, #NHWC, [@CMX_NN, 0]>)  ->  memref<4x3x2x121xf16, #NHWC, [@CMX_NN, 0]>
+        inputs(%arg0 : memref<4x3x2x121xf16, {order = #NHWC}, @DDR>)
+        outputs(%0 : memref<4x3x2x121xf16, {order = #NHWC}, [@CMX_NN, 0]>)  ->  memref<4x3x2x121xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     %2 = memref.alloc() : memref<3x2x121x4xf16, [@CMX_NN, 0]>
     %3 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>}
                 @VPU.SW::@builtin_MemPermute
-                inputs(%1 as %arg1: memref<4x3x2x121xf16, #NHWC, [@CMX_NN, 0]>)
+                inputs(%1 as %arg1: memref<4x3x2x121xf16, {order = #NHWC}, [@CMX_NN, 0]>)
                 outputs(%2 as %arg2: memref<3x2x121x4xf16, [@CMX_NN, 0]>)
                 on tile 0 -> memref<3x2x121x4xf16, [@CMX_NN, 0]>{
             VPUIP.SW.Kernel.run {attrs = [[3, 1, 2, 0]]}(%arg1, %arg2)
-                : memref<4x3x2x121xf16, #NHWC, [@CMX_NN, 0]>, memref<3x2x121x4xf16, [@CMX_NN, 0]>
+                : memref<4x3x2x121xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<3x2x121x4xf16, [@CMX_NN, 0]>
     }
 
     %4 = memref.alloc() : memref<3x2x121x4xf16, @DDR>
@@ -451,7 +451,7 @@ func.func @ConvertMemPermuteNCHWToWCHNWithDifferentDimsOrder(%arg0: memref<4x3x2
 
     return %5: memref<3x2x121x4xf16, @DDR>
 
-    // CHECK:   [[COPY_BUFF_0:%.+]] = memref.alloc() : memref<4x3x2x121xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:   [[COPY_BUFF_0:%.+]] = memref.alloc() : memref<4x3x2x121xf16, {order = #NHWC}, [@CMX_NN, 0]>
     // CHECK:    [[COPY_0:%.+]] = VPUIP.Copy
     // CHECK-SAME:     inputs([[INPUT]]
     // CHECK-SAME:     outputs([[COPY_BUFF_0]]
@@ -543,14 +543,13 @@ func.func @NotMoveUpsamplingDMAInCMXWithLargeSize(%arg0: memref<1x64x128x128xf16
 // -----
 
 config.Resources 3 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
   module @VPU.SW {
-    func.func private @builtin_Tile(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "tile.cpp", VPU.kernel_entry = "tile"}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_Tile(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "tile.cpp", VPU.kernel_entry = "tile"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 
 // CHECK-LABEL: @ConvertPerAxisTileToDMAOutputDDR
@@ -589,14 +588,13 @@ func.func @ConvertPerAxisTileToDMAOutputDDR(%arg0: memref<1x1x1x1000xf16, @DDR>,
 // -----
 
 config.Resources 3 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
   module @VPU.SW {
-    func.func private @builtin_Tile(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "tile.cpp", VPU.kernel_entry = "tile"}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_Tile(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "tile.cpp", VPU.kernel_entry = "tile"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 
 // CHECK-LABEL: @ConvertPerAxisTileToDMAWith2Axis
@@ -633,14 +631,13 @@ func.func @ConvertPerAxisTileToDMAWith2Axis(%arg0: memref<1x1x1x1xf16, @DDR>, %a
 // -----
 
 config.Resources 3 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
   module @VPU.SW {
-    func.func private @builtin_Tile(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "tile.cpp", VPU.kernel_entry = "tile"}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_Tile(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "tile.cpp", VPU.kernel_entry = "tile"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 
 // CHECK-LABEL: @ConvertPerAxisTileToDMAInLogicOrder
@@ -681,8 +678,8 @@ func.func @ConvertPerAxisTileToDMAInLogicOrder(%arg0: memref<1x1x1x512xf16, @DDR
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
   module @VPU.SW {
-    func.func private @builtin_MemPermute(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_MemPermute(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 
 // CHECK-LABEL: @ConvertMemPermuteNCHWToHCWN
@@ -729,8 +726,8 @@ func.func @ConvertMemPermuteNCHWToHCWN(%arg0: memref<64x1x18x34xf16, @DDR>)
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
   module @VPU.SW {
-    func.func private @builtin_MemPermute(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_MemPermute(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 
 // CHECK-LABEL: @ConvertMemPermuteNCHWToCNWH

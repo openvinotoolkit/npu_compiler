@@ -180,16 +180,12 @@ func.func @ConstInputsFoldforNCHW() -> tensor<1x6x8x1xf16> {
     %0 = IE.Concat(%cst_0, %cst_1) {static_offsets = [[0, 0, 0, 0], [0, 3, 0, 0]]} : tensor<1x3x8x1xf16>, tensor<1x3x8x1xf16> -> tensor<1x6x8x1xf16>
     return %0 : tensor<1x6x8x1xf16>
 
-    // CHECK: [[cst:%.+]] = const.Declare tensor<1x6x8x1xf16> = dense<
-    // CHECK-SAME{LITERAL}:     [[[[1.000000e+00], [1.000000e+00], [1.000000e+00], [1.000000e+00], [1.000000e+00], [1.000000e+00], [1.000000e+00], [1.000000e+00]],
-    // CHECK-SAME{LITERAL}:       [[2.000000e+00], [2.000000e+00], [2.000000e+00], [2.000000e+00], [2.000000e+00], [2.000000e+00], [2.000000e+00], [2.000000e+00]],
-    // CHECK-SAME{LITERAL}:       [[3.000000e+00], [3.000000e+00], [3.000000e+00], [3.000000e+00], [3.000000e+00], [3.000000e+00], [3.000000e+00], [3.000000e+00]],
-    // CHECK-SAME{LITERAL}:       [[4.000000e+00], [4.000000e+00], [4.000000e+00], [4.000000e+00], [4.000000e+00], [4.000000e+00], [4.000000e+00], [4.000000e+00]],
-    // CHECK-SAME{LITERAL}:       [[5.000000e+00], [5.000000e+00], [5.000000e+00], [5.000000e+00], [5.000000e+00], [5.000000e+00], [5.000000e+00], [5.000000e+00]],
-    // CHECK-SAME{LITERAL}:       [[6.000000e+00], [6.000000e+00], [6.000000e+00], [6.000000e+00], [6.000000e+00], [6.000000e+00], [6.000000e+00], [6.000000e+00]]]]>
-    // CHECK-SAME:                tensor<1x6x8x1xf16>
+    // CHECK: [[cst:%.+]] = const.Declare tensor<1x6x8x1xf16>
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense<[1.000000e+00, 2.000000e+00, 3.000000e+00]>
+    // CHECK-SAME: dense<[4.000000e+00, 5.000000e+00, 6.000000e+00]>
     // CHECK-NOT: IE.Concat
-    // CHECK:     return [[cst]]
+    // CHECK: return [[cst]]
 }
 
 // -----
@@ -201,15 +197,12 @@ func.func @ConstInputsFoldWithDifferentDimValueForNCHW() -> tensor<1x5x8x1xf16> 
     %0 = IE.Concat(%cst_0, %cst_1) {static_offsets = [[0, 0, 0, 0], [0, 3, 0, 0]]} : tensor<1x3x8x1xf16>, tensor<1x2x8x1xf16> -> tensor<1x5x8x1xf16>
     return %0 : tensor<1x5x8x1xf16>
 
-    // CHECK: [[cst:%.+]] = const.Declare tensor<1x5x8x1xf16> = dense<
-    // CHECK-SAME{LITERAL}:     [[[[1.000000e+00], [1.000000e+00], [1.000000e+00], [1.000000e+00], [1.000000e+00], [1.000000e+00], [1.000000e+00], [1.000000e+00]],
-    // CHECK-SAME{LITERAL}:       [[2.000000e+00], [2.000000e+00], [2.000000e+00], [2.000000e+00], [2.000000e+00], [2.000000e+00], [2.000000e+00], [2.000000e+00]],
-    // CHECK-SAME{LITERAL}:       [[3.000000e+00], [3.000000e+00], [3.000000e+00], [3.000000e+00], [3.000000e+00], [3.000000e+00], [3.000000e+00], [3.000000e+00]],
-    // CHECK-SAME{LITERAL}:       [[4.000000e+00], [4.000000e+00], [4.000000e+00], [4.000000e+00], [4.000000e+00], [4.000000e+00], [4.000000e+00], [4.000000e+00]],
-    // CHECK-SAME{LITERAL}:       [[5.000000e+00], [5.000000e+00], [5.000000e+00], [5.000000e+00], [5.000000e+00], [5.000000e+00], [5.000000e+00], [5.000000e+00]]]]>
-    // CHECK-SAME:                tensor<1x5x8x1xf16>
+    // CHECK: [[cst:%.+]] = const.Declare tensor<1x5x8x1xf16>
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense<[1.000000e+00, 2.000000e+00, 3.000000e+00]>
+    // CHECK-SAME: dense<[4.000000e+00, 5.000000e+00]>
     // CHECK-NOT: IE.Concat
-    // CHECK:     return [[cst]]
+    // CHECK: return [[cst]]
 }
 
 // -----
@@ -221,14 +214,12 @@ func.func @ConstInputsFoldAxisNotMostOuterForNCHW() -> tensor<1x4x6x2xf16> {
     %0 = IE.Concat(%cst_0, %cst_1) {static_offsets = [[0, 0, 0, 0], [0, 0, 3, 0]]} : tensor<1x4x3x2xf16>, tensor<1x4x3x2xf16> -> tensor<1x4x6x2xf16>
     return %0 : tensor<1x4x6x2xf16>
 
-    // CHECK: [[cst:%.+]] = const.Declare tensor<1x4x6x2xf16> = dense<
-    // CHECK-SAME{LITERAL}:      [[[[1.000000e+00, 2.000000e+00], [3.000000e+00, 4.000000e+00], [5.000000e+00, 6.000000e+00], [7.000000e+00, 8.000000e+00], [9.000000e+00, 1.000000e+01], [1.100000e+01, 1.200000e+01]],
-    // CHECK-SAME{LITERAL}:        [[1.000000e+00, 2.000000e+00], [3.000000e+00, 4.000000e+00], [5.000000e+00, 6.000000e+00], [7.000000e+00, 8.000000e+00], [9.000000e+00, 1.000000e+01], [1.100000e+01, 1.200000e+01]],
-    // CHECK-SAME{LITERAL}:        [[1.000000e+00, 2.000000e+00], [3.000000e+00, 4.000000e+00], [5.000000e+00, 6.000000e+00], [7.000000e+00, 8.000000e+00], [9.000000e+00, 1.000000e+01], [1.100000e+01, 1.200000e+01]],
-    // CHECK-SAME{LITERAL}:        [[1.000000e+00, 2.000000e+00], [3.000000e+00, 4.000000e+00], [5.000000e+00, 6.000000e+00], [7.000000e+00, 8.000000e+00], [9.000000e+00, 1.000000e+01], [1.100000e+01, 1.200000e+01]]]]>
-    // CHECK-SAME{LITERAL}:        tensor<1x4x6x2xf16>
+    // CHECK: [[cst:%.+]] = const.Declare tensor<1x4x6x2xf16>
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense<[1.000000e+00, 2.000000e+00, 3.000000e+00, 4.000000e+00, 5.000000e+00, 6.000000e+00]>
+    // CHECK-SAME: dense<[7.000000e+00, 8.000000e+00, 9.000000e+00, 1.000000e+01, 1.100000e+01, 1.200000e+01]>
     // CHECK-NOT: IE.Concat
-    // CHECK:     return [[cst]]
+    // CHECK: return [[cst]]
 }
 
 // -----
@@ -241,16 +232,12 @@ func.func @ConstInputsFoldForNHWC() -> tensor<1x6x8x1xf16, {order = #NHWC}> {
     %0 = IE.Concat(%cst_0, %cst_1) {static_offsets = [[0, 0, 0, 0], [0, 3, 0, 0]]} : tensor<1x3x8x1xf16, {order = #NHWC}>, tensor<1x3x8x1xf16, {order = #NHWC}> -> tensor<1x6x8x1xf16, {order = #NHWC}>
     return %0 : tensor<1x6x8x1xf16, {order = #NHWC}>
 
-    // CHECK: [[cst:%.+]] = const.Declare tensor<1x6x8x1xf16, {order = #NHWC}> = dense<
-    // CHECK-SAME{LITERAL}:     [[[[1.000000e+00], [2.000000e+00], [3.000000e+00], [4.000000e+00], [5.000000e+00], [6.000000e+00], [1.000000e+00], [2.000000e+00]],
-    // CHECK-SAME{LITERAL}:       [[3.000000e+00], [4.000000e+00], [5.000000e+00], [6.000000e+00], [1.000000e+00], [2.000000e+00], [3.000000e+00], [4.000000e+00]],
-    // CHECK-SAME{LITERAL}:       [[5.000000e+00], [6.000000e+00], [1.000000e+00], [2.000000e+00], [3.000000e+00], [4.000000e+00], [5.000000e+00], [6.000000e+00]],
-    // CHECK-SAME{LITERAL}:       [[1.000000e+00], [2.000000e+00], [3.000000e+00], [4.000000e+00], [5.000000e+00], [6.000000e+00], [1.000000e+00], [2.000000e+00]],
-    // CHECK-SAME{LITERAL}:       [[3.000000e+00], [4.000000e+00], [5.000000e+00], [6.000000e+00], [1.000000e+00], [2.000000e+00], [3.000000e+00], [4.000000e+00]],
-    // CHECK-SAME{LITERAL}:       [[5.000000e+00], [6.000000e+00], [1.000000e+00], [2.000000e+00], [3.000000e+00], [4.000000e+00], [5.000000e+00], [6.000000e+00]]]]>
-    // CHECK-SAME{LITERAL}:       tensor<1x6x8x1xf16, {order = #NHWC}>
+    // CHECK: [[cst:%.+]] = const.Declare tensor<1x6x8x1xf16, {order = #NHWC}>
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense<[1.000000e+00, 2.000000e+00, 3.000000e+00]>
+    // CHECK-SAME: dense<[4.000000e+00, 5.000000e+00, 6.000000e+00]>
     // CHECK-NOT: IE.Concat
-    // CHECK:     return [[cst]]
+    // CHECK: return [[cst]]
 }
 
 // -----
@@ -263,15 +250,12 @@ func.func @ConstInputsFoldWithDifferentDimValueForNHWC() -> tensor<1x5x8x1xf16, 
     %0 = IE.Concat(%cst_0, %cst_1) {static_offsets = [[0, 0, 0, 0], [0, 3, 0, 0]]} : tensor<1x3x8x1xf16, {order = #NHWC}>, tensor<1x2x8x1xf16, {order = #NHWC}> -> tensor<1x5x8x1xf16, {order = #NHWC}>
     return %0 : tensor<1x5x8x1xf16, {order = #NHWC}>
 
-    // CHECK: [[cst:%.+]] = const.Declare tensor<1x5x8x1xf16, {order = #NHWC}> = dense<
-    // CHECK-SAME{LITERAL}:     [[[[1.000000e+00], [2.000000e+00], [3.000000e+00], [4.000000e+00], [5.000000e+00], [1.000000e+00], [2.000000e+00], [3.000000e+00]],
-    // CHECK-SAME{LITERAL}:       [[4.000000e+00], [5.000000e+00], [1.000000e+00], [2.000000e+00], [3.000000e+00], [4.000000e+00], [5.000000e+00], [1.000000e+00]],
-    // CHECK-SAME{LITERAL}:       [[2.000000e+00], [3.000000e+00], [4.000000e+00], [5.000000e+00], [1.000000e+00], [2.000000e+00], [3.000000e+00], [4.000000e+00]],
-    // CHECK-SAME{LITERAL}:       [[5.000000e+00], [1.000000e+00], [2.000000e+00], [3.000000e+00], [4.000000e+00], [5.000000e+00], [1.000000e+00], [2.000000e+00]],
-    // CHECK-SAME{LITERAL}:       [[3.000000e+00], [4.000000e+00], [5.000000e+00], [1.000000e+00], [2.000000e+00], [3.000000e+00], [4.000000e+00], [5.000000e+00]]]]>
-    // CHECK-SAME:                tensor<1x5x8x1xf16, {order = #NHWC}>
+    // CHECK: [[cst:%.+]] = const.Declare tensor<1x5x8x1xf16, {order = #NHWC}>
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense<[1.000000e+00, 2.000000e+00, 3.000000e+00]>
+    // CHECK-SAME: dense<[4.000000e+00, 5.000000e+00]>
     // CHECK-NOT: IE.Concat
-    // CHECK:     return [[cst]]
+    // CHECK: return [[cst]]
 }
 
 // -----
@@ -284,14 +268,12 @@ func.func @ConstInputsFoldAxisNotMostOuterForNHWC() -> tensor<1x4x6x2xf16, {orde
     %0 = IE.Concat(%cst_0, %cst_1) {static_offsets = [[0, 0, 0, 0], [0, 0, 3, 0]]} : tensor<1x4x3x2xf16, {order = #NHWC}>, tensor<1x4x3x2xf16, {order = #NHWC}> -> tensor<1x4x6x2xf16, {order = #NHWC}>
     return %0 : tensor<1x4x6x2xf16, {order = #NHWC}>
 
-    // CHECK: [[cst:%.+]] = const.Declare tensor<1x4x6x2xf16, {order = #NHWC}> = dense<
-    // CHECK-SAME{LITERAL}:      [[[[1.000000e+00, 1.000000e+00], [1.000000e+00, 1.000000e+00], [2.000000e+00, 2.000000e+00], [2.000000e+00, 2.000000e+00], [3.000000e+00, 3.000000e+00], [3.000000e+00, 3.000000e+00]],
-    // CHECK-SAME{LITERAL}:        [[4.000000e+00, 4.000000e+00], [4.000000e+00, 4.000000e+00], [5.000000e+00, 5.000000e+00], [5.000000e+00, 5.000000e+00], [6.000000e+00, 6.000000e+00], [6.000000e+00, 6.000000e+00]],
-    // CHECK-SAME{LITERAL}:        [[7.000000e+00, 7.000000e+00], [7.000000e+00, 7.000000e+00], [8.000000e+00, 8.000000e+00], [8.000000e+00, 8.000000e+00], [9.000000e+00, 9.000000e+00], [9.000000e+00, 9.000000e+00]],
-    // CHECK-SAME{LITERAL}:        [[1.000000e+01, 1.000000e+01], [1.000000e+01, 1.000000e+01], [1.100000e+01, 1.100000e+01], [1.100000e+01, 1.100000e+01], [1.200000e+01, 1.200000e+01], [1.200000e+01, 1.200000e+01]]]]>
-    // CHECK-SAME{LITERAL}:        tensor<1x4x6x2xf16, {order = #NHWC}>
+    // CHECK: [[cst:%.+]] = const.Declare tensor<1x4x6x2xf16, {order = #NHWC}>
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense<[1.000000e+00, 2.000000e+00, 3.000000e+00, 4.000000e+00, 5.000000e+00, 6.000000e+00]>
+    // CHECK-SAME: dense<[7.000000e+00, 8.000000e+00, 9.000000e+00, 1.000000e+01, 1.100000e+01, 1.200000e+01]>
     // CHECK-NOT: IE.Concat
-    // CHECK:     return [[cst]]
+    // CHECK: return [[cst]]
 }
 
 // -----
@@ -328,16 +310,12 @@ func.func @ConstInputFoldWithDifferentInputAndOutputType() -> tensor<1x6x8x1xf16
     %0 = IE.Concat(%cst_0, %cst_1) {static_offsets = [[0, 0, 0, 0], [0, 3, 0, 0]]} : tensor<1x3x8x1xf16>, tensor<1x3x8x1xf16> -> tensor<1x6x8x1xf16>
     return %0 : tensor<1x6x8x1xf16>
 
-    // CHECK: [[cst:%.+]] = const.Declare tensor<1x6x8x1xf16> = dense<
-    // CHECK-SAME{LITERAL}:     [[[[1.000000e+00], [1.000000e+00], [1.000000e+00], [1.000000e+00], [1.000000e+00], [1.000000e+00], [1.000000e+00], [1.000000e+00]],
-    // CHECK-SAME{LITERAL}:       [[2.000000e+00], [2.000000e+00], [2.000000e+00], [2.000000e+00], [2.000000e+00], [2.000000e+00], [2.000000e+00], [2.000000e+00]],
-    // CHECK-SAME{LITERAL}:       [[3.000000e+00], [3.000000e+00], [3.000000e+00], [3.000000e+00], [3.000000e+00], [3.000000e+00], [3.000000e+00], [3.000000e+00]],
-    // CHECK-SAME{LITERAL}:       [[4.000000e+00], [4.000000e+00], [4.000000e+00], [4.000000e+00], [4.000000e+00], [4.000000e+00], [4.000000e+00], [4.000000e+00]],
-    // CHECK-SAME{LITERAL}:       [[5.000000e+00], [5.000000e+00], [5.000000e+00], [5.000000e+00], [5.000000e+00], [5.000000e+00], [5.000000e+00], [5.000000e+00]],
-    // CHECK-SAME{LITERAL}:       [[6.000000e+00], [6.000000e+00], [6.000000e+00], [6.000000e+00], [6.000000e+00], [6.000000e+00], [6.000000e+00], [6.000000e+00]]]]>
-    // CHECK-SAME{LITERAL}:       tensor<1x6x8x1xf16>
+    // CHECK: [[cst:%.+]] = const.Declare tensor<1x6x8x1xf16>
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense<[1.000000e+00, 2.000000e+00, 3.000000e+00]>
+    // CHECK-SAME: dense<[4.000000e+00, 5.000000e+00, 6.000000e+00]>
     // CHECK-NOT: IE.Concat
-    // CHECK:     return [[cst]]
+    // CHECK: return [[cst]]
 }
 
 // -----
@@ -352,41 +330,12 @@ func.func @ConcatWithConstInputsFoldForQuantize() -> tensor<16x12x2x1x!qElemType
     %0 = IE.Concat(%cst_0, %cst_1) {per_axis = #IE.Concat<axis = 1>} : tensor<16x6x2x1x!qElemType, {order = #NHWC}>, tensor<16x6x2x1x!qElemType, {order = #NHWC}> -> tensor<16x12x2x1x!qElemType, {order = #NHWC}>
     return %0 : tensor<16x12x2x1x!qElemType, {order = #NHWC}>
 
+    // CHECK: [[cst:%.+]] = const.Declare tensor<16x12x2x1x!qElemType, {order = #NHWC}>
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense<1.000000e+00>
+    // CHECK-SAME: dense<-1.000000e+00>
     // CHECK-NOT: IE.Concat
-    // CHECK: [[cst:%.+]] = const.Declare tensor<16x12x2x1x!qElemType, {order = #NHWC}> = dense<"
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E
-    // CHECK-SAME:                        8080807F7F7F7F7F7F7E7E7E"> : tensor<16x12x2x1xui8, {order = #NHWC}>, [#const.CastElemType<!qElemType>]
-    // CHECK:     return [[cst]]
+    // CHECK: return [[cst]]
 }
 
 // -----
@@ -581,9 +530,9 @@ func.func @QuantizedUI4ConstConcat() -> tensor<1x6x!qElemType> {
     return %0 : tensor<1x6x!qElemType>
 
     // CHECK: [[cst:%.+]] = const.Declare tensor<1x6x!qElemType>
-    // CHECK-SAME{LITERAL}: = dense<[[1, 2, 3, 4, 5, 6]]>
-    // CHECK-SAME: : tensor<1x6xui8>, [#const.CastElemType<!qElemType>]
-
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense_resource<q_ui4_a>
+    // CHECK-SAME: dense_resource<q_ui4_b>
     // CHECK-NOT: IE.Concat
     // CHECK: return [[cst]]
 }
@@ -608,8 +557,9 @@ func.func @QuantizedSI4ConstConcat() -> tensor<1x6x!qElemType> {
     return %0 : tensor<1x6x!qElemType>
 
     // CHECK: [[cst:%.+]] = const.Declare tensor<1x6x!qElemType>
-    // CHECK-SAME{LITERAL}: = dense<[[-1, 2, -3, 4, -5, 6]]>
-    // CHECK-SAME: : tensor<1x6xsi8>, [#const.CastElemType<!qElemType>]
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense_resource<q_si4_a>
+    // CHECK-SAME: dense_resource<q_si4_b>
     // CHECK-NOT: IE.Concat
     // CHECK: return [[cst]]
 }
@@ -633,8 +583,9 @@ func.func @NonQuantizedUI4ConstConcat() -> tensor<1x6xui4> {
     return %0 : tensor<1x6xui4>
 
     // CHECK: [[cst:%.+]] = const.Declare tensor<1x6xui4>
-    // CHECK-SAME{LITERAL}: = dense<[[1, 2, 3, 4, 5, 6]]>
-    // CHECK-SAME: : tensor<1x6xui8>, [#const.CastElemType<ui4>]
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense_resource<nq_ui4_a>
+    // CHECK-SAME: dense_resource<nq_ui4_b>
     // CHECK-NOT: IE.Concat
     // CHECK: return [[cst]]
 }
@@ -658,8 +609,9 @@ func.func @NonQuantizedSI4ConstConcat() -> tensor<1x6xsi4> {
     return %0 : tensor<1x6xsi4>
 
     // CHECK: [[cst:%.+]] = const.Declare tensor<1x6xsi4>
-    // CHECK-SAME{LITERAL}: = dense<[[-1, 2, -3, 4, -5, 6]]>
-    // CHECK-SAME: : tensor<1x6xsi8>, [#const.CastElemType<si4>]
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense_resource<nq_si4_a>
+    // CHECK-SAME: dense_resource<nq_si4_b>
     // CHECK-NOT: IE.Concat
     // CHECK: return [[cst]]
 }
@@ -683,8 +635,9 @@ func.func @UI4ConstConcatWithProdConvertCastBack() -> tensor<1x6xui4> {
     return %0 : tensor<1x6xui4>
 
     // CHECK: [[cst:%.+]] = const.Declare tensor<1x6xui4>
-    // CHECK-SAME{LITERAL}: = dense<[[1, 2, 3, 4, 5, 6]]>
-    // CHECK-SAME: : tensor<1x6xui8>, [#const.CastElemType<ui4>]
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense_resource<prod_ui4_a>
+    // CHECK-SAME: dense_resource<prod_ui4_b>
     // CHECK-NOT: IE.Concat
     // CHECK: return [[cst]]
 }
@@ -708,8 +661,9 @@ func.func @SI4ConstConcatWithCastBack() -> tensor<1x6xsi4> {
     return %0 : tensor<1x6xsi4>
 
     // CHECK: [[cst:%.+]] = const.Declare tensor<1x6xsi4>
-    // CHECK-SAME{LITERAL}: = dense<[[-1, 2, -3, 4, -5, 6]]>
-    // CHECK-SAME: : tensor<1x6xsi8>, [#const.CastElemType<si4>]
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense_resource<prod_si4_a>
+    // CHECK-SAME: dense_resource<prod_si4_b>
     // CHECK-NOT: IE.Concat
     // CHECK: return [[cst]]
 }
@@ -733,8 +687,9 @@ func.func @SI4ConstConcatSplat() -> tensor<1x6xsi4> {
     return %0 : tensor<1x6xsi4>
 
     // CHECK: [[cst:%.+]] = const.Declare tensor<1x6xsi4>
-    // CHECK-SAME{LITERAL}: = dense<[[-1, -1, -1, 4, 4, 4]]>
-    // CHECK-SAME: : tensor<1x6xsi8>, [#const.CastElemType<si4>]
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense_resource<splat_si4_a>
+    // CHECK-SAME: dense_resource<splat_si4_b>
     // CHECK-NOT: IE.Concat
     // CHECK: return [[cst]]
 }
@@ -758,8 +713,9 @@ func.func @SI4ConstConcatEvenLength() -> tensor<1x8xsi4> {
     return %0 : tensor<1x8xsi4>
 
     // CHECK: [[cst:%.+]] = const.Declare tensor<1x8xsi4>
-    // CHECK-SAME{LITERAL}: = dense<[[-1, 2, -3, 4, -5, 6, -7, 7]]>
-    // CHECK-SAME: : tensor<1x8xsi8>, [#const.CastElemType<si4>]
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense_resource<even_si4_a>
+    // CHECK-SAME: dense_resource<even_si4_b>
     // CHECK-NOT: IE.Concat
     // CHECK: return [[cst]]
 }
@@ -782,11 +738,12 @@ func.func @PackedUI4ConstConcat() -> tensor<1x6xui4> {
         %0 = IE.Concat(%cst_0, %cst_1) { static_offsets = [[0, 0], [0, 3]]} : tensor<1x3xui4>, tensor<1x3xui4> -> tensor<1x6xui4>
         return %0 : tensor<1x6xui4>
 
-        // CHECK: [[cst:%.+]] = const.Declare tensor<1x6xui4>
-        // CHECK-SAME{LITERAL}: = dense<[[1, 2, 3, 4, 5, 6]]>
-        // CHECK-SAME: : tensor<1x6xui8>, [#const.CastElemType<ui4>]
-        // CHECK-NOT: IE.Concat
-        // CHECK: return [[cst]]
+    // CHECK: [[cst:%.+]] = const.Declare tensor<1x6xui4>
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense_resource<packed_ui4_a>
+    // CHECK-SAME: dense_resource<packed_ui4_b>
+    // CHECK-NOT: IE.Concat
+    // CHECK: return [[cst]]
 }
 
 {-#
@@ -807,11 +764,12 @@ func.func @PackedSI4ConstConcat() -> tensor<1x6xsi4> {
         %0 = IE.Concat(%cst_0, %cst_1) { static_offsets = [[0, 0], [0, 3]]} : tensor<1x3xsi4>, tensor<1x3xsi4> -> tensor<1x6xsi4>
         return %0 : tensor<1x6xsi4>
 
-        // CHECK: [[cst:%.+]] = const.Declare tensor<1x6xsi4>
-        // CHECK-SAME{LITERAL}: = dense<[[-1, 2, -3, 4, -5, 6]]>
-        // CHECK-SAME: : tensor<1x6xsi8>, [#const.CastElemType<si4>]
-        // CHECK-NOT: IE.Concat
-        // CHECK: return [[cst]]
+    // CHECK: [[cst:%.+]] = const.Declare tensor<1x6xsi4>
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense_resource<packed_si4_a>
+    // CHECK-SAME: dense_resource<packed_si4_b>
+    // CHECK-NOT: IE.Concat
+    // CHECK: return [[cst]]
 }
 
 {-#
@@ -832,11 +790,12 @@ func.func @PackedUI2ConstConcat() -> tensor<1x8xui2> {
         %0 = IE.Concat(%cst_0, %cst_1) { static_offsets = [[0, 0], [0, 4]]} : tensor<1x4xui2>, tensor<1x4xui2> -> tensor<1x8xui2>
         return %0 : tensor<1x8xui2>
 
-        // CHECK: [[cst:%.+]] = const.Declare tensor<1x8xui2>
-        // CHECK-SAME{LITERAL}: = dense<[[1, 2, 3, 0, 2, 1, 0, 3]]>
-        // CHECK-SAME: : tensor<1x8xui8>, [#const.CastElemType<ui2>]
-        // CHECK-NOT: IE.Concat
-        // CHECK: return [[cst]]
+    // CHECK: [[cst:%.+]] = const.Declare tensor<1x8xui2>
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense_resource<packed_ui2_a>
+    // CHECK-SAME: dense_resource<packed_ui2_b>
+    // CHECK-NOT: IE.Concat
+    // CHECK: return [[cst]]
 }
 
 {-#
@@ -857,11 +816,12 @@ func.func @PackedSI2ConstConcat() -> tensor<1x8xsi2> {
         %0 = IE.Concat(%cst_0, %cst_1) { static_offsets = [[0, 0], [0, 4]]} : tensor<1x4xsi2>, tensor<1x4xsi2> -> tensor<1x8xsi2>
         return %0 : tensor<1x8xsi2>
 
-        // CHECK: [[cst:%.+]] = const.Declare tensor<1x8xsi2>
-        // CHECK-SAME{LITERAL}: = dense<[[-1, 0, 1, -2, 1, -1, -2, 0]]>
-        // CHECK-SAME: : tensor<1x8xsi8>, [#const.CastElemType<si2>]
-        // CHECK-NOT: IE.Concat
-        // CHECK: return [[cst]]
+    // CHECK: [[cst:%.+]] = const.Declare tensor<1x8xsi2>
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense_resource<packed_si2_a>
+    // CHECK-SAME: dense_resource<packed_si2_b>
+    // CHECK-NOT: IE.Concat
+    // CHECK: return [[cst]]
 }
 
 {-#
@@ -872,3 +832,130 @@ func.func @PackedSI2ConstConcat() -> tensor<1x8xsi2> {
         }
     }
 #-}
+
+// -----
+
+// CHECK-LABEL: @ThreeInputConstConcat
+func.func @ThreeInputConstConcat() -> tensor<1x9x8x1xf16> {
+    %cst_0 = const.Declare tensor<1x3x8x1xf16> = dense<1.0> : tensor<1x3x8x1xf16>
+    %cst_1 = const.Declare tensor<1x3x8x1xf16> = dense<2.0> : tensor<1x3x8x1xf16>
+    %cst_2 = const.Declare tensor<1x3x8x1xf16> = dense<3.0> : tensor<1x3x8x1xf16>
+    %0 = IE.Concat(%cst_0, %cst_1, %cst_2) {static_offsets = [[0, 0, 0, 0], [0, 3, 0, 0], [0, 6, 0, 0]]} : tensor<1x3x8x1xf16>, tensor<1x3x8x1xf16>, tensor<1x3x8x1xf16> -> tensor<1x9x8x1xf16>
+    return %0 : tensor<1x9x8x1xf16>
+
+    // CHECK: [[cst:%.+]] = const.Declare tensor<1x9x8x1xf16>
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense<1.000000e+00>
+    // CHECK-SAME: dense<2.000000e+00>
+    // CHECK-SAME: dense<3.000000e+00>
+    // CHECK-NOT: IE.Concat
+    // CHECK: return [[cst]]
+}
+
+// -----
+
+// CHECK-LABEL: @ThreeInputAxisNotFirstConstConcat
+func.func @ThreeInputAxisNotFirstConstConcat() -> tensor<1x2x9x3xf16> {
+    %cst_0 = const.Declare tensor<1x2x3x3xf16> = dense<1.0> : tensor<1x2x3x3xf16>
+    %cst_1 = const.Declare tensor<1x2x3x3xf16> = dense<2.0> : tensor<1x2x3x3xf16>
+    %cst_2 = const.Declare tensor<1x2x3x3xf16> = dense<3.0> : tensor<1x2x3x3xf16>
+    %0 = IE.Concat(%cst_0, %cst_1, %cst_2) {static_offsets = [[0, 0, 0, 0], [0, 0, 3, 0], [0, 0, 6, 0]]} : tensor<1x2x3x3xf16>, tensor<1x2x3x3xf16>, tensor<1x2x3x3xf16> -> tensor<1x2x9x3xf16>
+    return %0 : tensor<1x2x9x3xf16>
+
+    // CHECK: [[cst:%.+]] = const.Declare tensor<1x2x9x3xf16>
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense<1.000000e+00>
+    // CHECK-SAME: dense<2.000000e+00>
+    // CHECK-SAME: dense<3.000000e+00>
+    // CHECK-NOT: IE.Concat
+    // CHECK: return [[cst]]
+}
+
+// -----
+
+// CHECK-LABEL: @ConstConcatWithNonConstInput
+func.func @ConstConcatWithNonConstInput(%arg0: tensor<1x3x8x1xf16>) -> tensor<1x6x8x1xf16> {
+    %cst_0 = const.Declare tensor<1x3x8x1xf16> = dense<1.0> : tensor<1x3x8x1xf16>
+    %0 = IE.Concat(%cst_0, %arg0) {static_offsets = [[0, 0, 0, 0], [0, 3, 0, 0]]} : tensor<1x3x8x1xf16>, tensor<1x3x8x1xf16> -> tensor<1x6x8x1xf16>
+    return %0 : tensor<1x6x8x1xf16>
+
+    // CHECK: [[cst:%.+]] = const.Declare tensor<1x3x8x1xf16>
+    // CHECK: IE.Concat([[cst]], %arg0)
+    // CHECK-NOT: #const.Concat
+}
+
+// -----
+
+// CHECK-LABEL: @FourInputConstConcat
+func.func @FourInputConstConcat() -> tensor<4x3xf16> {
+    %cst_0 = const.Declare tensor<1x3xf16> = dense<[[1.0, 2.0, 3.0]]> : tensor<1x3xf16>
+    %cst_1 = const.Declare tensor<1x3xf16> = dense<[[4.0, 5.0, 6.0]]> : tensor<1x3xf16>
+    %cst_2 = const.Declare tensor<1x3xf16> = dense<[[7.0, 8.0, 9.0]]> : tensor<1x3xf16>
+    %cst_3 = const.Declare tensor<1x3xf16> = dense<[[10.0, 11.0, 12.0]]> : tensor<1x3xf16>
+    %0 = IE.Concat(%cst_0, %cst_1, %cst_2, %cst_3) {static_offsets = [[0, 0], [1, 0], [2, 0], [3, 0]]} : tensor<1x3xf16>, tensor<1x3xf16>, tensor<1x3xf16>, tensor<1x3xf16> -> tensor<4x3xf16>
+    return %0 : tensor<4x3xf16>
+
+    // CHECK: [[cst:%.+]] = const.Declare tensor<4x3xf16>
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME{LITERAL}: dense<[[1.000000e+00, 2.000000e+00, 3.000000e+00]]>
+    // CHECK-SAME{LITERAL}: dense<[[4.000000e+00, 5.000000e+00, 6.000000e+00]]>
+    // CHECK-SAME{LITERAL}: dense<[[7.000000e+00, 8.000000e+00, 9.000000e+00]]>
+    // CHECK-SAME{LITERAL}: dense<[[1.000000e+01, 1.100000e+01, 1.200000e+01]]>
+    // CHECK-NOT: IE.Concat
+    // CHECK: return [[cst]]
+}
+
+// -----
+
+// CHECK-LABEL: @QuantizedConstConcatWithNonConstInput
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: tensor<1x3x!qElemType>)
+!qElemType = !quant.uniform<ui8:f16, 1.0000000000000000E-1>
+func.func @QuantizedConstConcatWithNonConstInput(%arg0: tensor<1x3x!qElemType>) -> tensor<1x6x!qElemType> {
+    %cst_0 = const.Declare tensor<1x3x!qElemType> = dense<1.0> : tensor<1x3xf16>, [#const.Add<1.270000e+02 : f64>, #const.CastElemType<ui8>, #const.CastElemType<!qElemType>]
+    %0 = IE.Concat(%cst_0, %arg0) { static_offsets = [[0, 0], [0, 3]]} : tensor<1x3x!qElemType>, tensor<1x3x!qElemType> -> tensor<1x6x!qElemType>
+    return %0 : tensor<1x6x!qElemType>
+
+    // CHECK: [[cst_0:%.+]] = const.Declare tensor<1x3x!qElemType>
+    // CHECK: [[concat:%.+]] = IE.Concat([[cst_0]], [[ARG_0]])
+    // CHECK: return [[concat]]
+}
+
+// -----
+
+// CHECK-LABEL: @QuantizedUI8ConstConcatThreeInputs
+!qElemType = !quant.uniform<ui8:f16, 1.0000000000000000E-1>
+func.func @QuantizedUI8ConstConcatThreeInputs() -> tensor<1x9x!qElemType> {
+    %cst_0 = const.Declare tensor<1x3x!qElemType> = dense<1.0> : tensor<1x3xf16>, [#const.Add<1.270000e+02 : f64>, #const.CastElemType<ui8>, #const.CastElemType<!qElemType>]
+    %cst_1 = const.Declare tensor<1x3x!qElemType> = dense<2.0> : tensor<1x3xf16>, [#const.Add<1.270000e+02 : f64>, #const.CastElemType<ui8>, #const.CastElemType<!qElemType>]
+    %cst_2 = const.Declare tensor<1x3x!qElemType> = dense<3.0> : tensor<1x3xf16>, [#const.Add<1.270000e+02 : f64>, #const.CastElemType<ui8>, #const.CastElemType<!qElemType>]
+    %0 = IE.Concat(%cst_0, %cst_1, %cst_2) { static_offsets = [[0, 0], [0, 3], [0, 6]]} : tensor<1x3x!qElemType>, tensor<1x3x!qElemType>, tensor<1x3x!qElemType> -> tensor<1x9x!qElemType>
+    return %0 : tensor<1x9x!qElemType>
+
+    // CHECK: [[cst:%.+]] = const.Declare tensor<1x9x!qElemType>
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense<1.000000e+00>
+    // CHECK-SAME: dense<2.000000e+00>
+    // CHECK-SAME: dense<3.000000e+00>
+    // CHECK-NOT: IE.Concat
+    // CHECK: return [[cst]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+!qElemType0 = !quant.uniform<u8:f16:1, {1.0E-1:10, 2.0E-1:20, 3.0E-1:30}>
+!qElemType1 = !quant.uniform<u8:f16:1, {4.0E-1:40, 5.0E-1:50, 6.0E-1:60}>
+!qElemTypeOut = !quant.uniform<u8:f16:1, {1.0E-1:10, 2.0E-1:20, 3.0E-1:30, 4.0E-1:40, 5.0E-1:50, 6.0E-1:60}>
+// CHECK-LABEL: @ConcatWithConstInputsFoldForPerAxisQuantize
+func.func @ConcatWithConstInputsFoldForPerAxisQuantize() -> tensor<1x6x2x1x!qElemTypeOut, {order = #NHWC}> {
+    %cst_0 = const.Declare tensor<1x3x2x1x!qElemType0, {order = #NHWC}> = dense<128> : tensor<1x3x2x1xui8>, [#const.CastElemType<!qElemType0>, #const.Reorder<#NHWC>]
+    %cst_1 = const.Declare tensor<1x3x2x1x!qElemType1, {order = #NHWC}> = dense<128> : tensor<1x3x2x1xui8>, [#const.CastElemType<!qElemType1>, #const.Reorder<#NHWC>]
+    %0 = IE.Concat(%cst_0, %cst_1) {static_offsets = [[0, 0, 0, 0], [0, 3, 0, 0]]} : tensor<1x3x2x1x!qElemType0, {order = #NHWC}>, tensor<1x3x2x1x!qElemType1, {order = #NHWC}> -> tensor<1x6x2x1x!qElemTypeOut, {order = #NHWC}>
+    return %0 : tensor<1x6x2x1x!qElemTypeOut, {order = #NHWC}>
+
+    // CHECK: [[cst:%.+]] = const.Declare tensor<1x6x2x1x!qElemType
+    // CHECK-SAME: #const.Concat
+    // CHECK-SAME: dense<128>
+    // CHECK-SAME: dense<128>
+    // CHECK: return [[cst]]
+}

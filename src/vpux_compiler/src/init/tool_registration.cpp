@@ -89,20 +89,20 @@ void registerAllPassesGlobally() {
     mlir::quant::registerQuantPasses();
 }
 
-void registerAllHwSpecificComponents(mlir::DialectRegistry& registry, vpux::config::ArchKind archKind) {
-    const auto pipelineRegistry = vpux::createPipelineRegistry(archKind);
+void registerAllHwSpecificComponents(mlir::DialectRegistry& registry, vpux::config::Platform platform) {
+    const auto pipelineRegistry = vpux::createPipelineRegistry(platform);
     pipelineRegistry->registerPipelines();
 
-    const auto passesRegistry = vpux::createPassesRegistry(archKind);
+    const auto passesRegistry = vpux::createPassesRegistry(platform);
     passesRegistry->registerPasses();
 
-    auto interfacesRegistry = vpux::createInterfacesRegistry(archKind);
+    auto interfacesRegistry = vpux::createInterfacesRegistry(platform);
     interfacesRegistry->registerInterfaces(registry);
 
-    vpux::config::registerConstraints(registry, archKind);
-    vpux::IE::registerStrategies(registry, archKind);
-    vpux::VPU::initializeSingletons(registry, vpux::VPU::DeviceVersion{std::nullopt, archKind});
-    vpux::VPU::registerStrategies(registry, archKind);
-    vpux::VPUIP::registerStrategies(registry, archKind);
+    vpux::config::registerConstraints(registry, platform);
+    vpux::IE::registerStrategies(registry, platform);
+    vpux::VPU::initializeSingletons(registry, platform);
+    vpux::VPU::registerStrategies(registry, platform);
+    vpux::VPUIP::registerStrategies(registry, platform);
 }
 }  // namespace vpux

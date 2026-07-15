@@ -23,13 +23,12 @@ llvm::StringLiteral getMemoryBandwidthAttrName();
 //
 // ArchKind
 //
-void setArch(mlir::ModuleOp module, std::optional<config::Platform> platform, config::ArchKind kind, int numOfDPUGroups,
-             std::optional<int> numOfDMAPorts = std::nullopt,
-             std::optional<vpux::Byte> availableCMXMemory = std::nullopt, bool allowCustomValues = false);
+void setParamInModule(mlir::ModuleOp module, config::Platform platform, int numOfDPUGroups,
+                      std::optional<int> numOfDMAPorts = std::nullopt,
+                      std::optional<vpux::Byte> availableCMXMemory = std::nullopt, bool allowCustomValues = false);
 
 config::ArchKind getArch(mlir::Operation* op);
 bool isArchVPUX3XXX(config::ArchKind arch);
-bool isArchVPUX5XXX(config::ArchKind arch);
 
 //
 // RevisionID

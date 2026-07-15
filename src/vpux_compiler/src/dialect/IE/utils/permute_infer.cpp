@@ -9,6 +9,8 @@
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 
+using namespace vpux;
+
 void inferPermuteReturnTypeComponents(mlir::Value input, mlir::AffineMap mem_perm, mlir::AffineMap dst_order,
                                       SmallVectorImpl<mlir::ShapedTypeComponents>& inferredReturnShapes,
                                       bool strictInfer) {

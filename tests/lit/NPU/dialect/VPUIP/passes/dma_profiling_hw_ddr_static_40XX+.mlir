@@ -6,7 +6,7 @@
 // RUN: vpux-opt --init-compiler="platform=%platform% allow-custom-values=true" --dma-task-profiling-hw-ddr="dma-profiling=static" %s | FileCheck %s
 // REQUIRES: platform-NPU4000 || platform-NPU5010
 
-!dataType = memref<1x16x4x4xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
+!dataType = memref<1x16x4x4xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>
 
 module @DMAGraph {
   config.Resources 1 of @NCE at 1.300000e+03 MHz {
@@ -48,14 +48,14 @@ module @DMAGraph {
 
 // CHECK:        profilingOutputsInfo
 // CHECK-NEXT:   DataInfo "dmahw" : tensor<256xui8>
-// CHECK:        func.func @main([[ARG_0:%[^:]+]]: memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>,
-// CHECK-SAME:       [[ARG_1:%[^:]+]]: memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>,
+// CHECK:        func.func @main([[ARG_0:%[^:]+]]: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+// CHECK-SAME:       [[ARG_1:%[^:]+]]: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>,
 // CHECK-SAME:       [[ARG_2:%[^:]+]]: memref<256xui8, [@DDR, 0]>) ->
-// CHECK-SAME:       (memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>,
+// CHECK-SAME:       (memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>,
 // CHECK-SAME:       memref<256xui8, [@DDR, 0]>) {
 // CHECK:    [[BAR0:%.+]] = VPURT.DeclareVirtualBarrier
-// CHECK:    [[BUF_DATA_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <512> -> memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>
-// CHECK:    [[BUF_DATA_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1024> -> memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>
+// CHECK:    [[BUF_DATA_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <512> -> memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+// CHECK:    [[BUF_DATA_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1024> -> memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
 // Profiled DMA task 1
 // CHECK:  VPURT.Task
@@ -80,5 +80,5 @@ module @DMAGraph {
 
 // Check network output
 // CHECK:   return [[ARG_1]], [[ARG_2]]
-// CHECK-SAME:    memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>,
+// CHECK-SAME:    memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>,
 // CHECK-SAME:    memref<256xui8, [@DDR, 0]>

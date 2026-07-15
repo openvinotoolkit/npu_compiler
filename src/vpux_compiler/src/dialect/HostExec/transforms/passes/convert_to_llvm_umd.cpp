@@ -255,6 +255,8 @@ mlir::Value accumulateOffsets(mlir::OpBuilder& builder, mlir::Location loc, mlir
             current = viewOp.getSource();
         } else if (auto castOp = current.getDefiningOp<mlir::memref::ReinterpretCastOp>()) {
             current = castOp.getSource();
+        } else if (auto castOp = current.getDefiningOp<mlir::memref::CastOp>()) {
+            current = castOp.getSource();
         } else if (auto castOp = current.getDefiningOp<mlir::UnrealizedConversionCastOp>()) {
             current = castOp.getInputs()[0];
         } else {
@@ -266,12 +268,37 @@ mlir::Value accumulateOffsets(mlir::OpBuilder& builder, mlir::Location loc, mlir
 
 // Extract buffer pointers from memref descriptors
 inline mlir::Value getBufferStartAddress(mlir::OpBuilder& builder, mlir::Location& loc, mlir::Value& sourceDesc) {
-    // Extract source buffer pointer (allocated pointer + offset)
+    // Compute byte address of the first element: aligned_ptr + offset * elemBytes.
+    //
+    // We should use ALIGNED_PTR (index 1), NOT BASE_PTR (index 0), because MLIR's MemRef->LLVM
+    // lowering folds the view byte shift into ALIGNED_PTR rather than into OFFSET.
+    // For example, given:
+    //   %alloc = memref.alloc() : memref<960032xi8>
+    //   %view  = memref.view %alloc[16][] : ... to memref<1x3x400x400xf16>
+    // the LLVM descriptor for %view has:
+    //   BASE_PTR    = alloc base           (e.g. 0xABC0)
+    //   ALIGNED_PTR = alloc base + 16      (byte shift baked in)
+    //   OFFSET      = 0
+    // Using BASE_PTR + OFFSET*elemBytes = 0xABC0 + 0 = 0xABC0  (WRONG)
+    // Using ALIGNED_PTR + OFFSET*elemBytes = 0xABC0+16 + 0 = 0xABD0  (correct)
+    //
+    // An alternative would be BASE_PTR + accumulateOffsets()*elemBytes, where
+    // accumulateOffsets() walks the SubViewOp/ViewOp/CastOp chain to recover the
+    // byte shift as an element offset. However, in this pass the source of the
+    // memref.copy has already passed through async.await/async.execute, which
+    // breaks the defining-op chain that accumulateOffsets() relies on. Since
+    // accumulateOffsets() does not handle async.await, it returns OFFSET=0 and
+    // the byte shift is lost - the same incorrect result as raw BASE_PTR+OFFSET.
+    //
+    // ALIGNED_PTR is always correct here: the MLIR convention guarantees
+    // "ALIGNED_PTR + OFFSET * elemBytes = first-element address" for every
+    // MemRef type (plain alloc, view, subview, function argument, etc.),
+    // and this invariant is preserved across async boundaries.
     int64_t bytes = getElementByteSize(sourceDesc);
 
     mlir::Type i64Type = builder.getI64Type();
     auto srcPtrExtractOp =
-            builder.create<mlir::LLVM::ExtractValueOp>(loc, sourceDesc, MemRefDescriptorUtil::BASE_PTR_INDEX);
+            builder.create<mlir::LLVM::ExtractValueOp>(loc, sourceDesc, MemRefDescriptorUtil::ALIGNED_PTR_INDEX);
     auto srcOffsetExtractOp =
             builder.create<mlir::LLVM::ExtractValueOp>(loc, sourceDesc, MemRefDescriptorUtil::OFFSET_INDEX);
 
@@ -415,7 +442,8 @@ private:
         }
 
         if (auto defOp = value.getDefiningOp()) {
-            if (!mlir::isa<mlir::UnrealizedConversionCastOp, mlir::memref::SubViewOp, mlir::memref::ViewOp>(defOp)) {
+            if (!mlir::isa<mlir::UnrealizedConversionCastOp, mlir::memref::SubViewOp, mlir::memref::ViewOp,
+                           mlir::memref::CastOp>(defOp)) {
                 // only view, subview and cast ops are allowed in the chain
                 // for mutable command list
                 return -1;
@@ -628,6 +656,16 @@ mlir::LogicalResult areAllLLVMTypes(mlir::Operation* op, mlir::ValueRange operan
     return mlir::success();
 }
 
+// Extract only the shape-dimension dynamic-size operands from an alloc's dynamic operand list.
+// An alloc may carry extra operands (e.g. shape-buffer values) beyond the memref's actual
+// dynamic dims; trimming them prevents passing unexpected values to getMemRefDescriptorSizes
+SmallVector<mlir::Value, 4> trimToShapeDynamicSizes(mlir::MemRefType memrefType, mlir::ValueRange dynamicSizes) {
+    const auto expectedCount = static_cast<size_t>(llvm::count(memrefType.getShape(), mlir::ShapedType::kDynamic));
+    SmallVector<mlir::Value, 4> shapeSizes;
+    shapeSizes.assign(dynamicSizes.begin(), dynamicSizes.begin() + std::min(expectedCount, dynamicSizes.size()));
+    return shapeSizes;
+}
+
 class LvlZeroAllocLowering final : public mlir::ConvertOpToLLVMPattern<mlir::memref::AllocOp> {
 public:
     LvlZeroAllocLowering(const mlir::LLVMTypeConverter& typeConverter)
@@ -651,7 +689,8 @@ mlir::LogicalResult LvlZeroAllocLowering::matchAndRewrite(mlir::memref::AllocOp 
     mlir::Value sizeBytes;
 
     auto loc = origOp.getLoc();
-    getMemRefDescriptorSizes(loc, memrefType, adaptor.getDynamicSizes(), rewriter, shape, strides, sizeBytes);
+    const auto shapeDynamicSizes = trimToShapeDynamicSizes(memrefType, adaptor.getDynamicSizes());
+    getMemRefDescriptorSizes(loc, memrefType, shapeDynamicSizes, rewriter, shape, strides, sizeBytes);
     mlir::MLIRContext* ctx = rewriter.getContext();
     auto returnType = mlir::Type(mlir::LLVM::LLVMPointerType::get(ctx));
     auto moduleOp = vpux::getModuleOp(origOp);
@@ -717,7 +756,14 @@ mlir::LogicalResult LvlZeroMemoryCopyLowering ::matchAndRewrite(mlir::memref::Co
     mlir::SmallVector<mlir::Value, 4> strides;
     mlir::Value sizeBytes;
     mlir::MemRefType targetMemrefType = mlir::cast<mlir::MemRefType>(origOp.getTarget().getType());
-    getMemRefDescriptorSizes(origOp.getLoc(), targetMemrefType, {}, rewriter, shape, strides, sizeBytes);
+    mlir::SmallVector<mlir::Value, 4> shapeDynamicSizes;
+    auto memRefDesc = mlir::MemRefDescriptor(targetPtr);
+    for (auto dim : llvm::enumerate(targetMemrefType.getShape())) {
+        if (dim.value() == mlir::ShapedType::kDynamic) {
+            shapeDynamicSizes.push_back(memRefDesc.size(rewriter, loc, dim.index()));
+        }
+    }
+    getMemRefDescriptorSizes(origOp.getLoc(), targetMemrefType, shapeDynamicSizes, rewriter, shape, strides, sizeBytes);
     // Extract buffer pointers from memref descriptors
     auto src = getBufferStartAddress(rewriter, loc, sourcePtr);
     auto target = getBufferStartAddress(rewriter, loc, targetPtr);
@@ -832,30 +878,43 @@ mlir::LogicalResult AsyncOpRewriter<AsyncOp>::matchAndRewrite(AsyncOp origOp, ml
                         return mlir::failure();
                     }
 
-                    auto resultCount = funcOp.getNumResults();
-                    auto inputCount = funcOp.getNumArguments();
-                    auto operand = *(callOp.getOperands().begin() + (inputCount - resultCount) +
-                                     static_cast<unsigned int>(index));
+                    const auto callResultCount = callOp.getNumResults();
+                    const auto callInputCount = callOp.getNumOperands() - callResultCount;
+                    const auto funcName = funcOp.getSymName();
+
+                    const int64_t operandIndex = static_cast<int64_t>(callInputCount) + static_cast<int64_t>(index);
+                    if (operandIndex < 0 || operandIndex >= static_cast<int64_t>(callOp.getNumOperands())) {
+                        _log.error("Invalid operand index {0} for '{1}' (callInputCount={2}, callResultCount={3}, "
+                                   "index={4})",
+                                   operandIndex, funcName, callInputCount, callResultCount, index);
+                        return mlir::failure();
+                    }
+
+                    auto operand = *(callOp.getOperands().begin() + static_cast<unsigned int>(operandIndex));
                     for (auto u : users) {
                         if (auto viewOp = mlir::dyn_cast<mlir::memref::SubViewOp>(u)) {
                             viewOp.setOperand(0, operand);
                         } else if (auto copyOp = mlir::dyn_cast<mlir::memref::CopyOp>(u)) {
                             copyOp.setOperand(0, operand);
                         } else if (auto nestedCallOp = mlir::dyn_cast<Core::NestedCallOp>(u)) {
-                            if (awaitOpInScfFor) {
-                                auto userOperands = u->getOperands();
-                                auto awaitOpResult = awaitOp.getResult();
-                                uint32_t index = 0;
-                                for (auto userOperand : userOperands) {
-                                    if (awaitOpResult == userOperand) {
-                                        nestedCallOp.setOperand(index, operand);
-                                        break;
-                                    }
-                                    ++index;
+                            // Always propagate the actual value to Core::NestedCallOp users,
+                            // regardless of whether the await is inside a scf.for or not.
+                            // Without this, Core::NestedCallOp operands inside a later
+                            // async.execute are left pointing at a dead await result, causing
+                            // the framework to create zero-operand unrealized_conversion_cast
+                            // materializations that survive past the conversion and trigger
+                            // "unresolved materialization" errors.
+                            auto userOperands = u->getOperands();
+                            auto awaitOpResult = awaitOp.getResult();
+                            uint32_t index = 0;
+                            for (auto userOperand : userOperands) {
+                                if (awaitOpResult == userOperand) {
+                                    nestedCallOp.setOperand(index, operand);
+                                    break;
                                 }
+                                ++index;
                             }
-                        } else if (mlir::isa<mlir::UnrealizedConversionCastOp, Core::NestedCallOp,
-                                             mlir::async::YieldOp>(u)) {
+                        } else if (mlir::isa<mlir::UnrealizedConversionCastOp, mlir::async::YieldOp>(u)) {
                             continue;
                         } else {
                             _log.error("Not supported user type: {0}", u->getName().getStringRef().str());
@@ -1112,49 +1171,112 @@ std::tuple<SmallVector<mlir::func::FuncOp>, mlir::DenseSet<mlir::func::FuncOp>> 
     return {topLevelCallers, allCallers};
 }
 
-template <class CallOpFilter>
-void rewriteUMDCallOpInForLoop(mlir::scf::ForOp forOp, CallOpFilter&& filter, Logger log) {
-    SmallVector<mlir::func::CallOp> callOpToRewrite;
-    forOp->walk([&callOpToRewrite, &filter](mlir::func::CallOp callee) {
-        if (filter(callee)) {
-            callOpToRewrite.push_back(callee);
+void insertFinalCmdListSubmissionAfterOp(mlir::scf::ForOp op, mlir::func::FuncOp parentFuncOp) {
+    auto numArgs = parentFuncOp.getNumArguments();
+    VPUX_THROW_UNLESS(numArgs >= HostMainFuncArgs::HOST_MAIN_FUNC_ARGS_COUNT,
+                      "Cannot insert final cmd list submission into the function: {0} which has not enough arguments: "
+                      "{1}, required at least: {2}",
+                      parentFuncOp.getName(), numArgs, HostMainFuncArgs::HOST_MAIN_FUNC_ARGS_COUNT);
+    auto cmdQueue = parentFuncOp.getArgument(GET_ARG_INDEX_COMMAND_QUEUE(numArgs));
+    auto execContext = parentFuncOp.getArgument(GET_ARG_INDEX_COMMAND_EXECUTION_CONTEXT(numArgs));
+    auto cmdList = parentFuncOp.getArgument(GET_ARG_INDEX_COMMAND_LIST(numArgs));
+    auto fence = parentFuncOp.getArgument(GET_ARG_INDEX_COMMAND_FENCE(numArgs));
+    auto event = parentFuncOp.getArgument(GET_ARG_INDEX_COMMAND_EVENT(numArgs));
+    auto builder = mlir::OpBuilder(op);
+    auto moduleOp = vpux::getModuleOp(parentFuncOp);
+    auto returnType = mlir::Type(mlir::LLVM::LLVMVoidType::get(op.getContext()));
+    builder.setInsertionPointAfter(op);
+    createLLVMFuncCallOp(builder, moduleOp, "npu_level_zero_submit_commandlist",
+                         {cmdList, cmdQueue, fence, event, execContext}, returnType);
+}
+
+bool removeFinalCmdListSubmission(mlir::func::FuncOp funcOp) {
+    mlir::LLVM::CallOp finalCmdListSubmissionCall;
+    funcOp->walk([&finalCmdListSubmissionCall](mlir::LLVM::CallOp call) {
+        if (call.getCallee() == "npu_level_zero_submit_commandlist") {
+            finalCmdListSubmissionCall = call;
         }
     });
+    if (finalCmdListSubmissionCall) {
+        finalCmdListSubmissionCall.erase();
+        return true;
+    }
+    return false;
+}
 
-    log.trace("Collected callOp: {0}, which require conditional arguments", callOpToRewrite.size());
-    for (mlir::func::CallOp callOp : callOpToRewrite) {
-        log.debug("Process callOp: {0} to insert conditional arguments", callOp);
-        auto builder = mlir::OpBuilder(callOp);
-
-        auto upperBound = forOp.getUpperBound();
-        auto stepSize = forOp.getStep();
-        auto loopIv = forOp.getInductionVar();
-
-        auto nextOffset = builder.create<mlir::arith::AddIOp>(takeOpLoc(forOp, "next_offset"), loopIv, stepSize);
-        auto exceedsBound = builder.create<mlir::arith::CmpIOp>(
-                takeOpLoc(forOp, "exceeds_bound"), mlir::arith::CmpIPredicate::sgt, nextOffset, upperBound);
-        auto ifExceedsBound = builder.create<mlir::scf::IfOp>(
-                takeOpLoc(forOp, "if_exceeds_bound"), llvm::ArrayRef<mlir::Type>{builder.getIndexType()}, exceedsBound,
-                /*withElseRegion=*/true);
-        {
-            mlir::OpBuilder thenBuilder = ifExceedsBound.getThenBodyBuilder();
-            thenBuilder.clone(*callOp);
-            thenBuilder.create<mlir::scf::YieldOp>(appendLoc(ifExceedsBound->getLoc(), "yield"),
-                                                   mlir::ValueRange{loopIv});
+void finalizeCmdListSubmissionIfRequired(SmallVector<mlir::func::FuncOp>& targetFunctions,
+                                         ArrayRef<mlir::func::FuncOp> topLevelFuncCallers,
+                                         mlir::DenseSet<mlir::func::FuncOp>& allFuncCallers, Logger log) {
+    /*
+     * Each function in topLevelFuncCallers invokes one or more actual inference-executor functions.
+     * If a top-level function invokes them repeatedly (for example, inside an scf-for loop), internal
+     * command lists must not be submitted from within the inference-executor functions themselves,
+     * since the submission would occur on every invocation.
+     *
+     * Multiple submissions of the same command list may cause incorrect behavior when:
+     *   - a fence/event is signaled only on the first submission, or
+     *   - each subsequent submission invalidates the previous one.
+     *
+     * A typical symptom is corrupted data in a batched output tensor of size N, where rows with
+     * indices n < N - 1 contain garbage because only the last batch item was actually processed.
+     *
+     * This finalization routine scans all topLevelFuncCallers for such scf-for loops, identifies
+     * the last forOp operation, and inserts the final command list submission after the last callOp
+     * to the corresponding target function from targetFunctions.
+     *
+     * At the same time, the final command list submission is removed from the bodies of all
+     * targetFunctions.
+     *
+     * Since all targetFunctions and their corresponding callOps are processed consistently,
+     * the transformation order is irrelevant: we can either update all callers first and then
+     * process target functions, or handle each caller/target pair sequentially.
+     * The former approach was chosen for simplicity.
+     */
+    log.trace("Amend UMD callers: {0} to take over cmd list final submission", topLevelFuncCallers.size());
+    std::function<bool(mlir::func::CallOp op)> isCallOpSuitableToOptimize = [&targetFunctions,
+                                                                             &allFuncCallers](mlir::func::CallOp op) {
+        mlir::func::FuncOp calledFunction = vpux::getCalledFunction(op);
+        if (auto it = std::find(targetFunctions.begin(), targetFunctions.end(), calledFunction);
+            it != targetFunctions.end()) {
+            VPUX_THROW_UNLESS(it->getNumArguments() > HostMainFuncArgs::HOST_MAIN_FUNC_ARGS_COUNT,
+                              "Target function: {0} is expected to have arguments count more than: {1}, has got: {2}",
+                              it->getName(), HostMainFuncArgs::HOST_MAIN_FUNC_ARGS_COUNT, it->getNumArguments());
+            return true;
         }
-        {
-            mlir::OpBuilder elseBuilder = ifExceedsBound.getElseBodyBuilder();
-            mlir::IRMapping notFinalCallOpArgMapping;
-            auto elementPtrType = mlir::LLVM::LLVMPointerType::get(elseBuilder.getContext());
-            mlir::Value nullPtr = elseBuilder.create<mlir::LLVM::ZeroOp>(elseBuilder.getUnknownLoc(), elementPtrType);
-            auto numOperands = callOp.getOperands().size();
-            notFinalCallOpArgMapping.map(callOp.getOperand(GET_ARG_INDEX_COMMAND_FENCE(numOperands)), nullPtr);
-            notFinalCallOpArgMapping.map(callOp.getOperand(GET_ARG_INDEX_COMMAND_EVENT(numOperands)), nullPtr);
-            elseBuilder.clone(*callOp, notFinalCallOpArgMapping);
-            elseBuilder.create<mlir::scf::YieldOp>(appendLoc(ifExceedsBound->getLoc(), "yield"),
-                                                   mlir::ValueRange{loopIv});
+        if (auto it = allFuncCallers.find(calledFunction); it != allFuncCallers.end()) {
+            VPUX_THROW_UNLESS(
+                    it->getNumArguments() > HostMainFuncArgs::HOST_MAIN_FUNC_ARGS_COUNT,
+                    "Intermediate function: {0} is expected to have arguments count more than: {1}, has got: {2}",
+                    it->getName(), HostMainFuncArgs::HOST_MAIN_FUNC_ARGS_COUNT, it->getNumArguments());
+            return true;
         }
-        callOp.erase();
+        return false;
+    };
+
+    bool finalCmdListSubmissionRequired = false;
+    for (auto f : topLevelFuncCallers) {
+        log.debug("Check whether the caller function: {0} must finalize command list submission", f.getName());
+        mlir::scf::ForOp finalForOp;
+        f->walk([&finalForOp, isCallOpSuitableToOptimize](mlir::scf::ForOp forOp) {
+            forOp->walk([&finalForOp, forOp, isCallOpSuitableToOptimize](mlir::func::CallOp callee) {
+                if (isCallOpSuitableToOptimize(callee)) {
+                    finalForOp = forOp;
+                }
+            });
+        });
+        if (finalForOp) {
+            log.debug("Finalize cmd list submission for func: {0}", f.getName());
+            insertFinalCmdListSubmissionAfterOp(finalForOp, f);
+            finalCmdListSubmissionRequired = true;
+        }
+    }
+
+    if (finalCmdListSubmissionRequired) {
+        log.trace("Try to remove redundant cmd list submission from target functions: {0}", targetFunctions.size());
+        for (auto funcOp : targetFunctions) {
+            bool ret = removeFinalCmdListSubmission(funcOp);
+            log.debug("Removal final cmd list submission from the function: {0}, res: {1}", funcOp.getName(), ret);
+        }
     }
 }
 
@@ -1241,6 +1363,13 @@ void ConvertToLLVMUMDCallsPass::safeRunOnModule() {
 
     CommandListIndexState commandListIndexState;
     commandListIndexState.initialize(funcOpToConvert, enablePipelinedCmdListRecording);
+    auto commandListNumber = HostExec::getHostCompileInferenceExpectedCommandListsNumber(funcOpToConvert);
+    if (commandListNumber.has_value()) {
+        enablePipelinedCmdListRecording = *commandListNumber != 1;
+        _log.info("Desired amount of command lists requested: {0}, override enablePipelinedCmdListRecording value: {1}",
+                  *commandListNumber, enablePipelinedCmdListRecording);
+    }
+    commandListIndexState.initialize(funcOpToConvert, enablePipelinedCmdListRecording);
 
     ModelIOManager ioManager(module, funcOpToConvert, _log);
 
@@ -1297,33 +1426,8 @@ void ConvertToLLVMUMDCallsPass::safeRunOnModule() {
                 }
             }
         }
-    }
-    _log.trace("Optimize UMD callers: {0} to make them pass fence/events at the final iteration of its scf-for",
-               topLevelFuncCallers.size());
-    std::function<bool(mlir::func::CallOp op)> isCallOpSuitableToOptimize = [&targetFunctions,
-                                                                             &allFuncCallers](mlir::func::CallOp op) {
-        mlir::func::FuncOp calledFunction = vpux::getCalledFunction(op);
-        if (auto it = std::find(targetFunctions.begin(), targetFunctions.end(), calledFunction);
-            it != targetFunctions.end()) {
-            VPUX_THROW_UNLESS(it->getNumArguments() > HostMainFuncArgs::HOST_MAIN_FUNC_ARGS_COUNT,
-                              "Target function: {0} is expected to have arguments count more than: {1}, has got: {2}",
-                              it->getName(), HostMainFuncArgs::HOST_MAIN_FUNC_ARGS_COUNT, it->getNumArguments());
-            return true;
-        }
-        if (auto it = allFuncCallers.find(calledFunction); it != allFuncCallers.end()) {
-            VPUX_THROW_UNLESS(
-                    it->getNumArguments() > HostMainFuncArgs::HOST_MAIN_FUNC_ARGS_COUNT,
-                    "Intermediate function: {0} is expected to have arguments count more than: {1}, has got: {2}",
-                    it->getName(), HostMainFuncArgs::HOST_MAIN_FUNC_ARGS_COUNT, it->getNumArguments());
-            return true;
-        }
-        return false;
-    };
-    for (auto f : topLevelFuncCallers) {
-        _log.debug("Optimize caller function: {0}", f.getName());
-        f->walk([this, isCallOpSuitableToOptimize](mlir::scf::ForOp forOp) {
-            rewriteUMDCallOpInForLoop(forOp, isCallOpSuitableToOptimize, _log);
-        });
+        // append a final submit command list call in case these targetFunctions are invoked repeatedly
+        finalizeCmdListSubmissionIfRequired(targetFunctions, topLevelFuncCallers, allFuncCallers, _log);
     }
 }
 }  // namespace

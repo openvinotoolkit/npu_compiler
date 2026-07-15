@@ -6,7 +6,9 @@
 #include "vpux/compiler/dialect/const/utils/affine_reshape.hpp"
 #include "vpux/compiler/core/types/quantile_float/types.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
+#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/utils.hpp"
 
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -131,45 +133,6 @@ mlir::LogicalResult vpux::VPU::AffineReshapeOp::inferReturnTypes(
 }
 
 //
-// DistributedCastOpInterface
-//
-
-mlir::FailureOr<std::pair<mlir::Type, VPU::DistributionInfo>>
-vpux::VPU::AffineReshapeOp::inferCastedTypeAndDistribution(vpux::NDTypeInterface inType,
-                                                           VPU::DistributionInfo& distribution) {
-    if (inType == nullptr || mlir::isa<VPU::DistributedTensorType>(inType) ||
-        distribution.getDistributionMode() == DistributionMode::NONE) {
-        return mlir::failure();
-    }
-
-    // TODO: E-128707 - extend for other distribution modes
-    if (distribution.getDistributionMode() != VPU::DistributionMode::DUPLICATED) {
-        return mlir::failure();
-    }
-
-    const auto dstType = mlir::cast<vpux::NDTypeInterface>(getOutput().getType());
-    const auto outShape = dstType.getShape();
-    const auto dstElemType = dstType.getElementType();
-
-    if (inType.getShape().size() != outShape.size()) {
-        return mlir::failure();
-    }
-
-    if (!VPU::isDistributionWithExplicitShapesAndOffsets(distribution)) {
-        const auto typeComponents =
-                TypeComponents().setShape(outShape).setDimsOrder(dstType.getDimsOrder()).setElementType(dstElemType);
-        return std::make_pair(mlir::cast<mlir::Type>(inType.changeTypeComponents(typeComponents)), distribution);
-    }
-
-    auto distribWithExplicitAttr = VPU::getNonOverlappedDistributedNative(
-            outShape, distribution.getDistributionMode(), distribution.getNumTiles(), distribution.getNumClusters(),
-            distribution.getAlignment(), distribution.hasUniformDistributedSegments(), dstElemType);
-    const auto typeComponents =
-            TypeComponents().setShape(outShape).setDimsOrder(dstType.getDimsOrder()).setElementType(dstElemType);
-    return std::make_pair(mlir::cast<mlir::Type>(inType.changeTypeComponents(typeComponents)), distribWithExplicitAttr);
-}
-
-//
 // TilingViewLikeOpInterface
 //
 
@@ -214,11 +177,14 @@ bool isSimpleDimMapping(ArrayRef<SmallVector<int64_t>> dimMapping, ArrayRef<Smal
 //   - The outermost output dim j0 (split outer): tile with ratio scaling.
 //     Example: dimMapping = [[0], [1], [2, 3], [3]], input H=256 splits to output H=64, W=4.
 //             Output dim 2 is the split outer dim, ratio = 256/64 = 4.
-//   - A non-front output dim jk when the front dim j0 has size 1 (split inner with outer=1):
+//   - A non-front output dim jk when ALL preceding split dims have size 1 (effective outermost):
 //     Because inputOffset = 0 * innerSize + innerOffset = innerOffset, the ratio formula
 //     still applies and produces ratio = inputSize / outputSize (which equals 1 for 2-way splits).
 //     Example: dimMapping = [[0, 1], [2], [3]], input 320x64x4 -> output 1x320x64x4.
 //             Output dim 1 (C=320): ratio = 320/320 = 1, tile transfers directly.
+//   - NOT supported on deeper inner dims when an intermediate dim has size > 1:
+//     Example: dimMapping = [[0, 1, 2]], input 32 -> output 1x8x4.
+//             Output dim 2 (W=4): dim 1 (H=8) has size > 1, tiling would be non-contiguous.
 bool isSplitDim(ArrayRef<SmallVector<int64_t>> dimMapping, ArrayRef<SmallVector<int64_t>> reverseMap,
                 ShapeRef outputShape, int64_t outDimIdx) {
     // Must come from exactly one input dim
@@ -230,9 +196,17 @@ bool isSplitDim(ArrayRef<SmallVector<int64_t>> dimMapping, ArrayRef<SmallVector<
     if (dimMapping[inputDimIdx].size() <= 1) {
         return false;
     }
-    // This output dim must be the front (outermost) in the split, OR the front dim has size 1
-    const auto frontDim = dimMapping[inputDimIdx].front();
-    return frontDim == outDimIdx || outputShape[Dim(frontDim)] == 1;
+    // All split dims preceding outDimIdx must have size 1 (ensuring contiguous input slices).
+    // E.g. 32 -> [1, 8, 4]: tile on 8 is OK (preceding 1=1), tile on 4 is NOT (preceding 8!=1).
+    for (auto d : dimMapping[inputDimIdx]) {
+        if (d == outDimIdx) {
+            return true;
+        }
+        if (outputShape[Dim(d)] != 1) {
+            return false;
+        }
+    }
+    return false;
 }
 
 // Check if the output dim is a merge of multiple input dims.
@@ -313,7 +287,258 @@ bool isDimMappingSupported(const AffineReshapeDimMappingInfo& info, int64_t outD
            isMergeDim(info.dimMapping, info.reverseMap, info.outputShape, outDimIdx);
 }
 
+// Forward-infer a single per-cluster shape/offset vector through the AffineReshape dim mapping.
+// Given an input per-cluster shape (or offset) vector, produce the corresponding output vector.
+// For shape vectors: non-tiled dims take the full output shape.
+// For offset vectors: non-tiled dims are zero.
+SmallVector<int64_t> forwardInferPerClusterVec(const SmallVector<int64_t>& inVec,
+                                               const AffineReshapeDimMappingInfo& info, int64_t inputTilingAxis,
+                                               int64_t outTilingDim, bool isOffset) {
+    SmallVector<int64_t> outVec(info.outputShape.size());
+    // Initialize: for shape use full output shape, for offset use 0
+    for (auto d : irange(info.outputShape.size())) {
+        outVec[d] = isOffset ? 0 : info.outputShape[Dim(d)];
+    }
+
+    for (auto d : irange(info.outputShape.size())) {
+        const auto outDimIdx = checked_cast<int64_t>(d);
+
+        if (isSimpleDimMapping(info.dimMapping, info.reverseMap, info.inputShape, info.outputShape, outDimIdx)) {
+            const auto inDimIdx = info.reverseMap[d].front();
+            outVec[d] = inVec[inDimIdx];
+        } else if (isSplitDim(info.dimMapping, info.reverseMap, info.outputShape, outDimIdx)) {
+            const auto inDimIdx = info.reverseMap[d].front();
+            // Only the tiling-axis input dim is split; other split outputs keep full size.
+            // When the tiling axis splits into multiple output dims (e.g. 256 -> 1x256),
+            // only the outTilingDim carries the per-cluster division; sibling split dims
+            // keep their full output shape (for shapes) or 0 (for offsets).
+            if (inDimIdx == inputTilingAxis && outDimIdx == outTilingDim) {
+                if (info.outputShape[Dim(d)] == 0) {
+                    return {};
+                }
+                const auto ratio = info.inputShape[Dim(inDimIdx)] / info.outputShape[Dim(d)];
+                if (ratio == 0 || inVec[inDimIdx] % ratio != 0) {
+                    return {};  // invalid: not evenly divisible
+                }
+                outVec[d] = inVec[inDimIdx] / ratio;
+            } else {
+                outVec[d] = isOffset ? 0 : info.outputShape[Dim(d)];
+            }
+        } else if (isMergeDim(info.dimMapping, info.reverseMap, info.outputShape, outDimIdx)) {
+            // For merge: output = product of per-cluster values of merged input dims
+            // For offset: only the merge target dim (first non-unit) is tileable;
+            // reject any other inputTilingAxis to avoid incorrect flattened offsets.
+            if (isOffset) {
+                const auto targetDimIdx = getMergeTilingDimIdx(info.inputShape, info.reverseMap, outDimIdx);
+                const bool hasTiledDim = llvm::is_contained(info.reverseMap[d], inputTilingAxis);
+                if (!hasTiledDim) {
+                    outVec[d] = 0;
+                } else if (inputTilingAxis != targetDimIdx) {
+                    return {};  // non-target merged dim tiled — not supported
+                } else {
+                    outVec[d] = inVec[inputTilingAxis] *
+                                computeMergeOtherProduct(info.inputShape, info.reverseMap, outDimIdx, inputTilingAxis);
+                }
+            } else {
+                int64_t product = 1;
+                for (auto inDim : info.reverseMap[d]) {
+                    product *= inVec[inDim];
+                }
+                outVec[d] = product;
+            }
+        }
+        // else: unsupported dim pattern — keep default (full shape or 0 offset)
+    }
+    return outVec;
+}
+
 }  // anonymous namespace
+
+//
+// DistributedCastOpInterface
+//
+
+mlir::FailureOr<std::pair<mlir::Type, VPU::DistributionInfo>>
+vpux::VPU::AffineReshapeOp::inferCastedTypeAndDistribution(vpux::NDTypeInterface inType,
+                                                           VPU::DistributionInfo& distribution) {
+    if (inType == nullptr || mlir::isa<VPU::DistributedTensorType>(inType) ||
+        distribution.getDistributionMode() == DistributionMode::NONE) {
+        return mlir::failure();
+    }
+
+    const auto mode = distribution.getDistributionMode();
+
+    // Only support pure DUPLICATED, SEGMENTED, or OVERLAPPED.
+    // on earlier archs (e.g. NPU40XX) keep the legacy DUPLICATED-only path.
+    const auto arch = config::getArch(this->getOperation());
+    if (mode == VPU::DistributionMode::SEGMENTED || mode == VPU::DistributionMode::OVERLAPPED) {
+        if (arch <= config::ArchKind::NPU40XX) {
+            return mlir::failure();
+        }
+    } else if (mode != VPU::DistributionMode::DUPLICATED) {
+        return mlir::failure();
+    }
+
+    const auto dstType = mlir::cast<vpux::NDTypeInterface>(getOutput().getType());
+    const auto outShape = dstType.getShape();
+    const auto dstElemType = dstType.getElementType();
+
+    // DUPLICATED: all clusters hold the full tensor, just reshape the shape
+    if (mode == VPU::DistributionMode::DUPLICATED) {
+        if (!VPU::isDistributionWithExplicitShapesAndOffsets(distribution)) {
+            const auto typeComponents = TypeComponents()
+                                                .setShape(outShape)
+                                                .setDimsOrder(dstType.getDimsOrder())
+                                                .setElementType(dstElemType);
+            return std::make_pair(mlir::cast<mlir::Type>(inType.changeTypeComponents(typeComponents)), distribution);
+        }
+
+        const auto inAlignment = distribution.getAlignment();
+        SmallVector<int64_t> outAlignment;
+        if (!inAlignment.empty()) {
+            auto maybeOutAlignment = inferTilingStrategy(inAlignment);
+            if (mlir::failed(maybeOutAlignment)) {
+                outAlignment.assign(outShape.size(), 1);
+            } else {
+                outAlignment = std::move(maybeOutAlignment.value());
+            }
+        }
+        auto distribWithExplicitAttr = VPU::getNonOverlappedDistributedNative(
+                outShape, mode, distribution.getNumTiles(), distribution.getNumClusters(), outAlignment,
+                distribution.hasUniformDistributedSegments(), dstElemType);
+        const auto typeComponents =
+                TypeComponents().setShape(outShape).setDimsOrder(dstType.getDimsOrder()).setElementType(dstElemType);
+        return std::make_pair(mlir::cast<mlir::Type>(inType.changeTypeComponents(typeComponents)),
+                              distribWithExplicitAttr);
+    }
+
+    // SEGMENTED / OVERLAPPED: infer output distribution by mapping tiling dim through AffineReshape
+    const auto numTiles = distribution.getNumTiles();
+    if (numTiles.empty()) {
+        return mlir::failure();
+    }
+
+    const auto inputTilingAxis = VPU::getDistributedTilingAxis(numTiles);
+    if (inputTilingAxis >= static_cast<int64_t>(inType.getShape().size())) {
+        return mlir::failure();
+    }
+
+    const AffineReshapeDimMappingInfo info(*this);
+
+    // Find the output dim that the input tiling axis maps to
+    const auto& mappedOutputDims = info.dimMapping[inputTilingAxis];
+    if (mappedOutputDims.empty()) {
+        return mlir::failure();
+    }
+
+    // Determine the output tiling dim: pick the mapped output dim that is supported
+    int64_t outTilingDim = -1;
+    for (auto outDim : mappedOutputDims) {
+        if (isDimMappingSupported(info, outDim) && info.outputShape[Dim(outDim)] > 1) {
+            outTilingDim = outDim;
+            break;
+        }
+    }
+    if (outTilingDim < 0) {
+        return mlir::failure();
+    }
+
+    // OVERLAPPED mode: reject tiling on the C axis (verifier constraint).
+    // The C index differs by rank: Dims4D C=1, DimsGroups5D C=2.
+    if (mode == VPU::DistributionMode::OVERLAPPED) {
+        const auto outRank = static_cast<int64_t>(outShape.size());
+        const bool isCAxis = (outRank == 4 && outTilingDim == Dims4D::Act::C.ind()) ||
+                             (outRank == 5 && outTilingDim == DimsGroups5D::Act::C.ind());
+        if (isCAxis) {
+            return mlir::failure();
+        }
+    }
+
+    if (!VPU::isDistributionWithExplicitShapesAndOffsets(distribution)) {
+        if (!VPU::isSegmentedLikeDistributionMode(inType, distribution)) {
+            return mlir::failure();
+        }
+        SmallVector<int64_t> outNumTiles(outShape.size(), 1);
+        outNumTiles[outTilingDim] = numTiles[inputTilingAxis];
+        const auto inAlignment = distribution.getAlignment();
+        SmallVector<int64_t> outAlignment;
+        if (!inAlignment.empty()) {
+            auto maybeOutAlignment = inferTilingStrategy(inAlignment);
+            outAlignment = mlir::succeeded(maybeOutAlignment) ? std::move(maybeOutAlignment.value())
+                                                              : SmallVector<int64_t>(outShape.size(), 1);
+        }
+
+        // Pre-check: verify the output shape can be segmented with the given parameters.
+        // getNonOverlappedDistributedNative will throw if getPerClusterMemoryShapes returns
+        // nullopt (e.g. when outShape[outTilingDim] is too small for numClusters), so we
+        // validate first and return failure gracefully.
+        auto tempDistribution =
+                VPU::DistributionInfo(mode, outNumTiles, {}, {}, {}, distribution.getNumClusters(), outAlignment,
+                                      distribution.hasUniformDistributedSegments(), {}, {}, {}, {}, {}, std::nullopt);
+        if (!VPU::getPerClusterMemoryShapes(outShape, tempDistribution, dstElemType).has_value()) {
+            return mlir::failure();
+        }
+
+        auto distribWithExplicit = VPU::getNonOverlappedDistributedNative(
+                outShape, mode, outNumTiles, distribution.getNumClusters(), outAlignment,
+                distribution.hasUniformDistributedSegments(), dstElemType);
+        const auto typeComponents =
+                TypeComponents().setShape(outShape).setDimsOrder(dstType.getDimsOrder()).setElementType(dstElemType);
+        return std::make_pair(mlir::cast<mlir::Type>(inType.changeTypeComponents(typeComponents)), distribWithExplicit);
+    }
+
+    // Transform per-cluster shapes and offsets through the dim mapping
+    auto transformPerCluster = [&](ArrayRef<SmallVector<int64_t>> perClusterVecs,
+                                   bool isOffset) -> mlir::FailureOr<SmallVector<SmallVector<int64_t>>> {
+        SmallVector<SmallVector<int64_t>> result;
+        result.reserve(perClusterVecs.size());
+        for (const auto& vec : perClusterVecs) {
+            auto transformed = forwardInferPerClusterVec(vec, info, inputTilingAxis, outTilingDim, isOffset);
+            if (transformed.empty()) {
+                return mlir::failure();
+            }
+            result.push_back(std::move(transformed));
+        }
+        return result;
+    };
+
+    auto outMemShapes = transformPerCluster(distribution.getMemoryShapes(), /*isOffset=*/false);
+    if (mlir::failed(outMemShapes)) {
+        return mlir::failure();
+    }
+    auto outMemOffsets = transformPerCluster(distribution.getMemoryOffsets(), /*isOffset=*/true);
+    if (mlir::failed(outMemOffsets)) {
+        return mlir::failure();
+    }
+    auto outComputeShapes = transformPerCluster(distribution.getComputeShapes(), /*isOffset=*/false);
+    if (mlir::failed(outComputeShapes)) {
+        return mlir::failure();
+    }
+    auto outComputeOffsets = transformPerCluster(distribution.getComputeOffsets(), /*isOffset=*/true);
+    if (mlir::failed(outComputeOffsets)) {
+        return mlir::failure();
+    }
+
+    SmallVector<int64_t> outNumTiles(outShape.size(), 1);
+    outNumTiles[outTilingDim] = numTiles[inputTilingAxis];
+
+    auto outDistribution = distribution;
+    outDistribution.setNumTiles(std::move(outNumTiles));
+    const auto inAlignment = distribution.getAlignment();
+    if (!inAlignment.empty()) {
+        auto maybeOutAlignment = inferTilingStrategy(inAlignment);
+        outDistribution.setAlignment(mlir::succeeded(maybeOutAlignment) ? std::move(maybeOutAlignment.value())
+                                                                        : SmallVector<int64_t>(outShape.size(), 1));
+    }
+    outDistribution.setMemoryShapes(std::move(outMemShapes.value()));
+    outDistribution.setMemoryOffsets(std::move(outMemOffsets.value()));
+    outDistribution.setComputeShapes(std::move(outComputeShapes.value()));
+    outDistribution.setComputeOffsets(std::move(outComputeOffsets.value()));
+
+    const auto typeComponents =
+            TypeComponents().setShape(outShape).setDimsOrder(dstType.getDimsOrder()).setElementType(dstElemType);
+    return std::make_pair(mlir::cast<mlir::Type>(inType.changeTypeComponents(typeComponents)), outDistribution);
+}
 
 vpux::InputTiling vpux::VPU::AffineReshapeOp::backInferTileInfo(const vpux::TileInfo& outputTile, vpux::Logger) {
     const AffineReshapeDimMappingInfo info(*this);
@@ -425,6 +650,12 @@ mlir::FailureOr<mlir::SmallVector<int64_t>> vpux::VPU::AffineReshapeOp::inferTil
 
     for (auto inDim : irange(inputTilingStrategy.size())) {
         if (inputTilingStrategy[inDim] <= 1) {
+            continue;
+        }
+
+        // Size-1 dimensions cannot be tiled regardless of alignment value.
+        // Skip to avoid spurious failures in merge pattern validation.
+        if (info.inputShape[Dim(inDim)] == 1) {
             continue;
         }
 

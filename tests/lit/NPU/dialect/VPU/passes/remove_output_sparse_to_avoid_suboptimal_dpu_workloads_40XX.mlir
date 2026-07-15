@@ -31,7 +31,7 @@ func.func @RemoveOutputSparseForConvSOK(%arg0: tensor<1x128x28x28xf16, {order = 
     %1 = VPU.UnrolledType(%cst_0: tensor<128x128x1x1xf16, {order = #NHWC}>) -> !WeightsDistributed
     %2 = VPU.UnrolledType(%cst : tensor<128x1x1x4xsi32>) -> !WtableDistribution
 
-    %3 = VPU.NCE.Convolution(%0, %1, %2) {ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, rawFilterShape = [128, 128, 1, 1], strides = [1, 1]} : !ActConv0Distributed, !WeightsDistributed, !WtableDistribution -> !OutConv0Distributed
+    %3 = VPU.NCE.Convolution(%0, %1, %2) rawFilterShape [128, 128, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,  strides = [1, 1]} : !ActConv0Distributed, !WeightsDistributed, !WtableDistribution -> !OutConv0Distributed
 
     %4 = VPU.UnrolledType(%3: !OutConv0Distributed) -> !SparseType
 
@@ -39,7 +39,7 @@ func.func @RemoveOutputSparseForConvSOK(%arg0: tensor<1x128x28x28xf16, {order = 
     %6 = VPU.UnrolledType(%cst_2 : tensor<128x128x1x1xf16, {order = #NHWC}>) -> !WeightsDistributed
     %7 = VPU.UnrolledType(%cst_1 : tensor<128x1x1x4xsi32>) -> !WtableDistribution
 
-    %8 = VPU.NCE.Convolution(%5, %6, %7) {ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, rawFilterShape = [128, 128, 1, 1], strides = [1, 1]} : !ActConv1Distributed, !WeightsDistributed, !WtableDistribution -> !OutConv1Distributed
+    %8 = VPU.NCE.Convolution(%5, %6, %7) rawFilterShape [128, 128, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,  strides = [1, 1]} : !ActConv1Distributed, !WeightsDistributed, !WtableDistribution -> !OutConv1Distributed
 
     %9 = VPU.UnrolledType(%8 : !OutConv1Distributed) -> tensor<1x128x28x28xf16, {order = #NHWC}>
     return %9 : tensor<1x128x28x28xf16, {order = #NHWC}>
@@ -97,7 +97,7 @@ func.func @DoNotRemoveOutputSparseForConvSOK(%arg0: tensor<1x128x28x28xf16, {ord
     %1 = VPU.UnrolledType(%cst_0: tensor<256x128x1x1xf16, {order = #NHWC}>) -> !WeightsConv0Distributed
     %2 = VPU.UnrolledType(%cst : tensor<256x1x1x4xsi32>) -> !WtableConv0Distribution
 
-    %3 = VPU.NCE.Convolution(%0, %1, %2) {ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, rawFilterShape = [256, 128, 1, 1], strides = [1, 1]} : !ActConv0Distributed, !WeightsConv0Distributed, !WtableConv0Distribution -> !OutConv0Distributed
+    %3 = VPU.NCE.Convolution(%0, %1, %2) rawFilterShape [256, 128, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,  strides = [1, 1]} : !ActConv0Distributed, !WeightsConv0Distributed, !WtableConv0Distribution -> !OutConv0Distributed
 
     %4 = VPU.UnrolledType(%3: !OutConv0Distributed) -> !SparseType
 
@@ -105,7 +105,7 @@ func.func @DoNotRemoveOutputSparseForConvSOK(%arg0: tensor<1x128x28x28xf16, {ord
     %6 = VPU.UnrolledType(%cst_2 : tensor<128x256x1x1xf16, {order = #NHWC}>) -> !WeightsConv1Distributed
     %7 = VPU.UnrolledType(%cst_1 : tensor<128x1x1x4xsi32>) -> !WtableConv1Distribution
 
-    %8 = VPU.NCE.Convolution(%5, %6, %7) {ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, rawFilterShape = [128, 256, 1, 1], strides = [1, 1]} : !ActConv1Distributed, !WeightsConv1Distributed, !WtableConv1Distribution -> !OutConv1Distributed
+    %8 = VPU.NCE.Convolution(%5, %6, %7) rawFilterShape [128, 256, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,  strides = [1, 1]} : !ActConv1Distributed, !WeightsConv1Distributed, !WtableConv1Distribution -> !OutConv1Distributed
     %9 = VPU.UnrolledType(%8 : !OutConv1Distributed) -> tensor<1x128x28x28xf16, {order = #NHWC}>
     return %9 : tensor<1x128x28x28xf16, {order = #NHWC}>
 

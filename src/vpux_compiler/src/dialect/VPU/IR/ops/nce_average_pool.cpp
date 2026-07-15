@@ -104,7 +104,7 @@ bool vpux::VPU::NCEAveragePoolOp::isSupported(IE::AvgPoolOp op, LogCb logCb, boo
     if (checkChannelAlignment) {
         auto iface = mlir::cast<IE::AlignedChannelsOpInterface>(op.getOperation());
         if (!NCEInvariant::isInputActTypeSupported(inputType, iface.getInputChannelAlignment(), false) ||
-            !NCEInvariant::isOutputActTypeSupported(outputType, iface.getOutputChannelAlignment())) {
+            !NCEInvariant::isOutputActTypeSupported(op.getOperation(), outputType, iface.getOutputChannelAlignment())) {
             logCb(formatv("Misaligned tensor shape"));
             return false;
         }

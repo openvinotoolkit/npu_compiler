@@ -42,7 +42,9 @@ private:
     void getOutputBuffers(SmallVector<mlir::Value>& parentOutputBuffs, SmallVector<mlir::Value>& outputBuffs,
                           SmallVector<mlir::Value>& parentOutputSparsityMap,
                           SmallVector<mlir::Value>& outputSparsityMapBuffs,
-                          SmallVector<SmallVector<mlir::Value>>& outputItiBuffs, mlir::Location loc,
+                          SmallVector<SmallVector<mlir::Value>>& outputItiBuffs,
+                          SmallVector<mlir::Value>& maxPerXyBuffs, SmallVector<mlir::Value>& minPerXyBuffs,
+                          SmallVector<SmallVector<mlir::Value>>& minMaxPerTensorBuffs, mlir::Location loc,
                           VPUIP::NCEClusterTaskOp nceTask, const int64_t numClusters,
                           mlir::OpBuilder& builder) const override;
 

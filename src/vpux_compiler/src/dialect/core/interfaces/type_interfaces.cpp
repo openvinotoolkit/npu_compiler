@@ -63,7 +63,7 @@ TypeComponents& TypeComponents::setElementType(mlir::Type newElementType) {
     elementType = newElementType;
     return *this;
 }
-TypeComponents& TypeComponents::setDimsOrder(DimsOrder newDimsOrder) {
+TypeComponents& TypeComponents::setDimsOrder(const DimsOrder& newDimsOrder) {
     dimsOrder = newDimsOrder;
     return *this;
 }
@@ -315,7 +315,7 @@ vpux::NDTypeInterface TensorNDTypeInterface::changeShapeElemType(mlir::Type type
     return newType;
 }
 
-vpux::NDTypeInterface TensorNDTypeInterface::changeDimsOrder(mlir::Type type, vpux::DimsOrder order) const {
+vpux::NDTypeInterface TensorNDTypeInterface::changeDimsOrder(mlir::Type type, const vpux::DimsOrder& order) const {
     VPUX_THROW_UNLESS(mlir::isa<mlir::RankedTensorType>(type),
                       "Only RankedTensorType is supported for 'changeDimsOrder'. Got '{0}'", type);
 
@@ -729,7 +729,7 @@ vpux::NDTypeInterface MemRefNDTypeInterface::changeShapeElemType(mlir::Type type
     return newType;
 }
 
-vpux::NDTypeInterface MemRefNDTypeInterface::changeDimsOrder(mlir::Type type, vpux::DimsOrder order) const {
+vpux::NDTypeInterface MemRefNDTypeInterface::changeDimsOrder(mlir::Type type, const vpux::DimsOrder& order) const {
     VPUX_THROW_UNLESS(mlir::isa<mlir::MemRefType>(type),
                       "Only MemRefType is supported for 'changeDimsOrder'. Got '{0}'", type);
     return vpux::getMemRefType(getShape(type), getElementType(type), order, getMemSpace(type), StridesRef(),

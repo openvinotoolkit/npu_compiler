@@ -248,8 +248,13 @@ void compressConvWeights(Logger& log, VPUIP::NCEClusterTaskOp origOp) {
     const auto channelAlignValue = VPU::NCEInvariant::getAlignment(weightsType.getElementType());
     const auto finalShape = SmallVector<int64_t>({origShape[Dims4D::Filter::OC], channelAlignValue,
                                                   origShape[Dims4D::Filter::KY], origShape[Dims4D::Filter::KX]});
-    auto shapeCastOp = builder.create<VPUIP::ShapeCastOp>(origOp.getLoc(), weightsCopyOp,
-                                                          getIntArrayAttr(origOp.getContext(), finalShape));
+    const auto finalShapeAttr = getIntArrayAttr(origOp.getContext(), finalShape);
+    const auto weightsCopyDistributedType = mlir::dyn_cast<VPUIP::DistributedBufferType>(weightsCopyOp.getType());
+    const auto explicitOutputAlignment = weightsCopyDistributedType != nullptr
+                                                 ? weightsCopyDistributedType.getDistribution().getAlignment()
+                                                 : nullptr;
+    auto shapeCastOp = builder.create<VPUIP::ShapeCastOp>(origOp.getLoc(), weightsCopyOp, finalShapeAttr, nullptr,
+                                                          nullptr, explicitOutputAlignment);
 
     const int64_t cmSpPattern =
             paddingDoneOnlyOnC ? (static_cast<int64_t>(1) << origChannelVal) - 1

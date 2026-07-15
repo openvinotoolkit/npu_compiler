@@ -30,10 +30,10 @@ func.func @InsertExplicitPadding(%arg0:  tensor<1x166x1x16xf16>) -> tensor<1x160
         to tensor<1x176x1x3xf16, {order = #NHWC}>
 
 
-    %conv = VPU.NCE.Convolution(%slice, %weights) {
+    %conv = VPU.NCE.Convolution(%slice, %weights) rawFilterShape [160, 176, 1, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            rawFilterShape = [160, 176, 1, 3], strides = [1, 1]}
+             strides = [1, 1]}
         : tensor<1x176x1x3xf16, {order = #NHWC}>, tensor<160x176x1x3xf16, {order = #NHWC}> -> tensor<1x160x1x1xf16, {order = #NHWC}>
 
 
@@ -57,10 +57,10 @@ func.func @InsertExplicitPadding(%arg0:  tensor<1x166x1x16xf16>) -> tensor<1x160
     // CHECK-SAME:      : tensor<1x176x1x16xf16, {order = #NHWC}>
     // CHECK-SAME:  to tensor<1x176x1x3xf16, {order = #NHWC}>
 
-    // CHECK:       [[CONV:%.+]] = VPU.NCE.Convolution([[SLICE]], [[WEIGHTS]])
+    // CHECK:       [[CONV:%.+]] = VPU.NCE.Convolution([[SLICE]], [[WEIGHTS]]) rawFilterShape [160, 176, 1, 3] {
     // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
     // CHECK-SAME:      ppe = #VPU.PPEStub<>,
-    // CHECK-SAME:      rawFilterShape = [160, 176, 1, 3], strides = [1, 1]}
+    // CHECK-SAME:      strides = [1, 1]}
     // CHECK-SAME:  -> tensor<1x160x1x1xf16, {order = #NHWC}>
 
     // CHECK:       return [[CONV]] : tensor<1x160x1x1xf16, {order = #NHWC}>
@@ -99,14 +99,12 @@ func.func @NCEPermuteDepthConvWeightsSparseConv(%arg0: tensor<1x3x257x257xf16>) 
     %slice = VPU.Slice %nce_permute [0, 0, 0, 0] [1, 16, 257, 257]
         : tensor<1x16x257x272xf16, {order = #NHWC}> to tensor<1x16x257x257xf16, {order = #NHWC}>
 
-    %depth_conv = VPU.NCE.DepthConvolution(%slice, %depth_conv_weights)
-        {ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-        rawFilterShape = [16, 1, 1, 1], strides = [1, 1]}
+    %depth_conv = VPU.NCE.DepthConvolution(%slice, %depth_conv_weights) rawFilterShape [16, 1, 1, 1] {ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+         strides = [1, 1]}
         -> tensor<1x16x257x257xf16, {order = #NHWC}>
 
-    %conv = VPU.NCE.Convolution(%depth_conv, %weights_sparse_group)
-        {ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-        rawFilterShape = [16, 16, 3, 3], strides = [2, 2]}
+    %conv = VPU.NCE.Convolution(%depth_conv, %weights_sparse_group) rawFilterShape [16, 16, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+         strides = [2, 2]}
         : tensor<1x16x257x257xf16, {order = #NHWC}>, !VPU.SparseTensor<data=tensor<16x16x3x3xf16, {order = #NHWC}>, sparsity_map=tensor<16x1x1x256xi1>, is_weights, #VPU.SparsityCompression<axis = 0 : i64, numElems = dense<27> : tensor<16xi64>, alignment = 16 : i64>> -> tensor<1x16x129x129xf16, {order = #NHWC}>
 
     return %conv : tensor<1x16x129x129xf16, {order = #NHWC}>
@@ -270,10 +268,9 @@ func.func @NCEPermuteDepthConvSliceOnChannels(%arg0: tensor<1x5929x3x3xf16>) -> 
     %slice0 = VPU.Slice %nce_permute [0, 0, 0, 0] [1, 5936, 3, 3]
         : tensor<1x5936x3x16xf16, {order = #NHWC}> to tensor<1x5936x3x3xf16, {order = #NHWC}>
 
-    %depth_conv = VPU.NCE.DepthConvolution(%slice0, %weights)
-        {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+    %depth_conv = VPU.NCE.DepthConvolution(%slice0, %weights) rawFilterShape [5936, 1, 1, 1] {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
-        rawFilterShape = [5936, 1, 1, 1], strides = [1, 1]}
+         strides = [1, 1]}
         -> tensor<1x5936x3x3xf16, {order = #NHWC}>
 
     %slice1 = VPU.Slice %depth_conv [0, 0, 0, 0] [1, 5929, 3, 3]
@@ -325,10 +322,9 @@ func.func @NCEPermuteDepthConvAvgPoolSliceOnChannels(%arg0: tensor<1x39x13x3xf16
     %slice0 = VPU.Slice %nce_permute [0, 0, 0, 0] [1, 48, 13, 3]
         : tensor<1x48x13x16xf16, {order = #NHWC}> to tensor<1x48x13x3xf16, {order = #NHWC}>
 
-    %depth_conv = VPU.NCE.DepthConvolution(%slice0, %weights)
-        {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 1 : i64>,
+    %depth_conv = VPU.NCE.DepthConvolution(%slice0, %weights) rawFilterShape [48, 1, 7, 3] {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
-        rawFilterShape = [48, 1, 7, 3], strides = [7, 1]}
+         strides = [7, 1]}
         -> tensor<1x48x2x1xf16, {order = #NHWC}>
 
     %avg_pool = VPU.NCE.AveragePool(%depth_conv)
@@ -435,14 +431,13 @@ func.func @QuantizedNCEPermuteCompressConv(%arg0: tensor<1x4x64x64xf16, {order =
         {dstElemType = !qElemType, dstOrder = #NHWC, expandedChannels = 4 : i64, ppe = #VPU.PPEStub<>}
         -> tensor<1x4x64x64x!qElemType, {order = #NHWC}>
 
-    %conv = VPU.NCE.CompressConvolution(%nce_permute, %weights, %weights_table)
-        {cm_sp_pattern = 1 : i64,
+    %conv = VPU.NCE.CompressConvolution(%nce_permute, %weights, %weights_table) rawFilterShape [16, 1, 3, 3] {cm_sp_pattern = 1 : i64,
         pad = #VPU.Padding<left = 0 : i64,
                             right = 1 : i64,
                             top = 0 : i64,
                             bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
-        rawFilterShape = [16, 1, 3, 3], strides = [2, 2]}
+         strides = [2, 2]}
         -> tensor<1x16x32x32x!qElemType, {order = #NHWC}>
 
     return %conv : tensor<1x16x32x32x!qElemType, {order = #NHWC}>
@@ -454,11 +449,10 @@ func.func @QuantizedNCEPermuteCompressConv(%arg0: tensor<1x4x64x64xf16, {order =
     // CHECK-SAME:      {dstElemType = !qElemType, dstOrder = #NHWC, expandedChannels = 4 : i64, ppe = #VPU.PPEStub<>}
     // CHECK-SAME:      -> tensor<1x4x64x64x!qElemType, {order = #NHWC}>
 
-    // CHECK:       [[CONV:%.+]] = VPU.NCE.CompressConvolution([[NCE_PERMUTE]], [[WEIGHTS]], [[WEIGHTS_TABLE]])
-    // CHECK-SAME:      {cm_sp_pattern = 1 : i64,
+    // CHECK:       [[CONV:%.+]] = VPU.NCE.CompressConvolution([[NCE_PERMUTE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [16, 1, 3, 3] {cm_sp_pattern = 1 : i64,
     // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64>,
     // CHECK-SAME:      ppe = #VPU.PPEStub<>,
-    // CHECK-SAME:      rawFilterShape = [16, 1, 3, 3], strides = [2, 2]}
+    // CHECK-SAME:      strides = [2, 2]}
     // CHECK-SAME:      -> tensor<1x16x32x32x!qElemType, {order = #NHWC}>
 
     // CHECK:       return [[CONV]] : tensor<1x16x32x32x!qElemType, {order = #NHWC}>
@@ -490,17 +484,17 @@ module @DoNotAddExplicitPadWhenUserProducesSlicedChannels {
             ppe = #VPU.PPEStub<>
         } -> tensor<1x16x720x1280xf16, {order = #NHWC}>
 
-        %depth_conv = VPU.NCE.DepthConvolution(%permute, %weights_depth_conv) {
+        %depth_conv = VPU.NCE.DepthConvolution(%permute, %weights_depth_conv) rawFilterShape [3, 1, 1, 1] {
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-            ppe = #VPU.PPEStub<>, rawFilterShape = [3, 1, 1, 1],
+            ppe = #VPU.PPEStub<>, 
             strides = [1, 1]
         } -> tensor<1x3x720x1280xf16, {order = #NHWC}>
 
-        %conv = VPU.NCE.Convolution(%depth_conv, %weights_conv) {
+        %conv = VPU.NCE.Convolution(%depth_conv, %weights_conv) rawFilterShape [32, 3, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
             pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            rawFilterShape = [32, 3, 3, 3],
+            
             strides = [2, 2]
         } : tensor<1x3x720x1280xf16, {order = #NHWC}>, tensor<32x1x1x144xf16, {order = #NHWC}> -> tensor<1x32x360x640xf16, {order = #NHWC}>
 

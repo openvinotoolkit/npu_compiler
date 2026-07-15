@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/VPUIPDPU/dialect.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/types.hpp"
 
+using namespace vpux;
 using namespace vpux::VPUIPDPU;
 
 namespace {

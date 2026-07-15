@@ -98,7 +98,7 @@ TEST(MLIR_SymbolUses, SymbolInParent) {
     module @age_gender {
         func.func @main() {
             ELF.Main {
-                VPUASM.DeclareBuffer @symbol_0 !VPUASM.Buffer< "CMX_NN"[0] <0> : memref<1xf16, affine_map<(d0) -> (d0)>, [@CMX_NN, 0]> :  swizzling(0)>
+                VPUASM.DeclareBuffer @symbol_0 !VPUASM.Buffer< "CMX_NN"[0] <0> : memref<1xf16, {order = affine_map<(d0) -> (d0)>}, [@CMX_NN, 0]> :  swizzling(0)>
                 ELF.Symbol @reference_0 of(@symbol_0) type(<STT_SECTION>) size(0) value(0)
                 ELF.CreateSymbolTableSection @symbol_table secFlags("VPU_SHF_JIT|VPU_SHF_USERINPUT") {
                     ELF.Symbol @reference_1 of(@symbol_0) type(<STT_SECTION>) size(0) value(0)
@@ -165,7 +165,7 @@ TEST(MLIR_SymbolUses, SymbolInNestedSymbolTable) {
         func.func @main() {
             ELF.Main {
                 ELF.CreateSymbolTableSection @target_symbol_table secFlags("VPU_SHF_JIT|VPU_SHF_USERINPUT") {
-                    VPUASM.DeclareBuffer @symbol_0 !VPUASM.Buffer< "CMX_NN"[0] <0> : memref<1xf16, affine_map<(d0) -> (d0)>, [@CMX_NN, 0]> :  swizzling(0)>
+                    VPUASM.DeclareBuffer @symbol_0 !VPUASM.Buffer< "CMX_NN"[0] <0> : memref<1xf16, {order = affine_map<(d0) -> (d0)>}, [@CMX_NN, 0]> :  swizzling(0)>
                 }
                 ELF.Symbol @reference_0 of(@target_symbol_table::@symbol_0) type(<STT_SECTION>) size(0) value(0)
                 ELF.CreateSymbolTableSection @symbol_table secFlags("VPU_SHF_JIT|VPU_SHF_USERINPUT") {

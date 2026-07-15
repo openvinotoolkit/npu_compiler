@@ -220,6 +220,26 @@ def IE_QuantizedLayerOpInterface : OpInterface<"QuantizedLayerOpInterface"> {
         InterfaceMethod<
             "Check if a post operation is supported",
             "bool", "checkPostOp", (ins "bool":$isPerAxisQuantizedOutput, "bool":$isFloatInput)
+        >,
+        InterfaceMethod<
+            "Check if input quantization can be fused into this operation",
+            "bool", "isInputQuantizationFusable", (ins)
+        >,
+        InterfaceMethod<
+            "Check if output quantization can be fused into this operation",
+            "bool", "isOutputQuantizationFusable", (ins "bool":$isPerAxisQuantized, "bool":$isFloatInput)
+        >,
+        InterfaceMethod<
+            "Check if input-output quantization types are compatible and all users are quantized for fusion",
+            "bool", "isInOutQuantizationCompatible", (ins "mlir::Operation*":$quantizeOp)
+        >,
+        InterfaceMethod<
+            "Get the maximum quantization levels supported by this operation for its inputs",
+            "int64_t", "getMaximumQuantizationLevels", (ins),
+            [{}],
+            [{
+                return 256;
+            }]
         >
     ];
 }

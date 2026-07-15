@@ -14,10 +14,10 @@
 #include "vpux/compiler/core/schedule_analysis_utils.hpp"
 #include "vpux/compiler/core/schedule_builder_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
+#include "vpux/compiler/dialect/VPU/utils/scheduling/loop_schedule_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/async_dialect_utils.hpp"
-#include "vpux/compiler/dialect/VPUIP/utils/loop_schedule_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
@@ -205,7 +205,7 @@ public:
     FeasibleAllocationPass(VPUIP::MemKindCreateFunc memKindCb, VPUIP::MemKindCreateFunc secondLevelmemKindCb,
                            bool linearizeSchedule, bool enableLoopAllocation, bool enablePipelining,
                            bool enablePrefetching, bool optimizeFragmentation, bool optimizeDynamicSpilling,
-                           bool enableMultiScheduleHeuristic, Logger log);
+                           bool enableMultiScheduleHeuristic, bool enableVfUndefinedScheduler, Logger log);
 
 public:
     mlir::LogicalResult initialize(mlir::MLIRContext* ctx) final;
@@ -236,13 +236,15 @@ private:
     bool _optimizeFragmentation{true};
     bool _optimizeDynamicSpilling{true};
     bool _enableMultiScheduleHeuristic{false};
+    bool _enableVfUndefinedScheduler{false};
 };
 
 FeasibleAllocationPass::FeasibleAllocationPass(VPUIP::MemKindCreateFunc memKindCb,
                                                VPUIP::MemKindCreateFunc secondLvlmemKindCb, bool linearizeSchedule,
                                                bool enableLoopAllocation, bool enablePipelining, bool enablePrefetching,
                                                bool optimizeFragmentation, bool optimizeDynamicSpilling,
-                                               bool enableMultiScheduleHeuristic, Logger log)
+                                               bool enableMultiScheduleHeuristic, bool enableVfUndefinedScheduler,
+                                               Logger log)
         : _memKindCb(std::move(memKindCb)),
           _secondLvlMemKindCb(std::move(secondLvlmemKindCb)),
           _linearizeSchedule(linearizeSchedule),
@@ -251,7 +253,8 @@ FeasibleAllocationPass::FeasibleAllocationPass(VPUIP::MemKindCreateFunc memKindC
           _enablePrefetching(enablePrefetching),
           _optimizeFragmentation(optimizeFragmentation),
           _optimizeDynamicSpilling(optimizeDynamicSpilling),
-          _enableMultiScheduleHeuristic(enableMultiScheduleHeuristic) {
+          _enableMultiScheduleHeuristic(enableMultiScheduleHeuristic),
+          _enableVfUndefinedScheduler(enableVfUndefinedScheduler) {
     Base::initLogger(log, Base::getArgumentName());
 }
 
@@ -293,6 +296,10 @@ mlir::LogicalResult FeasibleAllocationPass::initialize(mlir::MLIRContext* ctx) {
 
     if (enableLoopAllocation.hasValue()) {
         _enableLoopAllocation = enableLoopAllocation.getValue();
+    }
+
+    if (enableVfUndefinedScheduler.hasValue()) {
+        _enableVfUndefinedScheduler = enableVfUndefinedScheduler.getValue();
     }
 
     return mlir::success();
@@ -686,7 +693,8 @@ void FeasibleAllocationPass::safeRunOnFunc() {
     auto computeRegionVec = generateComputeRegions(depsInfo);
 
     // Generate predefined loop schedules before constructing the scheduler
-    auto predefinedRegionSchedules = VPUIP::generateLoopSchedules(computeRegionVec, scan.totalFreeSize(), _log);
+    auto predefinedRegionSchedules =
+            VPU::generateLoopSchedules(computeRegionVec, scan.totalFreeSize(), _enableVfUndefinedScheduler, _log);
 
     // feasible memory scheduler - list scheduler
     FeasibleMemoryScheduler scheduler(_memKind, _secondLvlMemKind, liveRangeInfo, depsInfo, _log, scan, arch, vpuDevice,
@@ -724,8 +732,8 @@ void FeasibleAllocationPass::safeRunOnFunc() {
                     -> FeasibleMemoryScheduler::ScheduledOpInfoVec {
                 // Re-generate compute regions after IR modification
                 auto regions = generateComputeRegions(taskDepsInfo);
-                auto taskPredefinedRegionSchedules =
-                        VPUIP::generateLoopSchedules(regions, taskScan.totalFreeSize(), _log);
+                auto taskPredefinedRegionSchedules = VPU::generateLoopSchedules(regions, taskScan.totalFreeSize(),
+                                                                                _enableVfUndefinedScheduler, _log);
 
                 FeasibleMemoryScheduler schedulerWithPrefetch(
                         _memKind, _secondLvlMemKind, liveRange, taskDepsInfo, _log, taskScan, arch, vpuDevice,
@@ -748,8 +756,8 @@ void FeasibleAllocationPass::safeRunOnFunc() {
                         -> FeasibleMemoryScheduler::ScheduledOpInfoVec {
                     // Re-generate compute regions after IR modification
                     auto regions = generateComputeRegions(taskDepsInfo);
-                    auto taskPredefinedRegionSchedules =
-                            VPUIP::generateLoopSchedules(regions, taskScan.totalFreeSize(), _log);
+                    auto taskPredefinedRegionSchedules = VPU::generateLoopSchedules(regions, taskScan.totalFreeSize(),
+                                                                                    _enableVfUndefinedScheduler, _log);
 
                     FeasibleMemoryScheduler schedulerWithAggressivePrefetch(
                             _memKind, _secondLvlMemKind, liveRange, taskDepsInfo, _log, taskScan, arch, vpuDevice,
@@ -897,11 +905,11 @@ void FeasibleAllocationPass::safeRunOnFunc() {
 
 std::unique_ptr<mlir::Pass> vpux::VPUIP::createFeasibleAllocationPass(
         MemKindCreateFunc memKindCb, MemKindCreateFunc secondLvlmemKindCb, const bool linearizeSchedule,
-        const bool enableLoopAllocation, const bool enablePrefetching, const bool enablePipelining,
+        const bool enableLoopAllocation, const bool enablePipelining, const bool enablePrefetching,
         const bool optimizeFragmentation, const bool optimizeDynamicSpilling, const bool enableMultiScheduleHeuristic,
-        Logger log) {
+        const bool enableVfUndefinedScheduler, Logger log) {
     return std::make_unique<FeasibleAllocationPass>(std::move(memKindCb), std::move(secondLvlmemKindCb),
                                                     linearizeSchedule, enableLoopAllocation, enablePipelining,
                                                     enablePrefetching, optimizeFragmentation, optimizeDynamicSpilling,
-                                                    enableMultiScheduleHeuristic, log);
+                                                    enableMultiScheduleHeuristic, enableVfUndefinedScheduler, log);
 }

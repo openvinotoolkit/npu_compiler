@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --vertical-fusion="vf-outlining-instance-threshold=0 vf-outlining-instance-threshold=0" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --vertical-fusion="vf-outlining-instance-threshold=0" %s | FileCheck %s
 // REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
 
@@ -27,7 +27,7 @@ module @Do_not_Canocalize_VF_op_with_outline {
     // CHECK-LABEL: @Do_not_Canocalize_VF_op_with_outline
     // CHECK: DataInfo "input" : tensor<1x64x300x300xf32>
     // CHECK: DataInfo "output" : tensor<1x64x300x300xf32>
-    // CHECK:  func.func private @main_vf1([[INPUT:%.+]]: tensor<1x64x300x300xf32>) -> tensor<1x64x300x300xf32> {
+    // CHECK:  func.func nested @main_vf1([[INPUT:%.+]]: tensor<1x64x300x300xf32>) -> tensor<1x64x300x300xf32> {
     // CHECK:    [[CONVERT1:%.+]] = VPU.Convert([[INPUT:%.+]]) {dstElemType = f16, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x64x300x300xf32> -> tensor<1x64x300x300xf16>
     // CHECK:    [[SWH1:%.+]] = VPU.Swish([[CONVERT1]]) {beta_value = 1.000000e+00 : f64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x64x300x300xf16> -> tensor<1x64x300x300xf16>
     // CHECK:    [[SWH2:%.+]] = VPU.Swish([[SWH1]]) {beta_value = 1.000000e+00 : f64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x64x300x300xf16> -> tensor<1x64x300x300xf16>

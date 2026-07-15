@@ -13,6 +13,11 @@ using namespace ov::test::utils;
 
 namespace ov {
 namespace test {
+
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ReduceOpsLayerTest);
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ReduceOpsLayerWithSpecificInputTest);
+
 class ReduceLayerTestCommon : public ReduceOpsLayerTest, virtual public VpuOv2LayerTest {
     void generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) override {
         VpuOv2LayerTest::inputs.clear();
@@ -87,7 +92,7 @@ class ReduceLayerTest_SW_FP16 : public ReduceLayerTestCommon {};
 class ReduceLayerTest_FP32 : public ReduceLayerTestCommon {
     void configure_model() override {
         VpuOv2LayerTest::configuration[ov::intel_npu::compilation_mode_params.name()] =
-                "disabled-passes=convert-precision-to-fp16";
+                "disabled-passes=convert-precision-to-fp";
     }
 };
 class ReduceLayerTest_SCFTiling_HW_Reduce_FP16 : public ReduceLayerTestCommon {
@@ -114,7 +119,7 @@ class ShaveCodeGenReduceLayerTest_FP16 : public ReduceLayerTestCommon {
 class ShaveCodeGenReduceLayerTest_FP32 : public ReduceLayerTestCommon {
     void configure_model() override {
         VpuOv2LayerTest::configuration[ov::intel_npu::compilation_mode_params.name()] =
-                "enable-shave-code-gen=true disabled-passes=convert-precision-to-fp16";
+                "enable-shave-code-gen=true disabled-passes=convert-precision-to-fp";
     }
 };
 
@@ -352,6 +357,15 @@ const auto batchAxisHWFP16 = testing::Combine(
         testing::Values(ReductionType::Sum), testing::ValuesIn(modelTypes),
         testing::Values(std::vector<size_t>{8, 1, 4, 256}), testing::Values(test_utils::TARGET_DEVICE));
 
+// OuterDimReduceSumToConvRewriter: non-4D tensors with axis=0, reduceSize > alignment.
+// These exercise the OuterDim rewriter path that reshapes to 4D and applies Conv.
+const auto paramsOuterDimAxis0HW = testing::Combine(
+        testing::ValuesIn(decltype(axes){{0}}), testing::Values(OpType::VECTOR), testing::ValuesIn(keepDims),
+        testing::Values(ReductionType::Sum), testing::ValuesIn(modelTypes),
+        testing::Values(std::vector<size_t>{32, 1, 64}, std::vector<size_t>{150, 1, 768},
+                        std::vector<size_t>{64, 2, 4, 8, 16}),
+        testing::Values(test_utils::TARGET_DEVICE));
+
 //
 // FP32
 const auto paramsFP32 = testing::Combine(
@@ -405,5 +419,12 @@ INSTANTIATE_TEST_SUITE_P(smoke_Reduce_FP32, ShaveCodeGenReduceLayerTest_FP32, sc
 // ChannelAxis Reduce test for DPU support
 INSTANTIATE_TEST_SUITE_P(smoke_reduce_axis, ReduceLayerTest_ChannelAxis_HW_FP16, channelAxisHWFP16,
                          ReduceLayerTest_ChannelAxis_HW_FP16::getTestCaseName);
+
+// OuterDim ReduceSum to Conv (non-4D shapes, axis=0)
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_Reduce_outerDim, ReduceLayerTest_HW_FP16, paramsOuterDimAxis0HW,
+                         ReduceLayerTest_HW_FP16::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_Reduce_outerDim, ReduceLayerTest_SCFTiling_HW_FP16, paramsOuterDimAxis0HW,
+                         ReduceLayerTest_SCFTiling_HW_FP16::getTestCaseName);
 
 }  // namespace

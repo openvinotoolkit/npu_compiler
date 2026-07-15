@@ -42,6 +42,9 @@ struct WorkloadCostParams {
     Shape fullInputShape;
     Shape inputShape;
     Shape outputShape;
+    // Pre-ODU shape: the shape the DPU computes before the ODU applies any transform. Equal to outputShape when no
+    // transform is active.
+    Shape preODUShape;
     PadInfo padInfo;
     int64_t numDPU;    // DPUs per tile
     int64_t numTiles;  // Store used CMX tiles, e.g., SOK may use partial nce clusters

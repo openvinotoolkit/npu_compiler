@@ -25,7 +25,6 @@ public:
     }
     mlir::FailureOr<SymbolizationResult> symbolize(VPUMI40XX::MappedInferenceOp op, SymbolMapper& mapper,
                                                    mlir::ConversionPatternRewriter& rewriter) const override;
-    llvm::SmallVector<mlir::FlatSymbolRefAttr> getSymbolicNames(VPUMI40XX::MappedInferenceOp, size_t) override;
 
 private:
     static mlir::StringAttr getManagedMappedInferenceSymbolName(mlir::MLIRContext* ctx, mlir::StringAttr symName);

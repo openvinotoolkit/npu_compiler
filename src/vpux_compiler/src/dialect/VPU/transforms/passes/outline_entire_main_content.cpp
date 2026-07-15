@@ -356,7 +356,7 @@ private:
             const auto funcLoc = appendLoc(mainFuncOp.getLoc(), "outline{0}", instance.index() + 1);
             const auto funcType = mlir::FunctionType::get(&getContext(), inputTypes, outputTypes);
             auto funcOp = builder.create<mlir::func::FuncOp>(funcLoc, funcName, funcType);
-            funcOp.setPrivate();
+            funcOp.setNested();
             funcsInfo[instance.index()].funcOp = funcOp;
 
             auto funcOpBlock = funcOp.addEntryBlock();

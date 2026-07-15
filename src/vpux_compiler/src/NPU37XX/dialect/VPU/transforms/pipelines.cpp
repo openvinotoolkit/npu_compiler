@@ -18,7 +18,8 @@ void vpux::VPU::arch37xx::buildIncrementalPipeline(mlir::OpPassManager& pm, cons
     pm.addPass(VPU::createDecomposeMVNPass(log));
 
     pm.addPass(VPU::createMultiClusterStrategyAssignmentPass(options.enablePrefetching, options.opTilingCacheThreshold,
-                                                             options.mcOptimizationScope, log));
+                                                             options.mcOptimizationScope,
+                                                             options.enableTilingFullSearchSpace, log));
 
     pm.addPass(VPU::createManualStrategyUtilsPass(options.writeStrategyToJson, writeStrategyDefaultFileLocation,
                                                   options.readStrategyFromJson, readStrategyDefaultFileLocation,
@@ -87,8 +88,9 @@ void vpux::VPU::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
 
     pm.addPass(VPU::createEnsureNCEOpsSizeRequirementsPass(/*enableOutputEnsurance=*/true,
                                                            /*enableDequantWeightEnsuranceBeforeStrategy=*/false,
-                                                           /*skipConvOC=*/"SKIP_NONE",
-                                                           /*skipEltwiseOC=*/"SKIP_NONE", log));
+                                                           /*skipConvOC=*/SkipOCMode::SKIP_NONE,
+                                                           /*skipEltwiseOC=*/SkipOCMode::SKIP_NONE,
+                                                           /*enableSplitChannelForDynamicDequantize=*/false, log));
     pm.addPass(VPU::createOptimizeConcatPass(/*optimizeOnlyOuterConcat*/ false,
                                              /*disablePassOnEntryFunctionForHostCompile=*/false, log));
     if (options.enableWeightsSparsity) {
@@ -144,15 +146,14 @@ void vpux::VPU::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     pm.addPass(VPU::createSplitGRUSequencePass(log));
     pm.addPass(VPU::createDecomposeMVNPass(log));
 
-    pm.addPass(VPU::createFlashSDPATilingPass(/*enablePipelining=*/false, log));
     pm.addPass(VPU::createTilingStrategyAssignmentPass(
             /*enablePrefetchTiling=*/false, /*enableVPUNNCostForTiling*/ false,
-            /*enableShaveDDRAccessOptimization*/ "true", /*enableDynAlignment=*/false, log));
+            /*enableShaveDDRAccessOptimization*/ "true", /*enableDynAlignment=*/false,
+            /*enableTilingFullSearchSpace*/ false, log));
     pm.addPass(VPU::createApplyTilingMVN1SumPass(/*enablePrefetchTiling=*/false, log));
     pm.addPass(VPU::createApplyTilingPass(/*enableSCFTiling=*/false, /*enableDynAlignment=*/false, log));
     pm.addPass(VPU::createComputeInterpolateCoordinatesPass(/*enableExplicitDistributionInfoAttr*/ false, log));
 
-    pm.addPass(VPU::createUnrollFlashSDPAPass(log));
     pm.addPass(VPU::createBoundedTensorsToDynamicDimsMaskPass(log));
     if (options.enableShaveCodeGen) {
         ShaveCodeGen::buildShaveCodeGenPipelineVPU(pm);

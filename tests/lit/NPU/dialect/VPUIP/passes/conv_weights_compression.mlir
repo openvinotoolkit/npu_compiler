@@ -12,35 +12,35 @@
 !qElemType3 = !quant.uniform<u8:f16, 0.012699142156862745>
 
 // CHECK-LABEL: @CompressConvWeightsMoreThan4IC
-// CHECK-SAME:      [[ARG_0:%[^:]+]]: memref<1x16x112x112x!qElemType, #NHWC, [@CMX_NN, 0]>
-func.func @CompressConvWeightsMoreThan4IC(%arg0: memref<1x16x112x112x!qElemType2, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]> {
+// CHECK-SAME:      [[ARG_0:%[^:]+]]: memref<1x16x112x112x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
+func.func @CompressConvWeightsMoreThan4IC(%arg0: memref<1x16x112x112x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]> {
     %cst = const.Declare memref<64x1x1x4xsi32> = dense<1> : tensor<64x1x1x4xsi32>
-    %cst_0 = const.Declare memref<64x16x7x7x!qElemType, #NHWC> = dense<1.0> :
+    %cst_0 = const.Declare memref<64x16x7x7x!qElemType, {order = #NHWC}> = dense<1.0> :
         tensor<64x13x7x7xf16>, [#const.CastElemType<ui8>, #const.CastElemType<!qElemType>,
         #const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [0, 3, 0, 0]>]
-    %2 = memref.alloc() : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>
+    %2 = memref.alloc() : memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     %weights = VPUIP.Copy
-        inputs(%cst_0 : memref<64x16x7x7x!qElemType, #NHWC>)
-        outputs(%2 : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>)
-         -> memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>
+        inputs(%cst_0 : memref<64x16x7x7x!qElemType, {order = #NHWC}>)
+        outputs(%2 : memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
+         -> memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     %3 = memref.alloc() : memref<64x1x1x4xsi32, [@CMX_NN, 0]>
     %weights_table = VPUIP.Copy
         inputs(%cst : memref<64x1x1x4xsi32>)
         outputs(%3 : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
          -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
-    %output = memref.alloc() : memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]>
+    %output = memref.alloc() : memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>
     %NCEOp = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 375613 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
           kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>,
           kernel_size = [7, 7],
           kernel_strides = [2, 2],
           task_type = #VPUIP.nce_task_type<CONV>
       }>
-      input(%arg0 : memref<1x16x112x112x!qElemType2, #NHWC, [@CMX_NN, 0]>)
-      weights(%weights : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>)
+      input(%arg0 : memref<1x16x112x112x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>)
+      weights(%weights : memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
       weight_table(%weights_table : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
-      parent_input(%arg0 : memref<1x16x112x112x!qElemType2, #NHWC, [@CMX_NN, 0]>)
-      parent_output(%output : memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]>)
-      outputs(%output : memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]> variants :
+      parent_input(%arg0 : memref<1x16x112x112x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>)
+      parent_output(%output : memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>)
+      outputs(%output : memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]> variants :
       {
           DPUTask
     {
@@ -51,34 +51,34 @@ func.func @CompressConvWeightsMoreThan4IC(%arg0: memref<1x16x112x112x!qElemType2
       }
       PPE :  {
       }
-    return %NCEOp : memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]>
-    //CHECK-DAG:        [[cst:%.+]] = const.Declare memref<64x13x7x7x!qElemType2, #NHWC>
+    return %NCEOp : memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>
+    //CHECK-DAG:        [[cst:%.+]] = const.Declare memref<64x13x7x7x!qElemType2, {order = #NHWC}>
     //CHECK-DAG:        [[cst_0:%.+]] = const.Declare memref<64x1x1x4xsi32>
     //CHECK:        [[VAR0:%.+]] = memref.alloc() : memref<64x1x1x4xsi32, [@CMX_NN, 0]>
     //CHECK:        [[VAR1:%.+]] = VPUIP.Copy inputs([[cst_0]] : memref<64x1x1x4xsi32>) outputs([[VAR0]] : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
     //CHECK-SAME:           -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
-    //CHECK:        [[VAR2:%.+]] = memref.alloc() : memref<1x64x56x56x!qElemType1, #NHWC, [@CMX_NN, 0]>
+    //CHECK:        [[VAR2:%.+]] = memref.alloc() : memref<1x64x56x56x!qElemType1, {order = #NHWC}, [@CMX_NN, 0]>
     //CHECK:        [[VAR3:%.+]] = memref.alloc() : memref<64x13x7x7x!qElemType2, {order = #NHWC, strides = [640, 1, 91, 13]}, [@CMX_NN, 0]>
-    //CHECK:        [[VAR4:%.+]] = VPUIP.Copy inputs([[cst]] : memref<64x13x7x7x!qElemType2, #NHWC>) outputs([[VAR3]] :
+    //CHECK:        [[VAR4:%.+]] = VPUIP.Copy inputs([[cst]] : memref<64x13x7x7x!qElemType2, {order = #NHWC}>) outputs([[VAR3]] :
     //CHECK-SAME:           memref<64x13x7x7x!qElemType2, {order = #NHWC, strides = [640, 1, 91, 13]}, [@CMX_NN, 0]>)
     //CHECK-SAME:           -> memref<64x13x7x7x!qElemType2, {order = #NHWC, strides = [640, 1, 91, 13]}, [@CMX_NN, 0]>
     //CHECK:        [[VAR5:%.+]] = VPUIP.ShapeCast {shape = [64, 16, 7, 7]} inputs([[VAR4]] : memref<64x13x7x7x!qElemType2, {order = #NHWC, strides = [640, 1, 91, 13]}, [@CMX_NN, 0]>)
-    //CHECK-SAME:           -> memref<64x16x7x7x!qElemType2, #NHWC, [@CMX_NN, 0]>
+    //CHECK-SAME:           -> memref<64x16x7x7x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>
     //CHECK:        [[VAR6:%.+]] = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 375613 : i64} <{cm_sp_pattern = 8191 : i64,
     //CHECK-SAME:           kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, kernel_size = [7, 7],
     //CHECK-SAME:           kernel_strides = [2, 2],
     //CHECK-SAME:           task_type = #VPUIP.nce_task_type<CONV>}>
-    //CHECK-SAME:           input([[ARG_0]] : memref<1x16x112x112x!qElemType, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:           weights([[VAR5]] : memref<64x16x7x7x!qElemType2, #NHWC, [@CMX_NN, 0]>)
+    //CHECK-SAME:           input([[ARG_0]] : memref<1x16x112x112x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:           weights([[VAR5]] : memref<64x16x7x7x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>)
     //CHECK-SAME:           weight_table([[VAR1]] : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
-    //CHECK-SAME:           parent_input([[ARG_0]] : memref<1x16x112x112x!qElemType, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:           parent_output([[VAR2]] : memref<1x64x56x56x!qElemType1, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:           outputs([[VAR2]] : memref<1x64x56x56x!qElemType1, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:           -> memref<1x64x56x56x!qElemType1, #NHWC, [@CMX_NN, 0]>
+    //CHECK-SAME:           parent_input([[ARG_0]] : memref<1x16x112x112x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:           parent_output([[VAR2]] : memref<1x64x56x56x!qElemType1, {order = #NHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:           outputs([[VAR2]] : memref<1x64x56x56x!qElemType1, {order = #NHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:           -> memref<1x64x56x56x!qElemType1, {order = #NHWC}, [@CMX_NN, 0]>
     //CHECK-SAME:           variants :  {
     //CHECK:       DPUTask {mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [55, 55, 63], outStart = [0, 0, 0],
     //CHECK-SAME:           pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>}
-    //CHECK:       return [[VAR6]] : memref<1x64x56x56x!qElemType1, #NHWC, [@CMX_NN, 0]>
+    //CHECK:       return [[VAR6]] : memref<1x64x56x56x!qElemType1, {order = #NHWC}, [@CMX_NN, 0]>
 }
 
 // -----
@@ -89,25 +89,25 @@ func.func @CompressConvWeightsMoreThan4IC(%arg0: memref<1x16x112x112x!qElemType2
 !qElemType3 = !quant.uniform<u8:f16, 0.012699142156862745>
 
 // CHECK-LABEL: @DoNotCompressSparseConvWeights
-// CHECK-SAME: [[ARG_0:%[^:]+]]: memref<1x16x224x224x!qElemType, #NHWC, [@CMX_NN, 0]>
-func.func @DoNotCompressSparseConvWeights(%arg0: memref<1x16x224x224x!qElemType2, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x112x112x!qElemType3, #NHWC, [@CMX_NN, 0]> {
-    %cst_weights = const.Declare memref<64x16x7x7x!qElemType, #NHWC> = dense<1.0> : tensor<64x3x7x7xf16>,
+// CHECK-SAME: [[ARG_0:%[^:]+]]: memref<1x16x224x224x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
+func.func @DoNotCompressSparseConvWeights(%arg0: memref<1x16x224x224x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x112x112x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]> {
+    %cst_weights = const.Declare memref<64x16x7x7x!qElemType, {order = #NHWC}> = dense<1.0> : tensor<64x3x7x7xf16>,
         [#const.CastElemType<ui8>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [0, 13, 0, 0]>, #const.Sparsify<false>]
     %cst_weights_sm = const.Declare memref<64x1x1x896xi1> = dense<1.0> : tensor<64x3x7x7xf16>,
         [#const.CastElemType<ui8>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [0, 13, 0, 0]>, #const.GetSparsityMap]
     %weights_sparse_ddr = VPUIP.GroupSparseBuffer(%cst_weights, %cst_weights_sm) <{is_weights}>
-        -> !VPUIP.SparseBuffer<data=memref<64x16x7x7x!qElemType, #NHWC>, sparsity_map=memref<64x1x1x896xi1>, is_weights>
-    %weights_cmx = memref.alloc() : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>
+        -> !VPUIP.SparseBuffer<data=memref<64x16x7x7x!qElemType, {order = #NHWC}>, sparsity_map=memref<64x1x1x896xi1>, is_weights>
+    %weights_cmx = memref.alloc() : memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     %weights_sm_cmx = memref.alloc() : memref<64x1x1x896xi1, [@CMX_NN, 0]>
     %weights_sparse_cmx = VPUIP.GroupSparseBuffer(%weights_cmx, %weights_sm_cmx) <{is_weights}>
-        -> !VPUIP.SparseBuffer<data=memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>, sparsity_map=memref<64x1x1x896xi1, [@CMX_NN, 0]>, is_weights>
+        -> !VPUIP.SparseBuffer<data=memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>, sparsity_map=memref<64x1x1x896xi1, [@CMX_NN, 0]>, is_weights>
     %weights_sparse = VPUIP.Copy
-        inputs(%weights_sparse_ddr : !VPUIP.SparseBuffer<data=memref<64x16x7x7x!qElemType, #NHWC>, sparsity_map=memref<64x1x1x896xi1>, is_weights>)
-        outputs(%weights_sparse_cmx : !VPUIP.SparseBuffer<data=memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>, sparsity_map=memref<64x1x1x896xi1, [@CMX_NN, 0]>, is_weights>)
-        -> !VPUIP.SparseBuffer<data=memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>, sparsity_map=memref<64x1x1x896xi1, [@CMX_NN, 0]>, is_weights>
+        inputs(%weights_sparse_ddr : !VPUIP.SparseBuffer<data=memref<64x16x7x7x!qElemType, {order = #NHWC}>, sparsity_map=memref<64x1x1x896xi1>, is_weights>)
+        outputs(%weights_sparse_cmx : !VPUIP.SparseBuffer<data=memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>, sparsity_map=memref<64x1x1x896xi1, [@CMX_NN, 0]>, is_weights>)
+        -> !VPUIP.SparseBuffer<data=memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>, sparsity_map=memref<64x1x1x896xi1, [@CMX_NN, 0]>, is_weights>
 
     %weights_data, %weights_sm = VPUIP.UngroupSparseBuffer(%weights_sparse) {resultSegmentSizes = array<i32: 1, 1, 0>}
-        -> memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>, memref<64x1x1x896xi1, [@CMX_NN, 0]>
+        -> memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>, memref<64x1x1x896xi1, [@CMX_NN, 0]>
 
     %cst_weights_table = const.Declare memref<64x1x1x4xsi32> = dense<1> : tensor<64x1x1x4xsi32>
     %weights_table_cmx = memref.alloc() : memref<64x1x1x4xsi32, [@CMX_NN, 0]>
@@ -116,32 +116,32 @@ func.func @DoNotCompressSparseConvWeights(%arg0: memref<1x16x224x224x!qElemType2
         outputs(%weights_table_cmx : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
         -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
 
-    %output_cmx = memref.alloc() : memref<1x64x112x112x!qElemType3, #NHWC, [@CMX_NN, 0]>
+    %output_cmx = memref.alloc() : memref<1x64x112x112x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>
     %output = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 375613 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
           kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>,
           kernel_size = [7, 7],
           kernel_strides = [2, 2],
           task_type = #VPUIP.nce_task_type<CONV>
       }>
-      input(%arg0 : memref<1x16x224x224x!qElemType2, #NHWC, [@CMX_NN, 0]>)
-      weights(%weights_data : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>)
+      input(%arg0 : memref<1x16x224x224x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>)
+      weights(%weights_data : memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
       weights_sparsity_map(%weights_sm : memref<64x1x1x896xi1, [@CMX_NN, 0]>)
       weight_table(%weights_table : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
-      parent_input(%arg0 : memref<1x16x224x224x!qElemType2, #NHWC, [@CMX_NN, 0]>)
-      parent_output(%output_cmx : memref<1x64x112x112x!qElemType3, #NHWC, [@CMX_NN, 0]>)
-      outputs(%output_cmx : memref<1x64x112x112x!qElemType3, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x112x112x!qElemType3, #NHWC, [@CMX_NN, 0]>
+      parent_input(%arg0 : memref<1x16x224x224x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>)
+      parent_output(%output_cmx : memref<1x64x112x112x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>)
+      outputs(%output_cmx : memref<1x64x112x112x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x112x112x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>
       variants: {
           DPUTask { outEnd = [111, 111, 63], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, outStart = [0, 0, 0] }
       }
       PPE : {
       }
-    return %output : memref<1x64x112x112x!qElemType3, #NHWC, [@CMX_NN, 0]>
+    return %output : memref<1x64x112x112x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>
 
-    //CHECK-DAG:   [[CST_WEIGHTS:%.+]] = const.Declare memref<64x16x7x7x!qElemType2, #NHWC>
+    //CHECK-DAG:   [[CST_WEIGHTS:%.+]] = const.Declare memref<64x16x7x7x!qElemType2, {order = #NHWC}>
     //CHECK-DAG:   [[CST_WEIGHTS_SM:%.+]] = const.Declare memref<64x1x1x896xi1>
     //CHECK:       [[WEIGHTS_SPARSE_DDR:%.+]] = VPUIP.GroupSparseBuffer([[CST_WEIGHTS]], [[CST_WEIGHTS_SM]]) <{is_weights}>
 
-    //CHECK:       [[WEIGHTS_DATA_CMX:%.+]] = memref.alloc() : memref<64x16x7x7x!qElemType2, #NHWC, [@CMX_NN, 0]>
+    //CHECK:       [[WEIGHTS_DATA_CMX:%.+]] = memref.alloc() : memref<64x16x7x7x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>
     //CHECK:       [[WEIGHTS_SM_CMX:%.+]] = memref.alloc() : memref<64x1x1x896xi1, [@CMX_NN, 0]>
     //CHECK:       [[WEIGHTS_SPARSE_CMX:%.+]] = VPUIP.GroupSparseBuffer([[WEIGHTS_DATA_CMX]], [[WEIGHTS_SM_CMX]]) <{is_weights}>
 
@@ -154,7 +154,7 @@ func.func @DoNotCompressSparseConvWeights(%arg0: memref<1x16x224x224x!qElemType2
     //CHECK:       [[WEIGHTS_TABLE:%.+]] = VPUIP.Copy inputs([[CST_WEIGHTS_TABLE]]
     //CHECK-SAME:             outputs([[WEIGHTS_TABLE_CMX]]
 
-    //CHECK:       [[OUTPUT_CMX:%.+]] = memref.alloc() : memref<1x64x112x112x!qElemType1, #NHWC, [@CMX_NN, 0]>
+    //CHECK:       [[OUTPUT_CMX:%.+]] = memref.alloc() : memref<1x64x112x112x!qElemType1, {order = #NHWC}, [@CMX_NN, 0]>
     //CHECK:       [[OUTPUT:%.+]] = VPUIP.NCEClusterTask
     //CHECK-SAME:          input([[ARG_0]]
     //CHECK-SAME:          weights([[WEIGHTS_DATA]]
@@ -163,7 +163,7 @@ func.func @DoNotCompressSparseConvWeights(%arg0: memref<1x16x224x224x!qElemType2
     //CHECK-SAME:          parent_input([[ARG_0]]
     //CHECK-SAME:          parent_output([[OUTPUT_CMX]]
     //CHECK-SAME:          outputs([[OUTPUT_CMX]]
-    //CHECK-SAME:          -> memref<1x64x112x112x!qElemType1, #NHWC, [@CMX_NN, 0]>
+    //CHECK-SAME:          -> memref<1x64x112x112x!qElemType1, {order = #NHWC}, [@CMX_NN, 0]>
     //CHECK:       return [[OUTPUT]]
 }
 
@@ -187,18 +187,18 @@ func.func @DoNotCompressSparseConvWeights(%arg0: memref<1x16x224x224x!qElemType2
     {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
 
 // CHECK-LABEL: @TiledCompressConvWeights
-// CHECK-SAME: ([[ARG_0:%[^:]+]]: memref<1x16x224x224x!qElemType, #NHWC, [@CMX_NN, 0]>)
-func.func @TiledCompressConvWeights(%arg0: memref<1x16x224x224x!qElemType2, #NHWC, [@CMX_NN, 0]>)
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: memref<1x16x224x224x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
+func.func @TiledCompressConvWeights(%arg0: memref<1x16x224x224x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>)
     -> !VPUIP.DistributedBuffer<1x64x112x112x!qElemType3, #NHWC, @CMX_NN,
     {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}> {
     %cst = const.Declare memref<64x1x1x4xsi32> = dense<1> : tensor<64x1x1x4xsi32>
-    %cst_0 = const.Declare memref<64x16x7x7x!qElemType, #NHWC> = dense<1.0> :
+    %cst_0 = const.Declare memref<64x16x7x7x!qElemType, {order = #NHWC}> = dense<1.0> :
         tensor<64x3x7x7xf16>, [#const.CastElemType<ui8>, #const.CastElemType<!qElemType>,
         #const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [0, 13, 0, 0]>]
     %output = VPURT.AllocDistributed -> !OutputDistributed
     %2 = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<64x16x7x7x!qElemType, #NHWC, @CMX_NN,
         {mode = "DUPLICATED", num_clusters = 2 : i64}>
-    %weights = VPUIP.Copy inputs(%cst_0 : memref<64x16x7x7x!qElemType, #NHWC>) outputs(%2 : !WeightsDistributed) -> !WeightsDistributed
+    %weights = VPUIP.Copy inputs(%cst_0 : memref<64x16x7x7x!qElemType, {order = #NHWC}>) outputs(%2 : !WeightsDistributed) -> !WeightsDistributed
 
     %3 = VPURT.AllocDistributed -> !WeightsTableDistributed
     %weights_table = VPUIP.Copy inputs(%cst : memref<64x1x1x4xsi32>) outputs(%3 : !WeightsTableDistributed) -> !WeightsTableDistributed
@@ -209,10 +209,10 @@ func.func @TiledCompressConvWeights(%arg0: memref<1x16x224x224x!qElemType2, #NHW
         kernel_strides = [2, 2],
         task_type = #VPUIP.nce_task_type<CONV>
     }>
-    input(%arg0 : memref<1x16x224x224x!qElemType2, #NHWC, [@CMX_NN, 0]>)
+    input(%arg0 : memref<1x16x224x224x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>)
     weights(%weights : !WeightsDistributed)
     weight_table(%weights_table : !WeightsTableDistributed)
-    parent_input(%arg0 : memref<1x16x224x224x!qElemType2, #NHWC, [@CMX_NN, 0]>)
+    parent_input(%arg0 : memref<1x16x224x224x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>)
     parent_output(%output : !OutputDistributed)
     outputs(%output : !OutputDistributed) -> !OutputDistributed variants :
     {
@@ -245,7 +245,7 @@ func.func @TiledCompressConvWeights(%arg0: memref<1x16x224x224x!qElemType2, #NHW
     return %NCEOp : !OutputDistributed
 
     //CHECK-DAG:        [[CST_WEIGHTS_TABLE:%.+]] = const.Declare memref<64x1x1x4xsi32>
-    //CHECK-DAG:        [[CST_WEIGHTS:%.+]] = const.Declare memref<64x3x7x7x!qElemType2, #NHWC>
+    //CHECK-DAG:        [[CST_WEIGHTS:%.+]] = const.Declare memref<64x3x7x7x!qElemType2, {order = #NHWC}>
     //CHECK-DAG:        [[OUT_BUFFER:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x64x112x112x!qElemType1, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
 
     //CHECK:        [[WEIGHTS_TABLE_ALLOC:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<64x1x1x4xsi32,
@@ -258,7 +258,7 @@ func.func @TiledCompressConvWeights(%arg0: memref<1x16x224x224x!qElemType2, #NHW
     //CHECK:        [[WEIGHTS_ALLOC:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<64x3x7x7x!qElemType2,
     //CHECK-SAME:           {order = #NHWC, strides = [160, 1, 21, 3]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
     //CHECK:        [[CLUSTER_WEIGHTS:%.+]] = VPUIP.Copy
-    //CHECK-SAME:           inputs([[CST_WEIGHTS]] : memref<64x3x7x7x!qElemType2, #NHWC>)
+    //CHECK-SAME:           inputs([[CST_WEIGHTS]] : memref<64x3x7x7x!qElemType2, {order = #NHWC}>)
     //CHECK-SAME:           outputs([[WEIGHTS_ALLOC]] : !VPUIP.DistributedBuffer<64x3x7x7x!qElemType2, {order = #NHWC, strides = [160, 1, 21, 3]}, @CMX_NN
     //CHECK-SAME:           -> !VPUIP.DistributedBuffer<64x3x7x7x!qElemType2, {order = #NHWC, strides = [160, 1, 21, 3]}, @CMX_NN
     //CHECK:        [[WEIGHTS_SHAPE_CAST:%.+]] = VPUIP.ShapeCast {shape = [64, 16, 7, 7]}
@@ -290,39 +290,39 @@ func.func @TiledCompressConvWeights(%arg0: memref<1x16x224x224x!qElemType2, #NHW
 !qElemType3 = !quant.uniform<u8:f16, 0.012699142156862745>
 
 // CHECK-LABEL: @CompressConvWeightsSharedTable
-// CHECK-SAME: [[ARG_0:%[^:]+]]: memref<1x16x112x112x!qElemType, #NHWC, [@CMX_NN, 0]>
-func.func @CompressConvWeightsSharedTable(%arg0: memref<1x16x112x112x!qElemType2, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]> {
+// CHECK-SAME: [[ARG_0:%[^:]+]]: memref<1x16x112x112x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
+func.func @CompressConvWeightsSharedTable(%arg0: memref<1x16x112x112x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]> {
     %cst_wt = const.Declare memref<64x1x1x4xsi32> = dense<1> : tensor<64x1x1x4xsi32>
-    %cst_w1 = const.Declare memref<64x16x7x7x!qElemType, #NHWC> = dense<1.0> :
+    %cst_w1 = const.Declare memref<64x16x7x7x!qElemType, {order = #NHWC}> = dense<1.0> :
         tensor<64x13x7x7xf16>, [#const.CastElemType<ui8>, #const.CastElemType<!qElemType>,
         #const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [0, 3, 0, 0]>]
-    %cst_w2 = const.Declare memref<64x64x1x1x!qElemType, #NHWC> = dense<1.0> :
+    %cst_w2 = const.Declare memref<64x64x1x1x!qElemType, {order = #NHWC}> = dense<1.0> :
         tensor<64x64x1x1xf16>, [#const.CastElemType<ui8>, #const.CastElemType<!qElemType>,
         #const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [0, 0, 0, 0]>]
 
-    %weights1_cmx = memref.alloc() : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>
+    %weights1_cmx = memref.alloc() : memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     %weights1 = VPUIP.Copy
-        inputs(%cst_w1 : memref<64x16x7x7x!qElemType, #NHWC>)
-        outputs(%weights1_cmx : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>)
-         -> memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>
+        inputs(%cst_w1 : memref<64x16x7x7x!qElemType, {order = #NHWC}>)
+        outputs(%weights1_cmx : memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
+         -> memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     %wt1_cmx = memref.alloc() : memref<64x1x1x4xsi32, [@CMX_NN, 0]>
     %weights_table1 = VPUIP.Copy
         inputs(%cst_wt : memref<64x1x1x4xsi32>)
         outputs(%wt1_cmx : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
          -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
-    %output1 = memref.alloc() : memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]>
+    %output1 = memref.alloc() : memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>
     %conv1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 375613 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
           kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>,
           kernel_size = [7, 7],
           kernel_strides = [2, 2],
           task_type = #VPUIP.nce_task_type<CONV>
       }>
-      input(%arg0 : memref<1x16x112x112x!qElemType2, #NHWC, [@CMX_NN, 0]>)
-      weights(%weights1 : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>)
+      input(%arg0 : memref<1x16x112x112x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>)
+      weights(%weights1 : memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
       weight_table(%weights_table1 : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
-      parent_input(%arg0 : memref<1x16x112x112x!qElemType2, #NHWC, [@CMX_NN, 0]>)
-      parent_output(%output1 : memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]>)
-      outputs(%output1 : memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]> variants :
+      parent_input(%arg0 : memref<1x16x112x112x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>)
+      parent_output(%output1 : memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>)
+      outputs(%output1 : memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]> variants :
       {
           DPUTask
     {
@@ -334,29 +334,29 @@ func.func @CompressConvWeightsSharedTable(%arg0: memref<1x16x112x112x!qElemType2
       PPE :  {
       }
 
-    %weights2_cmx = memref.alloc() : memref<64x64x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>
+    %weights2_cmx = memref.alloc() : memref<64x64x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     %weights2 = VPUIP.Copy
-        inputs(%cst_w2 : memref<64x64x1x1x!qElemType, #NHWC>)
-        outputs(%weights2_cmx : memref<64x64x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>)
-         -> memref<64x64x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>
+        inputs(%cst_w2 : memref<64x64x1x1x!qElemType, {order = #NHWC}>)
+        outputs(%weights2_cmx : memref<64x64x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
+         -> memref<64x64x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     %wt2_cmx = memref.alloc() : memref<64x1x1x4xsi32, [@CMX_NN, 0]>
     %weights_table2 = VPUIP.Copy
         inputs(%cst_wt : memref<64x1x1x4xsi32>)
         outputs(%wt2_cmx : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
          -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
-    %output2 = memref.alloc() : memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]>
+    %output2 = memref.alloc() : memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>
     %conv2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 375613 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
           kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
           kernel_size = [1, 1],
           kernel_strides = [1, 1],
           task_type = #VPUIP.nce_task_type<CONV>
       }>
-      input(%conv1 : memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]>)
-      weights(%weights2 : memref<64x64x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>)
+      input(%conv1 : memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>)
+      weights(%weights2 : memref<64x64x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
       weight_table(%weights_table2 : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
-      parent_input(%conv1 : memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]>)
-      parent_output(%output2 : memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]>)
-      outputs(%output2 : memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]> variants :
+      parent_input(%conv1 : memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>)
+      parent_output(%output2 : memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>)
+      outputs(%output2 : memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]> variants :
       {
           DPUTask
     {
@@ -367,7 +367,7 @@ func.func @CompressConvWeightsSharedTable(%arg0: memref<1x16x112x112x!qElemType2
       }
       PPE :  {
       }
-    return %conv2 : memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]>
+    return %conv2 : memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>
 
     //CHECK-DAG:        [[cst_wt1:%.+]] = const.Declare memref<64x1x1x4xsi32>
     //CHECK-DAG:        [[cst_wt2:%.+]] = const.Declare memref<64x1x1x4xsi32> = dense<1> : tensor<64x1x1x4xsi32>
@@ -376,19 +376,19 @@ func.func @CompressConvWeightsSharedTable(%arg0: memref<1x16x112x112x!qElemType2
     //CHECK:        [[WT1:%.+]] = VPUIP.Copy inputs([[cst_wt1]] : memref<64x1x1x4xsi32>) outputs([[WT1_CMX]] : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
     //CHECK-SAME:           -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
     //CHECK:        [[CONV1:%.+]] = VPUIP.NCEClusterTask
-    //CHECK-SAME:           input([[ARG_0]] : memref<1x16x112x112x!qElemType, #NHWC, [@CMX_NN, 0]>)
+    //CHECK-SAME:           input([[ARG_0]] : memref<1x16x112x112x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
     //CHECK-SAME:           weight_table([[WT1]] : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
-    //CHECK-SAME:           -> memref<1x64x56x56x!qElemType1, #NHWC, [@CMX_NN, 0]>
+    //CHECK-SAME:           -> memref<1x64x56x56x!qElemType1, {order = #NHWC}, [@CMX_NN, 0]>
 
     //CHECK:        [[WT2_CMX:%.+]] = memref.alloc() : memref<64x1x1x4xsi32, [@CMX_NN, 0]>
     //CHECK:        [[WT2:%.+]] = VPUIP.Copy inputs([[cst_wt2]] : memref<64x1x1x4xsi32>) outputs([[WT2_CMX]] : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
     //CHECK-SAME:           -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
     //CHECK:        [[CONV2:%.+]] = VPUIP.NCEClusterTask
-    //CHECK-SAME:           input([[CONV1]] : memref<1x64x56x56x!qElemType1, #NHWC, [@CMX_NN, 0]>)
+    //CHECK-SAME:           input([[CONV1]] : memref<1x64x56x56x!qElemType1, {order = #NHWC}, [@CMX_NN, 0]>)
     //CHECK-SAME:           weight_table([[WT2]] : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
-    //CHECK-SAME:           -> memref<1x64x56x56x!qElemType1, #NHWC, [@CMX_NN, 0]>
+    //CHECK-SAME:           -> memref<1x64x56x56x!qElemType1, {order = #NHWC}, [@CMX_NN, 0]>
 
-    //CHECK:       return [[CONV2]] : memref<1x64x56x56x!qElemType1, #NHWC, [@CMX_NN, 0]>
+    //CHECK:       return [[CONV2]] : memref<1x64x56x56x!qElemType1, {order = #NHWC}, [@CMX_NN, 0]>
 }
 
 // -----
@@ -400,20 +400,20 @@ func.func @CompressConvWeightsSharedTable(%arg0: memref<1x16x112x112x!qElemType2
 !qElemType3 = !quant.uniform<u8:f16, 0.012699142156862745>
 
 // CHECK-LABEL: @CompressTiledConvWeightsSharedTable
-// CHECK-SAME: ([[ARG_0:%[^:]+]]: memref<1x16x112x112x!qElemType, #NHWC, [@CMX_NN, 0]>)
-func.func @CompressTiledConvWeightsSharedTable(%arg0: memref<1x16x112x112x!qElemType2, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]> {
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: memref<1x16x112x112x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
+func.func @CompressTiledConvWeightsSharedTable(%arg0: memref<1x16x112x112x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]> {
     %cst_wt = const.Declare memref<64x1x1x4xsi32> = dense<1> : tensor<64x1x1x4xsi32>
-    %cst_w1 = const.Declare memref<64x16x7x7x!qElemType, #NHWC> = dense<1.0> :
+    %cst_w1 = const.Declare memref<64x16x7x7x!qElemType, {order = #NHWC}> = dense<1.0> :
         tensor<64x13x7x7xf16>, [#const.CastElemType<ui8>, #const.CastElemType<!qElemType>,
         #const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [0, 3, 0, 0]>]
-    %cst_w2 = const.Declare memref<64x64x1x1x!qElemType, #NHWC> = dense<1.0> :
+    %cst_w2 = const.Declare memref<64x64x1x1x!qElemType, {order = #NHWC}> = dense<1.0> :
         tensor<64x64x1x1xf16>, [#const.CastElemType<ui8>, #const.CastElemType<!qElemType>,
         #const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [0, 0, 0, 0]>]
 
     %weights1_cmx = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0],
         {mode = "DUPLICATED", num_clusters = 2 : i64}>
     %weights1 = VPUIP.Copy
-        inputs(%cst_w1 : memref<64x16x7x7x!qElemType, #NHWC>)
+        inputs(%cst_w1 : memref<64x16x7x7x!qElemType, {order = #NHWC}>)
         outputs(%weights1_cmx : !VPUIP.DistributedBuffer<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0],
             {mode = "DUPLICATED", num_clusters = 2 : i64}>)
         -> !VPUIP.DistributedBuffer<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0],
@@ -431,22 +431,22 @@ func.func @CompressTiledConvWeightsSharedTable(%arg0: memref<1x16x112x112x!qElem
         affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, [@CMX_NN, 0],
         {mode = "DUPLICATED", num_clusters = 2 : i64}>
 
-    %output1 = memref.alloc() : memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]>
+    %output1 = memref.alloc() : memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>
     %conv1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 269263 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
     kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>,
     kernel_size = [7, 7],
     kernel_strides = [2, 2],
     task_type = #VPUIP.nce_task_type<CONV>
         }>
-        input(%arg0 : memref<1x16x112x112x!qElemType2, #NHWC, [@CMX_NN, 0]>)
+        input(%arg0 : memref<1x16x112x112x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>)
         weights(%weights1 : !VPUIP.DistributedBuffer<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0],
         {mode = "DUPLICATED", num_clusters = 2 : i64}>)
         weight_table(%weights_table1 : !VPUIP.DistributedBuffer<64x1x1x4xsi32,
     affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, [@CMX_NN, 0],
     {mode = "DUPLICATED", num_clusters = 2 : i64}>)
-        parent_input(%arg0 : memref<1x16x112x112x!qElemType2, #NHWC, [@CMX_NN, 0]>)
-        parent_output(%output1 : memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]>)
-        outputs(%output1 : memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]> variants :
+        parent_input(%arg0 : memref<1x16x112x112x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>)
+        parent_output(%output1 : memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>)
+        outputs(%output1 : memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]> variants :
         {
     DPUTask {
         cluster_id = 0 : i64, outEnd = [63, 27, 63], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>,
@@ -474,29 +474,29 @@ func.func @CompressTiledConvWeightsSharedTable(%arg0: memref<1x16x112x112x!qElem
     }
         }
 
-    %weights2_cmx = memref.alloc() : memref<64x64x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>
+    %weights2_cmx = memref.alloc() : memref<64x64x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     %weights2 = VPUIP.Copy
-        inputs(%cst_w2 : memref<64x64x1x1x!qElemType, #NHWC>)
-        outputs(%weights2_cmx : memref<64x64x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>)
-         -> memref<64x64x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>
+        inputs(%cst_w2 : memref<64x64x1x1x!qElemType, {order = #NHWC}>)
+        outputs(%weights2_cmx : memref<64x64x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
+         -> memref<64x64x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     %wt2_cmx = memref.alloc() : memref<64x1x1x4xsi32, [@CMX_NN, 0]>
     %weights_table2 = VPUIP.Copy
         inputs(%cst_wt : memref<64x1x1x4xsi32>)
         outputs(%wt2_cmx : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
          -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
-    %output2 = memref.alloc() : memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]>
+    %output2 = memref.alloc() : memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>
     %conv2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 375613 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
           kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
           kernel_size = [1, 1],
           kernel_strides = [1, 1],
           task_type = #VPUIP.nce_task_type<CONV>
       }>
-      input(%conv1 : memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]>)
-      weights(%weights2 : memref<64x64x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>)
+      input(%conv1 : memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>)
+      weights(%weights2 : memref<64x64x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
       weight_table(%weights_table2 : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
-      parent_input(%conv1 : memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]>)
-      parent_output(%output2 : memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]>)
-      outputs(%output2 : memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]> variants :
+      parent_input(%conv1 : memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>)
+      parent_output(%output2 : memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>)
+      outputs(%output2 : memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]> variants :
       {
           DPUTask
     {
@@ -507,7 +507,7 @@ func.func @CompressTiledConvWeightsSharedTable(%arg0: memref<1x16x112x112x!qElem
       }
       PPE :  {
       }
-    return %conv2 : memref<1x64x56x56x!qElemType3, #NHWC, [@CMX_NN, 0]>
+    return %conv2 : memref<1x64x56x56x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>
     //CHECK-DAG:        [[cst_wt1:%.+]] = const.Declare memref<64x1x1x4xsi32>
     //CHECK-DAG:        [[cst_wt2:%.+]] = const.Declare memref<64x1x1x4xsi32> = dense<1> : tensor<64x1x1x4xsi32>
 
@@ -517,19 +517,19 @@ func.func @CompressTiledConvWeightsSharedTable(%arg0: memref<1x16x112x112x!qElem
     //CHECK-SAME:           outputs([[WT1_CMX]] : !VPUIP.DistributedBuffer<64x1x1x4xsi32, #NCHW, [@CMX_NN, 0], {mode = "DUPLICATED", num_clusters = 2 : i64}>)
     //CHECK-SAME:           -> !VPUIP.DistributedBuffer<64x1x1x4xsi32, #NCHW, [@CMX_NN, 0], {mode = "DUPLICATED", num_clusters = 2 : i64}>
     //CHECK:        [[CONV1:%.+]] = VPUIP.NCEClusterTask
-    //CHECK-SAME:           input([[ARG_0]] : memref<1x16x112x112x!qElemType, #NHWC, [@CMX_NN, 0]>)
+    //CHECK-SAME:           input([[ARG_0]] : memref<1x16x112x112x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
     //CHECK-SAME:           weight_table([[WT1]] : !VPUIP.DistributedBuffer<64x1x1x4xsi32, #NCHW, [@CMX_NN, 0], {mode = "DUPLICATED", num_clusters = 2 : i64}>)
-    //CHECK-SAME:           -> memref<1x64x56x56x!qElemType1, #NHWC, [@CMX_NN, 0]>
+    //CHECK-SAME:           -> memref<1x64x56x56x!qElemType1, {order = #NHWC}, [@CMX_NN, 0]>
 
     //CHECK:        [[WT2_CMX:%.+]] = memref.alloc() : memref<64x1x1x4xsi32, [@CMX_NN, 0]>
     //CHECK:        [[WT2:%.+]] = VPUIP.Copy inputs([[cst_wt2]] : memref<64x1x1x4xsi32>) outputs([[WT2_CMX]] : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
     //CHECK-SAME:           -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
     //CHECK:        [[CONV2:%.+]] = VPUIP.NCEClusterTask
-    //CHECK-SAME:           input([[CONV1]] : memref<1x64x56x56x!qElemType1, #NHWC, [@CMX_NN, 0]>)
+    //CHECK-SAME:           input([[CONV1]] : memref<1x64x56x56x!qElemType1, {order = #NHWC}, [@CMX_NN, 0]>)
     //CHECK-SAME:           weight_table([[WT2]] : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
-    //CHECK-SAME:           -> memref<1x64x56x56x!qElemType1, #NHWC, [@CMX_NN, 0]>
+    //CHECK-SAME:           -> memref<1x64x56x56x!qElemType1, {order = #NHWC}, [@CMX_NN, 0]>
 
-    //CHECK:       return [[CONV2]] : memref<1x64x56x56x!qElemType1, #NHWC, [@CMX_NN, 0]>
+    //CHECK:       return [[CONV2]] : memref<1x64x56x56x!qElemType1, {order = #NHWC}, [@CMX_NN, 0]>
 }
 
 // -----
@@ -538,25 +538,25 @@ func.func @CompressTiledConvWeightsSharedTable(%arg0: memref<1x16x112x112x!qElem
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 // CHECK-LABEL: @DoNotCompressConvWeightsOCPadding
-// CHECK-SAME: ([[ARG_0:%[^:]+]]: memref<1x32x2x4xf16, #NHWC, [@CMX_NN, 0]>)
-func.func @DoNotCompressConvWeightsOCPadding(%arg0: memref<1x32x2x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x16x2x4xf16, #NHWC, [@CMX_NN, 0]> {
-    %cst = const.Declare memref<16x32x1x1xf16, #NHWC> = dense<1.0> :
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: memref<1x32x2x4xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+func.func @DoNotCompressConvWeightsOCPadding(%arg0: memref<1x32x2x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x16x2x4xf16, {order = #NHWC}, [@CMX_NN, 0]> {
+    %cst = const.Declare memref<16x32x1x1xf16, {order = #NHWC}> = dense<1.0> :
         tensor<1x2x2x32xf16>, [#const.Reshape<[2, 2, 32]>, #const.SubView<[0, 0, 0], [1, 2, 32]>,
         #const.Reshape<[2, 32, 1, 1]>, #const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [14, 0, 0, 0]>]
     %cst_1 = const.Declare memref<16x1x1x4xsi32> = dense<1> : tensor<16x1x1x4xsi32>
 
-    %2 = memref.alloc() : memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
+    %2 = memref.alloc() : memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %weights = VPUIP.Copy
-        inputs(%cst : memref<16x32x1x1xf16, #NHWC>)
-        outputs(%2 : memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-        -> memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
+        inputs(%cst : memref<16x32x1x1xf16, {order = #NHWC}>)
+        outputs(%2 : memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+        -> memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %3 = memref.alloc() : memref<16x1x1x4xsi32, [@CMX_NN, 0]>
     %weights_table = VPUIP.Copy
         inputs(%cst_1 : memref<16x1x1x4xsi32>)
         outputs(%3 : memref<16x1x1x4xsi32, [@CMX_NN, 0]>)
         -> memref<16x1x1x4xsi32, [@CMX_NN, 0]>
 
-    %output = memref.alloc() : memref<1x16x2x4xf16, #NHWC, [@CMX_NN, 0]>
+    %output = memref.alloc() : memref<1x16x2x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     %NCEOp = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 180 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
     kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
@@ -564,12 +564,12 @@ func.func @DoNotCompressConvWeightsOCPadding(%arg0: memref<1x32x2x4xf16, #NHWC, 
     kernel_strides = [1, 1],
     task_type = #VPUIP.nce_task_type<CONV>
         }>
-        input(%arg0 : memref<1x32x2x4xf16, #NHWC, [@CMX_NN, 0]>)
-        weights(%weights : memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 0]>)
+        input(%arg0 : memref<1x32x2x4xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+        weights(%weights : memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
         weight_table(%weights_table : memref<16x1x1x4xsi32, [@CMX_NN, 0]>)
-        parent_input(%arg0 : memref<1x32x2x4xf16, #NHWC, [@CMX_NN, 0]>)
-        parent_output(%output : memref<1x16x2x4xf16, #NHWC, [@CMX_NN, 0]>)
-        outputs(%output : memref<1x16x2x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x16x2x4xf16, #NHWC, [@CMX_NN, 0]> variants :
+        parent_input(%arg0 : memref<1x32x2x4xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+        parent_output(%output : memref<1x16x2x4xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+        outputs(%output : memref<1x16x2x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x16x2x4xf16, {order = #NHWC}, [@CMX_NN, 0]> variants :
         {
     DPUTask
         {
@@ -583,39 +583,39 @@ func.func @DoNotCompressConvWeightsOCPadding(%arg0: memref<1x32x2x4xf16, #NHWC, 
         }
     }
 
-    return %NCEOp : memref<1x16x2x4xf16, #NHWC, [@CMX_NN, 0]>
+    return %NCEOp : memref<1x16x2x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
-    //CHECK-DAG:        [[WEIGHTS:%.+]] = const.Declare memref<16x32x1x1xf16, #NHWC> = dense<1.000000e+00> : tensor<1x2x2x32xf16>
+    //CHECK-DAG:        [[WEIGHTS:%.+]] = const.Declare memref<16x32x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<1x2x2x32xf16>
     //CHECK-DAG:        [[WEIGHTS_TABLE:%.+]] = const.Declare memref<16x1x1x4xsi32> = dense<1> : tensor<16x1x1x4xsi32>
 
-    //CHECK:        [[ALLOC_W:%.+]] = memref.alloc() : memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
-    //CHECK:        [[WEIGHTS_CMX:%.+]] = VPUIP.Copy inputs([[WEIGHTS]] : memref<16x32x1x1xf16, #NHWC>)
-    //CHECK-SAME:           outputs([[ALLOC_W]] : memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:           -> memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
+    //CHECK:        [[ALLOC_W:%.+]] = memref.alloc() : memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    //CHECK:        [[WEIGHTS_CMX:%.+]] = VPUIP.Copy inputs([[WEIGHTS]] : memref<16x32x1x1xf16, {order = #NHWC}>)
+    //CHECK-SAME:           outputs([[ALLOC_W]] : memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:           -> memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     //CHECK:        [[ALLOC_WT:%.+]] = memref.alloc() : memref<16x1x1x4xsi32, [@CMX_NN, 0]>
     //CHECK:        [[WEIGHTS_TABLE_CMX:%.+]] = VPUIP.Copy inputs([[WEIGHTS_TABLE]] : memref<16x1x1x4xsi32>)
     //CHECK-SAME:           outputs([[ALLOC_WT]] : memref<16x1x1x4xsi32, [@CMX_NN, 0]>)
     //CHECK-SAME:           -> memref<16x1x1x4xsi32, [@CMX_NN, 0]>
 
-    //CHECK:        [[OUT:%.+]] = memref.alloc() : memref<1x16x2x4xf16, #NHWC, [@CMX_NN, 0]>
+    //CHECK:        [[OUT:%.+]] = memref.alloc() : memref<1x16x2x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     //CHECK:        [[CLUSTER_TASK:%.+]] = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 180 : i64} <{
     //CHECK-SAME:       kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
     //CHECK-SAME:       kernel_size = [1, 1], kernel_strides = [1, 1],
     //CHECK-SAME:       task_type = #VPUIP.nce_task_type<CONV>}>
-    //CHECK-SAME:           input([[ARG_0]] : memref<1x32x2x4xf16, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:           weights([[WEIGHTS_CMX]] : memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 0]>)
+    //CHECK-SAME:           input([[ARG_0]] : memref<1x32x2x4xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:           weights([[WEIGHTS_CMX]] : memref<16x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
     //CHECK-SAME:           weight_table([[WEIGHTS_TABLE_CMX]] : memref<16x1x1x4xsi32, [@CMX_NN, 0]>)
-    //CHECK-SAME:           parent_input([[ARG_0]] : memref<1x32x2x4xf16, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:           parent_output([[OUT]] : memref<1x16x2x4xf16, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:           outputs([[OUT]] : memref<1x16x2x4xf16, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:           -> memref<1x16x2x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    //CHECK-SAME:           parent_input([[ARG_0]] : memref<1x32x2x4xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:           parent_output([[OUT]] : memref<1x16x2x4xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:           outputs([[OUT]] : memref<1x16x2x4xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:           -> memref<1x16x2x4xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
     //CHECK:          DPUTask {inEnd = [3, 1, 31], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 1, 15],
     //CHECK-SAME:           outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     //CHECK:        }
 
-    //CHECK:        return [[CLUSTER_TASK]] : memref<1x16x2x4xf16, #NHWC, [@CMX_NN, 0]>
+    //CHECK:        return [[CLUSTER_TASK]] : memref<1x16x2x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
 }
 
 // -----
@@ -624,35 +624,35 @@ func.func @DoNotCompressConvWeightsOCPadding(%arg0: memref<1x32x2x4xf16, #NHWC, 
 !qElemType = !quant.uniform<i4:f16, 1.1534313725490195>
 
 // CHECK-LABEL: @DoNotCompressConvSubByteWeights
-// CHECK-SAME: ([[ARG_0:%[^:]+]]: memref<1x8x112x112xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>
-func.func @DoNotCompressConvSubByteWeights(%arg0: memref<1x8x112x112xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]> {
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: memref<1x8x112x112xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]>
+func.func @DoNotCompressConvSubByteWeights(%arg0: memref<1x8x112x112xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]> {
     %cst = const.Declare memref<64x1x1x4xsi32> = dense<1> : tensor<64x1x1x4xsi32>
-    %cst_0 = const.Declare memref<64x16x7x7x!qElemType, #NHWC> = dense<1.0> :
+    %cst_0 = const.Declare memref<64x16x7x7x!qElemType, {order = #NHWC}> = dense<1.0> :
         tensor<64x13x7x7xf16>, [#const.CastElemType<si4>, #const.CastElemType<!qElemType>,
         #const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [0, 3, 0, 0]>]
-    %2 = memref.alloc() : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>
+    %2 = memref.alloc() : memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     %weights = VPUIP.Copy
-        inputs(%cst_0 : memref<64x16x7x7x!qElemType, #NHWC>)
-        outputs(%2 : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>)
-         -> memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>
+        inputs(%cst_0 : memref<64x16x7x7x!qElemType, {order = #NHWC}>)
+        outputs(%2 : memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
+         -> memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     %3 = memref.alloc() : memref<64x1x1x4xsi32, [@CMX_NN, 0]>
     %weights_table = VPUIP.Copy
         inputs(%cst : memref<64x1x1x4xsi32>)
         outputs(%3 : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
          -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
-    %output = memref.alloc() : memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>
+    %output = memref.alloc() : memref<1x64x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %NCEOp = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 375613 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
           kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>,
           kernel_size = [7, 7],
           kernel_strides = [2, 2],
           task_type = #VPUIP.nce_task_type<CONV>
       }>
-      input(%arg0 : memref<1x8x112x112xf16, #NHWC, [@CMX_NN, 0]>)
-      weights(%weights : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>)
+      input(%arg0 : memref<1x8x112x112xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+      weights(%weights : memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
       weight_table(%weights_table : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
-      parent_input(%arg0 : memref<1x8x112x112xf16, #NHWC, [@CMX_NN, 0]>)
-      parent_output(%output : memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>)
-      outputs(%output : memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]> variants :
+      parent_input(%arg0 : memref<1x8x112x112xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+      parent_output(%output : memref<1x64x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+      outputs(%output : memref<1x64x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]> variants :
       {
           DPUTask
     {
@@ -663,28 +663,28 @@ func.func @DoNotCompressConvSubByteWeights(%arg0: memref<1x8x112x112xf16, #NHWC,
       }
       PPE :  {
       }
-    return %NCEOp : memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>
+    return %NCEOp : memref<1x64x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]>
     //CHECK:    [[cst:%.+]] = const.Declare memref<64x1x1x4xsi32> = dense<1> : tensor<64x1x1x4xsi32>
-    //CHECK:    [[cst_0:%.+]] = const.Declare memref<64x16x7x7x!qElemType, #NHWC> = dense<1.000000e+00> : tensor<64x13x7x7xf16>, [#const.CastElemType<si4>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [0, 3, 0, 0]>]
-    //CHECK:    [[VAR1:%.+]] = memref.alloc() : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>
-    //CHECK:    [[COPY1:%.+]] = VPUIP.Copy inputs([[cst_0]] : memref<64x16x7x7x!qElemType, #NHWC>) outputs([[VAR1]] : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>) -> memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>
+    //CHECK:    [[cst_0:%.+]] = const.Declare memref<64x16x7x7x!qElemType, {order = #NHWC}> = dense<1.000000e+00> : tensor<64x13x7x7xf16>, [#const.CastElemType<si4>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [0, 3, 0, 0]>]
+    //CHECK:    [[VAR1:%.+]] = memref.alloc() : memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
+    //CHECK:    [[COPY1:%.+]] = VPUIP.Copy inputs([[cst_0]] : memref<64x16x7x7x!qElemType, {order = #NHWC}>) outputs([[VAR1]] : memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     //CHECK:    [[VAR2:%.+]] = memref.alloc() : memref<64x1x1x4xsi32, [@CMX_NN, 0]>
     //CHECK:    [[COPY2:%.+]] = VPUIP.Copy inputs([[cst]] : memref<64x1x1x4xsi32>) outputs([[VAR2]] : memref<64x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
-    //CHECK:    [[VAR3:%.+]] = memref.alloc() : memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>
+    //CHECK:    [[VAR3:%.+]] = memref.alloc() : memref<1x64x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]>
     //CHECK:    [[NCE_TASK:%.+]] = VPUIP.NCEClusterTask
     //CHECK-NOT:     cm_sp_pattern
     //CHECK-SAME:    kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>,
     //CHECK-SAME:    kernel_size = [7, 7], kernel_strides = [2, 2],
     //CHECK-SAME:    task_type = #VPUIP.nce_task_type<CONV>
-    //CHECK-SAME:    input([[ARG_0]] : memref<1x8x112x112xf16, #NHWC, [@CMX_NN, 0]>) weights([[COPY1]] : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>)
+    //CHECK-SAME:    input([[ARG_0]] : memref<1x8x112x112xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights([[COPY1]] : memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
     //CHECK-SAME:    weight_table([[COPY2]] : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
-    //CHECK-SAME:    parent_input([[ARG_0]] : memref<1x8x112x112xf16, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:    parent_output([[VAR3]] : memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:    outputs([[VAR3]] : memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:    -> memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    //CHECK-SAME:    parent_input([[ARG_0]] : memref<1x8x112x112xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:    parent_output([[VAR3]] : memref<1x64x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:    outputs([[VAR3]] : memref<1x64x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:    -> memref<1x64x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
     //CHECK:     DPUTask {mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [55, 55, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>}
 
-    //CHECK:           return [[NCE_TASK:%.+]] : memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>
+    //CHECK:           return [[NCE_TASK:%.+]] : memref<1x64x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]>
 }
 
 // -----
@@ -746,12 +746,12 @@ func.func @DoNotCompressConvSubByteWeights(%arg0: memref<1x8x112x112xf16, #NHWC,
 // CHECK-LABEL: @TiledCompressConvWeightsWithExplicitShapeAndOffset
 // CHECK-SAME:    [[INPUT:%.+]]: !VPUIP.DistributedBuffer<1x16x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64, alignment = [1, 16, 1, 1]
 func.func @TiledCompressConvWeightsWithExplicitShapeAndOffset(%arg0: !InputDistributed) -> !OutputDistributed {
-    %cst = const.Declare memref<240x16x1x1xf16, #NHWC> = dense<1.0> :
+    %cst = const.Declare memref<240x16x1x1xf16, {order = #NHWC}> = dense<1.0> :
          tensor<240x10x1x1xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>,
          #const.PadWithZero<[0, 0, 0, 0], [0, 6, 0, 0]>]
     %alloc = VPURT.AllocDistributed -> !WeightsDistributed
     %0 = VPUIP.Copy
-    inputs(%cst : memref<240x16x1x1xf16, #NHWC>)
+    inputs(%cst : memref<240x16x1x1xf16, {order = #NHWC}>)
     outputs(%alloc : !WeightsDistributed)
     -> !WeightsDistributed
 
@@ -795,7 +795,7 @@ func.func @TiledCompressConvWeightsWithExplicitShapeAndOffset(%arg0: !InputDistr
 
     return %2 : !OutputDistributed
 
-    //CHECK-DAG:      [[CST_WEIGHTS:%.+]] = const.Declare memref<240x10x1x1xf16, #NHWC>
+    //CHECK-DAG:      [[CST_WEIGHTS:%.+]] = const.Declare memref<240x10x1x1xf16, {order = #NHWC}>
     //CHECK-DAG:      [[CST_WEIGHTS_TABLE:%.+]] = const.Declare memref<240x1x1x4xsi32>
 
     //CHECK:          [[WEIGHTS_TABLE_ALLOC:%.+]] = VPURT.AllocDistributed
@@ -807,15 +807,20 @@ func.func @TiledCompressConvWeightsWithExplicitShapeAndOffset(%arg0: !InputDistr
 
     //CHECK:          [[WEIGHTS_ALLOC:%.+]] = VPURT.AllocDistributed
     //CHECK:          [[CLUSTER_WEIGHTS:%.+]] = VPUIP.Copy
-    //CHECK-SAME:         inputs([[CST_WEIGHTS]] : memref<240x10x1x1xf16, #NHWC>)
+    //CHECK-SAME:         inputs([[CST_WEIGHTS]] : memref<240x10x1x1xf16, {order = #NHWC}>)
     //CHECK-SAME:         outputs([[WEIGHTS_ALLOC]] : !VPUIP.DistributedBuffer<240x10x1x1xf16
     //CHECK-SAME:         -> !VPUIP.DistributedBuffer<240x10x1x1xf16, {order = #NHWC, strides = [16, 1, 10, 10]}, @CMX_NN,
     //CHECK-SAME:             {mode = "SEGMENTED", num_tiles = [2, 1, 1, 1], num_clusters = 2 : i64, alignment = [16, 1, 1, 1], uniform_distributed_segments,
     //CHECK-SAME{LITERAL}:     compute_shapes = [[128, 10, 1, 1], [112, 10, 1, 1]], compute_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]],
     //CHECK-SAME{LITERAL}:     memory_shapes = [[128, 10, 1, 1], [112, 10, 1, 1]], memory_offsets = [[0, 0, 0, 0], [128, 0, 0, 0]]}>
 
-    //CHECK:          [[WEIGHTS_SHAPE_CAST:%.+]] = VPUIP.ShapeCast {shape = [240, 16, 1, 1]}
+    //CHECK:          [[WEIGHTS_SHAPE_CAST:%.+]] = VPUIP.ShapeCast
+    //CHECK-SAME:         shape = [240, 16, 1, 1]
     //CHECK-SAME:         inputs([[CLUSTER_WEIGHTS]]
+    //CHECK-SAME:         -> !VPUIP.DistributedBuffer<240x16x1x1xf16
+    //CHECK-SAME:             alignment = [16, 1, 1, 1]
+    //CHECK-SAME{LITERAL}:     compute_shapes = [[128, 16, 1, 1], [112, 16, 1, 1]]
+    //CHECK-SAME{LITERAL}:     memory_shapes = [[128, 16, 1, 1], [112, 16, 1, 1]]
 
     //CHECK:          [[CONV_OUT:%.+]] = VPUIP.NCEClusterTask
     //CHECK-SAME:         input([[INPUT]]
@@ -832,12 +837,12 @@ func.func @TiledCompressConvWeightsWithExplicitShapeAndOffset(%arg0: !InputDistr
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @DoNotCompressConvWithoutPadZero
-// CHECK-SAME:      [[INPUT:%.+]]: memref<1x96x96x96xf16, #NHWC, @DDR>
-func.func @DoNotCompressConvWithoutPadZero(%arg0: memref<1x96x96x96xf16, #NHWC, @DDR>) -> memref<1x32x96x96xf16, #NHWC, @DDR> {
+// CHECK-SAME:      [[INPUT:%.+]]: memref<1x96x96x96xf16, {order = #NHWC}, @DDR>
+func.func @DoNotCompressConvWithoutPadZero(%arg0: memref<1x96x96x96xf16, {order = #NHWC}, @DDR>) -> memref<1x32x96x96xf16, {order = #NHWC}, @DDR> {
     %cst = const.Declare memref<32x1x1x4xsi32> = dense<1> : tensor<32x1x1x4xsi32>
-    %cst_0 = const.Declare memref<32x32x3x3xf16, #NHWC> = dense<1.0> :
+    %cst_0 = const.Declare memref<32x32x3x3xf16, {order = #NHWC}> = dense<1.0> :
         tensor<1x1x3x9216xf16>, [#const.Reshape<[96, 32, 3, 3]>, #const.SubView<[64, 0, 0, 0], [32, 32, 3, 3]>, #const.Reorder<#NHWC>]
-    %0 = VPUIP.SubView %arg0 [0, 64, 0, 0] [1, 32, 96, 96] : memref<1x96x96x96xf16, #NHWC, @DDR>
+    %0 = VPUIP.SubView %arg0 [0, 64, 0, 0] [1, 32, 96, 96] : memref<1x96x96x96xf16, {order = #NHWC}, @DDR>
         to memref<1x32x96x96xf16, {order = #NHWC, strides = [884736, 1, 9216, 96]}, @DDR>
     %1 = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x32x96x96xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
     %2 = VPUIP.Copy
@@ -845,7 +850,7 @@ func.func @DoNotCompressConvWithoutPadZero(%arg0: memref<1x96x96x96xf16, #NHWC, 
         outputs(%1 : !VPUIP.DistributedBuffer<1x32x96x96xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) -> !VPUIP.DistributedBuffer<1x32x96x96xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
     %3 = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<32x32x3x3xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
     %4 = VPUIP.Copy
-        inputs(%cst_0 : memref<32x32x3x3xf16, #NHWC>)
+        inputs(%cst_0 : memref<32x32x3x3xf16, {order = #NHWC}>)
         outputs(%3 : !VPUIP.DistributedBuffer<32x32x3x3xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>) -> !VPUIP.DistributedBuffer<32x32x3x3xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
     %5 = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<32x1x1x4xsi32, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
     %6 = VPUIP.Copy
@@ -865,22 +870,22 @@ func.func @DoNotCompressConvWithoutPadZero(%arg0: memref<1x96x96x96xf16, #NHWC, 
     } PPE : {
         PPETask {ppe = #VPU.PPEStub<>}
     }
-    %alloc = memref.alloc() : memref<1x32x96x96xf16, #NHWC, @DDR>
+    %alloc = memref.alloc() : memref<1x32x96x96xf16, {order = #NHWC}, @DDR>
     %9 = VPUIP.Copy
         inputs(%8 : !VPUIP.DistributedBuffer<1x32x96x96xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>)
-        outputs(%alloc : memref<1x32x96x96xf16, #NHWC, @DDR>) -> memref<1x32x96x96xf16, #NHWC, @DDR>
+        outputs(%alloc : memref<1x32x96x96xf16, {order = #NHWC}, @DDR>) -> memref<1x32x96x96xf16, {order = #NHWC}, @DDR>
 
-    return %9 : memref<1x32x96x96xf16, #NHWC, @DDR>
+    return %9 : memref<1x32x96x96xf16, {order = #NHWC}, @DDR>
 
     //CHECK-DAG:    [[CST:%.+]] = const.Declare memref<32x1x1x4xsi32> = dense<1> : tensor<32x1x1x4xsi32>
-    //CHECK-DAG:    [[CST_0:%.+]] = const.Declare memref<32x32x3x3xf16, #NHWC> = dense<1.000000e+00> :
+    //CHECK-DAG:    [[CST_0:%.+]] = const.Declare memref<32x32x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> :
     //CHECK-SAME:       tensor<1x1x3x9216xf16>, [#const.Reshape<[96, 32, 3, 3]>, #const.SubView<[64, 0, 0, 0], [32, 32, 3, 3]>, #const.Reorder<#NHWC>]
-    //CHECK:        [[VAR0:%.+]] = VPUIP.SubView [[INPUT]] [0, 64, 0, 0] [1, 32, 96, 96] : memref<1x96x96x96xf16, #NHWC, @DDR> to memref<1x32x96x96xf16, {order = #NHWC, strides = [884736, 1, 9216, 96]}, @DDR>
+    //CHECK:        [[VAR0:%.+]] = VPUIP.SubView [[INPUT]] [0, 64, 0, 0] [1, 32, 96, 96] : memref<1x96x96x96xf16, {order = #NHWC}, @DDR> to memref<1x32x96x96xf16, {order = #NHWC, strides = [884736, 1, 9216, 96]}, @DDR>
     //CHECK:        [[VAR1:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x32x96x96xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
     //CHECK:        [[VAR2:%.+]] = VPUIP.Copy inputs([[VAR0]] : memref<1x32x96x96xf16, {order = #NHWC, strides = [884736, 1, 9216, 96]}, @DDR>) outputs([[VAR1]] : !VPUIP.DistributedBuffer<1x32x96x96xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) -> !VPUIP.DistributedBuffer<1x32x96x96xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
     //CHECK:        [[VAR3:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<32x32x3x3xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
     // CHECK:       [[VAR4:%.+]] = VPUIP.Copy
-    // CHECK-SAME:     inputs([[CST_0]] : memref<32x32x3x3xf16, #NHWC>)
+    // CHECK-SAME:     inputs([[CST_0]] : memref<32x32x3x3xf16, {order = #NHWC}>)
     // CHECK-SAME:     outputs([[VAR3]] : !VPUIP.DistributedBuffer<32x32x3x3xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>) -> !VPUIP.DistributedBuffer<32x32x3x3xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
     //CHECK:        [[VAR5:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<32x1x1x4xsi32, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
     //CHECK:        [[VAR6:%.+]] = VPUIP.Copy
@@ -900,11 +905,11 @@ func.func @DoNotCompressConvWithoutPadZero(%arg0: memref<1x96x96x96xf16, #NHWC, 
     //CHECK:        } PPE : {
     //CHECK:            PPETask {ppe = #VPU.PPEStub<>}
     //CHECK:        }
-    //CHECK:        [[ALLOC:%.+]] = memref.alloc() : memref<1x32x96x96xf16, #NHWC, @DDR>
+    //CHECK:        [[ALLOC:%.+]] = memref.alloc() : memref<1x32x96x96xf16, {order = #NHWC}, @DDR>
     // CHECK:       [[VAR9:%.+]] = VPUIP.Copy
     // CHECK-SAME:     inputs([[VAR8]] : !VPUIP.DistributedBuffer<1x32x96x96xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>)
-    // CHECK-SAME:     outputs([[ALLOC]] : memref<1x32x96x96xf16, #NHWC, @DDR>) -> memref<1x32x96x96xf16, #NHWC, @DDR>
-    //CHECK:       return [[VAR9]] : memref<1x32x96x96xf16, #NHWC, @DDR>
+    // CHECK-SAME:     outputs([[ALLOC]] : memref<1x32x96x96xf16, {order = #NHWC}, @DDR>) -> memref<1x32x96x96xf16, {order = #NHWC}, @DDR>
+    //CHECK:       return [[VAR9]] : memref<1x32x96x96xf16, {order = #NHWC}, @DDR>
 }
 
 // -----
@@ -941,14 +946,14 @@ func.func @DoNotCompressConvWithoutPadZero(%arg0: memref<1x96x96x96xf16, #NHWC, 
 // CHECK-LABEL: @DoNotCompressConvWeightsWithNonICPadAttr
 // CHECK-SAME:    [[INPUT:%.+]]: !VPUIP.DistributedBuffer<1x16x129x64xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
 func.func @DoNotCompressConvWeightsWithNonICPadAttr(%arg0: !InputDistributed) -> !OutputDistributed {
-    %cst = const.Declare memref<16x16x2x1xf16, #NHWC> = dense<1.0> :
+    %cst = const.Declare memref<16x16x2x1xf16, {order = #NHWC}> = dense<1.0> :
         tensor<1x1x2x1xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>,
         #const.PadWithZero<[0, 0, 0, 0], [0, 15, 0, 0]>, #const.PadWithZero<[0, 0, 0, 0], [15, 0, 0, 0]>]
     %cst_1 = const.Declare memref<16x1x1x4xsi32> = dense<1> : tensor<16x1x1x4xsi32>
 
     %0 = VPURT.AllocDistributed -> !WeightsDistributed
     %1 = VPUIP.Copy
-        inputs(%cst : memref<16x16x2x1xf16, #NHWC>)
+        inputs(%cst : memref<16x16x2x1xf16, {order = #NHWC}>)
         outputs(%0 : !WeightsDistributed)
         -> !WeightsDistributed
     %2 = VPURT.AllocDistributed -> !WeightTableDistributed
@@ -988,11 +993,11 @@ func.func @DoNotCompressConvWeightsWithNonICPadAttr(%arg0: !InputDistributed) ->
 
     return %5 : !OutputDistributed
 
-    //CHECK-DAG:    [[WEIGHTS:%.+]] = const.Declare memref<16x16x2x1xf16, #NHWC> = dense<1.000000e+00> : tensor<1x1x2x1xf32>
+    //CHECK-DAG:    [[WEIGHTS:%.+]] = const.Declare memref<16x16x2x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<1x1x2x1xf32>
     //CHECK-DAG:    [[WEIGHTS_TABLE:%.+]] = const.Declare memref<16x1x1x4xsi32> = dense<1> : tensor<16x1x1x4xsi32>
 
     //CHECK:        [[ALLOC_W:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<16x16x2x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
-    //CHECK:        [[WEIGHTS_CMX:%.+]] = VPUIP.Copy inputs([[WEIGHTS]] : memref<16x16x2x1xf16, #NHWC>)
+    //CHECK:        [[WEIGHTS_CMX:%.+]] = VPUIP.Copy inputs([[WEIGHTS]] : memref<16x16x2x1xf16, {order = #NHWC}>)
     //CHECK-SAME:           outputs([[ALLOC_W]] : !VPUIP.DistributedBuffer<16x16x2x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>)
     //CHECK-SAME:           -> !VPUIP.DistributedBuffer<16x16x2x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
 
@@ -1026,33 +1031,33 @@ func.func @DoNotCompressConvWeightsWithNonICPadAttr(%arg0: !InputDistributed) ->
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @CompressConvWeightsWithReshape
-// CHECK-SAME:    [[INPUT:%.+]]: memref<1x16x256x4xf16, #NHWC, [@CMX_NN, 0]>
+// CHECK-SAME:    [[INPUT:%.+]]: memref<1x16x256x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
 func.func @CompressConvWeightsWithReshape(
-    %INPUT: memref<1x16x256x4xf16, #NHWC, [@CMX_NN, 0]>
-) -> memref<1x128x256x4xf16, #NHWC, [@CMX_NN, 0]> {
-    %CST_WEIGHTS = const.Declare memref<128x16x1x1xf16, #NHWC> = dense<1.0> : tensor<1x1x128x9xf32>, [
+    %INPUT: memref<1x16x256x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+) -> memref<1x128x256x4xf16, {order = #NHWC}, [@CMX_NN, 0]> {
+    %CST_WEIGHTS = const.Declare memref<128x16x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<1x1x128x9xf32>, [
         #const.Reshape<[128, 9]>,
         #const.Reshape<[128, 9, 1, 1]>,
         #const.CastElemType<f16>,
         #const.Reorder<#NHWC>,
         #const.PadWithZero<[0, 0, 0, 0], [0, 7, 0, 0]>
     ]
-    // CHECK:   [[CST_WEIGHTS:%.+]] = const.Declare memref<128x16x1x1xf16, #NHWC>
+    // CHECK:   [[CST_WEIGHTS:%.+]] = const.Declare memref<128x16x1x1xf16, {order = #NHWC}>
 
     %WEIGHTS_TABLE = const.Declare memref<128x1x1x4xsi32> = dense<1> : tensor<128x1x1x4xsi32>
     // CHECK:   [[WEIGHTS_TABLE:%.+]] = const.Declare memref<128x1x1x4xsi32>
 
-    %ALLOC_WEIGHTS = memref.alloc() : memref<128x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
-    // CHECK:   [[ALLOC_WEIGHTS:%.+]] = memref.alloc() : memref<128x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+    %ALLOC_WEIGHTS = memref.alloc() : memref<128x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    // CHECK:   [[ALLOC_WEIGHTS:%.+]] = memref.alloc() : memref<128x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     %WEIGHTS_COPY = VPUIP.Copy
-        inputs(%CST_WEIGHTS : memref<128x16x1x1xf16, #NHWC>)
-        outputs(%ALLOC_WEIGHTS : memref<128x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-         -> memref<128x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+        inputs(%CST_WEIGHTS : memref<128x16x1x1xf16, {order = #NHWC}>)
+        outputs(%ALLOC_WEIGHTS : memref<128x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+         -> memref<128x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     // CHECK:   [[WEIGHTS_COPY:%.+]] = VPUIP.Copy
-    // CHECK-SAME:  inputs([[CST_WEIGHTS]] : memref<128x16x1x1xf16, #NHWC>)
-    // CHECK-SAME:  outputs([[ALLOC_WEIGHTS]] : memref<128x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK-SAME:  inputs([[CST_WEIGHTS]] : memref<128x16x1x1xf16, {order = #NHWC}>)
+    // CHECK-SAME:  outputs([[ALLOC_WEIGHTS]] : memref<128x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
 
     %ALLOC_WEIGHTS_TABLE = memref.alloc() : memref<128x1x1x4xsi32, [@CMX_NN, 0]>
     // CHECK:   [[ALLOC_WEIGHTS_TABLE:%.+]] = memref.alloc() : memref<128x1x1x4xsi32, [@CMX_NN, 0]>
@@ -1066,8 +1071,8 @@ func.func @CompressConvWeightsWithReshape(
     // CHECK-SAME:  inputs([[WEIGHTS_TABLE]] : memref<128x1x1x4xsi32>)
     // CHECK-SAME:  outputs([[ALLOC_WEIGHTS_TABLE]] : memref<128x1x1x4xsi32, [@CMX_NN, 0]>)
 
-    %ALLOC_OUTPUT = memref.alloc() : memref<1x128x256x4xf16, #NHWC, [@CMX_NN, 0]>
-    // CHECK:   [[ALLOC_OUTPUT:%.+]] = memref.alloc() : memref<1x128x256x4xf16, #NHWC, [@CMX_NN, 0]>
+    %ALLOC_OUTPUT = memref.alloc() : memref<1x128x256x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    // CHECK:   [[ALLOC_OUTPUT:%.+]] = memref.alloc() : memref<1x128x256x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     %NCE = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 3005 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
           kernel_padding = #VPU.Padding<
@@ -1080,13 +1085,13 @@ func.func @CompressConvWeightsWithReshape(
           kernel_strides = [1, 1],
           task_type = #VPUIP.nce_task_type<CONV>
     }>
-    input(%INPUT : memref<1x16x256x4xf16, #NHWC, [@CMX_NN, 0]>)
-    weights(%WEIGHTS_COPY : memref<128x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
+    input(%INPUT : memref<1x16x256x4xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    weights(%WEIGHTS_COPY : memref<128x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
     weight_table(%WEIGHTS_TABLE_COPY : memref<128x1x1x4xsi32, [@CMX_NN, 0]>)
-    parent_input(%INPUT : memref<1x16x256x4xf16, #NHWC, [@CMX_NN, 0]>)
-    parent_output(%ALLOC_OUTPUT : memref<1x128x256x4xf16, #NHWC, [@CMX_NN, 0]>)
-    outputs(%ALLOC_OUTPUT : memref<1x128x256x4xf16, #NHWC, [@CMX_NN, 0]>)
-        -> memref<1x128x256x4xf16, #NHWC, [@CMX_NN, 0]>
+    parent_input(%INPUT : memref<1x16x256x4xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    parent_output(%ALLOC_OUTPUT : memref<1x128x256x4xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    outputs(%ALLOC_OUTPUT : memref<1x128x256x4xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+        -> memref<1x128x256x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
     variants : {
         DPUTask {
      mpe_mode = #VPU.mpe_mode<CUBOID_16x16>,
@@ -1097,13 +1102,13 @@ func.func @CompressConvWeightsWithReshape(
     } PPE : {
     }
     // CHECK:   [[NCE:%.+]] = VPUIP.NCEClusterTask
-    // CHECK-SAME:  input([[INPUT]] : memref<1x16x256x4xf16, #NHWC, [@CMX_NN, 0]>)
-    // CHECK-SAME:  weights([[WEIGHTS_COPY]] : memref<128x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK-SAME:  input([[INPUT]] : memref<1x16x256x4xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK-SAME:  weights([[WEIGHTS_COPY]] : memref<128x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
     // CHECK-SAME:  weight_table([[WEIGHTS_TABLE_COPY]] : memref<128x1x1x4xsi32, [@CMX_NN, 0]>)
-    // CHECK-SAME:  parent_input([[INPUT]] : memref<1x16x256x4xf16, #NHWC, [@CMX_NN, 0]>)
-    // CHECK-SAME:  parent_output([[ALLOC_OUTPUT]] : memref<1x128x256x4xf16, #NHWC, [@CMX_NN, 0]>)
-    // CHECK-SAME:  outputs([[ALLOC_OUTPUT]] : memref<1x128x256x4xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK-SAME:  parent_input([[INPUT]] : memref<1x16x256x4xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK-SAME:  parent_output([[ALLOC_OUTPUT]] : memref<1x128x256x4xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK-SAME:  outputs([[ALLOC_OUTPUT]] : memref<1x128x256x4xf16, {order = #NHWC}, [@CMX_NN, 0]>)
 
-    return %NCE : memref<1x128x256x4xf16, #NHWC, [@CMX_NN, 0]>
-    // CHECK:   return [[NCE]] : memref<1x128x256x4xf16, #NHWC, [@CMX_NN, 0]>
+    return %NCE : memref<1x128x256x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    // CHECK:   return [[NCE]] : memref<1x128x256x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
 }

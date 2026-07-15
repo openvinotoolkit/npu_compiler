@@ -39,7 +39,7 @@ module @BypassOutline_NoDebatchAttribute attributes {config.no_debatch_attribute
 
 // CHECK: DataInfo "output" : tensor<3x48x60x60xf16>
 
-// CHECK-NOT: func.func private @main_batching1
+// CHECK-NOT: func.func nested @main_batching1
 
 // CHECK: func.func @main([[ARG0:%.+]]: tensor<3x3x62x62xf32>) -> tensor<3x48x60x60xf32> {
 // CHECK:   [[NOT_OUTLINED_BEGIN:%.+]] = const.Declare tensor<48x3x3x3xf32>
@@ -86,7 +86,7 @@ module @OneInputOneOutput attributes {config.debatch} {
 
 // CHECK: DataInfo "output" : tensor<3x48x60x60xf16>
 
-// CHECK: func.func private @main_batching1([[ARG0:%.+]]: tensor<1x3x62x62xf32>) -> tensor<1x48x60x60xf32> {
+// CHECK: func.func nested @main_batching1([[ARG0:%.+]]: tensor<1x3x62x62xf32>) -> tensor<1x48x60x60xf32> {
 // CHECK:   [[CST:%.+]] = const.Declare tensor<48x3x3x3xf32> = dense<1.000000e+00> : tensor<48x3x3x3xf32>
 // CHECK:   [[CONV:%.+]] = IE.Convolution([[ARG0]], [[CST]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x3x62x62xf32>, tensor<48x3x3x3xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   [[SOFT:%.+]] = IE.SoftMax([[CONV]]) {axisInd = 1 : i64} : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
@@ -142,7 +142,7 @@ module @MultipleInputsOneOutput attributes {config.debatch} {
 
 // CHECK: DataInfo "output" : tensor<3x48x60x60xf32>
 
-// CHECK: func.func private @main_batching1([[ARG0:%.+]]: tensor<1x3x62x62xf32>, [[ARG1:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
+// CHECK: func.func nested @main_batching1([[ARG0:%.+]]: tensor<1x3x62x62xf32>, [[ARG1:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
 // CHECK:   [[CST:%.+]] = const.Declare tensor<48x3x3x3xf32> = dense<1.000000e+00> : tensor<48x3x3x3xf32>
 // CHECK:   [[CONV:%.+]] = IE.Convolution([[ARG0]], [[CST]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x3x62x62xf32>, tensor<48x3x3x3xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   [[SOFT:%.+]] = IE.SoftMax([[CONV]]) {axisInd = 1 : i64} : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
@@ -198,7 +198,7 @@ module @OneInputMultipleOutputsFirstSlice attributes {config.debatch} {
 // CHECK: DataInfo "output0" : tensor<3x48x60x60xf16>
 // CHECK: DataInfo "output1" : tensor<1x48x60x60xf16>
 
-// CHECK: func.func private @main_batching1([[ARG0:%.+]]: tensor<1x3x62x62xf32>) -> (tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>) {
+// CHECK: func.func nested @main_batching1([[ARG0:%.+]]: tensor<1x3x62x62xf32>) -> (tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>) {
 // CHECK:   [[CST:%.+]] = const.Declare tensor<48x3x3x3xf32> = dense<1.000000e+00> : tensor<48x3x3x3xf32>
 // CHECK:   [[CONV:%.+]] = IE.Convolution([[ARG0]], [[CST]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x3x62x62xf32>, tensor<48x3x3x3xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   [[SOFT:%.+]] = IE.SoftMax([[CONV]]) {axisInd = 1 : i64} : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
@@ -254,7 +254,7 @@ module @OneInputMultipleOutputsLastSlice attributes {config.debatch} {
 // CHECK: DataInfo "output0" : tensor<3x48x60x60xf16>
 // CHECK: DataInfo "output1" : tensor<3x48x60x60xf16>
 
-// CHECK: func.func private @main_batching1([[ARG0:%.+]]: tensor<1x3x62x62xf32>) -> (tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>) {
+// CHECK: func.func nested @main_batching1([[ARG0:%.+]]: tensor<1x3x62x62xf32>) -> (tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>) {
 // CHECK:   [[CST:%.+]] = const.Declare tensor<48x3x3x3xf32> = dense<1.000000e+00> : tensor<48x3x3x3xf32>
 // CHECK:   [[CONV:%.+]] = IE.Convolution([[ARG0]], [[CST]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x3x62x62xf32>, tensor<48x3x3x3xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   [[SOFT:%.+]] = IE.SoftMax([[CONV]]) {axisInd = 1 : i64} : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
@@ -326,7 +326,7 @@ module @MultipleInputsMultipleOutputs attributes {config.debatch} {
 // CHECK: DataInfo "output3" : tensor<3x48x60x60xf16>
 // CHECK: DataInfo "output4" : tensor<3x48x60x60xf16>
 
-// CHECK: func.func private @main_batching1([[ARG0:%.+]]: tensor<1x3x62x62xf32>) -> (tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>) {
+// CHECK: func.func nested @main_batching1([[ARG0:%.+]]: tensor<1x3x62x62xf32>) -> (tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>) {
 // CHECK:   [[CST:%.+]] = const.Declare tensor<48x3x3x3xf32> = dense<1.000000e+00> : tensor<48x3x3x3xf32>
 // CHECK:   [[CONV:%.+]] = IE.Convolution([[ARG0]], [[CST]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x3x62x62xf32>, tensor<48x3x3x3xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   [[SOFT:%.+]] = IE.SoftMax([[CONV]]) {axisInd = 1 : i64} : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
@@ -398,7 +398,7 @@ module @MultipleInputsMultipleOutputsWithDebatchedConstants attributes {config.d
 // CHECK: DataInfo "output3" : tensor<3x62x62xf32>
 // CHECK: DataInfo "output4" : tensor<3x62x62xf32>
 
-// CHECK: func.func private @main_batching1([[ARG0:%.+]]: tensor<1x3x62x62xf32>, [[ARG1:%.+]]: tensor<1x62x62xf32>, [[ARG2:%.+]]: tensor<1x62x62xf32>, [[ARG3:%.+]]: tensor<1x1xsi32>) -> (tensor<1x62x62xf32>, tensor<1x62x62xf32>, tensor<1x62x62xf32>, tensor<1x62x62xf32>, tensor<1x62x62xf32>) {
+// CHECK: func.func nested @main_batching1([[ARG0:%.+]]: tensor<1x3x62x62xf32>, [[ARG1:%.+]]: tensor<1x62x62xf32>, [[ARG2:%.+]]: tensor<1x62x62xf32>, [[ARG3:%.+]]: tensor<1x1xsi32>) -> (tensor<1x62x62xf32>, tensor<1x62x62xf32>, tensor<1x62x62xf32>, tensor<1x62x62xf32>, tensor<1x62x62xf32>) {
 // CHECK:   [[CONV:%.+]] = IE.GatherND([[ARG0]], [[ARG3]]) {batch_dims = 1 : i64} : tensor<1x3x62x62xf32>, tensor<1x1xsi32> -> tensor<1x62x62xf32>
 // CHECK:   [[SOFT:%.+]] = IE.SoftMax([[CONV]]) {axisInd = 1 : i64} : tensor<1x62x62xf32> -> tensor<1x62x62xf32>
 // CHECK:   [[RET_ADD0:%.+]] = IE.Add([[SOFT]], [[CONV]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x62x62xf32>, tensor<1x62x62xf32> -> tensor<1x62x62xf32>

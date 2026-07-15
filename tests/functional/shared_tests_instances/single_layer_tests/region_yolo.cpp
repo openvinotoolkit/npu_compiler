@@ -13,6 +13,9 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(RegionYoloLayerTest);
+
 class RegionYoloLayerTestCommon : public RegionYoloLayerTest, virtual public VpuOv2LayerTest {
     void SetUp() override {
         std::vector<size_t> inputShape;

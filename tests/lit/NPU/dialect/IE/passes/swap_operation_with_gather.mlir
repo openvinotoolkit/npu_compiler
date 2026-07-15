@@ -175,16 +175,57 @@ func.func @MoveTwoAxesDynamicDQAfterGather(%arg0: tensor<256128x36x128x!qElemTyp
 // CHECK-LABEL: @NotMoveDynamicDQWithZPAfterGather
 // CHECK-SAME:      [[INPUT_0:%.+]]: tensor<645632x224x!qElemType>
 // CHECK-SAME:      [[INPUT_1:%.+]]: tensor<645632x1xf16>
-// CHECK-SAME:      [[INPUT_2:%.+]]: tensor<645632x224xi4>
+// CHECK-SAME:      [[INPUT_2:%.+]]: tensor<645632x224xsi4>
 // CHECK-SAME:      [[INPUT_3:%.+]]: tensor<1x1024xsi32>
-func.func @NotMoveDynamicDQWithZPAfterGather(%arg0: tensor<645632x224x!qElemType>, %arg1: tensor<645632x1xf16>, %arg2: tensor<645632x224xi4>, %arg3: tensor<1x1024xsi32>) -> tensor<1x1024x224xf16> {
-    %0 = IE.DynamicDequantize(%arg0, %arg1, %arg2) {dstElemType = f16} : tensor<645632x224x!qElemType>, tensor<645632x1xf16>, tensor<645632x224xi4> -> tensor<645632x224xf16>
+func.func @NotMoveDynamicDQWithZPAfterGather(%arg0: tensor<645632x224x!qElemType>, %arg1: tensor<645632x1xf16>, %arg2: tensor<645632x224xsi4>, %arg3: tensor<1x1024xsi32>) -> tensor<1x1024x224xf16> {
+    %0 = IE.DynamicDequantize(%arg0, %arg1, %arg2) {dstElemType = f16} : tensor<645632x224x!qElemType>, tensor<645632x1xf16>, tensor<645632x224xsi4> -> tensor<645632x224xf16>
     %1 = IE.Gather(%0, %arg3) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 2 : i64} : tensor<645632x224xf16>, tensor<1x1024xsi32> -> tensor<1x1024x224xf16>
 
     return %1 : tensor<1x1024x224xf16>
 
-    // CHECK:       [[DQ:%.+]] = IE.DynamicDequantize([[INPUT_0]], [[INPUT_1]], [[INPUT_2]]) {dstElemType = f16} : tensor<645632x224x!qElemType>, tensor<645632x1xf16>, tensor<645632x224xi4> -> tensor<645632x224xf16>
+    // CHECK:       [[DQ:%.+]] = IE.DynamicDequantize([[INPUT_0]], [[INPUT_1]], [[INPUT_2]]) {dstElemType = f16} : tensor<645632x224x!qElemType>, tensor<645632x1xf16>, tensor<645632x224xsi4> -> tensor<645632x224xf16>
     // CHECK:       [[GATHER:%.+]] = IE.Gather([[DQ]], [[INPUT_3]]) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 2 : i64} : tensor<645632x224xf16>, tensor<1x1024xsi32> -> tensor<1x1024x224xf16>
 
+    // CHECK:       return [[GATHER]] : tensor<1x1024x224xf16>
+}
+
+// -----
+
+!qElemType = !quant.uniform<i8:f32, 1.000000e+00>
+
+// CHECK-LABEL: @MoveDynamicDQAfterGatherWithPerTensorScale
+// CHECK-SAME:      [[INPUT_0:%.+]]: tensor<64xsi32>
+func.func @MoveDynamicDQAfterGatherWithPerTensorScale(%arg0: tensor<64xsi32>) -> tensor<64x512xf32> {
+    %cst = const.Declare tensor<4096x512x!qElemType> = dense<1> : tensor<4096x512xsi8>, [#const.CastElemType<f32>, #const.CastElemType<si8>, #const.CastElemType<!qElemType>]
+    %cst_0 = const.Declare tensor<1x1xf16> = dense<3.921570e-03> : tensor<1x1xf32>, [#const.CastElemType<f16>]
+    %0 = IE.DynamicDequantize(%cst, %cst_0) {dstElemType = f16} : tensor<4096x512x!qElemType>, tensor<1x1xf16> -> tensor<4096x512xf16>
+    %1 = IE.Gather(%0, %arg0) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64} : tensor<4096x512xf16>, tensor<64xsi32> -> tensor<64x512xf16>
+    %2 = IE.Convert(%1) {dstElemType = f32} : tensor<64x512xf16> -> tensor<64x512xf32>
+    return %2 : tensor<64x512xf32>
+
+    // Weights are gathered; per-tensor scale [1x1] is passed through unchanged.
+    // CHECK-DAG:   [[WEIGHT:%.+]] = const.Declare tensor<4096x512x!qElemType>
+    // CHECK-DAG:   [[SCALE:%.+]]  = const.Declare tensor<1x1xf16>
+    // CHECK:       [[GATHER:%.+]] = IE.Gather([[WEIGHT]], [[INPUT_0]]) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64} : tensor<4096x512x!qElemType>, tensor<64xsi32> -> tensor<64x512x!qElemType>
+    // CHECK:       [[DQ:%.+]]     = IE.DynamicDequantize([[GATHER]], [[SCALE]]) {dstElemType = f16} : tensor<64x512x!qElemType>, tensor<1x1xf16> -> tensor<64x512xf16>
+    // CHECK:       [[CONVERT:%.+]] = IE.Convert([[DQ]]) {dstElemType = f32} : tensor<64x512xf16> -> tensor<64x512xf32>
+    // CHECK:       return [[CONVERT]] : tensor<64x512xf32>
+}
+
+// -----
+
+!qElemType = !quant.uniform<i8:f32, 1.000000e+00>
+
+// CHECK-LABEL: @NotMoveDynamicDQAfterGatherPerColumnScaleRankMismatch
+// CHECK-SAME:      [[INPUT_0:%.+]]: tensor<645632x224x!qElemType>
+// CHECK-SAME:      [[INPUT_1:%.+]]: tensor<1x224xf16>
+// CHECK-SAME:      [[INPUT_2:%.+]]: tensor<1x1024xsi32>
+func.func @NotMoveDynamicDQAfterGatherPerColumnScaleRankMismatch(%arg0: tensor<645632x224x!qElemType>, %arg1: tensor<1x224xf16>, %arg2: tensor<1x1024xsi32>) -> tensor<1x1024x224xf16> {
+    %0 = IE.DynamicDequantize(%arg0, %arg1) {dstElemType = f16} : tensor<645632x224x!qElemType>, tensor<1x224xf16> -> tensor<645632x224xf16>
+    %1 = IE.Gather(%0, %arg2) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 2 : i64} : tensor<645632x224xf16>, tensor<1x1024xsi32> -> tensor<1x1024x224xf16>
+    return %1 : tensor<1x1024x224xf16>
+
+    // CHECK:       [[DQ:%.+]]    = IE.DynamicDequantize([[INPUT_0]], [[INPUT_1]]) {dstElemType = f16} : tensor<645632x224x!qElemType>, tensor<1x224xf16> -> tensor<645632x224xf16>
+    // CHECK:       [[GATHER:%.+]] = IE.Gather([[DQ]], [[INPUT_2]]) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 2 : i64} : tensor<645632x224xf16>, tensor<1x1024xsi32> -> tensor<1x1024x224xf16>
     // CHECK:       return [[GATHER]] : tensor<1x1024x224xf16>
 }

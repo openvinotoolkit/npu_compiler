@@ -11,14 +11,14 @@ VPURT.SW.Runtime
     stack_configuration: [4096, 4096, 4096, 4096]
 
 module @VPU.SW {
-func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
+func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
     attributes {
         VPU.kernel_code = "activation_relu.cpp",
         VPU.kernel_entry = "activation_relu",
         VPU.task_type = @COMPUTE
     }
 
-func.func private @runtime()
+func.func nested @runtime()
     attributes {
         VPU.kernel_code = "nnActEntry"
     }
@@ -93,14 +93,14 @@ VPURT.SW.Runtime
     stack_configuration: [4096, 4096, 4096, 4096]
 
 module @VPU.SW {
-func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
+func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
     attributes {
         VPU.kernel_code = "activation_relu.cpp",
         VPU.kernel_entry = "activation_relu",
         VPU.task_type = @COMPUTE
     }
 
-func.func private @runtime()
+func.func nested @runtime()
     attributes {
         VPU.kernel_code = "nnActEntry"
     }
@@ -195,14 +195,14 @@ VPURT.SW.Runtime
     stack_configuration: [4096, 4096, 4096, 4096]
 
 module @VPU.SW {
-func.func private @builtin_relu(%input0 : memref<*xf16>, %input1 : memref<*xf16>, %output0 : memref<*xf16>, %output1 : memref<*xf16>)
+func.func nested @builtin_relu(%input0 : memref<*xf16>, %input1 : memref<*xf16>, %output0 : memref<*xf16>, %output1 : memref<*xf16>)
     attributes {
         VPU.kernel_code = "activation_relu.cpp",
         VPU.kernel_entry = "activation_relu",
         VPU.task_type = @COMPUTE
     }
 
-func.func private @runtime()
+func.func nested @runtime()
     attributes {
         VPU.kernel_code = "nnActEntry"
     }
@@ -310,12 +310,12 @@ VPURT.SW.Runtime
     stack_configuration: [4096, 4096, 4096, 4096]
 
 module @VPU.SW {
-func.func private @cache_flush()
+func.func nested @cache_flush()
     attributes {
         VPU.task_type = @CACHE_FLUSH
     }
 
-func.func private @runtime()
+func.func nested @runtime()
     attributes {
         VPU.kernel_code = "nnActEntry"
     }
@@ -361,14 +361,14 @@ VPURT.SW.Runtime
     stack_configuration: [4096, 4096, 4096, 4096]
 
 module @VPU.SW {
- func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
+ func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
     attributes {
         VPU.kernel_code = "activation_relu.cpp",
         VPU.kernel_entry = "activation_relu",
         VPU.task_type = @COMPUTE
     }
 
-func.func private @runtime()
+func.func nested @runtime()
     attributes {
         VPU.kernel_code = "nnActEntry"
     }
@@ -438,14 +438,14 @@ VPURT.SW.Runtime
     stack_configuration: [4096, 4096, 4096, 4096]
 
 module @VPU.SW {
-func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
+func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
     attributes {
         VPU.kernel_code = "activation_relu.cpp",
         VPU.kernel_entry = "activation_relu",
         VPU.task_type = @COMPUTE
     }
 
-func.func private @runtime()
+func.func nested @runtime()
     attributes {
         VPU.kernel_code = "nnActEntry"
     }
@@ -515,14 +515,14 @@ VPURT.SW.Runtime
     stack_configuration: [4096, 4096, 4096, 4096]
 
 module @VPU.SW {
-func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
+func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
     attributes {
         VPU.kernel_code = "activation_relu.cpp",
         VPU.kernel_entry = "activation_relu",
         VPU.task_type = @COMPUTE
     }
 
-func.func private @runtime()
+func.func nested @runtime()
     attributes {
         VPU.kernel_code = "nnActEntry"
     }
@@ -587,20 +587,20 @@ VPURT.SW.Runtime
     stack_configuration: [4096, 4096, 4096, 4096]
 
 module @VPU.SW {
-func.func private @builtin_Convert(memref<*xf16, @CMX_NN>, memref<*xf32, @CMX_NN>)
+func.func nested @builtin_Convert(memref<*xf16, @CMX_NN>, memref<*xf32, @CMX_NN>)
     attributes {
-        VPU.kernel_code = "single_shave_convert.cpp",
-        VPU.kernel_entry = "single_shave_convert"
+        VPU.kernel_code = "convert.cpp",
+        VPU.kernel_entry = "convert"
     }
 
-func.func private @builtin_Gather(%input : memref<*xf16>, %output : memref<*xf16>)
+func.func nested @builtin_Gather(%input : memref<*xf16>, %output : memref<*xf16>)
     attributes {
-        VPU.kernel_code = "single_shave_gather.cpp",
-        VPU.kernel_entry = "single_shave_gather",
+        VPU.kernel_code = "gather.cpp",
+        VPU.kernel_entry = "gather",
         VPU.task_type = @COMPUTE
     }
 
-func.func private @runtime()
+func.func nested @runtime()
     attributes {
         VPU.kernel_code = "nnActEntry"
     }
@@ -685,8 +685,8 @@ func.func @AddCacheFlushInvalidateSwOpForDDRInputCMXOutput(%arg0: memref<1x1x1x1
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
 module @VPU.SW {
-  func.func private @builtin_Minimum(memref<*xf16>, memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "eltwise_min.cpp", VPU.kernel_entry = "eltwise_min", VPU.task_type = @COMPUTE}
-  func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+  func.func nested @builtin_Minimum(memref<*xf16>, memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "eltwise_min.cpp", VPU.kernel_entry = "eltwise_min", VPU.task_type = @COMPUTE}
+  func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
 // CHECK-LABEL: @AddCacheFlushCacheFlushInvalidate
@@ -778,8 +778,8 @@ func.func @AddCacheFlushCacheFlushInvalidate(%arg0: memref<64x16x16x16xf16, @DDR
 
  VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
 module @VPU.SW {
-  func.func private @builtin_Minimum(memref<*xf16>, memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "eltwise_min.cpp", VPU.kernel_entry = "eltwise_min", VPU.task_type = @COMPUTE}
-  func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+  func.func nested @builtin_Minimum(memref<*xf16>, memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "eltwise_min.cpp", VPU.kernel_entry = "eltwise_min", VPU.task_type = @COMPUTE}
+  func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
   net.NetworkInfo entryPoint : @AddCacheFlushInvalidate inputsInfo : {
   DataInfo "Parameter_224" : tensor<64x16x16x16xf16>
@@ -862,20 +862,20 @@ VPURT.SW.Runtime
     stack_configuration: [4096, 4096, 4096, 4096]
 
 module @VPU.SW {
-func.func private @builtin_Minimum(memref<*xf16>, memref<*xf16>, memref<*xf16>)
+func.func nested @builtin_Minimum(memref<*xf16>, memref<*xf16>, memref<*xf16>)
     attributes {
         VPU.kernel_code = "eltwise_min.cpp",
         VPU.kernel_entry = "eltwise_min",
         VPU.task_type = @COMPUTE
     }
- func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
+ func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
     attributes {
         VPU.kernel_code = "activation_relu.cpp",
         VPU.kernel_entry = "activation_relu",
         VPU.task_type = @COMPUTE
     }
 
-func.func private @runtime()
+func.func nested @runtime()
     attributes {
         VPU.kernel_code = "nnActEntry"
     }
@@ -960,14 +960,14 @@ VPURT.SW.Runtime
     stack_configuration: [4096, 4096, 4096, 4096]
 
 module @VPU.SW {
-func.func private @builtin_GridSample(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i64, i64, none)
+func.func nested @builtin_GridSample(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i64, i64, none)
     attributes {
         VPU.kernel_code = "grid_sample.cpp",
         VPU.kernel_entry = "grid_sample",
         VPU.task_type = @COMPUTE
     }
 
-func.func private @runtime()
+func.func nested @runtime()
     attributes {
         VPU.kernel_code = "nnActEntry"
     }
@@ -1041,14 +1041,14 @@ VPURT.SW.Runtime
     stack_configuration: [4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096]
 
 module @VPU.SW {
-func.func private @builtin_TopK(memref<*xf16>, memref<*xui8>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, i64, i64, i64, i64)
+func.func nested @builtin_TopK(memref<*xf16>, memref<*xui8>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, i64, i64, i64, i64)
     attributes {
         VPU.kernel_code = "topk.cpp",
         VPU.kernel_entry = "topk",
         VPU.task_type = @COMPUTE
     }
 
-func.func private @runtime()
+func.func nested @runtime()
     attributes {
         VPU.kernel_code = "nnActEntry"
     }
@@ -1128,14 +1128,14 @@ VPURT.SW.Runtime
     stack_configuration: [4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096]
 
 module @VPU.SW {
-func.func private @builtin_DeformableConvolution(memref<*xf16>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none, none, none, none, i64, i64, i64, none, none, none, none, none)
+func.func nested @builtin_DeformableConvolution(memref<*xf16>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none, none, none, none, i64, i64, i64, none, none, none, none, none)
     attributes {
         VPU.kernel_code = "deformable_convolution.cpp",
         VPU.kernel_entry = "deformable_convolution",
         VPU.task_type = @COMPUTE
     }
 
-func.func private @runtime()
+func.func nested @runtime()
     attributes {
         VPU.kernel_code = "nnActEntry"
     }
@@ -1229,14 +1229,14 @@ VPURT.SW.Runtime
     stack_configuration: [4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096]
 
 module @VPU.SW {
-func.func private @builtin_TopK(memref<*xf16, [@CMX_NN, 0]>, memref<*xui8>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xui8, @DDR>, i64, i64, i64, i64)
+func.func nested @builtin_TopK(memref<*xf16, [@CMX_NN, 0]>, memref<*xui8>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xui8, @DDR>, i64, i64, i64, i64)
     attributes {
         VPU.kernel_code = "topk.cpp",
         VPU.kernel_entry = "topk",
         VPU.task_type = @COMPUTE
     }
 
-func.func private @runtime()
+func.func nested @runtime()
     attributes {
         VPU.kernel_code = "nnActEntry"
     }

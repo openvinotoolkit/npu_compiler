@@ -19,7 +19,8 @@ void EmptyPassesRegistry::registerPasses() {
 // createPassesRegistry
 //
 
-std::unique_ptr<IPassesRegistry> vpux::createPassesRegistry(config::ArchKind arch) {
+std::unique_ptr<IPassesRegistry> vpux::createPassesRegistry(config::Platform platform) {
+    const auto arch = config::getArch(platform);
     switch (arch) {
     case config::ArchKind::NPU37XX:
         return std::make_unique<EmptyPassesRegistry>();
@@ -28,6 +29,6 @@ std::unique_ptr<IPassesRegistry> vpux::createPassesRegistry(config::ArchKind arc
     case config::ArchKind::NPU50XX:
         return std::make_unique<PassesRegistry50XX>();
     default:
-        VPUX_THROW("Unsupported arch kind: {0}", arch);
+        VPUX_THROW("Unsupported platform: {0}", platform);
     }
 }

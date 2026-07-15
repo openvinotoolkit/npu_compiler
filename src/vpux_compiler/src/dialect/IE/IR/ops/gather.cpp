@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
@@ -326,7 +327,58 @@ mlir::LogicalResult ConstantFoldGather::foldGatherImpl(IE::GatherOp gatherOp, ml
 
 }  // namespace
 
+//
+// BypassSignednessConvertIndices
+//
+
+namespace {
+
+// Removes a signedness-only integer Convert (e.g. si64->ui64, si32->ui32) feeding the indices operand.
+// Gather selects elements by index value, which is identical for both signedness representations of an
+// in-range, non-negative index. On NPU the Gather kernel reads indices as signed int32 regardless of the
+// declared signedness, so such a Convert is a no-op for execution. The software Convert kernel additionally
+// has no implementation for same-width signed->unsigned integer conversions, leaving the destination buffer
+// unwritten (zeroed) and corrupting the gathered result. Bypassing the Convert avoids this and feeds the
+// original signed indices directly.
+class BypassSignednessConvertIndices final : public mlir::OpRewritePattern<IE::GatherOp> {
+public:
+    using mlir::OpRewritePattern<IE::GatherOp>::OpRewritePattern;
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::GatherOp gatherOp, mlir::PatternRewriter& rewriter) const final;
+};
+
+mlir::LogicalResult BypassSignednessConvertIndices::matchAndRewrite(IE::GatherOp gatherOp,
+                                                                    mlir::PatternRewriter& rewriter) const {
+    auto convertOp = gatherOp.getIndices().getDefiningOp<IE::ConvertOp>();
+    if (convertOp == nullptr) {
+        return mlir::failure();
+    }
+
+    const auto srcElemType = mlir::dyn_cast<mlir::IntegerType>(
+            mlir::cast<mlir::ShapedType>(convertOp.getInput().getType()).getElementType());
+    const auto dstElemType = mlir::dyn_cast<mlir::IntegerType>(
+            mlir::cast<mlir::ShapedType>(convertOp.getOutput().getType()).getElementType());
+    if (srcElemType == nullptr || dstElemType == nullptr) {
+        return mlir::failure();
+    }
+
+    // Match only same-width signed->unsigned converts, the case that is value-preserving for non-negative
+    // indices yet unsupported by the software Convert kernel.
+    if (srcElemType.getWidth() != dstElemType.getWidth() || !srcElemType.isSigned() || !dstElemType.isUnsigned()) {
+        return mlir::failure();
+    }
+
+    rewriter.replaceOpWithNewOp<IE::GatherOp>(gatherOp, gatherOp.getType(), gatherOp.getInput(), convertOp.getInput(),
+                                              gatherOp.getAxis(), gatherOp.getAxisValueAttr(), gatherOp.getBatchDims(),
+                                              gatherOp.getIndicesRankAttr());
+    return mlir::success();
+}
+
+}  // namespace
+
 void vpux::IE::GatherOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns, mlir::MLIRContext* context) {
     patterns.add<ConvertConstToAttr>(context);
     patterns.add<ConstantFoldGather>(context);
+    patterns.add<BypassSignednessConvertIndices>(context);
 }

@@ -11,6 +11,20 @@
 
 using namespace vpux;
 
+mlir::LogicalResult vpux::VPU::SelectOp::verify() {
+    const auto condType = mlir::cast<vpux::NDTypeInterface>(getInput1().getType()).getElementType();
+    const auto thenType = mlir::cast<vpux::NDTypeInterface>(getInput2().getType()).getElementType();
+    const auto elseType = mlir::cast<vpux::NDTypeInterface>(getInput3().getType()).getElementType();
+    const auto outType = mlir::cast<vpux::NDTypeInterface>(getOutput().getType()).getElementType();
+
+    if (condType != thenType || thenType != elseType || elseType != outType) {
+        return emitOpError("requires uniform element types across all inputs and output, got ")
+               << "cond=" << condType << ", then=" << thenType << ", else=" << elseType << ", out=" << outType;
+    }
+
+    return mlir::success();
+}
+
 mlir::LogicalResult vpux::VPU::SelectOp::inferReturnTypes(mlir::MLIRContext* ctx, std::optional<mlir::Location> optLoc,
                                                           mlir::ValueRange operands, mlir::DictionaryAttr attrs,
                                                           mlir::OpaqueProperties prop, mlir::RegionRange /*regions*/,

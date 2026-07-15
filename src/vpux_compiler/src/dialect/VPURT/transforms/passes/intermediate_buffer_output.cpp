@@ -143,8 +143,8 @@ mlir::Type insertNewCopyOut(mlir::Value targetBuffer, size_t insertionTaskIndex,
     builder.setInsertionPoint(targetBuffer.getDefiningOp());
     auto memAttr = IndexedSymbolAttr::get(insertionTaskOp.getContext(), stringifyEnum(VPU::MemoryKind::DDR));
     const auto bufferType = mlir::cast<vpux::NDTypeInterface>(targetBuffer.getType());
-    auto newType = mlir::MemRefType::get(bufferType.getShape(), bufferType.getElementType(),
-                                         bufferType.getDimsOrder().toAffineMap(builder.getContext()), memAttr);
+    auto newType =
+            vpux::getMemRefType(bufferType.getShape(), bufferType.getElementType(), bufferType.getDimsOrder(), memAttr);
     // create new output buffer
     auto newBuffer = builder.create<VPURT::DeclareBufferOp>(insertionTaskOp.getLoc(), newType,
                                                             VPURT::BufferSection::NetworkOutput, 0);

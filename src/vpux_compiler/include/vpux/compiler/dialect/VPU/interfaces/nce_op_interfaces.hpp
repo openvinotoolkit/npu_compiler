@@ -5,15 +5,19 @@
 
 #pragma once
 
+#include "vpux/compiler/core/attributes/shape.hpp"
+#include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+#include "vpux/compiler/dialect/VPU/utils/odu_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 namespace vpux {
 namespace VPU {
 
 template <typename ConvType>
 SmallVector<int64_t> getKernelSize(ConvType op) {
-    const auto kernelShape = Shape(parseIntArrayAttr<int64_t>(op.getRawFilterShape()));
+    const auto kernelShape = Shape(op.getConstRawFilterShape());
     auto KY = kernelShape[Dims4D::Filter::KY];
     auto KX = kernelShape[Dims4D::Filter::KX];
     if (kernelShape.size() == DimsGroups5D::Filter::numDims) {
@@ -160,6 +164,21 @@ public:
     mlir::Value getWeightsTableOperand(mlir::Operation*) const {
         return nullptr;
     }
+    mlir::Value getWeightTableDataPtrOperand(mlir::Operation*) const {
+        return nullptr;
+    }
+    mlir::Value getWeightTableSpPtrOperand(mlir::Operation*) const {
+        return nullptr;
+    }
+    mlir::Value getWeightTableScaleOperand(mlir::Operation* op) const {
+        return mlir::cast<ConcreteOp>(op).getWeightTableScale();
+    }
+    mlir::Value getWeightTableBiasOperand(mlir::Operation* op) const {
+        return mlir::cast<ConcreteOp>(op).getWeightTableBias();
+    }
+    mlir::Value getWeightZeroPointsOperand(mlir::Operation*) const {
+        return nullptr;
+    }
 };
 
 template <typename ConcreteModel, typename ConcreteOp>
@@ -168,8 +187,19 @@ public:
     mlir::Value getWeightsTableOperand(mlir::Operation* op) const {
         return mlir::cast<ConcreteOp>(op).getWeightsTable();
     }
-    bool getS2DD2SSupported(::mlir::Operation*) const {
-        return true;
+
+    SmallVector<vpux::VPU::ODUDimScale> getODUScaling(mlir::Operation* op) const {
+        auto concreteOp = mlir::cast<ConcreteOp>(op);
+        const auto cfg = concreteOp.getS2dd2sConfigAttr();
+        if (!cfg) {
+            return {};
+        }
+        const int64_t rank = mlir::cast<vpux::NDTypeInterface>(concreteOp.getOutput().getType()).getRank();
+        const auto transformInfo = VPU::getODUS2DD2STransformInfo(cfg, rank);
+        if (!transformInfo.has_value()) {
+            return {};
+        }
+        return VPU::getODUS2DD2SScaling(*transformInfo, rank);
     }
 };
 
@@ -180,6 +210,24 @@ public:
 template <typename ConcreteModel, typename ConcreteOp>
 class NCEEltwiseOpModel : public VPU::NCEOpInterface::ExternalModel<ConcreteModel, ConcreteOp> {
 public:
+    mlir::Value getWeightsTableOperand(mlir::Operation*) const {
+        return nullptr;
+    }
+    mlir::Value getWeightTableDataPtrOperand(mlir::Operation*) const {
+        return nullptr;
+    }
+    mlir::Value getWeightTableSpPtrOperand(mlir::Operation*) const {
+        return nullptr;
+    }
+    mlir::Value getWeightTableScaleOperand(mlir::Operation*) const {
+        return nullptr;
+    }
+    mlir::Value getWeightTableBiasOperand(mlir::Operation*) const {
+        return nullptr;
+    }
+    mlir::Value getWeightZeroPointsOperand(mlir::Operation*) const {
+        return nullptr;
+    }
     SmallVector<int64_t> getKernelSizeVal(mlir::Operation*) const {
         return {1, 1};
     }

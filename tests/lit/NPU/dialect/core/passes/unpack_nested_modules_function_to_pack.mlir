@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2025-2026 Intel Corporation.
+// Copyright (C) 2025-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -15,13 +15,13 @@ module @UnpackPackedModule {
     }
 
     module @my_helper_module attributes {config.packedModule} {
-        func.func private @helper_fn(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
+        func.func nested @helper_fn(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
             return %arg : tensor<2x2xf32>
         }
     }
     // CHECK-NOT: module @my_helper_module
 
-    // CHECK: func.func private @helper_fn([[ARG:%.+]]: tensor<2x2xf32>) -> tensor<2x2xf32>
+    // CHECK: func.func nested @helper_fn([[ARG:%.+]]: tensor<2x2xf32>) -> tensor<2x2xf32>
     // CHECK:   return [[ARG]]
 
     func.func @main(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
@@ -45,20 +45,20 @@ module @UnpackOnlyPackedModules {
     }
 
     module @regular_module {
-        func.func private @regular_fn(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
+        func.func nested @regular_fn(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
             return %arg : tensor<2x2xf32>
         }
     }
     // CHECK: module @regular_module
 
     module @packed_module attributes {config.packedModule} {
-        func.func private @packed_fn(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
+        func.func nested @packed_fn(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
             return %arg : tensor<2x2xf32>
         }
     }
     // CHECK-NOT: module @packed_module
 
-    // CHECK: func.func private @packed_fn([[ARG:%.+]]: tensor<2x2xf32>) -> tensor<2x2xf32>
+    // CHECK: func.func nested @packed_fn([[ARG:%.+]]: tensor<2x2xf32>) -> tensor<2x2xf32>
     // CHECK:   return [[ARG]]
 
     func.func @main(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
@@ -94,27 +94,27 @@ module @UnpackMultiplePackedModules {
             %0 = func.call @fn_a2(%arg) : (tensor<2x2xf32>) -> tensor<2x2xf32>
             return %0 : tensor<2x2xf32>
         }
-        func.func private @fn_a2(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
+        func.func nested @fn_a2(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
             return %arg : tensor<2x2xf32>
         }
     }
     // CHECK-NOT: module @module_a
 
     module @module_b attributes {config.packedModule} {
-        func.func private @fn_b(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
+        func.func nested @fn_b(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
             return %arg : tensor<2x2xf32>
         }
     }
     // CHECK-NOT: module @module_b
 
-    // CHECK: func.func private @fn_a1([[ARG:%.+]]: tensor<2x2xf32>) -> tensor<2x2xf32>
+    // CHECK: func.func nested @fn_a1([[ARG:%.+]]: tensor<2x2xf32>) -> tensor<2x2xf32>
     // CHECK:   [[R:%.+]] = call @fn_a2([[ARG]])
     // CHECK:   return [[R]]
 
-    // CHECK: func.func private @fn_a2([[ARG:%.+]]: tensor<2x2xf32>) -> tensor<2x2xf32>
+    // CHECK: func.func nested @fn_a2([[ARG:%.+]]: tensor<2x2xf32>) -> tensor<2x2xf32>
     // CHECK:   return [[ARG]]
 
-    // CHECK: func.func private @fn_b([[ARG:%.+]]: tensor<2x2xf32>) -> tensor<2x2xf32>
+    // CHECK: func.func nested @fn_b([[ARG:%.+]]: tensor<2x2xf32>) -> tensor<2x2xf32>
     // CHECK:   return [[ARG]]
 
     func.func @main(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {

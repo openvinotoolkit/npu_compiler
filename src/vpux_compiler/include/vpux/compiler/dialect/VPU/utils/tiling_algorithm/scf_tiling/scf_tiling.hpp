@@ -8,6 +8,7 @@
 #include <mlir/IR/Operation.h>
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/tiling.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vf_merge_configuration.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 
@@ -18,7 +19,7 @@ mlir::LogicalResult applySCFTiling(mlir::Operation* operation, mlir::RewriterBas
 
 // Apply VF tiling using SCF dialect
 SmallVector<mlir::Operation*> applySCFVerticalFusion(mlir::Operation* operation, mlir::RewriterBase& builder,
-                                                     Logger log);
+                                                     const MergeConfiguration& mergeConfig, Logger log);
 
 SmallVector<mlir::OpFoldResult> staticTileSizeComputation(
         mlir::OpBuilder& builder, ArrayRef<mlir::Operation*> operations, mlir::Operation* lastOperation,

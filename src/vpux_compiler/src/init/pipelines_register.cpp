@@ -16,15 +16,16 @@ using namespace vpux;
 // createPipelineRegistry
 //
 
-std::unique_ptr<IPipelineRegistry> vpux::createPipelineRegistry(config::ArchKind arch) {
-    switch (arch) {
-    case config::ArchKind::NPU37XX:
+std::unique_ptr<IPipelineRegistry> vpux::createPipelineRegistry(config::Platform platform) {
+    switch (platform) {
+    case config::Platform::NPU3720:
         return std::make_unique<PipelineRegistry37XX>();
-    case config::ArchKind::NPU40XX:
+    case config::Platform::NPU4000:
         return std::make_unique<PipelineRegistry40XX>();
-    case config::ArchKind::NPU50XX:
-        return std::make_unique<PipelineRegistry50XX>();
+    case config::Platform::NPU5010:
+    case config::Platform::NPU5020:
+        return std::make_unique<PipelineRegistry50XX>(platform);
     default:
-        VPUX_THROW("Unsupported arch kind: {0}", arch);
+        VPUX_THROW("Unsupported platform: {0}", platform);
     }
 }

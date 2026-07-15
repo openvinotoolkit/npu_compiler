@@ -6,8 +6,6 @@
 #include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 
-#include <npu_40xx_nnrt.hpp>
-
 using namespace vpux;
 
 //

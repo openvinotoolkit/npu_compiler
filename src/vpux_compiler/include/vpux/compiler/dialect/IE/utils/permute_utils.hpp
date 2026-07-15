@@ -12,8 +12,9 @@
 
 namespace vpux::IE {
 
-std::optional<IE::PermuteCastOp> tryToFindPermuteCastOp(mlir::Location loc, mlir::Value input, DimsOrder outOrder,
-                                                        ShapeRef outShape, mlir::PatternRewriter& rewriter);
+std::optional<IE::PermuteCastOp> tryToFindPermuteCastOp(mlir::Location loc, mlir::Value input,
+                                                        const DimsOrder& outOrder, ShapeRef outShape,
+                                                        mlir::PatternRewriter& rewriter);
 
 IE::LayerWithPermuteInterface getFusableLayerWithPermuteInterface(mlir::Operation* op);
 

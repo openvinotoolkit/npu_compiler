@@ -6,7 +6,7 @@
 // RUN: vpux-opt --init-compiler="platform=%platform%" %s | FileCheck %s --strict-whitespace
 // REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
-  func.func private @MLIR_VPURegMapped_CreateDpuVariantRegister() {
+  func.func nested @MLIR_VPURegMapped_CreateDpuVariantRegister() {
     VPURegMapped.RegisterMappedWrapper regMapped(<
       regMappedForTest {
         regForTest_1 offset 12 size 32 {
@@ -39,7 +39,7 @@
 // CHECK-NEXT:   }
 // CHECK-NEXT: >)
 
-  func.func private @MLIR_VPURegMapped_CreateDpuVariantRegisterRequiresVersion() {
+  func.func nested @MLIR_VPURegMapped_CreateDpuVariantRegisterRequiresVersion() {
     VPURegMapped.RegisterMappedWrapper regMapped(<
       regMappedForTest {
         regForTest_1 offset 12 size 32 {

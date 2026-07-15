@@ -39,8 +39,8 @@ TEST_F(MLIR_FeasibleMemorySchedulerSpilling, RemoveComputeOpRelocationSpillsForI
     constexpr llvm::StringLiteral inputIR = R"(
         #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-        !Type_DDR = memref<1x32x32x32xf16, #NCHW, @DDR>
-        !Type_CMX = memref<1x32x32x32xf16, #NCHW, [@CMX_NN, 0]>
+        !Type_DDR = memref<1x32x32x32xf16, {order = #NCHW}, @DDR>
+        !Type_CMX = memref<1x32x32x32xf16, {order = #NCHW}, [@CMX_NN, 0]>
 
         module @test {
             func.func @main(%arg0: !Type_DDR, %arg1: !Type_DDR) -> !Type_CMX {
@@ -190,19 +190,19 @@ TEST_F(MLIR_FeasibleMemorySchedulerSpilling, RemoveComputeOpRelocationSpillsForR
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
         #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-        !Conv_In_DDR = memref<1x128x28x28xf16, #NHWC, @DDR>
-        !Conv_In_CMX = memref<1x128x28x28xf16, #NHWC, [@CMX_NN, 0]>
-        !Conv_WT_CMX = memref<512x1x1x4xsi32, #NCHW, [@CMX_NN, 0]>
-        !Conv_Weights_CMX = memref<512x128x1x1xf16, #NHWC, [@CMX_NN, 0]>
-        !Conv_Out_CMX = memref<1x512x28x28xf16, #NHWC, [@CMX_NN, 0]>
+        !Conv_In_DDR = memref<1x128x28x28xf16, {order = #NHWC}, @DDR>
+        !Conv_In_CMX = memref<1x128x28x28xf16, {order = #NHWC}, [@CMX_NN, 0]>
+        !Conv_WT_CMX = memref<512x1x1x4xsi32, {order = #NCHW}, [@CMX_NN, 0]>
+        !Conv_Weights_CMX = memref<512x128x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+        !Conv_Out_CMX = memref<1x512x28x28xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
-        !EltWise_In_DDR =  memref<1x512x28x28xf16, #NHWC, @DDR>
-        !EltWise_CMX =  memref<1x512x28x28xf16, #NHWC, [@CMX_NN, 0]>
+        !EltWise_In_DDR =  memref<1x512x28x28xf16, {order = #NHWC}, @DDR>
+        !EltWise_CMX =  memref<1x512x28x28xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
-        !DWConv_In_CMX = memref<1x512x28x28xf16, #NHWC, [@CMX_NN, 0]>
-        !DWConv_OUT_CMX = memref<1x512x28x28xf16, #NHWC, [@CMX_NN, 0]>
-        !DWConv_WT_CMX = memref<512x1x1x4xsi32, #NCHW, [@CMX_NN, 0]>
-        !DWConv_Weights_CMX = memref<512x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+        !DWConv_In_CMX = memref<1x512x28x28xf16, {order = #NHWC}, [@CMX_NN, 0]>
+        !DWConv_OUT_CMX = memref<1x512x28x28xf16, {order = #NHWC}, [@CMX_NN, 0]>
+        !DWConv_WT_CMX = memref<512x1x1x4xsi32, {order = #NCHW}, [@CMX_NN, 0]>
+        !DWConv_Weights_CMX = memref<512x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
         module @test {
             func.func @main(%arg0: !Conv_In_DDR, %arg1: !Conv_Weights_CMX, %arg2: !Conv_WT_CMX, %arg3: !EltWise_In_DDR, %arg4: !DWConv_Weights_CMX, %arg5: !DWConv_WT_CMX) -> !DWConv_OUT_CMX {
@@ -409,14 +409,14 @@ TEST_F(MLIR_FeasibleMemorySchedulerSpilling, RemoveComputeOpRelocationSpillsForS
 
         !Type_Tensor = tensor<1x16x144x256xf16, {order = #NHWC}>
 
-        !Type_DDR = memref<1x16x72x128xf16, #NHWC, @DDR>
-        !Type_CMX = memref<1x16x72x128xf16, #NHWC, [@CMX_NN, 0]>
+        !Type_DDR = memref<1x16x72x128xf16, {order = #NHWC}, @DDR>
+        !Type_CMX = memref<1x16x72x128xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
-        !Type_DDR_upsampled = memref<1x16x144x256xf16, #NHWC, @DDR>
-        !Type_CMX_upsampled = memref<1x16x144x256xf16, #NHWC, [@CMX_NN, 0]>
+        !Type_DDR_upsampled = memref<1x16x144x256xf16, {order = #NHWC}, @DDR>
+        !Type_CMX_upsampled = memref<1x16x144x256xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
         !Type_CMX_subview = memref<1x16x72x256xf16, {order=#NHWC, strides = [589824, 1, 4096, 16]}, [@CMX_NN, 0]>
-        !Type_CMX_out = memref<1x16x72x256xf16, #NHWC, [@CMX_NN, 0]>
+        !Type_CMX_out = memref<1x16x72x256xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
         module @test {
             func.func @main(%arg0: !Type_DDR, %arg1: !Type_DDR) -> !Type_CMX_out {
@@ -615,13 +615,12 @@ TEST_F(MLIR_FeasibleMemorySchedulerSpilling, OptimizeDataOpsSpillsForReRead) {
     constexpr llvm::StringLiteral inputIR = R"(
         #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-        !Type_DDR = memref<1x32x32x32xf16, #NCHW, @DDR>
-        !Type_CMX = memref<1x32x32x32xf16, #NCHW, [@CMX_NN, 0]>
+        !Type_DDR = memref<1x32x32x32xf16, {order = #NCHW}, @DDR>
+        !Type_CMX = memref<1x32x32x32xf16, {order = #NCHW}, [@CMX_NN, 0]>
 
-        module @test attributes {config.arch = #config.arch_kind<NPU50XX>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
+        module @test attributes {config.compilationMode = #config.compilation_mode<DefaultHW>, config.platform = #config.platform<NPU5010>} {
             config.ExecutorResource 2 of @DMA_NN
             config.Resources 3 of @NCE at 2.100000e+03 MHz {
-                config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
                 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
                 config.ExecutorResource 2 of @SHAVE_ACT
                 config.ExecutorResource 1 of @DPU
@@ -663,8 +662,8 @@ TEST_F(MLIR_FeasibleMemorySchedulerSpilling, OptimizeDataOpsSpillsForReRead) {
         }
     )";
 
-    const auto arch = config::ArchKind::NPU50XX;
-    VPU::initializeSingletons(registry, VPU::DeviceVersion{std::nullopt, arch});
+    const auto platform = config::Platform::NPU5010;
+    VPU::initializeSingletons(registry, platform);
 
     mlir::MLIRContext ctx(registry);
     ctx.loadDialect<vpux::VPU::VPUDialect>();
@@ -699,6 +698,7 @@ TEST_F(MLIR_FeasibleMemorySchedulerSpilling, OptimizeDataOpsSpillsForReRead) {
     // init schedule
     ComputeRegionsSchedule emptyComputeRegionsSchedule;
     ComputeRegionVec emptyLoopRegions;
+    const auto arch = config::getArch(platform);
     FeasibleMemoryScheduler initSchedule(memKind, secondLvlMemKind, liveRange, depsInfo, log, scan, arch, vpuDev,
                                          costModel, tileCount, dmaCount, /*enableScheduleStatistics*/ false,
                                          /*optimizeFragmentation*/ true,
@@ -745,8 +745,8 @@ TEST_F(MLIR_FeasibleMemorySchedulerSpilling, SkipReReadForSubViewWithSharedRootU
     constexpr llvm::StringLiteral inputIR = R"(
         #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-        !Type_DDR = memref<1x32x32x32xf16, #NCHW, @DDR>
-        !Type_CMX = memref<1x32x32x32xf16, #NCHW, [@CMX_NN, 0]>
+        !Type_DDR = memref<1x32x32x32xf16, {order = #NCHW}, @DDR>
+        !Type_CMX = memref<1x32x32x32xf16, {order = #NCHW}, [@CMX_NN, 0]>
         !Type_Master_CMX = memref<1x64x32x32xf16, {order = #NCHW, strides = [65536, 1024, 32, 1]}, [@CMX_NN, 0]>
         !Type_SubView_CMX = memref<1x32x32x32xf16, {order = #NCHW, strides = [65536, 1024, 32, 1]}, [@CMX_NN, 0]>
 
@@ -867,15 +867,158 @@ TEST_F(MLIR_FeasibleMemorySchedulerSpilling, SkipReReadForSubViewWithSharedRootU
     EXPECT_EQ(scheduledOps[4].opType_, FeasibleMemoryScheduler::EOpType::IMPLICIT_SPILL_READ_OP);
 }
 
-TEST_F(MLIR_FeasibleMemorySchedulerSpilling, RemoveRedundantSpillWrite) {
-    mlir::MLIRContext ctx(registry);
-
-    // Create a simple IR with 2 CopyOps and 1 NCEOp
+TEST_F(MLIR_FeasibleMemorySchedulerSpilling, SkipDataOpSpillOptimizationForSharedRootProducers) {
     constexpr llvm::StringLiteral inputIR = R"(
         #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-        !Type_DDR = memref<1x32x32x32xf16, #NCHW, @DDR>
-        !Type_CMX = memref<1x32x32x32xf16, #NCHW, [@CMX_NN, 0]>
+        !Type_DDR = memref<1x32x32x32xf16, {order = #NCHW}, @DDR>
+        !Type_Master_CMX = memref<1x64x32x32xf16, {order = #NCHW, strides = [65536, 1024, 32, 1]}, [@CMX_NN, 0]>
+        !Type_SubView_CMX = memref<1x32x32x32xf16, {order = #NCHW, strides = [65536, 1024, 32, 1]}, [@CMX_NN, 0]>
+
+        module @test {
+            func.func @main(%arg0: !Type_DDR, %arg1: !Type_DDR) -> !Type_Master_CMX {
+                %buf_master = memref.alloc() : !Type_Master_CMX
+
+                %t0, %r0 = async.execute -> !async.value<!Type_Master_CMX> attributes {VPUIP.executor = @DMA_NN, VPUIP.num_units = 1 : i64} {
+                    %sv0 = VPUIP.SubView %buf_master [0, 0, 0, 0] [1, 32, 32, 32] : !Type_Master_CMX to !Type_SubView_CMX
+                    %1 = VPUIP.Copy inputs(%arg0 : !Type_DDR) outputs(%sv0 : !Type_SubView_CMX) -> !Type_SubView_CMX
+                    async.yield %buf_master : !Type_Master_CMX
+                }
+
+                %t1, %r1 = async.execute -> !async.value<!Type_Master_CMX> attributes {VPUIP.executor = @DMA_NN, VPUIP.num_units = 1 : i64} {
+                    %sv1 = VPUIP.SubView %buf_master [0, 32, 0, 0] [1, 32, 32, 32] : !Type_Master_CMX to !Type_SubView_CMX
+                    %1 = VPUIP.Copy inputs(%arg1 : !Type_DDR) outputs(%sv1 : !Type_SubView_CMX) -> !Type_SubView_CMX
+                    async.yield %buf_master : !Type_Master_CMX
+                }
+
+                %r = async.await %r1 : !async.value<!Type_Master_CMX>
+                return %r : !Type_Master_CMX
+            }
+        }
+    )";
+
+    mlir::MLIRContext ctx(registry);
+    auto module = mlir::parseSourceString<mlir::ModuleOp>((inputIR).str(), &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    const auto memKind = VPU::MemoryKind::CMX_NN;
+    const auto secondLvlMemKind = VPU::MemoryKind::DDR;
+    auto aliasesInfo = AliasesInfoMemType<VPU::MemoryKind::CMX_NN>{func};
+    AsyncDepsInfo depsInfo{func};
+    auto log = vpux::Logger::global().nest("feasible-memory-scheduler-spilling");
+    uint64_t alignment = vpux::DEFAULT_CMX_ALIGNMENT;
+    LinearScan<mlir::Value, LinearScanHandler> scan(1024 * 1024, {}, alignment);
+
+    mlir::async::ExecuteOp execOtherProducer = nullptr;
+    mlir::async::ExecuteOp execCandidate = nullptr;
+    func.walk([&](mlir::async::ExecuteOp execOp) {
+        auto depIndexAttr = execOp->getAttrOfType<mlir::IntegerAttr>("async-deps-index");
+        if (depIndexAttr == nullptr) {
+            return;
+        }
+        if (depIndexAttr.getInt() == 0) {
+            execOtherProducer = execOp;
+        } else if (depIndexAttr.getInt() == 1) {
+            execCandidate = execOp;
+        }
+    });
+
+    ASSERT_TRUE(execOtherProducer != nullptr);
+    ASSERT_TRUE(execCandidate != nullptr);
+
+    mlir::Value otherProducerResult = nullptr;
+    mlir::Value candidateResult = nullptr;
+    execOtherProducer.walk([&](VPUIP::CopyOp copyOp) {
+        otherProducerResult = aliasesInfo.getRoot(copyOp.getOutput());
+    });
+    execCandidate.walk([&](VPUIP::CopyOp copyOp) {
+        candidateResult = aliasesInfo.getRoot(copyOp.getOutput());
+    });
+
+    ASSERT_TRUE(otherProducerResult != nullptr);
+    ASSERT_TRUE(candidateResult != nullptr);
+    ASSERT_EQ(otherProducerResult, candidateResult);
+
+    constexpr int64_t masterBufSize = 131072;
+    FeasibleMemoryScheduler::ScheduledOpInfoVec scheduledOps = {
+            {0, FeasibleMemoryScheduler::EOpType::ORIGINAL_OP, 1, 2, {}, {{0, masterBufSize, otherProducerResult}}},
+            {1,
+             FeasibleMemoryScheduler::EOpType::ORIGINAL_OP,
+             2,
+             3,
+             {},
+             {{0, masterBufSize, candidateResult}}},  // Original
+                                                      // op
+            {1,
+             FeasibleMemoryScheduler::EOpType::IMPLICIT_SPILL_WRITE_OP,
+             3,
+             4,
+             {{0, masterBufSize, candidateResult}},
+             {}},  // SW
+            {1,
+             FeasibleMemoryScheduler::EOpType::IMPLICIT_SPILL_READ_OP,
+             4,
+             5,
+             {},
+             {{0, masterBufSize, candidateResult}}}};  // SR
+    for (auto& scheduledOp : scheduledOps) {
+        scheduledOp.isDataOp_ = true;
+    }
+
+    FeasibleMemorySchedulerSpilling spilling(memKind, secondLvlMemKind, depsInfo, aliasesInfo, log, scan);
+    spilling.optimizeDataOpsSpills(scheduledOps);
+
+    // The spilling write and read of op 1 can't be optimized
+    // because the other producer 0 is scheduled before spill write
+    ASSERT_EQ(scheduledOps.size(), 4);
+    EXPECT_EQ(scheduledOps[0].opType_, FeasibleMemoryScheduler::EOpType::ORIGINAL_OP);
+    EXPECT_EQ(scheduledOps[1].opType_, FeasibleMemoryScheduler::EOpType::ORIGINAL_OP);
+    EXPECT_EQ(scheduledOps[2].opType_, FeasibleMemoryScheduler::EOpType::IMPLICIT_SPILL_WRITE_OP);
+    EXPECT_EQ(scheduledOps[3].opType_, FeasibleMemoryScheduler::EOpType::IMPLICIT_SPILL_READ_OP);
+
+    // The spilling of op 0 is optimized because other producer 1 is scheduled after spill write
+    // extending the buffer liveness won't cause conflicts
+    FeasibleMemoryScheduler::ScheduledOpInfoVec scheduledOps1 = {
+            {0,
+             FeasibleMemoryScheduler::EOpType::ORIGINAL_OP,
+             1,
+             2,
+             {},
+             {{0, masterBufSize, candidateResult}}},  // Original
+                                                      // op
+            {0,
+             FeasibleMemoryScheduler::EOpType::IMPLICIT_SPILL_WRITE_OP,
+             2,
+             3,
+             {{0, masterBufSize, candidateResult}},
+             {}},  // SW
+            {1, FeasibleMemoryScheduler::EOpType::ORIGINAL_OP, 3, 4, {}, {{0, masterBufSize, otherProducerResult}}},
+            {0,
+             FeasibleMemoryScheduler::EOpType::IMPLICIT_SPILL_READ_OP,
+             4,
+             5,
+             {},
+             {{0, masterBufSize, candidateResult}}}};  // SR
+    for (auto& scheduledOp : scheduledOps1) {
+        scheduledOp.isDataOp_ = true;
+    }
+    FeasibleMemorySchedulerSpilling spilling1(memKind, secondLvlMemKind, depsInfo, aliasesInfo, log, scan);
+    spilling1.optimizeDataOpsSpills(scheduledOps1);
+    ASSERT_EQ(scheduledOps1.size(), 2);
+    EXPECT_EQ(scheduledOps1[0].opType_, FeasibleMemoryScheduler::EOpType::ORIGINAL_OP);
+    EXPECT_EQ(scheduledOps1[1].opType_, FeasibleMemoryScheduler::EOpType::ORIGINAL_OP);
+}
+
+TEST_F(MLIR_FeasibleMemorySchedulerSpilling, RemoveRedundantSpillWrite) {
+    mlir::MLIRContext ctx(registry);
+
+    constexpr llvm::StringLiteral inputIR = R"(
+        #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+        !Type_DDR = memref<1x32x32x32xf16, {order = #NCHW}, @DDR>
+        !Type_CMX = memref<1x32x32x32xf16, {order = #NCHW}, [@CMX_NN, 0]>
 
         module @test {
             func.func @main(%arg0: !Type_DDR, %arg1: !Type_DDR) -> !Type_CMX {
@@ -1000,8 +1143,8 @@ TEST_F(MLIR_FeasibleMemorySchedulerSpilling, SkipOptimizationForMultipleSpillRea
     constexpr llvm::StringLiteral inputIR = R"(
         #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-        !Type_DDR = memref<1x32x32x32xf16, #NCHW, @DDR>
-        !Type_CMX = memref<1x32x32x32xf16, #NCHW, [@CMX_NN, 0]>
+        !Type_DDR = memref<1x32x32x32xf16, {order = #NCHW}, @DDR>
+        !Type_CMX = memref<1x32x32x32xf16, {order = #NCHW}, [@CMX_NN, 0]>
 
         module @test {
             func.func @main(%arg0: !Type_DDR, %arg1: !Type_DDR) -> !Type_CMX {

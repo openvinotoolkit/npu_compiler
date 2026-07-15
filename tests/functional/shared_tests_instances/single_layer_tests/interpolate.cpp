@@ -12,6 +12,10 @@ using ov::op::util::InterpolateBase;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(InterpolateLayerTest);
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(Interpolate11LayerTest);
+
 class InterpolateLayerTestCommon : public InterpolateLayerTest, virtual public VpuOv2LayerTest {};
 class InterpolateLayerTest_NPU3720 : public InterpolateLayerTestCommon {};
 class InterpolateLayerTest_NPU4000 : public InterpolateLayerTestCommon {};
@@ -149,6 +153,7 @@ const std::vector<std::vector<int64_t>> nhwcAxes = {{1, 2}};
 const std::vector<std::vector<int64_t>> nchwAxes = {{2, 3}};
 
 const std::vector<std::vector<float>> defaultScales = {{1.33333f, 1.33333f}};
+const std::vector<std::vector<float>> defaultScales2 = {{1.6666666269302368f, 1.6666666269302368f}};
 
 const std::vector<std::vector<int64_t>> allAxes = {{0, 1, 2, 3}};
 const std::vector<std::vector<float>> allScales = {{1.f, 1.f, 1.33333f, 1.33333f}};
@@ -610,6 +615,12 @@ const std::vector<std::vector<ov::Shape>> seInterpolateInputShapes = {
         {{1, 48, 15, 15}},
 };
 
+// DW Conv friendly shapes (in DEPTHWISE_WORKLOAD_SIZES) Scale 2x2 + HALF_PIXEL -> kernel 3x3, stride 1x1 (supports
+// L1aOpt)
+const std::vector<std::vector<ov::Shape>> seInterpolateDWConvInputShapes = {
+        {{1, 32, 10, 10}},
+};
+
 const std::vector<std::vector<float>> seInterpolateScalesForScalesCalcMode = {
         {9.0f, 10.0f},
 };
@@ -712,6 +723,19 @@ INSTANTIATE_TEST_SUITE_P(
 auto seInterpolateParamsLinearElf = []() {
     return ::testing::Combine(::testing::Values(linearModes[1]), ::testing::ValuesIn(shapeCalculationModeSizeScale),
                               ::testing::ValuesIn(coordinateTransformModeAsymmetric),
+                              ::testing::ValuesIn(defaultNearestModeFloor), ::testing::ValuesIn(antialias),
+                              ::testing::ValuesIn(pads), ::testing::ValuesIn(pads), ::testing::ValuesIn(cubeCoefs),
+                              ::testing::ValuesIn(nchwAxes), ::testing::ValuesIn(seInterpolateScalesElf));
+};
+
+// DW Conv conversion requires LINEAR + HALF_PIXEL + scale 2x2 -> kernel 3x3, stride 1x1
+const std::vector<InterpolateBase::CoordinateTransformMode> coordinateTransformHalfPixel = {
+        InterpolateBase::CoordinateTransformMode::HALF_PIXEL,
+};
+
+auto seInterpolateParamsToDWConv = []() {
+    return ::testing::Combine(::testing::Values(linearModes[0]), ::testing::ValuesIn(shapeCalculationModeSizeScale),
+                              ::testing::ValuesIn(coordinateTransformHalfPixel),
                               ::testing::ValuesIn(defaultNearestModeFloor), ::testing::ValuesIn(antialias),
                               ::testing::ValuesIn(pads), ::testing::ValuesIn(pads), ::testing::ValuesIn(cubeCoefs),
                               ::testing::ValuesIn(nchwAxes), ::testing::ValuesIn(seInterpolateScalesElf));
@@ -1280,9 +1304,12 @@ INSTANTIATE_TEST_SUITE_P(smoke_precommit_Interpolate_NoTiling_Cubic, Interpolate
 //
 
 const std::vector<std::vector<ov::Shape>> bilinearInterpolateInputShapes = {{{1, 40, 40, 40}, {1, 32, 40, 40}}};
+const std::vector<std::vector<ov::Shape>> interpolateAccuracyIssueInputShapes = {{{1, 3, 4, 6}}};
+const std::vector<std::vector<ov::Shape>> interpolateOutputShapeInferenceInputShapes = {{{1, 3, 3, 3}}};
 
 const std::vector<ov::Shape> bilinearInterpolateTargetShapes = {
         {80, 80}, {120, 120}, {160, 160}, {240, 240}, {80, 120}};
+const std::vector<ov::Shape> interpolateEmptyTargetShapes = {{}};
 
 const std::vector<InterpolateBase::CoordinateTransformMode> coordinateTransformModeHalfPixelandPytorchHalfPixel = {
         InterpolateBase::CoordinateTransformMode::HALF_PIXEL,
@@ -1295,6 +1322,24 @@ auto bilinearInterpolateParamsLinear = []() {
                               ::testing::ValuesIn(defaultNearestModeFloor), ::testing::ValuesIn(antialias),
                               ::testing::ValuesIn(pads), ::testing::ValuesIn(pads), ::testing::ValuesIn(cubeCoefs),
                               ::testing::ValuesIn(nchwAxes), ::testing::ValuesIn(defaultScales));
+};
+
+auto bilinearInterpolateAccuracy = []() {
+    return ::testing::Combine(::testing::Values(InterpolateBase::InterpolateMode::LINEAR),
+                              ::testing::Values(InterpolateBase::ShapeCalcMode::SCALES),
+                              ::testing::Values(InterpolateBase::CoordinateTransformMode::HALF_PIXEL),
+                              ::testing::Values(InterpolateBase::NearestMode::FLOOR), ::testing::ValuesIn(antialias),
+                              ::testing::ValuesIn(pads), ::testing::ValuesIn(pads), ::testing::ValuesIn(cubeCoefs),
+                              ::testing::ValuesIn(nchwAxes), ::testing::ValuesIn(defaultScales));
+};
+
+auto bilinearInterpolateOutputShapeInference = []() {
+    return ::testing::Combine(::testing::Values(InterpolateBase::InterpolateMode::LINEAR),
+                              ::testing::Values(InterpolateBase::ShapeCalcMode::SCALES),
+                              ::testing::Values(InterpolateBase::CoordinateTransformMode::HALF_PIXEL),
+                              ::testing::Values(InterpolateBase::NearestMode::FLOOR), ::testing::ValuesIn(antialias),
+                              ::testing::ValuesIn(pads), ::testing::ValuesIn(pads), ::testing::ValuesIn(cubeCoefs),
+                              ::testing::ValuesIn(nchwAxes), ::testing::ValuesIn(defaultScales2));
 };
 
 INSTANTIATE_TEST_SUITE_P(
@@ -1320,6 +1365,61 @@ INSTANTIATE_TEST_SUITE_P(
                            ::testing::ValuesIn(bilinearInterpolateTargetShapes),
                            ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU5010::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Scale_Accuracy, InterpolateLayerTest_NPU3720,
+                         ::testing::Combine(bilinearInterpolateAccuracy(), ::testing::ValuesIn(modelTypes),
+                                            ::testing::ValuesIn(static_shapes_to_test_representation(
+                                                    interpolateAccuracyIssueInputShapes)),
+                                            ::testing::ValuesIn(interpolateEmptyTargetShapes),
+                                            ::testing::Values(test_utils::TARGET_DEVICE),
+                                            ::testing::Values(additional_config)),
+                         InterpolateLayerTest_NPU3720::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Scale_OutputShape_Inference, InterpolateLayerTest_NPU3720,
+                         ::testing::Combine(bilinearInterpolateOutputShapeInference(), ::testing::ValuesIn(modelTypes),
+                                            ::testing::ValuesIn(static_shapes_to_test_representation(
+                                                    interpolateOutputShapeInferenceInputShapes)),
+                                            ::testing::ValuesIn(interpolateEmptyTargetShapes),
+                                            ::testing::Values(test_utils::TARGET_DEVICE),
+                                            ::testing::Values(additional_config)),
+                         InterpolateLayerTest_NPU3720::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Scale_Accuracy, InterpolateLayerTest_NPU4000,
+                         ::testing::Combine(bilinearInterpolateAccuracy(), ::testing::ValuesIn(modelTypes),
+                                            ::testing::ValuesIn(static_shapes_to_test_representation(
+                                                    interpolateAccuracyIssueInputShapes)),
+                                            ::testing::ValuesIn(interpolateEmptyTargetShapes),
+                                            ::testing::Values(test_utils::TARGET_DEVICE),
+                                            ::testing::Values(additional_config)),
+                         InterpolateLayerTest_NPU4000::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Scale_OutputShape_Inference, InterpolateLayerTest_NPU4000,
+                         ::testing::Combine(bilinearInterpolateOutputShapeInference(), ::testing::ValuesIn(modelTypes),
+                                            ::testing::ValuesIn(static_shapes_to_test_representation(
+                                                    interpolateOutputShapeInferenceInputShapes)),
+                                            ::testing::ValuesIn(interpolateEmptyTargetShapes),
+                                            ::testing::Values(test_utils::TARGET_DEVICE),
+                                            ::testing::Values(additional_config)),
+                         InterpolateLayerTest_NPU4000::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Scale_Accuracy, InterpolateLayerTest_NPU5010,
+                         ::testing::Combine(bilinearInterpolateAccuracy(), ::testing::ValuesIn(modelTypes),
+                                            ::testing::ValuesIn(static_shapes_to_test_representation(
+                                                    interpolateAccuracyIssueInputShapes)),
+                                            ::testing::ValuesIn(interpolateEmptyTargetShapes),
+                                            ::testing::Values(test_utils::TARGET_DEVICE),
+                                            ::testing::Values(additional_config)),
+                         InterpolateLayerTest_NPU5010::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Scale_OutputShape_Inference, InterpolateLayerTest_NPU5010,
+                         ::testing::Combine(bilinearInterpolateOutputShapeInference(), ::testing::ValuesIn(modelTypes),
+                                            ::testing::ValuesIn(static_shapes_to_test_representation(
+                                                    interpolateOutputShapeInferenceInputShapes)),
+                                            ::testing::ValuesIn(interpolateEmptyTargetShapes),
+                                            ::testing::Values(test_utils::TARGET_DEVICE),
+                                            ::testing::Values(additional_config)),
+                         InterpolateLayerTest_NPU5010::getTestCaseName);
+
 INSTANTIATE_TEST_SUITE_P(
         smoke_Interpolate_bilinearInterpolateToConv, InterpolateLayerTest_NPU5020,
         ::testing::Combine(bilinearInterpolateParamsLinear(), ::testing::ValuesIn(modelTypes),

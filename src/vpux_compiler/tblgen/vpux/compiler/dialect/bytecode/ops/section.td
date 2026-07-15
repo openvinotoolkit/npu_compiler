@@ -7,6 +7,7 @@
 #define VPUX_COMPILER_DIALECT_BYTECODE_OPS_SECTION
 
 include "vpux/compiler/dialect/bytecode/ops/base.td"
+include "vpux/compiler/dialect/bytecode/attributes.td"
 include "vpux/compiler/dialect/bytecode/types.td"
 include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/SymbolInterfaces.td"
@@ -55,7 +56,7 @@ def Bytecode_FuncOp : Bytecode_SerializableOp<"func", [HasParent<"vpux::bytecode
 
         Example:
         ```mlir
-        bytecode.func @my_function @function_type {
+        bytecode.func @my_function @my_function_name @function_type {
             // Bytecode instructions for the function body
         }
         ```
@@ -63,15 +64,16 @@ def Bytecode_FuncOp : Bytecode_SerializableOp<"func", [HasParent<"vpux::bytecode
 
     let arguments = (ins
         SymbolNameAttr:$sym_name,
+        FlatSymbolRefAttr:$func_name,
         FlatSymbolRefAttr:$function_type_ref
     );
 
     let regions = (region
-        SizedRegion<1>:$body
+        AnyRegion:$body
     );
 
     let assemblyFormat = [{
-        $sym_name $function_type_ref attr-dict-with-keyword
+        $sym_name $func_name $function_type_ref attr-dict-with-keyword
         $body
     }];
 }
@@ -184,7 +186,7 @@ def Bytecode_StringOp : Bytecode_SerializableOp<"string", [HasParent<"vpux::byte
     }];
 }
 
-def Bytecode_TypeSectionOp : Bytecode_SerializableOp<"type_section", [NoTerminator], "1.0.0"> {
+def Bytecode_TypeSectionOp : Bytecode_SerializableOp<"type_section", [NoTerminator, SymbolTable], "1.0.0"> {
     let summary = "Type section operation";
 
     let description = [{
@@ -229,7 +231,8 @@ def Bytecode_TypeOp : Bytecode_SerializableOp<"type", [HasParent<"vpux::bytecode
 
     let arguments = (ins
         SymbolNameAttr:$sym_name,
-        AnyAttr:$value
+        AnyAttrOf<[Bytecode_IntegerTypeAttr, Bytecode_FloatTypeAttr, Bytecode_OpaqueTypeAttr,
+                   Bytecode_BufferTypeAttr, Bytecode_FunctionTypeAttr]>:$value
     );
 
     let assemblyFormat = [{
@@ -237,7 +240,8 @@ def Bytecode_TypeOp : Bytecode_SerializableOp<"type", [HasParent<"vpux::bytecode
     }];
 }
 
-def Bytecode_KernelSectionOp : Bytecode_SerializableOp<"kernel_section", [NoTerminator], "1.0.0"> {
+
+def Bytecode_KernelSectionOp : Bytecode_SerializableOp<"kernel_section", [NoTerminator, SymbolTable], "1.0.0"> {
     let summary = "Kernel section operation";
 
     let description = [{
@@ -287,6 +291,37 @@ def Bytecode_KernelOp : Bytecode_SerializableOp<"kernel", [HasParent<"vpux::byte
 
     let assemblyFormat = [{
         $sym_name $data attr-dict-with-keyword
+    }];
+}
+
+def Bytecode_MetadataSectionOp : Bytecode_SerializableOp<"metadata_section", [NoTerminator], "1.0.0"> {
+    let summary = "Metadata section operation";
+
+    let description = [{
+        This operation represents a section in the bytecode IR that contains metadata operations.
+        It is used as a container for network metadata and does not participate in binary serialization yet.
+
+        Example:
+        ```mlir
+        bytecode.metadata_section @metadata_section {
+            bytecode.network_metadata @string_section::@str_network_name 1
+            bytecode.input_metadata @string_section::@str_input_dynamic @type_section::@type_f16 @constant_section::@shape_value 0 false
+            bytecode.output_metadata @string_section::@str_output_dynamic @type_section::@type_f16 @constant_section::@shape_value 0 false
+        }
+        ```
+    }];
+
+    let arguments = (ins
+        SymbolNameAttr:$sym_name
+    );
+
+    let regions = (region
+        SizedRegion<1>:$content
+    );
+
+    let assemblyFormat = [{
+        $sym_name attr-dict-with-keyword
+        $content
     }];
 }
 

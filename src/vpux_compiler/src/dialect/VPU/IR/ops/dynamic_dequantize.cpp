@@ -8,11 +8,17 @@
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/verifier_utils.hpp"
 
 using namespace vpux;
 
 mlir::LogicalResult vpux::VPU::DynamicDequantizeOp::verify() {
-    const auto inputShape = to_small_vector(mlir::cast<mlir::ShapedType>(getInput().getType()).getShape());
+    const auto input = getInput();
+    if (isTypeSignedOrUnsigned(*this, input).failed()) {
+        return mlir::failure();
+    }
+
+    const auto inputShape = to_small_vector(mlir::cast<mlir::ShapedType>(input.getType()).getShape());
     const auto scaleShape = to_small_vector(mlir::cast<mlir::ShapedType>(getScale().getType()).getShape());
     if (inputShape.size() != scaleShape.size()) {
         return errorAt(*this, "Scale doesn't have same rank as input tensor.");
@@ -22,8 +28,12 @@ mlir::LogicalResult vpux::VPU::DynamicDequantizeOp::verify() {
             return errorAt(*this, "Scale dim doesn't equal input shape.");
         }
     }
-    auto zp = getZp();
-    if (zp != nullptr) {
+
+    if (const auto zp = getZp()) {
+        if (isZeroPointsTypeValidForQuantization(*this, zp).failed()) {
+            return mlir::failure();
+        }
+
         const auto zpShape = to_small_vector(mlir::cast<mlir::ShapedType>(zp.getType()).getShape());
         if (inputShape.size() != zpShape.size()) {
             return errorAt(*this, "ZeroPoint doesn't have same rank as input tensor.");

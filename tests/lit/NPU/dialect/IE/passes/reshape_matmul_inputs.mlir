@@ -489,3 +489,99 @@ func.func @Softmax4dFQ(%arg0: tensor<1x6x4x16xf16>, %arg1: tensor<1x6x32x16xf16>
     // CHECK-SAME:  } : tensor<1x6x4x32xf16> -> tensor<2x3x4x32xf16>
     // CHECK:    return [[RESHAPE2]] : tensor<2x3x4x32xf16>
 }
+
+// -----
+
+// Test: 4D MatMul with batch broadcasting on RHS (dim[1]=1 needs broadcast to 3)
+// This is the pattern that caused the crash: To4D flattened [2,3]->6 vs [2,1]->2 independently.
+// The fix inserts IE.Broadcast on RHS before flattening.
+
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+
+// CHECK-LABEL: @MatMul4dBatchBroadcastRhs(
+// CHECK-SAME:      [[LHS:%.+]]: tensor<2x3x4x16xf16>, [[RHS:%.+]]: tensor<2x1x16x8xf16>) -> tensor<2x3x4x8xf16>
+func.func @MatMul4dBatchBroadcastRhs(%LHS: tensor<2x3x4x16xf16>, %RHS: tensor<2x1x16x8xf16>) -> tensor<2x3x4x8xf16> {
+    %GEMM = IE.MatMul(%LHS, %RHS) : tensor<2x3x4x16xf16>, tensor<2x1x16x8xf16> -> tensor<2x3x4x8xf16>
+
+    return %GEMM : tensor<2x3x4x8xf16>
+    // CHECK:    [[TRANSPOSE_RHS:%.+]] = IE.Transpose([[RHS]]) {
+    // CHECK-SAME:      order_value = #NCWH
+    // CHECK-SAME:  } : tensor<2x1x16x8xf16> -> tensor<2x1x8x16xf16>
+    // CHECK:    [[BROADCAST_RHS:%.+]] = IE.Broadcast([[TRANSPOSE_RHS]]
+    // CHECK-SAME:      {mode = #IE.broadcast_type<NUMPY>}
+    // CHECK-SAME:  tensor<2x1x8x16xf16>
+    // CHECK-SAME:  -> tensor<2x3x8x16xf16>
+    // CHECK:    [[LHS_TO_4D:%.+]] = IE.Reshape([[LHS]]) {
+    // CHECK-SAME:      shape_value = [1, 6, 4, 16]
+    // CHECK-SAME:  } : tensor<2x3x4x16xf16> -> tensor<1x6x4x16xf16>
+    // CHECK:    [[RHS_TO_4D:%.+]] = IE.Reshape([[BROADCAST_RHS]]) {
+    // CHECK-SAME:      shape_value = [1, 6, 8, 16]
+    // CHECK-SAME:  } : tensor<2x3x8x16xf16> -> tensor<1x6x8x16xf16>
+    // CHECK:    [[GEMM:%.+]] = IE.MatMul([[LHS_TO_4D]], [[RHS_TO_4D]]) {transpose_b} :
+    // CHECK-SAME:  tensor<1x6x4x16xf16>, tensor<1x6x8x16xf16> -> tensor<1x6x4x8xf16>
+    // CHECK:    [[RESHAPE_OUT:%.+]] = IE.Reshape([[GEMM]]) {
+    // CHECK-SAME:      shape_value = [2, 3, 4, 8]
+    // CHECK-SAME:  } : tensor<1x6x4x8xf16> -> tensor<2x3x4x8xf16>
+    // CHECK:    return [[RESHAPE_OUT]] : tensor<2x3x4x8xf16>
+}
+
+// -----
+
+// Test: 4D MatMul with batch broadcasting on LHS (dim[1]=1 needs broadcast to 3)
+
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+
+// CHECK-LABEL: @MatMul4dBatchBroadcastLhs(
+// CHECK-SAME:      [[LHS:%.+]]: tensor<2x1x4x16xf16>, [[RHS:%.+]]: tensor<2x3x16x8xf16>) -> tensor<2x3x4x8xf16>
+func.func @MatMul4dBatchBroadcastLhs(%LHS: tensor<2x1x4x16xf16>, %RHS: tensor<2x3x16x8xf16>) -> tensor<2x3x4x8xf16> {
+    %GEMM = IE.MatMul(%LHS, %RHS) : tensor<2x1x4x16xf16>, tensor<2x3x16x8xf16> -> tensor<2x3x4x8xf16>
+
+    return %GEMM : tensor<2x3x4x8xf16>
+    // CHECK:    [[TRANSPOSE_RHS:%.+]] = IE.Transpose([[RHS]]) {
+    // CHECK-SAME:      order_value = #NCWH
+    // CHECK-SAME:  } : tensor<2x3x16x8xf16> -> tensor<2x3x8x16xf16>
+    // CHECK:    [[BROADCAST_LHS:%.+]] = IE.Broadcast([[LHS]]
+    // CHECK-SAME:      {mode = #IE.broadcast_type<NUMPY>}
+    // CHECK-SAME:  tensor<2x1x4x16xf16>
+    // CHECK-SAME:  -> tensor<2x3x4x16xf16>
+    // CHECK:    [[LHS_TO_4D:%.+]] = IE.Reshape([[BROADCAST_LHS]]) {
+    // CHECK-SAME:      shape_value = [1, 6, 4, 16]
+    // CHECK-SAME:  } : tensor<2x3x4x16xf16> -> tensor<1x6x4x16xf16>
+    // CHECK:    [[RHS_TO_4D:%.+]] = IE.Reshape([[TRANSPOSE_RHS]]) {
+    // CHECK-SAME:      shape_value = [1, 6, 8, 16]
+    // CHECK-SAME:  } : tensor<2x3x8x16xf16> -> tensor<1x6x8x16xf16>
+    // CHECK:    [[GEMM:%.+]] = IE.MatMul([[LHS_TO_4D]], [[RHS_TO_4D]]) {transpose_b} :
+    // CHECK-SAME:  tensor<1x6x4x16xf16>, tensor<1x6x8x16xf16> -> tensor<1x6x4x8xf16>
+    // CHECK:    [[RESHAPE_OUT:%.+]] = IE.Reshape([[GEMM]]) {
+    // CHECK-SAME:      shape_value = [2, 3, 4, 8]
+    // CHECK-SAME:  } : tensor<1x6x4x8xf16> -> tensor<2x3x4x8xf16>
+    // CHECK:    return [[RESHAPE_OUT]] : tensor<2x3x4x8xf16>
+}
+
+// -----
+
+// Test: 4D MatMul where LHS batch product is 1, per-dim sizes differ from RHS.
+// No IE.Broadcast should be inserted — 4D MatMul natively handles batch=1 broadcasting.
+
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+
+// CHECK-LABEL: @MatMul4dLhsBatchProduct1NoBroadcast(
+// CHECK-SAME:      [[LHS:%.+]]: tensor<1x1x4x16xf16>, [[RHS:%.+]]: tensor<2x3x16x8xf16>) -> tensor<2x3x4x8xf16>
+func.func @MatMul4dLhsBatchProduct1NoBroadcast(%LHS: tensor<1x1x4x16xf16>, %RHS: tensor<2x3x16x8xf16>) -> tensor<2x3x4x8xf16> {
+    %GEMM = IE.MatMul(%LHS, %RHS) : tensor<1x1x4x16xf16>, tensor<2x3x16x8xf16> -> tensor<2x3x4x8xf16>
+
+    return %GEMM : tensor<2x3x4x8xf16>
+    // CHECK:    [[TRANSPOSE_RHS:%.+]] = IE.Transpose([[RHS]]) {
+    // CHECK-SAME:      order_value = #NCWH
+    // CHECK-SAME:  } : tensor<2x3x16x8xf16> -> tensor<2x3x8x16xf16>
+    // CHECK-NOT:  IE.Broadcast
+    // CHECK:    [[RHS_TO_4D:%.+]] = IE.Reshape([[TRANSPOSE_RHS]]) {
+    // CHECK-SAME:      shape_value = [1, 6, 8, 16]
+    // CHECK-SAME:  } : tensor<2x3x8x16xf16> -> tensor<1x6x8x16xf16>
+    // CHECK:    [[GEMM:%.+]] = IE.MatMul([[LHS]], [[RHS_TO_4D]]) {transpose_b} :
+    // CHECK-SAME:  tensor<1x1x4x16xf16>, tensor<1x6x8x16xf16> -> tensor<1x6x4x8xf16>
+    // CHECK:    [[RESHAPE_OUT:%.+]] = IE.Reshape([[GEMM]]) {
+    // CHECK-SAME:      shape_value = [2, 3, 4, 8]
+    // CHECK-SAME:  } : tensor<1x6x4x8xf16> -> tensor<2x3x4x8xf16>
+    // CHECK:    return [[RESHAPE_OUT]] : tensor<2x3x4x8xf16>
+}

@@ -11,6 +11,9 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(GRUCellTest);
+
 class GRUCellLayerTestCommon : public GRUCellTest, virtual public VpuOv2LayerTest {};
 class GRUCellLayerTest_NPU3720 : public GRUCellLayerTestCommon {
     void SetUp() override {

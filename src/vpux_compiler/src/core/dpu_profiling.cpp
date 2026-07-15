@@ -264,7 +264,7 @@ mlir::Value ClusterBufferScheduler::copyToDDR(mlir::BlockArgument& profilingResu
                                               SmallVector<mlir::Value>& dpuProfilingOutputs, unsigned numElements,
                                               unsigned offset, StringRef name) {
     const auto memorySize = numElements * _profilingElementSize;
-    const auto resultType = mlir::MemRefType::get({static_cast<int64_t>(memorySize)}, getUInt64Type(_ctx));
+    const auto resultType = vpux::getMemRefType({static_cast<int64_t>(memorySize)}, getUInt64Type(_ctx));
 
     auto subDDR = _builder.create<VPUIP::SubViewOp>(
             mlir::NameLoc::get(mlir::StringAttr::get(_ctx, name + "DDR" + std::to_string(offset))), profilingResult,

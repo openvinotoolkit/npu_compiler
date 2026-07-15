@@ -78,8 +78,8 @@ void RunF16ToF32ConvertOnDPUPass::replaceWithIdentityPool(IE::ConvertOp convert)
 
     if (isInShapePerfForNCEAvgPool(inputShape)) {
         _log.nest().trace("F16 -> F32 Convert will be replaced by identity AvgPool.");
-        auto replacementAvgPool =
-                IE::createIdentityAvgPool(convert.getInput(), convert.getOutput().getType(), builder, convert.getLoc());
+        auto replacementAvgPool = IE::createIdentityAvgPool(convert.getInput(), convert.getOutput().getType(), builder,
+                                                            takeOpLoc(convert, "as_avgpool"));
         convert->replaceAllUsesWith(replacementAvgPool->getResults());
     }
 }
@@ -128,6 +128,20 @@ void RunF16ToF32ConvertOnDPUPass::safeRunOnFunc() {
 
         if (!parentCheck->isFusionToParentDPUOpSupported(parentOp, nestedLog)) {
             continue;
+        }
+
+        // Data movement ops (Roll, Pad) propagate input element type to output unchanged.
+        //  Fusing a FP16->FP32 Convert
+        // into such ops when batch != 1 would set their result to FP32 while inferReturnTypes
+        // derives FP16 from the FP16 data input, causing a type mismatch during verification.
+        // When batch == 1 the op runs on DPU via the SE/NCE path and fusion is beneficial.
+        if (mlir::isa<IE::RollOp, IE::PadOp>(parentOp)) {
+            const auto parentInputShape = getShape(parentOp->getOperand(0));
+            if (parentInputShape[Dims4D::Act::N] != 1) {
+                nestedLog.trace("Skipping fusion for data movement op '{0}' with batch={1} - op will not run on DPU.",
+                                parentOp->getName(), parentInputShape[Dims4D::Act::N]);
+                continue;
+            }
         }
 
         const auto inputShape = getShape(parentOp->getOperand(0));

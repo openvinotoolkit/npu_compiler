@@ -13,6 +13,9 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(RDFTLayerTest);
+
 class RdftLayerTestCommon : public RDFTLayerTest, virtual public VpuOv2LayerTest {
     // C#125993
     // Reduce resolution of ov::float16 data generation to prevent NaN values

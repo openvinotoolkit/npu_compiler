@@ -14,7 +14,9 @@ npu_embed_bin_file(
     HEADER_FILE "${PROJECT_BINARY_DIR}/${gen_base_dst_include_dir}/dialect/VPU/generated/cost_model_data_4_0_fast.hpp.inc"
     VARIABLE_NAME "COST_MODEL_4_0_FAST")
 
-file(GLOB_RECURSE SRC_FILES *.cpp)
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/include_src.cmake")
+collect_cpp_excluding_nested_cmakelists(SRC_FILES "${CMAKE_CURRENT_SOURCE_DIR}")
+
 add_npu_library(npu_compiler_npu40xx
     ${SRC_FILES}
     LINK_LIBS
@@ -49,6 +51,8 @@ add_npu_library(npu_compiler_npu40xx
       PRIVATE
         npu_compiler_conversion
         npu_compiler_shave_code_gen
+        npu_compiler_dialect_shave
+        npu_compiler_dialect_shave_transforms
         npu_compiler_dialect_vpurt_transforms
         npu_compiler_dialect_vpuip_utils
         npu_compiler_dialect_const

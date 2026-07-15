@@ -44,6 +44,7 @@ public:
 
 public:
     class RemoveU16FakeQuantizeRewriter;
+    class ReplaceChildU16FakeQuantizeWithReluRewriter;
 
 private:
     void safeRunOnFunc() final;
@@ -194,13 +195,6 @@ mlir::LogicalResult HandleU16FakeQuantizePass::RemoveU16FakeQuantizeRewriter::co
 
 mlir::LogicalResult HandleU16FakeQuantizePass::RemoveU16FakeQuantizeRewriter::matchAndRewrite(
         IE::FakeQuantizeOp origOp, mlir::PatternRewriter& rewriter) const {
-    if (origOp->getUses().empty()) {
-        // E#194833: this rewriter may replace *child* op instead of the root
-        // op, causing bugs in the pattern matching process. if FQ op has no
-        // uses, it likely means it was already optimized by this rewriter.
-        return mlir::failure();
-    }
-
     auto moduleOp = getModuleOp(origOp);
     auto setAdaptiveStrippingEnabled = config::hasEnableAdaptiveStripping(moduleOp);
     auto levels = origOp.getLevels();
@@ -209,6 +203,20 @@ mlir::LogicalResult HandleU16FakeQuantizePass::RemoveU16FakeQuantizeRewriter::ma
     if (!levels.has_value() || *levels <= maxLevels) {
         return mlir::failure();
     }
+
+    auto areFQValsEqualToValue = [](IE::FakeQuantizeOp op, float value) {
+        auto inLowValue = IE::getConst(op.getInputLow().getDefiningOp<Const::DeclareOp>())[0];
+
+        return areFQValsEqual(op.getInputLow(), op.getInputHigh(), op.getOutputLow(), op.getOutputHigh()) &&
+               isFloatEqual(inLowValue, value);
+    };
+
+    auto areFQLowValsEqualToValue = [](IE::FakeQuantizeOp op, float value) {
+        const auto inLowValue = IE::getConst(op.getInputLow().getDefiningOp<Const::DeclareOp>())[0];
+        const auto outLowValue = IE::getConst(op.getOutputLow().getDefiningOp<Const::DeclareOp>())[0];
+
+        return isFloatEqual(inLowValue, outLowValue) && isFloatEqual(inLowValue, value);
+    };
 
     auto fqInput = origOp.getInput();
     if (!mlir::isa<mlir::BlockArgument>(fqInput) && mlir::isa<Const::DeclareOp>(fqInput.getDefiningOp())) {
@@ -221,7 +229,7 @@ mlir::LogicalResult HandleU16FakeQuantizePass::RemoveU16FakeQuantizeRewriter::ma
         fqInputContent.copyTo(MutableArrayRef(newContent.data(), fqInputContentSize));
         const auto newFoldedBaseContent =
                 Const::createConstContent(mlir::cast<mlir::ShapedType>(fqInputContentType), ArrayRef(newContent));
-        Const::ContentSetup newContentAttrSetup(fqInputContentType);
+        Const::ContentSetup newContentAttrSetup(newFoldedBaseContent, fqInputContentType);
         auto newContentAttr = Const::ContentAttr::get(newFoldedBaseContent, newContentAttrSetup);
         auto clonedFoldedConstant =
                 rewriter.create<Const::DeclareOp>(origOp.getLoc(), newContentAttr.getType(), std::move(newContentAttr));
@@ -233,31 +241,33 @@ mlir::LogicalResult HandleU16FakeQuantizePass::RemoveU16FakeQuantizeRewriter::ma
     }
 
     if (setAdaptiveStrippingEnabled) {
-        auto childOp = *origOp.getOutput().getUsers().begin();
-        auto childFqOp = mlir::dyn_cast_or_null<IE::FakeQuantizeOp>(childOp);
-        if (childFqOp != nullptr && *childFqOp.getLevels() > maxLevels) {
-            const auto inLowValue = IE::getConst(origOp.getInputLow().getDefiningOp<Const::DeclareOp>())[0];
-            const auto outLowValue = IE::getConst(origOp.getOutputLow().getDefiningOp<Const::DeclareOp>())[0];
-            const auto inHighValue = IE::getConst(origOp.getInputHigh().getDefiningOp<Const::DeclareOp>())[0];
-            const auto outHighValue = IE::getConst(origOp.getOutputHigh().getDefiningOp<Const::DeclareOp>())[0];
-            const auto childInLowValue = IE::getConst(childFqOp.getInputLow().getDefiningOp<Const::DeclareOp>())[0];
-            const auto childOutLowValue = IE::getConst(childFqOp.getOutputLow().getDefiningOp<Const::DeclareOp>())[0];
-            const auto childInHighValue = IE::getConst(childFqOp.getInputHigh().getDefiningOp<Const::DeclareOp>())[0];
-            const auto childOutHighValue = IE::getConst(childFqOp.getOutputHigh().getDefiningOp<Const::DeclareOp>())[0];
-
-            // ParentOp -> FQ1 U16 (il=ol=0) -> FQ2 U16 -> Op => ParentOp -> ReLU -> Op
-            // ParentOp -> FQ1 U16 -> FQ2 U16 (il=ol=0) -> Op => ParentOp -> ReLU -> Op
-            if (IE::isPerTensorFQ({origOp}) && isFloatEqual(inLowValue, outLowValue) &&
-                isFloatEqual(inHighValue, outHighValue) && isFloatEqual(inLowValue, 0.0f) && origOp->hasOneUse()) {
+        // Scan all users to find a U16 FQ child
+        IE::FakeQuantizeOp childFqOp;
+        for (auto* user : origOp.getOutput().getUsers()) {
+            if (auto candidate = mlir::dyn_cast<IE::FakeQuantizeOp>(user)) {
+                if (candidate.getLevels().has_value() && *candidate.getLevels() > maxLevels) {
+                    childFqOp = candidate;
+                    break;
+                }
+            }
+        }
+        if (childFqOp != nullptr) {
+            // origOp is the parent in a U16 FQ → U16 FQ chain and the parent itself
+            // matches the il=ol=0 and ih=oh ReLU pattern
+            if (IE::isPerTensorFQ({origOp}) && areFQValsEqualToValue(origOp, 0.0f) && origOp->hasOneUse()) {
                 rewriter.replaceOpWithNewOp<IE::ReLUOp>(origOp, fqInput);
                 return mlir::success();
-            } else {
-                if (IE::isPerTensorFQ({childFqOp}) && isFloatEqual(childInLowValue, childOutLowValue) &&
-                    isFloatEqual(childInHighValue, childOutHighValue) && isFloatEqual(childInLowValue, 0.0f)) {
-                    auto reluOp = rewriter.create<IE::ReLUOp>(childFqOp.getLoc(), fqInput);
-                    rewriter.replaceAllOpUsesWith(childFqOp, reluOp);
-                    return mlir::success();
-                }
+            }
+        } else {
+            // no U16 FQ child among any user.
+            // A per-tensor U16 FQ with inLow==outLow==0 following a LayerWithPostOpInterface op
+            // (e.g. a bias-add after a convolution) is an activation clamp semantically
+            // equivalent to ReLU in QDQ-quantized CNNs.
+            if (IE::isPerTensorFQ({origOp}) && areFQLowValsEqualToValue(origOp, 0.0f) &&
+                mlir::isa_and_present<IE::LayerWithPostOpInterface>(fqInput.getDefiningOp()) &&
+                !mlir::isa_and_present<IE::ElemTypeInfoOpInterface>(fqInput.getDefiningOp())) {
+                rewriter.replaceOpWithNewOp<IE::ReLUOp>(origOp, fqInput);
+                return mlir::success();
             }
         }
         // In case the FakeQuantize has values in_low != out_low or in_high != out_high it can be replaced with a
@@ -266,25 +276,87 @@ mlir::LogicalResult HandleU16FakeQuantizePass::RemoveU16FakeQuantizeRewriter::ma
                             origOp.getOutputHigh())) {
             return convertFQToScaleShift(origOp, rewriter);
         }
-    } else {
-        // In case the FakeQuantize is per tensor and the input and output low is equal to 0 it is replaced with a
-        // ReLu activation function otherwise the FakeQuantize is completely removed
-        if (IE::isPerTensorFQ({origOp})) {
-            const auto inLowValue = IE::getConst(origOp.getInputLow().getDefiningOp<Const::DeclareOp>())[0];
-            const auto outLowValue = IE::getConst(origOp.getOutputLow().getDefiningOp<Const::DeclareOp>())[0];
-            const auto inHighValue = IE::getConst(origOp.getInputHigh().getDefiningOp<Const::DeclareOp>())[0];
-            const auto outHighValue = IE::getConst(origOp.getOutputHigh().getDefiningOp<Const::DeclareOp>())[0];
-            if (isFloatEqual(inLowValue, outLowValue) && isFloatEqual(inHighValue, outHighValue) &&
-                isFloatEqual(inLowValue, 0.0f)) {
-                rewriter.replaceOpWithNewOp<IE::ReLUOp>(origOp, fqInput);
-                return mlir::success();
-            }
-        }
+    } else if (IE::isPerTensorFQ({origOp}) && areFQValsEqualToValue(origOp, 0.0f)) {
+        rewriter.replaceOpWithNewOp<IE::ReLUOp>(origOp, fqInput);
+        return mlir::success();
     }
 
     rewriter.replaceOp(origOp, fqInput);
     return mlir::success();
 }
+
+//
+// ReplaceChildU16FakeQuantizeWithReluRewriter
+//
+// Mirror of RemoveU16FakeQuantizeRewriter for the ParentFQ U16 -> ChildFQ U16 chain where
+// the child matches the il=ol=0 ReLU pattern. The child is matched as root and replaced
+// with a ReLU consuming the parent's input.
+//
+
+class HandleU16FakeQuantizePass::ReplaceChildU16FakeQuantizeWithReluRewriter final :
+        public mlir::OpRewritePattern<IE::FakeQuantizeOp> {
+public:
+    ReplaceChildU16FakeQuantizeWithReluRewriter(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::FakeQuantizeOp>(ctx), _log(log) {
+        setDebugName("ReplaceChildU16FakeQuantizeWithReluRewriter");
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::FakeQuantizeOp childFqOp, mlir::PatternRewriter& rewriter) const final {
+        auto moduleOp = getModuleOp(childFqOp);
+        if (!config::hasEnableAdaptiveStripping(moduleOp)) {
+            return mlir::failure();
+        }
+
+        auto childLevels = childFqOp.getLevels();
+        auto childMaxLevels = IE::getMaximumQuantizationLevels(
+                childLevels.value_or(QuantizationLevels::QUANT_LEVELS_8BIT), childFqOp);
+        if (!childLevels.has_value() || *childLevels <= childMaxLevels) {
+            return mlir::failure();
+        }
+
+        // Parent must also be a U16 FQ.
+        auto parentFqOp = childFqOp.getInput().getDefiningOp<IE::FakeQuantizeOp>();
+        if (parentFqOp == nullptr) {
+            return mlir::failure();
+        }
+        auto parentLevels = parentFqOp.getLevels();
+        auto parentMaxLevels = IE::getMaximumQuantizationLevels(
+                parentLevels.value_or(QuantizationLevels::QUANT_LEVELS_8BIT), parentFqOp);
+        if (!parentLevels.has_value() || *parentLevels <= parentMaxLevels) {
+            return mlir::failure();
+        }
+
+        // Skip if the parent itself matches the ReLU pattern (handled by the parent rewriter).
+        const auto parentInLow = IE::getConst(parentFqOp.getInputLow().getDefiningOp<Const::DeclareOp>())[0];
+        const auto parentOutLow = IE::getConst(parentFqOp.getOutputLow().getDefiningOp<Const::DeclareOp>())[0];
+        const auto parentInHigh = IE::getConst(parentFqOp.getInputHigh().getDefiningOp<Const::DeclareOp>())[0];
+        const auto parentOutHigh = IE::getConst(parentFqOp.getOutputHigh().getDefiningOp<Const::DeclareOp>())[0];
+        const bool parentIsReluPattern = IE::isPerTensorFQ({parentFqOp}) && isFloatEqual(parentInLow, parentOutLow) &&
+                                         isFloatEqual(parentInHigh, parentOutHigh) && isFloatEqual(parentInLow, 0.0f) &&
+                                         parentFqOp->hasOneUse();
+        if (parentIsReluPattern) {
+            return mlir::failure();
+        }
+
+        // Child must match the ReLU pattern.
+        const auto childInLow = IE::getConst(childFqOp.getInputLow().getDefiningOp<Const::DeclareOp>())[0];
+        const auto childOutLow = IE::getConst(childFqOp.getOutputLow().getDefiningOp<Const::DeclareOp>())[0];
+        const auto childInHigh = IE::getConst(childFqOp.getInputHigh().getDefiningOp<Const::DeclareOp>())[0];
+        const auto childOutHigh = IE::getConst(childFqOp.getOutputHigh().getDefiningOp<Const::DeclareOp>())[0];
+        if (!IE::isPerTensorFQ({childFqOp}) || !isFloatEqual(childInLow, childOutLow) ||
+            !isFloatEqual(childInHigh, childOutHigh) || !isFloatEqual(childInLow, 0.0f)) {
+            return mlir::failure();
+        }
+
+        _log.trace("[{0}] Replacing child U16 FQ at '{1}' with ReLU consuming parent FQ input", getDebugName(),
+                   childFqOp->getLoc());
+        rewriter.replaceOpWithNewOp<IE::ReLUOp>(childFqOp, parentFqOp.getInput());
+        return mlir::success();
+    }
+
+private:
+    Logger _log;
+};
 
 //
 // LowerFakeQuantizeRewriter
@@ -497,13 +569,22 @@ public:
         auto biasVals = IE::getConst(addOp.getInput2().getDefiningOp<Const::DeclareOp>());
         mlir::Operation* lastOp = createNewFqOp(rewriter, addOp->getLoc(), fqOp, scaleVals.front(), biasVals.front());
 
-        rewriter.modifyOpInPlace(nonComputeOp, [nonComputeOp = nonComputeOp, &lastOp, &rewriter]() {
-            mlir::IRMapping mapper;
-            mapper.map(nonComputeOp->getOperand(0), lastOp->getResult(0));
-            lastOp = rewriter.clone(*nonComputeOp, mapper);
-            extendOpLoc(lastOp, "copy_of_non_compute");
-            inferReturnTypes(lastOp, InferShapedTypeMode::ELEM_TYPE);
-        });
+        if (nonComputeOp != nullptr) {
+            rewriter.modifyOpInPlace(nonComputeOp, [nonComputeOp = nonComputeOp, &lastOp, &rewriter]() {
+                mlir::IRMapping mapper;
+                mapper.map(nonComputeOp->getOperand(0), lastOp->getResult(0));
+                lastOp = rewriter.clone(*nonComputeOp, mapper);
+                extendOpLoc(lastOp, "copy_of_non_compute");
+                inferReturnTypes(lastOp, InferShapedTypeMode::ELEM_TYPE);
+            });
+        }
+
+        // Insert Convert if the new FQ output element type differs from the original Add output
+        auto addOutElemType = mlir::cast<vpux::NDTypeInterface>(addOp.getType()).getElementType();
+        auto lastOpElemType = mlir::cast<vpux::NDTypeInterface>(lastOp->getResult(0).getType()).getElementType();
+        if (addOutElemType != lastOpElemType) {
+            lastOp = rewriter.create<IE::ConvertOp>(addOp->getLoc(), lastOp->getResult(0), addOutElemType);
+        }
 
         rewriter.replaceAllUsesWith(addOp, lastOp->getResult(0));
         return mlir::success();
@@ -525,12 +606,10 @@ private:
             currentOp = result.convertToFloatOp = convertToFloatOp;
         }
 
-        currentOp = currentOp->getOperand(0).getDefiningOp();
-        if (mlir::isa_and_present<IE::ReshapeOp, IE::AffineReshapeOp, IE::TransposeOp>(currentOp)) {
-            result.nonComputeOp = currentOp;
-        } else {
-            _log.trace("[{0}] Non-compute op not found", getDebugName());
-            return mlir::failure();
+        auto nextOp = currentOp->getOperand(0).getDefiningOp();
+        if (mlir::isa_and_present<IE::ReshapeOp, IE::AffineReshapeOp, IE::TransposeOp>(nextOp)) {
+            result.nonComputeOp = nextOp;
+            currentOp = nextOp;
         }
 
         if (auto convertToIntOp = currentOp->getOperand(0).getDefiningOp<IE::ConvertOp>()) {
@@ -552,16 +631,17 @@ private:
             return mlir::success();
         }
         if (convertToFloatOp == nullptr || convertToIntOp == nullptr) {
-            _log.trace("[{0}] Expected two Convert ops", getDebugName());
-            return mlir::failure();
+            // Allow single convert (e.g. only convertToInt without reshape, or only convertToFloat)
+            return mlir::success();
         }
         if (!convertToIntOp.getDstElemType().isUnsignedInteger(16)) {
             _log.trace("[{0}] Convert is not 16-bit", getDebugName());
             return mlir::failure();
         }
-        auto sourceElemType = mlir::cast<vpux::NDTypeInterface>(convertToIntOp.getInput().getType()).getElementType();
-        if (sourceElemType != convertToFloatOp.getDstElemType()) {
-            _log.trace("[{0}] Expected same src & dst element types for Convert ops", getDebugName());
+        // Allow FP16 destination (f32→ui16→f16 pattern from Q/DQ with FP16 dequantize)
+        auto dstElemType = convertToFloatOp.getDstElemType();
+        if (!dstElemType.isF16() && !dstElemType.isF32()) {
+            _log.trace("[{0}] Convert destination is not float type", getDebugName());
             return mlir::failure();
         }
         return mlir::success();
@@ -616,11 +696,21 @@ private:
         auto origOutLow = IE::getConst(oldFqOp.getOutputLow().getDefiningOp<Const::DeclareOp>());
         auto origOutHigh = IE::getConst(oldFqOp.getOutputHigh().getDefiningOp<Const::DeclareOp>());
 
+        auto levels = oldFqOp.getLevels();
+        // When FQ output range is the integer quantization grid [0, levels-1], the Mul+Add
+        // following it is a dequantize. The combined Q+DQ is identity on [inputLow, inputHigh].
+        // Produce an FQ with output == input to enable stripping downstream.
+        if (levels.has_value() && isFloatEqual(origOutLow.front(), 0.0f) &&
+            isFloatEqual(origOutHigh.front(), static_cast<float>(*levels - 1))) {
+            return builder.create<IE::FakeQuantizeOp>(loc, oldFqOp.getInput(), oldFqOp.getInputLow(),
+                                                      oldFqOp.getInputHigh(), oldFqOp.getInputLow(),
+                                                      oldFqOp.getInputHigh(), oldFqOp.getLevelsAttr(),
+                                                      oldFqOp.getLowFpTypeAttr(), oldFqOp.getAutoBroadcastAttr());
+        }
+
+        // General case: compute new output range from scale and bias
         auto newOutputLow = origOutLow.front() * scale + bias;
         auto newOutputHigh = origOutHigh.front() * scale + bias;
-
-        auto origInLow = IE::getConst(oldFqOp.getInputLow().getDefiningOp<Const::DeclareOp>());
-        auto origInHigh = IE::getConst(oldFqOp.getInputHigh().getDefiningOp<Const::DeclareOp>());
 
         auto outLowConstType =
                 mlir::cast<mlir::RankedTensorType>(oldFqOp.getOutputLow().getDefiningOp<Const::DeclareOp>().getType());
@@ -656,7 +746,11 @@ public:
 
         auto [scale, bias] =
                 getWeightsAndBiases(fqOp.getInputLow(), fqOp.getInputHigh(), fqOp.getOutputLow(), fqOp.getOutputHigh());
-        const auto [storageMin, storageMax, storageType] = getStorageParams(dstElemType);
+        const auto storageParams = getStorageParams(dstElemType);
+        if (mlir::failed(storageParams)) {
+            return mlir::failure();
+        }
+        const auto [storageMin, storageMax, storageType] = *storageParams;
         const auto convertInputElemType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType()).getElementType();
         auto quantType = mlir::quant::UniformQuantizedType::get(
                 dstElemType.isUnsignedInteger() ? 0 : mlir::quant::QuantizationFlags::Signed, storageType,
@@ -721,12 +815,17 @@ void HandleU16FakeQuantizePass::safeRunOnFunc() {
         collectOpsAndApplyPatterns(func, std::move(patterns));
     }
 
-    // Note: RemoveU16FakeQuantizeRewriter has to use a separate walk, because
-    // u16-to-u8 lowering logic starts from other operations, causing this
-    // pattern to always be applied first (due to the nature of the procedure
-    // here). This can technically be solved, for instance, if other pattern
-    // rewriters are refactored, or if IR traversal order is "bottom-up" (in
-    // which case the traversal order would align with pattern-set order).
+    // RemoveU16FakeQuantizeRewriter uses a separate walk so it runs after the u16-to-u8
+    // lowering above (which starts from other ops and would otherwise apply this pattern first).
+    //
+    // Must run before RemoveU16FakeQuantizeRewriter, which could otherwise simplify the
+    // parent FQ away and make the chain unmatchable.
+    {
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.add<ReplaceChildU16FakeQuantizeWithReluRewriter>(&ctx, _log);
+        collectOpsAndApplyPatterns(func, std::move(patterns));
+    }
+
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<RemoveU16FakeQuantizeRewriter>(&ctx, _log);
     collectOpsAndApplyPatterns(func, std::move(patterns));

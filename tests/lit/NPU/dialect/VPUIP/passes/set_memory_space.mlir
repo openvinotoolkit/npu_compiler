@@ -7,7 +7,7 @@
 // REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
 module @VPU.SW {
-    func.func private @builtin_softmax(%input : memref<*xf16>, %output : memref<*xf16>, %axis : i64) attributes {
+    func.func nested @builtin_softmax(%input : memref<*xf16>, %output : memref<*xf16>, %axis : i64) attributes {
         VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax"
     }
 }
@@ -53,7 +53,7 @@ func.func @MultipleAllocs(%arg0: memref<1x1000xf16>, %arg1: memref<1x1000xf16>) 
 // -----
 
 module @VPU.SW {
-    func.func private @builtin_softmax(%input : memref<*xf16>, %output : memref<*xf16>, %axis : i64) attributes {
+    func.func nested @builtin_softmax(%input : memref<*xf16>, %output : memref<*xf16>, %axis : i64) attributes {
         VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax"
     }
 }
@@ -85,7 +85,7 @@ func.func @ReshapeInGraph(%arg0: memref<1x512x1x1xf32>, %arg1: memref<1x512x1x1x
 // -----
 
 module @VPU.SW {
-    func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {
+    func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {
         VPU.kernel_code = "activation_relu.cpp", VPU.kernel_entry = "activation_relu", VPU.task_type = @COMPUTE
     }
 }

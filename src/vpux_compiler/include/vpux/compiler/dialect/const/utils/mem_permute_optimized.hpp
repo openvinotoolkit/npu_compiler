@@ -13,7 +13,7 @@ namespace details {
 
 // checks capability to perform trivial NCHW<->NHWC and NDHWC<->NCDHW
 bool isOptimizedTransformationSupported(vpux::Const::Content& input, vpux::NDTypeInterface outType,
-                                        DimsOrder permOrder);
+                                        const DimsOrder& permOrder);
 
 //
 // Performs specialized supported transformations

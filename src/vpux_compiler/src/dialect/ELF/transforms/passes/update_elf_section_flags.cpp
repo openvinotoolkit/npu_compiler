@@ -5,6 +5,8 @@
 
 //
 
+#include <llvm/ADT/StringRef.h>
+#include "vpux/compiler/dialect/ELF/IR/attributes.hpp"
 #include "vpux/compiler/dialect/ELF/IR/dialect.hpp"
 #include "vpux/compiler/dialect/ELF/IR/ops.hpp"
 #include "vpux/compiler/dialect/ELF/transforms/passes.hpp"
@@ -23,22 +25,15 @@ namespace {
 
 class UpdateELFSectionFlagsPass final : public ELF::impl::UpdateELFSectionFlagsBase<UpdateELFSectionFlagsPass> {
 public:
-    explicit UpdateELFSectionFlagsPass(Logger log, const std::string& isShaveDDRAccessEnabled) {
+    explicit UpdateELFSectionFlagsPass(Logger log, bool isShaveDDRAccessEnabled) {
         Base::initLogger(log, Base::getArgumentName());
-        _isShaveDDRAccessEnabled = isShaveDDRAccessEnabled == "true";
-        _sufficientAccessFlags = _isShaveDDRAccessEnabled ? ELF::SectionFlagsAttr::VPU_SHF_PROC_SHAVE |
-                                                                    ELF::SectionFlagsAttr::VPU_SHF_PROC_DMA
-                                                          : ELF::SectionFlagsAttr::VPU_SHF_PROC_DMA;
+        enableShaveDDRAccess = isShaveDDRAccessEnabled;
     }
 
 private:
-    llvm::SmallDenseMap<llvm::StringRef, ELF::ElfSectionInterface> sectionMap;
-    std::vector<ELF::DDRMemoryAccessingOpInterface> ddrAccessingOps;
-    bool _isShaveDDRAccessEnabled;
-    ELF::SectionFlagsAttr _sufficientAccessFlags;
-
-private:
-    void registerDDRSections(ELF::MainOp& elfMain) {
+    void registerDDRSections(ELF::MainOp& elfMain,
+                             llvm::SmallDenseMap<llvm::StringRef, ELF::ElfSectionInterface>& sectionMap,
+                             std::vector<ELF::DDRMemoryAccessingOpInterface>& ddrAccessingOps) {
         for (auto sectionOp : elfMain.getOps<ELF::ElfSectionInterface>()) {
             auto secFlags = sectionOp.getSectionFlags();
 
@@ -58,11 +53,6 @@ private:
                 // Collect all ops that determine access to some other DDR data (maybe as I/O)
                 if (auto ddrAccessingOp =
                             mlir::dyn_cast<ELF::DDRMemoryAccessingOpInterface>(wrappableOp.getOperation())) {
-                    // If shave DDR access is disabled, ignore the ops that determine SHAVE access
-                    if (!_isShaveDDRAccessEnabled &&
-                        ddrAccessingOp.getMemoryAccessingProc() == ELF::SectionFlagsAttr::VPU_SHF_PROC_SHAVE) {
-                        continue;
-                    }
                     ddrAccessingOps.push_back(ddrAccessingOp);
                 }
             }
@@ -79,17 +69,24 @@ private:
         VPUX_THROW_UNLESS(mainOps.size() == 1, "Expected exactly one ELF mainOp. Got {0}", mainOps.size());
         auto elfMain = mainOps[0];
 
-        registerDDRSections(elfMain);
+        const auto sufficientAccessFlags = enableShaveDDRAccess ? ELF::SectionFlagsAttr::VPU_SHF_PROC_SHAVE |
+                                                                          ELF::SectionFlagsAttr::VPU_SHF_PROC_DMA
+                                                                : ELF::SectionFlagsAttr::VPU_SHF_PROC_DMA;
+
+        llvm::SmallDenseMap<llvm::StringRef, ELF::ElfSectionInterface> sectionMap;
+        std::vector<ELF::DDRMemoryAccessingOpInterface> ddrAccessingOps;
+
+        registerDDRSections(elfMain, sectionMap, ddrAccessingOps);
 
         for (auto op : ddrAccessingOps) {
-            auto memAccessFlags = op.getMemoryAccessingProc();
             // Iterate through the sections that the op determines access to and update their flags
             for (auto accessedSection : op.getAccessedSections()) {
                 auto sectionOpIt = sectionMap.find(accessedSection.getValue());
                 if (sectionOpIt != sectionMap.end()) {
+                    auto memAccessFlags = op.getMemoryAccessingProcForSection(accessedSection);
                     auto updatedFlags = sectionOpIt->getSecond().updateSectionFlags(memAccessFlags);
                     // Early-exit condition for the specific section if all needed flags have already been set
-                    if (ELF::bitEnumContainsAll(updatedFlags, _sufficientAccessFlags)) {
+                    if (ELF::bitEnumContainsAll(updatedFlags, sufficientAccessFlags)) {
                         sectionMap.erase(sectionOpIt);
                     }
                 }
@@ -100,7 +97,6 @@ private:
 
 }  // namespace
 
-std::unique_ptr<mlir::Pass> vpux::ELF::createUpdateELFSectionFlagsPass(Logger log,
-                                                                       const std::string& isShaveDDRAccessEnabled) {
-    return std::make_unique<UpdateELFSectionFlagsPass>(log, isShaveDDRAccessEnabled);
+std::unique_ptr<mlir::Pass> vpux::ELF::createUpdateELFSectionFlagsPass(Logger log, bool enableShaveDDRAccess) {
+    return std::make_unique<UpdateELFSectionFlagsPass>(log, enableShaveDDRAccess);
 }

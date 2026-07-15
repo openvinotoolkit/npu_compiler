@@ -62,7 +62,7 @@ private:
 public:
     void setReferenceSoftwareMode();
     void setDefaultHardwareMode();
-    void setHostCompileMode();
+    void setHostCompileMode(std::string_view mode = "HostCompile");
 
     void setPluginCompilerType();
     void setBatchCompilerMode(const std::string& mode);
@@ -72,6 +72,7 @@ public:
     void setPerformanceHintLatency();
 
     void enableProfiling();
+    void enableTurbo();
 
     bool isReferenceSoftwareMode() const;
     bool isDefaultHardwareMode() const;

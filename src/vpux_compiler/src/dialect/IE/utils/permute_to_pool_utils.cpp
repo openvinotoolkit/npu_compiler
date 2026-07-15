@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/IE/utils/permute_to_pool_utils.hpp"
 
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/utils/expand_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
@@ -28,7 +29,7 @@ bool isBeneficialToConvert(ShapeRef shape) {
 
 }  // namespace
 
-DimsOrder vpux::getNHWCOutputLayout(DimsOrder memPermute) {
+DimsOrder vpux::getNHWCOutputLayout(const DimsOrder& memPermute) {
     // To use NCE accelerate Permutation, we always cast the input tensor's layout to NHWC based on physical layout.
     //  In this way, we only need consider the below 5 cases:
     //
@@ -49,7 +50,7 @@ DimsOrder vpux::getNHWCOutputLayout(DimsOrder memPermute) {
 
 SmallVector<std::pair<Shape, DimsOrder>> vpux::calculateConversions(ShapeRef originInputShape,
                                                                     const int64_t alignedChannel,
-                                                                    DimsOrder targetOrder) {
+                                                                    const DimsOrder& targetOrder) {
     //
     //               NWCH (Case 2)
     //                 |
@@ -86,8 +87,8 @@ SmallVector<std::pair<Shape, DimsOrder>> vpux::calculateConversions(ShapeRef ori
                 return getNHWCOutputLayout(layoutPermute->second);
             };
 
-    auto calculateSingleDimConversion = [&](const bool mergedAlign, const bool dimAligned, DimsOrder fromDimOrder,
-                                            DimsOrder toDimOrder,
+    auto calculateSingleDimConversion = [&](const bool mergedAlign, const bool dimAligned,
+                                            const DimsOrder& fromDimOrder, const DimsOrder& toDimOrder,
                                             const std::unordered_map<DimsOrder, DimsOrder>& layout2Perm) -> bool {
         if (!mergedAlign) {
             newMaxPoolOrder.clear();
@@ -192,14 +193,21 @@ bool vpux::isLegalConvertToPool(NDTypeInterface inputType, NDTypeInterface outpu
         }
     }
 
-    if (memPerm == DimsOrder::NHCW && !isBeneficialToConvert(inShape)) {
-        log.trace("MemPermuteOp is not performant using ODU permute");
-        return false;
-    }
-
-    if (inShape[Dim(Dims4D::Act::W)] > VPU::NCEInvariant::VPU_DIMENSION_LIMIT && memPerm == DimsOrder::NCWH) {
-        log.trace("MemPermuteOp is not performant using ODU permute");
-        return false;
+    if (memPerm == DimsOrder::NHCW) {
+        // Attention -> [Slice/PermuteCast]+ -> NHCW MemPermute: prefer DMA so it fuses with Slice.
+        if (mlir::isa_and_nonnull<IE::SliceOp, IE::PermuteCastOp>(parentOp)) {
+            auto p = parentOp;
+            while (mlir::isa_and_nonnull<IE::SliceOp, IE::PermuteCastOp>(p)) {
+                p = p->getOperand(0).getDefiningOp();
+            }
+            if (mlir::isa_and_nonnull<IE::AttentionOp>(p)) {
+                log.trace("NHCW MemPermute after Attention->Slice: prefer PermuteDMA");
+                return false;
+            }
+        }
+        if (!isBeneficialToConvert(inShape)) {
+            return false;
+        }
     }
 
     // Populate the target shape following NCHW order of dimensions.

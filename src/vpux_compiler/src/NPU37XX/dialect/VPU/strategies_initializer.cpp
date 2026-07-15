@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/NPU37XX/dialect/VPU/strategies_initializer.hpp"
+#include "vpux/compiler/NPU37XX/conversion/impl/convert_IE_to_VPU_NCE_strategy.hpp"
 #include "vpux/compiler/NPU37XX/dialect/VPU/impl/make_ops_with_distributed_tensor_strategy.hpp"
 #include "vpux/compiler/NPU37XX/dialect/VPU/impl/mc_strategy_getter.hpp"
 #include "vpux/compiler/NPU37XX/dialect/VPU/impl/nce_workload_channels.hpp"
@@ -72,6 +73,10 @@ class StrategyFactory37XX : public VPU::StrategyFactory {
     bool isNCEPermuteOffsetsCorrectionNeeded(VPU::NCEOpInterface nceOp) override {
         auto outputType = nceOp->getResult(0).getType();
         return mlir::isa<vpux::VPU::DistributedTensorType>(outputType);
+    }
+
+    std::unique_ptr<IConvertIEToVPUNCEStrategy> getConvertIEToVPUNCEStrategy(const Logger& log) override {
+        return std::make_unique<vpux::arch37xx::ConvertIEToVPUNCEStrategy>(log, config::ArchKind::NPU37XX);
     }
 };
 }  // namespace vpux::VPU

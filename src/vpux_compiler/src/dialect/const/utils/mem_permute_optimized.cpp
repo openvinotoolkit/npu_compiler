@@ -190,7 +190,7 @@ inline void blob_copy_5d(vpux::Const::Content& input, vpux::Const::Content& outp
 };  // namespace
 
 bool Const::details::isOptimizedTransformationSupported(vpux::Const::Content& input, vpux::NDTypeInterface outType,
-                                                        DimsOrder permOrder) {
+                                                        const DimsOrder& permOrder) {
     const Bit elemSize = getElemTypeSize(input.getStorageElemType());
     const size_t elemSizeBytes = checked_cast<size_t>(elemSize.to<Byte>().count());
     static const std::unordered_set<size_t> optimizedElemTypeSizes = {sizeof(uint8_t), sizeof(uint16_t), sizeof(float)};
@@ -199,8 +199,8 @@ bool Const::details::isOptimizedTransformationSupported(vpux::Const::Content& in
         return false;
     }
 
-    const auto createDimsVerifier = [](vpux::DimsOrder order1, vpux::DimsOrder order2) {
-        return [=](DimsOrder typeOrder1, DimsOrder typeOrder2) {
+    const auto createDimsVerifier = [](const vpux::DimsOrder& order1, const vpux::DimsOrder& order2) {
+        return [=](const DimsOrder& typeOrder1, const DimsOrder& typeOrder2) {
             return (typeOrder1 == order1 && typeOrder2 == order2) || (typeOrder1 == order2 && typeOrder2 == order1);
         };
     };

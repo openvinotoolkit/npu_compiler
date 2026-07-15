@@ -25,7 +25,8 @@ class StrategyManager final {
 public:
     explicit StrategyManager(mlir::func::FuncOp func, int64_t numTiles, bool enablePrefetchTiling,
                              VPU::MCOptimizationScope mcOptimizationScope, SiblingOpsAnalysis& siblingsOpsAnalysis,
-                             std::shared_ptr<VPUNN::VPULayerCostModel> layerCostModelPtr, Logger log);
+                             std::shared_ptr<VPUNN::VPULayerCostModel> layerCostModelPtr,
+                             bool enableTilingFullSearchSpace, Logger log);
 
 public:
     void assignMultiClusterStrategy(bool enableMultiClusterForSWLayer);

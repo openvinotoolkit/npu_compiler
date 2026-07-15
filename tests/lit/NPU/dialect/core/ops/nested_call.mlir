@@ -9,7 +9,7 @@
 // CHECK-LABEL: @SingleNesting
 module @SingleNesting {
     module @SubModule {
-        func.func private @foo(%arg: tensor<f32>) -> tensor<f32>
+        func.func nested @foo(%arg: tensor<f32>) -> tensor<f32>
     }
 
     func.func @main(%arg: tensor<f32>) -> tensor<f32> {
@@ -24,7 +24,7 @@ module @SingleNesting {
 module @DoubleNesting {
     module @Sub1 {
         module @Sub2 {
-            func.func private @foo(%arg: tensor<f32>) -> tensor<f32>
+            func.func nested @foo(%arg: tensor<f32>) -> tensor<f32>
         }
     }
 
@@ -53,7 +53,7 @@ module @NotAFuncOp {
 
 module @IsolatedFromAbove {
     module @Sub1 {
-        func.func private @foo(%arg: tensor<f32>) -> tensor<f32>
+        func.func nested @foo(%arg: tensor<f32>) -> tensor<f32>
     }
 
     module @Sub2 {
@@ -69,7 +69,7 @@ module @IsolatedFromAbove {
 
 module @OperandTypesMismatch {
     module @Sub1 {
-        func.func private @foo(%arg: tensor<f32>, %arg1: tensor<f32>) -> tensor<f32>
+        func.func nested @foo(%arg: tensor<f32>, %arg1: tensor<f32>) -> tensor<f32>
     }
 
     func.func @main(%arg: tensor<f32>) -> tensor<f32> {
@@ -83,7 +83,7 @@ module @OperandTypesMismatch {
 
 module @ResultTypesMismatch {
     module @Sub1 {
-        func.func private @foo(%arg: tensor<f32>) -> (tensor<f32>, tensor<f32>)
+        func.func nested @foo(%arg: tensor<f32>) -> (tensor<f32>, tensor<f32>)
     }
 
     func.func @main(%arg: tensor<f32>) -> tensor<f32> {
@@ -96,7 +96,7 @@ module @ResultTypesMismatch {
 // -----
 
 module @NotANestedSymbol {
-    func.func private @foo(%arg: tensor<f32>) -> (tensor<f32>, tensor<f32>)
+    func.func nested @foo(%arg: tensor<f32>) -> (tensor<f32>, tensor<f32>)
 
     func.func @main(%arg: tensor<f32>) -> tensor<f32> {
         // expected-error@+1 {{'Core.NestedCall' op 'callee' must be a nested symbol}}

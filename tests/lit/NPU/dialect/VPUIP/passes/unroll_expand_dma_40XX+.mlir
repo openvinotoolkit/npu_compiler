@@ -19,35 +19,35 @@
 func.func @UnrollExpandDMAWithSEGMENTED() -> !OutputDistributed {
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    %input = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x240x320xf16, #NHWC, @DDR>
+    %input = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x240x320xf16, {order = #NHWC}, @DDR>
     %output = VPURT.DeclareBuffer <CMX_NN> <0> -> !OutputDistributed
 
     VPURT.Task updates(%bar0 : !VPURT.Barrier) {
         VPUIP.ExpandDMA <{pads_begin = [0, 0, 0, 0], pads_end = [0, 1, 0, 0]}>
-                inputs(%input : memref<1x3x240x320xf16, #NHWC, @DDR>)
+                inputs(%input : memref<1x3x240x320xf16, {order = #NHWC}, @DDR>)
                 outputs(%output : !OutputDistributed) -> !OutputDistributed
     }
 
     return %output: !OutputDistributed
 
     //CHECK:    [[BARRIER:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    //CHECK:    [[INPUT0:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x120x320xf16, #NHWC, @DDR>
-    //CHECK:    [[INPUT1:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <230400> -> memref<1x3x120x320xf16, #NHWC, @DDR>
+    //CHECK:    [[INPUT0:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x120x320xf16, {order = #NHWC}, @DDR>
+    //CHECK:    [[INPUT1:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <230400> -> memref<1x3x120x320xf16, {order = #NHWC}, @DDR>
     //CHECK:    [[OUTPUT:%.+]] = VPURT.DeclareBuffer <CMX_NN> <0> -> !VPUIP.DistributedBuffer<1x4x240x320xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
 
-    //CHECK:    [[OUTPUT0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x4x120x320xf16, #NHWC, [@CMX_NN, 0]>
-    //CHECK:    [[OUTPUT1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x4x120x320xf16, #NHWC, [@CMX_NN, 1]>
+    //CHECK:    [[OUTPUT0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x4x120x320xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    //CHECK:    [[OUTPUT1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x4x120x320xf16, {order = #NHWC}, [@CMX_NN, 1]>
     //CHECK:    VPURT.Task updates([[BARRIER]] : !VPURT.Barrier) {
     //CHECK:        VPUIP.ExpandDMA <{dma_descriptor = #VPUIP.DMADescriptorAttr<numPlanes = 1 : i64, len = 230400 : i64, srcWidth = 230400 : i64, srcStride = 230400 : i64, srcPlaneStride = 0 : i64, dstWidth = 6 : i64, dstStride = 8 : i64, dstPlaneStride = 0 : i64>,
     //CHECK:                pads_begin = [0, 0, 0, 0], pads_end = [0, 1, 0, 0], port = 0 : i64}>
-    //CHECK:                inputs([[INPUT0]] : memref<1x3x120x320xf16, #NHWC, @DDR>)
-    //CHECK:                outputs([[OUTPUT0]] : memref<1x4x120x320xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x4x120x320xf16, #NHWC, [@CMX_NN, 0]>
+    //CHECK:                inputs([[INPUT0]] : memref<1x3x120x320xf16, {order = #NHWC}, @DDR>)
+    //CHECK:                outputs([[OUTPUT0]] : memref<1x4x120x320xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x4x120x320xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     //CHECK:    VPURT.Task updates([[BARRIER]] : !VPURT.Barrier) {
     //CHECK:        VPUIP.ExpandDMA <{dma_descriptor = #VPUIP.DMADescriptorAttr<numPlanes = 1 : i64, len = 230400 : i64, srcWidth = 230400 : i64, srcStride = 230400 : i64, srcPlaneStride = 0 : i64, dstWidth = 6 : i64, dstStride = 8 : i64, dstPlaneStride = 0 : i64>,
     //CHECK:                pads_begin = [0, 0, 0, 0], pads_end = [0, 1, 0, 0], port = 1 : i64}>
-    //CHECK:                inputs([[INPUT1]] : memref<1x3x120x320xf16, #NHWC, @DDR>)
-    //CHECK:                outputs([[OUTPUT1]] : memref<1x4x120x320xf16, #NHWC, [@CMX_NN, 1]>) -> memref<1x4x120x320xf16, #NHWC, [@CMX_NN, 1]>
+    //CHECK:                inputs([[INPUT1]] : memref<1x3x120x320xf16, {order = #NHWC}, @DDR>)
+    //CHECK:                outputs([[OUTPUT1]] : memref<1x4x120x320xf16, {order = #NHWC}, [@CMX_NN, 1]>) -> memref<1x4x120x320xf16, {order = #NHWC}, [@CMX_NN, 1]>
 
     //CHECK:    return [[OUTPUT]] : !VPUIP.DistributedBuffer<1x4x240x320xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
 }
@@ -71,41 +71,41 @@ func.func @UnrollExpandDMAWithSEGMENTED() -> !OutputDistributed {
 func.func @UnrollExpandDMAWithSEGMENTEDExplicit() -> !OutputDistributed {
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    %input = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x240x320xf16, #NHWC, @DDR>
+    %input = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x240x320xf16, {order = #NHWC}, @DDR>
     %output = VPURT.DeclareBuffer <CMX_NN> [0, 1] <0> -> !OutputDistributed
 
     VPURT.Task updates(%bar0 : !VPURT.Barrier) {
         VPUIP.ExpandDMA <{pads_begin = [0, 0, 0, 0], pads_end = [0, 1, 0, 0]}>
-                inputs(%input : memref<1x3x240x320xf16, #NHWC, @DDR>)
+                inputs(%input : memref<1x3x240x320xf16, {order = #NHWC}, @DDR>)
                 outputs(%output : !OutputDistributed) -> !OutputDistributed
     }
 
     return %output: !OutputDistributed
 
     //CHECK:    [[BARRIER:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    //CHECK:    [[INPUT0:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x120x320xf16, #NHWC, @DDR>
-    //CHECK:    [[INPUT1:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <230400> -> memref<1x3x120x320xf16, #NHWC, @DDR>
+    //CHECK:    [[INPUT0:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x120x320xf16, {order = #NHWC}, @DDR>
+    //CHECK:    [[INPUT1:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <230400> -> memref<1x3x120x320xf16, {order = #NHWC}, @DDR>
     //CHECK:    [[OUTPUT:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0, 1] <0>
     //CHECK-SAME:       -> !VPUIP.DistributedBuffer<1x4x240x320xf16, #NHWC, @CMX_NN,
     //CHECK-SAME:           {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64
     //CHECK-SAME{LITERAL}:   compute_shapes = [[1, 4, 120, 320], [1, 4, 120, 320]], compute_offsets = [[0, 0, 0, 0], [0, 0, 120, 0]],
     //CHECK-SAME{LITERAL}:   memory_shapes = [[1, 4, 120, 320], [1, 4, 120, 320]], memory_offsets = [[0, 0, 0, 0], [0, 0, 120, 0]]}>
 
-    //CHECK:    [[OUTPUT0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x4x120x320xf16, #NHWC, [@CMX_NN, 0]>
-    //CHECK:    [[OUTPUT1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x4x120x320xf16, #NHWC, [@CMX_NN, 1]>
+    //CHECK:    [[OUTPUT0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x4x120x320xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    //CHECK:    [[OUTPUT1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x4x120x320xf16, {order = #NHWC}, [@CMX_NN, 1]>
     //CHECK:    VPURT.Task updates([[BARRIER]] : !VPURT.Barrier) {
     //CHECK:        VPUIP.ExpandDMA <{
     //CHECK-SAME:       pads_begin = [0, 0, 0, 0], pads_end = [0, 1, 0, 0], port = 0 : i64}>
-    //CHECK-SAME:       inputs([[INPUT0]] : memref<1x3x120x320xf16, #NHWC, @DDR>)
-    //CHECK-SAME:       outputs([[OUTPUT0]] : memref<1x4x120x320xf16, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:       -> memref<1x4x120x320xf16, #NHWC, [@CMX_NN, 0]>
+    //CHECK-SAME:       inputs([[INPUT0]] : memref<1x3x120x320xf16, {order = #NHWC}, @DDR>)
+    //CHECK-SAME:       outputs([[OUTPUT0]] : memref<1x4x120x320xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:       -> memref<1x4x120x320xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     //CHECK:    VPURT.Task updates([[BARRIER]] : !VPURT.Barrier) {
     //CHECK:        VPUIP.ExpandDMA <{dma_descriptor = #VPUIP.DMADescriptorAttr<numPlanes = 1 : i64, len = 230400 : i64, srcWidth = 230400 : i64, srcStride = 230400 : i64, srcPlaneStride = 0 : i64, dstWidth = 6 : i64, dstStride = 8 : i64, dstPlaneStride = 0 : i64>,
     //CHECK-SAME:       pads_begin = [0, 0, 0, 0], pads_end = [0, 1, 0, 0], port = 1 : i64}>
-    //CHECK-SAME:       inputs([[INPUT1]] : memref<1x3x120x320xf16, #NHWC, @DDR>)
-    //CHECK-SAME:       outputs([[OUTPUT1]] : memref<1x4x120x320xf16, #NHWC, [@CMX_NN, 1]>)
-    //CHECK-SAME:       -> memref<1x4x120x320xf16, #NHWC, [@CMX_NN, 1]>
+    //CHECK-SAME:       inputs([[INPUT1]] : memref<1x3x120x320xf16, {order = #NHWC}, @DDR>)
+    //CHECK-SAME:       outputs([[OUTPUT1]] : memref<1x4x120x320xf16, {order = #NHWC}, [@CMX_NN, 1]>)
+    //CHECK-SAME:       -> memref<1x4x120x320xf16, {order = #NHWC}, [@CMX_NN, 1]>
 
     //CHECK:    return [[OUTPUT]] : !VPUIP.DistributedBuffer<1x4x240x320xf16, #NHWC, @CMX_NN,
     //CHECK-SAME:                   {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64
@@ -127,25 +127,25 @@ func.func @UnrollExpandDMAWithSEGMENTEDExplicit() -> !OutputDistributed {
 func.func @UnrollExpandDMAWithDUPLICATED() -> !OutputDistributed {
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    %input = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x4420x1x2xf16, #NHWC, @DDR>
+    %input = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x4420x1x2xf16, {order = #NHWC}, @DDR>
     %output = VPURT.DeclareBuffer <CMX_NN> <0> -> !OutputDistributed
 
     VPURT.Task updates(%bar0 : !VPURT.Barrier) {
         VPUIP.ExpandDMA <{pads_begin = [0, 0, 0, 0], pads_end = [0, 12, 0, 0]}>
-                inputs(%input : memref<1x4420x1x2xf16, #NHWC, @DDR>)
+                inputs(%input : memref<1x4420x1x2xf16, {order = #NHWC}, @DDR>)
                 outputs(%output : !OutputDistributed) -> !OutputDistributed
     }
 
     return %output: !OutputDistributed
 
     //CHECK:    [[BARRIER:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    //CHECK:    [[INPUT:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x4420x1x2xf16, #NHWC, @DDR>
+    //CHECK:    [[INPUT:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x4420x1x2xf16, {order = #NHWC}, @DDR>
     //CHECK:    [[RETURN:%.+]] = VPURT.DeclareBuffer <CMX_NN> <0> -> !VPUIP.DistributedBuffer<1x4432x1x2xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
     //CHECK:    [[OUTPUT:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0, 1] <0> -> !VPUIP.DistributedBuffer<1x4432x1x2xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
     //CHECK:    VPURT.Task updates([[BARRIER]] : !VPURT.Barrier) {
     //CHECK:        VPUIP.ExpandDMA <{dma_descriptor = #VPUIP.DMADescriptorAttr<numPlanes = 1 : i64, len = 17680 : i64, srcWidth = 17680 : i64, srcStride = 17680 : i64, srcPlaneStride = 0 : i64, dstWidth = 8840 : i64, dstStride = 8864 : i64, dstPlaneStride = 0 : i64>,
     //CHECK:                pads_begin = [0, 0, 0, 0], pads_end = [0, 12, 0, 0], port = 0 : i64}>
-    //CHECK:                inputs([[INPUT]] : memref<1x4420x1x2xf16, #NHWC, @DDR>)
+    //CHECK:                inputs([[INPUT]] : memref<1x4420x1x2xf16, {order = #NHWC}, @DDR>)
     //CHECK:                outputs([[OUTPUT]] : !VPUIP.DistributedBuffer<1x4432x1x2xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>)
     //CHECK:                    -> !VPUIP.DistributedBuffer<1x4432x1x2xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
 
@@ -170,19 +170,19 @@ func.func @UnrollExpandDMAWithDUPLICATED() -> !OutputDistributed {
 func.func @UnrollExpandDMAWithDUPLICATEDExplicit() -> !OutputDistributed {
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    %input = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x4420x1x2xf16, #NHWC, @DDR>
+    %input = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x4420x1x2xf16, {order = #NHWC}, @DDR>
     %output = VPURT.DeclareBuffer <CMX_NN> <0> -> !OutputDistributed
 
     VPURT.Task updates(%bar0 : !VPURT.Barrier) {
         VPUIP.ExpandDMA <{pads_begin = [0, 0, 0, 0], pads_end = [0, 12, 0, 0]}>
-                inputs(%input : memref<1x4420x1x2xf16, #NHWC, @DDR>)
+                inputs(%input : memref<1x4420x1x2xf16, {order = #NHWC}, @DDR>)
                 outputs(%output : !OutputDistributed) -> !OutputDistributed
     }
 
     return %output: !OutputDistributed
 
     //CHECK:    [[BARRIER:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    //CHECK:    [[INPUT:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x4420x1x2xf16, #NHWC, @DDR>
+    //CHECK:    [[INPUT:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x4420x1x2xf16, {order = #NHWC}, @DDR>
     //CHECK:    [[OUTPUT:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0, 1] <0>
     //CHECK-SAME:       -> !VPUIP.DistributedBuffer<1x4432x1x2xf16, #NHWC, @CMX_NN,
     //CHECK-SAME:           {mode = "DUPLICATED", num_clusters = 2 : i64,
@@ -192,7 +192,7 @@ func.func @UnrollExpandDMAWithDUPLICATEDExplicit() -> !OutputDistributed {
     //CHECK:    VPURT.Task updates([[BARRIER]] : !VPURT.Barrier) {
     //CHECK:        VPUIP.ExpandDMA <{dma_descriptor = #VPUIP.DMADescriptorAttr<numPlanes = 1 : i64, len = 17680 : i64, srcWidth = 17680 : i64, srcStride = 17680 : i64, srcPlaneStride = 0 : i64, dstWidth = 8840 : i64, dstStride = 8864 : i64, dstPlaneStride = 0 : i64>,
     //CHECK-SAME:       pads_begin = [0, 0, 0, 0], pads_end = [0, 12, 0, 0], port = 0 : i64}>
-    //CHECK-SAME:       inputs([[INPUT]] : memref<1x4420x1x2xf16, #NHWC, @DDR>)
+    //CHECK-SAME:       inputs([[INPUT]] : memref<1x4420x1x2xf16, {order = #NHWC}, @DDR>)
     //CHECK-SAME:       outputs([[OUTPUT]] : !VPUIP.DistributedBuffer<1x4432x1x2xf16, #NHWC, @CMX_NN,
     //CHECK-SAME:                             {mode = "DUPLICATED", num_clusters = 2 : i64,
     //CHECK-SAME{LITERAL}:                     compute_shapes = [[1, 4432, 1, 2], [1, 4432, 1, 2]],
@@ -226,35 +226,35 @@ func.func @UnrollExpandDMAWithDUPLICATEDExplicit() -> !OutputDistributed {
 func.func @UnrollExpandDMAWithOVERLAPPED() -> !OutputDistributed {
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    %input = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x240x320xf16, #NHWC, @DDR>
+    %input = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x240x320xf16, {order = #NHWC}, @DDR>
     %output = VPURT.DeclareBuffer <CMX_NN> <0> -> !OutputDistributed
 
     VPURT.Task updates(%bar0 : !VPURT.Barrier) {
         VPUIP.ExpandDMA <{pads_begin = [0, 0, 0, 0], pads_end = [0, 1, 0, 0]}>
-                inputs(%input : memref<1x3x240x320xf16, #NHWC, @DDR>)
+                inputs(%input : memref<1x3x240x320xf16, {order = #NHWC}, @DDR>)
                 outputs(%output : !OutputDistributed) -> !OutputDistributed
     }
 
     return %output: !OutputDistributed
 
     //CHECK:    [[BARRIER:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    //CHECK:    [[INPUT0:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x121x320xf16, #NHWC, @DDR>
-    //CHECK:    [[INPUT1:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <230400> -> memref<1x3x120x320xf16, #NHWC, @DDR>
+    //CHECK:    [[INPUT0:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x121x320xf16, {order = #NHWC}, @DDR>
+    //CHECK:    [[INPUT1:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <230400> -> memref<1x3x120x320xf16, {order = #NHWC}, @DDR>
     //CHECK:    [[OUTPUT:%.+]] = VPURT.DeclareBuffer <CMX_NN> <0> -> !VPUIP.DistributedBuffer<1x4x240x320xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [3, 3], pads = #VPU.Padding<left = 0 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64>, strides = [2, 2], num_clusters = 2 : i64}>
 
-    //CHECK:    [[OUTPUT0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x4x121x320xf16, #NHWC, [@CMX_NN, 0]>
-    //CHECK:    [[OUTPUT1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x4x120x320xf16, #NHWC, [@CMX_NN, 1]>
+    //CHECK:    [[OUTPUT0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x4x121x320xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    //CHECK:    [[OUTPUT1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x4x120x320xf16, {order = #NHWC}, [@CMX_NN, 1]>
     //CHECK:    VPURT.Task updates([[BARRIER]] : !VPURT.Barrier) {
     //CHECK:        VPUIP.ExpandDMA <{dma_descriptor = #VPUIP.DMADescriptorAttr<numPlanes = 1 : i64, len = 232320 : i64, srcWidth = 232320 : i64, srcStride = 232320 : i64, srcPlaneStride = 0 : i64, dstWidth = 6 : i64, dstStride = 8 : i64, dstPlaneStride = 0 : i64>,
     //CHECK:                pads_begin = [0, 0, 0, 0], pads_end = [0, 1, 0, 0], port = 0 : i64}>
-    //CHECK:                inputs([[INPUT0]] : memref<1x3x121x320xf16, #NHWC, @DDR>)
-    //CHECK:                outputs([[OUTPUT0]] : memref<1x4x121x320xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x4x121x320xf16, #NHWC, [@CMX_NN, 0]>
+    //CHECK:                inputs([[INPUT0]] : memref<1x3x121x320xf16, {order = #NHWC}, @DDR>)
+    //CHECK:                outputs([[OUTPUT0]] : memref<1x4x121x320xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x4x121x320xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     //CHECK:    VPURT.Task updates([[BARRIER]] : !VPURT.Barrier) {
     //CHECK:        VPUIP.ExpandDMA <{dma_descriptor = #VPUIP.DMADescriptorAttr<numPlanes = 1 : i64, len = 230400 : i64, srcWidth = 230400 : i64, srcStride = 230400 : i64, srcPlaneStride = 0 : i64, dstWidth = 6 : i64, dstStride = 8 : i64, dstPlaneStride = 0 : i64>,
     //CHECK:                pads_begin = [0, 0, 0, 0], pads_end = [0, 1, 0, 0], port = 1 : i64}>
-    //CHECK:                inputs([[INPUT1]] : memref<1x3x120x320xf16, #NHWC, @DDR>)
-    //CHECK:                outputs([[OUTPUT1]] : memref<1x4x120x320xf16, #NHWC, [@CMX_NN, 1]>) -> memref<1x4x120x320xf16, #NHWC, [@CMX_NN, 1]>
+    //CHECK:                inputs([[INPUT1]] : memref<1x3x120x320xf16, {order = #NHWC}, @DDR>)
+    //CHECK:                outputs([[OUTPUT1]] : memref<1x4x120x320xf16, {order = #NHWC}, [@CMX_NN, 1]>) -> memref<1x4x120x320xf16, {order = #NHWC}, [@CMX_NN, 1]>
 
     //CHECK:    return [[OUTPUT]] : !VPUIP.DistributedBuffer<1x4x240x320xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [3, 3], pads = #VPU.Padding<left = 0 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64>, strides = [2, 2], num_clusters = 2 : i64}>
 }
@@ -278,41 +278,41 @@ func.func @UnrollExpandDMAWithOVERLAPPED() -> !OutputDistributed {
 func.func @UnrollExpandDMAWithOVERLAPPEDExplicit() -> !OutputDistributed {
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    %input = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x240x320xf16, #NHWC, @DDR>
+    %input = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x240x320xf16, {order = #NHWC}, @DDR>
     %output = VPURT.DeclareBuffer <CMX_NN> [0, 1] <0> -> !OutputDistributed
 
     VPURT.Task updates(%bar0 : !VPURT.Barrier) {
         VPUIP.ExpandDMA <{pads_begin = [0, 0, 0, 0], pads_end = [0, 1, 0, 0]}>
-                inputs(%input : memref<1x3x240x320xf16, #NHWC, @DDR>)
+                inputs(%input : memref<1x3x240x320xf16, {order = #NHWC}, @DDR>)
                 outputs(%output : !OutputDistributed) -> !OutputDistributed
     }
 
     return %output: !OutputDistributed
 
     //CHECK:    [[BARRIER:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    //CHECK:    [[INPUT0:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x122x320xf16, #NHWC, @DDR>
-    //CHECK:    [[INPUT1:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <224640> -> memref<1x3x123x320xf16, #NHWC, @DDR>
+    //CHECK:    [[INPUT0:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x122x320xf16, {order = #NHWC}, @DDR>
+    //CHECK:    [[INPUT1:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <224640> -> memref<1x3x123x320xf16, {order = #NHWC}, @DDR>
     //CHECK:    [[OUTPUT:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0, 1] <0>
     //CHECK-SAME:       -> !VPUIP.DistributedBuffer<1x4x240x320xf16, #NHWC, @CMX_NN,
     //CHECK-SAME:           {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64
     //CHECK-SAME{LITERAL}:   compute_shapes = [[1, 4, 120, 320], [1, 4, 120, 320]], compute_offsets = [[0, 0, 0, 0], [0, 0, 120, 0]],
     //CHECK-SAME{LITERAL}:   memory_shapes = [[1, 4, 122, 320], [1, 4, 123, 320]], memory_offsets = [[0, 0, 0, 0], [0, 0, 117, 0]]}>
 
-    //CHECK:    [[OUTPUT0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x4x122x320xf16, #NHWC, [@CMX_NN, 0]>
-    //CHECK:    [[OUTPUT1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x4x123x320xf16, #NHWC, [@CMX_NN, 1]>
+    //CHECK:    [[OUTPUT0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x4x122x320xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    //CHECK:    [[OUTPUT1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x4x123x320xf16, {order = #NHWC}, [@CMX_NN, 1]>
     //CHECK:    VPURT.Task updates([[BARRIER]] : !VPURT.Barrier) {
     //CHECK:        VPUIP.ExpandDMA <{dma_descriptor = #VPUIP.DMADescriptorAttr<numPlanes = 1 : i64, len = 234240 : i64, srcWidth = 234240 : i64, srcStride = 234240 : i64, srcPlaneStride = 0 : i64, dstWidth = 6 : i64, dstStride = 8 : i64, dstPlaneStride = 0 : i64>,
     //CHECK-SAME:       pads_begin = [0, 0, 0, 0], pads_end = [0, 1, 0, 0], port = 0 : i64}>
-    //CHECK-SAME:       inputs([[INPUT0]] : memref<1x3x122x320xf16, #NHWC, @DDR>)
-    //CHECK-SAME:       outputs([[OUTPUT0]] : memref<1x4x122x320xf16, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:       -> memref<1x4x122x320xf16, #NHWC, [@CMX_NN, 0]>
+    //CHECK-SAME:       inputs([[INPUT0]] : memref<1x3x122x320xf16, {order = #NHWC}, @DDR>)
+    //CHECK-SAME:       outputs([[OUTPUT0]] : memref<1x4x122x320xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:       -> memref<1x4x122x320xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     //CHECK:    VPURT.Task updates([[BARRIER]] : !VPURT.Barrier) {
     //CHECK:        VPUIP.ExpandDMA <{dma_descriptor = #VPUIP.DMADescriptorAttr<numPlanes = 1 : i64, len = 236160 : i64, srcWidth = 236160 : i64, srcStride = 236160 : i64, srcPlaneStride = 0 : i64, dstWidth = 6 : i64, dstStride = 8 : i64, dstPlaneStride = 0 : i64>,
     //CHECK-SAME:       pads_begin = [0, 0, 0, 0], pads_end = [0, 1, 0, 0], port = 1 : i64}>
-    //CHECK-SAME:       inputs([[INPUT1]] : memref<1x3x123x320xf16, #NHWC, @DDR>)
-    //CHECK-SAME:       outputs([[OUTPUT1]] : memref<1x4x123x320xf16, #NHWC, [@CMX_NN, 1]>)
-    //CHECK-SAME:       -> memref<1x4x123x320xf16, #NHWC, [@CMX_NN, 1]>
+    //CHECK-SAME:       inputs([[INPUT1]] : memref<1x3x123x320xf16, {order = #NHWC}, @DDR>)
+    //CHECK-SAME:       outputs([[OUTPUT1]] : memref<1x4x123x320xf16, {order = #NHWC}, [@CMX_NN, 1]>)
+    //CHECK-SAME:       -> memref<1x4x123x320xf16, {order = #NHWC}, [@CMX_NN, 1]>
 
     //CHECK:    return [[OUTPUT]] : !VPUIP.DistributedBuffer<1x4x240x320xf16, #NHWC, @CMX_NN,
     //CHECK-SAME:                    {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64

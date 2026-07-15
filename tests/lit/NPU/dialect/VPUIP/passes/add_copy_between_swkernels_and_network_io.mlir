@@ -11,14 +11,14 @@ VPURT.SW.Runtime
     stack_configuration: [4096, 4096, 4096, 4096]
 
 module @VPU.SW {
-func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
+func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
     attributes {
         VPU.kernel_code = "activation_relu.cpp",
         VPU.kernel_entry = "activation_relu",
         VPU.task_type = @COMPUTE
     }
 
-func.func private @runtime()
+func.func nested @runtime()
     attributes {
         VPU.kernel_code = "nnActEntry"
     }
@@ -66,14 +66,14 @@ VPURT.SW.Runtime
     stack_configuration: [4096, 4096, 4096, 4096]
 
 module @VPU.SW {
-func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
+func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
     attributes {
         VPU.kernel_code = "activation_relu.cpp",
         VPU.kernel_entry = "activation_relu",
         VPU.task_type = @COMPUTE
     }
 
-func.func private @runtime()
+func.func nested @runtime()
     attributes {
         VPU.kernel_code = "nnActEntry"
     }
@@ -132,29 +132,29 @@ VPURT.SW.Runtime
     stack_configuration: [4096, 4096, 4096, 4096]
 
 module @VPU.SW {
-func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
+func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
     attributes {
         VPU.kernel_code = "activation_relu.cpp",
         VPU.kernel_entry = "activation_relu",
         VPU.task_type = @COMPUTE
     }
 
-func.func private @runtime()
+func.func nested @runtime()
     attributes {
         VPU.kernel_code = "nnActEntry"
     }
 }
 
-// CHECK-LABEL: @AddCopyForPrivateFuncIn
-net.NetworkInfo entryPoint : @AddCopyForPrivateFuncIn inputsInfo : {
+// CHECK-LABEL: @AddCopyForFuncIn
+net.NetworkInfo entryPoint : @AddCopyForFuncIn inputsInfo : {
     DataInfo "input" : tensor<1x1x1x1000xf16>
 } outputsInfo : {
     DataInfo "output" : tensor<1x1x1x1000xf16>
 }
 
-// CHECK-LABEL: @SwKernelPrivateFuncSwKernelIn
+// CHECK-LABEL: @SwKernelFuncSwKernelIn
 // CHECK-SAME:     ([[ARG_0:%.+]]: memref<1x1x1x1000xf16, @DDR>, [[ARG_1:%.+]]: memref<1x1x1x1000xf16, @DDR>)
-func.func private @SwKernelPrivateFuncSwKernelIn(%arg0: memref<1x1x1x1000xf16, @DDR>, %arg1: memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR> {
+func.func nested @SwKernelFuncSwKernelIn(%arg0: memref<1x1x1x1000xf16, @DDR>, %arg1: memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR> {
     %output_buff_alloc =  memref.alloc() : memref<1x1x1x1000xf16, @DDR>
     %sw_kernel = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_relu
         inputs(%arg0 as %in_buff_0: memref<1x1x1x1000xf16, @DDR>)
@@ -176,19 +176,19 @@ func.func private @SwKernelPrivateFuncSwKernelIn(%arg0: memref<1x1x1x1000xf16, @
     // CHECK:   return [[OUTPUT_COPY]] : memref<1x1x1x1000xf16, @DDR>
 }
 
-// CHECK-LABEL: @AddCopyForPrivateFuncIn
+// CHECK-LABEL: @AddCopyForFuncIn
 // CHECK-SAME:     ([[INPUT_ARG:%.+]]: memref<1x1x1x1000xf16, @DDR>, [[OUTPUT_ARG:%.+]]: memref<1x1x1x1000xf16, @DDR>)
-func.func @AddCopyForPrivateFuncIn(%arg0: memref<1x1x1x1000xf16, @DDR>, %arg1: memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR> {
+func.func @AddCopyForFuncIn(%arg0: memref<1x1x1x1000xf16, @DDR>, %arg1: memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR> {
     %output_buff = memref.alloc() : memref<1x1x1x1000xf16, @DDR>
-    %call_op = call @SwKernelPrivateFuncSwKernelIn(%arg0, %output_buff) : (memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
+    %call_op = call @SwKernelFuncSwKernelIn(%arg0, %output_buff) : (memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
     %output_copy = VPUIP.Copy inputs(%call_op : memref<1x1x1x1000xf16, @DDR>) outputs(%arg1 : memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
     return %output_copy : memref<1x1x1x1000xf16, @DDR>
 
     // CHECK:   [[NEW_INPUT_ALLOC:%.+]] = memref.alloc() : memref<1x1x1x1000xf16, @DDR>
     // CHECK:   [[OUTPUT_ALLOC:%.+]] = memref.alloc() : memref<1x1x1x1000xf16, @DDR>
     // CHECK:   [[INPUT_COPY:%.+]] = VPUIP.Copy inputs([[INPUT_ARG]] : memref<1x1x1x1000xf16, @DDR>) outputs([[NEW_INPUT_ALLOC]] : memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
-    // CHECK:   [[PRIVATE_FUNC_CALL:%.+]] = call @SwKernelPrivateFuncSwKernelIn([[INPUT_COPY]], [[OUTPUT_ALLOC]]) : (memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
-    // CHECK:   [[OUTPUT_ARG_COPY:%.+]] = VPUIP.Copy inputs([[PRIVATE_FUNC_CALL]] : memref<1x1x1x1000xf16, @DDR>) outputs([[OUTPUT_ARG]] : memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
+    // CHECK:   [[FUNC_CALL:%.+]] = call @SwKernelFuncSwKernelIn([[INPUT_COPY]], [[OUTPUT_ALLOC]]) : (memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
+    // CHECK:   [[OUTPUT_ARG_COPY:%.+]] = VPUIP.Copy inputs([[FUNC_CALL]] : memref<1x1x1x1000xf16, @DDR>) outputs([[OUTPUT_ARG]] : memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
     // CHECK:   return [[OUTPUT_ARG_COPY]] : memref<1x1x1x1000xf16, @DDR>
 }
 
@@ -199,29 +199,29 @@ VPURT.SW.Runtime
     stack_configuration: [4096, 4096, 4096, 4096]
 
 module @VPU.SW {
-func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
+func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
     attributes {
         VPU.kernel_code = "activation_relu.cpp",
         VPU.kernel_entry = "activation_relu",
         VPU.task_type = @COMPUTE
     }
 
-func.func private @runtime()
+func.func nested @runtime()
     attributes {
         VPU.kernel_code = "nnActEntry"
     }
 }
 
-// CHECK-LABEL: @AddCopyForPrivateFuncInOut
-net.NetworkInfo entryPoint : @AddCopyForPrivateFuncInOut inputsInfo : {
+// CHECK-LABEL: @AddCopyForFuncInOut
+net.NetworkInfo entryPoint : @AddCopyForFuncInOut inputsInfo : {
     DataInfo "input" : tensor<1x1x1x1000xf16>
 } outputsInfo : {
     DataInfo "output" : tensor<1x1x1x1000xf16>
 }
 
-// CHECK-LABEL: @SwKernelPrivateFuncInOut
+// CHECK-LABEL: @SwKernelFuncInOut
 // CHECK-SAME:     ([[ARG_1:%.+]]: memref<1x1x1x1000xf16, @DDR>, [[ARG_2:%.+]]: memref<1x1x1x1000xf16, @DDR>)
-func.func private @SwKernelPrivateFuncInOut(%arg0: memref<1x1x1x1000xf16, @DDR>, %arg1: memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR> {
+func.func nested @SwKernelFuncInOut(%arg0: memref<1x1x1x1000xf16, @DDR>, %arg1: memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR> {
     %sw_kernel = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_relu
         inputs(%arg0 as %in_buff_0: memref<1x1x1x1000xf16, @DDR>)
         outputs(%arg1 as %out_buff_0: memref<1x1x1x1000xf16, @DDR>)
@@ -238,10 +238,10 @@ func.func private @SwKernelPrivateFuncInOut(%arg0: memref<1x1x1x1000xf16, @DDR>,
     // CHECK:   return [[SW_KERNEL]] : memref<1x1x1x1000xf16, @DDR>
 }
 
-// CHECK-LABEL: @AddCopyForPrivateFuncInOut
+// CHECK-LABEL: @AddCopyForFuncInOut
 // CHECK-SAME:     ([[INPUT:%.+]]: memref<1x1x1x1000xf16, @DDR>, [[OUTPUT:%.+]]: memref<1x1x1x1000xf16, @DDR>)
-func.func @AddCopyForPrivateFuncInOut(%arg0: memref<1x1x1x1000xf16, @DDR>, %arg1: memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR> {
-    %call_op = func.call @SwKernelPrivateFuncInOut(%arg0, %arg1) : (memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
+func.func @AddCopyForFuncInOut(%arg0: memref<1x1x1x1000xf16, @DDR>, %arg1: memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR> {
+    %call_op = func.call @SwKernelFuncInOut(%arg0, %arg1) : (memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
 
     return %call_op: memref<1x1x1x1000xf16, @DDR>
 
@@ -249,8 +249,8 @@ func.func @AddCopyForPrivateFuncInOut(%arg0: memref<1x1x1x1000xf16, @DDR>, %arg1
     // CHECK:   [[NEW_INPUT_ALLOC:%.+]] = memref.alloc() : memref<1x1x1x1000xf16, @DDR>
 
     // CHECK:   [[INPUT_COPY:%.+]] = VPUIP.Copy inputs([[INPUT]] : memref<1x1x1x1000xf16, @DDR>) outputs([[NEW_INPUT_ALLOC]] : memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
-    // CHECK:   [[PRIVATE_FUNC_CALL:%.+]] = call @SwKernelPrivateFuncInOut([[INPUT_COPY]], [[NEW_OUTPUT_ALLOC]]) : (memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
-    // CHECK:   [[OUTPUT_COPY:%.+]] = VPUIP.Copy inputs([[PRIVATE_FUNC_CALL]] : memref<1x1x1x1000xf16, @DDR>) outputs([[OUTPUT]] : memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
+    // CHECK:   [[FUNC_CALL:%.+]] = call @SwKernelFuncInOut([[INPUT_COPY]], [[NEW_OUTPUT_ALLOC]]) : (memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
+    // CHECK:   [[OUTPUT_COPY:%.+]] = VPUIP.Copy inputs([[FUNC_CALL]] : memref<1x1x1x1000xf16, @DDR>) outputs([[OUTPUT]] : memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
 
     // CHECK:   return [[OUTPUT_COPY]] : memref<1x1x1x1000xf16, @DDR>
 }
@@ -262,29 +262,29 @@ VPURT.SW.Runtime
     stack_configuration: [4096, 4096, 4096, 4096]
 
 module @VPU.SW {
-func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
+func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
     attributes {
         VPU.kernel_code = "activation_relu.cpp",
         VPU.kernel_entry = "activation_relu",
         VPU.task_type = @COMPUTE
     }
 
-func.func private @runtime()
+func.func nested @runtime()
     attributes {
         VPU.kernel_code = "nnActEntry"
     }
 }
 
-// CHECK-LABEL: @AddCopyForPrivateFuncOut
-net.NetworkInfo entryPoint : @AddCopyForPrivateFuncOut inputsInfo : {
+// CHECK-LABEL: @AddCopyForFuncOut
+net.NetworkInfo entryPoint : @AddCopyForFuncOut inputsInfo : {
     DataInfo "input" : tensor<1x1x1x1000xf16>
 } outputsInfo : {
     DataInfo "output" : tensor<1x1x1x1000xf16>
 }
 
-// CHECK-LABEL: @SwKernelPrivateFuncOut
+// CHECK-LABEL: @SwKernelFuncOut
 // CHECK-SAME:     ([[ARG_0:%.+]]: memref<1x1x1x1000xf16, @DDR>, [[ARG_1:%.+]]: memref<1x1x1x1000xf16, @DDR>)
-func.func private @SwKernelPrivateFuncOut(%arg0: memref<1x1x1x1000xf16, @DDR>, %arg1: memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR> {
+func.func nested @SwKernelFuncOut(%arg0: memref<1x1x1x1000xf16, @DDR>, %arg1: memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR> {
     %input_buff_alloc =  memref.alloc() : memref<1x1x1x1000xf16, @DDR>
     %input_copy = VPUIP.Copy inputs(%arg0 : memref<1x1x1x1000xf16, @DDR>) outputs(%input_buff_alloc : memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
     %sw_kernel = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_relu
@@ -305,19 +305,19 @@ func.func private @SwKernelPrivateFuncOut(%arg0: memref<1x1x1x1000xf16, @DDR>, %
     // CHECK:   return [[SW_KERNEL]] : memref<1x1x1x1000xf16, @DDR>
 }
 
-// CHECK-LABEL: @AddCopyForPrivateFuncOut
+// CHECK-LABEL: @AddCopyForFuncOut
 // CHECK-SAME:     ([[INPUT_ARG:%.+]]: memref<1x1x1x1000xf16, @DDR>, [[OUTPUT_ARG:%.+]]: memref<1x1x1x1000xf16, @DDR>)
-func.func @AddCopyForPrivateFuncOut(%arg0: memref<1x1x1x1000xf16, @DDR>, %arg1: memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR> {
+func.func @AddCopyForFuncOut(%arg0: memref<1x1x1x1000xf16, @DDR>, %arg1: memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR> {
     %input_alloc = memref.alloc() : memref<1x1x1x1000xf16, @DDR>
     %input_arg_copy = VPUIP.Copy inputs(%arg0 :  memref<1x1x1x1000xf16, @DDR>) outputs(%input_alloc : memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
-    %call_op = func.call @SwKernelPrivateFuncOut(%input_arg_copy, %arg1) : (memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
+    %call_op = func.call @SwKernelFuncOut(%input_arg_copy, %arg1) : (memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
     return %call_op: memref<1x1x1x1000xf16, @DDR>
 
     // CHECK:   [[NEW_OUTPUT_ALLOC:%.+]] = memref.alloc() : memref<1x1x1x1000xf16, @DDR>
     // CHECK:   [[INPUT_ALLOC:%.+]] = memref.alloc() : memref<1x1x1x1000xf16, @DDR>
     // CHECK:   [[INPUT_ARG_COPY:%.+]] = VPUIP.Copy inputs([[INPUT_ARG]] : memref<1x1x1x1000xf16, @DDR>) outputs([[INPUT_ALLOC]] : memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
-    // CHECK:   [[PRIVATE_FUNC_CALL:%.+]] = call @SwKernelPrivateFuncOut([[INPUT_ARG_COPY]], [[NEW_OUTPUT_ALLOC]]) : (memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
-    // CHECK:   [[OUTPUT_COPY:%.+]] = VPUIP.Copy inputs([[PRIVATE_FUNC_CALL]] : memref<1x1x1x1000xf16, @DDR>) outputs([[OUTPUT_ARG]] : memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
+    // CHECK:   [[FUNC_CALL:%.+]] = call @SwKernelFuncOut([[INPUT_ARG_COPY]], [[NEW_OUTPUT_ALLOC]]) : (memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
+    // CHECK:   [[OUTPUT_COPY:%.+]] = VPUIP.Copy inputs([[FUNC_CALL]] : memref<1x1x1x1000xf16, @DDR>) outputs([[OUTPUT_ARG]] : memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
     // CHECK:   return [[OUTPUT_COPY]] : memref<1x1x1x1000xf16, @DDR>
 }
 
@@ -328,20 +328,20 @@ VPURT.SW.Runtime
     stack_configuration: [4096, 4096, 4096, 4096]
 
 module @VPU.SW {
-func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
+func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
     attributes {
         VPU.kernel_code = "activation_relu.cpp",
         VPU.kernel_entry = "activation_relu",
         VPU.task_type = @COMPUTE
     }
 
-func.func private @runtime()
+func.func nested @runtime()
     attributes {
         VPU.kernel_code = "nnActEntry"
     }
 }
 
-net.NetworkInfo entryPoint : @AddCopyForPrivateFuncInOutTwoKernels inputsInfo : {
+net.NetworkInfo entryPoint : @AddCopyForFuncInOutTwoKernels inputsInfo : {
     DataInfo "input_0" : tensor<1x1x1x1000xf16>
     DataInfo "input_1" : tensor<1x1x1x1000xf16>
 } outputsInfo : {
@@ -349,9 +349,9 @@ net.NetworkInfo entryPoint : @AddCopyForPrivateFuncInOutTwoKernels inputsInfo : 
     DataInfo "output_1" : tensor<1x1x1x1000xf16>
 }
 
-// CHECK-LABEL: @SwKernelPrivateFuncInOutTwoKernels
+// CHECK-LABEL: @SwKernelFuncInOutTwoKernels
 // CHECK-SAME:     ([[ARG_0:%.+]]: memref<1x1x1x1000xf16, @DDR>, [[ARG_1:%.+]]: memref<1x1x1x1000xf16, @DDR>)
-func.func private @SwKernelPrivateFuncInOutTwoKernels(%arg0: memref<1x1x1x1000xf16, @DDR>, %arg1: memref<1x1x1x1000xf16, @DDR>) -> (memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>) {
+func.func nested @SwKernelFuncInOutTwoKernels(%arg0: memref<1x1x1x1000xf16, @DDR>, %arg1: memref<1x1x1x1000xf16, @DDR>) -> (memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>) {
     %input_1 = memref.alloc() : memref<1x1x1x1000xf16, @DDR>
     %output_1 = memref.alloc() : memref<1x1x1x1000xf16, @DDR>
     %sw_kernel:2 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 2, 0, 0>} @VPU.SW::@builtin_relu
@@ -380,10 +380,10 @@ func.func private @SwKernelPrivateFuncInOutTwoKernels(%arg0: memref<1x1x1x1000xf
     // CHECK:   return [[SW_KERNEL]]#0, [[SW_KERNEL]]#1 : memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>
 }
 
-// CHECK-LABEL: @AddCopyForPrivateFuncInOutTwoKernels
+// CHECK-LABEL: @AddCopyForFuncInOutTwoKernels
 // CHECK-SAME:     ([[INPUT:%.+]]: memref<1x1x1x1000xf16, @DDR>, [[OUTPUT:%.+]]: memref<1x1x1x1000xf16, @DDR>)
-func.func @AddCopyForPrivateFuncInOutTwoKernels(%arg0: memref<1x1x1x1000xf16, @DDR>, %arg1: memref<1x1x1x1000xf16, @DDR>) -> (memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>) {
-    %call_op:2 = func.call @SwKernelPrivateFuncInOutTwoKernels(%arg0, %arg1) : (memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>) -> (memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>)
+func.func @AddCopyForFuncInOutTwoKernels(%arg0: memref<1x1x1x1000xf16, @DDR>, %arg1: memref<1x1x1x1000xf16, @DDR>) -> (memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>) {
+    %call_op:2 = func.call @SwKernelFuncInOutTwoKernels(%arg0, %arg1) : (memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>) -> (memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>)
 
     return %call_op#0, %call_op#1: memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>
 
@@ -391,28 +391,28 @@ func.func @AddCopyForPrivateFuncInOutTwoKernels(%arg0: memref<1x1x1x1000xf16, @D
     // CHECK:   [[NEW_INPUT_BUFF:%.+]] = memref.alloc() : memref<1x1x1x1000xf16, @DDR>
 
     // CHECK:   [[INPUT_COPY:%.+]] = VPUIP.Copy inputs([[INPUT]] : memref<1x1x1x1000xf16, @DDR>) outputs([[NEW_INPUT_BUFF]] : memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
-    // CHECK:   [[PRIVATE_FUNC:%.+]]:2 = call @SwKernelPrivateFuncInOutTwoKernels([[INPUT_COPY]], [[NEW_OUTPUT_BUFF]]) : (memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>) -> (memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>)
-    // CHECK:   [[OUTPUT_COPY:%.+]] = VPUIP.Copy inputs([[PRIVATE_FUNC]]#1 : memref<1x1x1x1000xf16, @DDR>) outputs([[OUTPUT]] : memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
+    // CHECK:   [[FUNC:%.+]]:2 = call @SwKernelFuncInOutTwoKernels([[INPUT_COPY]], [[NEW_OUTPUT_BUFF]]) : (memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>) -> (memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>)
+    // CHECK:   [[OUTPUT_COPY:%.+]] = VPUIP.Copy inputs([[FUNC]]#1 : memref<1x1x1x1000xf16, @DDR>) outputs([[OUTPUT]] : memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
 
-    // CHECK:   return [[PRIVATE_FUNC]]#0, [[OUTPUT_COPY]] : memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>
+    // CHECK:   return [[FUNC]]#0, [[OUTPUT_COPY]] : memref<1x1x1x1000xf16, @DDR>, memref<1x1x1x1000xf16, @DDR>
 }
 
 // -----
 
-net.NetworkInfo entryPoint : @AddCopyForPrivateFuncInOutWithViewOpInside inputsInfo : {
+net.NetworkInfo entryPoint : @AddCopyForFuncInOutWithViewOpInside inputsInfo : {
     DataInfo "input" : tensor<1x1x2x64xf16>
 } outputsInfo : {
     DataInfo "output" : tensor<1x1x2x64xf16>
 }
 
 module @VPU.SW {
-    func.func private @builtin_SoftMax(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.task_type = @COMPUTE}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_SoftMax(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.task_type = @COMPUTE}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
-// CHECK-LABEL: @SwKernelPrivateFuncInOutWithViewOpInside
+// CHECK-LABEL: @SwKernelFuncInOutWithViewOpInside
 // CHECK-SAME:     ([[ARG_0:%.+]]: memref<1x1x2x64xf16, @DDR>, [[ARG_1:%.+]]: memref<1x1x2x64xf16, @DDR>)
-func.func private @SwKernelPrivateFuncInOutWithViewOpInside(%arg0: memref<1x1x2x64xf16, @DDR>, %arg1: memref<1x1x2x64xf16, @DDR>) -> memref<1x1x2x64xf16, @DDR> {
+func.func nested @SwKernelFuncInOutWithViewOpInside(%arg0: memref<1x1x2x64xf16, @DDR>, %arg1: memref<1x1x2x64xf16, @DDR>) -> memref<1x1x2x64xf16, @DDR> {
     %0 = VPUIP.SubView %arg0 [0, 0, 0, 0] [1, 1, 1, 64] : memref<1x1x2x64xf16, @DDR> to memref<1x1x1x64xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, strides = [128, 128, 64, 1]}, @DDR>
     %1 = VPUIP.SubView %arg1 [0, 0, 0, 0] [1, 1, 1, 64] : memref<1x1x2x64xf16, @DDR> to memref<1x1x1x64xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, strides = [128, 128, 64, 1]}, @DDR>
     %2 = VPUIP.SubView %arg0 [0, 0, 1, 0] [1, 1, 1, 64] : memref<1x1x2x64xf16, @DDR> to memref<1x1x1x64xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, strides = [128, 128, 64, 1]}, @DDR>
@@ -438,10 +438,10 @@ func.func private @SwKernelPrivateFuncInOutWithViewOpInside(%arg0: memref<1x1x2x
     // CHECK:   return [[CONCAT_RESULT]] : memref<1x1x2x64xf16, @DDR>
 }
 
-// CHECK-LABEL: @AddCopyForPrivateFuncInOutWithViewOpInside
+// CHECK-LABEL: @AddCopyForFuncInOutWithViewOpInside
 // CHECK-SAME:     ([[INPUT:%.+]]: memref<1x1x2x64xf16, @DDR>, [[OUTPUT:%.+]]: memref<1x1x2x64xf16, @DDR>)
-func.func @AddCopyForPrivateFuncInOutWithViewOpInside(%arg0: memref<1x1x2x64xf16, @DDR>, %arg1: memref<1x1x2x64xf16, @DDR>) -> memref<1x1x2x64xf16, @DDR> {
-    %call_op = func.call @SwKernelPrivateFuncInOutWithViewOpInside(%arg0, %arg1) : (memref<1x1x2x64xf16, @DDR>, memref<1x1x2x64xf16, @DDR>) -> memref<1x1x2x64xf16, @DDR>
+func.func @AddCopyForFuncInOutWithViewOpInside(%arg0: memref<1x1x2x64xf16, @DDR>, %arg1: memref<1x1x2x64xf16, @DDR>) -> memref<1x1x2x64xf16, @DDR> {
+    %call_op = func.call @SwKernelFuncInOutWithViewOpInside(%arg0, %arg1) : (memref<1x1x2x64xf16, @DDR>, memref<1x1x2x64xf16, @DDR>) -> memref<1x1x2x64xf16, @DDR>
 
     return %call_op: memref<1x1x2x64xf16, @DDR>
 
@@ -449,8 +449,8 @@ func.func @AddCopyForPrivateFuncInOutWithViewOpInside(%arg0: memref<1x1x2x64xf16
     // CHECK:   [[NEW_INPUT_ALLOC:%.+]] = memref.alloc() : memref<1x1x2x64xf16, @DDR>
 
     // CHECK:   [[INPUT_COPY:%.+]] = VPUIP.Copy inputs([[INPUT]] : memref<1x1x2x64xf16, @DDR>) outputs([[NEW_INPUT_ALLOC]] : memref<1x1x2x64xf16, @DDR>) -> memref<1x1x2x64xf16, @DDR>
-    // CHECK:   [[PRIVATE_FUNC_CALL:%.+]] = call @SwKernelPrivateFuncInOutWithViewOpInside([[INPUT_COPY]], [[NEW_OUTPUT_ALLOC]]) : (memref<1x1x2x64xf16, @DDR>, memref<1x1x2x64xf16, @DDR>) -> memref<1x1x2x64xf16, @DDR>
-    // CHECK:   [[OUTPUT_COPY:%.+]] = VPUIP.Copy inputs([[PRIVATE_FUNC_CALL]] : memref<1x1x2x64xf16, @DDR>) outputs([[OUTPUT]] : memref<1x1x2x64xf16, @DDR>) -> memref<1x1x2x64xf16, @DDR>
+    // CHECK:   [[FUNC_CALL:%.+]] = call @SwKernelFuncInOutWithViewOpInside([[INPUT_COPY]], [[NEW_OUTPUT_ALLOC]]) : (memref<1x1x2x64xf16, @DDR>, memref<1x1x2x64xf16, @DDR>) -> memref<1x1x2x64xf16, @DDR>
+    // CHECK:   [[OUTPUT_COPY:%.+]] = VPUIP.Copy inputs([[FUNC_CALL]] : memref<1x1x2x64xf16, @DDR>) outputs([[OUTPUT]] : memref<1x1x2x64xf16, @DDR>) -> memref<1x1x2x64xf16, @DDR>
 
     // CHECK:   return [[OUTPUT_COPY]] : memref<1x1x2x64xf16, @DDR>
 }
@@ -464,8 +464,8 @@ net.NetworkInfo entryPoint : @AddCopyForInOutWithViewOp inputsInfo : {
     DataInfo "output" : tensor<1x1x2x64xf16>
 }
 module @VPU.SW {
-    func.func private @builtin_SoftMax(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.task_type = @COMPUTE}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_SoftMax(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.task_type = @COMPUTE}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
 
@@ -507,13 +507,13 @@ VPURT.SW.Runtime
     entryPoint: @VPU.SW::@runtime
     stack_configuration: [4096, 4096, 4096, 4096]
 module @VPU.SW {
-func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
+func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
     attributes {
         VPU.kernel_code = "activation_relu.cpp",
         VPU.kernel_entry = "activation_relu",
         VPU.task_type = @COMPUTE
     }
-func.func private @runtime()
+func.func nested @runtime()
     attributes {
         VPU.kernel_code = "nnActEntry"
     }
@@ -556,19 +556,19 @@ VPURT.SW.Runtime
     entryPoint: @VPU.SW::@runtime
     stack_configuration: [4096, 4096, 4096, 4096]
 module @VPU.SW {
-func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
+func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
     attributes {
         VPU.kernel_code = "activation_relu.cpp",
         VPU.kernel_entry = "activation_relu",
         VPU.task_type = @COMPUTE
     }
-func.func private @runtime()
+func.func nested @runtime()
     attributes {
         VPU.kernel_code = "nnActEntry"
     }
 }
-// CHECK-LABEL: @AddCopyForPrivateFuncInWithViewOpInMain
-net.NetworkInfo entryPoint : @AddCopyForPrivateFuncInWithViewOpInMain inputsInfo : {
+// CHECK-LABEL: @AddCopyForFuncInWithViewOpInMain
+net.NetworkInfo entryPoint : @AddCopyForFuncInWithViewOpInMain inputsInfo : {
     DataInfo "input" : tensor<1x1x1x1000xf16>
 } outputsInfo : {
     DataInfo "output" : tensor<1x1x1x1000xf16>
@@ -578,9 +578,9 @@ net.NetworkInfo entryPoint : @AddCopyForPrivateFuncInWithViewOpInMain inputsInfo
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 
-// CHECK-LABEL: @SwKernelPrivateFuncSwKernelIn
+// CHECK-LABEL: @SwKernelFuncSwKernelIn
 // CHECK-SAME:     ([[ARG_0:%.+]]: memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, [[ARG_1:%.+]]: memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, [[ARG_2:%.+]]: memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, [[ARG_3:%.+]]: memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>)
-func.func private @SwKernelPrivateFuncSwKernelIn(%arg0: memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>,
+func.func nested @SwKernelFuncSwKernelIn(%arg0: memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>,
                                                  %arg1: memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>,
                                                  %arg2: memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>,
                                                  %arg3: memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>) -> (memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>) {
@@ -605,14 +605,14 @@ func.func private @SwKernelPrivateFuncSwKernelIn(%arg0: memref<1x1x1x500xf16, {o
     // CHECK:   return [[SW_KERNEL]]#0, [[SW_KERNEL]]#1 : memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>
 }
 
-// CHECK-LABEL: @AddCopyForPrivateFuncInWithViewOpInMain
+// CHECK-LABEL: @AddCopyForFuncInWithViewOpInMain
 // CHECK-SAME:     ([[INPUT:%.+]]: memref<1x1x1x1000xf16, @DDR>, [[OUTPUT:%.+]]: memref<1x1x1x1000xf16, @DDR>)
-func.func @AddCopyForPrivateFuncInWithViewOpInMain(%arg0: memref<1x1x1x1000xf16, @DDR>, %arg1: memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR> {
+func.func @AddCopyForFuncInWithViewOpInMain(%arg0: memref<1x1x1x1000xf16, @DDR>, %arg1: memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR> {
     %0 = VPUIP.SubView %arg0 [0, 0, 0, 0] [1, 1, 1, 500] : memref<1x1x1x1000xf16, @DDR> to memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>
     %1 = VPUIP.SubView %arg0 [0, 0, 0, 500] [1, 1, 1, 500] : memref<1x1x1x1000xf16, @DDR> to memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>
     %2 = VPUIP.SubView %arg1 [0, 0, 0, 0] [1, 1, 1, 500] : memref<1x1x1x1000xf16, @DDR> to memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>
     %3 = VPUIP.SubView %arg1 [0, 0, 0, 500] [1, 1, 1, 500] : memref<1x1x1x1000xf16, @DDR> to memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>
-    %call_op:2 = call @SwKernelPrivateFuncSwKernelIn(%0, %1, %2, %3) : (memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>) -> (memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>)
+    %call_op:2 = call @SwKernelFuncSwKernelIn(%0, %1, %2, %3) : (memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>) -> (memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>)
     %4 = VPUIP.ConcatView inputs(%call_op#0, %call_op#1 : memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>) outputs(%arg1 : memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
     return %4 : memref<1x1x1x1000xf16, @DDR>
 
@@ -623,7 +623,7 @@ func.func @AddCopyForPrivateFuncInWithViewOpInMain(%arg0: memref<1x1x1x1000xf16,
     // CHECK:    [[INPUT_SUBVIEW_1:%.+]] = VPUIP.SubView [[INPUT_COPY]] [0, 0, 0, 500] [1, 1, 1, 500] : memref<1x1x1x1000xf16, @DDR> to memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>
     // CHECK:    [[OUTPUT_SUBVIEW_0:%.+]] = VPUIP.SubView [[NEW_OUTPUT_DDR_BUF]] [0, 0, 0, 0] [1, 1, 1, 500] : memref<1x1x1x1000xf16, @DDR> to memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>
     // CHECK:    [[OUTPUT_SUBVIEW_1:%.+]] = VPUIP.SubView [[NEW_OUTPUT_DDR_BUF]] [0, 0, 0, 500] [1, 1, 1, 500] : memref<1x1x1x1000xf16, @DDR> to memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>
-    // CHECK:    [[CALL_OP:%.+]]:2 = call @SwKernelPrivateFuncSwKernelIn([[INPUT_SUBVIEW_0]], [[INPUT_SUBVIEW_1]], [[OUTPUT_SUBVIEW_0]], [[OUTPUT_SUBVIEW_1]])
+    // CHECK:    [[CALL_OP:%.+]]:2 = call @SwKernelFuncSwKernelIn([[INPUT_SUBVIEW_0]], [[INPUT_SUBVIEW_1]], [[OUTPUT_SUBVIEW_0]], [[OUTPUT_SUBVIEW_1]])
     // CHECK-SAME:         (memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>)
     // CHECK-SAME:       -> (memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>)
     // CHECK:    [[CONCAT:%.+]] = VPUIP.ConcatView inputs([[CALL_OP]]#0, [[CALL_OP]]#1 : memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>)
@@ -638,13 +638,13 @@ VPURT.SW.Runtime
     entryPoint: @VPU.SW::@runtime
     stack_configuration: [4096, 4096, 4096, 4096]
 module @VPU.SW {
-func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
+func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
     attributes {
         VPU.kernel_code = "activation_relu.cpp",
         VPU.kernel_entry = "activation_relu",
         VPU.task_type = @COMPUTE
     }
-func.func private @runtime()
+func.func nested @runtime()
     attributes {
         VPU.kernel_code = "nnActEntry"
     }
@@ -657,9 +657,9 @@ net.NetworkInfo entryPoint : @AddCopyForInOutWithViewOpInMainNoTilePattern input
 }
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-// CHECK-LABEL: @SwKernelPrivateFuncSwKernelIn
+// CHECK-LABEL: @SwKernelFuncSwKernelIn
 // CHECK-SAME:     ([[ARG_0:%.+]]: memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, [[ARG_1:%.+]]: memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>)
-func.func private @SwKernelPrivateFuncSwKernelIn(%arg0: memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, %arg1: memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>) -> memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR> {
+func.func nested @SwKernelFuncSwKernelIn(%arg0: memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, %arg1: memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>) -> memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR> {
     %sw_kernel = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_relu
         inputs(%arg0 as %in_buff_0: memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>)
         outputs(%arg1 as %out_buff_0: memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>)
@@ -682,11 +682,11 @@ func.func private @SwKernelPrivateFuncSwKernelIn(%arg0: memref<1x1x1x500xf16, {o
 func.func @AddCopyForInOutWithViewOpInMainNoTilePattern(%arg0: memref<1x1x1x1000xf16, @DDR>, %arg1: memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR> {
     %0 = VPUIP.SubView %arg0 [0, 0, 0, 0] [1, 1, 1, 500] : memref<1x1x1x1000xf16, @DDR> to memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>
     %1 = VPUIP.SubView %arg1 [0, 0, 0, 0] [1, 1, 1, 500] : memref<1x1x1x1000xf16, @DDR> to memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>
-    %call_op_0 = call @SwKernelPrivateFuncSwKernelIn(%0, %1) : (memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>) -> memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>
+    %call_op_0 = call @SwKernelFuncSwKernelIn(%0, %1) : (memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>) -> memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>
 
     %2 = VPUIP.SubView %arg0 [0, 0, 0, 500] [1, 1, 1, 500] : memref<1x1x1x1000xf16, @DDR> to memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>
     %3 = VPUIP.SubView %arg1 [0, 0, 0, 500] [1, 1, 1, 500] : memref<1x1x1x1000xf16, @DDR> to memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>
-    %call_op_1 = call @SwKernelPrivateFuncSwKernelIn(%2, %3) : (memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>) -> memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>
+    %call_op_1 = call @SwKernelFuncSwKernelIn(%2, %3) : (memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>) -> memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>
 
     %4 = VPUIP.ConcatView inputs(%call_op_0, %call_op_1 : memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>) outputs(%arg1 : memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
     return %4 : memref<1x1x1x1000xf16, @DDR>
@@ -696,11 +696,11 @@ func.func @AddCopyForInOutWithViewOpInMainNoTilePattern(%arg0: memref<1x1x1x1000
     // CHECK:                                    outputs([[NEW_INPUT_DDR_BUFF]] : memref<1x1x1x1000xf16, @DDR>)
     // CHECK:    [[INPUT_SUBVIEW0:%.+]] = VPUIP.SubView [[INPUT_COPY]] [0, 0, 0, 0] [1, 1, 1, 500] : memref<1x1x1x1000xf16, @DDR> to memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>
     // CHECK:    [[OUTPUT_SUBVIEW0:%.+]] = VPUIP.SubView [[NEW_OUTPUT_DDR_BUFF]] [0, 0, 0, 0] [1, 1, 1, 500] : memref<1x1x1x1000xf16, @DDR> to memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>
-    // CHECK:    [[CALL_OP0:%.+]] = call @SwKernelPrivateFuncSwKernelIn([[INPUT_SUBVIEW0]], [[OUTPUT_SUBVIEW0]])
+    // CHECK:    [[CALL_OP0:%.+]] = call @SwKernelFuncSwKernelIn([[INPUT_SUBVIEW0]], [[OUTPUT_SUBVIEW0]])
     // CHECK-SAME:    (memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>) -> memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>
     // CHECK:    [[INPUT_SUBVIEW1:%.+]] = VPUIP.SubView [[INPUT_COPY]] [0, 0, 0, 500] [1, 1, 1, 500] : memref<1x1x1x1000xf16, @DDR> to memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>
     // CHECK:    [[OUTPUT_SUBVIEW1:%.+]] = VPUIP.SubView [[NEW_OUTPUT_DDR_BUFF]] [0, 0, 0, 500] [1, 1, 1, 500] : memref<1x1x1x1000xf16, @DDR> to memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>
-    // CHECK:    [[CALL_OP1:%.+]] = call @SwKernelPrivateFuncSwKernelIn([[INPUT_SUBVIEW1]], [[OUTPUT_SUBVIEW1]])
+    // CHECK:    [[CALL_OP1:%.+]] = call @SwKernelFuncSwKernelIn([[INPUT_SUBVIEW1]], [[OUTPUT_SUBVIEW1]])
     // CHECK-SAME:    (memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>) -> memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>
     // CHECK:    [[CONCAT:%.+]] = VPUIP.ConcatView inputs([[CALL_OP0]], [[CALL_OP1]] : memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>, memref<1x1x1x500xf16, {order = #NCHW, strides = [1000, 1000, 1000, 1]}, @DDR>)
     // CHECK-SAME:         outputs([[NEW_OUTPUT_DDR_BUFF]] : memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR>
@@ -717,14 +717,14 @@ VPURT.SW.Runtime
     stack_configuration: [4096, 4096, 4096, 4096]
 
 module @VPU.SW {
-func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
+func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
     attributes {
         VPU.kernel_code = "activation_relu.cpp",
         VPU.kernel_entry = "activation_relu",
         VPU.task_type = @COMPUTE
     }
 
-func.func private @runtime()
+func.func nested @runtime()
     attributes {
         VPU.kernel_code = "nnActEntry"
     }
@@ -786,7 +786,7 @@ func.func @AddCopyForInOutThreeKernelsArgUsedTwice(%arg0: memref<1x1x1x1000xf16,
 
 module {
   module @VPU.SW {
-    func.func private @builtin_dummy(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "dummy.cpp", VPU.kernel_entry = "dummy"}
+    func.func nested @builtin_dummy(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "dummy.cpp", VPU.kernel_entry = "dummy"}
   }
     // CHECK-LABEL: @SWKernelDynamicInputs
   net.NetworkInfo entryPoint : @SWKernelDynamicInputs inputsInfo : {
@@ -840,7 +840,7 @@ module {
 
 module {
   module @VPU.SW {
-    func.func private @builtin_dummy(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "dummy.cpp", VPU.kernel_entry = "dummy"}
+    func.func nested @builtin_dummy(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "dummy.cpp", VPU.kernel_entry = "dummy"}
   }
     // CHECK-LABEL: @SWKernelDynamicInputs_1
   net.NetworkInfo entryPoint : @SWKernelDynamicInputs_1 inputsInfo : {
@@ -896,9 +896,9 @@ module {
 // -----
 
 module @VPU.SW {
-    func.func private @builtin_AtanDma(memref<*xf16>, memref<*xsi32>, memref<*xui8, @CMX_NN>, memref<*xf16>, memref<*xsi32>, memref<*xui8, @CMX_NN>, i64)
+    func.func nested @builtin_AtanDma(memref<*xf16>, memref<*xsi32>, memref<*xui8, @CMX_NN>, memref<*xf16>, memref<*xsi32>, memref<*xui8, @CMX_NN>, i64)
                        attributes {VPU.kernel_code = "activation_atan_dma.cpp", VPU.kernel_entry = "activation_atan_dma", VPU.kernel_name = "activation_atan_dma", VPU.task_type = @COMPUTE}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
 // CHECK-LABEL: @AtanDmaCopy
@@ -932,22 +932,20 @@ func.func @AtanDmaCopy(%arg0: memref<1x1x1x4194304xf16, @DDR>, %arg1: memref<4xs
     return %results#0, %dynamicOutputShapes : memref<1x1x1x4194304xf16, @DDR>, memref<4xsi32, @DDR>
 
 
-    // CHECK:      [[OUT_D_COPY:%.+]]     = memref.alloc() : memref<1x1x1x4194304xf16, @DDR>
-    // CHECK:      [[OUT_SHAPE_BUFF:%.+]] = memref.alloc() : memref<4xsi32, @DDR>
-    // CHECK:      [[IN_SHAPE_BUFF:%.+]]  = memref.alloc() : memref<4xsi32, @DDR>
-    // CHECK:      [[IN_D_COPY_BUFF:%.+]] = memref.alloc() : memref<1x1x1x4194304xf16, @DDR>
+    // CHECK:      [[OUT_SHAPE_BUF:%.+]] = memref.alloc() : memref<4xsi32, @DDR>
+    // CHECK:      [[IN_SHAPE_BUF:%.+]]  = memref.alloc() : memref<4xsi32, @DDR>
     // CHECK:      [[AUX_BUFF:%.+]]       = memref.alloc() : memref<1x1x1x524288xui8, [@CMX_NN, 0]>
-    // CHECK:      [[IN_D_COPY:%.+]]      = VPUIP.Copy inputs([[IN_DATA]] : memref<1x1x1x4194304xf16, @DDR>) outputs([[IN_D_COPY_BUFF]] : memref<1x1x1x4194304xf16, @DDR>) -> memref<1x1x1x4194304xf16, @DDR>
-    // CHECK:      [[IN_S_COPY:%.+]]      = VPUIP.Copy inputs([[IN_SHAPE]] : memref<4xsi32, @DDR>) outputs([[IN_SHAPE_BUFF]] : memref<4xsi32, @DDR>) -> memref<4xsi32, @DDR>
+    // CHECK:      [[IN_SHAPE_COPY:%.+]]  = VPUIP.Copy inputs([[IN_SHAPE]] : memref<4xsi32, @DDR>) outputs([[IN_SHAPE_BUF]] : memref<4xsi32, @DDR>) -> memref<4xsi32, @DDR>
 
-    // CHECK:      [[RESULTS:%.+]]:4, [[SHAPE:%.+]] = VPUIP.SW.Kernel
+    // CHECK:      [[RESULTS:%.+]]:4, [[DYN_OUT_SHAPE:%.+]] = VPUIP.SW.Kernel
     // CHECK-SAME:     @VPU.SW::@builtin_AtanDma
-    // CHECK-SAME:         inputs([[IN_D_COPY]] as [[IN_DATA_1:[^:]+]]:  memref<1x1x1x4194304xf16, @DDR>, [[AUX_BUFF]] as [[AUX_1:[^:]+]]: memref<1x1x1x524288xui8, [@CMX_NN, 0]>,
-    // CHECK-SAME:                [[IN_D_COPY]] as [[IN_DATA_2:[^:]+]]:  memref<1x1x1x4194304xf16, @DDR>, [[AUX_BUFF]] as [[AUX_2:[^:]+]]: memref<1x1x1x524288xui8, [@CMX_NN, 0]>)
-    // CHECK-SAME:       outputs([[OUT_D_COPY]] as [[OUT_DATA_1:[^:]+]]: memref<1x1x1x4194304xf16, @DDR>, [[AUX_BUFF]] as [[AUX_3:[^:]+]]: memref<1x1x1x524288xui8, [@CMX_NN, 0]>,
-    // CHECK-SAME:               [[OUT_D_COPY]] as [[OUT_DATA_2:[^:]+]]: memref<1x1x1x4194304xf16, @DDR>, [[AUX_BUFF]] as [[AUX_4:[^:]+]]: memref<1x1x1x524288xui8, [@CMX_NN, 0]>)
+    // CHECK-SAME:     inputs([[IN_DATA]] as {{[^:]+}}: memref<1x1x1x4194304xf16, @DDR>, [[AUX_BUFF]] as {{[^:]+}}: memref<1x1x1x524288xui8, [@CMX_NN, 0]>,
+    // CHECK-SAME:            [[IN_DATA]] as {{[^:]+}}: memref<1x1x1x4194304xf16, @DDR>, [[AUX_BUFF]] as {{[^:]+}}: memref<1x1x1x524288xui8, [@CMX_NN, 0]>)
+    // CHECK-SAME:     dynamicInputShapes([[IN_SHAPE_COPY]] : memref<4xsi32, @DDR>)
+    // CHECK-SAME:     outputs([[OUT_DATA]] as {{[^:]+}}: memref<1x1x1x4194304xf16, @DDR>, [[AUX_BUFF]] as {{[^:]+}}: memref<1x1x1x524288xui8, [@CMX_NN, 0]>,
+    // CHECK-SAME:             [[OUT_DATA]] as {{[^:]+}}: memref<1x1x1x4194304xf16, @DDR>, [[AUX_BUFF]] as {{[^:]+}}: memref<1x1x1x524288xui8, [@CMX_NN, 0]>)
+    // CHECK-SAME:     dynamicOutputShapes([[OUT_SHAPE_BUF]] : memref<4xsi32, @DDR>)
 
-    // CHECK:      [[RES_DATA:%.+]]  = VPUIP.Copy inputs([[RESULTS]]#0 : memref<1x1x1x4194304xf16, @DDR>) outputs([[OUT_DATA]] : memref<1x1x1x4194304xf16, @DDR>) -> memref<1x1x1x4194304xf16, @DDR>
-    // CHECK:      [[RES_SHAPE:%.+]] = VPUIP.Copy inputs([[SHAPE]] : memref<4xsi32, @DDR>) outputs([[OUT_SHAPE]] : memref<4xsi32, @DDR>) -> memref<4xsi32, @DDR>
-    // CHECK:       return [[RES_DATA]], [[RES_SHAPE]] : memref<1x1x1x4194304xf16, @DDR>, memref<4xsi32, @DDR>
+    // CHECK:      [[OUT_SHAPE_COPY:%.+]] = VPUIP.Copy inputs([[DYN_OUT_SHAPE]] : memref<4xsi32, @DDR>) outputs([[OUT_SHAPE]] : memref<4xsi32, @DDR>) -> memref<4xsi32, @DDR>
+    // CHECK:      return [[RESULTS]]#0, [[OUT_SHAPE_COPY]] : memref<1x1x1x4194304xf16, @DDR>, memref<4xsi32, @DDR>
 }

@@ -31,8 +31,6 @@ public:
 
 private:
     void safeRunOnFunc() final;
-    // Key: tileIdx, Value: current offset
-    llvm::DenseMap<int64_t, int64_t> _offsetTrackers;
 };
 
 void ResolveWLMTaskLocationPass::safeRunOnFunc() {
@@ -61,12 +59,15 @@ void ResolveWLMTaskLocationPass::safeRunOnFunc() {
         return mapIt->getSecond();
     };
 
-    auto populate = [this, &netFunc, &archKind](mlir::OpBuilder builder, VPURegMapped::TaskType taskType,
-                                                size_t tileIdx, size_t listIdx,
-                                                size_t count) -> std::vector<mlir::Value> {
+    // Key: tileIdx, Value: current offset
+    llvm::DenseMap<int64_t, int64_t> offsetTrackers;
+
+    auto populate = [&offsetTrackers, &netFunc, &archKind](mlir::OpBuilder builder, VPURegMapped::TaskType taskType,
+                                                           size_t tileIdx, size_t listIdx,
+                                                           size_t count) -> std::vector<mlir::Value> {
         std::vector<mlir::Value> taskBuffers;
         auto ctx = builder.getContext();
-        int64_t& offsetTracker = _offsetTrackers[tileIdx];
+        int64_t& offsetTracker = offsetTrackers[tileIdx];
         for (size_t i = 0; i < count; ++i) {
             auto index = VPURegMapped::IndexType::get(ctx, static_cast<uint32_t>(tileIdx), listIdx,
                                                       static_cast<uint32_t>(i));

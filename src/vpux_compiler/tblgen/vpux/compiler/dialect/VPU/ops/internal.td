@@ -46,36 +46,6 @@ def VPU_GenericSwLayerOp :
     }];
 }
 
-
-def VPU_ExternalKernelOp :
-        VPU_Op<
-            "ExternalKernel",
-            [
-                DeclareOpInterfaceMethods<VPU_LayerOpInterface>
-            ]
-        > {
-    let summary = "Represents a kernel whose details/implementation are defined externally";
-
-    let arguments = (ins
-        Variadic<AnyRankedTensor>:$inputs,
-        DictionaryAttr:$attrDict,
-        StrAttr:$unique_id
-    );
-
-    let results = (outs
-        Variadic<AnyRankedTensor>:$outputs
-    );
-
-    let assemblyFormat = [{
-        $unique_id
-        (`inputs` `(` $inputs^ `:` type($inputs) `)`)?
-        `attrs` `(` $attrDict `)`
-        attr-dict
-        `->` type(results)
-    }];
-}
-
-
 def VPU_UnrolledTypeOp :
         VPU_Op<
             "UnrolledType",

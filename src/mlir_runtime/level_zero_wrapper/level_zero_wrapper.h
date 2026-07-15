@@ -61,7 +61,7 @@ NPU_API(int32_t) npu_level_zero_append_barrier(void* commandList);
  */
 NPU_API(int32_t)
 npu_level_zero_create_graph(void* kernel, int64_t kernelSize, void* context, void* device, void* ddiTable,
-                            void* commandList, void* commandQueue);
+                            void* commandList, void* commandQueue, void* execCtx);
 
 /* brief Load graph (elf binary) and initialize graph
  * @param kernels Kernel buffer
@@ -75,7 +75,7 @@ npu_level_zero_create_graph(void* kernel, int64_t kernelSize, void* context, voi
  */
 NPU_API(int32_t)
 npu_level_zero_create_graphs(void** kernels, int64_t* kernelSizes, int32_t numKernels, void* context, void* device,
-                             void* ddiTable, void* commandList, void* commandQueue);
+                             void* ddiTable, void* commandList, void* commandQueue, void* execCtx);
 
 /* brief Reset command list
  * @param commandList Command list handle

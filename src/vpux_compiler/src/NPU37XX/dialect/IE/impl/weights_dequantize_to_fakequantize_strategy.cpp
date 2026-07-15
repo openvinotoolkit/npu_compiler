@@ -119,8 +119,8 @@ public:
         }
         // Constant WD chains feeding a Gather are routed to DynamicDequantize.
         // The Gather accesses a small subset of rows, so offline dequantization wastes blob size.
-        if (wdInfo.isI4ConsumedByGather()) {
-            _log.trace("WD chain feeds a Gather op with i4/ui4 weights; deferring to DynamicDequantize path.");
+        if (wdInfo.isQuantizedConsumedByGather()) {
+            _log.trace("WD chain feeds a Gather op with quantized weights; deferring to DynamicDequantize path.");
             return mlir::failure();
         }
         if (!wdInfo.isKVcachedPattern() && IE::getTrueElemType(origOp).isInteger(2)) {

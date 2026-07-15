@@ -82,7 +82,7 @@ bool canBecomeNCEDepthConvAfterHandleLargePads(IE::GroupConvolutionOp groupconv,
     const auto outputAlignment = VPU::NCEInvariant::getAlignment(outputType.getElementType());
 
     return VPU::NCEInvariant::isInputActTypeSupported(inputType, inputAlignment, false) &&
-           VPU::NCEInvariant::isOutputActTypeSupported(outputType, outputAlignment);
+           VPU::NCEInvariant::isOutputActTypeSupported(groupconv.getOperation(), outputType, outputAlignment);
 }
 
 }  // namespace
@@ -367,7 +367,7 @@ mlir::LogicalResult FuseConvAndBias::matchAndRewrite(IE::ScaleShiftOp biasOp, ml
             return matchFailed(rewriter, biasOp, "ScaleShift producer already has fused biases");
         }
         auto newConv = cloneConvolutionOp(rewriter, convOp, convOp.getInput(), convOp.getFilter(), biasConst,
-                                          convOp.getScale());
+                                          convOp.getScale(), convOp.getZeroPoints());
         rewriter.replaceOp(biasOp, newConv->getOpResults());
     } else if (auto transposedConv = mlir::dyn_cast<IE::TransposedConvolutionOp>(op)) {
         if (transposedConv.getBias() != nullptr) {

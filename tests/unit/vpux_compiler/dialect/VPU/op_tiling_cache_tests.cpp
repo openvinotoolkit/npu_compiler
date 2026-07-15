@@ -28,7 +28,7 @@ using MLIR_OpTilingCacheTest = vpux::VPU::arch40xx::UnitTest;
 
 llvm::StringLiteral inputIR = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-    module @test attributes {config.arch = #config.arch_kind<NPU40XX>} {
+    module @test attributes {config.platform = #config.platform<NPU4000>} {
         func.func @main(%arg0: tensor<1x16x8x8xf16, {order = #NHWC}>)
           -> tensor<1x16x8x8xf16, {order = #NHWC}> {
 
@@ -53,15 +53,15 @@ llvm::StringLiteral inputIR = R"(
 })";
 
 TEST_F(MLIR_OpTilingCacheTest, OutputTilingTest) {
-    const auto archKind = config::ArchKind::NPU40XX;
-    vpux::VPU::registerStrategies(registry, archKind);
+    const auto platform = config::Platform::NPU4000;
+    vpux::VPU::registerStrategies(registry, platform);
     mlir::MLIRContext ctx(registry);
     auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
     ASSERT_TRUE(module.get() != nullptr);
-    module.get()->removeAttr("config.arch");
+    module.get()->removeAttr("config.platform");
 
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    auto initCompilerOptions = VPU::InitCompilerOptions(archKind, config::CompilationMode::DefaultHW);
+    auto initCompilerOptions = VPU::InitCompilerOptions(platform, config::CompilationMode::DefaultHW);
     VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
     ASSERT_TRUE(mlir::succeeded(pm.run(module.get())));
 
@@ -89,15 +89,15 @@ TEST_F(MLIR_OpTilingCacheTest, OutputTilingTest) {
 }
 
 TEST_F(MLIR_OpTilingCacheTest, OpDPUCostTest) {
-    const auto archKind = config::ArchKind::NPU40XX;
-    vpux::VPU::registerStrategies(registry, archKind);
+    const auto platform = config::Platform::NPU4000;
+    vpux::VPU::registerStrategies(registry, platform);
     mlir::MLIRContext ctx(registry);
     auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
     ASSERT_TRUE(module.get() != nullptr);
-    module.get()->removeAttr("config.arch");
+    module.get()->removeAttr("config.platform");
 
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    auto initCompilerOptions = VPU::InitCompilerOptions(archKind, config::CompilationMode::DefaultHW);
+    auto initCompilerOptions = VPU::InitCompilerOptions(platform, config::CompilationMode::DefaultHW);
     VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
     ASSERT_TRUE(mlir::succeeded(pm.run(module.get())));
 

@@ -104,6 +104,11 @@ public:
                    Logger log = Logger::global());
 
     /*
+     * Move constructor
+     */
+    LayerVPUNNCost(LayerVPUNNCost&& other) noexcept;
+
+    /*
      *  Get the cost for operation for particular parameters
      */
     StrategyCost getStrategyCost(mlir::Operation* operation, const VPUNNCostParameters& parameters) const;

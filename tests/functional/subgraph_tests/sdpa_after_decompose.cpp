@@ -69,6 +69,11 @@ TEST_P(SDPAAfterDecomposeTestCommon, NPU4000_HW) {
     run(Platform::NPU4000);
 }
 
+TEST_P(SDPAAfterDecomposeTestCommon, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
 INSTANTIATE_TEST_SUITE_P(smoke_SDPAAfterDecompose, SDPAAfterDecomposeTestCommon,
                          ::testing::Values(SDPAAfterDecomposeTestParams{
                                  {1, 3, 32, 32}, {1, 3, 32, 32}, {1, 3, 32, 32}, {1, 3, 32, 32}, {1}}),

@@ -78,6 +78,9 @@ bool isPrevOperationEarlyScheduled(mlir::Operation* prevOp, mlir::Operation* nex
 // get parent operation with pure view like operations bypassed
 mlir::Operation* findParent(mlir::Value operand);
 
+// get producer value with pure view like operations bypassed
+mlir::OpResult findProducerValue(mlir::Value operand);
+
 // get users of operation with pure view like operations bypassed
 SmallVector<mlir::OpOperand*> findUses(mlir::Operation* operation);
 
@@ -86,6 +89,11 @@ bool isSpatialTiling(ArrayRef<int64_t> strategy);
 
 // function merges operations to VF and returns the created subgraph
 VPU::VerticalFusionOp fuseOpsInBlock(mlir::OpBuilder& rewriter, VPU::VerticalFusionOp vfOp, mlir::Operation* prevOp,
+                                     mlir::ArrayAttr tilingInfo = nullptr, bool isManualConfigured = false);
+
+// function merges a chain of VF ops and returns the created subgraph
+// ops order is from the farthest VF producer to the final VF consumer.
+VPU::VerticalFusionOp fuseOpsInBlock(mlir::RewriterBase& rewriter, ArrayRef<VPU::VerticalFusionOp> ops,
                                      mlir::ArrayAttr tilingInfo = nullptr, bool isManualConfigured = false);
 
 // function merges a single producer chain of operations to VF in one step.

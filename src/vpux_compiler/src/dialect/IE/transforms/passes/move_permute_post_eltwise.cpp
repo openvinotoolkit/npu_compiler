@@ -107,7 +107,8 @@ private:
 // with no data change
 // e.g., source layout NCHW, shape is [n, c, h, w], mem_perm layout is NWCH
 // return layout NHWC, the mapped result shape should be [n, h, w, c]
-Shape getMappedShape(DimsOrder sourceLayout, DimsOrder resultLayout, DimsOrder memPermLayout, ShapeRef sourceShape) {
+Shape getMappedShape(const DimsOrder& sourceLayout, const DimsOrder& resultLayout, const DimsOrder& memPermLayout,
+                     ShapeRef sourceShape) {
     auto resultShape = Shape(sourceShape.size(), 1);
     auto mappedShape = resultShape;
     auto sourcePerm = sourceLayout.toPermutation();
@@ -349,7 +350,7 @@ mlir::LogicalResult PermuteEltwiseRewriter<EltwiseOp>::matchAndRewrite(EltwiseOp
 
     const auto patternCanBeConverted = [&]() -> bool {
         const auto firstInputLayout = permuteInputLayouts[0];
-        const auto isSameLayout = [firstInputLayout](const DimsOrder layout) -> bool {
+        const auto isSameLayout = [firstInputLayout](const DimsOrder& layout) -> bool {
             return firstInputLayout == layout;
         };
         if (eltwiseInputShape != eltwiseOutputShape) {
@@ -368,7 +369,7 @@ mlir::LogicalResult PermuteEltwiseRewriter<EltwiseOp>::matchAndRewrite(EltwiseOp
             return false;
         }
         const auto firstMemPermLayout = permuteMemPermLayouts[0];
-        const auto isSameMemPerm = [firstMemPermLayout](const DimsOrder layout) -> bool {
+        const auto isSameMemPerm = [firstMemPermLayout](const DimsOrder& layout) -> bool {
             return firstMemPermLayout == layout;
         };
         if (!std::all_of(permuteMemPermLayouts.begin(), permuteMemPermLayouts.end(), isSameMemPerm)) {

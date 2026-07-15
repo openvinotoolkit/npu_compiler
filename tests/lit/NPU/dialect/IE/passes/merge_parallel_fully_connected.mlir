@@ -39,12 +39,18 @@ func.func @MergeParallelFCWithReshapeTransposeOrderInput(%arg0: tensor<1x6xf32>)
 
     // CHECK-DAG:   [[CST_INLOW:%.+]]  = const.Declare tensor<1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1xf32>
     // CHECK-DAG:   [[CST_INHIGH:%.+]]  = const.Declare tensor<1x1x1xf32> = dense<1.500000e+01> : tensor<1x1x1xf32>
-    // CHECK-DAG:   [[CST_IN:%.+]]  = const.Declare tensor<2x3x5xf32> =
-    // CHECK-SAME{LITERAL}:         dense<[[[1.000000e+00, 2.000000e+00, 3.000000e+00, 1.000000e+00, 2.000000e+00], [1.000000e+00, 2.000000e+00, 1.000000e+00, 1.000000e+00, 2.000000e+00], [2.000000e+00, 3.000000e+00, 2.000000e+00, 2.000000e+00, 3.000000e+00]], [[3.000000e+00, 4.000000e+00, 2.000000e+00, 3.000000e+00, 4.000000e+00], [1.000000e+00, 3.000000e+00, 2.000000e+00, 1.000000e+00, 3.000000e+00], [2.000000e+00, 3.000000e+00, 4.000000e+00, 2.000000e+00, 3.000000e+00]]]> : tensor<2x3x5xf32>
-    // CHECK-DAG:   [[CST_OUTLOW:%.+]]  = const.Declare tensor<2x1x5xf32> =
-    // CHECK-SAME{LITERAL}:         dense<[[[-1.000000e+00, -2.000000e+00, -3.000000e+00, -1.000000e+00, -2.000000e+00]], [[-3.000000e+00, -4.000000e+00, -1.000000e+00, -3.000000e+00, -4.000000e+00]]]> : tensor<2x1x5xf32>
-    // CHECK-DAG:   [[CST_OUTHIGH:%.+]]  = const.Declare tensor<2x1x5xf32> =
-    // CHECK-SAME{LITERAL}:         dense<[[[1.000000e+00, 2.000000e+00, 3.000000e+00, 1.000000e+00, 2.000000e+00]], [[3.000000e+00, 4.000000e+00, 1.000000e+00, 3.000000e+00, 4.000000e+00]]]> : tensor<2x1x5xf32>
+    // CHECK-DAG:   [[CST_IN:%.+]]  = const.Declare tensor<2x3x5xf32>
+    // CHECK-SAME:      #const.Concat
+    // CHECK-SAME{LITERAL}:      dense<[[[1.000000e+00, 2.000000e+00, 3.000000e+00], [1.000000e+00, 2.000000e+00, 1.000000e+00], [2.000000e+00, 3.000000e+00, 2.000000e+00]], [[3.000000e+00, 4.000000e+00, 2.000000e+00], [1.000000e+00, 3.000000e+00, 2.000000e+00], [2.000000e+00, 3.000000e+00, 4.000000e+00]]]>
+    // CHECK-SAME{LITERAL}:      dense<[[[1.000000e+00, 2.000000e+00], [1.000000e+00, 2.000000e+00], [2.000000e+00, 3.000000e+00]], [[3.000000e+00, 4.000000e+00], [1.000000e+00, 3.000000e+00], [2.000000e+00, 3.000000e+00]]]>
+    // CHECK-DAG:   [[CST_OUTLOW:%.+]]  = const.Declare tensor<2x1x5xf32>
+    // CHECK-SAME:      #const.Concat
+    // CHECK-SAME{LITERAL}:      dense<[[[-1.000000e+00, -2.000000e+00, -3.000000e+00]], [[-3.000000e+00, -4.000000e+00, -1.000000e+00]]]>
+    // CHECK-SAME{LITERAL}:      dense<[[[-1.000000e+00, -2.000000e+00]], [[-3.000000e+00, -4.000000e+00]]]>
+    // CHECK-DAG:   [[CST_OUTHIGH:%.+]]  = const.Declare tensor<2x1x5xf32>
+    // CHECK-SAME:      #const.Concat
+    // CHECK-SAME{LITERAL}:      dense<[[[1.000000e+00, 2.000000e+00, 3.000000e+00]], [[3.000000e+00, 4.000000e+00, 1.000000e+00]]]>
+    // CHECK-SAME{LITERAL}:      dense<[[[1.000000e+00, 2.000000e+00]], [[3.000000e+00, 4.000000e+00]]]>
     // CHECK-DAG:   [[FQ:%.+]]  = IE.FakeQuantize([[CST_IN:%.+]], [[CST_INLOW:%.+]], [[CST_INHIGH:%.+]], [[CST_OUTLOW:%.+]], [[CST_OUTHIGH:%.+]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<2x3x5xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<2x1x5xf32>, tensor<2x1x5xf32> -> tensor<2x3x5xf32>
     // CHECK:       [[AFFINERESHAPE:%.+]]  = IE.AffineReshape([[FQ]])
     // CHECK-SAME{LITERAL}:         {dim_mapping = [[0], [0], [1]], shape_value = [6, 5]} : tensor<2x3x5xf32> -> tensor<6x5xf32>
@@ -90,12 +96,18 @@ func.func @MergeParallelFCWithTransposeReshapeOrderInput(%arg0: tensor<1x6xf32>)
 
     // CHECK-DAG:   [[CST_INLOW:%.+]]  = const.Declare tensor<1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1xf32>
     // CHECK-DAG:   [[CST_INHIGH:%.+]]  = const.Declare tensor<1x1x1xf32> = dense<1.500000e+01> : tensor<1x1x1xf32>
-    // CHECK-DAG:   [[CST_IN:%.+]]  = const.Declare tensor<2x3x5xf32> =
-    // CHECK-SAME{LITERAL}:         dense<[[[1.000000e+00, 2.000000e+00, 3.000000e+00, 1.000000e+00, 2.000000e+00], [1.000000e+00, 2.000000e+00, 1.000000e+00, 1.000000e+00, 2.000000e+00], [2.000000e+00, 3.000000e+00, 2.000000e+00, 2.000000e+00, 3.000000e+00]], [[3.000000e+00, 4.000000e+00, 2.000000e+00, 3.000000e+00, 4.000000e+00], [1.000000e+00, 3.000000e+00, 2.000000e+00, 1.000000e+00, 3.000000e+00], [2.000000e+00, 3.000000e+00, 4.000000e+00, 2.000000e+00, 3.000000e+00]]]> : tensor<2x3x5xf32>
-    // CHECK-DAG:   [[CST_OUTLOW:%.+]]  = const.Declare tensor<2x1x5xf32> =
-    // CHECK-SAME{LITERAL}:         dense<[[[-1.000000e+00, -2.000000e+00, -3.000000e+00, -1.000000e+00, -2.000000e+00]], [[-3.000000e+00, -4.000000e+00, -1.000000e+00, -3.000000e+00, -4.000000e+00]]]> : tensor<2x1x5xf32>
-    // CHECK-DAG:   [[CST_OUTHIGH:%.+]]  = const.Declare tensor<2x1x5xf32> =
-    // CHECK-SAME{LITERAL}:         dense<[[[1.000000e+00, 2.000000e+00, 3.000000e+00, 1.000000e+00, 2.000000e+00]], [[3.000000e+00, 4.000000e+00, 1.000000e+00, 3.000000e+00, 4.000000e+00]]]> : tensor<2x1x5xf32>
+    // CHECK-DAG:   [[CST_IN:%.+]]  = const.Declare tensor<2x3x5xf32>
+    // CHECK-SAME:      #const.Concat
+    // CHECK-SAME{LITERAL}:      dense<[[[1.000000e+00, 2.000000e+00, 3.000000e+00], [1.000000e+00, 2.000000e+00, 1.000000e+00], [2.000000e+00, 3.000000e+00, 2.000000e+00]], [[3.000000e+00, 4.000000e+00, 2.000000e+00], [1.000000e+00, 3.000000e+00, 2.000000e+00], [2.000000e+00, 3.000000e+00, 4.000000e+00]]]>
+    // CHECK-SAME{LITERAL}:      dense<[[[1.000000e+00, 2.000000e+00], [1.000000e+00, 2.000000e+00], [2.000000e+00, 3.000000e+00]], [[3.000000e+00, 4.000000e+00], [1.000000e+00, 3.000000e+00], [2.000000e+00, 3.000000e+00]]]>
+    // CHECK-DAG:   [[CST_OUTLOW:%.+]]  = const.Declare tensor<2x1x5xf32>
+    // CHECK-SAME:      #const.Concat
+    // CHECK-SAME{LITERAL}:      dense<[[[-1.000000e+00, -2.000000e+00, -3.000000e+00]], [[-3.000000e+00, -4.000000e+00, -1.000000e+00]]]>
+    // CHECK-SAME{LITERAL}:      dense<[[[-1.000000e+00, -2.000000e+00]], [[-3.000000e+00, -4.000000e+00]]]>
+    // CHECK-DAG:   [[CST_OUTHIGH:%.+]]  = const.Declare tensor<2x1x5xf32>
+    // CHECK-SAME:      #const.Concat
+    // CHECK-SAME{LITERAL}:      dense<[[[1.000000e+00, 2.000000e+00, 3.000000e+00]], [[3.000000e+00, 4.000000e+00, 1.000000e+00]]]>
+    // CHECK-SAME{LITERAL}:      dense<[[[1.000000e+00, 2.000000e+00]], [[3.000000e+00, 4.000000e+00]]]>
     // CHECK-DAG:   [[FQ:%.+]]  = IE.FakeQuantize([[CST_IN:%.+]], [[CST_INLOW:%.+]], [[CST_INHIGH:%.+]], [[CST_OUTLOW:%.+]], [[CST_OUTHIGH:%.+]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<2x3x5xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<2x1x5xf32>, tensor<2x1x5xf32> -> tensor<2x3x5xf32>
     // CHECK:       [[TRANSPOSE:%.+]] = IE.Transpose([[FQ]]) {order_value = #map} : tensor<2x3x5xf32> -> tensor<5x2x3xf32>
     // CHECK:       [[AFFINERESHAPE:%.+]]  = IE.AffineReshape([[TRANSPOSE]])
@@ -439,4 +451,111 @@ func.func @NotMergeParallelFCWithDynamicDequantizeNonConstInput(%input: tensor<1
     // CHECK:    [[CONVERT1:%.+]] = IE.Convert([[AFFINE_RESHAPE3]])
 
     // CHECK:    return [[CONVERT0]], [[CONVERT1]] : tensor<1x1x3072xf32>, tensor<1x1x3072xf32>
+}
+
+// -----
+
+// Parallel FC ops with direct constant weights whose outputs are stacked via
+// AffineReshape → Concat. The Concat is eliminated and replaced by a Reshape.
+//
+// CHECK-LABEL: @MergeDirectConstWeightsWithConcatElim
+// CHECK-SAME: ([[ARG0:%.+]]: tensor<1x4xf16>)
+func.func @MergeDirectConstWeightsWithConcatElim(%x: tensor<1x4xf16>) -> tensor<2x1x3xf16> {
+    %w1 = const.Declare tensor<3x4xf16> = dense<1.0> : tensor<3x4xf16>
+    %w2 = const.Declare tensor<3x4xf16> = dense<2.0> : tensor<3x4xf16>
+    %0 = IE.FullyConnected(%x, %w1) : tensor<1x4xf16>, tensor<3x4xf16> -> tensor<1x3xf16>
+    %1 = IE.AffineReshape(%0) {dim_mapping = [[0, 1], [2]], shape_value = [1, 1, 3]}
+            : tensor<1x3xf16> -> tensor<1x1x3xf16>
+    %2 = IE.FullyConnected(%x, %w2) : tensor<1x4xf16>, tensor<3x4xf16> -> tensor<1x3xf16>
+    %3 = IE.AffineReshape(%2) {dim_mapping = [[0, 1], [2]], shape_value = [1, 1, 3]}
+            : tensor<1x3xf16> -> tensor<1x1x3xf16>
+    %4 = IE.Concat(%1, %3) {static_offsets = [[0, 0, 0], [1, 0, 0]]}
+            : tensor<1x1x3xf16>, tensor<1x1x3xf16> -> tensor<2x1x3xf16>
+    return %4 : tensor<2x1x3xf16>
+
+    // CHECK:     [[MERGED_W:%.+]] = const.Declare tensor<6x4xf16>
+    // CHECK:     [[FC:%.+]] = IE.FullyConnected([[ARG0]], [[MERGED_W]]) : tensor<1x4xf16>, tensor<6x4xf16> -> tensor<1x6xf16>
+    // CHECK-NOT: IE.Slice
+    // CHECK-NOT: IE.Concat
+    // CHECK:     [[RESHAPED:%.+]] = IE.Reshape([[FC]]) {shape_value = [2, 1, 3]} : tensor<1x6xf16> -> tensor<2x1x3xf16>
+    // CHECK:     return [[RESHAPED]] : tensor<2x1x3xf16>
+}
+
+// -----
+
+// One FC weight is a direct Const::DeclareOp; the other passes through an AffineReshape,
+// so isDirectConst = false and the direct-const Concat-elimination path must NOT fire.
+//
+// CHECK-LABEL: @DoNotMergeDirectConstWhenNotAllWeightsAreConst
+func.func @DoNotMergeDirectConstWhenNotAllWeightsAreConst(%x: tensor<1x4xf16>, %w_runtime: tensor<3x4xf16>)
+        -> tensor<2x1x3xf16> {
+    %w1 = const.Declare tensor<3x4xf16> = dense<1.0> : tensor<3x4xf16>
+    // Weight of second FC is not a direct const (comes from a function argument via AffineReshape).
+    %w2 = IE.AffineReshape(%w_runtime) {dim_mapping = [[0], [1]], shape_value = [3, 4]}
+            : tensor<3x4xf16> -> tensor<3x4xf16>
+    %0 = IE.FullyConnected(%x, %w1) : tensor<1x4xf16>, tensor<3x4xf16> -> tensor<1x3xf16>
+    %1 = IE.AffineReshape(%0) {dim_mapping = [[0, 1], [2]], shape_value = [1, 1, 3]}
+            : tensor<1x3xf16> -> tensor<1x1x3xf16>
+    %2 = IE.FullyConnected(%x, %w2) : tensor<1x4xf16>, tensor<3x4xf16> -> tensor<1x3xf16>
+    %3 = IE.AffineReshape(%2) {dim_mapping = [[0, 1], [2]], shape_value = [1, 1, 3]}
+            : tensor<1x3xf16> -> tensor<1x1x3xf16>
+    %4 = IE.Concat(%1, %3) {static_offsets = [[0, 0, 0], [1, 0, 0]]}
+            : tensor<1x1x3xf16>, tensor<1x1x3xf16> -> tensor<2x1x3xf16>
+    return %4 : tensor<2x1x3xf16>
+
+    // CHECK-NOT: IE.Reshape
+    // CHECK:     IE.FullyConnected
+    // CHECK:     IE.FullyConnected
+    // CHECK:     IE.Concat
+}
+
+// -----
+
+// One FC output has two uses (fed into Concat AND returned directly).
+// getConcatThroughReshape returns nullptr for that FC, so directConstWithConcat = false.
+//
+// CHECK-LABEL: @DoNotMergeDirectConstWhenFCHasMultipleUsers
+// CHECK-SAME: ([[ARG0:%.+]]: tensor<1x4xf16>)
+func.func @DoNotMergeDirectConstWhenFCHasMultipleUsers(%x: tensor<1x4xf16>) -> (tensor<2x1x3xf16>, tensor<1x3xf16>) {
+    %w1 = const.Declare tensor<3x4xf16> = dense<1.0> : tensor<3x4xf16>
+    %w2 = const.Declare tensor<3x4xf16> = dense<2.0> : tensor<3x4xf16>
+    %0 = IE.FullyConnected(%x, %w1) : tensor<1x4xf16>, tensor<3x4xf16> -> tensor<1x3xf16>
+    %1 = IE.AffineReshape(%0) {dim_mapping = [[0, 1], [2]], shape_value = [1, 1, 3]}
+            : tensor<1x3xf16> -> tensor<1x1x3xf16>
+    %2 = IE.FullyConnected(%x, %w2) : tensor<1x4xf16>, tensor<3x4xf16> -> tensor<1x3xf16>
+    %3 = IE.AffineReshape(%2) {dim_mapping = [[0, 1], [2]], shape_value = [1, 1, 3]}
+            : tensor<1x3xf16> -> tensor<1x1x3xf16>
+    %4 = IE.Concat(%1, %3) {static_offsets = [[0, 0, 0], [1, 0, 0]]}
+            : tensor<1x1x3xf16>, tensor<1x1x3xf16> -> tensor<2x1x3xf16>
+    return %4, %0 : tensor<2x1x3xf16>, tensor<1x3xf16>
+
+    // CHECK-NOT: IE.Reshape
+    // CHECK:     IE.FullyConnected
+    // CHECK:     IE.FullyConnected
+    // CHECK:     IE.Concat
+}
+
+// -----
+
+// Concat has an extra input from a non-FC source (3 inputs, 2 FCs).
+// allFeedSameConcat becomes false because input count != FC group size.
+//
+// CHECK-LABEL: @DoNotMergeDirectConstWhenConcatHasExtraInput
+func.func @DoNotMergeDirectConstWhenConcatHasExtraInput(%x: tensor<1x4xf16>, %extra: tensor<1x1x3xf16>) -> tensor<3x1x3xf16> {
+    %w1 = const.Declare tensor<3x4xf16> = dense<1.0> : tensor<3x4xf16>
+    %w2 = const.Declare tensor<3x4xf16> = dense<2.0> : tensor<3x4xf16>
+    %0 = IE.FullyConnected(%x, %w1) : tensor<1x4xf16>, tensor<3x4xf16> -> tensor<1x3xf16>
+    %1 = IE.AffineReshape(%0) {dim_mapping = [[0, 1], [2]], shape_value = [1, 1, 3]}
+            : tensor<1x3xf16> -> tensor<1x1x3xf16>
+    %2 = IE.FullyConnected(%x, %w2) : tensor<1x4xf16>, tensor<3x4xf16> -> tensor<1x3xf16>
+    %3 = IE.AffineReshape(%2) {dim_mapping = [[0, 1], [2]], shape_value = [1, 1, 3]}
+            : tensor<1x3xf16> -> tensor<1x1x3xf16>
+    %4 = IE.Concat(%1, %3, %extra) {static_offsets = [[0, 0, 0], [1, 0, 0], [2, 0, 0]]}
+            : tensor<1x1x3xf16>, tensor<1x1x3xf16>, tensor<1x1x3xf16> -> tensor<3x1x3xf16>
+    return %4 : tensor<3x1x3xf16>
+
+    // CHECK-NOT: IE.Reshape
+    // CHECK:     IE.FullyConnected
+    // CHECK:     IE.FullyConnected
+    // CHECK:     IE.Concat
 }

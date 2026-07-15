@@ -93,22 +93,23 @@ mlir::LogicalResult AdjustFakeQuant::matchAndRewrite(IE::FakeQuantizeOp fakeQuan
     // now the range is inLowValue > 0 or inHighValue < 0
     const auto elemType = mlir::cast<vpux::NDTypeInterface>(fakeQuantizeOp.getInput().getType()).getElementType();
     const auto fqArgType = mlir::RankedTensorType::get({1, 1, 1, 1}, elemType);
-    auto zeroConstInput = IE::createFQConst(ctx, fakeQuantizeOp->getLoc(), 0.0, fqArgType, rewriter);
-    auto zeroConstOutput = IE::createFQConst(ctx, fakeQuantizeOp->getLoc(), 0.0, fqArgType, rewriter);
+    auto zeroConstInput = IE::createFQConst(ctx, takeOpLoc(fakeQuantizeOp, "zero_const_in"), 0.0, fqArgType, rewriter);
+    auto zeroConstOutput =
+            IE::createFQConst(ctx, takeOpLoc(fakeQuantizeOp, "zero_const_out"), 0.0, fqArgType, rewriter);
 
     mlir::Value newFqOut;
     if (inLowValue > 0) {
-        newFqOut = rewriter.create<IE::FakeQuantizeOp>(fakeQuantizeOp->getLoc(), fakeQuantizeOp.getInput(),
-                                                       zeroConstInput, fakeQuantizeOp.getInputHigh(), zeroConstOutput,
-                                                       fakeQuantizeOp.getOutputHigh(), fakeQuantizeOp.getLevelsAttr(),
-                                                       fakeQuantizeOp.getLowFpTypeAttr(),
-                                                       fakeQuantizeOp.getAutoBroadcastAttr())
+        newFqOut = rewriter.create<IE::FakeQuantizeOp>(
+                                   takeOpLoc(fakeQuantizeOp, "as_fakequantize"), fakeQuantizeOp.getInput(),
+                                   zeroConstInput, fakeQuantizeOp.getInputHigh(), zeroConstOutput,
+                                   fakeQuantizeOp.getOutputHigh(), fakeQuantizeOp.getLevelsAttr(),
+                                   fakeQuantizeOp.getLowFpTypeAttr(), fakeQuantizeOp.getAutoBroadcastAttr())
                            .getOutput();
     } else if (inHighValue < 0) {
         newFqOut = rewriter.create<IE::FakeQuantizeOp>(
-                                   fakeQuantizeOp->getLoc(), fakeQuantizeOp.getInput(), fakeQuantizeOp.getInputLow(),
-                                   zeroConstInput, fakeQuantizeOp.getOutputLow(), zeroConstOutput,
-                                   fakeQuantizeOp.getLevelsAttr(), fakeQuantizeOp.getLowFpTypeAttr(),
+                                   takeOpLoc(fakeQuantizeOp, "as_fakequantize"), fakeQuantizeOp.getInput(),
+                                   fakeQuantizeOp.getInputLow(), zeroConstInput, fakeQuantizeOp.getOutputLow(),
+                                   zeroConstOutput, fakeQuantizeOp.getLevelsAttr(), fakeQuantizeOp.getLowFpTypeAttr(),
                                    fakeQuantizeOp.getAutoBroadcastAttr())
                            .getOutput();
     } else {
@@ -119,7 +120,8 @@ mlir::LogicalResult AdjustFakeQuant::matchAndRewrite(IE::FakeQuantizeOp fakeQuan
     const auto clampHighAttr = getFPAttr(ctx, inHighValue);
 
     _log.trace("[{0}] Adjust Fake quant prameter for Operation '{1}'", getDebugName(), fakeQuantizeOp->getLoc());
-    rewriter.replaceOpWithNewOp<IE::ClampOp>(fakeQuantizeOp, newFqOut, clampLowAttr, clampHighAttr);
+    auto newClampOp = rewriter.replaceOpWithNewOp<IE::ClampOp>(fakeQuantizeOp, newFqOut, clampLowAttr, clampHighAttr);
+    extendOpLoc(newClampOp, "clamp_out");
     return mlir::success();
 }
 

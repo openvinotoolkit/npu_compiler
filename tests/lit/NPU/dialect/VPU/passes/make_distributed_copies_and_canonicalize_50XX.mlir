@@ -91,12 +91,12 @@ func.func @NotOptimizeShapeCastCopiesAsNotFitIntoCMX(%conv_input: !ConvInputTens
                                                      %conv_weights1: !ConvWeightsTensor1,
                                                      %conv_weights_table1: !ConvWeightsTableTensor1)
                                                      -> !ConvOutputTensor1 {
-    %conv0 = VPU.NCE.Convolution(%conv_input, %conv_weights, %conv_weights_table) {
+    %conv0 = VPU.NCE.Convolution(%conv_input, %conv_weights, %conv_weights_table) rawFilterShape [64, 64, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEFp<mode = <LPRELU>,
         clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64,
         prelu_alpha = [0.199951171875], adder = 0.000000e+00 : f64>,
-        rawFilterShape = [64, 64, 3, 3],
+        
         strides = [1, 1]
     } : !ConvInputTensor0, !ConvWeightsTensor0, !ConvWeightsTableTensor0 -> !ConvOutputTensor0
 
@@ -106,12 +106,12 @@ func.func @NotOptimizeShapeCastCopiesAsNotFitIntoCMX(%conv_input: !ConvInputTens
 
     %ddr_to_next_cmx0 = VPU.UnrolledType(%shape_cast : tensor<1x256x20x168xf16, {order = #NHWC}>) -> !ConvInputTensor1
 
-    %conv1 = VPU.NCE.Convolution(%ddr_to_next_cmx0, %conv_weights1, %conv_weights_table1) {
+    %conv1 = VPU.NCE.Convolution(%ddr_to_next_cmx0, %conv_weights1, %conv_weights_table1) rawFilterShape [48, 256, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEFp<mode = <NOOP>,
         clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64,
         prelu_alpha = [1.000000e+00], adder = 0.000000e+00 : f64>,
-        rawFilterShape = [48, 256, 3, 3],
+        
         strides = [1, 1]
     } : !ConvInputTensor1, !ConvWeightsTensor1, !ConvWeightsTableTensor1 -> !ConvOutputTensor1
 

@@ -197,7 +197,7 @@ void ConvertScalarToTensorPass::safeRunOnFunc() {
     targetGather.addLegalOp<IE::ReshapeOp, IE::AffineReshapeOp>();
 
     targetGather.addDynamicallyLegalOp<IE::GatherOp>([&](IE::GatherOp op) {
-        return typeConverter.isLegal(op);
+        return typeConverter.isLegal(op.getOperation());
     });
 
     mlir::RewritePatternSet patternsGather(&ctx);

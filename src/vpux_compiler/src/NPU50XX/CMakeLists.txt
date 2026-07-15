@@ -24,7 +24,23 @@ npu_embed_bin_file(
     HEADER_FILE "${PROJECT_BINARY_DIR}/${gen_base_dst_include_dir}/dialect/VPU/generated/cost_model_cache_data_5_2.hpp.inc"
     VARIABLE_NAME "COST_MODEL_CACHE_5_2")
 
-file(GLOB_RECURSE SRC_FILES *.cpp)
+set(_npu50xx_ptc_source "${PROJECT_SOURCE_DIR}/artifacts/precomputed_strategy_cache/npu50xx_precomputed_strategy.ptc")
+if(EXISTS "${_npu50xx_ptc_source}")
+    npu_embed_bin_file(
+        TARGET precomputed_strategy_table_builtin_5_1
+        SOURCE_FILE "${_npu50xx_ptc_source}"
+        HEADER_FILE "${PROJECT_BINARY_DIR}/${gen_base_dst_include_dir}/dialect/VPU/generated/precomputed_strategy_table_builtin_5_1.hpp.inc"
+        VARIABLE_NAME "PRECOMPUTED_STRATEGY_TABLE_5_1"
+        MINIMUM_SIZE 16)
+    set(_npu50xx_ptc_available TRUE)
+else()
+    message(STATUS "NPU50XX builtin precomputed strategy table not found at '${_npu50xx_ptc_source}'. Builtin PTC will not be embedded.")
+    set(_npu50xx_ptc_available FALSE)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/include_src.cmake")
+collect_cpp_excluding_nested_cmakelists(SRC_FILES "${CMAKE_CURRENT_SOURCE_DIR}")
+
 add_npu_library(npu_compiler_npu50xx
     ${SRC_FILES}
     LINK_LIBS
@@ -56,6 +72,8 @@ add_npu_library(npu_compiler_npu50xx
         npu_logger
       PRIVATE
         npu_compiler_shave_code_gen
+        npu_compiler_dialect_shave
+        npu_compiler_dialect_shave_transforms
         npu_compiler_dialect_vpurt
         npu_compiler_dialect_vpurt_transforms
         npu_compiler_dialect_const
@@ -82,3 +100,8 @@ add_npu_library(npu_compiler_npu50xx
         cost_model_cache_data_5_2
         openvino::npu_al
 )
+
+if(_npu50xx_ptc_available)
+    target_compile_definitions(npu_compiler_npu50xx PRIVATE VPUX_BUILTIN_PRECOMPUTED_STRATEGY_TABLE_5_1)
+    add_dependencies(npu_compiler_npu50xx precomputed_strategy_table_builtin_5_1)
+endif()

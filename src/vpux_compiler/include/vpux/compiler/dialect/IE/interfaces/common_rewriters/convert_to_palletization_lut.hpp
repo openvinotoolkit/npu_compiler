@@ -4,11 +4,14 @@
 //
 
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/IRMapping.h>
+#include <mlir/IR/Operation.h>
 #include <mlir/IR/PatternMatch.h>
+#include <mlir/Support/LLVM.h>
 
 namespace vpux {
 namespace IE {
@@ -37,7 +40,7 @@ public:
 
 public:
     mlir::LogicalResult matchAndRewrite(ConcreteOp origOp, mlir::PatternRewriter& rewriter) const final;
-    mlir::FailureOr<mlir::Value> getPalletizedFilter(IE::DequantizeOp filterDequantOp, mlir::Type actType,
+    mlir::FailureOr<mlir::Value> getPalletizedFilter(mlir::Operation* filterDequantOp, mlir::Type actType,
                                                      mlir::PatternRewriter& rewriter) const;
 
 private:
@@ -48,8 +51,8 @@ private:
 
 template <typename ConcreteOp>
 mlir::FailureOr<mlir::Value> ConvolutionLUTRewriter<ConcreteOp>::getPalletizedFilter(
-        IE::DequantizeOp filterDequantOp, mlir::Type actType, mlir::PatternRewriter& rewriter) const {
-    const auto inputType = filterDequantOp.getInput().getType();
+        mlir::Operation* filterDequantOp, mlir::Type actType, mlir::PatternRewriter& rewriter) const {
+    const auto inputType = filterDequantOp->getOperand(0).getType();
     const auto origQuantType =
             mlir::dyn_cast<mlir::quant::QuantizedType>(mlir::cast<vpux::NDTypeInterface>(inputType).getElementType());
 
@@ -64,8 +67,8 @@ mlir::FailureOr<mlir::Value> ConvolutionLUTRewriter<ConcreteOp>::getPalletizedFi
 
     _log.nest().trace("QuantizeCast from '{0}' to '{1}' for non const", origQuantType, newQuantType);
 
-    auto quantizeCastOp =
-            rewriter.create<IE::QuantizeCastOp>(filterDequantOp.getLoc(), filterDequantOp.getInput(), newQuantType);
+    auto quantizeCastOp = rewriter.create<IE::QuantizeCastOp>(takeOpLoc(filterDequantOp, "quantize_cast_filter"),
+                                                              filterDequantOp->getOperand(0), newQuantType);
     return quantizeCastOp.getOutput();
 }
 
@@ -75,21 +78,42 @@ mlir::LogicalResult ConvolutionLUTRewriter<ConcreteOp>::matchAndRewrite(Concrete
     _log.trace("Process Operation '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
     // operation legality is already checked, so actType is legal and can be either fp16 or fp8
-    auto inputDequantOp = mlir::dyn_cast_or_null<IE::DequantizeOp>(origOp.getInput().getDefiningOp());
+    auto inputDequantOp = mlir::dyn_cast_if_present<IE::DequantizeOp>(origOp.getInput().getDefiningOp());
     const auto actType =
             inputDequantOp == nullptr
                     ? mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType()).getElementType()
                     : mlir::cast<vpux::NDTypeInterface>(inputDequantOp.getInput().getType()).getElementType();
 
-    auto filterDequantOp = origOp.getFilter().template getDefiningOp<IE::DequantizeOp>();
-    auto validFilter = getPalletizedFilter(filterDequantOp, actType, rewriter);
+    mlir::IRMapping mapper;
+    auto filterOp = origOp.getFilter().getDefiningOp();
+
+    auto maybeFilterDequantOp = mlir::dyn_cast_if_present<IE::DequantizeOp>(filterOp);
+    auto maybeFilterDynamicDequantOp = mlir::dyn_cast_if_present<IE::DynamicDequantizeOp>(filterOp);
+
+    if (maybeFilterDequantOp == nullptr && maybeFilterDynamicDequantOp == nullptr) {
+        return mlir::failure();
+    }
+
+    auto validFilter = getPalletizedFilter(filterOp, actType, rewriter);
     if (mlir::failed(validFilter)) {
         return mlir::failure();
     }
 
-    auto newDequantizeOp = rewriter.create<IE::DequantizeOp>(origOp->getLoc(), validFilter.value(),
-                                                             filterDequantOp.getDstElemTypeAttr());
-    mlir::IRMapping mapper;
+    mlir::Value newDequantizeOp = nullptr;
+    if (maybeFilterDequantOp != nullptr) {
+        newDequantizeOp = rewriter.create<IE::DequantizeOp>(takeOpLoc(origOp, "dequantize_filter"), validFilter.value(),
+                                                            maybeFilterDequantOp.getDstElemTypeAttr());
+    } else if (maybeFilterDynamicDequantOp != nullptr) {
+        newDequantizeOp = rewriter.create<IE::DynamicDequantizeOp>(
+                takeOpLoc(origOp, "dynamic_dequantize_filter"), validFilter.value(),
+                maybeFilterDynamicDequantOp.getScale(), maybeFilterDynamicDequantOp.getZp(),
+                maybeFilterDynamicDequantOp.getDstElemTypeAttr());
+    }
+
+    if (newDequantizeOp == nullptr) {
+        return mlir::failure();
+    }
+
     mapper.map(origOp.getFilter(), newDequantizeOp);
     auto newOp = rewriter.clone(*origOp, mapper);
     rewriter.replaceOp(origOp, newOp->getResults());

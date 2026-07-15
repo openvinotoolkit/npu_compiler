@@ -14,6 +14,10 @@ using namespace ov::element;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ConversionLayerTest);
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ConversionSpecifyInputLayerTest);
+
 class ConversionLayerTestCommon : public ConversionLayerTest, virtual public VpuOv2LayerTest {};
 class ConversionLayerTestCommon_HW : public ConversionLayerTest, virtual public VpuOv2LayerTest {};
 
@@ -78,6 +82,25 @@ TEST_P(ConversionLayerTest_HostCompile, NPU4000_HC) {
 
 TEST_P(ConversionLayerTest_HostCompile, NPU5010_HC) {
     setHostCompileMode();
+    setPluginCompilerType();
+    run(Platform::NPU5010);
+}
+
+class ConversionLayerTest_HostCompile_Interpreter : public ConversionLayerTestCommon {
+    void configure_model() override {
+        // E#220008: failed to legalize operation 'arith.divui' that was explicitly marked illegal
+        VpuOv2LayerTest::configuration[ov::intel_npu::compilation_mode_params.name()] = "auto-unrolling-mode=disabled";
+    }
+};
+
+TEST_P(ConversionLayerTest_HostCompile_Interpreter, NPU4000_HC) {
+    setHostCompileMode("HostCompile_Interpreter");
+    setPluginCompilerType();
+    run(Platform::NPU4000);
+}
+
+TEST_P(ConversionLayerTest_HostCompile_Interpreter, NPU5010_HC) {
+    setHostCompileMode("HostCompile_Interpreter");
     setPluginCompilerType();
     run(Platform::NPU5010);
 }
@@ -151,14 +174,14 @@ const auto configParamsF16ToF8 = genParams({f16}, {f8e4m3, f8e5m2}, inShapeOdd, 
 const auto configParamsF32ToF16Tiling = genParams({f32}, {f16}, inShapeTiling);
 
 const std::vector<std::vector<ov::test::InputShape>> dynamicShapes = {
-        {generateTestShape(std::vector<BoundedDim>{1, 16, 1280_Dyn, 1280}, hostCompileSmallShapesLimitationCallback)},
-        {generateTestShape(std::vector<BoundedDim>{1, 16, 1280_Dyn, 1280_Dyn},
+        {generateTestShape(std::vector<BoundedDim>{1, 16, 2048_Dyn, 2048}, hostCompileSmallShapesLimitationCallback)},
+        {generateTestShape(std::vector<BoundedDim>{1, 16, 2048_Dyn, 2048_Dyn},
                            hostCompileSmallShapesLimitationCallback)},
-        {generateTestShape(std::vector<BoundedDim>{1, 3, 1280_Dyn, 1280}, hostCompileSmallShapesLimitationCallback)},
-        {generateTestShape(std::vector<BoundedDim>{1, 3, 1280_Dyn, 1280_Dyn},
+        {generateTestShape(std::vector<BoundedDim>{1, 3, 2048_Dyn, 2048}, hostCompileSmallShapesLimitationCallback)},
+        {generateTestShape(std::vector<BoundedDim>{1, 3, 2048_Dyn, 2048_Dyn},
                            hostCompileSmallShapesLimitationCallback)},
-        {generateTestShape(std::vector<BoundedDim>{1, 1, 1280_Dyn, 1280}, hostCompileSmallShapesLimitationCallback)},
-        {generateTestShape(std::vector<BoundedDim>{1, 1, 1280_Dyn, 1280_Dyn},
+        {generateTestShape(std::vector<BoundedDim>{1, 1, 2048_Dyn, 2048}, hostCompileSmallShapesLimitationCallback)},
+        {generateTestShape(std::vector<BoundedDim>{1, 1, 2048_Dyn, 2048_Dyn},
                            hostCompileSmallShapesLimitationCallback)},
 };
 const auto configParamsF32ToF16 =
@@ -171,7 +194,7 @@ const auto configParamsF32ToF16 =
 const auto configParamsI32ToU64Dyn = ::testing::Combine(
         ::testing::ValuesIn({ConversionTypes::CONVERT}),  // Conversion type
         ::testing::ValuesIn(
-                std::vector<std::vector<ov::test::InputShape>>{{generateTestShape(1280_Dyn)}}),  // Input shapes
+                std::vector<std::vector<ov::test::InputShape>>{{generateTestShape(2048_Dyn)}}),  // Input shapes
         ::testing::ValuesIn({i32}),                                                              // Input type
         ::testing::ValuesIn({u64}),                                                              // Output type
         ::testing::Values(test_utils::TARGET_DEVICE));
@@ -254,6 +277,11 @@ INSTANTIATE_TEST_SUITE_P(smoke_precommit_bf16_Conversion, ConversionLayerTestCom
 
 // ------ HostCompile ------
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Conversion_HostCompile, ConversionLayerTest_HostCompile, configParamsF32ToF16,
+                         ConversionLayerTest::getTestCaseName);
+
+// ------ HostCompile_Interpreter ------
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_Conversion_HostCompile_Interpreter,
+                         ConversionLayerTest_HostCompile_Interpreter, configParamsF32ToF16,
                          ConversionLayerTest::getTestCaseName);
 
 // ------ SCFTiling ------

@@ -26,9 +26,6 @@ protected:
         if (utils::getTestDeviceId() == "3720") {
             GTEST_SKIP() << "Dynamic strides are unsupported on NPU3720";
         }
-        if (strcmp(test_utils::TARGET_DEVICE, "IMD") == 0) {
-            GTEST_SKIP() << "Skipping dynamic strides test for IMD backend due to missing inference support";
-        }
     }
 
     virtual std::shared_ptr<ov::Model> getTestModel(ov::Shape inputShape) = 0;

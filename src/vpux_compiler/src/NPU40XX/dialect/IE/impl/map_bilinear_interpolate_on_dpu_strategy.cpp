@@ -6,6 +6,7 @@
 #include "vpux/compiler/NPU40XX/dialect/IE/impl/map_bilinear_interpolate_on_dpu_strategy.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/image.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes/map_bilinear_interpolate_on_DPU.hpp"
+#include "vpux/compiler/dialect/IE/utils/interpolate_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
@@ -13,6 +14,11 @@ namespace vpux::IE::arch40xx {
 
 bool MapBilinearInterpolateOnDPUStrategy::shouldConvertInterpolateOpForMapBilinear(IE::InterpolateOp op,
                                                                                    LogCb logCb) const {
+    // Runtime scales produce dynamic spatial dims, skip transformation
+    if (IE::isScalesAsParameter(op.getScales(), op.getScalesAttr())) {
+        return false;
+    }
+
     auto inputElemType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType()).getElementType();
     auto outputElemType = mlir::cast<vpux::NDTypeInterface>(op.getOutput().getType()).getElementType();
     if (inputElemType != outputElemType && !mlir::isa<mlir::quant::QuantizedType>(inputElemType) &&

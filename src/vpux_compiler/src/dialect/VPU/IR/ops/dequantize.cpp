@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 using namespace vpux;
 
@@ -30,6 +31,12 @@ mlir::LogicalResult vpux::VPU::DequantizeOp::inferReturnTypes(mlir::MLIRContext*
     const auto outType = inType.changeElemType(dstElemType);
     inferredReturnTypes.push_back(outType);
 
+    return mlir::success();
+}
+
+mlir::LogicalResult vpux::VPU::DequantizeOp::reifyResultShapes(mlir::OpBuilder& builder,
+                                                               mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    reifiedReturnShapes.emplace_back(reifyTrivialTensor(builder, getInput(), getLoc()));
     return mlir::success();
 }
 

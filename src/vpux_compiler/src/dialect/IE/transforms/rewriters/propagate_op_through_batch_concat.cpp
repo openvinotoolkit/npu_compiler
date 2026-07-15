@@ -201,9 +201,9 @@ mlir::LogicalResult PropagateSoftmax::matchAndRewrite(IE::SoftMaxOp origOp, mlir
             sliceSoftmaxInput = newAddOp.getOutput();
         }
 
-        auto sliceSoftmaxOp =
-                rewriter.create<IE::SoftMaxOp>(takeOpLoc(origOp, "slice_{0}", concatInput.index()), sliceSoftmaxInput,
-                                               origOp.getAxisIndAttr(), origOp.getPadSizeAttr());
+        auto sliceSoftmaxOp = rewriter.create<IE::SoftMaxOp>(
+                takeOpLoc(origOp, "slice_{0}", concatInput.index()), sliceSoftmaxInput, origOp.getAxisIndAttr(),
+                origOp.getPadSizeAttr(), origOp.getDstElemTypeAttr(), origOp.getMaskAwareAttr());
         newConcatInputs.push_back(sliceSoftmaxOp.getOutput());
     }
 

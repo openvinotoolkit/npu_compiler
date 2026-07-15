@@ -100,8 +100,8 @@ VPURT.SW.Runtime
     stack_configuration: [4096, 4096, 4096, 4096]
 
 module @VPU.SW {
-func.func private @cache_flush(%input : memref<*xf16>, %output : memref<*xf16>) attributes {VPU.task_type = @CACHE_FLUSH}
-func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+func.func nested @cache_flush(%input : memref<*xf16>, %output : memref<*xf16>) attributes {VPU.task_type = @CACHE_FLUSH}
+func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
 func.func @InvalidCacheHandlingSwKernel(%1: memref<1x1x1x1000xf16, @DDR>, %2: memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR> {
@@ -138,8 +138,8 @@ VPURT.SW.Runtime
     stack_configuration: [4096, 4096, 4096, 4096]
 
 module @VPU.SW {
-func.func private @cache_flush(%input : memref<*xf16>, %output : memref<*xf16>) attributes {VPU.task_type = @CACHE_FLUSH}
-func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+func.func nested @cache_flush(%input : memref<*xf16>, %output : memref<*xf16>) attributes {VPU.task_type = @CACHE_FLUSH}
+func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
 func.func @InvalidCacheHandlingFunc(%1: memref<1x1x1x1000xf16, @DDR>, %2: memref<1x1x1x1000xf16, @DDR>) -> memref<1x1x1x1000xf16, @DDR> {
@@ -170,12 +170,12 @@ func.func @InvalidCacheHandlingFunc(%1: memref<1x1x1x1000xf16, @DDR>, %2: memref
 // -----
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-func.func @SubviewWithStrideAttrInDifferentAxis(%arg0: memref<1x3x8x8xf16, #NHWC, @DDR>) -> memref<1x16x4x8xf16, #NHWC, @DDR> {
-    %1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x528x8x8xf16, #NHWC, [@CMX_NN, 0]>
-    %2 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x16x4x8xf16, #NHWC, @DDR>
-    %3 = VPUIP.SubView %1 [0, 512, 0, 0] [1, 16, 8, 8] : memref<1x528x8x8xf16, #NHWC, [@CMX_NN, 0]> to memref<1x16x8x8xf16, {order = #NHWC, strides = [33792, 1, 4224, 528]}, [@CMX_NN, 0]>
+func.func @SubviewWithStrideAttrInDifferentAxis(%arg0: memref<1x3x8x8xf16, {order = #NHWC}, @DDR>) -> memref<1x16x4x8xf16, {order = #NHWC}, @DDR> {
+    %1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x528x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %2 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x16x4x8xf16, {order = #NHWC}, @DDR>
+    %3 = VPUIP.SubView %1 [0, 512, 0, 0] [1, 16, 8, 8] : memref<1x528x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]> to memref<1x16x8x8xf16, {order = #NHWC, strides = [33792, 1, 4224, 528]}, [@CMX_NN, 0]>
     // expected-error@+1 {{The output stride([16384 Bit, 16 Bit, 2048 Bit, 256 Bit]) != infered stride([540672 Bit, 16 Bit, 67584 Bit, 8448 Bit])}}
     %4 = VPUIP.SubView %3 [0, 0, 4, 0] [1, 16, 4, 8] : memref<1x16x8x8xf16, {order = #NHWC, strides = [33792, 1, 4224, 528]}, [@CMX_NN, 0]> to memref<1x16x4x8xf16, {order = #NHWC, strides = [1024, 1, 128, 16]}, [@CMX_NN, 0]>
-    %5 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%4 : memref<1x16x4x8xf16, {order = #NHWC, strides = [1024, 1, 128, 16]}, [@CMX_NN, 0]>) outputs(%2 : memref<1x16x4x8xf16, #NHWC, @DDR>) -> memref<1x16x4x8xf16, #NHWC, @DDR>
-    return %5 : memref<1x16x4x8xf16, #NHWC, @DDR>
+    %5 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%4 : memref<1x16x4x8xf16, {order = #NHWC, strides = [1024, 1, 128, 16]}, [@CMX_NN, 0]>) outputs(%2 : memref<1x16x4x8xf16, {order = #NHWC}, @DDR>) -> memref<1x16x4x8xf16, {order = #NHWC}, @DDR>
+    return %5 : memref<1x16x4x8xf16, {order = #NHWC}, @DDR>
 }

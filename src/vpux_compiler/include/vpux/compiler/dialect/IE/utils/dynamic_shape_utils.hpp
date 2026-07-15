@@ -27,7 +27,7 @@ bool hasDynamicShapeAttr(mlir::Value value);
 bool hasDynamicShape(mlir::Value value);
 bool hasDynamicTensors(mlir::Operation* op);
 bool needsStaticShape(mlir::Operation* op);
-bool isDynamicDataContiguous(vpux::ShapeRef shape, vpux::DimsOrder order);
+bool isDynamicDataContiguous(vpux::ShapeRef shape, const vpux::DimsOrder& order);
 
 template <typename T>
 SmallVector<T> replaceDynamicDimsWithValue(ArrayRef<int64_t> original, T value) {

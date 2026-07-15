@@ -11,13 +11,14 @@
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/Value.h>
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_case.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_algorithm.hpp"
 
 #include "vpux/compiler/dialect/VPU/utils/reorder_ir_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/scf/scf_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sibling_ops_analysis.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tiling_pass_config_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_algorithm.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/error.hpp"
 #include "vpux/utils/core/numeric.hpp"
@@ -218,8 +219,8 @@ public:
             ForwardingListener::notifyOperationInserted(op, insertPoint);
             return;
         }
-        // Track newly inserted TilingInterface operations that match pending producers
-        // Find the first pending producer with matching operation name and location (FIFO order)
+        // Track newly inserted TilingInterface operations that match pending producers.
+        // Find the first pending producer with matching operation name and location (FIFO order).
         auto it = std::find_if(pendingProducers.begin(), pendingProducers.end(),
                                [&](const std::tuple<mlir::Operation*, mlir::OperationName, mlir::Location>& entry) {
                                    return std::get<1>(entry) == op->getName() && std::get<2>(entry) == op->getLoc();
@@ -232,15 +233,18 @@ public:
         // 'biggest user' branch of any skip-connection source.
         // If yes, mark biggestUserTiled=true so fusion control can later allow fusing
         // the shared skip-source producer only after the largest branch is materialized.
+        auto originalProducer = std::get<0>(*it);
         auto skipConnectionIter = llvm::find_if(skipConnectionMap, [&](const auto& entry) {
-            return entry.second.biggestUserOp == std::get<0>(*it);
+            return entry.second.biggestUserOp == originalProducer;
         });
         if (skipConnectionIter != skipConnectionMap.end()) {
             skipConnectionIter->second.biggestUserTiled = true;
             log.debug(" Biggest user of skip connection op {0} has been tiled: {1}",
-                      std::get<0>(*skipConnectionIter)->getName(), op->getName());
-            ForwardingListener::notifyOperationInserted(op, insertPoint);
-            return;
+                      skipConnectionIter->first->getName(), op->getName());
+            if (!skipConnectionMap.contains(originalProducer)) {
+                ForwardingListener::notifyOperationInserted(op, insertPoint);
+                return;
+            }
         }
         // Track fusion progress for skip-connection source producers:
         // store the currently materialized tiled result (`tiledValue`) of the original producer.
@@ -250,8 +254,8 @@ public:
         // again because we intentionally keep that producer in `pendingProducers` (do not erase it
         // in this path). This lets us keep `tiledValue` synchronized with the latest materialized
         // result.
-        if (skipConnectionMap.contains(std::get<0>(*it))) {
-            skipConnectionMap.find(std::get<0>(*it))->getSecond().tiledValue = op->getResult(0);
+        if (skipConnectionMap.contains(originalProducer)) {
+            skipConnectionMap.find(originalProducer)->getSecond().tiledValue = op->getResult(0);
             log.debug("Producer of skip connection has been tiled: {0}", op->getName());
         } else {
             // Clear pendingProducers only when the tiled operation is not a skip-connection producer.
@@ -272,7 +276,8 @@ private:
     Logger log;
 };
 
-llvm::SetVector<mlir::Operation*> collectTiledAndFusedOps(mlir::Operation* op) {
+llvm::SetVector<mlir::Operation*> collectTiledAndFusedOps(mlir::Operation* op,
+                                                          const VPU::MergeConfiguration& mergeConfig) {
     SmallVector<mlir::Operation*> worklist;
     llvm::SetVector<mlir::Operation*> producers;
     worklist.push_back(op);
@@ -285,7 +290,7 @@ llvm::SetVector<mlir::Operation*> collectTiledAndFusedOps(mlir::Operation* op) {
                 return !producers.contains(user);
             };
             if (!mlir::isa_and_nonnull<mlir::TilingInterface>(producer) || producers.contains(producer) ||
-                !vpux::VPU::checkFusion(operand, producer->getOpResult(0), producers) ||
+                !vpux::VPU::checkFusion(operand, producer->getOpResult(0), producers, mergeConfig) ||
                 llvm::any_of(producer->getUsers(), checkProducersUsers)) {
                 continue;
             }
@@ -294,130 +299,6 @@ llvm::SetVector<mlir::Operation*> collectTiledAndFusedOps(mlir::Operation* op) {
         }
     }
     return producers;
-}
-
-VPU::VF::v2::VFSplit getVFSplit(vpux::NDTypeInterface outputType, mlir::Operation* outputOperation,
-                                DimArrRef allowedDims, VPU::VF::v2::VFConfig& config) {
-    auto shapeType = mlir::cast<mlir::ShapedType>(outputType);
-    if (!shapeType.hasStaticShape()) {
-        VPU::VF::v2::VFSplit vfSplit;
-        auto countDynDims = shapeType.getNumDynamicDims();
-        // allowedDims to memoryOrder
-        auto outputOrder = outputType.getDimsOrder();
-        auto allowedDimsInMemoryOrder = allowedDims.vec();
-        llvm::sort(allowedDimsInMemoryOrder, [&](const Dim& d1, const Dim& d2) {
-            return outputOrder.dimPos(d1) < outputOrder.dimPos(d2);
-        });
-        const auto hasDynAlignment = VPU::hasDynamicDimAlignment(outputOperation);
-        auto boundedShape = getBoundedShape(outputType);
-        std::optional<SmallVector<int64_t>> alignmentValues;
-        auto innerMostDynamicDim = getInnermostDynamicDim(outputType.getShape(), outputType.getDimsOrder());
-        if (hasDynAlignment) {
-            alignmentValues = getAlignment(outputOperation, {}, boundedShape, true);
-        }
-
-        for (auto dim : allowedDimsInMemoryOrder) {
-            if (!shapeType.isDynamicDim(dim.ind())) {
-                continue;
-            }
-
-            VPUX_THROW_WHEN(dim == Dims4D::Act::C, "Dynamic channels are not supported");
-            if (hasDynAlignment && alignmentValues.has_value() && innerMostDynamicDim.has_value()) {
-                if (dim == innerMostDynamicDim.value() && countDynDims > 1) {
-                    vfSplit[dim] = divUp(boundedShape[dim], alignmentValues.value()[dim.ind()]);
-                } else {
-                    vfSplit[dim] = std::nullopt;
-                }
-                continue;
-            }
-            if (countDynDims == 1) {
-                vfSplit[dim] = std::nullopt;
-                break;
-            }
-
-            vfSplit[dim] = getTilingLimit(dim, config, true);
-            --countDynDims;
-        }
-        return vfSplit;
-    }
-
-    VPU::SiblingOpsAnalysis siblingAnalisys(outputOperation);
-    auto outputShape = outputType.getShape().toValues();
-    if (auto clusterOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(outputOperation)) {
-        if (clusterOp.getMultiClusterStrategy().has_value()) {
-            outputType = clusterOp.getDistributedTypeForOpResult(
-                    outputOperation->getResult(0), clusterOp.getMultiClusterStrategy().value(), siblingAnalisys, false);
-
-            auto distribution = VPU::DistributionInfo::getClassFromAttr(
-                    mlir::cast<VPU::DistributedTensorType>(outputType).getDistribution());
-            if (distribution.getMemoryShapes().empty()) {
-                auto optMemoryShapes =
-                        VPU::getPerClusterMemoryShapes(outputShape, distribution, outputType.getElementType());
-                if (optMemoryShapes.has_value()) {
-                    outputShape = Shape(optMemoryShapes.value().front());
-                }
-            } else {
-                outputShape = Shape(distribution.getMemoryShapes().front());
-            }
-        }
-    }
-
-    const auto compareDims = [&](auto dimLeft, auto dimRight) {
-        return outputShape[dimLeft] < outputShape[dimRight];
-    };
-    auto maxDim = std::max_element(allowedDims.begin(), allowedDims.end(), compareDims);
-
-    if (maxDim == allowedDims.end()) {
-        return {};
-    }
-
-    return {{*maxDim, std::nullopt}};
-}
-
-VPU::VF::v2::VFCase computeVFSCFCase(vpux::NDTypeInterface outputType, mlir::Operation* lastOp, DimArrRef allowedDims,
-                                     VPU::VF::v2::VFConfig& config, mlir::Operation* rootOp, Logger log) {
-    VPU::VF::v2::VFCase emptyVFCase(config, {});
-    auto vfSplit = getVFSplit(outputType, lastOp, allowedDims, config);
-    if (vfSplit.empty()) {
-        return emptyVFCase;
-    }
-
-    auto optDim = VPU::VF::v2::getNonTiledDimForVFOptimization(vfSplit);
-    if (!optDim.has_value()) {
-        return emptyVFCase;
-    }
-
-    const auto getMinTiles = [&](auto dim, const VPU::VF::v2::VFSplit& split) {
-        if ((outputType.getShape().isDynamic() && dim == optDim.value()) || split.size() > 1) {
-            return VPU::MIN_REQUIRED_TILES;
-        }
-
-        const auto getDimValue = [&dim](auto* oper) -> int64_t {
-            return oper->hasAttr(tilingStrategy) ? Shape(parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(
-                                                           oper->getAttr(tilingStrategy))))[dim]
-                                                 : 1;
-        };
-
-        std::set<int64_t> minTilesSet;
-        llvm::copy(config.getVFOperations() | transformed(getDimValue), std::inserter(minTilesSet, minTilesSet.end()));
-        return *minTilesSet.rbegin();
-    };
-
-    const auto getMaxTiles = [&](auto dim, const VPU::VF::v2::VFSplit& split) -> int64_t {
-        auto maxTiles = getTilingLimit(dim, config);
-        if (!VPU::hasDynamicDimAlignment(rootOp) && split.size() > 1) {
-            auto otherDimSum = VPU::VF::v2::getVFTilesLen(split);
-            maxTiles = divUp(maxTiles, otherDimSum);
-
-            if (outputType.getShape().isDynamic()) {
-                maxTiles = std::max(maxTiles, VPU::MINIMUM_LENGTH_TILING);
-            }
-        }
-        return maxTiles;
-    };
-
-    return VPU::VF::v2::getVFCaseWithTiling(config, optDim.value(), vfSplit, getMinTiles, getMaxTiles, log,
-                                            VPU::VF::v2::getSchedulingScenarios(config, log));
 }
 
 }  // namespace
@@ -656,7 +537,7 @@ mlir::LogicalResult vpux::VPU::applySCFTiling(mlir::Operation* operation, mlir::
 }
 
 SmallVector<mlir::Operation*> vpux::VPU::applySCFVerticalFusion(mlir::Operation* operation, mlir::RewriterBase& builder,
-                                                                Logger log) {
+                                                                const MergeConfiguration& mergeConfig, Logger log) {
     if (!operation->hasAttr(tilingStrategy)) {
         return {};
     }
@@ -666,8 +547,7 @@ SmallVector<mlir::Operation*> vpux::VPU::applySCFVerticalFusion(mlir::Operation*
     const auto strategy = operation->getAttr(tilingStrategy);
     mlir::scf::SCFTilingOptions tilingOptions;
 
-    // calculate tile size based on VF restrictions
-    auto allOpsToFuse = collectTiledAndFusedOps(operation);
+    auto allOpsToFuse = collectTiledAndFusedOps(operation, mergeConfig);
 
     if (allOpsToFuse.size() == 1) {
         return {};
@@ -687,33 +567,26 @@ SmallVector<mlir::Operation*> vpux::VPU::applySCFVerticalFusion(mlir::Operation*
     auto* lastOp = outputs.back();
     auto outputType = mlir::cast<vpux::NDTypeInterface>(lastOp->getResult(0).getType());
 
-    VPU::VF::v2::VFCase bestVFCase = computeVFSCFCase(outputType, lastOp, allowedDims, config, operation, log);
+    VPU::VF::v2::VFCase bestVFCase = mergeConfig.splitGetter(config, allowedDims);
 
     const auto& tilingStorage = bestVFCase.getTilingStorage();
 
-    // Build skip connection map: operations with multiple uses and user op which require biggest tile
     llvm::DenseMap<mlir::Operation*, VPU::PendingSliceReplacement> skipConnectionMap =
             analyzeSkipConnectionsForTiling(allOpsToFuse, tilingStorage, log);
 
     if (VPU::hasDynamicDimAlignment(operation) && !bestVFCase.isInitialized()) {
-        // We are retrying VF search with disabled dynamic alignment
         VPU::removeDynamicDimAlignment(operation);
-        bestVFCase = computeVFSCFCase(outputType, lastOp, allowedDims, config, operation, log);
+        bestVFCase = mergeConfig.splitGetter(config, allowedDims);
     }
 
-    if (!bestVFCase.isInitialized()) {
+    // Use the merge policy from the configuration to decide whether to proceed
+    if (!mergeConfig.mergeDecision(bestVFCase)) {
         return {};
     }
 
     operation->setAttr(tilingStrategy, bestVFCase.getTiling());
     std::unordered_map<Dim, std::pair<int64_t, int64_t>> remainders;
 
-    // calculate tile size for VF:
-    // 1. allOpsToFuse contains operations to build VF
-    // 2. get all allowed dimensions for these operations to tile
-    // 3. choose the dimension which tiles the largest dimension
-    // 4. get optimal tiling number for vertical fusion
-    // 5. calculate tile size based on computed tiling number
     const auto vfTileSizeComputationFn = [&](mlir::OpBuilder& builder,
                                              mlir::Operation* operation) -> SmallVector<mlir::OpFoldResult> {
         auto strategy = Shape(parseIntArrayAttr<int64_t>(bestVFCase.getTiling()));
@@ -731,10 +604,8 @@ SmallVector<mlir::Operation*> vpux::VPU::applySCFVerticalFusion(mlir::Operation*
     mlir::scf::SCFTileAndFuseOptions tilingAndFuseOptions;
     tilingAndFuseOptions.setTilingOptions(std::move(tilingOptions));
 
-    // check if VF has loop to substitute slice with existing operation
     bool hasSkipConnection = false;
 
-    // Save the previous listener and create our tracking listener
     auto* previousListener = builder.getListener();
     TiledOpsTrackingListener listener(skipConnectionMap, previousListener, log);
     builder.setListener(&listener);
@@ -743,52 +614,37 @@ SmallVector<mlir::Operation*> vpux::VPU::applySCFVerticalFusion(mlir::Operation*
             [&](mlir::tensor::ExtractSliceOp sliceOp, mlir::OpResult originalProducer,
                 bool) -> std::optional<mlir::scf::SCFTileAndFuseOptions::ControlFnResult> {
         if (!allOpsToFuse.contains(originalProducer.getOwner())) {
-            // Return an empty optional to signal "do not fuse".
             return std::nullopt;
         }
         auto skipConnectionIter = skipConnectionMap.find(originalProducer.getOwner());
         if (skipConnectionIter == skipConnectionMap.end()) {
-            // if skip connection op is not involved - fuse as usual
             originalProducer.getOwner()->setAttr(tilingStrategy, bestVFCase.getTiling());
-            // Notify listener that this producer is about to be fused
             listener.expectProducerFusion(originalProducer.getOwner());
-            // Return a result to signal "fuse this op".
             return mlir::scf::SCFTileAndFuseOptions::ControlFnResult{};
         }
         log.debug("Attempting to fuse producer of skip connection: {0} at loc: {1}",
                   originalProducer.getOwner()->getName(), originalProducer.getOwner()->getLoc());
         auto& deferredReplacement = skipConnectionIter->getSecond();
 
-        // Check if Operation which originates skip connection has been tiled already
         if (deferredReplacement.tiledValue != nullptr) {
             log.debug("Operation which originates skip connection has been tiled already. Save current sliceOp "
                       "for future replacement.\n");
             deferredReplacement.relatedExtractSlices.insert(sliceOp);
-            // Return an empty optional to signal "do not fuse".
             return std::nullopt;
         }
 
         if (!deferredReplacement.biggestUserTiled && !deferredReplacement.allUsersWithTheSameTileSize) {
             log.debug("Biggest user not tiled yet, cannot fuse producer. Skipping fusion for this producer");
             deferredReplacement.relatedExtractSlices.insert(sliceOp);
-            // Return an empty optional to signal "do not fuse".
             return std::nullopt;
         }
 
-        // If the skip-source op has not been tiled yet, allow fusion only after the largest user branch was
-        // tiled (or when all branches have the same tile size).
-        // Assumption: tile+fuse walks a single branch bottom-up. It tiles users first and then continues
-        // upward along the same branch to the skip-source producer.
-        // With this assumption, once the largest branch is tiled we proceed and expect the next step to tile
-        // and fuse the skip-source from that same branch, not from a different branch.
         log.debug("Biggest User tiled (or all users have the same tile size), allowing fusion");
-        // Treat current sliceOp as the biggest-branch slice and remember it for future replacements.
         deferredReplacement.biggestTileExtractSlice = sliceOp;
 
         originalProducer.getOwner()->setAttr(tilingStrategy, bestVFCase.getTiling());
         listener.expectProducerFusion(originalProducer.getOwner());
         hasSkipConnection = true;
-        // Return a result to signal "fuse this op".
         return mlir::scf::SCFTileAndFuseOptions::ControlFnResult{};
     };
     tilingAndFuseOptions.setFusionControlFn(std::move(controlFn));
@@ -806,13 +662,10 @@ SmallVector<mlir::Operation*> vpux::VPU::applySCFVerticalFusion(mlir::Operation*
 
     applyDeferredSliceReplacements(builder, skipConnectionMap, log);
 
-    // propagate result type with order and bounds attributes to operations
-    // created in SCF functions.
     for (auto result : operation->getResults()) {
         tiledResults->replacements[result].setType(result.getType());
     }
 
-    // E-162999 rewrite to update order attribute for output types more elegantly
     llvm::for_each(tiledResults->loops, [&](mlir::LoopLikeOpInterface loopOperation) {
         auto loop = mlir::cast<mlir::scf::ForOp>(loopOperation);
 
@@ -825,21 +678,18 @@ SmallVector<mlir::Operation*> vpux::VPU::applySCFVerticalFusion(mlir::Operation*
 
             auto insertSlice = mlir::dyn_cast_or_null<mlir::tensor::InsertSliceOp>(operand.getDefiningOp());
             if (insertSlice == nullptr) {
-                // outer loop has no insertSlice op, modify init args by setting order to the last one
                 loop.getInitArgs().back().setType(operand.getType());
                 return;
             }
-            // insert_slice is in innermost loop
-            correctOffsetAndSizeByRemainder(builder, insertSlice, remainders);
             insertSlice.getDestMutable().get().setType(loop.getResult(0).getType());
             if (auto blockArg = mlir::dyn_cast_or_null<mlir::BlockArgument>(insertSlice.getDest())) {
                 auto argIndex = blockArg.getArgNumber() - loop.getNumInductionVars();
                 loop.getInitArgs()[argIndex].setType(operand.getType());
             }
+            correctOffsetAndSizeByRemainder(builder, insertSlice, remainders);
         });
 
         if (hasSkipConnection) {
-            // Reorder once per loop after all type and slice fixes are applied.
             vpux::VPU::reorderOperations(
                     to_small_vector(loop.getBody()->without_terminator() | transformed([](mlir::Operation& op) {
                                         return &op;

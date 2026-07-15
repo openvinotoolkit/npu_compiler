@@ -43,6 +43,14 @@ mlir::quant::UniformQuantizedPerAxisType getPerAxisTypeForBlock(
 bool isSupportedEltwiseQuantization(mlir::Type lhsElemType, mlir::Type rhsElemType, bool allowDifferentScales,
                                     bool allowDifferentZp, VPU::EltwiseType eltwiseType, LogCb logCb = emptyLogCb);
 
+// Checks compatibility of per-axis quantized eltwise inputs (dequantize direction only).
+// Both inputs must have identical per-axis quantization types and be quantized along the channel axis.
+bool isSupportedEltwisePerAxisQuantization(mlir::Type lhsElemType, mlir::Type rhsElemType, LogCb logCb = emptyLogCb);
+
+// Checks that a single per-axis quantized type is valid for eltwise use:
+// must be quantized along the channel axis.
+bool isSupportedEltwisePerAxisQuantization(mlir::Type perAxisElemType, LogCb logCb = emptyLogCb);
+
 mlir::LogicalResult validateQuantElemType(mlir::Location loc, vpux::NDTypeInterface mainType);
 
 mlir::Type normalizeQuantStorageType(mlir::quant::QuantizedType qType);
@@ -147,16 +155,16 @@ SmallVector<int64_t> getQuantizedTypeZeroPoints(mlir::quant::QuantizedType quant
 
 bool isSymmetricZeroPoint(mlir::quant::QuantizedType quantType);
 
-// Returns the min and max representable values for a known low precision types.
-mlir::FailureOr<std::tuple<double, double>> getLowFpRange(mlir::Type lowFpType);
-
 // Returns the integral storage type and the storage type's representable range for the given quantization levels.
-std::tuple<double, double, mlir::Type> getStorageParams(mlir::MLIRContext* ctx, int64_t levels, bool isSigned);
-// Returns the storage type and the storage type's representable range for a given (possibly quantile-based/emulated)
-// type.
-std::tuple<double, double, mlir::Type> getStorageParams(mlir::Type lowPrecisionType);
+// Returns failure if levels is unsupported
+mlir::FailureOr<std::tuple<double, double, mlir::Type>> getStorageParams(mlir::MLIRContext* ctx, int64_t levels,
+                                                                         bool isSigned);
+// Returns the storage type and the storage type's representable range for a given low-precision type.
+// Returns failure if type is unsupported
+mlir::FailureOr<std::tuple<double, double, mlir::Type>> getStorageParams(mlir::Type type);
 // Returns the representable range of the given type (may differ from the range of the corresponding storage type).
-std::tuple<double, double> getRepresentableRange(mlir::Type lowPrecisionType);
+// Returns failure if type is unsupported
+mlir::FailureOr<std::tuple<double, double>> getRepresentableRange(mlir::Type lowPrecisionType);
 
 // Returns true if the given type is an 8-bit float type.
 bool isFloat8(mlir::Type type);
@@ -188,7 +196,10 @@ bool isLowPrecisionTypeRange(mlir::MLIRContext* ctx, Range lowVals, Range highVa
 
     double qLow = 0.;
     double qHigh = 0.;
-    std::tie(qLow, qHigh, std::ignore) = getStorageParams(ctx, levels, isSigned);
+
+    const auto storageParams = getStorageParams(ctx, levels, isSigned);
+    VPUX_THROW_WHEN(mlir::failed(storageParams), "Unsupported quantization levels '{0}'", levels);
+    std::tie(qLow, qHigh, std::ignore) = *storageParams;
     const auto fLow = checked_cast<float>(qLow);
     const auto fHigh = checked_cast<float>(qHigh);
     // In order to decide if FakeQuantize input constant need to be requantized it is needed to check the FakeQuantize

@@ -13,6 +13,10 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(GatherNDLayerTest);
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(GatherND8LayerTest);
+
 // [E#177479] GatherND operator is limited to positive indices as it does not support negative indices at this time
 class GatherNDLayerTestCommon : public GatherND8LayerTest, virtual public VpuOv2LayerTest {
     void SetUp() override {

@@ -133,7 +133,8 @@ bool isDepthwiseConvMorePerformant(VPU::NCEInterpolateOp origOp, Logger log) {
                         break;
                     }
 
-                    perClusterOutWorkloads = overlapParams.value().getComputeShapes();
+                    const auto computeShapes = overlapParams.value().getComputeShapes();
+                    perClusterOutWorkloads.assign(computeShapes.begin(), computeShapes.end());
                 } else {
                     // For non-SOK strategy, adapt per cluster workload with the new channel size, post-tiling
                     std::transform(perClusterOutWorkloads.begin(), perClusterOutWorkloads.end(),
@@ -202,7 +203,9 @@ bool isDepthwiseConvMorePerformant(VPU::NCEInterpolateOp origOp, Logger log) {
         });
     }
 
-    return isOptimalWithTiling(overlapParams.value().getComputeShapes(), true);
+    // overlapParams is in the failure state here; the SOK path of isOptimalWithTiling recomputes the per-cluster
+    // workloads internally, so the initial argument is unused.
+    return isOptimalWithTiling(SmallVector<SmallVector<int64_t>>{}, true);
 }
 
 mlir::Value createSparseInput(mlir::OpBuilder builder, VPU::NCEInterpolateOp origOp, mlir::Value data,
@@ -280,7 +283,7 @@ mlir::Value createWeightsConstant(mlir::OpBuilder builder, Const::DeclareOp weig
 
     const auto dataAttr = Const::createConstContent(dataStorageType, ArrayRef(content));
 
-    Const::ContentSetup contentAttrSetup(dataStorageType);
+    Const::ContentSetup contentAttrSetup(dataAttr, dataStorageType);
 
     if (const auto qElemType = mlir::dyn_cast<mlir::quant::QuantizedType>(convWeightsType.getElementType())) {
         contentAttrSetup = contentAttrSetup.castElemType(qElemType);
@@ -342,18 +345,18 @@ void ConvertNCEInterpolateToDWPass::convertToDWConv(VPU::NCEInterpolateOp origOp
     const auto ppeConverter = VPU::NCESparsity::getPPEConverterCb(arch, isNewWeightTableFormat);
     const auto biasConverter = VPU::NCESparsity::getBiasConverterCb(arch, isNewWeightTableFormat);
     const auto wtShape = VPU::NCESparsity::inferWeightsTableShape(OC, isNewWeightTableFormat);
+    const auto weightsTableParams =
+            VPU::WeightsTableParams(origOp, sparseInput, adaptedOutElemType, weights, {}, OC, ppeConverter,
+                                    biasConverter, /*constScale=*/nullptr, /*zeroPoints=*/nullptr);
     const auto weightsTableVec =
-            isNewWeightTableFormat
-                    ? std::vector<int32_t>{}
-                    : VPU::createWeightsTableData(sparseInput, adaptedOutElemType, weights, {}, OC, ppeConverter,
-                                                  biasConverter, nullptr, VPU::canAutopadOutput(origOp));
-    const auto weightsTable =
-            isNewWeightTableFormat ? nullptr
-                                   : VPU::createWeightsTableTensor(builder, origOp->getLoc(), weightsTableVec, wtShape);
-    const auto newWeightsTableTensors = VPU::NewWeightsTableTensors(
-            origOp.getOperation(), isNewWeightTableFormat, /*isDataPointerTableSupported=*/false,
-            /*isZeroPointTableSupported=*/false, builder, origOp->getLoc(), sparseInput, adaptedOutElemType, weights,
-            nullptr, wtShape, ppeConverter, biasConverter);
+            isNewWeightTableFormat ? std::vector<int32_t>{}
+                                   : VPU::createWeightsTableData(weightsTableParams, VPU::canAutopadOutput(origOp));
+    const auto weightsTable = isNewWeightTableFormat ? nullptr
+                                                     : VPU::createTensorFromTableData<int32_t>(
+                                                               builder, origOp->getLoc(), weightsTableVec, wtShape,
+                                                               getSInt32Type(builder.getContext()));
+    const auto newWeightsTableTensors =
+            VPU::NewWeightsTableTensors(isNewWeightTableFormat, weightsTableParams, builder, origOp->getLoc(), wtShape);
 
     const auto origWeightsShape = getShape(origWeights);
     const auto rawFilterShape = getIntArrayAttr(
@@ -364,8 +367,8 @@ void ConvertNCEInterpolateToDWPass::convertToDWConv(VPU::NCEInterpolateOp origOp
             origOp->getLoc(), outputType, sparseInput, weights, weightsTable, newWeightsTableTensors.dataPointerTensor,
             newWeightsTableTensors.sparsityPointerTensor, newWeightsTableTensors.scaleTensor,
             newWeightsTableTensors.biasTensor, newWeightsTableTensors.zeroPointTensor, origOp.getStridesAttr(), padding,
-            origOp.getPpeAttr(), origOp.getMpeEngineAttr(), rawFilterShape, origOp.getMultiClusterStrategyAttr(),
-            nullptr, nullptr);
+            origOp.getPpeAttr(), origOp.getMpeEngineAttr(), /*rawFilterShape=*/mlir::ValueRange{},
+            parseIntArrayAttr<int64_t>(rawFilterShape), origOp.getMultiClusterStrategyAttr(), nullptr, nullptr);
 
     nestedLog.trace("Created DWConv with SEP for Interpolate.");
 
@@ -389,6 +392,11 @@ void ConvertNCEInterpolateToDWPass::safeRunOnFunc() {
         auto storageElementTable = groupSparseOp.getStorageElementTable().getDefiningOp<VPU::StorageElementTableOp>();
         if (storageElementTable == nullptr) {
             _log.trace("No StorageElementTableOp as direct producer of GroupSparseTensorOp.");
+            return;
+        }
+
+        if (!interpOp.getRawFilterShape().empty()) {
+            _log.trace("NCEInterpolate has dynamic raw filter shape, skip transformation.");
             return;
         }
 

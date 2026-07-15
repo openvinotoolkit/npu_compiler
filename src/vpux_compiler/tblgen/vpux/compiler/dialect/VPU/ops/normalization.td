@@ -57,23 +57,36 @@ def VPU_GroupNormalizationOp :
 
 def VPU_LRNOp :
         VPU_LayerOp<
-            "LRN"
+            "LRN",
+            [
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMaxNumTiles"]>,
+                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+            ]
         > {
     let summary = "LRN VPU layer";
 
     let arguments = (ins
-        RankedTensorOf<[F16, F32]>:$input,
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$input,
         I64ArrayAttr:$axes,
 
         F64Attr:$alpha,
         F64Attr:$beta,
         F64Attr:$bias,
-        IntAttr:$size
+        IntAttr:$size,
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
     let results = (outs
-        RankedTensorOf<[F16, F32]>:$output
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$output
     );
+
+    let extraClassDeclaration = [{
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+    }] # baseExtraClassDeclaration;
+
+    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 }
 
 
@@ -297,7 +310,9 @@ def VPU_MVN1NormalizeOp :
             [
                 DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "MVN1Normalize VPU layer (step 3/3 in MVN1 decomposition)";
@@ -473,6 +488,7 @@ def VPU_RMSOp :
                 DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMaxNumTiles"]>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
             ]
         > {
     let summary = "RMS VPU layer";
@@ -482,6 +498,7 @@ def VPU_RMSOp :
         AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$gamma,
 
         F64Attr:$eps,
+        DefaultValuedAttr<BoolAttr, "false">:$conditionalEps,
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
@@ -493,13 +510,16 @@ def VPU_RMSOp :
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
 
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+
+        DimArr restrictedFusionAxes();
     }] # baseExtraClassDeclaration;
 
     let builders = [
         OpBuilder<(ins
             "::mlir::Value":$input,
             "::mlir::Value":$gamma,
-            "::mlir::FloatAttr":$eps
+            "::mlir::FloatAttr":$eps,
+            "::mlir::BoolAttr":$conditionalEps
         )>
     ];
 

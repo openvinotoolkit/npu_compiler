@@ -262,25 +262,41 @@ mlir::LogicalResult MoveViewOpsRewriter::matchAndRewrite(VPU::VerticalFusionOp v
             continue;
         }
 
-        // find the previous VFOp through single viewLikeOp chain
+        // Walk the full view-like op chain to find if a parent VFOp exists
         SmallVector<VPU::TilingViewLikeOpInterface> viewLikeOpChain;
-        mlir::Operation* currentParentOp = parentOp.getOperation();
-        while (mlir::isa_and_nonnull<VPU::TilingViewLikeOpInterface>(currentParentOp)) {
-            auto currentViewLikeOp = mlir::cast<VPU::TilingViewLikeOpInterface>(currentParentOp);
+        mlir::Operation* rootOp = parentOp.getOperation();
+        while (mlir::isa_and_nonnull<VPU::TilingViewLikeOpInterface>(rootOp)) {
+            auto viewLikeOp = mlir::cast<VPU::TilingViewLikeOpInterface>(rootOp);
             // E-163016 remove is VFSupported flag when scf and current algorithm is aligned
-            if (!VPU::isPureViewOp(currentViewLikeOp) || !currentViewLikeOp.isVFSupported()) {
+            if (!VPU::isPureViewOp(viewLikeOp) || !viewLikeOp.isVFSupported()) {
                 break;
             }
-            viewLikeOpChain.push_back(currentViewLikeOp);
-            currentParentOp = currentViewLikeOp->getOperand(0).getDefiningOp();
-            if (!currentViewLikeOp->hasOneUse()) {
+            viewLikeOpChain.push_back(viewLikeOp);
+            rootOp = viewLikeOp->getOperand(0).getDefiningOp();
+        }
+        auto hasSparseViewOp = llvm::any_of(viewLikeOpChain, [](auto viewLikeOp) {
+            return mlir::isa<VPU::SparseTensorType>(viewLikeOp->getResult(0).getType());
+        });
+        if (!mlir::isa_and_nonnull<VPU::VerticalFusionOp>(rootOp) && !hasSparseViewOp) {
+            // VF{SparseViewOp -> Op -> Op} outperforms SparseViewOp -> VF{Op -> Op} empirically.
+            // Allow moving view ops with sparse view op even without a parent VFOp.
+            continue;
+        }
+        // Truncate the chain at the first multi-use op
+        for (size_t i = 0; i < viewLikeOpChain.size(); ++i) {
+            if (!viewLikeOpChain[i]->hasOneUse()) {
+                viewLikeOpChain.resize(i + 1);
                 break;
             }
         }
-        auto parentVFOp = mlir::dyn_cast_or_null<VPU::VerticalFusionOp>(currentParentOp);
         // Check if vfOperand parentVFOp has compatible tiling strategy with all its users and all viewlike ops in
         // between, if any. If any of them has incompatible tiling strategy, the view op will not be moved into user
         // VFOp.
+        if (viewLikeOpChain.empty()) {
+            continue;
+        }
+        auto parentVFOp =
+                mlir::dyn_cast_or_null<VPU::VerticalFusionOp>(viewLikeOpChain.back()->getOperand(0).getDefiningOp());
         const auto isParentStrategyCompatible = isParentVFOpCompatible(parentVFOp, viewLikeOpChain);
         bool isValid = true;
         for (auto& use : vfOp.getBody()->getArgument(vfOperand.index()).getUses()) {

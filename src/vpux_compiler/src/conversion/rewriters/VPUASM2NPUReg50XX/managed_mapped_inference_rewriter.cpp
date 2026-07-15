@@ -9,6 +9,7 @@
 
 #include <npu_40xx_nnrt.hpp>
 
+using namespace vpux;
 using namespace NPUReg50XX;
 using namespace NPUReg50XX::Descriptors;
 

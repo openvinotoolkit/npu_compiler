@@ -4,8 +4,11 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
+#include <mlir/Support/LLVM.h>
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 using namespace vpux;
 using namespace VPU;
@@ -43,4 +46,12 @@ bool VPU::isNCEWithSEPActivation(mlir::Operation* op) {
         return false;
     }
     return sparseTensorActivation.getStorageElementTable() != nullptr;
+}
+
+SmallVector<vpux::VPU::ODUDimScale> vpux::VPU::getODUScaling(mlir::Operation* op) {
+    auto nceOp = mlir::dyn_cast_if_present<VPU::NCEOpInterface>(op);
+    if (nceOp == nullptr) {
+        return {};
+    }
+    return nceOp.getODUScaling();
 }

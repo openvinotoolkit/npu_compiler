@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --fuse-ops-to-matmul="enable-grouped-matmul=false" %s | FileCheck %s
-// REQUIRES: arch-NPU37XX
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW" --fuse-ops-to-matmul="enable-grouped-matmul=false" %s | FileCheck %s
+// REQUIRES: platform-NPU3720
 
 // CHECK-LABEL: @NotConvertBroadcastMultiplyReduceSumToMatMulOnNPU37XX
 // CHECK-SAME:      [[INPUT_A:%.+]]: tensor<6x256x1x8192xf16>

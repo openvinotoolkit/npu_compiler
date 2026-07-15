@@ -147,6 +147,7 @@ class UnpackNestedModulesPass final : public Core::impl::UnpackNestedModulesBase
     /// Removes PipelineOptionsOp and ResourcesOps from the nested module
     void removePipelineOptionsOp(mlir::ModuleOp moduleOp);
     void removeResourcesOp(mlir::ModuleOp moduleOp);
+    void removeNetInfoOp(mlir::ModuleOp moduleOp);
 
 public:
     explicit UnpackNestedModulesPass(const Logger& log, Core::NestingMode nestingMode): _nestingMode(nestingMode) {
@@ -257,7 +258,7 @@ void walkNestedModulesAndMoveFuncs(mlir::ModuleOp moduleOp, mlir::ModuleOp mainM
         // Note: move nested function to a place relative to the "reference"
         // function (some function that is guaranteed to be in the main module).
         funcOp->moveBefore(referenceFuncOp);
-        funcOp.setPrivate();
+        funcOp.setNested();
     }
 }
 
@@ -265,6 +266,7 @@ void UnpackNestedModulesPass::moveNestedFunctionsIntoMainModule(SmallVector<mlir
                                                                 std::set<NestedSymbolHelper>& nestedModuleNames,
                                                                 mlir::ModuleOp mainModule) {
     if (_nestingMode == Core::NestingMode::EntryPoint) {
+        auto existingTargetNetOps = mainModule.getOps<net::NetworkInfoOp>();
         auto& targetOps = mainModule.getBodyRegion().front().getOperations();
         // It is checked in `safeRunOnModule()` that nestedModules is guaranteed to have only one element.
         auto nestedModuleOp = nestedModules.begin();
@@ -272,6 +274,11 @@ void UnpackNestedModulesPass::moveNestedFunctionsIntoMainModule(SmallVector<mlir
         // No need to move PipelineOptionsOp and ResourcesOps to the top module
         removePipelineOptionsOp(*nestedModuleOp);
         removeResourcesOp(*nestedModuleOp);
+        if (!existingTargetNetOps.empty()) {
+            _log.debug("Despite having the nesting mode chosen as EntryPoint, the top module already has entryPoint, "
+                       "skip nested entryPoint");
+            removeNetInfoOp(*nestedModuleOp);
+        }
 
         targetOps.splice(targetOps.end(), nestedModuleOp->getBodyRegion().front().getOperations());
         nestedModuleNames.insert(nestedModuleOp->getSymNameAttr().str());
@@ -353,6 +360,13 @@ void UnpackNestedModulesPass::removeResourcesOp(mlir::ModuleOp moduleOp) {
     SmallVector<config::ResourcesOp> resourcesOps(moduleOp.getOps<config::ResourcesOp>());
     for (auto reservedResource : resourcesOps) {
         reservedResource->erase();
+    }
+}
+
+void UnpackNestedModulesPass::removeNetInfoOp(mlir::ModuleOp moduleOp) {
+    SmallVector<net::NetworkInfoOp> netInfoOps(moduleOp.getOps<net::NetworkInfoOp>());
+    for (auto netInfo : netInfoOps) {
+        netInfo->erase();
     }
 }
 

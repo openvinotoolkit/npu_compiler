@@ -3,121 +3,34 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "scheduler_test_utils.hpp"
+
 #include "common/nce_utils.hpp"
 #include "common/utils.hpp"
 
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
-#include "vpux/compiler/core/schedule_builder_utils.hpp"
-#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/scheduling/loop_schedule_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
-#include "vpux/compiler/dialect/VPUIP/utils/loop_schedule_utils.hpp"
-#include "vpux/compiler/dialect/const/ops.hpp"
-#include "vpux/compiler/init/dialects_registry.hpp"
-#include "vpux/compiler/utils/types.hpp"
 
 #include <mlir/Dialect/Func/IR/FuncOps.h>
-#include <mlir/Dialect/MemRef/IR/MemRef.h>
-#include <mlir/IR/MLIRContext.h>
-#include <mlir/IR/Value.h>
 #include <mlir/Parser/Parser.h>
 #include <mlir/Pass/PassManager.h>
-
-#include <gtest/gtest.h>
 #include <mlir/Support/LLVM.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <string>
 
 // Run cmd: npuUnitTests --gtest_filter="SchedulerLoopCreation/MLIR_SchedulerLoopCreationTest.*"
 
 using namespace vpux;
 
-class MLIR_SchedulerLoopCreationTest : public testing::TestWithParam<config::ArchKind> {
-protected:
-    void SetUp() override {
-        registry = vpux::createDialectRegistry();
-        auto interfacesRegistry = vpux::createInterfacesRegistry(GetParam());
-        interfacesRegistry->registerInterfaces(registry);
-        VPU::initializeSingletons(registry, VPU::DeviceVersion{std::nullopt, GetParam()});
+class MLIR_SchedulerLoopCreationTest : public MLIR_SchedulerLoopCreationTestBase {};
 
-        ctx = std::make_unique<mlir::MLIRContext>(registry);
-        ctx->appendDialectRegistry(registry);
-        ctx->loadDialect<VPUIP::VPUIPDialect>();
-        ctx->loadDialect<vpux::VPU::VPUDialect>();
-    }
-
-    mlir::MLIRContext* getCtx() {
-        return ctx.get();
-    }
-
-private:
-    mlir::DialectRegistry registry;
-    std::unique_ptr<mlir::MLIRContext> ctx;
-};
-
-VPU::MPEEngineAttr createMPEEngineAttr(mlir::MLIRContext* ctx, [[maybe_unused]] config::ArchKind arch) {
-    return VPU::MPEEngine37XXAttr::get(ctx, VPU::MPEEngine37XXModeAttr::get(ctx, VPU::MPEEngine37XXMode::SCL));
-}
-
-VPUIP::NCEClusterTaskOp createNCEClusterTaskOp(mlir::OpBuilder& builder, mlir::MLIRContext* ctx, mlir::Location loc,
-                                               int64_t kernel, int64_t padding, int64_t stride, mlir::Value inputTile,
-                                               mlir::Value weightOp, mlir::Value weightTableOp, mlir::Value outputTile,
-                                               VPU::MPEEngineAttr mpeEngineAttr) {
-    auto paddingAttr =
-            vpux::VPU::PaddingAttr::get(ctx, builder.getI64IntegerAttr(padding), builder.getI64IntegerAttr(padding),
-                                        builder.getI64IntegerAttr(padding), builder.getI64IntegerAttr(padding));
-    auto kernelSize = builder.getI64ArrayAttr({kernel, kernel});
-    auto kernelStrides = builder.getI64ArrayAttr({stride, stride});
-    auto nceOp = builder.create<VPUIP::NCEClusterTaskOp>(
-            loc, inputTile, nullptr, nullptr, weightOp, nullptr, weightTableOp, nullptr, nullptr, nullptr, nullptr,
-            nullptr, nullptr, nullptr, inputTile, nullptr, nullptr, outputTile, nullptr, mlir::ValueRange(), outputTile,
-            nullptr, nullptr, nullptr, nullptr, nullptr, mlir::ValueRange(), VPUIP::NCETaskType::CONV, kernelSize,
-            kernelStrides, paddingAttr, false, nullptr, false, nullptr, false, false, false, nullptr, nullptr, nullptr,
-            false, false, mpeEngineAttr, nullptr, nullptr, nullptr, nullptr);
-    return nceOp;
-}
-
-mlir::Value createWeightsTable(mlir::OpBuilder& builder, mlir::Location loc, int64_t tileC,
-                               const vpux::IndexedSymbolAttr& ddrSpace, const vpux::IndexedSymbolAttr& cmxSpace) {
-    auto weightTableTypeDDR =
-            vpux::getMemRefType({tileC, 1, 1, 4}, builder.getIntegerType(32, true), DimsOrder::OIYX, ddrSpace);
-    auto weightTableTypeCMX =
-            vpux::getMemRefType({tileC, 1, 1, 4}, builder.getIntegerType(32, true), DimsOrder::OIYX, cmxSpace);
-    auto weightTableTensorType = mlir::RankedTensorType::get({tileC, 1, 1, 4}, builder.getIntegerType(32, true));
-
-    auto weightTableAttr = mlir::DenseElementsAttr::get(weightTableTensorType, mlir::APInt(32, 1, true));
-    auto weightTableDDR = builder.create<vpux::Const::DeclareOp>(loc, weightTableTypeDDR,
-                                                                 vpux::Const::ContentAttr::get(weightTableAttr));
-    auto weightTableCMX = builder.create<mlir::memref::AllocOp>(loc, weightTableTypeCMX);
-    auto copyWeightsTable = builder.create<VPUIP::NNDMAOp>(loc, weightTableDDR, weightTableCMX);
-
-    return copyWeightsTable.getOutput();
-}
-
-mlir::Value createWeights(mlir::OpBuilder& builder, mlir::Location loc, mlir::Type elemType, ShapeRef weightsShape,
-                          const vpux::IndexedSymbolAttr& ddrSpace, const vpux::IndexedSymbolAttr& cmxSpace) {
-    auto weightsTypeDDR = vpux::getMemRefType(weightsShape, elemType, DimsOrder::NHWC, ddrSpace);
-    auto weightsTypeCMX = vpux::getMemRefType(weightsShape, elemType, DimsOrder::NHWC, cmxSpace);
-
-    auto weightsTensorType = mlir::RankedTensorType::get(weightsShape, elemType);
-
-    Const::ContentSetup contentAttrSetup(weightsTensorType);
-    contentAttrSetup = contentAttrSetup.castElemType(elemType);
-    contentAttrSetup = contentAttrSetup.reorder(DimsOrder::NHWC);
-    auto weightsAttr = mlir::DenseElementsAttr::get(weightsTensorType, llvm::APFloat(mlir::APFloat::IEEEhalf(), "1.0"));
-    auto contentAttr = Const::ContentAttr::get(weightsAttr, contentAttrSetup);
-
-    auto weightsDDR = builder.create<Const::DeclareOp>(loc, weightsTypeDDR, contentAttr).getOutput();
-    auto weightsCMX = builder.create<mlir::memref::AllocOp>(loc, weightsTypeCMX);
-    auto copyWeights = builder.create<VPUIP::NNDMAOp>(loc, weightsDDR, weightsCMX);
-
-    return copyWeights.getOutput();
-}
+namespace {
 
 std::pair<mlir::Value, mlir::Value> createPackedWeightsAndTable(mlir::OpBuilder& builder, mlir::Location loc,
                                                                 int64_t tileC, int64_t inputChannels,
@@ -137,7 +50,7 @@ std::pair<mlir::Value, mlir::Value> createPackedWeightsAndTable(mlir::OpBuilder&
     auto packedTensorType = mlir::RankedTensorType::get({1, 1, 1, packedBytes}, i8Type);
 
     auto packedAttr = mlir::DenseElementsAttr::get(packedTensorType, mlir::APInt(8, 1, false));
-    Const::ContentSetup packedContentSetup(packedTensorType);
+    Const::ContentSetup packedContentSetup(packedAttr, packedTensorType);
     packedContentSetup = packedContentSetup.castElemType(i8Type);
     packedContentSetup = packedContentSetup.reorder(DimsOrder::NHWC);
     auto packedContentAttr = Const::ContentAttr::get(packedAttr, packedContentSetup);
@@ -162,7 +75,8 @@ std::pair<mlir::Value, mlir::Value> createPackedWeightsAndTable(mlir::OpBuilder&
     return {weightsView.getResult(), tableView.getResult()};
 }
 
-mlir::OwningOpRef<mlir::ModuleOp> createHeterogeneousLoopPatternModule(mlir::MLIRContext* ctx, config::ArchKind arch) {
+mlir::OwningOpRef<mlir::ModuleOp> createHeterogeneousLoopPatternModule(mlir::MLIRContext* ctx,
+                                                                       config::Platform platform) {
     auto loc = mlir::UnknownLoc::get(ctx);
     auto module = mlir::ModuleOp::create(loc);
     auto builder = mlir::OpBuilder(module.getBody(), module.getBody()->begin());
@@ -227,7 +141,7 @@ mlir::OwningOpRef<mlir::ModuleOp> createHeterogeneousLoopPatternModule(mlir::MLI
         auto outputTileTypeCMX = vpux::getMemRefType({1, tileC, tileH, inputSizeW}, f16Type, orderNHWC, cmxSpace);
         auto outputTileCMX = builder.create<mlir::memref::AllocOp>(loc, outputTileTypeCMX);
 
-        auto mpeEngineAttr = createMPEEngineAttr(ctx, arch);
+        auto mpeEngineAttr = createMPEEngineAttr(ctx, platform);
         auto nceOp = createNCEClusterTaskOp(builder, ctx, loc, kernelSize, padding, stride, inputTile, weightOp,
                                             weightTableOp, outputTileCMX.getResult(), mpeEngineAttr);
         nceOp->setAttr(TILING_LOOP_INDEX_ATTR_NAME, builder.getI64IntegerAttr(0));
@@ -248,8 +162,6 @@ mlir::OwningOpRef<mlir::ModuleOp> createHeterogeneousLoopPatternModule(mlir::MLI
     auto concatOp = builder.create<VPUIP::ConcatViewOp>(loc, allTiles, outputArg);
     builder.create<mlir::func::ReturnOp>(loc, mlir::ValueRange{concatOp.getOutput()});
 
-    module->setAttr("config.arch", config::ArchKindAttr::get(ctx, arch));
-
     mlir::PassManager pm(ctx);
     VPUIP::buildAsyncSchedulingPipeline(pm);
     EXPECT_TRUE(mlir::succeeded(pm.run(func)));
@@ -263,7 +175,7 @@ mlir::OwningOpRef<mlir::ModuleOp> createHeterogeneousLoopPatternModule(mlir::MLI
 
 // Helper function to create a tiled convolution test
 mlir::OwningOpRef<mlir::ModuleOp> createTiledConvolutionModule(mlir::MLIRContext* ctx, int numTilesH, int numTilesC,
-                                                               config::ArchKind arch) {
+                                                               config::Platform platform) {
     auto loc = mlir::UnknownLoc::get(ctx);
     auto module = mlir::ModuleOp::create(loc);
     auto builder = mlir::OpBuilder(module.getBody(), module.getBody()->begin());
@@ -338,9 +250,9 @@ mlir::OwningOpRef<mlir::ModuleOp> createTiledConvolutionModule(mlir::MLIRContext
             auto outputTileCMX = builder.create<mlir::memref::AllocOp>(loc, outputTileTypeCMX);
 
             // Create NCE task
-            auto mpeEngineAttr = createMPEEngineAttr(ctx, arch);
+            auto mpeEngineAttr = createMPEEngineAttr(ctx, platform);
             auto nceOp = createNCEClusterTaskOp(builder, ctx, loc, kernelSize, padding, stride, inputTile, weightOps[c],
-                                                weightTableOps[c], outputTileCMX, mpeEngineAttr);
+                                                weightTableOps[c], outputTileCMX.getResult(), mpeEngineAttr);
 
             // Set tilingIndex attribute
             auto tilingIndexAttr = builder.getI64IntegerAttr(0);
@@ -367,9 +279,6 @@ mlir::OwningOpRef<mlir::ModuleOp> createTiledConvolutionModule(mlir::MLIRContext
 
     builder.create<mlir::func::ReturnOp>(loc, mlir::ValueRange{concatOp.getOutput()});
 
-    // Initialize architecture
-    module->setAttr("config.arch", config::ArchKindAttr::get(ctx, arch));
-
     // Wrap into async regions
     mlir::PassManager pm(ctx);
     VPUIP::buildAsyncSchedulingPipeline(pm);
@@ -387,7 +296,7 @@ mlir::OwningOpRef<mlir::ModuleOp> createTiledConvolutionModule(mlir::MLIRContext
 // Each NCE tile writes to a SubView of the shared CMX buffer.  A ConcatViewOp combines the
 // SubViews, and one NNDMAOp copies the full result from CMX to DDR.
 mlir::OwningOpRef<mlir::ModuleOp> createSharedOutputTiledModule(mlir::MLIRContext* ctx, int numTilesC,
-                                                                config::ArchKind arch) {
+                                                                config::Platform platform) {
     auto loc = mlir::UnknownLoc::get(ctx);
     auto module = mlir::ModuleOp::create(loc);
     auto builder = mlir::OpBuilder(module.getBody(), module.getBody()->begin());
@@ -453,9 +362,9 @@ mlir::OwningOpRef<mlir::ModuleOp> createSharedOutputTiledModule(mlir::MLIRContex
                                                            mlir::ArrayRef<int64_t>{0, c * tileC, 0, 0},
                                                            mlir::ArrayRef<int64_t>{1, tileC, inputSizeH, inputSizeW});
 
-        auto mpeEngineAttr = createMPEEngineAttr(ctx, arch);
+        auto mpeEngineAttr = createMPEEngineAttr(ctx, platform);
         auto nceOp = createNCEClusterTaskOp(builder, ctx, loc, kernelSize, padding, stride, inputTile, weightOps[c],
-                                            weightTableOps[c], outputTile, mpeEngineAttr);
+                                            weightTableOps[c], outputTile.getResult(), mpeEngineAttr);
         nceOp->setAttr(TILING_LOOP_INDEX_ATTR_NAME, builder.getI64IntegerAttr(0));
 
         auto& dpuTaskRegion = nceOp.getVariants();
@@ -473,8 +382,6 @@ mlir::OwningOpRef<mlir::ModuleOp> createSharedOutputTiledModule(mlir::MLIRContex
     auto copyOut = builder.create<VPUIP::NNDMAOp>(loc, concatOp.getOutput(), outputArg);
     builder.create<mlir::func::ReturnOp>(loc, mlir::ValueRange{copyOut.getOutput()});
 
-    module->setAttr("config.arch", config::ArchKindAttr::get(ctx, arch));
-
     mlir::PassManager pm(ctx);
     VPUIP::buildAsyncSchedulingPipeline(pm);
     EXPECT_TRUE(mlir::succeeded(pm.run(func)));
@@ -487,7 +394,7 @@ mlir::OwningOpRef<mlir::ModuleOp> createSharedOutputTiledModule(mlir::MLIRContex
 }
 
 mlir::OwningOpRef<mlir::ModuleOp> createChainedTiledModule(mlir::MLIRContext* ctx, int numTiles,
-                                                           config::ArchKind arch) {
+                                                           config::Platform platform) {
     auto loc = mlir::UnknownLoc::get(ctx);
     auto module = mlir::ModuleOp::create(loc);
     auto builder = mlir::OpBuilder(module.getBody(), module.getBody()->begin());
@@ -532,9 +439,9 @@ mlir::OwningOpRef<mlir::ModuleOp> createChainedTiledModule(mlir::MLIRContext* ct
 
         auto outputTile = builder.create<mlir::memref::AllocOp>(loc, tensorTypeCMX);
 
-        auto mpeEngineAttr = createMPEEngineAttr(ctx, arch);
+        auto mpeEngineAttr = createMPEEngineAttr(ctx, platform);
         auto nceOp = createNCEClusterTaskOp(builder, ctx, loc, kernelSize, padding, stride, currentInput, weightOp,
-                                            weightTableOp, outputTile, mpeEngineAttr);
+                                            weightTableOp, outputTile.getResult(), mpeEngineAttr);
         nceOp->setAttr(TILING_LOOP_INDEX_ATTR_NAME, builder.getI64IntegerAttr(0));
 
         auto& dpuTaskRegion = nceOp.getVariants();
@@ -551,8 +458,6 @@ mlir::OwningOpRef<mlir::ModuleOp> createChainedTiledModule(mlir::MLIRContext* ct
     auto copyOut = builder.create<VPUIP::NNDMAOp>(loc, currentInput, outputArg);
     builder.create<mlir::func::ReturnOp>(loc, mlir::ValueRange{copyOut.getOutput()});
 
-    module->setAttr("config.arch", config::ArchKindAttr::get(ctx, arch));
-
     mlir::PassManager pm(ctx);
     VPUIP::buildAsyncSchedulingPipeline(pm);
     EXPECT_TRUE(mlir::succeeded(pm.run(func)));
@@ -564,16 +469,7 @@ mlir::OwningOpRef<mlir::ModuleOp> createChainedTiledModule(mlir::MLIRContext* ct
     return module;
 }
 
-std::string testParamName(const testing::TestParamInfo<config::ArchKind>& info) {
-    switch (info.param) {
-    case config::ArchKind::NPU40XX:
-        return "NPU40XX";
-    case config::ArchKind::NPU50XX:
-        return "NPU50XX";
-    default:
-        return "UnknownArch";
-    }
-}
+}  // namespace
 
 TEST_P(MLIR_SchedulerLoopCreationTest, ConvolutionTiledOnC) {
     // create module
@@ -824,7 +720,8 @@ TEST_P(MLIR_SchedulerLoopCreationTest, GenerateLoopSchedules_EmptyRegions) {
     // generateLoopSchedules with empty input produces empty output
     ComputeRegionVec emptyRegions;
     vpux::AddressType memorySize = 1024 * 1024;  // 1 MB
-    auto result = VPUIP::generateLoopSchedules(emptyRegions, memorySize, Logger::global());
+    auto result = VPU::generateLoopSchedules(emptyRegions, memorySize, /*enableVfUndefinedScheduler=*/false,
+                                             Logger::global());
 
     EXPECT_TRUE(result.scheduleResults.empty()) << "No schedules should be generated for empty regions";
     EXPECT_TRUE(result.loopRegionInd.empty()) << "No loop region indices for empty regions";
@@ -853,7 +750,8 @@ TEST_P(MLIR_SchedulerLoopCreationTest, GenerateLoopSchedules_NonLoopRegionsIgnor
     ASSERT_FALSE(nonLoopRegions.empty()) << "Should have non-loop regions";
 
     vpux::AddressType memorySize = 2 * 1024 * 1024;
-    auto result = VPUIP::generateLoopSchedules(nonLoopRegions, memorySize, Logger::global());
+    auto result = VPU::generateLoopSchedules(nonLoopRegions, memorySize, /*enableVfUndefinedScheduler=*/false,
+                                             Logger::global());
 
     EXPECT_TRUE(result.scheduleResults.empty()) << "Non-loop regions should produce no schedules";
     EXPECT_TRUE(result.loopRegionInd.empty());
@@ -873,7 +771,8 @@ TEST_P(MLIR_SchedulerLoopCreationTest, GenerateLoopSchedules_TilingRegionProduce
     auto regions = vpux::getComputeRegionsFromAsyncExec(aliasInfo, depsInfo);
 
     vpux::AddressType memorySize = 2 * 1024 * 1024;
-    auto result = VPUIP::generateLoopSchedules(regions, memorySize, Logger::global());
+    auto result =
+            VPU::generateLoopSchedules(regions, memorySize, /*enableVfUndefinedScheduler=*/false, Logger::global());
 
     // At least one tiling region should generate a schedule
     EXPECT_FALSE(result.scheduleResults.empty()) << "Tiling regions should produce at least one schedule";
@@ -896,7 +795,8 @@ TEST_P(MLIR_SchedulerLoopCreationTest, GenerateLoopSchedules_OperationIndexSetsA
     auto regions = vpux::getComputeRegionsFromAsyncExec(aliasInfo, depsInfo);
 
     vpux::AddressType memorySize = 2 * 1024 * 1024;
-    auto result = VPUIP::generateLoopSchedules(regions, memorySize, Logger::global());
+    auto result =
+            VPU::generateLoopSchedules(regions, memorySize, /*enableVfUndefinedScheduler=*/false, Logger::global());
 
     // Check no overlap between loopRegionInd and loopPrefetchInd
     for (auto idx : result.loopRegionInd) {
@@ -934,7 +834,7 @@ TEST_P(MLIR_SchedulerLoopCreationTest, GenerateLoopSchedules_ChainedTiledIterati
         iterations 1..4: 3 ops each
         iteration 5: 4 ops (DATA_OUT_DMA absorbed as consumer of last tile)
     */
-    const int numTiles = 6;  // > MIN_LOOP_OPS (5)
+    const int numTiles = 6;  // > MIN_TILING_LOOP_OPS (5)
     auto module = createChainedTiledModule(getCtx(), numTiles, GetParam());
     ASSERT_TRUE(module);
     EXPECT_TRUE(module->verify().succeeded());
@@ -972,7 +872,8 @@ TEST_P(MLIR_SchedulerLoopCreationTest, GenerateLoopSchedules_ChainedTiledIterati
 
     // The chained tiling loop should also produce a non-empty schedule
     vpux::AddressType memorySize = 2 * 1024 * 1024;
-    auto result = VPUIP::generateLoopSchedules(regions, memorySize, Logger::global());
+    auto result =
+            VPU::generateLoopSchedules(regions, memorySize, /*enableVfUndefinedScheduler=*/false, Logger::global());
     EXPECT_FALSE(result.scheduleResults.empty()) << "Chained tiling loop should produce at least one schedule";
     EXPECT_FALSE(result.loopRegionInd.empty() && result.loopPrefetchInd.empty())
             << "At least some operations should be categorized in loop region or prefetch sets";
@@ -1036,9 +937,10 @@ TEST_P(MLIR_SchedulerLoopCreationTest, GenerateLoopSchedules_CMXConcatDataOutAbs
 
     // Schedule generation should succeed -- the shared CMX output buffer is tracked via SubViews.
     vpux::AddressType memorySize = 2 * 1024 * 1024;
-    auto result = VPUIP::generateLoopSchedules(regions, memorySize, Logger::global());
+    auto result =
+            VPU::generateLoopSchedules(regions, memorySize, /*enableVfUndefinedScheduler=*/false, Logger::global());
     EXPECT_FALSE(result.scheduleResults.empty()) << "Shared-output tiling loop should produce a schedule";
 }
 
 INSTANTIATE_TEST_SUITE_P(SchedulerLoopCreation, MLIR_SchedulerLoopCreationTest,
-                         testing::Values(config::ArchKind::NPU40XX, config::ArchKind::NPU50XX), testParamName);
+                         testing::Values(config::Platform::NPU4000, config::Platform::NPU5010), schedulerTestParamName);

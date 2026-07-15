@@ -72,13 +72,13 @@ net.NetworkInfo entryPoint : @singleDPU inputsInfo : {
   DataInfo "dummy_output" : tensor<1x50x1x1xf16>
 }
 func.func @singleDPU() {
-    %256 = VPURT.DeclareBuffer <CMX_NN> [0] <206592> -> memref<1x64x3x16xf16, #NHWC, [@CMX_NN, 0]>
+    %256 = VPURT.DeclareBuffer <CMX_NN> [0] <206592> -> memref<1x64x3x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
     // CHECK: [[INPUT:%.+]] = VPURT.DeclareBuffer
     // CHECK-SAME: -> [[INPUT_TYPE:.+]]
-    %252 = VPURT.DeclareBuffer <CMX_NN> [0] <206592> -> memref<1x64x3x16xf16, #NHWC, [@CMX_NN, 0]>
+    %252 = VPURT.DeclareBuffer <CMX_NN> [0] <206592> -> memref<1x64x3x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
     // CHECK: [[WEIGHTS:%.+]] = VPURT.DeclareBuffer
     // CHECK-SAME: -> [[WEIGHTS_TYPE:.+]]
-    %37 = VPURT.DeclareBuffer <CMX_NN> [0] <173824> -> memref<1x64x16x16xf16, #NWCH, [@CMX_NN, 0]>
+    %37 = VPURT.DeclareBuffer <CMX_NN> [0] <173824> -> memref<1x64x16x16xf16, {order = #NWCH}, [@CMX_NN, 0]>
     // CHECK: [[OUTPUT:%.+]] = VPURT.DeclareBuffer
     // CHECK-SAME: -> [[OUTPUT_TYPE:.+]]
 
@@ -99,7 +99,7 @@ func.func @singleDPU() {
     // CHECK-SAME: -> !VPURegMapped.Index<0:0:1>
 
     VPURT.Task waits(%1 : !VPURT.Barrier) updates(%3 : !VPURT.Barrier) {
-      %364 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_permute_quantize, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%256 : memref<1x64x3x16xf16, #NHWC, [@CMX_NN, 0]>) weights(%252 : memref<1x64x3x16xf16, #NHWC, [@CMX_NN, 0]>) parent_input(%256 : memref<1x64x3x16xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%37 : memref<1x64x16x16xf16, #NWCH, [@CMX_NN, 0]>) outputs(%37 : memref<1x64x16x16xf16, #NWCH, [@CMX_NN, 0]>) -> memref<1x64x16x16xf16, #NWCH, [@CMX_NN, 0]> variants : {
+      %364 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_permute_quantize, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%256 : memref<1x64x3x16xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%252 : memref<1x64x3x16xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%256 : memref<1x64x3x16xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%37 : memref<1x64x16x16xf16, {order = #NWCH}, [@CMX_NN, 0]>) outputs(%37 : memref<1x64x16x16xf16, {order = #NWCH}, [@CMX_NN, 0]>) -> memref<1x64x16x16xf16, {order = #NWCH}, [@CMX_NN, 0]> variants : {
         DPUTask {cluster_id = 0 : i64, inEnd = [15, 2, 63], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [15, 2, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
       } PPE : {
         PPETask {ppe = #VPU.PPEInt<mode = <ADD>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [5.000000e-01], fp_prelu_alpha = 1.000000e+00 : f64>}

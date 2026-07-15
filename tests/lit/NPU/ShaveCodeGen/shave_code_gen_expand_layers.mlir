@@ -10,7 +10,7 @@
 
 module @SingleSinF16Layer {
   module @VPU.SW {
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
     func.func @generated_0(%arg0: memref<1x1x1x1000xf16>, %arg1: memref<1x1x1x1000xf16>) -> memref<1x1x1x1000xf16> {
       affine.for %arg2 = 0 to 1 {
         affine.for %arg3 = 0 to 1 {
@@ -98,7 +98,7 @@ module @SingleSinF16Layer {
 
 module @SingleAsinF16Layer {
   module @VPU.SW {
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
     func.func @generated_0(%arg0: memref<1x1x1x1000xf16>, %arg1: memref<1x1x1x1000xf16>) -> memref<1x1x1x1000xf16> {
       affine.for %d0 = 0 to 1 {
         affine.for %d1 = 0 to 1 {
@@ -189,7 +189,7 @@ module @SingleAsinF16Layer {
 
 module @SingleCosF16Layer {
   module @VPU.SW {
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
     func.func @generated_0(%arg0: memref<1x1x1x1000xf16>, %arg1: memref<1x1x1x1000xf16>) -> memref<1x1x1x1000xf16> {
       affine.for %arg2 = 0 to 1 {
         affine.for %arg3 = 0 to 1 {
@@ -280,7 +280,7 @@ module @SingleCosF16Layer {
 
 module @SingleAcosF16Layer {
   module @VPU.SW {
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
     func.func @generated_0(%arg0: memref<1x1x1x1000xf16>, %arg1: memref<1x1x1x1000xf16>) -> memref<1x1x1x1000xf16> {
       affine.for %d0 = 0 to 1 {
         affine.for %d1 = 0 to 1 {

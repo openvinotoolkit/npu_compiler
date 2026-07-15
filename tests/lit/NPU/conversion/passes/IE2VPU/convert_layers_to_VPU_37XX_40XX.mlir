@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --verify-diagnostics --init-compiler="platform=%platform% compilation-mode=DefaultHW" --convert-layers-to-VPU %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --verify-diagnostics --init-compiler="platform=%platform% compilation-mode=DefaultHW allow-custom-values=true" --convert-layers-to-VPU %s | FileCheck %s
 // REQUIRES: platform-NPU3720 || platform-NPU4000
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
@@ -46,17 +46,4 @@ func.func @SeqLenParamLSTMSequence (%arg0: tensor<2x2x25x512xf16>, %arg1: tensor
     // CHECK: [[CST_1:%.+]] = const.Declare tensor<1x1x1x2xsi32> = dense<0> : tensor<1x1x1x2xsi32>
     // CHECK: [[OUT_HV:%.+]], [[OUT_HS:%.+]], [[OUT_CS:%.+]] = VPU.LSTMSequence([[ARG0]], [[ARG1]], [[ARG2]], [[ARG3]], [[BIASES]], [[CST]], [[CST_1]]) {direction = #IE.rnn_seq_direction<BIDIRECTIONAL>, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1, 1>} : tensor<2x2x25x512xf16>, tensor<2x2x1x128xf16>, tensor<2x2x1x128xf16>, tensor<2x1x1x1xsi32>, tensor<2x4x128x128xf16, {order = #NWHC}>, tensor<1x2x4x128xf16, {order = #NCWH}>, tensor<1x1x1x2xsi32> -> tensor<2x2x25x128xf16>, tensor<2x2x1x128xf16>, tensor<2x2x1x128xf16>
     // CHECK: return [[OUT_HV]], [[OUT_HS]], [[OUT_CS]] : tensor<2x2x25x128xf16>, tensor<2x2x1x128xf16>, tensor<2x2x1x128xf16>
-}
-
-// -----
-
-#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
-
-!DynamicType = tensor<1x1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 4194304]> : tensor<4xsi64>, order = #NCHW}>
-
-// CHECK-LABEL: @dynamicLargeAtan
-func.func @dynamicLargeAtan(%arg0: !DynamicType) -> !DynamicType {
-    %0 = IE.Atan(%arg0) : !DynamicType -> !DynamicType
-    return %0 : !DynamicType
-    // CHECK:  VPU.Atan(
 }

@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include <llvm/ADT/STLExtras.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/SymbolTable.h>
+#include "vpux/compiler/dialect/ELF/IR/attributes.hpp"
 #include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 #include "vpux/compiler/dialect/VPUASM/utils.hpp"
@@ -65,7 +67,34 @@ vpux::ELF::SectionFlagsAttr vpux::VPUASM::KernelParamsOp::getPredefinedMemoryAcc
     return ELF::SectionFlagsAttr::VPU_SHF_PROC_SHAVE;
 }
 
-vpux::ELF::SectionFlagsAttr vpux::VPUASM::KernelParamsOp::getMemoryAccessingProc() {
+ELF::SectionFlagsAttr vpux::VPUASM::KernelParamsOp::getMemoryAccessingProcForSection(mlir::StringAttr sectionName) {
+    if (getUsesDma()) {
+        auto matchesSection = [&](mlir::ArrayAttr symRefs) {
+            for (auto attr : symRefs) {
+                if (auto symRef = mlir::dyn_cast<mlir::SymbolRefAttr>(attr)) {
+                    if (symRef.getRootReference().getValue() == sectionName.getValue()) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
+
+        // For DMA from Shave kernels, the I/O buffers are always accessed solely by DMA
+        // All other buffers (e.g. dynamic shape buffs) might be accessed by Shave
+        // Edge-case: some buffers might be present in both input/output and dynamic shape lists
+        // So we need to check for both and set the flags accordingly. If a buffer is present in both lists,
+        // we will set both flags, which is fine since they are not mutually exclusive.
+        ELF::SectionFlagsAttr flags = ELF::SectionFlagsAttr::SHF_NONE;
+        if (matchesSection(getInputs()) || matchesSection(getOutputs())) {
+            flags = flags | ELF::SectionFlagsAttr::VPU_SHF_PROC_DMA;
+        }
+        if (matchesSection(getDynamicInputShapes()) || matchesSection(getDynamicOutputShapes())) {
+            flags = flags | ELF::SectionFlagsAttr::VPU_SHF_PROC_SHAVE | ELF::SectionFlagsAttr::VPU_SHF_PROC_DMA;
+        }
+        return flags;
+    }
+
     return ELF::SectionFlagsAttr::VPU_SHF_PROC_SHAVE;
 }
 
@@ -93,18 +122,23 @@ std::vector<ELF::RelocationInfo> vpux::VPUASM::KernelParamsOp::getRelocationInfo
                /* stridesArray */ sizeof(int32_t) * memrefRank;
     };
 
-    auto getRelocationForType = [](const VPUASM::BufferType& bufferType) {
-        auto relocType = bufferType.getLocation().getSection() == VPURT::BufferSection::CMX_NN
-                                 ? ELF::RelocationType::R_VPU_32_BIT_OR_B21_B26_UNSET
-                                 : ELF::RelocationType::R_VPU_32;
-        return relocType;
+    auto getRelocationForType = [](const VPUASM::BufferType& bufferType, bool usesDma = false) {
+        if (bufferType.getLocation().getSection() == VPURT::BufferSection::CMX_NN) {
+            return ELF::RelocationType::R_VPU_32_BIT_OR_B21_B26_UNSET;
+        } else {
+            if (usesDma) {
+                return ELF::RelocationType::R_VPU_64;
+            } else {
+                return ELF::RelocationType::R_VPU_32;
+            }
+        }
     };
 
     auto kernelInputs = getInputs();
     for (auto input : kernelInputs | indexed) {
         auto inputSymRef = mlir::cast<mlir::SymbolRefAttr>(input.value());
         auto inputBufferType = VPUASM::getBufferType(symRefMap, inputSymRef);
-        auto relocType = getRelocationForType(inputBufferType);
+        auto relocType = getRelocationForType(inputBufferType, getUsesDma());
 
         size_t relocOffset = input.index() * sizeof(sw_params::MemRefData) + offsetof(sw_params::MemRefData, dataAddr);
         if (getIsJitCompiled()) {
@@ -121,7 +155,7 @@ std::vector<ELF::RelocationInfo> vpux::VPUASM::KernelParamsOp::getRelocationInfo
     for (auto output : kernelOutputs | indexed) {
         auto outputSymRef = mlir::cast<mlir::SymbolRefAttr>(output.value());
         auto outputBufferType = VPUASM::getBufferType(symRefMap, outputSymRef);
-        auto relocType = getRelocationForType(outputBufferType);
+        auto relocType = getRelocationForType(outputBufferType, getUsesDma());
 
         size_t relocOffset = (kernelInputs.size() + output.index()) * sizeof(sw_params::MemRefData) +
                              offsetof(sw_params::MemRefData, dataAddr);
@@ -141,8 +175,8 @@ std::vector<ELF::RelocationInfo> vpux::VPUASM::KernelParamsOp::getRelocationInfo
 
     //
     // kernel_params is an array ref of uint8_t
-    // <---------------attrs-------------------> <-----8 byte x 2 release descriptor addr------>
-    // [----------------------------------------|-----------------------|-----------------------]
+    // <---------------attrs-------------------> <-----8 byte x maxNumReleaseDesc release descriptor addr------>
+    // [----------------------------------------|------------|-----------|------------|----------]
     //
     // Since we need to patch the last 16 bytes we go back by 16 bytes from the end of kernel_params to get the offset
     // for the first release descriptor address, and similarly 8 bytes from the end of kernel_params to get the offset
@@ -150,17 +184,19 @@ std::vector<ELF::RelocationInfo> vpux::VPUASM::KernelParamsOp::getRelocationInfo
     if (auto releaseDescOpt = getReleaseDesc()) {
         const auto& releaseDesc = releaseDescOpt.value();
 
+        VPUX_THROW_UNLESS(releaseDesc.size() <= VPUASM::maxNumReleaseDesc,
+                          "KernelParamsOp '{0}' has more release descriptors ({1}) than the supported maximum of {2}",
+                          getSymName(), releaseDesc.size(), VPUASM::maxNumReleaseDesc);
+
         // If present, must be non-empty
         VPUX_THROW_UNLESS(!releaseDesc.empty(), "KernelParamsOp '{0}' has empty release descriptor list", getSymName());
-
-        const auto releaseCount = releaseDesc.size();
         const auto& params = getProperties().kernel_params;
 
         for (auto releaseDescIt : releaseDesc | indexed) {
             auto releaseDescSymRef = mlir::cast<mlir::SymbolRefAttr>(releaseDescIt.value());
 
             // Each release descriptor is 8 bytes
-            size_t relocOffset = params.size() - sizeof(uint64_t) * (releaseCount - releaseDescIt.index());
+            size_t relocOffset = params.size() - sizeof(uint64_t) * (VPUASM::maxNumReleaseDesc - releaseDescIt.index());
             relocs.emplace_back(releaseDescSymRef, targetSection, relocOffset, ELF::RelocationType::R_VPU_64,
                                 ELF::getOffsetOfSymRef(symRefMap, releaseDescSymRef),
                                 "Release desc " + std::to_string(releaseDescIt.index()) + " kernel params reloc");
@@ -291,7 +327,7 @@ void vpux::VPUASM::KernelParamsOp::build(
         mlir::StringAttr kernelType, SmallVector<uint8_t>&& kernelParams, SmallVector<uint8_t>&& inputDimsBinaryVector,
         SmallVector<uint8_t>&& inputStridesBinaryVector, SmallVector<uint8_t>&& outputDimsBinaryVector,
         SmallVector<uint8_t>&& outputStridesBinaryVector, bool isOutputBroadcasted = false, bool isJitCompiled = false,
-        mlir::ArrayAttr skipDescIds = nullptr) {
+        bool usesDma = false, mlir::ArrayAttr skipDescIds = nullptr) {
     auto& props = state.getOrAddProperties<Properties>();
     props.sym_name = symName;
     props.kernel_params = std::move(kernelParams);
@@ -308,5 +344,6 @@ void vpux::VPUASM::KernelParamsOp::build(
     props.kernel_type = kernelType;
     props.is_output_broadcasted = isOutputBroadcasted;
     props.isJitCompiled = isJitCompiled;
+    props.uses_dma = usesDma;
     props.skipDescIds = skipDescIds;
 }

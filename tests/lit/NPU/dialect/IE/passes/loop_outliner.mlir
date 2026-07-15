@@ -43,7 +43,7 @@ func.func @main(%arg0: tensor<1xsi64>, %arg1: tensor<3x5xf32>, %arg2: tensor<2x5
   return %1#0, %1#1 : tensor<3x5xf32>, tensor<2x5xf32>
 }
 
-// CHECK:  func.func private @main_loop_body1([[ARG0:%.+]]: tensor<3x5xf32>, [[ARG1:%.+]]: tensor<2x5xf32>, [[ARG2:%.+]]: tensor<1xsi64>)
+// CHECK:  func.func nested @main_loop_body1([[ARG0:%.+]]: tensor<3x5xf32>, [[ARG1:%.+]]: tensor<2x5xf32>, [[ARG2:%.+]]: tensor<1xsi64>)
 // CHECK-SAME:    -> (tensor<3x5xf32>, tensor<2x5xf32>, tensor<1xi8>) {
 
 // CHECK:  [[CONST:%.+]] = const.Declare tensor<3x5xf32> = dense<1.000000e+00> : tensor<3x5xf32>
@@ -141,7 +141,7 @@ func.func @main(%arg0: tensor<1xsi64>, %arg1: tensor<3x5xf32>, %arg2: tensor<2x5
   return %5#0 : tensor<3x5xf32>
 }
 
-// CHECK:  func.func private @main_loop_body1([[ARG0:%.+]]: tensor<3x5xf32>, [[ARG1:%.+]]: tensor<2x5xf32>, [[ARG2:%.+]]: tensor<1xsi64>)
+// CHECK:  func.func nested @main_loop_body1([[ARG0:%.+]]: tensor<3x5xf32>, [[ARG1:%.+]]: tensor<2x5xf32>, [[ARG2:%.+]]: tensor<1xsi64>)
 // CHECK-SAME:    -> (tensor<3x5xf32>, tensor<2x5xf32>, tensor<1xi8>) {
 // CHECK:  [[CONST:%.+]] = const.Declare tensor<3x5xf32> = dense<1.000000e+00> : tensor<3x5xf32>
 // CHECK:  [[CONST0:%.+]] = const.Declare tensor<1x1xf32> = dense<1.000000e+00> : tensor<1x1xf32>
@@ -155,7 +155,7 @@ func.func @main(%arg0: tensor<1xsi64>, %arg1: tensor<3x5xf32>, %arg2: tensor<2x5
 // CHECK:  return [[ADD2]], [[ADD1]], [[LESS]] : tensor<3x5xf32>, tensor<2x5xf32>, tensor<1xi8>
 // CHECK:  }
 
-// CHECK:  func.func private @main_loop_body2([[ARG0:%.+]]: tensor<3x5xf32>) -> tensor<3x5xf32> {
+// CHECK:  func.func nested @main_loop_body2([[ARG0:%.+]]: tensor<3x5xf32>) -> tensor<3x5xf32> {
 // CHECK:  [[SOFTMAX:%.+]] = IE.SoftMax([[ARG0]]) {axisInd = 0 : i64} : tensor<3x5xf32> -> tensor<3x5xf32>
 // CHECK:  return [[SOFTMAX]] : tensor<3x5xf32>
 // CHECK:  }

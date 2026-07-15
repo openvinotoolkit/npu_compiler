@@ -8,6 +8,8 @@
 
 using namespace vpux;
 
+namespace vpux::VPU {
+
 constexpr size_t SA_INIT_ITERATIONS = 200;
 
 void SimulatedAnnealingStrategy::optimize() {
@@ -72,3 +74,5 @@ size_t getInitialTemperature(const std::shared_ptr<OperationStrategies>& storage
 
     return maxDelta * 2;
 }
+
+}  // namespace vpux::VPU

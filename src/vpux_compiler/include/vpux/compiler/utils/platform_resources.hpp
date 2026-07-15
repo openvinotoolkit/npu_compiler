@@ -18,37 +18,28 @@ constexpr uint32_t CMX_BASE_ADDR = 0x40000000;
 constexpr uint32_t CMX_WORKSPACE_OFFSET = 0x18000;
 constexpr Byte CMX_SHAVE_STACK_SIZE = Byte(7_KB);
 
-constexpr Byte VPUX37XX_CMX_WORKSPACE_SIZE = Byte(1936_KB);
-constexpr Byte VPUX37XX_CMX_WORKSPACE_FRAGMENTATION_AWARE_SIZE = Byte(
-        static_cast<int64_t>(static_cast<double>(VPUX37XX_CMX_WORKSPACE_SIZE.count()) * FRAGMENTATION_AVOID_RATIO));
+// CMX workspace sizes grouped by hardware capacity
+constexpr Byte CMX_WORKSPACE_SIZE_1936KB = Byte(1936_KB);
+constexpr Byte CMX_WORKSPACE_SIZE_1439KB = Byte(1439_KB);
+constexpr Byte CMX_WORKSPACE_SIZE_1951KB = Byte(1951_KB);
 
-constexpr Byte VPUX40XX_CMX_WORKSPACE_SIZE = Byte(1439_KB);
-constexpr Byte VPUX40XX_CMX_WORKSPACE_FRAGMENTATION_AWARE_SIZE = Byte(
-        static_cast<int64_t>(static_cast<double>(VPUX40XX_CMX_WORKSPACE_SIZE.count()) * FRAGMENTATION_AVOID_RATIO));
-constexpr Byte VPUX50XX_CMX_WORKSPACE_SIZE = Byte(1439_KB);
-constexpr Byte VPUX50XX_CMX_WORKSPACE_FRAGMENTATION_AWARE_SIZE = Byte(
-        static_cast<int64_t>(static_cast<double>(VPUX50XX_CMX_WORKSPACE_SIZE.count()) * FRAGMENTATION_AVOID_RATIO));
+// Maximum DPU cluster counts
+constexpr int DPU_GROUPS_1 = 1;
+constexpr int DPU_GROUPS_2 = 2;
+constexpr int DPU_GROUPS_3 = 3;
+constexpr int DPU_GROUPS_4 = 4;
+constexpr int DPU_GROUPS_6 = 6;
 
-constexpr Byte VPUX5010_CMX_WORKSPACE_SIZE = Byte(1439_KB);
-constexpr Byte VPUX5010_CMX_WORKSPACE_FRAGMENTATION_AWARE_SIZE = Byte(
-        static_cast<int64_t>(static_cast<double>(VPUX5010_CMX_WORKSPACE_SIZE.count()) * FRAGMENTATION_AVOID_RATIO));
+// Maximum SHAVE ACT executors per tile
+constexpr int MAX_SHAVES_PER_TILE_2 = 2;
+constexpr int MAX_SHAVES_PER_TILE_4 = 4;
 
-constexpr Byte VPUX5020_CMX_WORKSPACE_SIZE = Byte(1951_KB);
-constexpr Byte VPUX5020_CMX_WORKSPACE_FRAGMENTATION_AWARE_SIZE = Byte(
-        static_cast<int64_t>(static_cast<double>(VPUX5020_CMX_WORKSPACE_SIZE.count()) * FRAGMENTATION_AVOID_RATIO));
+// Maximum DMA engine ports
+constexpr int MAX_DMA_PORTS_2 = 2;
+constexpr int MAX_DMA_PORTS_4 = 4;
 
-constexpr int VPUX37XX_MAX_DPU_GROUPS = 2;
-constexpr int VPUX40XX_MAX_DPU_GROUPS = 6;
-constexpr int VPUX5010_MAX_DPU_GROUPS = 3;
-constexpr int VPUX5020_MAX_DPU_GROUPS = 1;
-constexpr int VPUX50XX_MAX_DPU_GROUPS = std::max(VPUX5010_MAX_DPU_GROUPS, VPUX5020_MAX_DPU_GROUPS);
-
-constexpr int VPUX37XX_MAX_SHAVES_PER_TILE = 2;
-constexpr int VPUX40XX_MAX_SHAVES_PER_TILE = 2;
-constexpr int VPUX50XX_MAX_SHAVES_PER_TILE = 2;
-
-constexpr int VPUX37XX_MAX_DMA_PORTS = 2;
-constexpr int VPUX40XX_MAX_DMA_PORTS = 2;
-constexpr int VPUX50XX_MAX_DMA_PORTS = 2;
+// Maximum HW barriers per tile
+constexpr int MAX_BARRIERS_PER_TILE_16 = 16;
+constexpr int MAX_BARRIERS_PER_TILE_32 = 32;
 
 }  // namespace vpux

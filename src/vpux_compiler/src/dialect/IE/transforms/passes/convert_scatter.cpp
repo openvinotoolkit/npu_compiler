@@ -3,11 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include <optional>
+
 #include <mlir/Transforms/DialectConversion.h>
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -71,9 +74,12 @@ public:
 public:
     class ConvertScatterNDUpdateToStridedConcat;
     class ConvertScatterNDUpdateToSliceConcat;
+    class ConvertScatterNDUpdateArithmeticToConcat;
     class ConvertNDUpdateDataToSliceConcat;
+    class ConvertScatterNDUpdateColumnSelectToConcat;
     class SplitToMultiScatterNDUpdateOp;
     class ConvertScatterElementsUpdateToAddMultiply;
+    class MergeChainedScatterElementsUpdate;
 
 private:
     void safeRunOnFunc() final;
@@ -484,6 +490,257 @@ mlir::LogicalResult ConvertScatterPass::ConvertScatterNDUpdateToSliceConcat::mat
     return mlir::success();
 }
 
+//
+// ConvertScatterNDUpdateArithmeticToConcat
+//
+// Rewrites a rank-1 ScatterNDUpdate whose constant indices form a regular strided grid
+//
+//     indices[i*M + j] = base + i*outerStride + j*innerStride   for i in [0, N), j in [0, M)
+//
+// into Slice + Reshape + Concat. A 1D arithmetic progression is the special case N == 1.
+// Requires innerStride >= 2 and outerStride >= M*innerStride (non-overlapping rows) - exactly the
+// gap left by the existing patterns: ConvertScatterNDUpdateToSliceConcat handles stride 1 only, and
+// ConvertScatterNDUpdateToStridedConcat requires input_dim % indices_count == 0.
+//
+// Example : input tensor<8192xf32>, indices base=1, innerStride=3, M=20,
+// outerStride=64, N=128, updates tensor<2560xf32>.
+//
+
+class ConvertScatterPass::ConvertScatterNDUpdateArithmeticToConcat final :
+        public mlir::OpRewritePattern<IE::ScatterNDUpdateOp> {
+public:
+    ConvertScatterNDUpdateArithmeticToConcat(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::ScatterNDUpdateOp>(ctx), _log(log) {
+        setDebugName("ConvertScatterNDUpdateArithmeticToConcat");
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::ScatterNDUpdateOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+namespace {
+
+// Description of a 1D / 2D regular strided index pattern.
+struct StridedIndexLayout {
+    int64_t base = 0;
+    int64_t innerStride = 0;
+    int64_t innerCount = 0;
+    int64_t outerStride = 0;
+    int64_t outerCount = 1;
+};
+
+// Detect that `indicesData` is laid out as:
+//     indices[i*innerCount + j] = base + i*outerStride + j*innerStride
+// Returns std::nullopt if the data does not match.
+std::optional<StridedIndexLayout> detectStridedLayout(ArrayRef<int64_t> indicesData) {
+    const auto total = checked_cast<int64_t>(indicesData.size());
+    if (total < 2) {
+        return std::nullopt;
+    }
+
+    StridedIndexLayout layout;
+    layout.base = indicesData[0];
+    layout.innerStride = indicesData[1] - indicesData[0];
+    if (layout.innerStride < 2) {
+        return std::nullopt;
+    }
+
+    // Walk along the inner dimension while the diff stays equal to innerStride.
+    int64_t innerLen = 1;
+    while (innerLen < total && indicesData[innerLen] - indicesData[innerLen - 1] == layout.innerStride) {
+        ++innerLen;
+    }
+    layout.innerCount = innerLen;
+
+    if (total % layout.innerCount != 0) {
+        return std::nullopt;
+    }
+    layout.outerCount = total / layout.innerCount;
+
+    if (layout.outerCount == 1) {
+        layout.outerStride = 0;
+    } else {
+        layout.outerStride = indicesData[layout.innerCount] - indicesData[0];
+        if (layout.outerStride < layout.innerCount * layout.innerStride) {
+            // Rows would overlap.
+            return std::nullopt;
+        }
+    }
+
+    // Validate every element matches the predicted formula.
+    for (int64_t i = 0; i < layout.outerCount; ++i) {
+        const int64_t rowBase = layout.base + i * layout.outerStride;
+        for (int64_t j = 0; j < layout.innerCount; ++j) {
+            if (indicesData[i * layout.innerCount + j] != rowBase + j * layout.innerStride) {
+                return std::nullopt;
+            }
+        }
+    }
+
+    return layout;
+}
+
+}  // namespace
+
+mlir::LogicalResult ConvertScatterPass::ConvertScatterNDUpdateArithmeticToConcat::matchAndRewrite(
+        IE::ScatterNDUpdateOp origOp, mlir::PatternRewriter& rewriter) const {
+    _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp.getLoc());
+
+    const auto ctx = rewriter.getContext();
+    const auto inputType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType());
+    const auto inputShape = inputType.getShape();
+    const auto indicesShape = getShape(origOp.getIndices());
+    const auto updatesShape = getShape(origOp.getUpdates());
+
+    if (inputType.getRank() != 1) {
+        _log.trace("Only rank-1 input is supported");
+        return mlir::failure();
+    }
+
+    if (indicesShape.size() != 2 || indicesShape.back() != 1) {
+        _log.trace("Indices shape must be [N, 1]");
+        return mlir::failure();
+    }
+
+    auto indicesConstOp = origOp.getIndices().getDefiningOp<Const::DeclareOp>();
+    if (indicesConstOp == nullptr) {
+        _log.trace("Indices must be constant");
+        return mlir::failure();
+    }
+
+    const auto numIndices = indicesShape[Dim(0)];
+    if (numIndices < 2) {
+        _log.trace("Need at least 2 indices to determine a strided pattern");
+        return mlir::failure();
+    }
+
+    if (updatesShape.size() != 1 || updatesShape[Dim(0)] != numIndices) {
+        _log.trace("Updates must be rank-1 with size {0}", numIndices);
+        return mlir::failure();
+    }
+
+    const auto indicesContent = indicesConstOp.getContent();
+    const auto indicesData = indicesContent.getValues<int64_t>();
+    if (checked_cast<int64_t>(indicesData.size()) != numIndices) {
+        _log.trace("Indices content size {0} does not match shape size {1}", indicesData.size(), numIndices);
+        return mlir::failure();
+    }
+
+    SmallVector<int64_t> indicesBuffer(indicesData.begin(), indicesData.end());
+    auto layoutOpt = detectStridedLayout(indicesBuffer);
+    if (!layoutOpt.has_value()) {
+        _log.trace("Indices are not a 1D or 2D regular strided grid");
+        return mlir::failure();
+    }
+    const auto layout = layoutOpt.value();
+
+    if (layout.base < 0) {
+        _log.trace("First index must be non-negative");
+        return mlir::failure();
+    }
+
+    // The minimum input length the layout requires is the end of the last stride block:
+    //     [base, base + (N-1)*outerStride + M*innerStride)
+    // Anything beyond that point goes into the tail and stays unchanged. The last row's
+    // keep region is therefore allowed to be partial or even absent.
+    const int64_t strideBlockWidth = layout.innerCount * layout.innerStride;
+    const int64_t bodyEnd = layout.base + (layout.outerCount - 1) * layout.outerStride + strideBlockWidth;
+    const int64_t inputSize = inputShape[Dim(0)];
+    if (bodyEnd > inputSize) {
+        _log.trace("Required body region end {0} exceeds input size {1}", bodyEnd, inputSize);
+        return mlir::failure();
+    }
+
+    const auto loc = origOp->getLoc();
+    SmallVector<mlir::Value> outerConcatInputs;
+
+    // 1D Slice of `size` elements starting at `offset`.
+    auto sliceFlat = [&](mlir::Value src, int64_t offset, int64_t size, StringRef name) -> mlir::Value {
+        return rewriter
+                .create<IE::SliceOp>(takeOpLoc(origOp, name), src, SmallVector<int64_t>{offset},
+                                     SmallVector<int64_t>{size})
+                .getResult();
+    };
+
+    // Rewrite a batch of `rows` rows, each `rowWidth` wide and laid out contiguously in `bodyFlat`.
+    // Within every row the first M*innerStride columns are M groups of `innerStride`; column 0 of
+    // each group is replaced by the matching update and the other innerStride-1 columns are kept.
+    // The trailing (rowWidth - M*innerStride) columns (the inter-row gap) are kept unchanged.
+    // Returns the rewritten rows flattened back to [rows*rowWidth]. The 1D progression is rows == 1.
+    auto rewriteRowBatch = [&](mlir::Value bodyFlat, mlir::Value updatesFlat, int64_t rows, int64_t rowWidth,
+                               StringRef suffix) -> mlir::Value {
+        auto reshape = [&](mlir::Value src, ArrayRef<int64_t> shape, StringRef tag) -> mlir::Value {
+            return rewriter
+                    .create<IE::ReshapeOp>(takeOpLoc(origOp, StringLiteral("arith_{0}_{1}"), tag, suffix), src,
+                                           getIntArrayAttr(ctx, shape))
+                    .getOutput();
+        };
+
+        auto body2D = reshape(bodyFlat, {rows, rowWidth}, "body");
+        auto strideRegion =
+                rewriter.create<IE::SliceOp>(takeOpLoc(origOp, StringLiteral("arith_stride_{0}"), suffix), body2D,
+                                             SmallVector<int64_t>{0, 0}, SmallVector<int64_t>{rows, strideBlockWidth});
+        // Merge the row and group dims: the per-group interleave is independent of the row, so all
+        // (rows * M) groups are handled by a single 2D op - keep columns 1..innerStride-1 and take
+        // column 0 from the updates. (1D progression is rows == 1, i.e. just M groups.)
+        const int64_t numGroups = rows * layout.innerCount;
+        auto groups2D = reshape(strideRegion.getResult(), {numGroups, layout.innerStride}, "groups");
+        auto groupKeep = rewriter.create<IE::SliceOp>(takeOpLoc(origOp, StringLiteral("arith_keep_{0}"), suffix),
+                                                      groups2D, SmallVector<int64_t>{0, 1},
+                                                      SmallVector<int64_t>{numGroups, layout.innerStride - 1});
+        auto upd2D = reshape(updatesFlat, {numGroups, 1}, "upd");
+        auto newGroups2D =
+                rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, StringLiteral("arith_newgroups_{0}"), suffix),
+                                              SmallVector<mlir::Value>{upd2D, groupKeep.getResult()}, /*axis=*/1);
+
+        mlir::Value rowResult = reshape(newGroups2D.getOutput(), {rows, strideBlockWidth}, "newstride2d");
+        if (rowWidth > strideBlockWidth) {
+            auto gap = rewriter.create<IE::SliceOp>(takeOpLoc(origOp, StringLiteral("arith_gap_{0}"), suffix), body2D,
+                                                    SmallVector<int64_t>{0, strideBlockWidth},
+                                                    SmallVector<int64_t>{rows, rowWidth - strideBlockWidth});
+            rowResult = rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, StringLiteral("arith_row_{0}"), suffix),
+                                                      SmallVector<mlir::Value>{rowResult, gap.getResult()}, /*axis=*/1)
+                                .getOutput();
+        }
+        return reshape(rowResult, {rows * rowWidth}, "rowflat");
+    };
+
+    if (layout.base > 0) {
+        outerConcatInputs.push_back(sliceFlat(origOp.getInput(), 0, layout.base, "arith_head"));
+    }
+
+    // The first (N-1) rows have the full outerStride width (the gap is kept). Skipped when N == 1.
+    const int64_t headRows = layout.outerCount - 1;
+    if (headRows > 0) {
+        auto headBody = sliceFlat(origOp.getInput(), layout.base, headRows * layout.outerStride, "arith_head_body");
+        auto headUpd = sliceFlat(origOp.getUpdates(), 0, headRows * layout.innerCount, "arith_head_upd");
+        outerConcatInputs.push_back(rewriteRowBatch(headBody, headUpd, headRows, layout.outerStride, "head"));
+    }
+
+    // The last row is rewritten as a single stride block; its gap (if any) stays in the unchanged
+    // tail, so we never read past the end of the input.
+    const int64_t lastRowStart = layout.base + headRows * layout.outerStride;
+    auto lastBody = sliceFlat(origOp.getInput(), lastRowStart, strideBlockWidth, "arith_last_body");
+    auto lastUpd = sliceFlat(origOp.getUpdates(), headRows * layout.innerCount, layout.innerCount, "arith_last_upd");
+    outerConcatInputs.push_back(rewriteRowBatch(lastBody, lastUpd, 1, strideBlockWidth, "last"));
+
+    const int64_t tailSize = inputSize - bodyEnd;
+    if (tailSize > 0) {
+        auto tailOp = rewriter.create<IE::SliceOp>(takeOpLoc(origOp, "arith_tail"), origOp.getInput(),
+                                                   SmallVector<int64_t>{bodyEnd}, SmallVector<int64_t>{tailSize});
+        outerConcatInputs.push_back(tailOp.getResult());
+    }
+
+    _log.trace("Replaced ScatterNDUpdate at {0} with Slice+Reshape+Concat "
+               "(base={1}, innerStride={2}, M={3}, outerStride={4}, N={5}, L={6})",
+               loc, layout.base, layout.innerStride, layout.innerCount, layout.outerStride, layout.outerCount,
+               inputSize);
+    rewriter.replaceOpWithNewOp<IE::ConcatOp>(origOp, outerConcatInputs, /*axis=*/0);
+    return mlir::success();
+}
+
 // ConvertNDUpdateDataToSliceConcat
 
 class ConvertScatterPass::ConvertNDUpdateDataToSliceConcat final :
@@ -495,14 +752,14 @@ public:
 
 public:
     mlir::LogicalResult matchAndRewrite(IE::ScatterNDUpdateOp origOp, mlir::PatternRewriter& rewriter) const final;
-    std::optional<std::pair<Shape, Shape>> getUpdateRange(Const::DeclareOp indicesConst) const;
+    std::optional<std::pair<Shape, Shape>> getUpdateRange(Const::DeclareOp indicesConst, ShapeRef inputShape) const;
 
 private:
     Logger _log;
 };
 
 std::optional<std::pair<Shape, Shape>> ConvertScatterPass::ConvertNDUpdateDataToSliceConcat::getUpdateRange(
-        Const::DeclareOp indicesConst) const {
+        Const::DeclareOp indicesConst, ShapeRef inputShape) const {
     const auto indicesConstValue = indicesConst.getContent();
     const auto indicesData = indicesConstValue.getValues<int64_t>();
     const auto indicesDataSize = indicesData.size();
@@ -541,6 +798,22 @@ std::optional<std::pair<Shape, Shape>> ConvertScatterPass::ConvertNDUpdateDataTo
 
     auto minRange = Shape(indicesData.begin(), indicesData.begin() + coordSize);
     auto maxRange = Shape(indicesData.begin() + (indicesShape.totalSize() - coordSize), indicesData.end());
+
+    // Normalize negative indices
+    for (auto dimIdx = 0; dimIdx < coordSize; ++dimIdx) {
+        const int64_t dimSize = inputShape[Dim(dimIdx)];
+        if (minRange[Dim(dimIdx)] < 0) {
+            minRange[Dim(dimIdx)] += dimSize;
+        }
+        if (maxRange[Dim(dimIdx)] < 0) {
+            maxRange[Dim(dimIdx)] += dimSize;
+        }
+
+        if (minRange[Dim(dimIdx)] > maxRange[Dim(dimIdx)]) {
+            return std::nullopt;
+        }
+    }
+
     return std::pair(minRange, maxRange);
 }
 
@@ -565,7 +838,7 @@ mlir::LogicalResult ConvertScatterPass::ConvertNDUpdateDataToSliceConcat::matchA
         return mlir::failure();
     }
 
-    auto updateRange = getUpdateRange(indicesConst);
+    auto updateRange = getUpdateRange(indicesConst, inputShape);
     if (!updateRange.has_value()) {
         _log.trace("Updates range is not continuous");
         return mlir::failure();
@@ -621,6 +894,189 @@ mlir::LogicalResult ConvertScatterPass::ConvertNDUpdateDataToSliceConcat::matchA
 }
 
 //
+// ConvertScatterNDUpdateSelectToConcat
+//
+// Handles ScatterNDUpdate with constant indices that have an "identity prefix" pattern:
+// the first (coordSize-1) elements of each index tuple equal their own coordinate, and
+// the last element selects a position in the "select dimension" (dim at coordSize-1).
+//
+// Covers both:
+// - Point-level scatter (coordSize == inputRank): selects positions in the last dim
+// - Partial scatter (coordSize < inputRank): selects rows, remaining dims bulk-copied
+//
+// Example 1 (point-level): data [1,4,34,3], indices [1,4,34,2,4], updates [1,4,34,2]
+//   coordSize=4=rank, selectDim=3, selects columns [0,2] from dim3 (size 3)
+//
+// Example 2 (partial): data [1,4,34,3], indices [1,4,4,3], updates [1,4,4,3]
+//   coordSize=3<rank, selectDim=2, selects rows [7,14,25,33] from dim2 (size 34)
+//
+// Conversion: Slice data into segments between selected positions, interleave with
+// slices from updates, then Concat along the select dimension.
+
+class ConvertScatterPass::ConvertScatterNDUpdateColumnSelectToConcat final :
+        public mlir::OpRewritePattern<IE::ScatterNDUpdateOp> {
+public:
+    ConvertScatterNDUpdateColumnSelectToConcat(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::ScatterNDUpdateOp>(ctx), _log(log) {
+        setDebugName("ConvertScatterNDUpdateSelectToConcat");
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::ScatterNDUpdateOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult ConvertScatterPass::ConvertScatterNDUpdateColumnSelectToConcat::matchAndRewrite(
+        IE::ScatterNDUpdateOp origOp, mlir::PatternRewriter& rewriter) const {
+    _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp.getLoc());
+
+    const auto inputType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType());
+    const auto inputShape = inputType.getShape();
+    const auto inputRank = inputType.getRank();
+    const auto indices = origOp.getIndices();
+    const auto indicesShape = getShape(indices);
+    const auto indicesRank = checked_cast<int64_t>(indicesShape.size());
+
+    const auto coordSize = indicesShape.back();
+
+    // coordSize must be in [1, inputRank]
+    if (coordSize < 1 || coordSize > inputRank) {
+        return mlir::failure();
+    }
+
+    // indices shape: [d0, ..., d_{coordSize-2}, numUpdates, coordSize]
+    // For identity prefix: d_i == inputShape[i] for i < coordSize-1
+    // and numUpdates < inputShape[coordSize-1]
+    if (indicesRank - 1 < coordSize) {
+        return mlir::failure();
+    }
+
+    for (int64_t i = 0; i < coordSize - 1; i++) {
+        if (indicesShape[Dim(i)] != inputShape[Dim(i)]) {
+            return mlir::failure();
+        }
+    }
+
+    const auto numUpdates = indicesShape[Dim(coordSize - 1)];
+    const auto selectDimSize = inputShape[Dim(coordSize - 1)];
+    if (numUpdates >= selectDimSize) {
+        return mlir::failure();
+    }
+
+    auto indicesConst = indices.getDefiningOp<Const::DeclareOp>();
+    if (indicesConst == nullptr) {
+        return mlir::failure();
+    }
+
+    const auto indicesConstValue = indicesConst.getContent();
+    auto indicesData = indicesConstValue.getValues<int64_t>();
+
+    // Verify identity prefix and extract selected positions
+    const int64_t numTuples = indicesShape.totalSize() / coordSize;
+    SmallVector<int64_t> selectedPositions(numUpdates, -1);
+
+    for (int64_t tupleIdx = 0; tupleIdx < numTuples; tupleIdx++) {
+        const int64_t baseIdx = tupleIdx * coordSize;
+
+        // Compute expected spatial coordinates and update index
+        int64_t remaining = tupleIdx;
+        SmallVector<int64_t> expectedCoords(coordSize - 1);
+        const int64_t updateIdx = remaining % numUpdates;
+        remaining /= numUpdates;
+        for (int64_t d = coordSize - 2; d >= 0; d--) {
+            expectedCoords[d] = remaining % inputShape[Dim(d)];
+            remaining /= inputShape[Dim(d)];
+        }
+
+        // Check identity prefix
+        for (int64_t d = 0; d < coordSize - 1; d++) {
+            if (indicesData[baseIdx + d] != expectedCoords[d]) {
+                return mlir::failure();
+            }
+        }
+
+        // Check position consistency across all spatial locations
+        const int64_t pos = indicesData[baseIdx + coordSize - 1];
+        if (pos < 0 || pos >= selectDimSize) {
+            return mlir::failure();
+        }
+        if (selectedPositions[updateIdx] == -1) {
+            selectedPositions[updateIdx] = pos;
+        } else if (selectedPositions[updateIdx] != pos) {
+            return mlir::failure();
+        }
+    }
+
+    // Sort by position and check for duplicates
+    SmallVector<std::pair<int64_t, int64_t>> sortedSel;  // (position, updateIdx)
+    for (int64_t i = 0; i < numUpdates; i++) {
+        if (selectedPositions[i] < 0) {
+            return mlir::failure();
+        }
+        sortedSel.push_back({selectedPositions[i], i});
+    }
+    llvm::sort(sortedSel, [](const auto& a, const auto& b) {
+        return a.first < b.first;
+    });
+
+    for (int64_t i = 1; i < numUpdates; i++) {
+        if (sortedSel[i].first == sortedSel[i - 1].first) {
+            return mlir::failure();
+        }
+    }
+
+    // Build Slice+Concat along the select dimension
+    const int64_t selectDim = coordSize - 1;
+    SmallVector<mlir::Value> concatInputs;
+
+    int64_t currentPos = 0;
+    for (int64_t i = 0; i < numUpdates; i++) {
+        const int64_t pos = sortedSel[i].first;
+        const int64_t updateIdx = sortedSel[i].second;
+
+        // Slice unchanged segment from input: [currentPos, pos)
+        if (pos > currentPos) {
+            SmallVector<int64_t> sliceOffset(inputRank, 0);
+            SmallVector<int64_t> sliceSize(inputShape.raw().begin(), inputShape.raw().end());
+            sliceOffset[selectDim] = currentPos;
+            sliceSize[selectDim] = pos - currentPos;
+            auto sliceLoc = takeOpLoc(origOp, StringLiteral("slice_input_{0}_{1}"), currentPos, pos);
+            concatInputs.push_back(
+                    rewriter.create<IE::SliceOp>(sliceLoc, origOp.getInput(), sliceOffset, sliceSize).getResult());
+        }
+
+        // Slice from updates at updateIdx
+        SmallVector<int64_t> updOffset(inputRank, 0);
+        SmallVector<int64_t> updSize(inputShape.raw().begin(), inputShape.raw().end());
+        updOffset[selectDim] = updateIdx;
+        updSize[selectDim] = 1;
+        auto updLoc = takeOpLoc(origOp, StringLiteral("slice_updates_{0}"), pos);
+        concatInputs.push_back(
+                rewriter.create<IE::SliceOp>(updLoc, origOp.getUpdates(), updOffset, updSize).getResult());
+
+        currentPos = pos + 1;
+    }
+
+    // Remaining tail from input
+    if (currentPos < selectDimSize) {
+        SmallVector<int64_t> sliceOffset(inputRank, 0);
+        SmallVector<int64_t> sliceSize(inputShape.raw().begin(), inputShape.raw().end());
+        sliceOffset[selectDim] = currentPos;
+        sliceSize[selectDim] = selectDimSize - currentPos;
+        auto sliceLoc = takeOpLoc(origOp, StringLiteral("slice_input_{0}_{1}"), currentPos, selectDimSize);
+        concatInputs.push_back(
+                rewriter.create<IE::SliceOp>(sliceLoc, origOp.getInput(), sliceOffset, sliceSize).getResult());
+    }
+
+    _log.trace("Replaced ScatterNDUpdate with select Slice+Concat (selectDim={0})", selectDim);
+    rewriter.replaceOpWithNewOp<IE::ConcatOp>(origOp, concatInputs, selectDim);
+
+    return mlir::success();
+}
+
+//
 // SplitToMultiScatterNDUpdateOp
 //
 
@@ -660,11 +1116,17 @@ std::optional<SmallVector<SplitParams>> ConvertScatterPass::SplitToMultiScatterN
 
     auto inAxis = llvm::find_if(inputShape, greaterThanOne);
     auto indicesAxis = llvm::find_if(indicesShape, greaterThanOne);
+    if (inAxis == inputShape.end() || indicesAxis == indicesShape.end() - 1) {
+        _log.trace("Cannot determine update axis for split");
+        return std::nullopt;
+    }
 
-    VPUX_THROW_UNLESS(inAxis != inputShape.end() && indicesAxis != indicesShape.end() - 1, "Can not get correct Axis");
     auto inAxisDim = std::distance(inputShape.begin(), inAxis);
     auto indicesAxisDim = std::distance(indicesShape.begin(), indicesAxis);
-    VPUX_THROW_UNLESS(inAxisDim == indicesAxisDim, "Can not get same Axis");
+    if (inAxisDim != indicesAxisDim) {
+        _log.trace("Input and indices update axes do not match");
+        return std::nullopt;
+    }
     const auto updateDim = inAxisDim;
 
     const auto indicesConstValue = indicesConst.getContent();
@@ -871,6 +1333,169 @@ mlir::LogicalResult ConvertScatterPass::ConvertScatterElementsUpdateToAddMultipl
 }
 
 //
+// MergeChainedScatterElementsUpdate
+//
+
+// Merge a chain of ScatterElementsUpdate ops that write to the same buffer.
+// Assumes indices across ops do NOT overlap; overlapping indices would have
+// undefined element ordering in the merged op.
+//
+// Pattern:
+//   %0 = ScatterElementsUpdate(%data, %indices_0, %updates_0, axis=A)
+//   %1 = ScatterElementsUpdate(%0,    %indices_1, %updates_1, axis=A)
+//   ...
+//   %N = ScatterElementsUpdate(%N-1,  %indices_N, %updates_N, axis=A)
+//
+// Merged into:
+//   %merged_indices = Concat(%indices_0, %indices_1, ..., %indices_N, axis=A)
+//   %merged_updates = Concat(%updates_0, %updates_1, ..., %updates_N, axis=A)
+//   %result = ScatterElementsUpdate(%data, %merged_indices, %merged_updates, axis=A)
+
+static std::optional<int64_t> getScatterAxis(IE::ScatterElementsUpdateOp op) {
+    auto axis = op.getAxisValue();
+    if (axis.has_value()) {
+        return axis.value();
+    }
+    auto axisOp = op.getAxis();
+    if (!axisOp) {
+        return std::nullopt;
+    }
+    auto axisConst = axisOp.getDefiningOp<Const::DeclareOp>();
+    if (!axisConst) {
+        return std::nullopt;
+    }
+    auto axisContent = axisConst.getContent();
+    auto axisValues = axisContent.getValues<int64_t>();
+    return axisValues[0];
+}
+
+class ConvertScatterPass::MergeChainedScatterElementsUpdate final :
+        public mlir::OpRewritePattern<IE::ScatterElementsUpdateOp> {
+public:
+    MergeChainedScatterElementsUpdate(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::ScatterElementsUpdateOp>(ctx, /*benefit=*/2), _log(log) {
+        setDebugName("MergeChainedScatterElementsUpdate");
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::ScatterElementsUpdateOp origOp,
+                                        mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult ConvertScatterPass::MergeChainedScatterElementsUpdate::matchAndRewrite(
+        IE::ScatterElementsUpdateOp origOp, mlir::PatternRewriter& rewriter) const {
+    _log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
+
+    // Only match on the LAST op in a chain (no ScatterElementsUpdate user on the output)
+    for (auto user : origOp.getOutput().getUsers()) {
+        if (mlir::isa<IE::ScatterElementsUpdateOp>(user)) {
+            return mlir::failure();
+        }
+    }
+
+    if (origOp.getReduction() != IE::ScatterElementsUpdateReductionType::NONE) {
+        return mlir::failure();
+    }
+
+    auto axis = getScatterAxis(origOp);
+    if (!axis.has_value()) {
+        return mlir::failure();
+    }
+    const auto scatterAxis = axis.value();
+    const auto useInitVal = origOp.getUseInitVal();
+
+    // Walk backward to collect the chain
+    SmallVector<IE::ScatterElementsUpdateOp> chain;
+    chain.push_back(origOp);
+
+    auto currentOp = origOp;
+    while (true) {
+        auto prevScatter = currentOp.getInput().getDefiningOp<IE::ScatterElementsUpdateOp>();
+        if (!prevScatter) {
+            break;
+        }
+        if (!prevScatter.getOutput().hasOneUse()) {
+            break;
+        }
+        if (prevScatter.getReduction() != IE::ScatterElementsUpdateReductionType::NONE) {
+            break;
+        }
+        if (prevScatter.getUseInitVal() != useInitVal) {
+            break;
+        }
+        auto prevAxis = getScatterAxis(prevScatter);
+        if (!prevAxis.has_value() || prevAxis.value() != scatterAxis) {
+            break;
+        }
+        chain.push_back(prevScatter);
+        currentOp = prevScatter;
+    }
+
+    if (chain.size() < 2) {
+        return mlir::failure();
+    }
+
+    // Reverse so chain[0] is the first (topmost) scatter
+    std::reverse(chain.begin(), chain.end());
+
+    // Verify all updates and indices have compatible shapes (same except along scatter axis)
+    const auto refUpdatesType = mlir::cast<vpux::NDTypeInterface>(chain[0].getUpdates().getType());
+    const auto refIndicesType = mlir::cast<vpux::NDTypeInterface>(chain[0].getIndices().getType());
+    const auto rank = refUpdatesType.getRank();
+
+    const auto normalizedAxis = scatterAxis >= 0 ? scatterAxis : scatterAxis + rank;
+
+    for (size_t i = 1; i < chain.size(); ++i) {
+        const auto updatesType = mlir::cast<vpux::NDTypeInterface>(chain[i].getUpdates().getType());
+        const auto indicesType = mlir::cast<vpux::NDTypeInterface>(chain[i].getIndices().getType());
+
+        if (updatesType.getRank() != rank || indicesType.getRank() != rank) {
+            return mlir::failure();
+        }
+        for (int64_t d = 0; d < rank; ++d) {
+            if (d == normalizedAxis) {
+                continue;
+            }
+            if (updatesType.getShape()[Dim(d)] != refUpdatesType.getShape()[Dim(d)]) {
+                return mlir::failure();
+            }
+            if (indicesType.getShape()[Dim(d)] != refIndicesType.getShape()[Dim(d)]) {
+                return mlir::failure();
+            }
+        }
+    }
+
+    _log.trace("Merging chain of {0} ScatterElementsUpdate ops at '{1}'", chain.size(), origOp->getLoc());
+
+    SmallVector<mlir::Value> updatesList;
+    SmallVector<mlir::Value> indicesList;
+    for (auto& op : chain) {
+        updatesList.push_back(op.getUpdates());
+        indicesList.push_back(op.getIndices());
+    }
+
+    auto mergedUpdates =
+            rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, "merged_updates"), updatesList, normalizedAxis);
+    auto mergedIndices =
+            rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, "merged_indices"), indicesList, normalizedAxis);
+
+    auto originalData = chain[0].getInput();
+
+    rewriter.replaceOpWithNewOp<IE::ScatterElementsUpdateOp>(
+            origOp, originalData, mergedIndices.getOutput(), mergedUpdates.getOutput(), /*axis=*/nullptr,
+            rewriter.getI64IntegerAttr(normalizedAxis), chain[0].getReductionAttr(), chain[0].getUseInitValAttr());
+
+    for (int64_t i = static_cast<int64_t>(chain.size()) - 2; i >= 0; --i) {
+        rewriter.eraseOp(chain[i]);
+    }
+
+    return mlir::success();
+}
+
+//
 // safeRunOnFunc
 //
 
@@ -880,8 +1505,11 @@ void ConvertScatterPass::safeRunOnFunc() {
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<ConvertScatterNDUpdateToStridedConcat>(&ctx, _log);
     patterns.add<ConvertScatterNDUpdateToSliceConcat>(&ctx, _log);
+    patterns.add<ConvertScatterNDUpdateArithmeticToConcat>(&ctx, _log);
     patterns.add<ConvertNDUpdateDataToSliceConcat>(&ctx, _log);
+    patterns.add<ConvertScatterNDUpdateColumnSelectToConcat>(&ctx, _log);
     patterns.add<SplitToMultiScatterNDUpdateOp>(&ctx, _log);
+    patterns.add<MergeChainedScatterElementsUpdate>(&ctx, _log);
     patterns.add<ConvertScatterElementsUpdateToAddMultiply>(&ctx, _log);
 
     auto func = getOperation();

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/dialect/VPUIP/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 
@@ -14,6 +15,7 @@
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/rewriters.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/strides_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
@@ -31,9 +33,11 @@
 #include "vpux/utils/core/range.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/IRMapping.h>
 #include <mlir/IR/PatternMatch.h>
+#include <mlir/Support/LLVM.h>
 #include <mlir/Support/LogicalResult.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
@@ -371,18 +375,14 @@ mlir::LogicalResult RemoveUnusedCopyOp::matchAndRewrite(VPUIP::CopyOp copyOp, ml
 
 class CopyOpSequence final : public mlir::OpRewritePattern<VPUIP::CopyOp> {
 public:
-    CopyOpSequence(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, WorkloadManagementMode workloadManagementMode,
-                   Logger log)
-            : mlir::OpRewritePattern<VPUIP::CopyOp>(ctx, benefit),
-              _workloadManagementMode(workloadManagementMode),
-              log(log) {
+    CopyOpSequence(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
+            : mlir::OpRewritePattern<VPUIP::CopyOp>(ctx, benefit), log(log) {
     }
 
 public:
     mlir::LogicalResult matchAndRewrite(VPUIP::CopyOp copyOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
-    WorkloadManagementMode _workloadManagementMode = WorkloadManagementMode::PWLM_V0_1_PAGES;
     Logger log;
 };
 
@@ -424,6 +424,18 @@ mlir::LogicalResult CopyOpSequence::matchAndRewrite(VPUIP::CopyOp copyOp, mlir::
           VPUIP::getRootAlloc<VPURT::AllocDistributed>(parentCopyOp.getOutputBuff()))) {
         nestedLogger.trace("CopyOpSequence: cannot match because parent's output buffer is not produced by allocation");
         return mlir::failure();
+    }
+
+    // Skip CopyOpSequence when this distributed copy writes into a CMX SubView that feeds a ConcatViewOp:
+    // fusing would replace the DDR source with a bare SubView.
+    if (isCopyOpDistributed && copyOp.getOutputBuff().getDefiningOp<VPUIP::SubViewOp>() != nullptr) {
+        for (auto* user : copyOp.getOutput().getUsers()) {
+            if (mlir::isa<VPUIP::ConcatViewOp>(user)) {
+                nestedLogger.trace(
+                        "CopyOpSequence: cannot match because copy feeds a CMX ConcatViewOp via SubView output");
+                return mlir::failure();
+            }
+        }
     }
 
     if (!vpux::VPUIP::hasDistributedOperand(parentCopyOp)) {
@@ -609,8 +621,8 @@ mlir::LogicalResult CopyOpSequence::matchAndRewrite(VPUIP::CopyOp copyOp, mlir::
 
     if (isCopyOpDistributed && grandparentOp->getResult(0).getType() != copyOp.getResult().getType()) {
         if (!isGrandparentCompatible) {
-            // it may cause WLM failure in V0 PWLM mode. TODO: remove this dependency E#208430
-            if ((_workloadManagementMode > WorkloadManagementMode::PWLM_V0_1_PAGES) &&
+            // Avoid performance regressions on VPUX3xxx
+            if (!config::isArchVPUX3XXX(config::getArch(copyOp)) &&
                 isLegalAndBenefitCreateCopyFromCMXToCMX(grandparentOp, parentCopyOp, copyOp, nestedLogger)) {
                 // rewrite with a new CMX2CMX copy
                 rewriter.setInsertionPointAfter(copyOp);
@@ -2501,7 +2513,11 @@ mlir::Value SubViewWithDistributedCopy::getSuitableSubViewPattern(VPUIP::CopyOp 
                 }
             }
 
-            if (requiredCMX > cmxSize) {
+            // Reserve a fraction of the available CMX to preserve DMA/DPU overlap when deciding whether to merge
+            // subView branches into a single copy. If the merged buffer would consume more than half of the available
+            // CMX, the merge is refused to avoid blocking DMA prefetching for overlap with DPU execution.
+            static constexpr int64_t RESERVE_CMX_RATIO_FOR_OVERLAP = 2;
+            if (requiredCMX > cmxSize / RESERVE_CMX_RATIO_FOR_OVERLAP) {
                 return false;
             }
 
@@ -2644,13 +2660,13 @@ mlir::LogicalResult DuplicatedCopyWithCMXCopy::matchAndRewrite(VPUIP::CopyOp cop
 //
 
 /*
-  Fuse copy(with strided input) with distributed copy through reshape
+    Fuse copy(with strided input) with distributed copy through view-like ops
 
     SubView(Strided input)                            SubView(Strided input)
               |                                                |
         Copy(DDR2DDR)                               DistributedCopy(DDR2CMX)
               |                       ==>                      |
-         GenericReshape                                GenericReshape
+    ShapeCast/PermuteCast/GenericReshape        ShapeCast/PermuteCast/GenericReshape
               |
      DistributedCopy(DDR2CMX)
 
@@ -2686,21 +2702,84 @@ mlir::LogicalResult FuseCopiesThroughReshape::matchAndRewrite(VPUIP::CopyOp copy
         return mlir::failure();
     }
 
-    auto reshapeOp = mlir::dyn_cast<VPUIP::GenericReshapeOp>(*copyOp.getOutput().getUsers().begin());
-    if (reshapeOp == nullptr) {
-        return mlir::failure();
-    }
-    if (!reshapeOp->hasOneUse()) {
-        return mlir::failure();
+    auto isSupportedViewLikeOp = [](mlir::Operation* op) {
+        if (mlir::isa<VPUIP::GenericReshapeOp, VPUIP::ShapeCastOp>(op)) {
+            return true;
+        }
+
+        auto permuteOp = mlir::dyn_cast<VPUIP::PermuteCastOp>(op);
+        if (permuteOp == nullptr) {
+            return false;
+        }
+
+        // PermuteCast is only supported if it's a trivial reorder or a pure reshape in memory
+        const auto inShape = getShape(permuteOp.getSource());
+        const auto outShape = getShape(permuteOp.getResult());
+        const auto inOrder = DimsOrder::fromValue(permuteOp.getSource());
+        const auto dstOrder = DimsOrder::fromAffineMap(permuteOp.getDstOrder());
+        if (inShape == outShape) {
+            // If op is non-trivial reorder, do not support this op
+            return vpux::isTrivialReorder(inOrder, dstOrder, inShape);
+        }
+
+        // For shape-changing PermuteCast, check if memory layout is preserved (ignoring dims of size 1)
+        auto inMemShape = mlir::cast<NDTypeInterface>(permuteOp.getSource().getType()).getMemShape();
+        auto outMemShape = mlir::cast<NDTypeInterface>(permuteOp.getResult().getType()).getMemShape();
+        SmallVector<int64_t> inMemShapeFiltered, outMemShapeFiltered;
+        llvm::copy_if(inMemShape.raw(), std::back_inserter(inMemShapeFiltered), [](int64_t d) {
+            return d != 1;
+        });
+        llvm::copy_if(outMemShape.raw(), std::back_inserter(outMemShapeFiltered), [](int64_t d) {
+            return d != 1;
+        });
+        return inMemShapeFiltered == outMemShapeFiltered;
+    };
+
+    SmallVector<mlir::Operation*> viewLikeOps;
+    auto currentOutput = copyOp.getOutput();
+    VPUIP::CopyOp userClusterCopyOp = nullptr;
+    bool isContainPermuteCast = false;
+    while (currentOutput.hasOneUse()) {
+        auto* userOp = *currentOutput.getUsers().begin();
+        if (auto userCopyOp = mlir::dyn_cast<VPUIP::CopyOp>(userOp)) {
+            userClusterCopyOp = userCopyOp;
+            break;
+        }
+
+        if (!isSupportedViewLikeOp(userOp) || !userOp->hasOneUse()) {
+            return mlir::failure();
+        }
+
+        if (mlir::isa_and_present<VPUIP::PermuteCastOp>(userOp)) {
+            isContainPermuteCast = true;
+        }
+
+        viewLikeOps.push_back(userOp);
+        currentOutput = userOp->getResult(0);
     }
 
-    auto userClusterCopyOp = mlir::dyn_cast<VPUIP::CopyOp>(*reshapeOp->getResult(0).getUsers().begin());
     if (userClusterCopyOp == nullptr || !vpux::VPUIP::hasDistributedOperand(userClusterCopyOp)) {
+        log.trace("Found no user cluster copy op");
+        return mlir::failure();
+    }
+    if (viewLikeOps.empty()) {
         return mlir::failure();
     }
 
-    auto origReshapeOutType = mlir::cast<vpux::NDTypeInterface>(reshapeOp.getOutput().getType());
-    auto origReshapeInType = mlir::cast<vpux::NDTypeInterface>(reshapeOp.getInput().getType());
+    if (viewLikeOps.size() > 1 || isContainPermuteCast) {
+        auto userCopyOpOutput = userClusterCopyOp.getOutput();
+        auto outputDistType = mlir::dyn_cast<vpux::VPUIP::DistributedBufferType>(userCopyOpOutput.getType());
+        if (outputDistType != nullptr) {
+            auto outputMode = outputDistType.getDistribution().getMode().getValue();
+            if (outputMode != VPU::DistributionMode::SEGMENTED && outputMode != VPU::DistributionMode::OVERLAPPED) {
+                log.trace("Only support viewLikeOp chain for segmented and overlapped now");
+                return mlir::failure();
+            }
+        } else {
+            return mlir::failure();
+        }
+    }
+
     auto outBuffer = userClusterCopyOp.getOutputBuff();
     auto outBufAlloc = VPUIP::getRootAlloc<VPURT::AllocDistributed>(outBuffer);
     if (outBufAlloc == nullptr) {
@@ -2710,48 +2789,220 @@ mlir::LogicalResult FuseCopiesThroughReshape::matchAndRewrite(VPUIP::CopyOp copy
     }
 
     auto origDistrType = mlir::dyn_cast<vpux::VPUIP::DistributedBufferType>(outBuffer.getType());
-    auto origDistrAttr = origDistrType.getDistribution();
-    auto getDistributedAxesMapping = vpux::VPUIP::getDistributedAxesMappingAfterShapeChanged(
-            origReshapeOutType, origReshapeInType, origDistrAttr, log);
-    if (mlir::failed(getDistributedAxesMapping)) {
+    if (origDistrType == nullptr) {
         return mlir::failure();
     }
 
-    // Distributed Overlapped mode only support rank 4D/5D
-    const int rank4D = 4;
-    const int rank5D = 5;
-    if (origDistrAttr.getMode().getValue() == VPU::DistributionMode::OVERLAPPED &&
-        origReshapeInType.getShape().size() != rank4D && origReshapeInType.getShape().size() != rank5D) {
-        return mlir::failure();
-    }
-
-    auto axesMapping = getDistributedAxesMapping.value();
-    if (axesMapping.first == -1 || axesMapping.second == -1) {
-        return mlir::failure();
-    }
-    auto newDistributedBeforeShapeChange = vpux::VPUIP::changeDistributedAxisOnDistributionInfoAttr(
-            origDistrAttr, axesMapping.first, axesMapping.second, origReshapeInType.getShape());
     auto ctx = copyOp->getContext();
-    const auto newOutputElemType = origReshapeInType.getElementType();
-    const auto order = mlir::AffineMapAttr::get(origReshapeInType.getDimsOrder().toAffineMap(ctx));
-    auto newDistributedBufferType =
-            VPUIP::DistributedBufferType::get(ctx, origReshapeInType.getShape().raw(), newOutputElemType, order,
-                                              origDistrType.getMemSpace(), newDistributedBeforeShapeChange);
-    if (!VPUIP::isDistributedCompatibleAfterShapeChangeForViewOps<VPUIP::DistributedBufferType>(
-                origDistrType, newDistributedBufferType)) {
-        return mlir::failure();
-    }
-    outBuffer.setType(newDistributedBufferType);
 
-    auto newDistributedOp = rewriter.create<VPUIP::CopyOp>(copyOp->getLoc(), copyOpInput, outBuffer);
-    VPUIP::moveRootAllocBefore(outBufAlloc, newDistributedOp);
-    rewriter.replaceOpWithNewOp<VPUIP::GenericReshapeOp>(userClusterCopyOp, origDistrType,
-                                                         newDistributedOp->getResult(0));
+    // ========== Distribution inference helper ==========
+    // Infer distribution through view-like op from sourceType to targetType
+    // Backward: call with (viewOutputType, viewInputType, outputDistType)
+    // Forward:  call with (viewInputType, viewOutputType, inputDistType)
+    auto inferDistributionThroughViewLikeOp =
+            [&](mlir::Operation* viewLikeOp, vpux::NDTypeInterface sourceType, vpux::NDTypeInterface targetType,
+                VPUIP::DistributedBufferType sourceDistributedType) -> mlir::FailureOr<VPU::DistributionInfoAttr> {
+        auto viewInputType = mlir::cast<vpux::NDTypeInterface>(viewLikeOp->getOperand(0).getType());
+
+        if (auto permuteCastOp = mlir::dyn_cast<VPUIP::PermuteCastOp>(viewLikeOp)) {
+            auto perm = permuteCastOp.getMemPerm();
+            bool isForward = (sourceType == viewInputType);
+            // Use inverse perm for backward (source is output), forward perm for forward (source is input)
+            auto effectivePerm = isForward ? perm : mlir::inversePermutation(perm);
+            return VPU::applyPermutationOnDistributionInfoAttr(sourceDistributedType, effectivePerm,
+                                                               sourceType.getDimsOrder(), targetType.getDimsOrder(),
+                                                               sourceType.getShape(), targetType.getShape());
+        } else if (mlir::isa<VPUIP::GenericReshapeOp, VPUIP::ShapeCastOp>(viewLikeOp)) {
+            // Distributed Overlapped mode only support rank 4D/5D
+            const int rank4D = 4;
+            const int rank5D = 5;
+            auto sourceDistribution = sourceDistributedType.getDistribution();
+            const auto mode = sourceDistribution.getMode().getValue();
+            const auto sourceShape = sourceType.getShape();
+            const auto targetShape = targetType.getShape();
+            if (mode == VPU::DistributionMode::OVERLAPPED && targetShape.size() != rank4D &&
+                targetShape.size() != rank5D) {
+                return mlir::failure();
+            }
+
+            // Currently, there are different ways to get new distribution info for reshape, they are not equivalent and
+            // have some restrictions respectively. If further codes have been refactored, clean the following codes.
+            const auto arch = config::getArch(copyOp.getOperation());
+            const auto isDistributedCompatible =
+                    VPUIP::isDistributedCompatibleAfterShapeChangeForViewOps<VPUIP::DistributedBufferType>(
+                            sourceDistributedType, targetShape, targetType.getDimsOrder(), arch);
+            if (isDistributedCompatible) {
+                if (mode == VPU::DistributionMode::SEGMENTED) {
+                    return VPUIP::getSegmentedDistAttrWithNewShape(ctx, sourceDistributedType, targetShape,
+                                                                   targetType.getDimsOrder(), arch);
+                } else if (mode == VPU::DistributionMode::OVERLAPPED) {
+                    return VPUIP::getOverlappedDistAttrWithNewShape(ctx, sourceDistributedType, targetShape);
+                }
+            }
+
+            auto getDistributedAxesMapping = vpux::VPUIP::getDistributedAxesMappingAfterShapeChanged(
+                    sourceDistributedType, targetShape, targetType.getDimsOrder(), sourceDistribution, log);
+            if (mlir::failed(getDistributedAxesMapping)) {
+                return mlir::failure();
+            }
+
+            auto axesMapping = getDistributedAxesMapping.value();
+            const auto sourceAxis = axesMapping.first;
+            const auto targetAxis = axesMapping.second;
+            if (sourceAxis == -1 || targetAxis == -1) {
+                return mlir::failure();
+            }
+            if (sourceAxis == targetAxis && sourceShape[Dim(sourceAxis)] != targetShape[Dim(targetAxis)]) {
+                return mlir::failure();
+            }
+
+            const auto newDistributionInfoAttr = vpux::VPUIP::changeDistributedAxisOnDistributionInfoAttr(
+                    sourceDistribution, sourceAxis, targetAxis, targetShape);
+            auto ctx = copyOp->getContext();
+            const auto newOutputElemType = targetType.getElementType();
+            const auto order = mlir::AffineMapAttr::get(targetType.getDimsOrder().toAffineMap(ctx));
+            auto newDistributedBufferType =
+                    VPUIP::DistributedBufferType::get(ctx, targetShape.raw(), newOutputElemType, order,
+                                                      sourceDistributedType.getMemSpace(), newDistributionInfoAttr);
+            // Currently, ShapeCast and GenericReshape have different restrictions on distribution compatibility after
+            // shape change, so need to check them separately here. Need further code refactor.
+            if ((mlir::isa<VPUIP::GenericReshapeOp>(viewLikeOp) &&
+                 VPUIP::isDistributedCompatibleAfterShapeChangeForViewOps<VPUIP::DistributedBufferType>(
+                         sourceDistributedType, newDistributedBufferType)) ||
+                (mlir::isa<VPUIP::ShapeCastOp>(viewLikeOp) &&
+                 VPUIP::isDistributedCompatibleAfterShapeChangeForViewOps<VPUIP::DistributedBufferType>(
+                         sourceDistributedType, targetShape, targetType.getDimsOrder(), arch))) {
+                return newDistributionInfoAttr;
+            }
+
+            return mlir::failure();
+        }
+
+        return mlir::failure();
+    };
+
+    // Prepare starting distribution for backward inference
+    // If mode adjustment is needed, change output distribution mode to SEGMENTED
+    auto backwardStartDistribution = origDistrType.getDistribution();
+
+    // Backward inference: traverse viewLikeOps in reverse to derive all distributed types
+    // distributedTypes[0] = copy1 output type (first viewLikeOp's input)
+    // distributedTypes[i+1] = viewLikeOps[i]'s output type
+    SmallVector<VPUIP::DistributedBufferType> distributedTypes(viewLikeOps.size() + 1);
+
+    // Initialize the last element with the (adjusted) output distribution
+    auto lastViewOpOutputType = mlir::cast<vpux::NDTypeInterface>(viewLikeOps.back()->getResult(0).getType());
+    auto lastOrder = mlir::AffineMapAttr::get(lastViewOpOutputType.getDimsOrder().toAffineMap(ctx));
+    distributedTypes.back() = VPUIP::DistributedBufferType::get(ctx, lastViewOpOutputType.getShape().raw(),
+                                                                lastViewOpOutputType.getElementType(), lastOrder,
+                                                                origDistrType.getMemSpace(), backwardStartDistribution);
+
+    // Track if mode changed during backward inference, i.e. PermuteCast may transform overlapped to segmented
+    bool modeChangedDuringBackward = false;
+    // Backward traverse: for each viewLikeOp, derive its input type from its output type
+    for (int64_t i = static_cast<int64_t>(viewLikeOps.size()) - 1; i >= 0; --i) {
+        auto viewLikeOp = viewLikeOps[i];
+        auto viewInputType = mlir::cast<vpux::NDTypeInterface>(viewLikeOp->getOperand(0).getType());
+        auto viewOutputType = mlir::cast<vpux::NDTypeInterface>(viewLikeOp->getResult(0).getType());
+
+        // Backward: source=output, target=input
+        auto inputDistribution =
+                inferDistributionThroughViewLikeOp(viewLikeOp, viewOutputType, viewInputType, distributedTypes[i + 1]);
+        if (mlir::failed(inputDistribution)) {
+            return mlir::failure();
+        }
+
+        auto inputOrderAttr = mlir::AffineMapAttr::get(viewInputType.getDimsOrder().toAffineMap(ctx));
+        distributedTypes[i] = VPUIP::DistributedBufferType::get(ctx, viewInputType.getShape().raw(),
+                                                                viewInputType.getElementType(), inputOrderAttr,
+                                                                origDistrType.getMemSpace(), inputDistribution.value());
+        if (!modeChangedDuringBackward) {
+            // Check if output mode of this viewLikeOp differs from its input mode
+            auto outputMode = distributedTypes[i + 1].getDistribution().getMode().getValue();
+            auto inputMode = distributedTypes[i].getDistribution().getMode().getValue();
+            if (outputMode != inputMode) {
+                modeChangedDuringBackward = true;
+            }
+        }
+    }
+
+    // If mode changed during backward inference, we need to forward propagate
+    // from distributedTypes[0] to get consistent types
+    // Because current overlapped clusterd tiling only support on H/W, when it's equal to segmented, it will be casted.
+    // e.g. overlapped -> ViewLikeOp1 -> ViewLikeOp2 -> overlapped
+    // after back infer, overlapped -> segmented -> overlapped -> ViewLikeOp1 -> ViewLikeOp2
+    // however, segmented will forward infer to segmented
+    if (modeChangedDuringBackward) {
+        for (size_t j = 0; j < viewLikeOps.size(); ++j) {
+            auto fwdViewLikeOp = viewLikeOps[j];
+            auto fwdViewInputType = mlir::cast<vpux::NDTypeInterface>(fwdViewLikeOp->getOperand(0).getType());
+            auto fwdViewOutputType = mlir::cast<vpux::NDTypeInterface>(fwdViewLikeOp->getResult(0).getType());
+
+            // Forward: source=input, target=output
+            auto outputDistribution = inferDistributionThroughViewLikeOp(fwdViewLikeOp, fwdViewInputType,
+                                                                         fwdViewOutputType, distributedTypes[j]);
+            if (mlir::failed(outputDistribution)) {
+                return mlir::failure();
+            }
+
+            auto outputOrderAttr = mlir::AffineMapAttr::get(fwdViewOutputType.getDimsOrder().toAffineMap(ctx));
+            distributedTypes[j + 1] = VPUIP::DistributedBufferType::get(
+                    ctx, fwdViewOutputType.getShape().raw(), fwdViewOutputType.getElementType(), outputOrderAttr,
+                    origDistrType.getMemSpace(), outputDistribution.value());
+        }
+    }
+
+    // distributedTypes[0] is now the startDistrType (copy1 output type)
+    auto finalInferredType = distributedTypes.back();
+    // Need DistributedCast if we adjusted mode (SEGMENTED -> original mode) or types differ
+    bool needDistributedCast = (finalInferredType != origDistrType);
+    if (needDistributedCast) {
+        // Check if the types are compatible for DistributedCast
+        if (mlir::failed(VPU::isDistributedCastCompatible(finalInferredType, origDistrType))) {
+            return mlir::failure();
+        }
+    }
+
+    // Create a new allocation for the new distributed copy output
+    // Cannot reuse outBuffer because shape may differ (viewLikeOps change shape)
+    rewriter.setInsertionPoint(copyOp);
+    auto newAllocDistributed =
+            rewriter.create<VPURT::AllocDistributed>(copyOp->getLoc(), distributedTypes.front(), nullptr, nullptr);
+
+    auto newDistributedOp =
+            rewriter.create<VPUIP::CopyOp>(copyOp->getLoc(), copyOpInput, newAllocDistributed.getResult());
+    mlir::Value newOutput = newDistributedOp->getResult(0);
+    rewriter.setInsertionPointAfter(newDistributedOp);
+    for (auto viewLikeOp : viewLikeOps | indexed) {
+        mlir::IRMapping mapper;
+        mapper.map(viewLikeOp.value()->getOperand(0), newOutput);
+        auto* newViewLikeOp = rewriter.clone(*viewLikeOp.value(), mapper);
+        rewriter.modifyOpInPlace(newViewLikeOp, [&]() {
+            newViewLikeOp->getResult(0).setType(distributedTypes[viewLikeOp.index() + 1]);
+        });
+        newOutput = newViewLikeOp->getResult(0);
+        rewriter.setInsertionPointAfter(newViewLikeOp);
+    }
+
+    if (needDistributedCast) {
+        auto distributedCast =
+                rewriter.create<VPUIP::DistributedCastOp>(userClusterCopyOp->getLoc(), origDistrType, newOutput);
+        newOutput = distributedCast.getResult();
+    }
+
+    rewriter.replaceOp(userClusterCopyOp, newOutput);
+    // Replace all uses of outBufAlloc with newOutput before erasing
+    rewriter.replaceAllUsesWith(outBufAlloc->getResult(0), newOutput);
+    rewriter.eraseOp(outBufAlloc);
+    for (auto it = viewLikeOps.rbegin(); it != viewLikeOps.rend(); ++it) {
+        rewriter.eraseOp(*it);
+    }
     auto origAlloc = VPUIP::getRootAlloc<mlir::memref::AllocOp>(copyOp.getOutputBuff());
-    copyOp.getOutput().replaceAllUsesWith(newDistributedOp.getResult());
     rewriter.eraseOp(copyOp);
-    rewriter.eraseOp(origAlloc);
-    log.trace("Successfully fused copies through reshape");
+    if (origAlloc != nullptr) {
+        rewriter.eraseOp(origAlloc);
+    }
+    log.trace("Successfully fused copies through view-like ops");
     return mlir::success();
 }
 
@@ -2761,23 +3012,32 @@ public:
             : mlir::OpRewritePattern<VPUIP::CopyOp>(ctx, benefit), log(log) {
     }
 
+    enum class OutputBuffPattern { INVALID, ONE_CONSUMER, IN_PLACE_ELTWISE };
+
+    struct SubviewPattern {
+        VPUIP::SubViewOp subviewOp;
+        mlir::Operation* reshapeOp{};
+        bool hasInPlaceEltwise = false;
+    };
+
 public:
     mlir::LogicalResult matchAndRewrite(VPUIP::CopyOp origOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
     bool hasTrivialStrides(vpux::NDTypeInterface ndType) const;
     SmallVector<int64_t> trimTrivialDims(vpux::NDTypeInterface ndType) const;
-    bool isTrivialCopy(vpux::NDTypeInterface inType, vpux::NDTypeInterface outType) const;
-    mlir::Value getSuitableSubViewPattern(VPUIP::CopyOp origOp, vpux::Logger log) const;
+    bool isCompactSubview(vpux::NDTypeInterface inType, vpux::NDTypeInterface outType) const;
+    std::optional<SubviewPattern> getSuitableSubViewPattern(VPUIP::CopyOp copyOp) const;
+    OutputBuffPattern getOutputBuffPatternType(VPUIP::CopyOp copyOp) const;
 
     Logger log;
 };
 
 bool SubViewWithCopy::hasTrivialStrides(vpux::NDTypeInterface ndType) const {
     const auto elemTypeBitWidth = ndType.getElemTypeSize();
-    const auto actStrides = ndType.getStrides();
+    const auto actStrides = ndType.getMemStrides();
     for (size_t i = 1; i < actStrides.size(); i++) {
-        if (actStrides[Dim(i)] != elemTypeBitWidth) {
+        if (actStrides[MemDim(i)] != elemTypeBitWidth) {
             return false;
         }
     }
@@ -2785,9 +3045,72 @@ bool SubViewWithCopy::hasTrivialStrides(vpux::NDTypeInterface ndType) const {
     return true;
 }
 
+SubViewWithCopy::OutputBuffPattern SubViewWithCopy::getOutputBuffPatternType(VPUIP::CopyOp copyOp) const {
+    auto copyOutputRootBuff = VPUIP::getRootBuffer(copyOp.getOutputBuff());
+    auto nestedLog = log.nest();
+
+    // DFS through ViewOp/ShapeCastOp chains to find an in-place eltwise NCEClusterTaskOp that
+    // uses copyOutputRootBuff as its output buffer.
+    // Intermediate ViewOp/ShapeCastOp nodes must have exactly one use so the chain is unambiguous.
+    // If copyOutputRootBuff has an in-place eltwise user, it must have exactly one other user
+    // (the CopyOp itself); more users make the pattern too complex to transform.
+    std::function<std::optional<VPUIP::NCEClusterTaskOp>(mlir::Operation*)> dfs =
+            [&](mlir::Operation* op) -> std::optional<VPUIP::NCEClusterTaskOp> {
+        if (auto nceOp = mlir::dyn_cast<VPUIP::NCEClusterTaskOp>(op)) {
+            if (nceOp.getTaskType() == VPUIP::NCETaskType::ELTWISE && nceOp.getIsInplace().value_or(false)) {
+                auto nceOutRootBuff = VPUIP::getRootBuffer(nceOp.getOutputBuff());
+                if (nceOutRootBuff == copyOutputRootBuff) {
+                    return nceOp;
+                }
+            }
+            return std::nullopt;
+        }
+
+        if (!mlir::isa<VPUIP::ViewOp, VPUIP::ShapeCastOp>(op)) {
+            return std::nullopt;
+        }
+
+        if (!VPUIP::hasOneDistinctUser(op)) {
+            // ViewOp/ShapeCastOp must have exactly one use to avoid complex aliasing.
+            nestedLog.trace("ViewOp/ShapeCastOp '{0}' has no use or more one, skipping DFS branch.", op->getName());
+            return std::nullopt;
+        }
+
+        return dfs(*op->getUsers().begin());
+    };
+
+    VPUIP::NCEClusterTaskOp inPlaceEltwise = nullptr;
+    for (auto* rootBuffUser : copyOutputRootBuff.getUsers()) {
+        // Skip the CopyOp itself — it is the op being pattern-matched.
+        if (rootBuffUser == copyOp.getOperation()) {
+            continue;
+        }
+
+        auto result = dfs(rootBuffUser);
+
+        // If an in-place eltwise was found, copyOutputRootBuff must have exactly two users:
+        // the CopyOp and the in-place eltwise (possibly through a ViewOp/ShapeCastOp chain).
+        // More users introduce aliases that cannot be safely resolved.
+        if (!result.has_value()) {
+            nestedLog.trace("Copy op shares output buffer with another operation. Eliminating CopyOp may not be valid. "
+                            "Pattern will not be optimized.");
+            return OutputBuffPattern::INVALID;
+        }
+
+        if (inPlaceEltwise != nullptr && inPlaceEltwise != result.value()) {
+            nestedLog.trace("Copy op shares output buffer with more than one in-place "
+                            "NCE.ClusterTask<ELTWISE>. Pattern will not be optimized.");
+            return OutputBuffPattern::INVALID;
+        }
+
+        inPlaceEltwise = result.value();
+    }
+
+    return inPlaceEltwise != nullptr ? OutputBuffPattern::IN_PLACE_ELTWISE : OutputBuffPattern::ONE_CONSUMER;
+}
+
 SmallVector<int64_t> SubViewWithCopy::trimTrivialDims(vpux::NDTypeInterface ndType) const {
-    const auto order = ndType.getDimsOrder();
-    const auto shape = order.toMemoryOrder(ndType.getShape());
+    const auto shape = ndType.getMemShape();
     const auto isTrivialDim = [](const int64_t dim) -> bool {
         return dim != 1;
     };
@@ -2795,7 +3118,13 @@ SmallVector<int64_t> SubViewWithCopy::trimTrivialDims(vpux::NDTypeInterface ndTy
     return SmallVector<int64_t>(firstNonTrivialDim, shape.end());
 }
 
-bool SubViewWithCopy::isTrivialCopy(vpux::NDTypeInterface inType, vpux::NDTypeInterface outType) const {
+// This check must be less strict.
+// The rewriter must be able to process copies of 3-d compact (non-strided) tensors.
+// However, the measurements show that the performance is even worse in that case.
+// The root cause is unclear. Once it is identified, isEffectivelyStrided could be
+// used on Subview output type.
+// [Track number: E#139988]
+bool SubViewWithCopy::isCompactSubview(vpux::NDTypeInterface inType, vpux::NDTypeInterface outType) const {
     const auto inMemShape = trimTrivialDims(inType);
     const auto outMemShape = trimTrivialDims(outType);
 
@@ -2811,45 +3140,115 @@ bool SubViewWithCopy::isTrivialCopy(vpux::NDTypeInterface inType, vpux::NDTypeIn
     return hasTrivialStrides(inType) && hasTrivialStrides(outType);
 }
 
-mlir::Value SubViewWithCopy::getSuitableSubViewPattern(VPUIP::CopyOp copyOp, vpux::Logger log) const {
-    auto maybeSubView = copyOp.getInput().getDefiningOp<VPUIP::SubViewOp>();
-    if (maybeSubView == nullptr) {
-        log.trace("SubViewWithCopy::getSuitableSubViewPattern: input producer is not a SubView.");
-        return nullptr;
+std::optional<SubViewWithCopy::SubviewPattern> SubViewWithCopy::getSuitableSubViewPattern(VPUIP::CopyOp copyOp) const {
+    auto nestedLog = log.nest();
+    auto subviewOp = copyOp.getInput().getDefiningOp<VPUIP::SubViewOp>();
+    mlir::Operation* reshapeOp = nullptr;
+    if (subviewOp == nullptr) {
+        reshapeOp = copyOp.getInput().getDefiningOp();
+        if (!mlir::isa_and_present<VPUIP::GenericReshapeOp, VPUIP::ShapeCastOp>(reshapeOp)) {
+            nestedLog.trace("SubViewWithCopy::getSuitableSubViewPattern: input producer is not "
+                            "SubView/GenericReshape/ShapeCast.");
+            return std::nullopt;
+        }
+
+        subviewOp = reshapeOp->getOperand(0).getDefiningOp<VPUIP::SubViewOp>();
+        if (subviewOp == nullptr) {
+            nestedLog.trace(
+                    "SubViewWithCopy::getSuitableSubViewPattern: cannot find SubView producer in the view-like op "
+                    "chain.");
+            return std::nullopt;
+        }
+
+        nestedLog.trace("SubViewWithCopy::getSuitableSubViewPattern: Found Subview -> (ReshapeOp) -> Copy pattern.");
     }
 
-    auto inType = mlir::cast<vpux::NDTypeInterface>(maybeSubView.getSource().getType());
-    auto outType = mlir::cast<vpux::NDTypeInterface>(maybeSubView.getResult().getType());
-    // This check must be less strict.
-    // The rewriter must be able to process copies of 3-d compact (non-strided) tensors.
-    // However, the measurements show that the performance is even worse in that case.
-    // The root cause is unclear.
-    // [Track number: E#139988]
-    if (!isTrivialCopy(inType, outType)) {
-        log.trace("SubViewWithCopy::getSuitableSubViewPattern: strided copies cannot be replaced with a "
-                  "ViewOp.");
-        return nullptr;
+    auto inType = mlir::cast<vpux::NDTypeInterface>(subviewOp.getSource().getType());
+    auto outType = mlir::cast<vpux::NDTypeInterface>(subviewOp.getResult().getType());
+    if (!isCompactSubview(inType, outType)) {
+        nestedLog.trace("SubViewWithCopy::getSuitableSubViewPattern: strided copies cannot be replaced with a "
+                        "ViewOp.");
+        return std::nullopt;
     }
 
     const auto inputType = mlir::cast<vpux::NDTypeInterface>(copyOp.getInput().getType());
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(copyOp.getOutput().getType());
     if (inputType.getMemSpace() != outputType.getMemSpace()) {
-        log.trace("SubViewWithCopy::getSuitableSubViewPattern: CMX <-> DRAM transfers cannot be replaced "
-                  "with a ViewOp.");
-        return nullptr;
+        nestedLog.trace("SubViewWithCopy::getSuitableSubViewPattern: CMX <-> DRAM transfers cannot be replaced "
+                        "with a ViewOp.");
+        return std::nullopt;
     }
 
-    return maybeSubView.getResult();
+    if (VPUIP::hasDistributedOperand(copyOp)) {
+        nestedLog.trace("SubViewWithCopy::getSuitableSubViewPattern: CopyOp has distributed operand.");
+        return std::nullopt;
+    }
+
+    if (VPUIP::isEffectivelyStrided(outputType)) {
+        nestedLog.trace("SubViewWithCopy::getSuitableSubViewPattern: Copy op output is strided, cannot be replaced "
+                        "with a ViewOp.");
+        return std::nullopt;
+    }
+
+    // eltwiseInPlaceUser may have 3 values:
+    // * std::nullopt -> CopyOp's output_buff is part of a complex pattern and cannot be safely optimized
+    // * nullptr -> there is no in-place Eltwise user of CopyOp's output_buff, but pattern is valid
+    // * an NCEClusterTask<ELTWISE> op -> pattern is valid; when replacing Copy we must take care to update in-place
+    //                                    eltwise's output_buff as well
+    auto outputBuffPattern = getOutputBuffPatternType(copyOp);
+    if (outputBuffPattern == OutputBuffPattern::INVALID) {
+        nestedLog.trace("SubViewWithCopy::getSuitableSubViewPattern: CopyOp's output_buff has other, invalid, users. "
+                        "Transformation cannot be done safely.");
+        return std::nullopt;
+    }
+
+    SubViewWithCopy::SubviewPattern pattern;
+    pattern.subviewOp = subviewOp;
+    pattern.reshapeOp = reshapeOp;
+    pattern.hasInPlaceEltwise = outputBuffPattern == OutputBuffPattern::IN_PLACE_ELTWISE;
+    return pattern;
 }
 
 mlir::LogicalResult SubViewWithCopy::matchAndRewrite(VPUIP::CopyOp origOp, mlir::PatternRewriter& rewriter) const {
-    auto nestedLogger = log.nest();
-    auto value = getSuitableSubViewPattern(origOp, nestedLogger);
-    if (value == nullptr) {
+    log.trace("SubviewWithCopy: Found CopyOp at {0}", origOp->getLoc());
+    auto pattern = getSuitableSubViewPattern(origOp);
+    if (!pattern.has_value()) {
         return mlir::failure();
     }
-    rewriter.replaceOpWithNewOp<VPUIP::ViewOp>(origOp, origOp.getType(), value);
 
+    auto [subviewOp, reshapeOp, hasInPlaceEltwise] = pattern.value();
+
+    auto copyOutputRootBuff = VPUIP::getRootBuffer(origOp.getOutputBuff());
+    if (reshapeOp == nullptr) {
+        auto viewOp = rewriter.replaceOpWithNewOp<VPUIP::ViewOp>(origOp, origOp.getType(), subviewOp.getResult());
+        if (hasInPlaceEltwise) {
+            rewriter.replaceUsesWithIf(copyOutputRootBuff, viewOp->getResult(0), [&](mlir::OpOperand& opOperand) {
+                return opOperand.getOwner() != origOp;
+            });
+        }
+        log.trace("SubViewWithCopy: Replaced with ViewOp.");
+        return mlir::success();
+    }
+
+    const auto subviewOutShape = getShape(subviewOp.getResult());
+    auto viewOpType = mlir::cast<NDTypeInterface>(origOp.getType()).changeShape(subviewOutShape);
+    mlir::Operation* viewOp = rewriter.create<VPUIP::ViewOp>(origOp->getLoc(), viewOpType, subviewOp.getResult());
+    auto replacementOp = viewOp;
+
+    mlir::IRMapping mapping;
+    mapping.map(reshapeOp->getOperand(0), viewOp->getResult(0));
+    replacementOp = rewriter.clone(*reshapeOp, mapping);
+    rewriter.modifyOpInPlace(replacementOp, [&]() {
+        replacementOp->getResult(0).setType(origOp.getType());
+    });
+
+    rewriter.replaceOp(origOp, replacementOp->getResults());
+    if (hasInPlaceEltwise) {
+        rewriter.replaceUsesWithIf(copyOutputRootBuff, replacementOp->getResult(0), [&](mlir::OpOperand& opOperand) {
+            return opOperand.getOwner() != origOp;
+        });
+    }
+    log.trace("SubViewWithCopy: Replaced with ViewOp.");
     return mlir::success();
 }
 
@@ -2879,18 +3278,14 @@ DistributedCopy(CMX2CMX)
 
 class CopyOpSequenceWithSubview final : public mlir::OpRewritePattern<VPUIP::CopyOp> {
 public:
-    CopyOpSequenceWithSubview(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit,
-                              WorkloadManagementMode workloadManagementMode, Logger log)
-            : mlir::OpRewritePattern<VPUIP::CopyOp>(ctx, benefit),
-              _workloadManagementMode(workloadManagementMode),
-              log(log) {
+    CopyOpSequenceWithSubview(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
+            : mlir::OpRewritePattern<VPUIP::CopyOp>(ctx, benefit), log(log) {
     }
 
 public:
     mlir::LogicalResult matchAndRewrite(VPUIP::CopyOp copyOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
-    WorkloadManagementMode _workloadManagementMode = WorkloadManagementMode::PWLM_V0_1_PAGES;
     Logger log;
 };
 
@@ -2899,7 +3294,8 @@ mlir::LogicalResult CopyOpSequenceWithSubview::matchAndRewrite(VPUIP::CopyOp cop
     log.trace("CopyOpSequenceWithSubview: Copy at {0}", copyOp->getLoc());
     auto nestedLogger = log.nest();
 
-    if (_workloadManagementMode == WorkloadManagementMode::PWLM_V0_1_PAGES) {
+    // Avoid performance regressions on VPUX3xxx
+    if (config::isArchVPUX3XXX(config::getArch(copyOp))) {
         return mlir::failure();
     }
 
@@ -3118,9 +3514,16 @@ mlir::LogicalResult GatherDMAWithSubview::matchAndRewrite(VPUIP::GatherDMAOp gat
         newIndicesShape[SUPPORTED_AXIS] = sizeArray.front();
 
         const auto origDistribution = indicesDistributedType.getDistribution();
+        // Use the output distribution's alignment for indices so that per-cluster
+        // indices dim-0 sizes match per-cluster output dim-0 sizes.  The output
+        // type (copyOutDistributedType) may carry an alignment (e.g. [16,1,1,1])
+        // inherited from a downstream NCE Conv, while the original indices type
+        // has no alignment.  Mismatched sizes cause the DMA composer to compute a
+        // non-byte-aligned NF4 element size (e.g. 773*4 = 3092 bits).
+        const auto outDistribution = copyOutDistributedType.getDistribution();
         auto newDistributedAttr = VPU::getNonOverlappedDistributedAttr(
                 newIndicesShape, origDistribution.getMode(), origDistribution.getNumTiles(),
-                origDistribution.getNumClusters(), origDistribution.getAlignment(),
+                origDistribution.getNumClusters(), outDistribution.getAlignment(),
                 origDistribution.getUniformDistributedSegments(), indicesDistributedType.getElementType(),
                 gatherDMAOp->getContext());
 
@@ -3177,13 +3580,11 @@ mlir::LogicalResult GatherDMAWithSubview::matchAndRewrite(VPUIP::GatherDMAOp gat
 
 class OptimizeCopiesPass final : public VPUIP::impl::OptimizeCopiesBase<OptimizeCopiesPass> {
 public:
-    explicit OptimizeCopiesPass(const WorkloadManagementMode workloadManagementMode, Logger log)
-            : _workloadManagementMode(workloadManagementMode) {
+    explicit OptimizeCopiesPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
-    WorkloadManagementMode _workloadManagementMode = WorkloadManagementMode::PWLM_V0_1_PAGES;
     void safeRunOnFunc() final;
 };
 
@@ -3195,14 +3596,10 @@ void OptimizeCopiesPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
 
-    if (workloadManagementModeOpt.hasValue()) {
-        _workloadManagementMode = workloadManagementModeOpt;
-    }
-
     // Note the below patterns exec order is defined by "benefitLevels" at the head
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<RemoveUnusedCopyOp>(&ctx, benefitLevels[0], _log);
-    patterns.add<CopyOpSequence>(&ctx, benefitLevels[0], _workloadManagementMode, _log);
+    patterns.add<CopyOpSequence>(&ctx, benefitLevels[0], _log);
     patterns.add<CMXToCMXCopy>(&ctx, benefitLevels[1], _log);
     patterns.add<DDRToDDRCopy>(&ctx, benefitLevels[2], _log);
     patterns.add<ConcatViewWithCopy>(&ctx, benefitLevels[3], _log);
@@ -3220,8 +3617,7 @@ void OptimizeCopiesPass::safeRunOnFunc() {
     // Please note that the following optimization must be applied after the above patterns, as some condition checks
     // depend on the results of the previous optimizations. For example, determining if a buffer has a stride.
     mlir::RewritePatternSet patternsCopyOpSequenceWithSubview(&ctx);
-    patternsCopyOpSequenceWithSubview.add<CopyOpSequenceWithSubview>(&ctx, benefitLevels[0], _workloadManagementMode,
-                                                                     _log);
+    patternsCopyOpSequenceWithSubview.add<CopyOpSequenceWithSubview>(&ctx, benefitLevels[0], _log);
     patternsCopyOpSequenceWithSubview.add<GatherDMAWithSubview>(&ctx, benefitLevels[1], _log);
     if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patternsCopyOpSequenceWithSubview),
                                                  getDefaultGreedyRewriteConfig()))) {
@@ -3231,10 +3627,9 @@ void OptimizeCopiesPass::safeRunOnFunc() {
 
 }  // namespace
 
-void vpux::VPUIP::registerOptimizeCopiesRewriters(vpux::RewriterRegistry& registry,
-                                                  WorkloadManagementMode workloadManagementMode, Logger log) {
+void vpux::VPUIP::registerOptimizeCopiesRewriters(vpux::RewriterRegistry& registry, Logger log) {
     registry.registerRewriter<RemoveUnusedCopyOp>("remove-unused-copy", benefitLevels[0], log);
-    registry.registerRewriter<CopyOpSequence>("copy-sequence", benefitLevels[0], workloadManagementMode, log);
+    registry.registerRewriter<CopyOpSequence>("copy-sequence", benefitLevels[0], log);
     registry.registerRewriter<CMXToCMXCopy>("cmx-to-cmx", benefitLevels[1], log);
     registry.registerRewriter<DDRToDDRCopy>("ddr-to-ddr", benefitLevels[2], log);
     registry.registerRewriter<ConcatViewWithCopy>("concat-view-copy", benefitLevels[3], log);
@@ -3245,26 +3640,24 @@ void vpux::VPUIP::registerOptimizeCopiesRewriters(vpux::RewriterRegistry& regist
     registry.registerRewriter<DuplicatedCopyWithCMXCopy>("duplicated-copy-cmx-copy", benefitLevels[3], log);
     registry.registerRewriter<FuseCopiesThroughReshape>("fuse-copies-through-reshape", benefitLevels[3], log);
     registry.registerRewriter<SubViewWithCopy>("subview-copy", benefitLevels[3], log);
-    registry.registerRewriter<CopyOpSequenceWithSubview>("copy-op-sequence-with-subview", benefitLevels[0],
-                                                         workloadManagementMode, log);
+    registry.registerRewriter<CopyOpSequenceWithSubview>("copy-op-sequence-with-subview", benefitLevels[0], log);
     registry.registerRewriter<GatherDMAWithSubview>("gather-dma-with-subview", benefitLevels[1], log);
 }
 
 void vpux::VPUIP::registerOptimizeCopiesSection(vpux::RewriterRegistry& registry) {
     registry.registerRewriterSet(
             "optimize-copies-set",
-            [&](WorkloadManagementMode workloadManagementMode, Logger log) {
-                registerOptimizeCopiesRewriters(registry, workloadManagementMode, log);
+            [&](Logger log) {
+                registerOptimizeCopiesRewriters(registry, log);
             },
             // E-184017: Support testing different arguments in cmd line
-            WorkloadManagementMode::PWLM_V0_1_PAGES, Logger("OptimizeCopies", LogLevel::Trace));
+            Logger("OptimizeCopies", LogLevel::Trace));
 }
 
 //
 // createOptimizeCopiesPass
 //
 
-std::unique_ptr<mlir::Pass> vpux::VPUIP::createOptimizeCopiesPass(WorkloadManagementMode workloadManagementMode,
-                                                                  Logger log) {
-    return std::make_unique<OptimizeCopiesPass>(workloadManagementMode, log);
+std::unique_ptr<mlir::Pass> vpux::VPUIP::createOptimizeCopiesPass(Logger log) {
+    return std::make_unique<OptimizeCopiesPass>(log);
 }

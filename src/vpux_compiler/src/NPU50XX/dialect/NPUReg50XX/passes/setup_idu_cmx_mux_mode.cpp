@@ -12,8 +12,6 @@
 #include "vpux/compiler/utils/passes.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
-#include <npu_40xx_nnrt.hpp>
-
 namespace vpux::NPUReg50XX {
 #define GEN_PASS_DECL_SETUPIDUCMXMUXMODE
 #define GEN_PASS_DEF_SETUPIDUCMXMUXMODE
@@ -21,7 +19,6 @@ namespace vpux::NPUReg50XX {
 }  // namespace vpux::NPUReg50XX
 
 using namespace vpux;
-using namespace npu40xx;
 
 namespace {
 //

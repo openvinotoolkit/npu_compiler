@@ -353,10 +353,10 @@ func.func @NotAdjustForNCEPermuteWithNonDivisibleSpatialShape(%arg0: tensor<1x10
 // CHECK-SAME:    [[INPUT1:%.+]]: tensor<12x64x80x1x1xf16, {order = #GNHWC}>
 func.func @LowerMatMulToNCEAndBalanceOddHW(%arg0: tensor<12x1x80x77x1xf16, {order = #GNHWC}>, %arg1: tensor<12x64x80x1x1xf16, {order = #GNHWC}>
                                 ) -> tensor<12x1x64x77x1xf16, {order = #GNHWC}> {
-    %0 = VPU.NCE.MatMul(%arg0, %arg1) {
+    %0 = VPU.NCE.MatMul(%arg0, %arg1) rawFilterShape [12, 64, 80, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                rawFilterShape = [12, 64, 80, 1, 1], strides = [1, 1]
+                 strides = [1, 1]
             } -> tensor<12x1x64x77x1xf16, {order = #GNHWC}>
 
     return %0 : tensor<12x1x64x77x1xf16, {order = #GNHWC}>
@@ -365,10 +365,9 @@ func.func @LowerMatMulToNCEAndBalanceOddHW(%arg0: tensor<12x1x80x77x1xf16, {orde
     // CHECK-SAME{LITERAL}:     dim_mapping = [[0], [1], [2], [3, 4], [4]], shape_value = [12, 1, 80, 11, 7]
     // CHECK-SAME:      tensor<12x1x80x77x1xf16, {order = #GNHWC}> -> tensor<12x1x80x11x7xf16, {order = #GNHWC}>
 
-    // CHECK:       [[MATMUL:%.+]] = VPU.NCE.MatMul([[AFFINE_RESHAPE_IN]], [[INPUT1]]) {
+    // CHECK:       [[MATMUL:%.+]] = VPU.NCE.MatMul([[AFFINE_RESHAPE_IN]], [[INPUT1]]) rawFilterShape [12, 64, 80, 1, 1] {
     // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64
     // CHECK-SAME:      ppe = #VPU.PPEStub<>,
-    // CHECK-SAME:      rawFilterShape = [12, 64, 80, 1, 1],
     // CHECK-SAME:      strides = [1, 1]
     // CHECK-SAME:  } -> tensor<12x1x64x11x7xf16, {order = #GNHWC}>
 
@@ -388,10 +387,10 @@ func.func @LowerMatMulToNCEAndBalanceOddHW(%arg0: tensor<12x1x80x77x1xf16, {orde
 // CHECK-SAME:    [[INPUT1:%.+]]: tensor<12x64x80x1x1xf16, {order = #GNHWC}>
 func.func @LowerMatMulToNCEAndBalanceEvenHW(%arg0: tensor<12x1x80x32x1xf16, {order = #GNHWC}>, %arg1: tensor<12x64x80x1x1xf16, {order = #GNHWC}>
                                 ) -> tensor<12x1x64x32x1xf16, {order = #GNHWC}> {
-    %0 = VPU.NCE.MatMul(%arg0, %arg1) {
+    %0 = VPU.NCE.MatMul(%arg0, %arg1) rawFilterShape [12, 64, 80, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 ppe = #VPU.PPEStub<>,
-                rawFilterShape = [12, 64, 80, 1, 1], strides = [1, 1]
+                 strides = [1, 1]
             } -> tensor<12x1x64x32x1xf16, {order = #GNHWC}>
 
     return %0 : tensor<12x1x64x32x1xf16, {order = #GNHWC}>
@@ -400,10 +399,9 @@ func.func @LowerMatMulToNCEAndBalanceEvenHW(%arg0: tensor<12x1x80x32x1xf16, {ord
     // CHECK-SAME{LITERAL}:     dim_mapping = [[0], [1], [2], [3, 4], [4]], shape_value = [12, 1, 80, 8, 4]
     // CHECK-SAME:      tensor<12x1x80x32x1xf16, {order = #GNHWC}> -> tensor<12x1x80x8x4xf16, {order = #GNHWC}>
 
-    // CHECK:       [[MATMUL:%.+]] = VPU.NCE.MatMul([[AFFINE_RESHAPE_IN]], [[INPUT1]]) {
+    // CHECK:       [[MATMUL:%.+]] = VPU.NCE.MatMul([[AFFINE_RESHAPE_IN]], [[INPUT1]]) rawFilterShape [12, 64, 80, 1, 1] {
     // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64
     // CHECK-SAME:      ppe = #VPU.PPEStub<>,
-    // CHECK-SAME:      rawFilterShape = [12, 64, 80, 1, 1],
     // CHECK-SAME:      strides = [1, 1]
     // CHECK-SAME:  } -> tensor<12x1x64x8x4xf16, {order = #GNHWC}>
 
@@ -423,20 +421,19 @@ func.func @LowerMatMulToNCEAndBalanceEvenHW(%arg0: tensor<12x1x80x32x1xf16, {ord
 // CHECK-SAME:    [[INPUT1:%.+]]: tensor<12x64x80x1x1xf16, {order = #GNHWC}>
 func.func @LowerMatMulToNCEAndCannotBalanceHW(%arg0: tensor<12x1x80x17x1xf16, {order = #GNHWC}>, %arg1: tensor<12x64x80x1x1xf16, {order = #GNHWC}>
                                 ) -> tensor<12x1x64x17x1xf16, {order = #GNHWC}> {
-    %0 = VPU.NCE.MatMul(%arg0, %arg1) {
+    %0 = VPU.NCE.MatMul(%arg0, %arg1) rawFilterShape [12, 64, 80, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 ppe = #VPU.PPEStub<>,
-                rawFilterShape = [12, 64, 80, 1, 1], strides = [1, 1]
+                 strides = [1, 1]
             } -> tensor<12x1x64x17x1xf16, {order = #GNHWC}>
 
     return %0 : tensor<12x1x64x17x1xf16, {order = #GNHWC}>
 
     // CHECK-NOT:   VPU.AffineReshape
 
-    // CHECK:       [[MATMUL:%.+]] = VPU.NCE.MatMul([[INPUT0]], [[INPUT1]]) {
+    // CHECK:       [[MATMUL:%.+]] = VPU.NCE.MatMul([[INPUT0]], [[INPUT1]]) rawFilterShape [12, 64, 80, 1, 1] {
     // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64
     // CHECK-SAME:      ppe = #VPU.PPEStub<>,
-    // CHECK-SAME:      rawFilterShape = [12, 64, 80, 1, 1],
     // CHECK-SAME:      strides = [1, 1]
     // CHECK-SAME:  } -> tensor<12x1x64x17x1xf16, {order = #GNHWC}>
 
@@ -530,4 +527,32 @@ func.func @NotAdjustForPerAxisQuantAvgPool(%arg0: tensor<2x32x4x4x!qElemType, {o
     // CHECK-SAME:      } -> tensor<2x32x4x4x!qElemType, {order = #NHWC}>
 
     // CHECK:           return [[AVGPOOL]]
+}
+
+// -----
+
+// CHECK-LABEL:   @AdjustForConvertMultiShaveOptForBatchSize
+// CHECK-SAME:    ([[INPUT:%.+]]: tensor<6144x1x1x1xsi32>)
+func.func @AdjustForConvertMultiShaveOptForBatchSize(%arg0: tensor<6144x1x1x1xsi32>) -> tensor<6144x1x1x1xi64> {
+    %0 = VPU.Convert(%arg0) {dstElemType = i64} : tensor<6144x1x1x1xsi32> -> tensor<6144x1x1x1xi64>
+    return %0 : tensor<6144x1x1x1xi64>
+
+    // CHECK:        [[SHAPECAST_IN:%.+]] = VPU.ShapeCast {shape = [1, 6144, 1, 1]} inputs([[INPUT]] : tensor<6144x1x1x1xsi32>) -> tensor<1x6144x1x1xsi32>
+    // CHECK:        [[CONVERT:%.+]] = VPU.Convert([[SHAPECAST_IN]]) {dstElemType = i64} : tensor<1x6144x1x1xsi32> -> tensor<1x6144x1x1xi64>
+    // CHECK:        [[SHAPECAST_OUT:%.+]] = VPU.ShapeCast {shape = [6144, 1, 1, 1]} inputs([[CONVERT]] : tensor<1x6144x1x1xi64>) -> tensor<6144x1x1x1xi64>
+    // CHECK:        return [[SHAPECAST_OUT]]
+}
+
+// -----
+
+// CHECK-LABEL:   @AdjustForSwishMultiShaveOptForBatchSize
+// CHECK-SAME:    ([[INPUT:%.+]]: tensor<8x768x1x1xf16>)
+func.func @AdjustForSwishMultiShaveOptForBatchSize(%arg0: tensor<8x768x1x1xf16>) -> tensor<8x768x1x1xf16> {
+    %0 = VPU.Swish(%arg0) {beta_value = 1.000000e+00 : f64} : tensor<8x768x1x1xf16> -> tensor<8x768x1x1xf16>
+    return %0 : tensor<8x768x1x1xf16>
+
+    // CHECK:        [[SHAPECAST_IN:%.+]] = VPU.ShapeCast {shape = [1, 6144, 1, 1]} inputs([[INPUT]] : tensor<8x768x1x1xf16>) -> tensor<1x6144x1x1xf16>
+    // CHECK:        [[SWISH:%.+]] = VPU.Swish([[SHAPECAST_IN]]) {beta_value = 1.000000e+00 : f64} : tensor<1x6144x1x1xf16> -> tensor<1x6144x1x1xf16>
+    // CHECK:        [[SHAPECAST_OUT:%.+]] = VPU.ShapeCast {shape = [8, 768, 1, 1]} inputs([[SWISH]] : tensor<1x6144x1x1xf16>) -> tensor<8x768x1x1xf16>
+    // CHECK:        return [[SHAPECAST_OUT]]
 }

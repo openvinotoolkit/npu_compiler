@@ -186,7 +186,8 @@ mlir::LogicalResult EliminateSliceInSoftmaxMatMulRewriter::matchAndRewrite(IE::M
 
     // Step 2: Create new Softmax with aligned input
     auto newSoftmax = rewriter.create<IE::SoftMaxOp>(appendLoc(softmaxOp.getLoc(), "aligned"), alignedSoftmaxInput,
-                                                     softmaxOp.getAxisIndAttr(), softmaxOp.getPadSizeAttr());
+                                                     softmaxOp.getAxisIndAttr(), softmaxOp.getPadSizeAttr(),
+                                                     softmaxOp.getDstElemTypeAttr(), softmaxOp.getMaskAwareAttr());
 
     // Step 3: Pad MatMul RHS with zeros
     const auto rhsInput = matmulOp.getInput2();

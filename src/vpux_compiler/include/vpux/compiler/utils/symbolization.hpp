@@ -5,17 +5,22 @@
 
 #pragma once
 
-#include "vpux/compiler/dialect/ELF/IR/ops.hpp"
 #include "vpux/compiler/dialect/ELF/utils/utils.hpp"
-#include "vpux/utils/core/range.hpp"
+#include "vpux/compiler/dialect/VPURegMapped/types.hpp"
+#include "vpux/utils/core/error.hpp"
 
 #include <mlir/Transforms/DialectConversion.h>
-#include "mlir/IR/Region.h"
 
-#include <initializer_list>
 #include <utility>
 
 namespace vpux {
+
+// Generates a symbolic name for an operation result based on stripped op name,
+// VPURegMapped::IndexType indices, or an explicit counter.
+// Used both by SymbolizationPattern::createSymbolicName and populateSymbolMappings.
+mlir::FlatSymbolRefAttr buildSymbolicName(mlir::Operation* op, mlir::MLIRContext* ctx,
+                                          const std::optional<std::string>& taskTypeString = std::nullopt,
+                                          std::optional<size_t> counter = std::nullopt);
 
 struct SymbolizationResult {
     mlir::Operation* newOp = nullptr;
@@ -38,10 +43,8 @@ struct SymbolizationResult {
 // where OpOperand relationships can materialize as symbolic relationships. The typeConverter does not natively support
 // such semantics, since symolization relationships are materialized by attributes. However, it is still required, as
 // even tough opOperand relationships dissapear, we would need to register types that would need intermediate
-// materialization. The SymbolizationPattern overrides the default matchAndRewrite conversion hook and provides two
-// additional hooks:
-//  - getSymbolicNames: called out for each Op (at initialization stage) each OP should provide a unique symbolic name
-//  for each of its results
+// materialization. The SymbolizationPattern overrides the default matchAndRewrite conversion hook and provides
+// one additional hook:
 //  - symbolize: the actual conversion method, where instead of the Operand adaptor, we provide a symbolic map
 //                  that can be used to lookup an ops symbolic name
 template <typename SourceOp>
@@ -62,60 +65,17 @@ public:
     virtual mlir::FailureOr<SymbolizationResult> symbolize(SourceOp op, SymbolMapper& mapper,
                                                            mlir::ConversionPatternRewriter& rewriter) const = 0;
 
-    virtual llvm::SmallVector<mlir::FlatSymbolRefAttr> getSymbolicNames(SourceOp op, size_t counter) = 0;
-
-    // E-141619:
-    // initialize function is called when adding every single rewrite pattern to a pattern set
-    // instead of adding all symbols here try to process operation as soon as we see it for the 1st time
     void initialize() {
-        auto elfMains = to_small_vector(_parentFunc.getOps<ELF::MainOp>());
-        for (auto [counter, op] :
-             (elfMains.empty() ? _parentFunc.getOps<SourceOp>() : elfMains[0].getOps<SourceOp>()) | indexed) {
-            auto symbolicNames = getSymbolicNames(op, counter);
-            VPUX_THROW_WHEN(symbolicNames.size() != op->getNumResults(),
-                            "Op must define as many symbolic names as it has results");
-            for (auto [symNameIdx, symName] : symbolicNames | indexed) {
-                if (symName) {
-                    _mapper->try_emplace(op->getResult(symNameIdx), symName);
-                }
-            }
-        }
     }
 
     // helper to unify approach to build unique symbolic names
-    llvm::SmallVector<mlir::FlatSymbolRefAttr> createSymbolicName(
-            SourceOp op, std::optional<std::string> taskTypeString = std::nullopt,
+    SmallVector<mlir::FlatSymbolRefAttr> createSymbolicName(
+            SourceOp op, const std::optional<std::string>& taskTypeString = std::nullopt,
             std::optional<size_t> counter = std::nullopt) {
-        auto fullName = SourceOp::getOperationName();
-        auto opName = op->getName().stripDialect();
-
-        mlir::Operation* base = op.getOperation();
-        VPUX_THROW_UNLESS(base->getResults().size() == 1,
+        VPUX_THROW_UNLESS(op->getNumResults() == 1,
                           "Default symbolic converter only supports ops with exactly one result. For {0} got {1}",
-                          fullName, base->getResults().size());
-
-        llvm::SmallVector<std::string, 4> suffixes;
-        if (taskTypeString.has_value()) {
-            suffixes.push_back(taskTypeString.value());
-        }
-        if (auto indexType = mlir::dyn_cast<vpux::VPURegMapped::IndexType>(base->getResult(0).getType())) {
-            suffixes.push_back(std::to_string(indexType.getTileIdx()));
-            suffixes.push_back(std::to_string(indexType.getListIdx()));
-            suffixes.push_back(std::to_string(indexType.getValue()));
-            VPUX_THROW_WHEN(counter.has_value(),
-                            "Unexpected counter value ({0}) was provided which is of no use for the "
-                            "current operation {1}",
-                            counter.value(), op);
-        } else if (counter.has_value()) {
-            suffixes.push_back(std::to_string(counter.value()));
-        }
-
-        std::stringstream opSuffixStream;
-        for (auto& suffix : suffixes) {
-            opSuffixStream << "_" << suffix;
-        }
-        auto symName = mlir::StringAttr::get(op.getContext(), opName + opSuffixStream.str());
-        return {mlir::FlatSymbolRefAttr::get(symName)};
+                          SourceOp::getOperationName(), op->getNumResults());
+        return {buildSymbolicName(op.getOperation(), op.getContext(), taskTypeString, counter)};
     }
 
     std::pair<mlir::ArrayAttr, mlir::ArrayAttr> processDynamicShapes(mlir::MLIRContext* context,
@@ -140,42 +100,33 @@ private:
 template <typename SourceOp>
 std::pair<mlir::ArrayAttr, mlir::ArrayAttr> SymbolizationPattern<SourceOp>::processDynamicShapes(
         mlir::MLIRContext* context, mlir::OperandRangeRange inputShapes, mlir::OperandRangeRange outputShapes) const {
-    SmallVector<SmallVector<mlir::Attribute>> inputShapeSyms(inputShapes.size());
-    SmallVector<SmallVector<mlir::Attribute>> outputShapeSyms(outputShapes.size());
-
     auto placeholderSymbol = mlir::SymbolRefAttr::get(context, "placeholder_symbol");
 
-    // Lambda to process shape values and fill the corresponding symbol vectors
-    auto processShapeValues = [&](auto shapeValues, auto& shapeSyms) {
-        for (auto [idx, values] : llvm::enumerate(shapeValues)) {
-            SmallVector<mlir::Attribute> symVals;
-            if (!values.empty()) {
-                for (auto val : values) {
-                    symVals.push_back(findSym(val));
-                }
-            } else {
-                symVals.push_back(placeholderSymbol);
+    auto buildFlatShapeAttr = [&](const mlir::OperandRangeRange& shapes) -> mlir::ArrayAttr {
+        size_t totalSymbols = 0;
+        for (const auto& values : shapes) {
+            totalSymbols += values.empty() ? 1 : values.size();
+        }
+
+        SmallVector<mlir::Attribute> flatSyms;
+        flatSyms.reserve(totalSymbols);
+
+        for (const auto& values : shapes) {
+            if (values.empty()) {
+                flatSyms.push_back(placeholderSymbol);
+                continue;
             }
 
-            shapeSyms[idx] = std::move(symVals);
+            for (auto val : values) {
+                flatSyms.push_back(findSym(val));
+            }
         }
+
+        return mlir::ArrayAttr::get(context, flatSyms);
     };
 
-    processShapeValues(inputShapes, inputShapeSyms);
-    processShapeValues(outputShapes, outputShapeSyms);
-
-    // Lambda to flatten nested vectors
-    auto flattenShapeSyms = [](const auto& nestedSyms) {
-        SmallVector<mlir::Attribute> flatSyms;
-        for (const auto& symVec : nestedSyms) {
-            flatSyms.append(symVec.begin(), symVec.end());
-        }
-        return flatSyms;
-    };
-
-    // Create the final ArrayAttr
-    mlir::ArrayAttr inputsShapeAttr = mlir::ArrayAttr::get(context, flattenShapeSyms(inputShapeSyms));
-    mlir::ArrayAttr outputsShapeAttr = mlir::ArrayAttr::get(context, flattenShapeSyms(outputShapeSyms));
+    mlir::ArrayAttr inputsShapeAttr = buildFlatShapeAttr(inputShapes);
+    mlir::ArrayAttr outputsShapeAttr = buildFlatShapeAttr(outputShapes);
 
     return {inputsShapeAttr, outputsShapeAttr};
 }

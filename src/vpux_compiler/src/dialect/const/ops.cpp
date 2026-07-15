@@ -135,7 +135,7 @@ mlir::LogicalResult vpux::Const::DeclareOp::verify() {
     // value won't be accessible at that time.
     auto contentAttr = getContentAttr();
     if (auto denseResource = mlir::dyn_cast<mlir::DenseResourceElementsAttr>(contentAttr.getBaseContent())) {
-        if (mlir::failed(ContentAttr::verifyDenseResource(emitError, denseResource, contentAttr.isSplat()))) {
+        if (mlir::failed(ContentAttr::verifyDenseResource(emitError, denseResource))) {
             return mlir::failure();
         }
     }

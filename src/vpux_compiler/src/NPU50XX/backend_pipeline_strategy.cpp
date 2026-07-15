@@ -22,7 +22,7 @@ using namespace vpux;
 //
 
 void BackendPipelineStrategy50XX::buildELFPipeline(mlir::OpPassManager& pm, const intel_npu::Config& config,
-                                                   mlir::TimingScope& rootTiming, Logger log, bool useWlm) {
+                                                   mlir::TimingScope& rootTiming, Logger log) {
     auto buildTiming = rootTiming.nest("Build compilation pipeline");
     const auto backendCompilationOptions =
             BackendCompilationOptions50XX::createFromString(config.get<intel_npu::BACKEND_COMPILATION_PARAMS>());
@@ -31,7 +31,6 @@ void BackendPipelineStrategy50XX::buildELFPipeline(mlir::OpPassManager& pm, cons
             config.get<intel_npu::COMPILATION_MODE_PARAMS>(), getArchKind(config));
     VPUX_THROW_UNLESS(options != nullptr, "build ELF pipeline failed to parse COMPILATION_MODE_PARAMS: {0}",
                       config.get<intel_npu::COMPILATION_MODE_PARAMS>());
-    VPUX_THROW_UNLESS(useWlm, "WLM is not enabled.");
 
     if (config.get<intel_npu::TURBO>()) {
         overwriteIfUnset(options->workloadManagementMode, WorkloadManagementMode::FWLM_V1_PAGES);
@@ -41,9 +40,7 @@ void BackendPipelineStrategy50XX::buildELFPipeline(mlir::OpPassManager& pm, cons
     backendCompilationOptions->npu5PPEBackwardsCompatibilityMode = options->npu5PPEBackwardsCompatibilityMode;
     backendCompilationOptions->enableDumpStatisticsOfWlmOps = options->enableDumpTaskStats;
     backendCompilationOptions->workloadManagementMode = options->workloadManagementMode;
-    backendCompilationOptions->workloadManagementEnable = useWlm;
-    backendCompilationOptions->workloadManagementBarrierCountThreshold =
-            options->workloadManagementBarrierCountThreshold;
+    backendCompilationOptions->workloadManagementEnable = true;
     backendCompilationOptions->workloadManagementBarrierProgrammingMode =
             options->workloadManagementBarrierProgrammingMode;
     backendCompilationOptions->workloadManagementDmaFifoType = options->workloadManagementDmaFifoType;

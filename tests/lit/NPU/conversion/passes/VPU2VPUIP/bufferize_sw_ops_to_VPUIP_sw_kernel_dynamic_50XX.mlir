@@ -46,7 +46,7 @@
     memory_shapes = [[1, 1, 1, 128], [1, 1, 1, 128]], memory_offsets = [[0, 0, 0, 0], [0, 1, 0, 0]]}>
 
 
-// CHECK: func.func private @builtin_LSTMSequence(memref<*xf16, @CMX_NN>, memref<*xsi32, @CMX_NN>, memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, memref<*xsi32, @CMX_NN>, memref<*xf16, @CMX_NN>, memref<*xsi32, @CMX_NN>, memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, none, i64, none)
+// CHECK: func.func nested @builtin_LSTMSequence(memref<*xf16, @CMX_NN>, memref<*xsi32, @CMX_NN>, memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, memref<*xsi32, @CMX_NN>, memref<*xf16, @CMX_NN>, memref<*xsi32, @CMX_NN>, memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, none, i64, none)
 // CHECK-SAME: attributes {VPU.kernel_code = "lstm_dpu.cpp", VPU.kernel_entry = "lstm_dpu", VPU.kernel_name = "lstm_dpu", VPU.task_type = @COMPUTE}
 // CHECK-LABEL:  func.func @DynamicLSTMSequence
 module attributes {config.platform = #config.platform<NPU5010>} {
@@ -108,11 +108,10 @@ func.func @DynamicLSTMSequence(
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #C = affine_map<(d0) -> (d0)>
 
-// CHECK: func.func private @builtin_InterpolateDMA(
+// CHECK: func.func nested @builtin_InterpolateDMA(
 // CHECK-SAME: memref<*xf16, [@CMX_NN, 0]>
 // CHECK-SAME: memref<*xf16, [@CMX_NN, 0]>
-// CHECK-SAME: memref<*xsi32, [@CMX_NN, 0]>
-// CHECK-SAME: memref<*xf16, [@CMX_NN, 0]>
+// CHECK-SAME: memref<*xui8, [@CMX_NN, 0]>
 // CHECK-SAME: memref<*xf16, [@CMX_NN, 0]>
 // CHECK-SAME: memref<*xsi32, [@CMX_NN, 0]>
 // CHECK-SAME: ) attributes {VPU.kernel_code = "interpolate_dma.cpp", VPU.kernel_entry = "interpolate_dma", VPU.kernel_name = "interpolate_dma", VPU.task_type = @COMPUTE}
@@ -120,9 +119,8 @@ func.func @DynamicLSTMSequence(
 // CHECK-LABEL: func.func @ScaleParameterInterpolateLayerTest(
 module attributes {config.platform = #config.platform<NPU5010>} {
 func.func @ScaleParameterInterpolateLayerTest(%interp_input: tensor<1x3x4x6xf16>, %scales: tensor<2xf32>)
-      -> tensor<1x3x32x48xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[1, 1, 1, 1]> : tensor<4xsi64>, order = #NCHW}> {
-    %cst = const.Declare tensor<1x1x1x96xf16> = dense<0.000000e+00> : tensor<1x1x1x96xf16>
-    %cst_0 = const.Declare tensor<1x1x1x48xsi32> = dense<0> : tensor<1x1x1x48xsi32>
+      -> tensor<1x3x32x48xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]> : tensor<4xsi64>, order = #NCHW}> {
+    %cst_aux = const.Declare tensor<1x1x1x1024xui8> = dense<0> : tensor<1x1x1x1024xui8>
 
     %s1 = VPU.AffineReshape(%scales) {dim_mapping = [[0, 1, 2, 3]], shape_value = [1, 1, 1, 2]} : tensor<2xf32> -> tensor<1x1x1x2xf32>
     %s2 = VPU.Convert(%s1) {dstElemType = f16} : tensor<1x1x1x2xf32> -> tensor<1x1x1x2xf16>
@@ -130,29 +128,28 @@ func.func @ScaleParameterInterpolateLayerTest(%interp_input: tensor<1x3x4x6xf16>
 
     %in = VPU.Copy(%interp_input) {out_mem_space = [@CMX_NN, 0]} : tensor<1x3x4x6xf16> -> tensor<1x3x4x6xf16, {mem_space = [@CMX_NN, 0], order = #NCHW}>
     %in_scales = VPU.Copy(%s3) {out_mem_space = [@CMX_NN, 0]} : tensor<2xf16> -> tensor<2xf16, {mem_space = [@CMX_NN, 0], order = #C}>
-    %in_coords = VPU.Copy(%cst_0) {out_mem_space = [@CMX_NN, 0]} : tensor<1x1x1x48xsi32> -> tensor<1x1x1x48xsi32, {mem_space = [@CMX_NN, 0], order = #NCHW}>
-    %in_lambdas = VPU.Copy(%cst) {out_mem_space = [@CMX_NN, 0]} : tensor<1x1x1x96xf16> -> tensor<1x1x1x96xf16, {mem_space = [@CMX_NN, 0], order = #NCHW}>
+    %in_aux = VPU.Copy(%cst_aux) {out_mem_space = [@CMX_NN, 0]} : tensor<1x1x1x1024xui8> -> tensor<1x1x1x1024xui8, {mem_space = [@CMX_NN, 0], order = #NCHW}>
 
-    %out_cmx = VPU.InterpolateDMA(%in, %in_scales, %in_coords, %in_lambdas)
+    %out_cmx = VPU.InterpolateDMA(%in, %in_scales, %in_aux)
       {attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SCALES>, coord_mode = <HALF_PIXEL>, nearest_mode = <FLOOR>, antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>,
-       axes_attr = [2, 3], bounds_representation = #VPU.bounds_representation<DYNAMIC_DIMS_MASK>, operandSegmentSizes = array<i32: 1, 1, 1, 1>}
-      : tensor<1x3x4x6xf16, {mem_space = [@CMX_NN, 0], order = #NCHW}>, tensor<2xf16, {mem_space = [@CMX_NN, 0], order = #C}>, tensor<1x1x1x48xsi32, {mem_space = [@CMX_NN, 0], order = #NCHW}>, tensor<1x1x1x96xf16, {mem_space = [@CMX_NN, 0], order = #NCHW}>
-        -> tensor<1x3x32x48xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[1, 1, 1, 1]> : tensor<4xsi64>, mem_space = [@CMX_NN, 0], order = #NCHW}>
+       axes_attr = [2, 3], bounds_representation = #VPU.bounds_representation<DYNAMIC_DIMS_MASK>}
+      : tensor<1x3x4x6xf16, {mem_space = [@CMX_NN, 0], order = #NCHW}>, tensor<2xf16, {mem_space = [@CMX_NN, 0], order = #C}>, tensor<1x1x1x1024xui8, {mem_space = [@CMX_NN, 0], order = #NCHW}>
+        -> tensor<1x3x32x48xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]> : tensor<4xsi64>, mem_space = [@CMX_NN, 0], order = #NCHW}>
 
-    %out = VPU.Copy(%out_cmx) : tensor<1x3x32x48xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[1, 1, 1, 1]> : tensor<4xsi64>, mem_space = [@CMX_NN, 0], order = #NCHW}>
-        -> tensor<1x3x32x48xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[1, 1, 1, 1]> : tensor<4xsi64>, order = #NCHW}>
-    return %out : tensor<1x3x32x48xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[1, 1, 1, 1]> : tensor<4xsi64>, order = #NCHW}>
+    %out = VPU.Copy(%out_cmx) : tensor<1x3x32x48xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]> : tensor<4xsi64>, mem_space = [@CMX_NN, 0], order = #NCHW}>
+        -> tensor<1x3x32x48xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]> : tensor<4xsi64>, order = #NCHW}>
+    return %out : tensor<1x3x32x48xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]> : tensor<4xsi64>, order = #NCHW}>
   }
 
   // CHECK: [[OUT_DATA:%.+]] = memref.alloc() : memref<1x3x32x48xf16, [@CMX_NN, 0]>
   // CHECK: [[OUT_SHAPE:%.+]] = memref.alloc() : memref<4xsi32, [@CMX_NN, 0]>
   // CHECK: [[OUT_BOUNDED:%.+]] = VPUIP.GroupBoundedBuffer([[OUT_DATA]], [[OUT_SHAPE]])
-  // CHECK: [[KERNEL_OUT:%.+]] = VPUIP.SW.Kernel
+  // CHECK: [[KERNEL_OUT:%.+]]:2 = VPUIP.SW.Kernel
   // CHECK-SAME: @VPU.SW::@builtin_InterpolateDMA
   // CHECK-SAME: outputs([[OUT_BOUNDED]]
   // CHECK: [[RES_DATA:%.+]] = memref.alloc() : memref<1x3x32x48xf16>
   // CHECK: [[RES_SHAPE:%.+]] = memref.alloc() : memref<4xsi32>
   // CHECK: [[RES_BOUNDED:%.+]] = VPUIP.GroupBoundedBuffer([[RES_DATA]], [[RES_SHAPE]])
-  // CHECK: [[COPY_OUT:%.+]] = VPUIP.Copy inputs([[KERNEL_OUT]]
+  // CHECK: [[COPY_OUT:%.+]] = VPUIP.Copy inputs([[KERNEL_OUT]]#0
   // CHECK: return [[COPY_OUT]]
 }

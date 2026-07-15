@@ -9,7 +9,7 @@
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 !Input_DDR = memref<1x4x360x216xf16, {order = #NHWC, strides = [6220800, 1, 8640, 8]}, @DDR>
-!Output_CMX = memref<1x4x360x216xf16, #NHWC, [@CMX_NN, 0]>
+!Output_CMX = memref<1x4x360x216xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
 func.func @SplitNNDMAWithLargePlanesNum(%input: !Input_DDR, %output: !Output_CMX) -> !Output_CMX {
     // Barriers
@@ -20,7 +20,7 @@ func.func @SplitNNDMAWithLargePlanesNum(%input: !Input_DDR, %output: !Output_CMX
     %1 = VPURT.DeclareBuffer <CMX_NN> [0] <622080> -> !Output_CMX
 
     VPURT.Task waits(%bar0 : !VPURT.Barrier) updates(%bar1 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
-        %2 = VPUIP.NNDMA inputs(%0 : memref<1x4x360x216xf16, {order = #NHWC, strides = [6220800, 1, 8640, 8]}, @DDR>) outputs(%1 : memref<1x4x360x216xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x4x360x216xf16, #NHWC, [@CMX_NN, 0]>
+        %2 = VPUIP.NNDMA inputs(%0 : memref<1x4x360x216xf16, {order = #NHWC, strides = [6220800, 1, 8640, 8]}, @DDR>) outputs(%1 : memref<1x4x360x216xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x4x360x216xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
     return %1: !Output_CMX
@@ -31,7 +31,7 @@ func.func @SplitNNDMAWithLargePlanesNum(%input: !Input_DDR, %output: !Output_CMX
     // CHECK:    [[INPUT_DDR_BUF0:%.+]] = VPURT.DeclareBuffer <DDR> <18662408> -> memref<1x4x180x216xf16, {order = #NHWC, strides = [6220800, 1, 8640, 8]}, @DDR>
     // CHECK:    [[INPUT_DDR_BUF1:%.+]] = VPURT.DeclareBuffer <DDR> <21772808> -> memref<1x4x180x216xf16, {order = #NHWC, strides = [6220800, 1, 8640, 8]}, @DDR>
 
-    // CHECK:    [[OUTPUT_BUF:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <622080> -> memref<1x4x360x216xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:    [[OUTPUT_BUF:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <622080> -> memref<1x4x360x216xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     // CHECK:    [[OUTPUT_CMX_BUF0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <622080> -> memref<1x4x180x216xf16, {order = #NHWC, strides = [311040, 1, 864, 4]}, [@CMX_NN, 0]>
     // CHECK:    [[OUTPUT_CMX_BUF1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <933120> -> memref<1x4x180x216xf16, {order = #NHWC, strides = [311040, 1, 864, 4]}, [@CMX_NN, 0]>
@@ -46,7 +46,7 @@ func.func @SplitNNDMAWithLargePlanesNum(%input: !Input_DDR, %output: !Output_CMX
     // CHECK-SAME:   inputs([[INPUT_DDR_BUF1]] : memref<1x4x180x216xf16, {order = #NHWC, strides = [6220800, 1, 8640, 8]}, @DDR>)
     // CHECK-SAME:   outputs([[OUTPUT_CMX_BUF1]] : memref<1x4x180x216xf16, {order = #NHWC, strides = [311040, 1, 864, 4]}, [@CMX_NN, 0]>)
 
-    // CHECK:      return [[OUTPUT_BUF]] : memref<1x4x360x216xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:      return [[OUTPUT_BUF]] : memref<1x4x360x216xf16, {order = #NHWC}, [@CMX_NN, 0]>
 }
 
 // -----
@@ -54,7 +54,7 @@ func.func @SplitNNDMAWithLargePlanesNum(%input: !Input_DDR, %output: !Output_CMX
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 !Input_DDR = memref<1x4x512x216xf16, {order = #NHWC, strides = [6220800, 1, 8640, 8]}, @DDR>
-!Output_CMX = memref<1x4x512x216xf16, #NHWC, [@CMX_NN, 0]>
+!Output_CMX = memref<1x4x512x216xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
 func.func @UnevenSplitNNDMAWithLargePlanesNum(%input: !Input_DDR, %output: !Output_CMX) -> !Output_CMX {
     // Barriers
@@ -65,7 +65,7 @@ func.func @UnevenSplitNNDMAWithLargePlanesNum(%input: !Input_DDR, %output: !Outp
     %1 = VPURT.DeclareBuffer <CMX_NN> [0] <622080> -> !Output_CMX
 
     VPURT.Task waits(%bar0 : !VPURT.Barrier) updates(%bar1 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
-        %2 = VPUIP.NNDMA inputs(%0 : memref<1x4x512x216xf16, {order = #NHWC, strides = [6220800, 1, 8640, 8]}, @DDR>) outputs(%1 : memref<1x4x512x216xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x4x512x216xf16, #NHWC, [@CMX_NN, 0]>
+        %2 = VPUIP.NNDMA inputs(%0 : memref<1x4x512x216xf16, {order = #NHWC, strides = [6220800, 1, 8640, 8]}, @DDR>) outputs(%1 : memref<1x4x512x216xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x4x512x216xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
     return %1: !Output_CMX
@@ -77,7 +77,7 @@ func.func @UnevenSplitNNDMAWithLargePlanesNum(%input: !Input_DDR, %output: !Outp
     // CHECK:    [[INPUT_DDR_BUF1:%.+]] = VPURT.DeclareBuffer <DDR> <21617288> -> memref<1x4x171x216xf16, {order = #NHWC, strides = [6220800, 1, 8640, 8]}, @DDR>
     // CHECK:    [[INPUT_DDR_BUF2:%.+]] = VPURT.DeclareBuffer <DDR> <24572168> -> memref<1x4x170x216xf16, {order = #NHWC, strides = [6220800, 1, 8640, 8]}, @DDR>
 
-    // CHECK:    [[OUTPUT_BUF:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <622080> -> memref<1x4x512x216xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:    [[OUTPUT_BUF:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <622080> -> memref<1x4x512x216xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     // CHECK:    [[OUTPUT_CMX_BUF0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <622080> -> memref<1x4x171x216xf16, {order = #NHWC, strides = [442368, 1, 864, 4]}, [@CMX_NN, 0]>
     // CHECK:    [[OUTPUT_CMX_BUF1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <917568> -> memref<1x4x171x216xf16, {order = #NHWC, strides = [442368, 1, 864, 4]}, [@CMX_NN, 0]>
@@ -98,7 +98,7 @@ func.func @UnevenSplitNNDMAWithLargePlanesNum(%input: !Input_DDR, %output: !Outp
     // CHECK-SAME:   inputs([[INPUT_DDR_BUF2]] : memref<1x4x170x216xf16, {order = #NHWC, strides = [6220800, 1, 8640, 8]}, @DDR>)
     // CHECK-SAME:   outputs([[OUTPUT_CMX_BUF2]] : memref<1x4x170x216xf16, {order = #NHWC, strides = [442368, 1, 864, 4]}, [@CMX_NN, 0]>)
 
-    // CHECK:      return [[OUTPUT_BUF]] : memref<1x4x512x216xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:      return [[OUTPUT_BUF]] : memref<1x4x512x216xf16, {order = #NHWC}, [@CMX_NN, 0]>
 }
 
 // -----
@@ -106,7 +106,7 @@ func.func @UnevenSplitNNDMAWithLargePlanesNum(%input: !Input_DDR, %output: !Outp
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 !Input_DDR = memref<1x4x180x216xf16, {order = #NHWC, strides = [6220800, 1, 8640, 8]}, @DDR>
-!Output_CMX = memref<1x4x180x216xf16, #NHWC, [@CMX_NN, 0]>
+!Output_CMX = memref<1x4x180x216xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
 func.func @NotSplitNNDMAIfValidNumPlanes(%input: !Input_DDR, %output: !Output_CMX) -> !Output_CMX {
     // Barriers
@@ -117,7 +117,7 @@ func.func @NotSplitNNDMAIfValidNumPlanes(%input: !Input_DDR, %output: !Output_CM
     %1 = VPURT.DeclareBuffer <CMX_NN> [0] <622080> -> !Output_CMX
 
     VPURT.Task waits(%bar0 : !VPURT.Barrier) updates(%bar1 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
-        %2 = VPUIP.NNDMA inputs(%0 : memref<1x4x180x216xf16, {order = #NHWC, strides = [6220800, 1, 8640, 8]}, @DDR>) outputs(%1 : memref<1x4x180x216xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x4x180x216xf16, #NHWC, [@CMX_NN, 0]>
+        %2 = VPUIP.NNDMA inputs(%0 : memref<1x4x180x216xf16, {order = #NHWC, strides = [6220800, 1, 8640, 8]}, @DDR>) outputs(%1 : memref<1x4x180x216xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x4x180x216xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
     return %1: !Output_CMX
@@ -126,12 +126,12 @@ func.func @NotSplitNNDMAIfValidNumPlanes(%input: !Input_DDR, %output: !Output_CM
     // CHECK:    [[BAR1:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
     // CHECK:    [[INPUT_DDR_BUF0:%.+]] = VPURT.DeclareBuffer <DDR> <18662408> -> memref<1x4x180x216xf16, {order = #NHWC, strides = [6220800, 1, 8640, 8]}, @DDR>
-    // CHECK:    [[OUTPUT_BUF:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <622080> -> memref<1x4x180x216xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:    [[OUTPUT_BUF:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <622080> -> memref<1x4x180x216xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     // CHECK:      VPURT.Task
     // CHECK:      VPUIP.NNDMA
     // CHECK-SAME:   inputs([[INPUT_DDR_BUF0]] : memref<1x4x180x216xf16, {order = #NHWC, strides = [6220800, 1, 8640, 8]}, @DDR>)
-    // CHECK-SAME:   outputs([[OUTPUT_BUF]] : memref<1x4x180x216xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK-SAME:   outputs([[OUTPUT_BUF]] : memref<1x4x180x216xf16, {order = #NHWC}, [@CMX_NN, 0]>)
 
     // CHECK:      return [[OUTPUT_BUF]]
 }
@@ -141,7 +141,7 @@ func.func @NotSplitNNDMAIfValidNumPlanes(%input: !Input_DDR, %output: !Output_CM
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 !Input_DDR = memref<1x4x360x216xf16, {order = #NHWC, strides = [3110400, 1, 8640, 4]}, @DDR>
-!Output_CMX = memref<1x4x360x216xf16, #NHWC, [@CMX_NN, 0]>
+!Output_CMX = memref<1x4x360x216xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
 func.func @NotSplitNNDMAIfSingleStrideLevel(%input: !Input_DDR, %output: !Output_CMX) -> !Output_CMX {
     // Barriers
@@ -152,7 +152,7 @@ func.func @NotSplitNNDMAIfSingleStrideLevel(%input: !Input_DDR, %output: !Output
     %1 = VPURT.DeclareBuffer <CMX_NN> [0] <622080> -> !Output_CMX
 
     VPURT.Task waits(%bar0 : !VPURT.Barrier) updates(%bar1 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
-        %2 = VPUIP.NNDMA inputs(%0 : memref<1x4x360x216xf16, {order = #NHWC, strides = [3110400, 1, 8640, 4]}, @DDR>) outputs(%1 : memref<1x4x360x216xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x4x360x216xf16, #NHWC, [@CMX_NN, 0]>
+        %2 = VPUIP.NNDMA inputs(%0 : memref<1x4x360x216xf16, {order = #NHWC, strides = [3110400, 1, 8640, 4]}, @DDR>) outputs(%1 : memref<1x4x360x216xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x4x360x216xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
     return %1: !Output_CMX
@@ -161,14 +161,14 @@ func.func @NotSplitNNDMAIfSingleStrideLevel(%input: !Input_DDR, %output: !Output
     // CHECK:    [[BAR1:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
     // CHECK:    [[INPUT_DDR_BUF0:%.+]] = VPURT.DeclareBuffer <DDR> <18662408> -> memref<1x4x360x216xf16, {order = #NHWC, strides = [3110400, 1, 8640, 4]}, @DDR>
-    // CHECK:    [[OUTPUT_BUF:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <622080> -> memref<1x4x360x216xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:    [[OUTPUT_BUF:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <622080> -> memref<1x4x360x216xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     // CHECK:      VPURT.Task
     // CHECK:      VPUIP.NNDMA
     // CHECK-SAME:   inputs([[INPUT_DDR_BUF0]] : memref<1x4x360x216xf16, {order = #NHWC, strides = [3110400, 1, 8640, 4]}, @DDR>)
-    // CHECK-SAME:   outputs([[OUTPUT_BUF]] : memref<1x4x360x216xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK-SAME:   outputs([[OUTPUT_BUF]] : memref<1x4x360x216xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
-    // CHECK:      return [[OUTPUT_BUF]] : memref<1x4x360x216xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:      return [[OUTPUT_BUF]] : memref<1x4x360x216xf16, {order = #NHWC}, [@CMX_NN, 0]>
 }
 
 

@@ -1333,3 +1333,78 @@ func.func @NonGatherFedInt4GoesThroughFakeQuantize(%input: tensor<1x768x28x28xf3
   // CHECK-NOT: IE.Multiply{{.*}}768x768x1x1
   // CHECK:     IE.Convolution
 }
+
+// -----
+
+// CHECK-LABEL: @EmbeddingInt8PerRowWithGatherNotConvertedToFQ
+// CHECK-SAME:      [[INDICES:%.+]]: tensor<256xsi32>
+// CHECK-SAME: -> tensor<256x512xf32>
+func.func @EmbeddingInt8PerRowWithGatherNotConvertedToFQ(%indices: tensor<256xsi32>) -> tensor<256x512xf32> {
+  %cst_wt    = const.Declare tensor<65536x512xf32> = dense<1> : tensor<65536x512xsi8>, [#const.CastElemType<f32>]
+  %cst_scale = const.Declare tensor<65536x1xf32> = dense<3.9215686e-3> : tensor<65536x1xf32>
+  %mul = IE.Multiply(%cst_wt, %cst_scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+      : tensor<65536x512xf32>, tensor<65536x1xf32> -> tensor<65536x512xf32>
+  %gather = IE.Gather(%mul, %indices) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64}
+      : tensor<65536x512xf32>, tensor<256xsi32> -> tensor<256x512xf32>
+  return %gather : tensor<256x512xf32>
+
+  // CHECK-DAG: [[WT:%.+]]    = const.Declare tensor<65536x512xf32>
+  // CHECK-DAG: [[SCALE:%.+]] = const.Declare tensor<65536x1xf32>
+  // CHECK-NOT: IE.FakeQuantize
+  // CHECK: [[MUL:%.+]]    = IE.Multiply([[WT]], [[SCALE]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+  // CHECK-SAME: tensor<65536x512xf32>, tensor<65536x1xf32> -> tensor<65536x512xf32>
+  // CHECK: [[GATHER:%.+]] = IE.Gather([[MUL]], [[INDICES]]) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64}
+  // CHECK-SAME: tensor<65536x512xf32>, tensor<256xsi32> -> tensor<256x512xf32>
+  // CHECK: return [[GATHER]]
+}
+
+// -----
+
+// CHECK-LABEL: @EmbeddingInt8PerTensorWithGatherNotConvertedToFQ
+// CHECK-SAME:      [[INDICES:%.+]]: tensor<256xsi32>
+// CHECK-SAME: -> tensor<256x512xf32>
+func.func @EmbeddingInt8PerTensorWithGatherNotConvertedToFQ(%indices: tensor<256xsi32>) -> tensor<256x512xf32> {
+  %cst_wt    = const.Declare tensor<65536x512xf32> = dense<1> : tensor<65536x512xsi8>, [#const.CastElemType<f32>]
+  %cst_scale = const.Declare tensor<1x1xf32> = dense<3.9215686e-3> : tensor<1x1xf32>
+  %mul = IE.Multiply(%cst_wt, %cst_scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+      : tensor<65536x512xf32>, tensor<1x1xf32> -> tensor<65536x512xf32>
+  %gather = IE.Gather(%mul, %indices) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64}
+      : tensor<65536x512xf32>, tensor<256xsi32> -> tensor<256x512xf32>
+  return %gather : tensor<256x512xf32>
+
+  // CHECK-DAG: [[WT:%.+]]    = const.Declare tensor<65536x512xf32>
+  // CHECK-DAG: [[SCALE:%.+]] = const.Declare tensor<1x1xf32>
+  // CHECK-NOT: IE.FakeQuantize
+  // CHECK: [[MUL:%.+]]    = IE.Multiply([[WT]], [[SCALE]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+  // CHECK-SAME: tensor<65536x512xf32>, tensor<1x1xf32> -> tensor<65536x512xf32>
+  // CHECK: [[GATHER:%.+]] = IE.Gather([[MUL]], [[INDICES]]) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64}
+  // CHECK-SAME: tensor<65536x512xf32>, tensor<256xsi32> -> tensor<256x512xf32>
+  // CHECK: return [[GATHER]]
+}
+
+// -----
+
+// CHECK-LABEL: @EmbeddingInt4ViaConvertNotConvertedToFQ
+// CHECK-SAME:      [[INDICES:%.+]]: tensor<2xsi32>
+// CHECK-SAME: -> tensor<2x8xf32>
+func.func @EmbeddingInt4ViaConvertNotConvertedToFQ(%indices: tensor<2xsi32>) -> tensor<2x8xf32> {
+  %cst_wt = const.Declare tensor<4x8xf16> = dense<1> : tensor<4x8xsi4>,
+      [#const.ConvertElemType<si8>, #const.CastElemType<f16>]
+  %cst_scale = const.Declare tensor<4x1xf16> = dense<3.922e-3> : tensor<4x1xf16>
+  %mul = IE.Multiply(%cst_wt, %cst_scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+      : tensor<4x8xf16>, tensor<4x1xf16> -> tensor<4x8xf16>
+  %convert = IE.Convert(%mul) {dstElemType = f32} : tensor<4x8xf16> -> tensor<4x8xf32>
+  %gather = IE.Gather(%convert, %indices) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64}
+      : tensor<4x8xf32>, tensor<2xsi32> -> tensor<2x8xf32>
+  return %gather : tensor<2x8xf32>
+
+  // CHECK-DAG: [[WT:%.+]]    = const.Declare tensor<4x8xf16>
+  // CHECK-DAG: [[SCALE:%.+]] = const.Declare tensor<4x1xf16>
+  // CHECK-NOT: IE.FakeQuantize
+  // CHECK: [[MUL:%.+]]     = IE.Multiply([[WT]], [[SCALE]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+  // CHECK-SAME: tensor<4x8xf16>, tensor<4x1xf16> -> tensor<4x8xf16>
+  // CHECK: [[CONVERT:%.+]] = IE.Convert([[MUL]]) {dstElemType = f32} : tensor<4x8xf16> -> tensor<4x8xf32>
+  // CHECK: [[GATHER:%.+]]  = IE.Gather([[CONVERT]], [[INDICES]]) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64}
+  // CHECK-SAME: tensor<4x8xf32>, tensor<2xsi32> -> tensor<2x8xf32>
+  // CHECK: return [[GATHER]]
+}

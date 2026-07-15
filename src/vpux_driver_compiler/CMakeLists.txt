@@ -3,8 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-include(cmake/install_target_with_debug_files.cmake)
-
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     add_compile_options(/sdl)
     if(ENABLE_PRODUCTION_BUILD)
@@ -12,18 +10,6 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     endif()
 endif()
 
-set(CID_COMPONENT "CiD")
-ov_cpack_add_component(${CID_COMPONENT})
-set(CIP_COMPONENT "CiP")
-ov_cpack_add_component(${CIP_COMPONENT})
-
-if(BUILD_COMPILER_FOR_DRIVER)
-    set(INSTALL_COMPONENT ${CID_COMPONENT})
-    set(INSTALL_DESTINATION cid)
-else()
-    set(INSTALL_COMPONENT ${CIP_COMPONENT})
-    set(INSTALL_DESTINATION cip)
-endif()
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 

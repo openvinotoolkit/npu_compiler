@@ -40,7 +40,9 @@ bool isOp(mlir::Operation* op) {
 
 ConditionFunc makeStubCondition();
 
-std::unique_ptr<mlir::Pass> createLegalizeShaveSubmitDMAsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createAssignLogicalTaskIndexPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createPrepareShaveSubmitDMAsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createInsertShaveSubmitSkipDMAsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAddPlaceholderFetchDMAsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAddPlaceholderFetchDMAsPWLMPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createFuseSegmentedDmaPass(Logger log = Logger::global());
@@ -96,7 +98,7 @@ std::unique_ptr<mlir::Pass> createActShaveProfilingPass(Logger log = Logger::glo
 std::unique_ptr<mlir::Pass> createWrapWithPermuteAsNNDMAPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createOptimizeTileOpAsNNDMAPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createOptimizeExpandSubviewPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createConvertExpandPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createConvertExpandPass(bool deferToExpandDMA = false, Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvertToDMAPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSwizzlingPass(const bool enableWeightSwizzling = true,
                                                 const bool enableActivationSwizzling = true,
@@ -126,6 +128,7 @@ std::unique_ptr<mlir::Pass> createAddCopyBetweenSWKernelsAndNetworkIOPass(Logger
 std::unique_ptr<mlir::Pass> createDispatchedInlinerPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAddSwKernelInstructionPrefetchPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createUnrollShaveCacheOpsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createSplitLargeInvariantsPass(Logger log = Logger::global());
 
 //
 // Asynchronous Scheduling pipeline
@@ -155,7 +158,8 @@ std::unique_ptr<mlir::Pass> createConvertFuncArgsToDeclarationsPass(Logger log =
 std::unique_ptr<mlir::Pass> createConvertViewOpsToDeclarationsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createLinearizeCallOpsPass(const Logger& log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvertAsyncOpsToTasksPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createCompressWeightsBTCPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createCompressWeightsBTCPass(Logger log = Logger::global(), bool huffmanEnable = false,
+                                                         bool failIfNoCompression = false);
 std::unique_ptr<mlir::Pass> createNNDMATilingPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createUngroupBoundedBuffersPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createUngroupBoundedBuffersAsFuncArgsPass(Logger log = Logger::global());
@@ -170,7 +174,8 @@ std::unique_ptr<mlir::Pass> createFeasibleAllocationPass(
         const bool linearizeSchedule = false, const bool enableLoopAllocation = false,
         const bool enablePipelining = true, const bool enablePrefetching = true,
         const bool optimizeFragmentation = true, const bool optimizeDynamicSpilling = true,
-        const bool enableMultiScheduleHeuristic = false, Logger log = Logger::global());
+        const bool enableMultiScheduleHeuristic = false, const bool enableVfUndefinedScheduler = false,
+        Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createQueryArgsAllocationAnalysisPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createStaticAllocationPass(MemKindCreateFunc memKindCb, Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createBatchMatMulToMatMulPass(Logger log = Logger::global());
@@ -196,9 +201,7 @@ std::unique_ptr<mlir::Pass> createUnrollGatherDMAPass(Logger log = Logger::globa
 
 void buildOptimizeCopiesPipeline(mlir::OpPassManager& pm, const OptimizeCopiesOptionsBase& options,
                                  Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createOptimizeCopiesPass(
-        const WorkloadManagementMode workloadManagementMode = WorkloadManagementMode::PWLM_V0_1_PAGES,
-        Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createOptimizeCopiesPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createUniquifyWeightsTableCopiesPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createOptimizeConcatViewCopiesPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createFuseDDRCopiesIntoConcats(Logger log = Logger::global());
@@ -218,6 +221,13 @@ struct DefaultHWOptionsDialectBase : public virtual DefaultHWOptionsBase {
     BoolOption enableOpsAsDMA{*this, "enable-ops-as-dma",
                               llvm::cl::desc("Force using DMA transformations instead of SW ops"),
                               llvm::cl::init(true)};
+
+    BoolOption deferExpandToExpandDMA{
+            *this, "defer-expand-to-expand-dma",
+            llvm::cl::desc("Leave VPUIP.Expand in place so ConvertToDMA can later lower it to "
+                           "VPUIP.ExpandDMA (HostCompile only); when false, --convert-expand "
+                           "decomposes Expand into a Copy+ConcatView pattern locally"),
+            llvm::cl::init(false)};
 
     BoolOption optimizeFragmentation{*this, "optimize-fragmentation",
                                      ::llvm::cl::desc("Enables compiler to optimize CMX fragmentation"),

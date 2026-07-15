@@ -64,7 +64,7 @@ mlir::LogicalResult vpux::Core::NestedCallOp::verifySymbolUses(mlir::SymbolTable
         return emitOpError("Too Many NetworkInfoOp found in the module");
     }
 
-    if (!netOps.empty() && config::getCompilationMode(moduleOp) == config::CompilationMode::HostCompile) {
+    if (!netOps.empty() && config::isHostCompileMode(moduleOp)) {
         auto netOp = netOps.front();
         if (netOp.getProfilingOutputsInfo().size()) {
             for (size_t i = 0; i < getNumOperands() - netOp.getProfilingOutputsCount(); ++i) {

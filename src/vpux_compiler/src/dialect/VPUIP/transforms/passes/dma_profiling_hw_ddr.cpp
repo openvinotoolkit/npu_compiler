@@ -16,6 +16,7 @@
 #include "vpux/compiler/utils/dma.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/types.hpp"
 #include "vpux/utils/profiling/common.hpp"
 
 namespace vpux::VPUIP {
@@ -233,7 +234,7 @@ void DMATaskProfilingHwDdrPass::setupProfiling(mlir::MLIRContext* ctx, mlir::Mod
     // Declare and create additional output from network
     auto recordSize = VPUIP::HW_DMA_PROFILING_SIZE_BYTES_40XX;
     const unsigned outputDdrSize = (tasks.size() + 1) * recordSize;
-    const auto outputResultDdr = mlir::MemRefType::get({outputDdrSize}, getUInt8Type(ctx));
+    const auto outputResultDdr = vpux::getMemRefType({outputDdrSize}, getUInt8Type(ctx));
     auto profilingResult =
             addNewProfilingOutput(ctx, funcOp, netInfo, outputResultDdr, profiling::ExecutorType::DMA_HW);
     _log.trace("Reserved {0} bytes of profiling output buffer", outputDdrSize);
@@ -332,7 +333,7 @@ VPURT::TaskOp DMATaskProfilingHwDdrPass::generateBufferCopyAfter(mlir::OpBuilder
             VPURT::BufferSection::DDR, dmaHwpBase);
 
     auto targetProfOutputBuffer = builder.create<VPURT::DeclareBufferOp>(
-            loc, mlir::MemRefType::get({bufferSize}, getUInt8Type(ctx)), VPURT::BufferSection::ProfilingOutput,
+            loc, vpux::getMemRefType({bufferSize}, getUInt8Type(ctx)), VPURT::BufferSection::ProfilingOutput,
             profOutputId, profOutputOffset);
 
     mlir::OpBuilder::InsertionGuard guard(builder);

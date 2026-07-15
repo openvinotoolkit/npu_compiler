@@ -150,10 +150,6 @@ def Outliner : PassBase<"outliner", "vpux::ModulePass"> {
           repeating-blocks
             max-num-iterations - the maximum number of iterations
             min-ops-in-block   - the minimum number of operations allowed in a blocks
-          repeating-blocks-separate-functions
-            max-num-iterations - the maximum number of iterations
-            min-ops-in-block   - the minimum number of operations allowed in a block
-            Like repeating-blocks, but each repeated block becomes a separate function
           batching
             Used together with Debatcher/DeDebatcher for batched model compilation.
             Must not be combined with other outlining modes.
@@ -404,6 +400,23 @@ def FuseRMSNorm : PassBase<"fuse-rmsnorm", "vpux::FunctionPass"> {
 }
 
 //
+// FuseNormalizeL2ToRMS
+//
+def FuseNormalizeL2ToRMS : PassBase<"fuse-normalize-l2-to-rms", "vpux::FunctionPass"> {
+    let summary = "Fuse NormalizeL2 + Multiply into RMSOp";
+    let description = [{
+        Detects NormalizeL2 reducing the innermost dimension
+        (axes_value = [-1] or an equivalent positive axis for the input rank)
+        followed by a Multiply with a constant scale, and fuses the pattern into
+        a single IE.RMSOp with gamma = scale / sqrt(reduceSize).
+    }];
+    let constructor = "vpux::IE::createFuseNormalizeL2ToRMSPass()";
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
 // FuseRoPE
 //
 def FuseRoPE : PassBase<"fuse-rope", "vpux::FunctionPass"> {
@@ -412,14 +425,10 @@ def FuseRoPE : PassBase<"fuse-rope", "vpux::FunctionPass"> {
         AI-generated summary
 
         Identifies Rotary Position Embedding patterns involving input splitting via
-        StridedSlice/Split/Slice operations, multiplication with precomputed cosine and
-        sine embeddings, concatenation, and final addition, replacing the entire sequence
-        with a dedicated IE.RoPE operation. Handles SPLIT_HALF, INTERLEAVED, and PAIRWISE
-        RoPE variants with optional reshape operations for shape compatibility.
-
-        For PAIRWISE mode, fusion is currently restricted to inputs with C=256 and H=3
-        to avoid regressions (see E#211377). All other channel/height combinations,
-        such as C=1 or H=2, are not fused.
+        StridedSlice/Split operations, multiplication with precomputed cosine and sine
+        embeddings, concatenation, and final addition, replacing the entire sequence
+        with a dedicated IE.RoPE operation. Handles both standard and interleaved RoPE
+        variants with optional reshape operations for shape compatibility.
     }];
     let constructor = "vpux::IE::createFuseRoPEPass()";
     let dependentDialects = [
@@ -515,21 +524,6 @@ def FuseSDPA : PassBase<"fuse-sdpa", "vpux::FunctionPass"> {
         sequence dimensions align.
     }];
     let constructor = "vpux::IE::createFuseSDPAPass()";
-    let dependentDialects = [
-        "vpux::IE::IEDialect"
-    ];
-}
-
-//
-// FuseSoftmax
-//
-def FuseSoftmax : PassBase<"fuse-softmax", "vpux::FunctionPass"> {
-    let summary = "Fuse decomposed softmax patterns into optimized IE.SoftMax operations";
-    let description = [{
-        Detects and fuses decomposed softmax patterns: ReduceMax -> Subtract -> Exp -> ReduceSum -> Divide
-        into a single IE.SoftMax operation. Handles single and multi-axis cases with optimal transformations.
-    }];
-    let constructor = "vpux::IE::createFuseSoftmaxPass()";
     let dependentDialects = [
         "vpux::IE::IEDialect"
     ];
@@ -633,8 +627,12 @@ def DecomposeAttention : PassBase<"decompose-attention", "vpux::FunctionPass"> {
         2. Scale: Apply IE.Multiply to scale by 1/sqrt(d_k) or provided scale
         3. Add Mask: Apply IE.Add to add attention mask if provided
         4. Add Bias: Apply IE.Add to add bias if provided
-        5. Softmax: Apply IE.SoftMax on the last dimension
-        6. Output: Apply IE.MatMul to compute final attention output with values
+        5. Append Sink: If a sink input is provided, IE.Concat it as an extra
+           column on the last dimension so it joins the softmax normalization
+        6. Softmax: Apply IE.SoftMax on the last dimension
+        7. Drop Sink: If a sink input is provided, IE.Slice off the extra sink
+           column added in step 5
+        8. Output: Apply IE.MatMul to compute final attention output with values
     }];
     let constructor = "vpux::IE::createDecomposeAttentionPass()";
     let dependentDialects = [
@@ -648,20 +646,49 @@ def DecomposeAttention : PassBase<"decompose-attention", "vpux::FunctionPass"> {
 def FuseDynamicQuantize : PassBase<"fuse-dynamic-quantize", "vpux::FunctionPass"> {
     let summary = "Fuse DynamicQuantizeLinear decomposed by OV to DynamicQuantize op";
     let description = [{
-        fuse a sequence of ops to one DynamicQuantize.
+        Fuse a sequence of ops to one DynamicQuantize.
+        Supports scalar and broadcast-compatible min/max tensors when the decomposed graph computes
+        matching scale and zero-point tensors.
 
-        Searching for the following pattern.
+        Supported decomposition variants:
+        - Unsigned (ui8): scale = (max-min) / 255, clamp [0, 255]
+        - Signed asymmetric (si8): scale = (max-min) / 254, clamp [-127, 127]
+
+        Signed symmetric (no zero-point) decompositions are recognized by the matcher
+        but their fusion is intentionally disabled (see "Skipping symmetric
+        DynamicQuantize fusion" in fuse_dynamic_quantize.cpp) due to an observed
+        performance regression on the symmetric kernel path. Support will be revisited
+        once the kernel-side cost is addressed.
+
+        Scale computation accepts:
+        - Multiply variant: (max-min) * (1/quantSpan)
+        - Divide variant: (max-min) / quantSpan
+
+        Shape requirements:
+        - min/max tensors must be broadcast-compatible with the input tensor
+        - scale and zero-point shapes must match min/max shapes
+
+        Optional bounding ops on ReduceMin/ReduceMax outputs:
+        - Any ClampOp (walked through unconditionally)
+        - MinimumOp with constant 0 (for min path)
+        - MaximumOp with constant 0 (for max path)
+
+        Also performs backward compatibility fixup for older model XMLs that produce
+        signless i8 output types, converting them to signed si8 and removing redundant
+        Convert ops.
+
+        Searching for the following pattern (asymmetric variant):
 
         ```
                                   [input]
                             /        |      \
                     (ReduceMin) (ReduceMax) (MultiPly)
                           |          |         |
-                        (Min)      (Max)       |
+                       (Clamp/Min) (Clamp/Max) |
                        /     \       |         |
                (Subtract)    (Subtract)        |
                 |             /        \      /
-                |    (Multiply)       (Divide)
+                |    (Multiply|Divide) (Divide)
                 |     /    |            |
              (Divide)      |            |
                 |          |           /
@@ -692,6 +719,55 @@ def FuseDynamicQuantize : PassBase<"fuse-dynamic-quantize", "vpux::FunctionPass"
     let dependentDialects = [
         "vpux::IE::IEDialect"
     ];
+}
+
+//
+// ConvertSelectToEltwise
+//
+def ConvertSelectToEltwise : PassBase<"convert-select-to-eltwise", "vpux::FunctionPass"> {
+    let summary = "Fuse Select(const or LogicalNot(const), zero, Broadcast(data)) to Multiply(data, float_mask)";
+    let description = [{
+        Fuses one of the following subgraphs:
+
+        Pattern A (condition via LogicalNot):
+
+        ```
+            bool_const zero_const  data
+                |         |         |
+         (IE.LogicalNot)  |    IE.Broadcast
+                \         |        /
+                        IE.Select
+                          |
+                        output
+        ```
+
+        Pattern B (condition is a constant directly):
+
+        ```
+            bool_const zero_const  data
+                |         |         |
+                |         |    IE.Broadcast
+                \         |        /
+                        IE.Select
+                          |
+                        output
+        ```
+
+        Both patterns are fused into:
+
+        ```
+            float_mask  data
+                |        |
+                IE.Multiply
+                    |
+                  output
+        ```
+
+        where `float_mask` is derived from `bool_const` (inverted for Pattern A,
+        direct for Pattern B) and materialized as a compile-time constant.
+    }];
+    let constructor = "vpux::IE::createConvertSelectToEltwisePass()";
+    let dependentDialects = ["vpux::IE::IEDialect"];
 }
 
 //
@@ -1119,10 +1195,10 @@ def ConvertScatter : PassBase<"convert-scatter", "vpux::FunctionPass"> {
 }
 
 //
-// ConvertPrecisionToFP16
+// ConvertPrecisionToFP
 //
 
-def ConvertPrecisionToFP16 : PassBase<"convert-precision-to-fp16", "vpux::ModulePass"> {
+def ConvertPrecisionToFP : PassBase<"convert-precision-to-fp", "vpux::ModulePass"> {
     let summary = "Convert tensors precision from FP32 to FP16";
 
     let description = [{
@@ -1132,7 +1208,7 @@ def ConvertPrecisionToFP16 : PassBase<"convert-precision-to-fp16", "vpux::Module
         It updates both function bodies as well as Function signatures.
     }];
 
-    let constructor = "vpux::IE::createConvertPrecisionToFP16Pass()";
+    let constructor = "vpux::IE::createConvertPrecisionToFPPass()";
 
     let options = [
         Option<
@@ -1329,17 +1405,20 @@ def ConvertGather : PassBase<"convert-gather", "vpux::FunctionPass"> {
     let summary = "Convert Gather operation to Slice or Reverse operation";
 
     let description = [{
-        AI-generated summary
-
         The pass is a part of `AdjustForVPU` pipeline.
 
-        This pass replaces legal `Gather` operations with `Slice` or `Reverse` operations.
+        This pass replaces legal `Gather` operations with simpler operations.
 
         Registered rewrite patterns:
         - GatherToSlice: converts Gather with scalar or 1D indices on the gather axis
           into a Slice operation when the indices represent a contiguous range.
         - GatherToReverse: converts Gather into a Reverse operation when the indices
           represent the axis elements in reversed order.
+        - FuseBroadcastGatherND: fuses a GatherND whose input is a Broadcast into
+          a simpler Broadcast operation, eliminating the GatherND.
+        - GatherRepeatInterleaveToBroadcast: converts Gather with repeat_interleave
+          indices pattern (indices[i] = i / repeatFactor) into a sequence of
+          Reshape -> Broadcast -> Reshape, eliminating the costly gather operation.
     }];
 
     let constructor = "vpux::IE::createConvertGatherPass()";
@@ -1846,6 +1925,14 @@ def AdjustConvolutionInputShape: PassBase<"adjust-convolution-input-shape", "vpu
                             |
                      Reshape: 1x16x256x1
     }];
+
+    let options = [
+        Option<
+            "preferredSpatialAlignment", "preferred-spatial-alignment",
+            "int64_t", "4",
+            "Preferred spatial (W) alignment for reshape. Default is 4; NPU5010 pipeline overrides to 8 for better DPU efficiency."
+        >
+    ];
 
     let constructor = "vpux::IE::createAdjustConvolutionInputShapePass()";
         let dependentDialects = [
@@ -2400,6 +2487,10 @@ def OptimizeSliceWithStride : PassBase<"optimize-slice-with-stride", "vpux::Func
         - FuseSliceWithConvRewriter — fuses a Slice into its parent Convolution
            by adjusting the convolution output channels and weights to produce
            only the sliced range.
+        - SliceOpWithReshapeConverter — promotes a non-4D Slice (rank >= 3, rank != 4)
+           that slices only on the innermost dimension into a 4D Slice via Reshape,
+           enabling the downstream SliceOpWithLayoutConverter + SliceOpConverter chain
+           to convert it to a Convolution.
         - SliceOpWithLayoutConverter — converts a Slice with strided access on a
            non-trivial layout (e.g., NHWC) into a Convolution when the stride is
            on the channel dimension and ShapeCast can provide channel alignment.
@@ -2412,6 +2503,15 @@ def OptimizeSliceWithStride : PassBase<"optimize-slice-with-stride", "vpux::Func
 
     let dependentDialects = [
         "vpux::IE::IEDialect"
+    ];
+
+    let options = [
+        Option<
+            "disableMinHWThreshold", "disable-min-hw-threshold",
+            "bool", "false",
+            "[Optional] Disable H*W threshold check in isBeneficialToConvertSliceToConv. "
+            "When true, the pass converts Slice to Convolution regardless of spatial size."
+        >
     ];
 }
 
@@ -2693,7 +2793,7 @@ def HandleU16FakeQuantize : PassBase<"handle-u16-fake-quantize", "vpux::Function
         and performs the following transformations to U16 FakeQuantize (in order):
 
         1. U16FQConsolidationRewriter
-           Restore some U16 FQs that can be removed in step 4. Usually such a restoration is performed by ConvertQuantizeDequantize
+           Restore some U16 FQs that can be removed in step 5. Usually such a restoration is performed by ConvertQuantizeDequantize
            NGraph pass, however, there are cases where one of the operations in chain has multiple users and/or there is data op, e.g:
                                                   -> Result
                FQ(F16) -> Convert(U16) -> Reshape
@@ -2717,12 +2817,36 @@ def HandleU16FakeQuantize : PassBase<"handle-u16-fake-quantize", "vpux::Function
                and eventually FakeQuantize by searching bottom-up, if so do not lower. Ensure that the splat value has not failed on in_low, in_high,
                out_low, and out_high of FakeQuantizeOp. Ensure that in_low != out_low and in_high != out_high for zero-point calculation.
 
-        4. RemoveU16FakeQuantizeRewriter:
-           a. In case enableU16FQToScaleShiftConversion is true and the FakeQuantize has in_low != out_low or in_high != out_high
-              it is replaced with a ScaleShift op.
-           b. In case enableU16FQToScaleShiftConversion is false and the FakeQuantize is per tensor and the input and output low
-              is equal to 0 it is replaced with a ReLu activation function.
-           c. Otherwise the FakeQuantize is completely removed.
+        4. ReplaceChildU16FakeQuantizeWithReluRewriter (only when enableAdaptiveStripping is set):
+           Handles the mirror case of the parent ReLU replacement in step 5 for a parent U16 FQ -> child U16 FQ chain.
+           Matches the child FQ as root and replaces it with a ReLU consuming the parent FQ's input when:
+           - The child FQ is per tensor with in_low == out_low == 0 (ReLU pattern).
+           - The parent FQ is also a U16 FQ but does NOT itself match the ReLU pattern
+             (that case is handled by step 5 acting on the parent).
+           Must run before RemoveU16FakeQuantizeRewriter (step 5) so that the parent FQ is
+           still present and the chain is matchable.
+
+        5. RemoveU16FakeQuantizeRewriter:
+           a. If the input to the FakeQuantize is a constant, the quantization is folded directly
+              into the constant values and the FakeQuantize op is replaced with the resulting constant.
+           b. In case enableAdaptiveStripping is true:
+              - If any user of the FQ output is a U16 FQ child and the current FQ is per
+                tensor with in_low == out_low == 0 and in_high == out_high and has exactly one use
+                (the child FQ), it is replaced with a ReLU activation function. All users of the
+                output are scanned for a U16 FQ child, not just the first use-list entry.
+              - If no user of the FQ output is a U16 FQ and the FQ is per tensor with
+                in_low == out_low == 0 (in_high/out_high are not required to match) and its direct
+                predecessor implements LayerWithPostOpInterface (e.g. Add, Multiply) and that
+                predecessor does not implement ElemTypeInfoOpInterface (which would indicate an op
+                such as MaxPool that manages its own output element type and must not have a ReLU
+                fused via this path), it is replaced with a ReLU activation function. Non-U16 FQ
+                users (e.g. FQ with 256 levels) do not suppress this rewrite because the FQ is
+                semantically a ReLU clamp for all consumers.
+              - If the FakeQuantize has in_low != out_low or in_high != out_high, it is replaced with a ScaleShift op.
+              - Otherwise the FakeQuantize is completely removed.
+           c. In case enableAdaptiveStripping is false and the FakeQuantize is per tensor and the input and output low
+              is equal to 0 it is replaced with a ReLU activation function.
+           d. Otherwise the FakeQuantize is completely removed.
     }];
 
     let constructor = "vpux::IE::createHandleU16FakeQuantizePass()";
@@ -3559,7 +3683,8 @@ def FuseConvertWithQDQ : PassBase<"fuse-convert-with-qdq", "vpux::FunctionPass">
            Blocks the fold when Convert input signedness does not match quantized output signedness.
         - DequantizeConvertRewriter — detects pattern Dequantize(!quant.uniform<...> -> FP16) -> Convert(FP16 -> ui8)
            and fuses it into a single QuantizeCast(!quant.uniform<...> -> ui8) operation.
-           Blocked when a preceding QuantizeCast has non-zero zero points.
+           The fusion is applied only if the dequantize input has identity quantization parameters
+           (scale == 1.0 and zeroPoint == 0 for both per-tensor and per-axis quantized types).
     }];
 
     let constructor = "vpux::IE::createFuseConvertWithQDQPass()";
@@ -3706,10 +3831,36 @@ def FuseOpsToMatMul : PassBase<"fuse-ops-to-matmul", "vpux::FunctionPass"> {
         The pass fuses high-level op subgraphs that are semantically equivalent
         to a matrix multiplication into IE.MatMul, enabling NCE MatMul lowering.
 
-        Currently handled pattern:
-        - Broadcast Multiply + ReduceSum (outer-product contraction) → IE.MatMul.
-          Activated only when the resulting MatMul can be lowered to VPU.NCE.MatMul
-          on the current target.
+        Before performing the fusions, prioritize optimizing and eliminating Transpose
+        operations in the following subgraph..
+        ```
+             Input1                        Input2
+                |                             |
+            Transpose                     Transpose
+                |                             |
+            AffineReshape                AffineReshape
+                |                             |
+            -----------------------------------------
+            |               Multiply                 |
+            -----------------------------------------
+                               |
+                           ReduceSum
+                               |
+        ```
+
+        Handled patterns:
+        1. Dual-axis broadcast Multiply + ReduceSum → IE.MatMul.
+           The Multiply has one broadcast-from-1 dim on each input (M and N axes)
+           and the ReduceSum contracts over a shared dimension, producing a MatMul
+           with K > 1.  The reduce axis may appear at any position in the tensor.
+        2. Standalone dual-axis broadcast Multiply (outer product) → IE.MatMul.
+           [B,M,1]*[B,1,N] → [B,M,N] with no ReduceSum consumer → MatMul(K=1).
+        3. CumSum → IE.MatMul via a triangular constant weight matrix.
+
+        Patterns 1 and 2 are activated only when enable-grouped-matmul is true,
+        the resulting MatMul can be lowered to VPU.NCE.MatMul on the current
+        target, and the M*N*K product is at least 4096.
+        Pattern 3 is activated only when convert-cumsum-to-matmul is true.
     }];
 
     let constructor = "vpux::IE::createFuseOpsToMatMulPass()";
@@ -3723,7 +3874,50 @@ def FuseOpsToMatMul : PassBase<"fuse-ops-to-matmul", "vpux::FunctionPass"> {
             "enableGroupedMatMul", "enable-grouped-matmul",
             "bool", "false",
             "Flag to enable or disable grouped MatMul execution"
+        >,
+        Option<
+            "enableConvertCumSumToMatMul", "convert-cumsum-to-matmul",
+            "bool", "false",
+            "Flag to enable or disable the conversion from CumSum to MatMul"
         >
+    ];
+}
+
+//
+// SwapEltwiseAndReduce
+//
+
+def SwapEltwiseAndReduce : PassBase<"swap-eltwise-and-reduce", "vpux::FunctionPass"> {
+    let summary = "Hoist a reduce operation over a broadcast-compatible elementwise operation";
+
+    let description = [{
+        Applies the distributive law to reorder an EltwiseOp+ReduceOp chain into
+        ReduceOp+EltwiseOp when one EltwiseOp operand has size==1 on every reduce axis:
+
+            EltwiseOp(A, B) -> ReduceOp(axes, keep_dims)
+            =>
+            ReduceOp(A, axes, keep_dims=true) -> EltwiseOp(result, B) [-> Reshape]
+
+        The intermediate ReduceOp always uses keep_dims=true to preserve rank, allowing
+        B (broadcast on all reduce axes) to be applied correctly to the reduced result.
+        When the original keep_dims was false, a Reshape squeezes out the size-1
+        reduce axes at the end.
+
+        Supported combinations:
+          - Multiply + ReduceSum   (Multiply distributes over sum)
+          - Multiply + ReduceMean  (Multiply distributes over mean)
+          - Add + ReduceMean       (Add distributes over mean: mean(A+B) = mean(A) + mean(B),
+                                   and mean(B) = B when B has size==1 on every reduce axis)
+
+        This eliminates the large intermediate tensor produced by the full EltwiseOp
+        and exposes a smaller ReduceOp to subsequent optimization passes such as
+        ConvertReduceSumToConv.
+    }];
+
+    let constructor = "vpux::IE::createSwapEltwiseAndReducePass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
     ];
 }
 
@@ -3735,13 +3929,21 @@ def ConvertReduceSumToConv : PassBase<"convert-reduce-sum-to-conv", "vpux::Funct
     let summary = "Convert ReduceSum to Convolution operation";
 
     let description = [{
-        AI-generated summary
+        Converts ReduceSum operations into equivalent 1x1 Convolution operations using
+        all-ones weights. Three rewriters cover different cases:
 
-        Converts ReduceSum operations on a single channel dimension into 1x1 Convolution
-        operations. Targets 4D tensors with batch=1 that reduce across the channel axis
-        while preserving spatial dimensions. Creates a convolution filter filled with ones
-        as weights. Applied when the output width is not aligned to NCE requirements or
-        when parent/child operations are NCE-compatible.
+        - ReduceSumToConvRewriter: 4D input, reduce on channel dim (C).
+        - OuterDimReduceSumToConvRewriter: non-4D input, reduce on outermost dim (axis=0).
+          Reshapes [A, D1, D2, ...] to [1, A, D1*D2*..., 1] and applies a single Conv
+          with IC=A, replacing multi-stage AvgPool decomposition.
+        - InnerDimReduceSumToConvRewriter: non-4D input, reduce on innermost dim.
+
+        Each rewriter has its own benefit condition: ReduceSumToConvRewriter applies when
+        output W is not NCE-aligned or the op has an adjacent NCE parent/child;
+        OuterDimReduceSumToConvRewriter applies when reduceSize exceeds the NCE channel
+        alignment or the op has an adjacent NCE parent/child;
+        InnerDimReduceSumToConvRewriter applies when the total input size meets a minimum
+        threshold for the transformation to be beneficial.
     }];
 
     let constructor = "vpux::IE::createConvertReduceSumToConvPass()";
@@ -3771,6 +3973,14 @@ def ConvertReduceToPooling : PassBase<"convert-reduce-to-pooling", "vpux::Functi
 
     let dependentDialects = [
         "vpux::IE::IEDialect"
+    ];
+
+    let options = [
+        Option<
+            "enableFuseReduceMinMaxToDpu", "enable-fuse-reduce-minmax-to-dpu",
+            "bool", "false",
+            "Enable fusing ReduceMin/ReduceMax operations into the parent DPU op"
+        >
     ];
 }
 
@@ -3897,6 +4107,15 @@ def SwapConvertWithReshapeKindOps : PassBase<"swap-convert-with-reshape-kind-ops
            a chain of reshape kind ops or Gather, propagates one Convert through the chain
            to fuse both into a single Convert. Chooses forward or backward propagation
            direction based on which minimizes intermediate data type size.
+        - EliminateConvertRoundTripThroughReshapeAndSlice — eliminates a redundant
+           Convert(A->B) ... Convert(B->A) round-trip surrounding a reshape kind op that
+           feeds one or more Slices. Matched pattern: a leading Convert with a single
+           reshape-kind user, whose users are all SliceOps, each of which has a single
+           Convert user that converts back to the original type A. The leading and all
+           trailing Converts are removed and the intermediate reshape/Slice result types
+           are restored to A. NOTE: when A is wider than B (e.g. f32 -> f16 -> f32) the
+           intermediate truncation to B is removed, so the trailing A-typed users observe
+           higher-precision bits than in the original IR.
     }];
 
     let constructor = "vpux::IE::createSwapConvertWithReshapeKindOpsPass()";
@@ -4141,6 +4360,43 @@ def LoopOutliner : PassBase<"loop-outliner", "vpux::ModulePass"> {
 
     let dependentDialects = [
         "vpux::IE::IEDialect"
+    ];
+}
+
+//
+// ChunkGatedDeltaRuleLoop
+//
+
+def ChunkGatedDeltaRuleLoop : PassBase<"chunk-gated-delta-rule-loop", "vpux::FunctionPass"> {
+    let summary = "Transform Gated Delta Rule Loop into chunked computation.";
+
+    let description = [{
+        This pass detects `IE::LoopOp` bodies that implement the Gated Delta Rule
+        recurrence
+        (h_t = decay * h_{t-1} + k ⊗ beta * (v - <h_{t-1}, k>), y_t = <h_t, q>)
+        and rewrites them into a chunked form that reduces the sequential trip count
+        from N to N/chunk_size while enabling parallel intra-chunk computation.
+
+        The transformation is applied only when the loop matches the expected pattern
+        and all implementation constraints are satisfied. In particular:
+        * the loop trip count must be fixed, with `num_iterations` matching `seqLen`
+        * `seqLen` must be divisible by the configured `chunk-size`
+        * the execution condition must be constant true (no early termination)
+        * loop outputs must use invariant output descriptors only (no concat outputs)
+        * the ScatterUpdate indices must derive from the loop iteration argument
+
+        Loops that do not satisfy these requirements are left unchanged.
+    }];
+
+    let constructor = "vpux::IE::createChunkGatedDeltaRuleLoopPass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+
+    let options = [
+        Option<"chunkSize", "chunk-size", "int64_t", "64",
+                "Chunk size for the Gated Delta Rule Loop transformation.">
     ];
 }
 
@@ -4524,6 +4780,42 @@ def BroadcastInputForAdd : PassBase<"broadcast-input-for-add", "vpux::FunctionPa
 }
 
 //
+// FuseInefficientTileForAdd
+//
+
+def FuseInefficientTileForAdd : PassBase<"fuse-inefficient-tile-for-add", "vpux::FunctionPass"> {
+    let summary = "Fuse inefficient Tile ops into Add op via NUMPY broadcast";
+
+    let description = [{
+        Matches the pattern:
+            TileOp (broadcast) -> AddOp (NUMPY)
+        where the TileOp repeats along the innermost memory dimension of its output.
+
+        Repeating the innermost memory dimension is inefficient for TileDMA because it
+        must touch every element. This pass removes the explicit TileOp and replaces the
+        corresponding AddOp operand with the un-tiled input, letting AddOp perform the
+        broadcast implicitly via NUMPY semantics. The result is handled by the SHAVE
+        broadcast-add kernel, which is more efficient for innermost-dimension broadcast.
+
+        Before:
+            %tile = IE.Tile(%input) {repeats_values = [1, 1, 1, N]}
+                    : tensor<1x8x1x1xf16> -> tensor<1x8x1xNxf16>
+            %out  = IE.Add(%tile, %other) {auto_broadcast = NUMPY}
+                    : tensor<1x8x1xNxf16>, tensor<1x8x1xNxf16> -> tensor<1x8x1xNxf16>
+
+        After:
+            %out  = IE.Add(%input, %other) {auto_broadcast = NUMPY}
+                    : tensor<1x8x1x1xf16>, tensor<1x8x1xNxf16> -> tensor<1x8x1xNxf16>
+    }];
+
+    let constructor = "vpux::IE::createFuseInefficientTileForAddPass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
 // BroadcastInputForMultiply
 //
 
@@ -4531,19 +4823,35 @@ def BroadcastInputForMultiply : PassBase<"broadcast-input-for-multiply", "vpux::
     let summary = "Broadcast input for Multiply op";
 
     let description = [{
-        AI-generated summary
+        This pass contains two rewrite patterns applied in priority order:
 
-        Broadcasts mismatched-shape inputs in Multiply operations by extending smaller inputs
-        to match the output shape. Performs NCHW-to-NHWC casting, explicit broadcasting, and
-        dimension reordering back to original layout. Only applies when broadcasting is on the
-        highest non-trivial dimension and innermost dimension is properly aligned, enabling the
-        Multiply to execute on DPU instead of SHAVE.
+        1. `FuseBroadCastRewriter` (higher priority, always active):
+           Matches `Tile (broadcast) -> [optional PermuteCast] -> Multiply` and removes the
+           explicit `Tile` by replacing it with the un-tiled input. The `Multiply` then relies
+           on NUMPY auto-broadcast to expand the smaller input implicitly. When a `PermuteCast`
+           sits between the `Tile` and the `Multiply`, a new small `PermuteCast` on the un-tiled
+           input is inserted so the layout contract is preserved.
+
+        2. `BroadcastInputRewriter` (lower priority, enabled only when `broadcast-input-for-multiply=true`):
+           Broadcasts mismatched-shape inputs in Multiply operations by extending smaller inputs
+           to match the output shape. Performs NCHW-to-NHWC casting, explicit broadcasting, and
+           dimension reordering back to original layout. Only applies when broadcasting is on the
+           highest non-trivial dimension and innermost dimension is properly aligned, enabling the
+           Multiply to execute on DPU instead of SHAVE.
     }];
 
     let constructor = "vpux::IE::createBroadcastInputForMultiplyPass()";
 
     let dependentDialects = [
         "vpux::IE::IEDialect"
+    ];
+
+    let options = [
+        Option<
+            "broadcastInputForMultiply", "broadcast-input-for-multiply",
+            "bool", "false",
+            "Enable broadcasting input for Multiply ops"
+        >
     ];
 }
 
@@ -4638,26 +4946,60 @@ def ConvertReorderToPermuteQuantize : PassBase<"convert-reorder-to-permute-quant
 //
 
 def PropagateMemPermuteThroughEltwise : PassBase<"propagate-mem-permute-through-eltwise", "vpux::FunctionPass"> {
-    let summary = "Propagates IE.MemPermute through IE.Add when both inputs of IE.Add have IE.MemPermute";
+    let summary = "Propagates IE.MemPermute backward through elementwise ops to fuse or cancel consecutive MemPermutes on each input branch";
 
     let description = [{
-        Propagates last permute in the chain. Converts this subgraph
+        Moves a trailing IE.MemPermute backward through elementwise ops (Add, Multiply, Subtract)
+        so that consecutive MemPermutes on each input branch become adjacent and can be fused
+        by canonicalization. When the two MemPermutes are inverses of each other they cancel
+        entirely, eliminating the DMA cost.
+
+        Direct-path pattern (upstream PermuteLike reachable via ShapeCast only):
+        At least one input has an upstream PermuteLike op (MemPermute or PermuteQuantize)
+        connected through ShapeCast. If a branch lacks an upstream PermuteLike op it is
+        handled by processNonPermuteBranch. The trailing MemPermute is propagated backward
+        so each branch that has one gets a new MemPermute adjacent to the existing one.
         ```
-            IE.MemPermute -> IE.ShapeCast \
-                                           IE.Add -> IE.ShapeCast -> IE.MemPermute
-            IE.MemPermute -> IE.ShapeCast /
+            IE.MemPermute -> [IE.ShapeCast] \
+                                             IE.Add -> [IE.ShapeCast] -> IE.MemPermute
+            IE.MemPermute -> [IE.ShapeCast] /
         ```
-        into
+        becomes:
         ```
-            IE.MemPermute -> IE.MemPermute -> IE.ShapeCast \
-                                                            IE.Add -> IE.ShapeCast
-            IE.MemPermute -> IE.MemPermute -> IE.ShapeCast /
+            IE.MemPermute -> IE.MemPermute -> [IE.ShapeCast] \
+                                                              IE.Add -> [IE.ShapeCast]
+            IE.MemPermute -> IE.MemPermute -> [IE.ShapeCast] /
         ```
-        Also optimized for other elementwise operations like IE.Multiply, IE.Subtract.
-        Canonicalization may simplify this when IE.MemPermute operations cancel one another
-        The pass need to have three IE.MemPermute before and after elementwise operation, they can have different
-        permutation. There is another pass "MovePermutePostEltwise" which is doing the opposite thing, which
-        needs to have two identical IE.MemPermute operations in the input, and then move them to after the output.
+        The two consecutive IE.MemPermute ops per branch are folded by canonicalization.
+        When they are inverses, they cancel and remove the DMA entirely.
+
+        Indirect-path pattern (upstream PermuteLike reachable via QuantizeCast/PermuteCast,
+        e.g. FakeQuantize lowering: MemPermute -> QuantizeCast -> Add):
+        ExtractODUPermuteFromAdd extracts the implicit NHWC->NCHW output permute of Add into
+        an explicit trailing IE.MemPermute. OptimizeEltwise then propagates it backward:
+        because QuantizeCast/PermuteCast sits between the upstream MemPermute and Add,
+        processNonPermuteBranch inserts a new IE.MemPermute on the branch input and replaces
+        the trailing IE.MemPermute with a free IE.PermuteCast.
+        ```
+            IE.MemPermute -> IE.QuantizeCast \
+                                              IE.Add (NHWC->NCHW, implicit ODU permute)
+            IE.MemPermute -> IE.QuantizeCast /
+        ```
+        becomes:
+        ```
+            IE.MemPermute -> IE.QuantizeCast -> IE.MemPermute \
+                                                               IE.Add (NHWC->NHWC) -> IE.PermuteCast
+            IE.MemPermute -> IE.QuantizeCast -> IE.MemPermute /
+        ```
+        The Add now executes in NHWC->NHWC mode and the trailing IE.PermuteCast is zero-cost
+        (no data movement). Note: the new and original IE.MemPermute per branch are not
+        consecutive (IE.QuantizeCast sits between them), so they are not fused by canonicalization.
+
+        Also handles identity IE.AvgPool/IE.MaxPool via OptimizeIdentityPool, and
+        IE.SoftMax via SwapMemPermuteWithSoftmax.
+
+        The inverse pass "MovePermutePostEltwise" moves identical MemPermutes from
+        inputs to after the output.
     }];
 
     let constructor = "vpux::IE::createPropagateMemPermuteThroughEltwisePass()";
@@ -4842,6 +5184,14 @@ def OptimizeReduceOpsWithMemPermute : PassBase<"optimize-reduce-ops-with-mem-per
 
     let dependentDialects = [
         "vpux::IE::IEDialect"
+    ];
+
+    let options = [
+        Option<
+            "enableFuseReduceMinMaxToDpu", "enable-fuse-reduce-minmax-to-dpu",
+            "bool", "false",
+            "Enable fusing ReduceMin/ReduceMax operations into the parent DPU op"
+        >
     ];
 }
 
@@ -5159,6 +5509,11 @@ def MergeFullyConnected : PassBase<"merge-fully-connected", "vpux::FunctionPass"
     }];
 
     let constructor = "vpux::IE::createMergeFullyConnectedPass()";
+
+    let options = [
+        Option<"mergeUnrolledMatmulForLargeOC", "merge-unrolled-matmul-for-large-oc", "bool", /*default=*/"false",
+               "Enable merging FC branches with dequantize pattern">
+    ];
 
     let dependentDialects = [
         "vpux::IE::IEDialect"
@@ -5492,43 +5847,67 @@ def MergeParallelFullyConnected : PassBase<"merge-parallel-fully-connected", "vp
     let summary = "Merge parallel 'IE.FullyConnectedOp'";
 
     let description = [{
-        AI-generated summary
+        Merges N parallel IE.FullyConnectedOp operations that share the same input tensor
+        into a single IE.FullyConnectedOp with concatenated weights, reducing kernel scheduling
+        overhead and improving DPU tile utilization on NPU.
 
-        This transformation takes the following subgraph:
+        Two merge strategies are supported:
+
+        Strategy 1 — FQ/DynDQ weight chain (original, for GPTQ LLM models):
+        Weights pass through FakeQuantize (or DynamicDequantize) + AffineReshape + Transpose.
+        The pass merges constants along the output-channel axis and recovers per-FC outputs
+        via IE.Slice ops:
         ```
-        cst_set1(2x3x2,1x1x1,1x1x1,2x1x2,2x1x2)    cst_set2(2x3x3,1x1x1,1x1x1,2x1x3,2x1x3)
-                  \     |     |    /     /                   \     |    |     /    /
-                IE.FakeQuantize (2x3x2)                 IE.FakeQuantize (2x3x3)
-                        |                                        |
-                IE.AffineReshape(6x2)                   IE.AffineReshape(6x3)
-                        |                                        |
-                IE.Transpose(2x6)                       IE.Transpose(3x6)
-                       \                                   /
-                        \         Input(1x6)              /
-                         \       /           \           /
-                IE.FullyConnected(1x2)    IE.FullyConnected(1x3)
+        cst_set1(2x3x2,...)    cst_set2(2x3x3,...)
+              \  ...  /               \  ...  /
+          IE.FakeQuantize(2x3x2)  IE.FakeQuantize(2x3x3)
+                  |                       |
+          IE.AffineReshape(6x2)   IE.AffineReshape(6x3)
+                  |                       |
+          IE.Transpose(2x6)       IE.Transpose(3x6)
+                   \           Input(1x6)  /
+                    \          /       \  /
+             IE.FullyConnected(1x2)  IE.FullyConnected(1x3)
         ```
-        To:
+        Becomes:
         ```
-        cst_set_concat(2x3x5,1x1x1,1x1x1,2x1x5,2x1x5)
-                         \      |    |     /     /
-                        IE.FakeQuantize (2x3x5)
-                                |
-                        IE.AffineReshape(6x5)
-                                |
-                        IE.Transpose(5x6)       Input(1x6)
-                                \               /
-                                 \             /
-                              IE.FullyConnected(1x5)
-                                /              \
-                        IE.SLice(1x2)     IE.slice(1x3)
+        cst_set_concat(2x3x5,...)
+               \  ...  /
+           IE.FakeQuantize(2x3x5)
+                   |
+           IE.AffineReshape(6x5)
+                   |
+           IE.Transpose(5x6)    Input(1x6)
+                    \           /
+                  IE.FullyConnected(1x5)
+                  /               \
+          IE.Slice(1x2)         IE.Slice(1x3)
         ```
-        The optimization is used for LLM GPTQ model. GPTQ MatMul is not efficient on NPU,
-        especially for KV cache model, due to so many small ops increase the runtime idle
-        time. Matmul will convert to fully connected layer. Assume originally two parallel
-        MatMul unroll to 64 small MatMul, after merge, we only 32 MatMul, op reduce will
-        benefit to runtime idle. Meanwhile, we increase the DMA copy size(reduce DMA copy number),
-        which will also benefit to performance.
+
+        Strategy 2 — Direct constant weights + Concat elimination:
+        Weights are direct IE.Const::DeclareOp values (no FQ/DynDQ preprocessing).
+        All FC outputs (through an optional IE.AffineReshapeOp) must feed the same
+        IE.ConcatOp. The pass merges weights along axis 0 and replaces the downstream
+        Concat with a single IE.ReshapeOp — no Slice ops are emitted:
+        ```
+        cst_w1(N1xK)   cst_w2(N2xK)
+             |    Input(BxK)   |
+              \   /       \   /
+          FC(BxN1)       FC(BxN2)
+              |               |
+        AffineReshape   AffineReshape    (optional)
+              \               /
+           IE.Concat(axis=a) → out_shape
+        ```
+        Becomes:
+        ```
+        Input(BxK)    Concat(cst_w1, cst_w2, axis=0)
+                  \        merged_weight((N1+N2)xK)
+                   \      /
+                  FC(Bx(N1+N2))
+                        |
+                IE.Reshape(out_shape)       (Concat eliminated)
+        ```
     }];
 
     let constructor = "vpux::IE::createMergeParallelFullyConnectedPass()";
@@ -5589,9 +5968,13 @@ def ShrinkMatmulGroups : PassBase<"shrink-matmul-groups", "vpux::FunctionPass"> 
     let summary = "Shrink Matmul groups number";
 
     let description = [{
-        This transformation shrinks groups number of 3D Matmul when rhs is a tensor obtained through a BroadCastOp.
-        Take below case as an example:
-        Convert 3D Matmul with 24 groups:
+        Shrinks the group count of a grouped MatMul when the RHS tensor is obtained
+        through a BroadcastOp, reducing memory traffic by eliminating the Broadcast
+        and allowing the resulting smaller MatMul to fit in CMX.
+
+        Three patterns are handled:
+
+        Case 1 - Broadcast -> AffineReshape -> MatMul:
                             RHS
                         1x8x1x1024x64
                             |
@@ -5603,9 +5986,8 @@ def ShrinkMatmulGroups : PassBase<"shrink-matmul-groups", "vpux::FunctionPass"> 
             LHS             |
         1x24x1x64       1x24x1024x64
             \               /
-                MatMul
-
-        to a new 3D Matmul with 8 groups:
+                 MatMul
+        becomes:
             LHS             RHS
         1x24x1x64       1x8x1x1024x64
             |               |
@@ -5613,11 +5995,31 @@ def ShrinkMatmulGroups : PassBase<"shrink-matmul-groups", "vpux::FunctionPass"> 
             |               |
         1x8x3x64        1x8x1024x64
             \               /
-                MatMul
+                 MatMul
 
-        The benefits are:
-        1. The BroadCastOp can be eliminated.
-        2. The converted 3D Matmul with less groups number can fit in CMX to benefit from NCE group Matmul.
+        Case 2 - Broadcast -> AffineReshape -> Transpose(4D) -> MatMul:
+        same as Case 1 but with an outer Transpose (NCWH) after AffineReshape.
+
+        Case 3 - Broadcast -> Transpose(5D swap last 2 dims) -> AffineReshape -> MatMul:
+        handles KV-cache attention MatMuls in decode models where a 5D last-2-dims
+        Transpose sits between the Broadcast and the AffineReshape:
+                            RHS
+                        1x2x1xAxB
+                            |
+                        Broadcast
+                            |
+                        1x2x7xAxB
+                            |
+                        Transpose (d0,d1,d2,d4,d3)
+                            |
+                        1x2x7xBxA
+                            |
+                        AffineReshape
+            LHS             |
+        1x14x1xB        1x14xBxA
+            \               /
+                 MatMul
+        becomes a 2-group MatMul with the Broadcast eliminated.
     }];
 
     let constructor = "vpux::IE::createShrinkMatmulGroupsPass()";
@@ -5640,6 +6042,47 @@ def PropagatePermuteCast : PassBase<"propagate-permute-cast", "vpux::FunctionPas
     }];
 
     let constructor = "vpux::IE::createPropagatePermuteCastPass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
+// ConvertConstantDynamicDequantizeToDequantize
+//
+
+def ConvertConstantDynamicDequantizeToDequantize : PassBase<"convert-const-dynamic-dequantize-to-dequantize", "vpux::FunctionPass"> {
+    let summary = "Embed constant scale/ZP of DynamicDequantize into the quantized type";
+
+    let description = [{
+        This is a bridge-adaptation pass.
+
+        When a DynamicDequantize op has compile-time-constant scale (and optional
+        zero-point) operands, embed those constants directly into a
+        Quantized Type type via QuantizeCast, then replace the DynamicDequantize
+        with a static Dequantize.
+
+        Input subgraph:
+        ```
+        %scale = Const  tensor<...>      (constant)
+        %zp    = Const  tensor<...>        (optional constant)
+        %input          tensor<...>
+        %out = IE.DynamicDequantize(%input, %scale [, %zp])
+                        tensor<...>
+        ```
+        Output subgraph:
+        ```
+        %cast = IE.QuantizeCast(%input)
+                        tensor<...>
+        %out  = IE.Dequantize(%cast)  tensor<...>
+        ```
+        This allows downstream passes to continue using the static
+        IE.DequantizeOp path while higher-level passes migrate to
+        IE.DynamicDequantizeOp.
+    }];
+
+    let constructor = "vpux::IE::createConvertConstantDynamicDequantizeToDequantizePass()";
 
     let dependentDialects = [
         "vpux::IE::IEDialect"
@@ -5679,6 +6122,39 @@ def ConvertDynamicDequantizeToDequantize : PassBase<"convert-dynamic-dequantize-
     }];
 
     let constructor = "vpux::IE::createConvertDynamicDequantizeToDequantizePass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
+// ConvertDequantizeToDynamicDequantize
+//
+
+def ConvertDequantizeToDynamicDequantize : PassBase<"convert-dequantize-to-dynamic-dequantize", "vpux::FunctionPass"> {
+    let summary = "Replace 'IE.Dequantize' with 'IE.DynamicDequantize' extracting scale/ZP into explicit constant operands";
+
+    let description = [{
+        Replaces each IE.Dequantize whose input has a quant.uniform element type with an
+        IE.DynamicDequantize whose scale and zero-point are explicit constant tensor operands
+        derived from the quantized element type.
+
+        Input subgraph:
+        ```
+        %input : tensor<... x !quant.uniform<i8:f32, scale:zp>>
+        %out = IE.Dequantize(%input)
+        ```
+
+        Output subgraph:
+        ```
+        %scale = Const : tensor<... x f32>
+        %zp    = Const : tensor<... x i8>
+        %out = IE.DynamicDequantize(%input, %scale, %zp)
+        ```
+    }];
+
+    let constructor = "vpux::IE::createConvertDequantizeToDynamicDequantizePass()";
 
     let dependentDialects = [
         "vpux::IE::IEDialect"
@@ -5809,9 +6285,17 @@ def ConvertParallelSlicesToGather : PassBase<"convert-parallel-slices-to-gather"
     let summary = "Convert parallel Slice operations to single Gather operation";
 
     let description = [{
-        When SliceOp branches share the same source and are finally concatenated, convert these SliceOp into single Gather operation.
-        For NPU4000+, Gather operation will be mapped to GatherDMA.
-        With this conversion, DMA workloads can be reduced and benefit performance.
+        This pass contains two rewrite patterns:
+
+        - ConvertToGather: When SliceOp branches share the same source and are finally concatenated,
+          convert these SliceOp into single Gather operation.
+          For NPU4000+, Gather operation will be mapped to GatherDMA.
+          With this conversion, DMA workloads can be reduced and benefit performance.
+
+        - MergeParallelGatherSameIndices: When N GatherOps read from N different constant of equal shape,
+          share the same indices input, and all feed a single ConcatOp,
+          replace them with one GatherOp over a concatenated table.
+          Per-table index offsets are added via an AddOp, and the ConcatOp is replaced by a ReshapeOp.
     }];
 
     let constructor = "vpux::IE::createConvertParallelSlicesToGatherPass()";
@@ -5831,7 +6315,18 @@ def ConvertGatherElementsToGather : PassBase<"convert-gather-elements-to-gather"
     let description = [{
         The pass is a part of `AdjustForVPU` pipeline.
 
-        This pass replaces suitable `GatherElements` operations with `Gather` operation.
+        This pass replaces suitable `GatherElements` operations with `Gather` operations
+        using two strategies:
+
+        1. GatherElementsFlatConverter (higher priority):
+           Applicable when data and indices have the same shape and all dimensions after
+           the gather axis are 1, reshapes to 2D, splits into chunks of at most 32768
+           indices each, adds row offsets, performs flat Gather(axis=0) per chunk, then
+           concatenates and reshapes back.
+
+        2. GatherElementsOpConverter:
+           Handles the case where GatherElements has a Tile producer on the gather axis,
+           converting to Squeeze + Gather.
     }];
 
     let constructor = "vpux::IE::createConvertGatherElementsToGatherPass()";
@@ -6160,26 +6655,6 @@ def ConvertSDPAToFlashSDPA : PassBase<"convert-sdpa-to-flash-sdpa", "vpux::Funct
     }];
 
     let constructor = "vpux::IE::createConvertSDPAToFlashSDPAPass()";
-
-    let dependentDialects = [
-        "vpux::IE::IEDialect"
-    ];
-}
-
-
-//
-// LoadExternalKernelResources
-//
-
-def LoadExternalKernelResources : PassBase<"load-external-kernel-resources", "vpux::FunctionPass"> {
-    let summary = "Loads the implementations of the IE.ExternalKernelOps into ShaveBinary resources";
-
-    let description = [{
-        Loads the implementations of the IE.ExternalKernelOps into ShaveBinary resources.
-        Represents a base for external resource referencing and loading.
-    }];
-
-    let constructor = "vpux::IE::createLoadExternalKernelResourcesPass()";
 
     let dependentDialects = [
         "vpux::IE::IEDialect"
@@ -6751,6 +7226,14 @@ def ReduceNumTilesForSmallModelsPass: PassBase<"reduce-num-tiles-for-small-model
 
     let dependentDialects = [
         "vpux::IE::IEDialect"
+    ];
+
+    let options = [
+        Option<
+            "enableSDPAContributions", "enable-sdpa-contributions",
+            "bool", "false",
+            "Count SDPAOp as equivalent Multiply + 2xMatMul + SoftMax when computing attention-model ratios"
+        >
     ];
 }
 

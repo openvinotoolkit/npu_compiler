@@ -451,12 +451,12 @@ module @UnrollLoopWithOutliner {
     DataInfo "Loop_17" friendlyName = "Result_18" : tensor<1x1x2x3xf32>
   }
 
-  func.func private @main_loop_body1(%arg0: tensor<1x1x2x3xf32>) -> (tensor<1x1x2x3xf32>, tensor<1xi8>) {
+  func.func nested @main_loop_body1(%arg0: tensor<1x1x2x3xf32>) -> (tensor<1x1x2x3xf32>, tensor<1xi8>) {
     %cst = const.Declare tensor<1xi8> = dense<1> : tensor<1xi8>
     %0 = IE.SoftMax(%arg0) {axisInd = 2 : i64} : tensor<1x1x2x3xf32> -> tensor<1x1x2x3xf32>
     return %0, %cst : tensor<1x1x2x3xf32>, tensor<1xi8>
   }
-// CHECK:  func.func private @main_loop_body1([[ARG0:%.+]]: tensor<1x1x2x3xf32>)
+// CHECK:  func.func nested @main_loop_body1([[ARG0:%.+]]: tensor<1x1x2x3xf32>)
 // CHECK-SAME:    -> (tensor<1x1x2x3xf32>, tensor<1xi8>) {
 // CHECK:  [[CONST:%.+]] = const.Declare tensor<1xi8> = dense<1> : tensor<1xi8>
 // CHECK:  [[SOFTMAX:%.+]] = IE.SoftMax([[ARG0]]) {axisInd = 2 : i64} : tensor<1x1x2x3xf32> -> tensor<1x1x2x3xf32>

@@ -10,7 +10,10 @@
 
 #pragma once
 
-#include "vcl_common.hpp"
+#include "vcl_logger.hpp"
+#include "vpux/compiler/network_metadata.hpp"
+
+#include <string>
 
 namespace VPUXDriverCompiler {
 
@@ -20,8 +23,17 @@ namespace VPUXDriverCompiler {
  */
 class VPUXExecutableL0 final {
 public:
-    VPUXExecutableL0(const std::shared_ptr<const vpux::NetworkDescription>& networkDesc, bool enableProfiling,
-                     VCLLogger* vclLogger);
+    VPUXExecutableL0(const std::shared_ptr<const vpux::NetworkDescription>& networkDesc,
+                     const intel_npu::Config& config, std::shared_ptr<VCLLogger> vclLogger);
+
+    VPUXExecutableL0(const std::string& compatibilityString, std::shared_ptr<VCLLogger> vclLogger);
+
+    VPUXExecutableL0(VPUXExecutableL0&&) = default;
+    VPUXExecutableL0(const VPUXExecutableL0&) = delete;
+    ~VPUXExecutableL0();
+    VPUXExecutableL0& operator=(const VPUXExecutableL0&) = delete;
+    VPUXExecutableL0& operator=(VPUXExecutableL0&&) = default;
+
     /**
      * @brief Get compiled blob from net description
      *
@@ -46,14 +58,23 @@ public:
      */
     vcl_result_t exportNetwork(uint8_t* blob, uint64_t blobSize) const;
 
-    VCLLogger* getLogger() const {
+    const std::string& getCompatibilityString() const {
+        if (_networkDesc) {
+            return _networkDesc->metadata.compatibilityString;
+        } else {
+            return _compatibilityString;
+        }
+    }
+
+    const std::shared_ptr<VCLLogger>& getLogger() const {
         return _logger;
     }
 
 private:
     std::shared_ptr<const vpux::NetworkDescription> _networkDesc;  ///< The compilation result of MLIR compiler
-    bool enableProfiling;                                          ///< Calc time cost on VCL level
-    VCLLogger* _logger;
+    std::optional<intel_npu::Config> _config;                      ///< Configuration for the executable
+    std::string _compatibilityString;
+    std::shared_ptr<VCLLogger> _logger;
 };
 
 }  // namespace VPUXDriverCompiler

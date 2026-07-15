@@ -29,6 +29,36 @@ func.func @FuseMultiplyToConvolutionSimple(%arg0: tensor<512x96x1x1xf16>, %arg1:
 
 // -----
 
+!qElemType = !quant.uniform<i4:f16, 1.000000e+00>
+
+// CHECK-LABEL: @FuseMultiplyToConvolutionDynDequant
+// CHECK-SAME: ([[ARG0:%.+]]: tensor<512x96x1x1xf16>, [[ARG1:%.+]]: tensor<512x96x1x1x!qElemType>, [[ARG2:%.+]]: tensor<1x96x1x1xf16>)
+// CHECK-SAME:  -> tensor<512x512x1x1xf16>
+func.func @FuseMultiplyToConvolutionDynDequant(%arg0: tensor<512x96x1x1xf16>, %arg1: tensor<512x96x1x1x!qElemType>, %arg2: tensor<1x96x1x1xf16>)
+        -> tensor<512x512x1x1xf16> {
+    %scale = const.Declare tensor<1x1x1x1xf16> = dense<0.135327876> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
+
+    %0 = IE.DynamicDequantize(%arg1, %arg2) {dstElemType = f16} : tensor<512x96x1x1x!qElemType>, tensor<1x96x1x1xf16> -> tensor<512x96x1x1xf16>
+
+    %1 = IE.Convolution(%arg0, %0) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
+        : tensor<512x96x1x1xf16>, tensor<512x96x1x1xf16> -> tensor<512x512x1x1xf16>
+
+    %2 = IE.Multiply(%1, %scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+        : tensor<512x512x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<512x512x1x1xf16>
+
+    return %2 : tensor<512x512x1x1xf16>
+
+    // CHECK: [[DYN_DEQUANT:%.+]] = IE.DynamicDequantize([[ARG1]], [[ARG2]])
+
+    // CHECK: [[CONV:%.+]] = IE.Convolution([[ARG0]], [[DYN_DEQUANT]])
+    // CHECK-SAME:  static_scale = 0.135327876
+
+    // CHECK-NOT: IE.Multiply
+    // CHECK: return [[CONV]]
+}
+
+// -----
+
 // CHECK-LABEL: @FuseMultiplyToConvolutionSimpleFp32
 // CHECK-SAME: ([[ARG0:%.+]]: tensor<512x96x1x1xf32>, [[ARG1:%.+]]: tensor<512x96x1x1xf32>)
 // CHECK-SAME:  -> tensor<512x512x1x1xf32>

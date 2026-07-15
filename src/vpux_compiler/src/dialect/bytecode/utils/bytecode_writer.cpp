@@ -4,14 +4,17 @@
 //
 
 #include "vpux/compiler/dialect/bytecode/utils/bytecode_writer.hpp"
+#include "npu_bytecode_utils/magic_number.hpp"
+#include "npu_bytecode_utils/section_header_table.hpp"
+#include "npu_bytecode_utils/serialization_utils.hpp"
+#include "npu_bytecode_utils/version.hpp"
 #include "vpux/compiler/dialect/bytecode/IR/ops/register.hpp"
 #include "vpux/compiler/dialect/bytecode/IR/ops/section.hpp"
+#include "vpux/compiler/dialect/bytecode/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/bytecode/utils/serialization.hpp"
-#include "vpux/utils/bytecode/magic_number.hpp"
-#include "vpux/utils/bytecode/section_header_table.hpp"
-#include "vpux/utils/bytecode/serialization_utils.hpp"
-#include "vpux/utils/bytecode/version.hpp"
+#include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/utils/core/array_ref.hpp"
+#include "vpux/utils/core/checked_cast.hpp"
 #include "vpux/utils/core/error.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
@@ -44,17 +47,17 @@ uint64_t countGeneralRegisters(bytecode::FuncOp funcOp) {
 }
 
 // Parse a function section and create a corresponding section header
-bytecode::SectionHeader parseFunctionSectionHeader(bytecode::FuncSectionOp funcSection,
-                                                   bytecode::TypeSectionOp typeSection) {
-    bytecode::SectionHeader header{};
-    header.type = bytecode::SectionType::FuncSection;
+intel_npu::vm::SectionHeader parseFunctionSectionHeader(bytecode::FuncSectionOp funcSection,
+                                                        bytecode::TypeSectionOp typeSection) {
+    intel_npu::vm::SectionHeader header{};
+    header.type = intel_npu::vm::SectionType::FuncSection;
     header.nameIndex = 0;  // Placeholder for actual name index calculation
     header.offset = 0;     // Placeholder for actual offset calculation
     header.size = funcSection.getBinarySize();
 
     auto typeIndexMap = bytecode::buildTypeIndexMap(typeSection);
 
-    bytecode::details::FunctionSectionInfo funcInfo;
+    intel_npu::vm::details::FunctionSectionInfo funcInfo;
     funcInfo.entrypointFunctionIndex = 0;  // Placeholder for actual entry point index calculation
     auto functionOps = funcSection.getContent().getOps<bytecode::FuncOp>();
     funcInfo.numFunctions = std::distance(functionOps.begin(), functionOps.end());
@@ -65,8 +68,8 @@ bytecode::SectionHeader parseFunctionSectionHeader(bytecode::FuncSectionOp funcS
         VPUX_THROW_WHEN(it == typeIndexMap.end(),
                         "Failed to resolve function type reference '@{0}' in the type section", typeRefName);
 
-        bytecode::details::FunctionSectionInfo::FunctionInfo info{};
-        info.nameIndex = 0;  // Placeholder for actual function name index calculation
+        intel_npu::vm::details::FunctionSectionInfo::FunctionInfo info{};
+        info.nameIndex = bytecode::getStringIndex(funcOp.getFuncName(), getModuleOp(funcOp));
         info.functionTypeIndex = it->second;
         info.numGeneralRegisters = countGeneralRegisters(funcOp);
         info.bodyOffset = bodyOffset;
@@ -74,33 +77,68 @@ bytecode::SectionHeader parseFunctionSectionHeader(bytecode::FuncSectionOp funcS
         funcInfo.functionInfos.push_back(info);
         bodyOffset += info.bodySize;
     }
-    header.info = std::make_unique<bytecode::details::FunctionSectionInfo>(funcInfo);
+    header.info = std::make_unique<intel_npu::vm::details::FunctionSectionInfo>(funcInfo);
     return header;
 }
 
 // Parse a section that contains only data (i.e. offsets and sizes) and create a corresponding section header
 // This is used for ConstantSection, StringSection and TypeSection
 template <typename DataSectionOp, typename DataOp>
-bytecode::SectionHeader parseDataSectionHeader(DataSectionOp sectionOp, bytecode::SectionType sectionType) {
-    bytecode::SectionHeader header{};
+intel_npu::vm::SectionHeader parseDataSectionHeader(DataSectionOp sectionOp, intel_npu::vm::SectionType sectionType) {
+    intel_npu::vm::SectionHeader header{};
     header.type = sectionType;
     header.nameIndex = 0;  // Placeholder for actual name index calculation
     header.offset = 0;     // Placeholder for actual offset calculation
     header.size = sectionOp.getBinarySize();
 
-    bytecode::details::DataSectionInfo dataInfo;
+    intel_npu::vm::details::DataSectionInfo dataInfo;
     auto dataOps = sectionOp.getContent().template getOps<DataOp>();
     dataInfo.numData = std::distance(dataOps.begin(), dataOps.end());
     size_t dataOffset = 0;
     for (auto dataOp : dataOps) {
-        bytecode::details::DataSectionInfo::DataInfo info{};
+        intel_npu::vm::details::DataSectionInfo::DataInfo info{};
         info.offset = dataOffset;
         info.size = dataOp.getBinarySize();
         dataInfo.dataInfos.push_back(info);
         dataOffset += info.size;
     }
-    header.info = std::make_unique<bytecode::details::DataSectionInfo>(dataInfo);
+    header.info = std::make_unique<intel_npu::vm::details::DataSectionInfo>(dataInfo);
     return header;
+}
+
+intel_npu::vm::SectionHeader parseMetadataSectionHeader(bytecode::MetadataSectionOp metadataSection) {
+    intel_npu::vm::SectionHeader header{};
+    header.type = intel_npu::vm::SectionType::MetadataSection;
+    header.nameIndex = 0;
+    header.offset = 0;
+    header.size = metadataSection.getBinarySize();
+
+    intel_npu::vm::details::DataSectionInfo dataInfo;
+    auto metadataOps = metadataSection.getContent().getOps<bytecode::SerializableOpInterface>();
+    dataInfo.numData = std::distance(metadataOps.begin(), metadataOps.end());
+    size_t dataOffset = 0;
+    for (auto metadataOp : metadataOps) {
+        intel_npu::vm::details::DataSectionInfo::DataInfo info{};
+        info.offset = dataOffset;
+        info.size = metadataOp.getBinarySize();
+        dataInfo.dataInfos.push_back(info);
+        dataOffset += info.size;
+    }
+    header.info = std::make_unique<intel_npu::vm::details::DataSectionInfo>(dataInfo);
+    return header;
+}
+
+// Iterate through the IR and find the minimum required bytecode version for all versioned ops in the module. This is
+// used to determine the target bytecode version for serialization
+intel_npu::vm::Version getMinBytecodeVersion(mlir::ModuleOp moduleOp) {
+    auto minVersion = intel_npu::vm::Version::getMinSupportedVersion();
+    moduleOp.walk([&](bytecode::VersionedOpInterface versionedOp) {
+        const auto requiredVersion = versionedOp.getMinVersion();
+        if (requiredVersion > minVersion) {
+            minVersion = requiredVersion;
+        }
+    });
+    return minVersion;
 }
 
 }  // namespace
@@ -108,6 +146,10 @@ bytecode::SectionHeader parseDataSectionHeader(DataSectionOp sectionOp, bytecode
 bytecode::BytecodeWriter::BytecodeWriter(mlir::ModuleOp moduleOp)
         : _moduleOp(moduleOp), _bytecodeBuffer(), _sectionHeaderTable() {
     prepareSectionHeaderTable();
+}
+
+std::vector<uint8_t>& bytecode::BytecodeWriter::getBytecodeBuffer() {
+    return _bytecodeBuffer;
 }
 
 void bytecode::BytecodeWriter::prepareSectionHeaderTable() {
@@ -127,19 +169,22 @@ void bytecode::BytecodeWriter::prepareSectionHeaderTable() {
                 })
                 .Case<bytecode::ConstantSectionOp>([&](bytecode::ConstantSectionOp constantSection) {
                     _sectionHeaderTable.addSectionHeader(parseDataSectionHeader<ConstantSectionOp, ConstantOp>(
-                            constantSection, SectionType::ConstantSection));
+                            constantSection, intel_npu::vm::SectionType::ConstantSection));
                 })
                 .Case<bytecode::KernelSectionOp>([&](bytecode::KernelSectionOp kernelSection) {
                     _sectionHeaderTable.addSectionHeader(parseDataSectionHeader<KernelSectionOp, KernelOp>(
-                            kernelSection, SectionType::KernelSection));
+                            kernelSection, intel_npu::vm::SectionType::KernelSection));
                 })
                 .Case<bytecode::StringSectionOp>([&](bytecode::StringSectionOp stringSection) {
                     _sectionHeaderTable.addSectionHeader(parseDataSectionHeader<StringSectionOp, StringOp>(
-                            stringSection, SectionType::StringSection));
+                            stringSection, intel_npu::vm::SectionType::StringSection));
                 })
                 .Case<bytecode::TypeSectionOp>([&](bytecode::TypeSectionOp typeSection) {
-                    _sectionHeaderTable.addSectionHeader(
-                            parseDataSectionHeader<TypeSectionOp, TypeOp>(typeSection, SectionType::TypeSection));
+                    _sectionHeaderTable.addSectionHeader(parseDataSectionHeader<TypeSectionOp, TypeOp>(
+                            typeSection, intel_npu::vm::SectionType::TypeSection));
+                })
+                .Case<bytecode::MetadataSectionOp>([&](bytecode::MetadataSectionOp metadataSection) {
+                    _sectionHeaderTable.addSectionHeader(parseMetadataSectionHeader(metadataSection));
                 })
                 .Default([](mlir::Operation*) {});
     });
@@ -148,10 +193,10 @@ void bytecode::BytecodeWriter::prepareSectionHeaderTable() {
 }
 
 void bytecode::BytecodeWriter::appendFileHeader() {
-    MagicNumber magicNumber(MAGIC_NUMBER);
+    intel_npu::vm::MagicNumber magicNumber(intel_npu::vm::MAGIC_NUMBER);
     magicNumber.appendTo(_bytecodeBuffer);
 
-    bytecode::Version version(1, 0, 0);  // Placeholder for actual target version
+    auto version = getMinBytecodeVersion(_moduleOp);
     version.appendTo(_bytecodeBuffer);
 
     _sectionHeaderTable.appendTo(_bytecodeBuffer);
@@ -173,11 +218,14 @@ void bytecode::BytecodeWriter::appendSections() {
     _moduleOp.walk([&](bytecode::TypeSectionOp typeSection) {
         typeSection.serialize(*this);
     });
+    _moduleOp.walk([&](bytecode::MetadataSectionOp metadataSection) {
+        metadataSection.serialize(*this);
+    });
 }
 
 void bytecode::BytecodeWriter::appendInstruction(uint16_t opcode, uint16_t addressingMode, ArrayRef<int16_t> operands) {
     opcode |= addressingMode;  // Embed the addressing mode into the opcode
-    appendValueTo(_bytecodeBuffer, opcode);
+    intel_npu::vm::appendValueTo(_bytecodeBuffer, opcode);
 
     const auto operandsData = reinterpret_cast<const uint8_t*>(operands.data());
     _bytecodeBuffer.insert(_bytecodeBuffer.end(), operandsData, operandsData + operands.size() * sizeof(int16_t));
@@ -186,13 +234,36 @@ void bytecode::BytecodeWriter::appendInstruction(uint16_t opcode, uint16_t addre
 void bytecode::BytecodeWriter::appendInstruction(uint16_t opcode, uint16_t addressingMode,
                                                  ArrayRef<uint8_t> binaryOperands) {
     opcode |= addressingMode;  // Embed the addressing mode into the opcode
-    appendValueTo(_bytecodeBuffer, opcode);
+    intel_npu::vm::appendValueTo(_bytecodeBuffer, opcode);
 
     _bytecodeBuffer.insert(_bytecodeBuffer.end(), binaryOperands.begin(), binaryOperands.end());
 }
 
 void bytecode::BytecodeWriter::appendRawData(const uint8_t* data, size_t size) {
     _bytecodeBuffer.insert(_bytecodeBuffer.end(), data, data + size);
+}
+
+void bytecode::BytecodeWriter::cacheOffsets(mlir::Region& body) {
+    _blockOffsets.clear();
+    _opOffsets.clear();
+    size_t runningOffset = 0;
+    for (auto& block : body) {
+        _blockOffsets[&block] = runningOffset;
+        for (auto& op : block) {
+            if (auto sOp = mlir::dyn_cast<bytecode::SerializableOpInterface>(&op)) {
+                _opOffsets[&op] = runningOffset;
+                runningOffset += sOp.getBinarySize();
+            }
+        }
+    }
+}
+
+int64_t bytecode::BytecodeWriter::getRelativeOffset(mlir::Operation* jumpOp, mlir::Block* destBlock) {
+    auto destIt = _blockOffsets.find(destBlock);
+    VPUX_THROW_UNLESS(destIt != _blockOffsets.end(), "Jump destination block not found in block offset map");
+    auto posIt = _opOffsets.find(jumpOp);
+    VPUX_THROW_UNLESS(posIt != _opOffsets.end(), "Jump op position not found in op offset map");
+    return checked_cast<int64_t>(destIt->second) - checked_cast<int64_t>(posIt->second);
 }
 
 void bytecode::BytecodeWriter::writeTo(llvm::raw_ostream& os) {

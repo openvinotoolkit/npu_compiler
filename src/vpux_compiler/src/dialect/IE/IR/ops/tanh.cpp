@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/IE/IR/ops/arithmetic.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 using namespace vpux;
 
@@ -23,5 +24,11 @@ mlir::LogicalResult vpux::IE::TanhOp::inferReturnTypeComponents(
     const auto outDesc = vpux::getTensorAttr(inType);
     inferredReturnShapes.emplace_back(inType.getShape(), inType.getElementType(), outDesc);
 
+    return mlir::success();
+}
+
+mlir::LogicalResult vpux::IE::TanhOp::reifyResultShapes(mlir::OpBuilder& builder,
+                                                        mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    reifiedReturnShapes.emplace_back(reifyTrivialTensor(builder, getInput(), getLoc()));
     return mlir::success();
 }

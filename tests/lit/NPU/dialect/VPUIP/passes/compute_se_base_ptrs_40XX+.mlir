@@ -65,25 +65,25 @@
     num_clusters = 2
 }>
 
-!Input_DDR = memref<1x16x4x4xf16, #NHWC>
-!InputSM_DDR = memref<1x16x8x8xi1, #NHWC>
-!InputSE_DDR = memref<1x1x8x8xi32, #NHWC, @DDR>
-!Weights_DDR = memref<16x16x1x1xf16, #NHWC>
+!Input_DDR = memref<1x16x4x4xf16, {order = #NHWC}>
+!InputSM_DDR = memref<1x16x8x8xi1, {order = #NHWC}>
+!InputSE_DDR = memref<1x1x8x8xi32, {order = #NHWC}, @DDR>
+!Weights_DDR = memref<16x16x1x1xf16, {order = #NHWC}>
 !WeightsSM_DDR = memref<16x1x1x128xi1>
 
-!Input_CMX = memref<1x16x4x4xf16, #NHWC, @CMX_NN>
-!InputSM_CMX = memref<1x16x8x8xi1, #NHWC, @CMX_NN>
-!InputSE_CMX = memref<1x1x8x8xi32, #NHWC, @CMX_NN>
-!Weights_CMX = memref<16x16x1x1xf16, #NHWC, @CMX_NN>
+!Input_CMX = memref<1x16x4x4xf16, {order = #NHWC}, @CMX_NN>
+!InputSM_CMX = memref<1x16x8x8xi1, {order = #NHWC}, @CMX_NN>
+!InputSE_CMX = memref<1x1x8x8xi32, {order = #NHWC}, @CMX_NN>
+!Weights_CMX = memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>
 !WeightsSM_CMX = memref<16x1x1x128xi1, @CMX_NN>
-!Output_CMX = memref<1x16x8x8xf16, #NHWC, @CMX_NN>
+!Output_CMX = memref<1x16x8x8xf16, {order = #NHWC}, @CMX_NN>
 
 // CHECK-LABEL:  func.func @SEPaddingWithLargePadSize
 func.func @SEPaddingWithLargePadSize(%input_data: !Input_DDR, %input_sm: !InputSM_DDR) -> !OutputDistributed {
     %input_se = VPUIP.StorageElementTable {
                 dataElemType = f16, dataShape = [1, 16, 4, 4], seAttr = #VPU.SEPadding<mode = <REFLECT>,
                 padding = [2, 2, 2, 2]>, seDepth = 1 : i64, seSize = [16]
-            } -> memref<1x1x8x8xi32, #NHWC, @DDR>
+            } -> memref<1x1x8x8xi32, {order = #NHWC}, @DDR>
     %input_sparse = VPUIP.GroupSparseBuffer (%input_data, %input_sm, %input_se)
         -> !VPUIP.SparseBuffer<data=!Input_DDR, sparsity_map=!InputSM_DDR, storage_element_table=!InputSE_DDR>
 
@@ -142,5 +142,5 @@ func.func @SEPaddingWithLargePadSize(%input_data: !Input_DDR, %input_sm: !InputS
     // CHECK-SAME:                      1, 1, 1, 1, 1, 1, 1, 1]> : tensor<64xi32>,
     // CHECK-SAME:    dataElemType = f16, dataShape = [1, 16, 4, 4],
     // CHECK-SAME:    seAttr = #VPU.SEPadding<mode = <REFLECT>, padding = [2, 2, 2, 2]>, seDepth = 1 : i64, seSize = [16]
-    // CHECK-SAME:  } -> memref<1x1x8x8xi32, #NHWC, @DDR>
+    // CHECK-SAME:  } -> memref<1x1x8x8xi32, {order = #NHWC}, @DDR>
 }

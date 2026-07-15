@@ -181,6 +181,22 @@ std::optional<int64_t> MergeVFRegionRewriter::getOptimalTilingStrategy(
                                             minStorage, maxStorage, config, _log);
 }
 
+VPUNNCostParameters fillInCostParam(mlir::Operation* operation, const OutputTiling& tiling,
+                                    ArrayRef<TileInfo> inputTiles, const bool enablePrefetching) {
+    auto mcStrategy = VPU::MultiClusterStrategy::Clustering;
+    if (auto mcOperation = mlir::dyn_cast<VPU::ClusteredOpInterface>(operation)) {
+        mcStrategy = mcOperation.getMultiClusterStrategy().value_or(mcStrategy);
+    }
+
+    auto mode = enablePrefetching ? TilingMode::PREFETCHING : TilingMode::ISOLATED;
+
+    SmallVector<OutputTiling> inputAllTiles;
+    if (!inputTiles.empty()) {
+        inputAllTiles.emplace_back(inputTiles);
+    }
+    return VPUNNCostParameters(mcStrategy, tiling, mode, inputAllTiles);
+}
+
 StrategyCost MergeVFRegionRewriter::extractVFCost(VFConfig& vfConfig) const {
     auto vfOp = vfConfig.getSubgraph();
     auto tilingDims = parseIntArrayAttr<int64_t>(vfOp.getTilingStrategyAttr());
@@ -324,8 +340,8 @@ bool MergeVFRegionRewriter::isMCStrategyAligned(VPU::VerticalFusionOp currentOp,
     }
 
     // Check if previous output op has MC strategy
-    const auto prevOutDistType =
-            mlir::dyn_cast_if_present<VPU::DistributedTensorType>(getDistributedOutputType(prevOp));
+    const auto prevOutDistType = mlir::dyn_cast_if_present<VPU::DistributedTensorType>(
+            getDistributedOutputType(prevOp, prevOp->getResult(0)));
     const auto isPrevOutOpWithMCStrategy = prevOutDistType != nullptr;
     if (!isPrevOutOpWithMCStrategy) {
         return true;
@@ -603,6 +619,41 @@ std::optional<VFCase> MergeVFRegionRewriter::findVFTiling(VPU::VerticalFusionOp 
         }
     }
     return mergedCase;
+}
+
+bool MergeVFRegionRewriter::checkVFCostFunction(VPU::VerticalFusionOp prevOp, VPU::VerticalFusionOp currentOp,
+                                                VFCase& mergedCase) const {
+    VPUX_THROW_WHEN(!mergedCase.isInitialized(), "Incorrect tiling strategy for VF");
+    if (canMergeVFOpsWithoutCostCheck(mergedCase)) {
+        return true;
+    }
+
+    // Compare the cost between merged VF subgraph and 2 subgraphs with the spill
+    VFConfig prevOpConfig(prevOp, _enableVerticalFusionPipelining);
+    VFConfig currentOpConfig(currentOp, _enableVerticalFusionPipelining);
+
+    const auto prevCost = extractVFCost(prevOpConfig);
+    const auto currentCost = extractVFCost(currentOpConfig);
+
+    {
+        // Change the IR so that merged VF substitutes current operation and previous op to
+        // calculate correct cost.
+        // The IR will change back when the setter is destroyed.
+        VPU::VFSubgraphUserSetter setter(currentOp, mergedCase.getConfig().getSubgraph());
+        auto mergedVFCost = mergedCase.getCost(_vpunnCostFunction, _log);
+        if (mergedVFCost > VPUNN::Cycles::cost_adder(prevCost, currentCost)) {
+            _log.trace("Failed to merge VerticalFusionOp due to higher cost: mergedVFCost ({0}) > prevCost ({1}) "
+                       "+ currentCost ({2})",
+                       mergedVFCost, prevCost, currentCost);
+            return false;
+        }
+        _log.trace("Try to merge VerticalFusionOp for lower cost: mergedVFCost ({0}) <= prevCost ({1}) + "
+                   "currentCost ({2})",
+                   mergedVFCost, prevCost, currentCost);
+        mergedCase.approveScheduling();
+    }
+
+    return true;
 }
 
 mlir::LogicalResult MergeVFRegionRewriter::matchAndRewrite(VPU::VerticalFusionOp vfOp,

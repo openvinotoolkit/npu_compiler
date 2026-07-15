@@ -34,7 +34,9 @@ protected:
     virtual void getOutputBuffers(SmallVector<mlir::Value>& parentOutputBuffs, SmallVector<mlir::Value>& outputBuffs,
                                   SmallVector<mlir::Value>& parentOutputSparsityMap,
                                   SmallVector<mlir::Value>& outputSparsityMapBuffs,
-                                  SmallVector<SmallVector<mlir::Value>>& outputItiBuffs, mlir::Location loc,
+                                  SmallVector<SmallVector<mlir::Value>>& outputItiBuffs,
+                                  SmallVector<mlir::Value>& maxPerXyBuffs, SmallVector<mlir::Value>& minPerXyBuffs,
+                                  SmallVector<SmallVector<mlir::Value>>& minMaxPerTensorBuffs, mlir::Location loc,
                                   VPUIP::NCEClusterTaskOp nceTask, const int64_t numClusters,
                                   mlir::OpBuilder& builder) const = 0;
 
@@ -79,7 +81,9 @@ private:
     void getOutputBuffers(SmallVector<mlir::Value>& parentOutputBuffs, SmallVector<mlir::Value>& outputBuffs,
                           SmallVector<mlir::Value>& parentOutputSparsityMap,
                           SmallVector<mlir::Value>& outputSparsityMapBuffs,
-                          SmallVector<SmallVector<mlir::Value>>& outputItiBuffs, mlir::Location loc,
+                          SmallVector<SmallVector<mlir::Value>>& outputItiBuffs,
+                          SmallVector<mlir::Value>& maxPerXyBuffs, SmallVector<mlir::Value>& minPerXyBuffs,
+                          SmallVector<SmallVector<mlir::Value>>& minMaxPerTensorBuffs, mlir::Location loc,
                           VPUIP::NCEClusterTaskOp nceTask, const int64_t numClusters,
                           mlir::OpBuilder& builder) const override;
 
@@ -107,7 +111,7 @@ public:
         _cmxNameAttr = mlir::FlatSymbolRefAttr::get(ctx, stringifyEnum(VPU::MemoryKind::CMX_NN));
     }
 
-    void matchAndRewrite(VPUIP::DMATypeOpInterface dmaOp, mlir::OpBuilder& builder,
+    void matchAndRewrite(VPUIP::DMATypeOpInterface dmaOp, mlir::OpBuilder& builder, uint64_t unrollIdx = 0,
                          bool isDataOverlapped = false) const;
 
 protected:
@@ -120,7 +124,8 @@ protected:
 
 private:
     void unrollSegmentedOrOverlapped(mlir::Location loc, VPURT::TaskOp vpurtTask, mlir::OpBuilder& builder,
-                                     bool isDataOverlapped, SmallVector<Byte> inputBufferOffsets) const;
+                                     uint64_t unrollIdx, bool isDataOverlapped,
+                                     SmallVector<Byte> inputBufferOffsets) const;
     void unrollDuplicated(mlir::Location loc, VPURT::TaskOp vpurtTask, mlir::OpBuilder& builder) const;
     void unrollAcrossClusterReusableWeightTableDMA(mlir::Location loc, VPURT::TaskOp vpurtTask,
                                                    mlir::OpBuilder& builder) const;

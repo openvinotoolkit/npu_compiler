@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
@@ -55,9 +56,17 @@ mlir::LogicalResult vpux::IE::AddOp::inferReturnTypeComponents(
     return outShapeRes;
 }
 
+mlir::LogicalResult vpux::IE::AddOp::verify() {
+    if (getScales()) {
+        return errorAt(*this, "scales operand is not yet supported; "
+                              "implement scale tensor input support before enabling this path");
+    }
+    return mlir::success();
+}
+
 mlir::OpFoldResult vpux::IE::AddOp::fold(FoldAdaptor adaptor) {
     auto operands = adaptor.getOperands();
-    VPUX_THROW_UNLESS(operands.size() == 2, "Wrong number of operands : {0}", operands.size());
+    VPUX_THROW_UNLESS(operands.size() == 2 || operands.size() == 3, "Wrong number of operands : {0}", operands.size());
 
     const bool shapeChanges = getShape(getInput1()) != getShape(getOutput());
     if (shapeChanges) {

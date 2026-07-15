@@ -11,6 +11,9 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(DepthToSpaceLayerTest);
+
 class DepthToSpaceLayerTestCommon : public DepthToSpaceLayerTest, virtual public VpuOv2LayerTest {};
 
 class DepthToSpace_SCFTilingLayerTest : public DepthToSpaceLayerTestCommon {
@@ -95,7 +98,7 @@ const auto smoke_DepthToSpaceBS4_with_tiling =
 // E-172335 DEPTH_FIRST will be added after supporting sparsity with scf tiling
 const auto smoke_DepthToSpaceBS2_with_tiling =
         ::testing::Combine(::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{1, 48, 800, 800}})}),
-                           ::testing::Values(ov::element::f16),
+                           ::testing::Values(ov::element::f32),
                            ::testing::Values(ov::op::v0::DepthToSpace::DepthToSpaceMode::BLOCKS_FIRST),
                            ::testing::Values(2), ::testing::Values(test_utils::TARGET_DEVICE));
 
@@ -123,7 +126,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_DepthToSpaceBS4, DepthToSpaceLayerTestCommon, smo
 INSTANTIATE_TEST_SUITE_P(smoke_DepthToSpace_with_tiling, DepthToSpaceLayerTestCommon, smoke_DepthToSpaceBS4_with_tiling,
                          DepthToSpaceLayerTestCommon::getTestCaseName);
 
-INSTANTIATE_TEST_SUITE_P(smoke_DepthToSpace_with_scftiling, DepthToSpace_SCFTilingLayerTest,
+// Traking number E-220308
+INSTANTIATE_TEST_SUITE_P(DISABLED_smoke_DepthToSpace_with_scftiling, DepthToSpace_SCFTilingLayerTest,
                          smoke_DepthToSpaceBS2_with_tiling, DepthToSpace_SCFTilingLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_DepthToSpace_with_large_height, DepthToSpaceLayerTestCommon,

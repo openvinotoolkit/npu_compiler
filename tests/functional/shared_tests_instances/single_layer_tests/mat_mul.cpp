@@ -10,6 +10,10 @@ using namespace ov::test::utils;
 
 namespace ov {
 namespace test {
+
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(MatMulLayerTest);
+
 class MatMulLayerTestCommon : public MatMulLayerTest, virtual public VpuOv2LayerTest {};
 
 class MatMulLayerTest_HW_NPU3720 : public MatMulLayerTestCommon {};
@@ -352,6 +356,22 @@ INSTANTIATE_TEST_SUITE_P(MatMulWithBatch, MatMulLayerTest_HW_NPU3720, matMulWith
                          MatMulLayerTest_HW_NPU3720::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(MatMulWithBatch, MatMulLayerTestCommon_HW, matMulWithBatchParams,
+                         MatMulLayerTestCommon_HW::getTestCaseName);
+
+// Batch-broadcasting: one side has batch dim=1 that gets broadcast to match the other
+const std::vector<std::vector<ov::Shape>> shapeWithBatchBroadcast = {
+        {{2, 3, 4, 16}, {2, 1, 16, 8}},
+        {{2, 1, 4, 16}, {2, 3, 16, 8}},
+        {{3, 1, 8, 16}, {3, 4, 16, 32}},
+};
+
+const auto matMulWithBatchBroadcastParams =
+        ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(shapeWithBatchBroadcast)),
+                           ::testing::Values(transposeInputs.at(0)), ::testing::Values(ov::element::f16),
+                           ::testing::Values(InputLayerType::PARAMETER), ::testing::Values(test_utils::TARGET_DEVICE),
+                           ::testing::Values(additional_config));
+
+INSTANTIATE_TEST_SUITE_P(MatMulWithBatchBroadcast, MatMulLayerTestCommon_HW, matMulWithBatchBroadcastParams,
                          MatMulLayerTestCommon_HW::getTestCaseName);
 
 const std::vector<std::vector<ov::Shape>> shape1dBothTrans = {

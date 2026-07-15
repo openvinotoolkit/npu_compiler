@@ -74,7 +74,7 @@ func.func @UnrollDistributedOpsDynamicStrides(%arg0: memref<1x16x36x1280xf32, @D
     // CHECK:   VPUIP.ConvertDMA {stridedInput} <{port = 0 : i64}>
     // CHECK:   VPUIP.ConvertDMA {stridedInput} <{port = 1 : i64}>
 
-    // CHECK:   VPUIP.NNDMA {stridedOutput} <{port = 0 : i64}>
-    // CHECK:   VPUIP.NNDMA {stridedOutput} <{port = 1 : i64}>
-    // CHECK:   VPUIP.NNDMA {stridedOutput} <{port = 0 : i64}>
+    // CHECK:   VPUIP.NNDMA {stridedOutput, unrollIdx = 1 : i64} <{port = 0 : i64}>
+    // CHECK:   VPUIP.NNDMA {stridedOutput, unrollIdx = 1 : i64} <{port = 1 : i64}>
+    // CHECK:   VPUIP.NNDMA {stridedOutput, unrollIdx = 1 : i64} <{port = 0 : i64}>
 }

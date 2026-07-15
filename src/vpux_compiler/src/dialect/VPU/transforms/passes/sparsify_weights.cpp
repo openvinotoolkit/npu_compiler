@@ -306,7 +306,7 @@ void SparsifyWeightsPass::safeRunOnFunc() {
         foldedContent.copyTo(MutableArrayRef(newContent.data(), contentSize));
         const auto foldedBaseContent =
                 Const::createConstContent(mlir::cast<mlir::ShapedType>(foldedContentType), ArrayRef(newContent));
-        Const::ContentSetup newContentAttrSetup(foldedContentType);
+        Const::ContentSetup newContentAttrSetup(foldedBaseContent, foldedContentType);
         // Folded constants with INT8 element types have to be cast to quantized types for the correct type to be
         // inferred from the new Const::ContentAttr
         if (auto qType = mlir::dyn_cast<mlir::quant::QuantizedType>(foldedElemType)) {

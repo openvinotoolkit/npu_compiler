@@ -136,48 +136,6 @@ def SplitExceedingBarrierSlotCount : PassBase<"split-exceeding-barrier-slot-coun
 }
 
 //
-// SatisfyOneWaitBarrierPerTask
-//
-
-def SatisfyOneWaitBarrierPerTask : PassBase<"satisfy-one-wait-barrier-per-task", "vpux::FunctionPass"> {
-    let summary = "Satisfy each task has one wait barrier";
-
-    let description = [{
-        AI-generated summary
-
-        This pass is only active when WLM is enabled; it is skipped entirely for non-WLM
-        configurations. It enforces the barrier safety constraint that a single barrier
-        drives each task. Handling multi-barrier input can be wasteful and considerably
-        more difficult to manage for barrier safety. The pass manipulates tasks with
-        parallel wait barriers by two modes:
-        1. Merge parallel wait barriers with legal barrier variant count
-        2. Linearize parallel wait barrier producers with exceeding variant count
-        After merging, execution tasks and barriers are reordered and correctness is
-        verified.
-    }];
-
-    let constructor = "vpux::VPURT::createSatisfyOneWaitBarrierPerTaskPass()";
-
-    let options = [
-        Option<
-            "maxVariantCount", "max-variant-count",
-            "int", "",
-            "Number of producer and consumer slots per barrier, available for use"
-        >,
-        Option<
-            "mergeWaitBarriersIteratively", "merge-wait-barriers-iteratively",
-            "bool", "",
-            "Enable iterative merge of parallel wait barriers until one wait barrier condition is satisfied."
-        >,
-        Option<
-            "unevenVariantSplit", "enable-uneven-variant-split",
-            "bool", "",
-            "Enable uneven variant split"
-        >
-    ];
-}
-
-//
 // ReduceExceedingActiveCountBarriers
 //
 

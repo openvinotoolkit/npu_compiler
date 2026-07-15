@@ -102,26 +102,28 @@ void VFCase::clearCache() {
 StrategyCost VFCase::getCost(const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, Logger log) {
     VPUX_THROW_WHEN(!isInitialized(), "Cannot get cost of uninitialized VF case");
 
+    auto loc = _config.getOutputs().front()->getLoc();
+
     if (!_cachedCost.has_value()) {
         if (_vfTilingStorage == nullptr) {
             _vfTilingStorage = std::make_unique<TilingOperationStorage>();
             auto tilingDims = parseIntArrayAttr<int64_t>(getTiling());
             auto tilingStorage = calculateTilingRegions(_config, tilingDims, log, _vfTilingStorage);
-            VPUX_THROW_WHEN(mlir::failed(tilingStorage), "Cannot get tiling regions for {0} and {1} tiles",
-                            _config.getSubgraph(), tilingDims);
+            VPUX_THROW_WHEN(mlir::failed(tilingStorage), "Cannot get tiling regions for {0} and {1} tiles", loc,
+                            tilingDims);
         }
         VPUX_THROW_WHEN(llvm::any_of(_split,
                                      [](const auto& item) {
                                          return !item.second.has_value();
                                      }),
-                        "Cannot get cost for VF {0} without fixed tiling number", _config.getSubgraph().getLoc());
+                        "Cannot get cost for VF {0} without fixed tiling number", loc);
         auto tileLen = getVFTilesLen(_split);
         _cachedCost = _vfScheduling->getCost(_config, tileLen, _vfTilingStorage, costFunction);
-        log.trace("Merged VF {0} cost {1}", _config.getSubgraph().getLoc(), _cachedCost.value());
+        log.trace("Merged VF {0} cost {1}", loc, _cachedCost.value());
         addCMXWriteSpills(costFunction, log);
-        log.trace("Merged VF {0} cost with spill write {1}", _config.getSubgraph().getLoc(), _cachedCost.value());
+        log.trace("Merged VF {0} cost with spill write {1}", loc, _cachedCost.value());
         addCMXReadSpills(costFunction, log);
-        log.trace("Merged VF {0} cost with spill write/read {1}", _config.getSubgraph().getLoc(), _cachedCost.value());
+        log.trace("Merged VF {0} cost with spill write/read {1}", loc, _cachedCost.value());
     }
 
     return _cachedCost.value();
@@ -142,8 +144,10 @@ mlir::ArrayAttr VFCase::getTiling() {
 void VFCase::approveScheduling() {
     VPUX_THROW_WHEN(!isInitialized(), "Cannot approve uninitialized VF case");
 
-    _config.getSubgraph().setScenario(_vfScheduling->getType());
-    _config.getSubgraph().setTilingStrategyAttr(getTiling());
+    if (_config.getSubgraph() != nullptr) {
+        _config.getSubgraph().setScenario(_vfScheduling->getType());
+        _config.getSubgraph().setTilingStrategyAttr(getTiling());
+    }
 }
 
 const TilingOperationStorage::UPtr& VFCase::getTilingStorage() const {
@@ -270,7 +274,7 @@ void VFCase::addCMXWriteSpills(const std::unique_ptr<VPU::LayerVPUNNCost>& costF
                     auto operandType = mlir::cast<vpux::NDTypeInterface>(previousOp->getResult(0).getType());
                     auto operandSize = operandType.getTotalAllocSize();
                     if (auto distributedOutType = mlir::dyn_cast_if_present<VPU::DistributedTensorType>(
-                                VPU::getDistributedOutputType(previousOp))) {
+                                VPU::getDistributedOutputType(previousOp, previousOp->getResult(0)))) {
                         operandSize = distributedOutType.getTotalAllocSize();
                     }
                     isChecked = !_vfScheduling->validate(_config, _vfTilingStorage, operandSize);

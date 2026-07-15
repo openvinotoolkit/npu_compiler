@@ -371,9 +371,9 @@ func.func @ConvertSubtractToScaleShift(%arg0: tensor<1x3x300x300xf16>) -> tensor
 
 // -----
 
-// CHECK-LABEL: @NotConvertSubtractToScaleShiftLhsIsNotActivation
+// CHECK-LABEL: @ConvertReversedSubtractToScaleShiftLhsIsConst
 // CHECK-SAME:     [[ARG_0:%[^:]+]]: tensor<1x3x300x300xf16>
-func.func @NotConvertSubtractToScaleShiftLhsIsNotActivation(%arg0: tensor<1x3x300x300xf16>) -> tensor<1x3x300x300xf16> {
+func.func @ConvertReversedSubtractToScaleShiftLhsIsConst(%arg0: tensor<1x3x300x300xf16>) -> tensor<1x3x300x300xf16> {
     %0 = const.Declare tensor<1x3x1x1xf16> = dense<2.0> : tensor<1x3x1x1xf16>
     %1 = IE.Subtract(%0, %arg0)
         { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } :
@@ -381,9 +381,11 @@ func.func @NotConvertSubtractToScaleShiftLhsIsNotActivation(%arg0: tensor<1x3x30
 
     return %1 : tensor<1x3x300x300xf16>
 
-    // CHECK-DAG:       [[VAL0:%.+]] = const.Declare tensor<1x3x1x1xf16> = dense<2.000000e+00> : tensor<1x3x1x1xf16>
-    // CHECK:       [[VAL1:%.+]] = IE.Subtract([[VAL0]], [[ARG_0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x3x1x1xf16>, tensor<1x3x300x300xf16> -> tensor<1x3x300x300xf16>
-    // CHECK:       return [[VAL1]]
+    // CHECK-DAG:       [[BIAS:%.+]] = const.Declare tensor<1x3x1x1xf16> = dense<2.000000e+00> : tensor<1x3x1x1xf16>
+    // CHECK-DAG:       [[SCALE:%.+]] = const.Declare tensor<1x3x1x1xf16> = dense<-1.000000e+00> : tensor<1x3x1x1xf16>
+    // CHECK:           [[SS:%.+]] = IE.ScaleShift([[ARG_0]], [[SCALE]], [[BIAS]]) {operandSegmentSizes = array<i32: 1, 1, 1>} : tensor<1x3x300x300xf16>, tensor<1x3x1x1xf16>, tensor<1x3x1x1xf16> -> tensor<1x3x300x300xf16>
+    // CHECK-NOT:       IE.Subtract
+    // CHECK:           return [[SS]]
 }
 
 // -----
@@ -791,4 +793,21 @@ func.func @ConvertCOnlyMultiplyToScaleShift(%arg0: tensor<1x6144x1x1xf16>, %arg1
     // CHECK:       [[SCALE_SHIFT:%.+]] = IE.ScaleShift
     // CHECK-NOT:   [[SCALE_SHIFT:%.+]] = IE.Multiply
     // CHECK:       return [[SCALE_SHIFT]]
+}
+
+// -----
+
+// Subtract(splat_const, activation) => ScaleShift(activation, scale=-1, bias=const)
+// CHECK-LABEL: @ConvertReversedSubtractToScaleShift
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x32x1x1xf16>
+func.func @ConvertReversedSubtractToScaleShift(%arg0: tensor<1x32x1x1xf16>) -> tensor<1x32x1x1xf16> {
+    %cst = const.Declare tensor<1x1x1x1xf16> = dense<1.000000e+00> : tensor<1x1x1x1xf16>
+    %0 = IE.Subtract(%cst, %arg0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x1xf16>, tensor<1x32x1x1xf16> -> tensor<1x32x1x1xf16>
+    return %0 : tensor<1x32x1x1xf16>
+
+    // CHECK-DAG:   [[BIAS:%.+]] = const.Declare tensor<1x32x1x1xf16> = dense<1.000000e+00> : tensor<1x1x1x1xf16>, [#const.Broadcast<1 : i64, 32 : i64>]
+    // CHECK-DAG:   [[SCALE:%.+]] = const.Declare tensor<1x32x1x1xf16> = dense<-1.000000e+00> : tensor<1x32x1x1xf16>
+    // CHECK:       [[SS:%.+]] = IE.ScaleShift([[INPUT]], [[SCALE]], [[BIAS]]) {operandSegmentSizes = array<i32: 1, 1, 1>} : tensor<1x32x1x1xf16>, tensor<1x32x1x1xf16>, tensor<1x32x1x1xf16> -> tensor<1x32x1x1xf16>
+    // CHECK-NOT:   IE.Subtract
+    // CHECK:       return [[SS]]
 }

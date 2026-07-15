@@ -51,9 +51,10 @@ void unpackSubByteData(MutableArrayRef<DataType> targetData, ArrayRef<DataType> 
 
     const size_t rShift = CHAR_BIT - bitWidth;
     if (isSplat) {
-        // when splat, all sub-byte elements must be identical - so take any, in
-        // this case, leftmost
-        auto unpacked = sourceData.front() >> rShift;
+        const auto sourceByte = llvm::bit_cast<uint8_t>(sourceData.front());
+        const auto unsignedVal = static_cast<uint8_t>(sourceByte << rShift);
+        const auto val = llvm::bit_cast<DataType>(unsignedVal);
+        const auto unpacked = val >> rShift;
         std::fill_n(targetData.data(), targetData.size(), unpacked);
         return;
     }
@@ -68,7 +69,7 @@ void unpackSubByteData(MutableArrayRef<DataType> targetData, ArrayRef<DataType> 
             const size_t lShift = rShift - (elemIdxPerByte * bitWidth);
             // convert to *unsigned* type to perform well-defined left shift
             const auto sourceByte = llvm::bit_cast<uint8_t>(sourceData[byteIdx]);
-            const uint8_t unsignedVal = sourceByte << lShift;
+            const auto unsignedVal = static_cast<uint8_t>(sourceByte << lShift);
             // convert back to (potentially signed) data type to perform right
             // shift (with sign extension when signed)
             const auto val = llvm::bit_cast<DataType>(unsignedVal);

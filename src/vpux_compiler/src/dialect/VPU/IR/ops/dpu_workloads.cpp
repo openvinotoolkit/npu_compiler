@@ -24,8 +24,8 @@ void vpux::VPU::DPUWorkloadOp::build(mlir::OpBuilder& builder, mlir::OperationSt
     mlir::dispatchIndexOpFoldResults(outSizes, dynamicSizes, staticSizes);
     mlir::dispatchIndexOpFoldResults(pad, dynamicPad, staticPad);
 
-    build(builder, state, dynamicOffsets, dynamicSizes, staticOffsets, staticSizes, /*inOffsets=*/std::nullopt,
-          /*inSizes=*/std::nullopt,
+    build(builder, state, dynamicOffsets, dynamicSizes, staticOffsets, staticSizes, /*inOffsets=*/mlir::ValueRange{},
+          /*inSizes=*/mlir::ValueRange{},
           /*inStaticOffsets=*/nullptr, /*inStaticSizes=*/nullptr, mpeMode, dynamicPad, staticPad,
           /*cluster_id=*/nullptr);
 }
@@ -44,7 +44,8 @@ void vpux::VPU::DPUWorkloadOp::build(mlir::OpBuilder& builder, mlir::OperationSt
     auto* ctx = builder.getContext();
 
     build(builder, state, dynamicOffsets, dynamicSizes, mlir::DenseI64ArrayAttr::get(ctx, staticOffsets),
-          mlir::DenseI64ArrayAttr::get(ctx, staticSizes), /*inOffsets=*/std::nullopt, /*inSizes=*/std::nullopt,
+          mlir::DenseI64ArrayAttr::get(ctx, staticSizes), /*inOffsets=*/mlir::ValueRange{},
+          /*inSizes=*/mlir::ValueRange{},
           /*inStaticOffsets=*/nullptr, /*inStaticSizes=*/nullptr, mpeMode, dynamicPad,
           mlir::DenseI64ArrayAttr::get(ctx, staticPad), clusterId);
 }
@@ -54,9 +55,10 @@ void vpux::VPU::DPUWorkloadOp::build(mlir::OpBuilder& builder, mlir::OperationSt
                                      VPU::PaddingAttr pad, VPU::MPEModeAttr mpeMode, mlir::IntegerAttr clusterId) {
     SmallVector<int64_t> padAttr = {pad.getLeft().getInt(), pad.getRight().getInt(), pad.getTop().getInt(),
                                     pad.getBottom().getInt()};
-    build(builder, state, std::nullopt, std::nullopt, outOffsets, outSizes, /*inOffsets=*/std::nullopt,
-          /*inSizes=*/std::nullopt,
-          /*inStaticOffsets=*/nullptr, /*inStaticSizes=*/nullptr, mpeMode, std::nullopt,
+    build(builder, state, /* outOffsets */ mlir::ValueRange{}, /* outSizes */ mlir::ValueRange{}, outOffsets, outSizes,
+          /*inOffsets=*/mlir::ValueRange{},
+          /*inSizes=*/mlir::ValueRange{},
+          /*inStaticOffsets=*/nullptr, /*inStaticSizes=*/nullptr, mpeMode, /* pad */ mlir::ValueRange{},
           mlir::DenseI64ArrayAttr::get(builder.getContext(), padAttr), clusterId);
 }
 
@@ -65,9 +67,10 @@ void vpux::VPU::DPUWorkloadOp::build(mlir::OpBuilder& builder, mlir::OperationSt
                                      VPU::PaddingAttr pad, VPU::MPEMode mpeMode, mlir::IntegerAttr clusterId) {
     SmallVector<int64_t> padAttr = {pad.getLeft().getInt(), pad.getRight().getInt(), pad.getTop().getInt(),
                                     pad.getBottom().getInt()};
-    build(builder, state, std::nullopt, std::nullopt, outOffsets, outSizes, /*inOffsets=*/std::nullopt,
-          /*inSizes=*/std::nullopt,
-          /*inStaticOffsets=*/nullptr, /*inStaticSizes=*/nullptr, mpeMode, std::nullopt,
+    build(builder, state, /* outOffsets */ mlir::ValueRange{}, /* outSizes */ mlir::ValueRange{}, outOffsets, outSizes,
+          /*inOffsets=*/mlir::ValueRange{},
+          /*inSizes=*/mlir::ValueRange{},
+          /*inStaticOffsets=*/nullptr, /*inStaticSizes=*/nullptr, mpeMode, /* pad */ mlir::ValueRange{},
           mlir::DenseI64ArrayAttr::get(builder.getContext(), padAttr), clusterId);
 }
 
@@ -77,8 +80,9 @@ void vpux::VPU::DPUWorkloadOp::build(mlir::OpBuilder& builder, mlir::OperationSt
                                      VPU::PaddingAttr pad, VPU::MPEModeAttr mpeMode, mlir::IntegerAttr clusterId) {
     SmallVector<int64_t> padAttr = {pad.getLeft().getInt(), pad.getRight().getInt(), pad.getTop().getInt(),
                                     pad.getBottom().getInt()};
-    build(builder, state, std::nullopt, std::nullopt, outOffsets, outSizes, /*inOffsets=*/std::nullopt,
-          /*inSizes=*/std::nullopt, inOffsets, inSizes, mpeMode, std::nullopt,
+    build(builder, state, /* outOffsets */ mlir::ValueRange{}, /* outSizes */ mlir::ValueRange{}, outOffsets, outSizes,
+          /*inOffsets=*/mlir::ValueRange{},
+          /*inSizes=*/mlir::ValueRange{}, inOffsets, inSizes, mpeMode, /* pad */ mlir::ValueRange{},
           mlir::DenseI64ArrayAttr::get(builder.getContext(), padAttr), clusterId);
 }
 

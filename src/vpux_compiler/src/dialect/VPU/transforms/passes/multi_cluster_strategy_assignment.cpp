@@ -32,10 +32,12 @@ class MultiClusterStrategyAssignmentPass final :
         public VPU::impl::MultiClusterStrategyAssignmentBase<MultiClusterStrategyAssignmentPass> {
 public:
     explicit MultiClusterStrategyAssignmentPass(bool enablePrefetchTiling, const int clusteredOpThreshold,
-                                                StringRef mcOptimizationScope, Logger log)
+                                                StringRef mcOptimizationScope, bool enableTilingFullSearchSpace,
+                                                Logger log)
             : _enablePrefetchTiling(enablePrefetchTiling),
               _clusteredOpThreshold(clusteredOpThreshold),
-              _mcOptimizationScope(getMCOptimizationScope(mcOptimizationScope)) {
+              _mcOptimizationScope(getMCOptimizationScope(mcOptimizationScope)),
+              _enableTilingFullSearchSpace(enableTilingFullSearchSpace) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
@@ -49,6 +51,7 @@ private:
     bool _enablePrefetchTiling = true;
     int _clusteredOpThreshold;
     VPU::MCOptimizationScope _mcOptimizationScope;
+    bool _enableTilingFullSearchSpace = false;
 };
 
 mlir::LogicalResult MultiClusterStrategyAssignmentPass::initializeOptions(
@@ -113,7 +116,8 @@ void MultiClusterStrategyAssignmentPass::safeRunOnFunc() {
 
     auto& siblingAnalysis = getAnalysis<SiblingOpsAnalysis>();
     StrategyManager strategyManager(func, tileOp.getCount(), _enablePrefetchTiling, _mcOptimizationScope,
-                                    siblingAnalysis, std::move(layerCostModel), _log.nest());
+                                    siblingAnalysis, std::move(layerCostModel), _enableTilingFullSearchSpace,
+                                    _log.nest());
     _log.debug("Greedy Strategy Assignment");
     auto enableMultiClusterForSWLayer =
             config::getAvailableExecutor(module, config::ExecutorKind::SHAVE_ACT) != nullptr;
@@ -136,7 +140,9 @@ void MultiClusterStrategyAssignmentPass::safeRunOnFunc() {
 
 std::unique_ptr<mlir::Pass> VPU::createMultiClusterStrategyAssignmentPass(bool enablePrefetchTiling,
                                                                           const int clusteredOpThreshold,
-                                                                          StringRef mcOptimizationScope, Logger log) {
+                                                                          StringRef mcOptimizationScope,
+                                                                          bool enableTilingFullSearchSpace,
+                                                                          Logger log) {
     return std::make_unique<MultiClusterStrategyAssignmentPass>(enablePrefetchTiling, clusteredOpThreshold,
-                                                                mcOptimizationScope, log);
+                                                                mcOptimizationScope, enableTilingFullSearchSpace, log);
 }

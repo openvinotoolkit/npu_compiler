@@ -82,7 +82,6 @@ Your PR must:
 - Maintainer performs final review and merge
 
 > **Note:** For large PRs (e.g. refactor, submodule bump), mark it explicitly in the header so maintainers can manage merge conflicts accordingly.
-
 ## Responsibilities
 
 ### Pull Request Author

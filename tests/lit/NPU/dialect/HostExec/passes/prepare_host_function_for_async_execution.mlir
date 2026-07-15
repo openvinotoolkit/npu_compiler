@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --prepare-host-function-for-async-execution %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --prepare-host-function-for-async-execution="remove-return-values=false" %s | FileCheck %s
 // REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -16,7 +16,7 @@ module @ControlFlowOutliningDynamicShape  {
         DataInfo "output1" : tensor<1x16x256x?xf16>
     }
     module @Module0 {
-        func.func private @main_func0(%arg0: tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>,
+        func.func nested @main_func0(%arg0: tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>,
                                       %arg1: tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>)
                           -> tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}> {
             %0 = VPU.NCE.Eltwise(%arg0, %arg1) {is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
@@ -31,7 +31,7 @@ module @ControlFlowOutliningDynamicShape  {
 
     func.func @main(%arg0: tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>,
                     %arg1: tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>)
-               -> tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}> {
+               -> tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}> attributes {HostExec.HostCompileInferenceExec} {
         %c3 = arith.constant 3 : index
         %dim = tensor.dim %arg0, %c3 : tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>
         %0 = tensor.empty(%dim) : tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>
@@ -67,7 +67,7 @@ module @ControlFlowOutliningDynamicShape  {
     // CHECK-LABEL: @ControlFlowOutliningDynamicShape
 
     // CHECK: module [[MODULE0:@.+]] {
-    // CHECK: func.func private [[FUNC0:@.+]]([[ARG_0:%[^:]+]]: tensor<1x16x256x?xf16
+    // CHECK: func.func nested [[FUNC0:@.+]]([[ARG_0:%[^:]+]]: tensor<1x16x256x?xf16
 
     // CHECK: func.func @main([[ARG0:%.+]]: tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>,
     // CHECK-SAME: [[ARG1:%.+]]: tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>)
@@ -101,24 +101,24 @@ module @ControlFlowOutliningDynamicShape  {
 // -----
 
     module @Module0 {
-        func.func private @main_func0_dims_H_cases_0_static(%arg0: memref<1x16x30x1280xf16>, %arg1: memref<1x16x28x1280xf16>) -> memref<1x16x28x1280xf16> {
+        func.func nested @main_func0_dims_H_cases_0_static(%arg0: memref<1x16x30x1280xf16>, %arg1: memref<1x16x28x1280xf16>) -> memref<1x16x28x1280xf16> {
             return %arg1 : memref<1x16x28x1280xf16>
         }
     }
 
     module @Module1 {
-        func.func private @main_func0_dims_H_cases_1_static(%arg0: memref<1x16x29x1280xf16>, %arg1: memref<1x16x28x1280xf16>) -> memref<1x16x28x1280xf16> {
+        func.func nested @main_func0_dims_H_cases_1_static(%arg0: memref<1x16x29x1280xf16>, %arg1: memref<1x16x28x1280xf16>) -> memref<1x16x28x1280xf16> {
             return %arg1 : memref<1x16x28x1280xf16>
         }
     }
 
     module @Module2 {
-        func.func private @main_func0_dims_H_cases_2_static(%arg0: memref<1x16x29x1280xf16>, %arg1: memref<1x16x28x1280xf16>) -> memref<1x16x28x1280xf16> {
+        func.func nested @main_func0_dims_H_cases_2_static(%arg0: memref<1x16x29x1280xf16>, %arg1: memref<1x16x28x1280xf16>) -> memref<1x16x28x1280xf16> {
             return %arg1 : memref<1x16x28x1280xf16>
         }
     }
 
-    func.func @AwaitAllCheckForLoop1D(%arg0: memref<1x16x?x1280xf16>, %arg1: memref<1x16x?x1280xf16>, %arg2: index, %arg3: index) -> memref<1x16x?x1280xf16> {
+    func.func @AwaitAllCheckForLoop1D(%arg0: memref<1x16x?x1280xf16>, %arg1: memref<1x16x?x1280xf16>, %arg2: index, %arg3: index) -> memref<1x16x?x1280xf16> attributes {HostExec.HostCompileInferenceExec} {
       %false = arith.constant false
       %c2 = arith.constant 2 : index
       %c28 = arith.constant 28 : index
@@ -163,11 +163,11 @@ module @ControlFlowOutliningDynamicShape  {
       return %arg1 : memref<1x16x?x1280xf16>
 
       // CHECK: module [[MODULE0:@.+]] {
-      // CHECK: func.func private [[FUNC0:@.+]]([[ARG_0:%[^:]+]]: memref<1x16x30x1280xf16>, [[ARG_1:%[^:]+]]: memref<1x16x28x1280xf16>)
+      // CHECK: func.func nested [[FUNC0:@.+]]([[ARG_0:%[^:]+]]: memref<1x16x30x1280xf16>, [[ARG_1:%[^:]+]]: memref<1x16x28x1280xf16>)
       // CHECK: module [[MODULE1:@.+]] {
-      // CHECK: func.func private [[FUNC1:@.+]]([[ARG_0:%[^:]+]]: memref<1x16x29x1280xf16>, [[ARG_1:%[^:]+]]: memref<1x16x28x1280xf16>)
+      // CHECK: func.func nested [[FUNC1:@.+]]([[ARG_0:%[^:]+]]: memref<1x16x29x1280xf16>, [[ARG_1:%[^:]+]]: memref<1x16x28x1280xf16>)
       // CHECK: module [[MODULE2:@.+]] {
-      // CHECK: func.func private [[FUNC2:@.+]]([[ARG_0:%[^:]+]]: memref<1x16x29x1280xf16>, [[ARG_1:%[^:]+]]: memref<1x16x28x1280xf16>)
+      // CHECK: func.func nested [[FUNC2:@.+]]([[ARG_0:%[^:]+]]: memref<1x16x29x1280xf16>, [[ARG_1:%[^:]+]]: memref<1x16x28x1280xf16>)
 
       // CHECK: func.func @AwaitAllCheckForLoop1D([[ARG0:%.+]]: memref<1x16x?x1280xf16>, [[ARG1:%.+]]: memref<1x16x?x1280xf16>, [[ARG2:%.+]]: index, [[ARG3:%.+]]: index)
       // CHECK: [[FALSE:%.+]] = arith.constant false
@@ -186,20 +186,14 @@ module @ControlFlowOutliningDynamicShape  {
       // CHECK: case 0 {
       // CHECK: async.add_to_group
       // CHECK-NOT: async.add_to_group
-      // CHECK: async.await
-      // CHECK-NOT: async.await
 
       // CHECK: case 1 {
       // CHECK: async.add_to_group
       // CHECK-NOT: async.add_to_group
-      // CHECK: async.await
-      // CHECK-NOT: async.await
 
       // CHECK: case 2 {
       // CHECK: async.add_to_group
       // CHECK-NOT: async.add_to_group
-      // CHECK: async.await
-      // CHECK-NOT: async.await
 
       // CHECK: default {
       // CHECK: cf.assert [[FALSE]], "Unsupported case"
@@ -213,24 +207,24 @@ module @ControlFlowOutliningDynamicShape  {
 // -----
 
     module @Module0 {
-        func.func private @main_func0_dims_H_cases_0_static(%arg0: memref<1x16x30x1280xf16>, %arg1: memref<1x16x28x1280xf16>) -> memref<1x16x28x1280xf16> {
+        func.func nested @main_func0_dims_H_cases_0_static(%arg0: memref<1x16x30x1280xf16>, %arg1: memref<1x16x28x1280xf16>) -> memref<1x16x28x1280xf16> {
             return %arg1 : memref<1x16x28x1280xf16>
         }
     }
 
     module @Module1 {
-        func.func private @main_func0_dims_H_cases_1_static(%arg0: memref<1x16x29x1280xf16>, %arg1: memref<1x16x28x1280xf16>) -> memref<1x16x28x1280xf16> {
+        func.func nested @main_func0_dims_H_cases_1_static(%arg0: memref<1x16x29x1280xf16>, %arg1: memref<1x16x28x1280xf16>) -> memref<1x16x28x1280xf16> {
             return %arg1 : memref<1x16x28x1280xf16>
         }
     }
 
     module @Module2 {
-        func.func private @main_func0_dims_H_cases_2_static(%arg0: memref<1x16x29x1280xf16>, %arg1: memref<1x16x28x1280xf16>) -> memref<1x16x28x1280xf16> {
+        func.func nested @main_func0_dims_H_cases_2_static(%arg0: memref<1x16x29x1280xf16>, %arg1: memref<1x16x28x1280xf16>) -> memref<1x16x28x1280xf16> {
             return %arg1 : memref<1x16x28x1280xf16>
         }
     }
 
-    func.func @AwaitAllCheckForLoop2D(%arg0: memref<1x16x?x?xf16>, %arg1: memref<1x16x?x?xf16>, %arg2: index, %arg3: index, %arg4: index, %arg5: index) -> memref<1x16x?x?xf16> {
+    func.func @AwaitAllCheckForLoop2D(%arg0: memref<1x16x?x?xf16>, %arg1: memref<1x16x?x?xf16>, %arg2: index, %arg3: index, %arg4: index, %arg5: index) -> memref<1x16x?x?xf16> attributes {HostExec.HostCompileInferenceExec} {
       %false = arith.constant false
       %c2 = arith.constant 2 : index
       %c3 = arith.constant 3 : index
@@ -282,11 +276,11 @@ module @ControlFlowOutliningDynamicShape  {
       return %arg1 : memref<1x16x?x?xf16>
 
       // CHECK: module [[MODULE0:@.+]] {
-      // CHECK: func.func private [[FUNC0:@.+]]([[ARG_0:%[^:]+]]: memref<1x16x30x1280xf16>, [[ARG_1:%[^:]+]]: memref<1x16x28x1280xf16>)
+      // CHECK: func.func nested [[FUNC0:@.+]]([[ARG_0:%[^:]+]]: memref<1x16x30x1280xf16>, [[ARG_1:%[^:]+]]: memref<1x16x28x1280xf16>)
       // CHECK: module [[MODULE1:@.+]] {
-      // CHECK: func.func private [[FUNC1:@.+]]([[ARG_0:%[^:]+]]: memref<1x16x29x1280xf16>, [[ARG_1:%[^:]+]]: memref<1x16x28x1280xf16>)
+      // CHECK: func.func nested [[FUNC1:@.+]]([[ARG_0:%[^:]+]]: memref<1x16x29x1280xf16>, [[ARG_1:%[^:]+]]: memref<1x16x28x1280xf16>)
       // CHECK: module [[MODULE2:@.+]] {
-      // CHECK: func.func private [[FUNC2:@.+]]([[ARG_0:%[^:]+]]: memref<1x16x29x1280xf16>, [[ARG_1:%[^:]+]]: memref<1x16x28x1280xf16>)
+      // CHECK: func.func nested [[FUNC2:@.+]]([[ARG_0:%[^:]+]]: memref<1x16x29x1280xf16>, [[ARG_1:%[^:]+]]: memref<1x16x28x1280xf16>)
 
       // CHECK: func.func @AwaitAllCheckForLoop2D([[ARG0:%.+]]: memref<1x16x?x?xf16>, [[ARG1:%.+]]: memref<1x16x?x?xf16>, [[ARG2:%.+]]: index, [[ARG3:%.+]]: index, [[ARG4:%.+]]: index, [[ARG5:%.+]]: index)
       // CHECK: [[FALSE:%.+]] = arith.constant false
@@ -311,20 +305,14 @@ module @ControlFlowOutliningDynamicShape  {
       // CHECK: case 0 {
       // CHECK: async.add_to_group
       // CHECK-NOT: async.add_to_group
-      // CHECK: async.await
-      // CHECK-NOT: async.await
 
       // CHECK: case 1 {
       // CHECK: async.add_to_group
       // CHECK-NOT: async.add_to_group
-      // CHECK: async.await
-      // CHECK-NOT: async.await
 
       // CHECK: case 2 {
       // CHECK: async.add_to_group
       // CHECK-NOT: async.add_to_group
-      // CHECK: async.await
-      // CHECK-NOT: async.await
 
       // CHECK: default {
       // CHECK: cf.assert [[FALSE]], "Unsupported case"
@@ -334,3 +322,98 @@ module @ControlFlowOutliningDynamicShape  {
       // CHECK-NOT: async.await_all
       // CHECK: return [[ARG1]]
     }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+module @ControlFlowOutliningDynamicShapeMemref {
+    net.NetworkInfo entryPoint : @main inputsInfo : {
+        DataInfo "input1" : tensor<1x16x?x?xf16>
+    } outputsInfo : {
+        DataInfo "output1" : tensor<1x16x?x?xf16>
+    }
+    module @Module0 {
+        func.func nested @main_func0(%arg0: memref<1x16x256x240xf16>, %arg1: memref<1x16x256x240xf16>) -> memref<1x16x256x240xf16> {
+            return %arg1 : memref<1x16x256x240xf16>
+        }
+    }
+
+    func.func @main(%arg0: memref<1x16x?x?xf16>, %arg1: memref<1x16x?x?xf16>) -> memref<1x16x?x?xf16> attributes {HostExec.HostCompileInferenceExec} {
+        %c0 = arith.constant 0 : index
+        %c2 = arith.constant 2 : index
+        %c3 = arith.constant 3 : index
+        %c240 = arith.constant 240 : index
+        %c256 = arith.constant 256 : index
+        %dim_h = memref.dim %arg0, %c2 : memref<1x16x?x?xf16>
+        %dim_w = memref.dim %arg0, %c3 : memref<1x16x?x?xf16>
+        %tmp = memref.alloc(%dim_h, %dim_w) : memref<1x16x?x?xf16>
+        scf.for %arg2 = %c0 to %dim_h step %c256 {
+            scf.for %arg3 = %c0 to %dim_w step %c240 {
+                %subview_0 = memref.subview %arg0[0, 0, %arg2, %arg3] [1, 16, 256, 240] [1, 1, 1, 1]
+                                          : memref<1x16x?x?xf16> to memref<1x16x256x240xf16, strided<[?, ?, ?, 1], offset: ?>>
+                %cast_0 = builtin.unrealized_conversion_cast %subview_0
+                                          : memref<1x16x256x240xf16, strided<[?, ?, ?, 1], offset: ?>> to memref<1x16x256x240xf16>
+                %subview_1 = memref.subview %tmp[0, 0, %arg2, %arg3] [1, 16, 256, 240] [1, 1, 1, 1]
+                                          : memref<1x16x?x?xf16> to memref<1x16x256x240xf16, strided<[?, ?, ?, 1], offset: ?>>
+                %cast_1 = builtin.unrealized_conversion_cast %subview_1
+                                          : memref<1x16x256x240xf16, strided<[?, ?, ?, 1], offset: ?>> to memref<1x16x256x240xf16>
+                %res0 = Core.NestedCall @Module0::@main_func0(%cast_0, %cast_1)
+                                          : (memref<1x16x256x240xf16>, memref<1x16x256x240xf16>) -> memref<1x16x256x240xf16>
+            }
+        }
+        scf.for %arg4 = %c0 to %dim_h step %c256 {
+            scf.for %arg5 = %c0 to %dim_w step %c240 {
+                %subview_tmp2 = memref.subview %tmp[0, 0, %arg4, %arg5] [1, 16, 256, 240] [1, 1, 1, 1]
+                                          : memref<1x16x?x?xf16> to memref<1x16x256x240xf16, strided<[?, ?, ?, 1], offset: ?>>
+                %cast_tmp2 = builtin.unrealized_conversion_cast %subview_tmp2
+                                          : memref<1x16x256x240xf16, strided<[?, ?, ?, 1], offset: ?>> to memref<1x16x256x240xf16>
+                %subview_out = memref.subview %arg1[0, 0, %arg4, %arg5] [1, 16, 256, 240] [1, 1, 1, 1]
+                                          : memref<1x16x?x?xf16> to memref<1x16x256x240xf16, strided<[?, ?, ?, 1], offset: ?>>
+                %cast_out = builtin.unrealized_conversion_cast %subview_out
+                                          : memref<1x16x256x240xf16, strided<[?, ?, ?, 1], offset: ?>> to memref<1x16x256x240xf16>
+                %res1 = Core.NestedCall @Module0::@main_func0(%cast_tmp2, %cast_out)
+                                          : (memref<1x16x256x240xf16>, memref<1x16x256x240xf16>) -> memref<1x16x256x240xf16>
+            }
+        }
+        return %arg1 : memref<1x16x?x?xf16>
+    }
+
+    // CHECK-LABEL: @ControlFlowOutliningDynamicShapeMemref
+
+    // CHECK: module [[MODULE0:@.+]] {
+    // CHECK: func.func nested [[FUNC0:@.+]]([[ARG_0:%[^:]+]]: memref<1x16x256x240xf16>, [[ARG_1:%[^:]+]]: memref<1x16x256x240xf16>)
+
+    // CHECK: func.func @main([[ARG0:%.+]]: memref<1x16x?x?xf16>, [[ARG1:%.+]]: memref<1x16x?x?xf16>)
+    // CHECK: [[C0:%.+]] = arith.constant 0 : index
+    // CHECK: [[C2:%.+]] = arith.constant 2 : index
+    // CHECK: [[C3:%.+]] = arith.constant 3 : index
+    // CHECK: [[C240:%.+]] = arith.constant 240 : index
+    // CHECK: [[C256:%.+]] = arith.constant 256 : index
+    // CHECK: [[DIM_H:%.+]] = memref.dim [[ARG0]], [[C2]]
+    // CHECK: [[DIM_W:%.+]] = memref.dim [[ARG0]], [[C3]]
+    // CHECK: [[TMP:%.+]] = memref.alloc([[DIM_H]], [[DIM_W]]) : memref<1x16x?x?xf16>
+    // CHECK: [[SUB0:%.+]] = arith.subi [[DIM_H]], [[C0]]
+    // CHECK: [[DIV0:%.+]] = arith.divsi [[SUB0]], [[C256]]
+    // CHECK: [[GROUP0:%.+]] = async.create_group [[DIV0]]
+
+    // CHECK: scf.for [[ARG2:%.+]] = [[C0]] to [[DIM_H]] step [[C256]] {
+    // CHECK: scf.for [[ARG3:%.+]] = [[C0]] to [[DIM_W]] step [[C240]] {
+    // CHECK: [[TOKEN0:%.+]] = async.execute
+    // CHECK: Core.NestedCall [[MODULE0]]::[[FUNC0]]
+    // CHECK: async.add_to_group [[TOKEN0]], [[GROUP0]] : !async.token
+
+    // CHECK: async.await_all [[GROUP0]]
+
+    // CHECK: [[SUB1:%.+]] = arith.subi [[DIM_H]], [[C0]]
+    // CHECK: [[DIV1:%.+]] = arith.divsi [[SUB1]], [[C256]]
+    // CHECK: [[GROUP1:%.+]] = async.create_group [[DIV1]]
+
+    // CHECK: scf.for [[ARG4:%.+]] = [[C0]] to [[DIM_H]] step [[C256]] {
+    // CHECK: scf.for [[ARG5:%.+]] = [[C0]] to [[DIM_W]] step [[C240]] {
+    // CHECK: [[TOKEN1:%.+]] = async.execute
+    // CHECK: Core.NestedCall [[MODULE0]]::[[FUNC0]]
+    // CHECK: async.add_to_group [[TOKEN1]], [[GROUP1]] : !async.token
+
+    // CHECK: async.await_all [[GROUP1]]
+    // CHECK: return [[ARG1]]
+}

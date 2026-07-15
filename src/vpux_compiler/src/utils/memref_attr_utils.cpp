@@ -10,7 +10,7 @@
 
 using namespace vpux;
 
-DimsOrder vpux::inferNewDimsOrder(DimsOrder origOrder, size_t numShapeDims) {
+DimsOrder vpux::inferNewDimsOrder(const DimsOrder& origOrder, size_t numShapeDims) {
     if (origOrder.isIdentity()) {
         return DimsOrder::fromNumDims(numShapeDims);
     }

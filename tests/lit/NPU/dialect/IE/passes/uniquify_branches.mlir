@@ -1212,3 +1212,148 @@ func.func @NoMovePermuteCastBeforeSliceMemPermModifiesSliceAxis(%arg0: tensor<3x
     // CHECK: [[PERMUTECAST2:%.+]] = IE.PermuteCast([[SLICE2]]) {dst_order = #NCHW, mem_perm = #NCWH} : tensor<1x1x4x8xf16, {order = #NHWC}> -> tensor<1x4x1x8xf16>
     // CHECK: return [[PERMUTECAST0]], [[PERMUTECAST1]], [[PERMUTECAST2]] : tensor<1x4x1x8xf16>, tensor<1x4x1x8xf16>, tensor<1x4x1x8xf16>
 }
+
+// -----
+
+// CHECK-LABEL: @MoveReshapeBeforeMultipleSlices
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x1024x6144xf16>
+func.func @MoveReshapeBeforeMultipleSlices(%arg0: tensor<1x1024x6144xf16>) -> (tensor<1x1024x16x128xf16>, tensor<1x1024x16x128xf16>, tensor<1x1024x16x128xf16>) {
+    %0 = IE.Slice %arg0 [0, 0, 0] [1, 1024, 2048] : tensor<1x1024x6144xf16> to tensor<1x1024x2048xf16>
+    %1 = IE.Slice %arg0 [0, 0, 2048] [1, 1024, 2048] : tensor<1x1024x6144xf16> to tensor<1x1024x2048xf16>
+    %2 = IE.Slice %arg0 [0, 0, 4096] [1, 1024, 2048] : tensor<1x1024x6144xf16> to tensor<1x1024x2048xf16>
+
+    %3 = IE.Reshape(%0) {shape_value = [1, 1024, 16, 128]} : tensor<1x1024x2048xf16> -> tensor<1x1024x16x128xf16>
+    %4 = IE.Reshape(%1) {shape_value = [1, 1024, 16, 128]} : tensor<1x1024x2048xf16> -> tensor<1x1024x16x128xf16>
+    %5 = IE.Reshape(%2) {shape_value = [1, 1024, 16, 128]} : tensor<1x1024x2048xf16> -> tensor<1x1024x16x128xf16>
+
+    return %3, %4, %5 : tensor<1x1024x16x128xf16>, tensor<1x1024x16x128xf16>, tensor<1x1024x16x128xf16>
+
+    // CHECK:       [[RESHAPE:%.+]] = IE.AffineReshape([[INPUT]])
+    // CHECK-SAME{LITERAL}:   {dim_mapping = [[0], [1], [2, 3]], shape_value = [1, 1024, 48, 128]} : tensor<1x1024x6144xf16> -> tensor<1x1024x48x128xf16>
+    // CHECK:       [[SLICE0:%.+]] = IE.Slice [[RESHAPE]] [0, 0, 32, 0] [1, 1024, 16, 128] : tensor<1x1024x48x128xf16> to tensor<1x1024x16x128xf16>
+    // CHECK:       [[SLICE1:%.+]] = IE.Slice [[RESHAPE]] [0, 0, 16, 0] [1, 1024, 16, 128] : tensor<1x1024x48x128xf16> to tensor<1x1024x16x128xf16>
+    // CHECK:       [[SLICE2:%.+]] = IE.Slice [[RESHAPE]] [0, 0, 0, 0] [1, 1024, 16, 128] : tensor<1x1024x48x128xf16> to tensor<1x1024x16x128xf16>
+    // CHECK:       return [[SLICE2]], [[SLICE1]], [[SLICE0]] : tensor<1x1024x16x128xf16>, tensor<1x1024x16x128xf16>, tensor<1x1024x16x128xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @MoveAffineReshapeSplitDimBeforeSlice
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x1024x6144xf16>
+func.func @MoveAffineReshapeSplitDimBeforeSlice(%arg0: tensor<1x1024x6144xf16>) -> (tensor<1x1024x16x128xf16>, tensor<1x1024x16x128xf16>, tensor<1x1024x16x128xf16>) {
+    %0 = IE.Slice %arg0 [0, 0, 0] [1, 1024, 2048] : tensor<1x1024x6144xf16> to tensor<1x1024x2048xf16>
+    %1 = IE.Slice %arg0 [0, 0, 2048] [1, 1024, 2048] : tensor<1x1024x6144xf16> to tensor<1x1024x2048xf16>
+    %2 = IE.Slice %arg0 [0, 0, 4096] [1, 1024, 2048] : tensor<1x1024x6144xf16> to tensor<1x1024x2048xf16>
+
+    %3 = IE.AffineReshape(%0) {dim_mapping = [[0], [1], [2, 3]], shape_value = [1, 1024, 16, 128]} : tensor<1x1024x2048xf16> -> tensor<1x1024x16x128xf16>
+    %4 = IE.AffineReshape(%1) {dim_mapping = [[0], [1], [2, 3]], shape_value = [1, 1024, 16, 128]} : tensor<1x1024x2048xf16> -> tensor<1x1024x16x128xf16>
+    %5 = IE.AffineReshape(%2) {dim_mapping = [[0], [1], [2, 3]], shape_value = [1, 1024, 16, 128]} : tensor<1x1024x2048xf16> -> tensor<1x1024x16x128xf16>
+
+    return %3, %4, %5 : tensor<1x1024x16x128xf16>, tensor<1x1024x16x128xf16>, tensor<1x1024x16x128xf16>
+
+    // CHECK:       [[RESHAPE:%.+]] = IE.AffineReshape([[INPUT]])
+    // CHECK-SAME{LITERAL}:   {dim_mapping = [[0], [1], [2, 3]], shape_value = [1, 1024, 48, 128]} : tensor<1x1024x6144xf16> -> tensor<1x1024x48x128xf16>
+    // CHECK:       [[SLICE0:%.+]] = IE.Slice [[RESHAPE]] [0, 0, 32, 0] [1, 1024, 16, 128] : tensor<1x1024x48x128xf16> to tensor<1x1024x16x128xf16>
+    // CHECK:       [[SLICE1:%.+]] = IE.Slice [[RESHAPE]] [0, 0, 16, 0] [1, 1024, 16, 128] : tensor<1x1024x48x128xf16> to tensor<1x1024x16x128xf16>
+    // CHECK:       [[SLICE2:%.+]] = IE.Slice [[RESHAPE]] [0, 0, 0, 0] [1, 1024, 16, 128] : tensor<1x1024x48x128xf16> to tensor<1x1024x16x128xf16>
+    // CHECK:       return [[SLICE2]], [[SLICE1]], [[SLICE0]] : tensor<1x1024x16x128xf16>, tensor<1x1024x16x128xf16>, tensor<1x1024x16x128xf16>
+}
+
+// -----
+
+// Reshape merges dims — canonicalized to AffineReshape and hoisted before Slice
+// CHECK-LABEL: @MoveReshapeMergeDimsBeforeSlice
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<3x16x128xf16>
+func.func @MoveReshapeMergeDimsBeforeSlice(%arg0: tensor<3x16x128xf16>) -> (tensor<1x2048xf16>, tensor<1x2048xf16>, tensor<1x2048xf16>) {
+    %0 = IE.Slice %arg0 [0, 0, 0] [1, 16, 128] : tensor<3x16x128xf16> to tensor<1x16x128xf16>
+    %1 = IE.Slice %arg0 [1, 0, 0] [1, 16, 128] : tensor<3x16x128xf16> to tensor<1x16x128xf16>
+    %2 = IE.Slice %arg0 [2, 0, 0] [1, 16, 128] : tensor<3x16x128xf16> to tensor<1x16x128xf16>
+
+    %3 = IE.Reshape(%0) {shape_value = [1, 2048]} : tensor<1x16x128xf16> -> tensor<1x2048xf16>
+    %4 = IE.Reshape(%1) {shape_value = [1, 2048]} : tensor<1x16x128xf16> -> tensor<1x2048xf16>
+    %5 = IE.Reshape(%2) {shape_value = [1, 2048]} : tensor<1x16x128xf16> -> tensor<1x2048xf16>
+
+    return %3, %4, %5 : tensor<1x2048xf16>, tensor<1x2048xf16>, tensor<1x2048xf16>
+
+    // CHECK:       [[AR:%.+]] = IE.AffineReshape([[INPUT]])
+    // CHECK-SAME{LITERAL}:   {dim_mapping = [[0], [1], [1]], shape_value = [3, 2048]} : tensor<3x16x128xf16> -> tensor<3x2048xf16>
+    // CHECK:       [[SLICE0:%.+]] = IE.Slice [[AR]] [2, 0] [1, 2048] : tensor<3x2048xf16> to tensor<1x2048xf16>
+    // CHECK:       [[SLICE1:%.+]] = IE.Slice [[AR]] [1, 0] [1, 2048] : tensor<3x2048xf16> to tensor<1x2048xf16>
+    // CHECK:       [[SLICE2:%.+]] = IE.Slice [[AR]] [0, 0] [1, 2048] : tensor<3x2048xf16> to tensor<1x2048xf16>
+    // CHECK:       return [[SLICE2]], [[SLICE1]], [[SLICE0]] : tensor<1x2048xf16>, tensor<1x2048xf16>, tensor<1x2048xf16>
+}
+
+// -----
+
+// Non-sliced dim has multi-element mapping (dim0 maps to [0,1]) — transformation blocked
+// CHECK-LABEL: @NoChangeNonSlicedDimNotOneToOne
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<6x6144xf16>
+func.func @NoChangeNonSlicedDimNotOneToOne(%arg0: tensor<6x6144xf16>) -> (tensor<2x3x16x128xf16>, tensor<2x3x16x128xf16>, tensor<2x3x16x128xf16>) {
+    %0 = IE.Slice %arg0 [0, 0] [6, 2048] : tensor<6x6144xf16> to tensor<6x2048xf16>
+    %1 = IE.Slice %arg0 [0, 2048] [6, 2048] : tensor<6x6144xf16> to tensor<6x2048xf16>
+    %2 = IE.Slice %arg0 [0, 4096] [6, 2048] : tensor<6x6144xf16> to tensor<6x2048xf16>
+
+    %3 = IE.AffineReshape(%0) {dim_mapping = [[0, 1], [2, 3]], shape_value = [2, 3, 16, 128]} : tensor<6x2048xf16> -> tensor<2x3x16x128xf16>
+    %4 = IE.AffineReshape(%1) {dim_mapping = [[0, 1], [2, 3]], shape_value = [2, 3, 16, 128]} : tensor<6x2048xf16> -> tensor<2x3x16x128xf16>
+    %5 = IE.AffineReshape(%2) {dim_mapping = [[0, 1], [2, 3]], shape_value = [2, 3, 16, 128]} : tensor<6x2048xf16> -> tensor<2x3x16x128xf16>
+
+    return %3, %4, %5 : tensor<2x3x16x128xf16>, tensor<2x3x16x128xf16>, tensor<2x3x16x128xf16>
+
+    // CHECK:       [[SLICE0:%.+]] = IE.Slice [[INPUT]] [0, 0] [6, 2048] : tensor<6x6144xf16> to tensor<6x2048xf16>
+    // CHECK:       [[SLICE1:%.+]] = IE.Slice [[INPUT]] [0, 2048] [6, 2048] : tensor<6x6144xf16> to tensor<6x2048xf16>
+    // CHECK:       [[SLICE2:%.+]] = IE.Slice [[INPUT]] [0, 4096] [6, 2048] : tensor<6x6144xf16> to tensor<6x2048xf16>
+    // CHECK:       [[AR0:%.+]] = IE.AffineReshape([[SLICE0]])
+    // CHECK:       [[AR1:%.+]] = IE.AffineReshape([[SLICE1]])
+    // CHECK:       [[AR2:%.+]] = IE.AffineReshape([[SLICE2]])
+    // CHECK:       return [[AR0]], [[AR1]], [[AR2]] : tensor<2x3x16x128xf16>, tensor<2x3x16x128xf16>, tensor<2x3x16x128xf16>
+}
+
+// -----
+
+// Two parallel Slice → AffineReshape chains where AffineReshape has a 1-to-1 dim
+// mapping on the sliced axis (C / dim 1).  The two Slices share the same
+// static_sizes but have different static_offsets that are NOT multiples of the
+// slice size (overlapping Slices).
+
+// CHECK-LABEL: @MoveAffineReshape1to1MappingBeforeOverlappingSlices
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x100x4x4xf16>
+func.func @MoveAffineReshape1to1MappingBeforeOverlappingSlices(%arg0: tensor<1x100x4x4xf16>) -> (tensor<1x50x16xf16>, tensor<1x50x16xf16>) {
+    %0 = IE.Slice %arg0 [0, 10, 0, 0] [1, 50, 4, 4] : tensor<1x100x4x4xf16> to tensor<1x50x4x4xf16>
+    %1 = IE.Slice %arg0 [0, 20, 0, 0] [1, 50, 4, 4] : tensor<1x100x4x4xf16> to tensor<1x50x4x4xf16>
+
+    %2 = IE.AffineReshape(%0) {dim_mapping = [[0], [1], [2], [2]], shape_value = [1, 50, 16]} : tensor<1x50x4x4xf16> -> tensor<1x50x16xf16>
+    %3 = IE.AffineReshape(%1) {dim_mapping = [[0], [1], [2], [2]], shape_value = [1, 50, 16]} : tensor<1x50x4x4xf16> -> tensor<1x50x16xf16>
+
+    return %2, %3 : tensor<1x50x16xf16>, tensor<1x50x16xf16>
+
+    // CHECK:       [[RESHAPE:%.+]] = IE.AffineReshape([[INPUT]])
+    // CHECK-SAME{LITERAL}:   {dim_mapping = [[0], [1], [2], [2]], shape_value = [1, 100, 16]} : tensor<1x100x4x4xf16> -> tensor<1x100x16xf16>
+    // CHECK-DAG:   [[SLICE_10:%.+]] = IE.Slice [[RESHAPE]] [0, 10, 0] [1, 50, 16] : tensor<1x100x16xf16> to tensor<1x50x16xf16>
+    // CHECK-DAG:   [[SLICE_20:%.+]] = IE.Slice [[RESHAPE]] [0, 20, 0] [1, 50, 16] : tensor<1x100x16xf16> to tensor<1x50x16xf16>
+    // CHECK-NOT:   IE.Slice [[RESHAPE]] [0, 0, 0] [1, 50, 16]
+    // CHECK:       return [[SLICE_10]], [[SLICE_20]] : tensor<1x50x16xf16>, tensor<1x50x16xf16>
+}
+
+// -----
+
+// Two parallel Slice → AffineReshape chains where the sliced axis (dim 0)
+// *merges* with dim 1 into output dim 0.  The two Slices share the same
+// static_sizes but have overlapping static_offsets that are NOT multiples of
+// the slice size.
+
+// CHECK-LABEL: @MoveAffineReshapeMergeMappingBeforeOverlappingSlices
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<4x4x4xf16>
+func.func @MoveAffineReshapeMergeMappingBeforeOverlappingSlices(%arg0: tensor<4x4x4xf16>) -> (tensor<8x4xf16>, tensor<8x4xf16>) {
+    %0 = IE.Slice %arg0 [1, 0, 0] [2, 4, 4] : tensor<4x4x4xf16> to tensor<2x4x4xf16>
+    %1 = IE.Slice %arg0 [2, 0, 0] [2, 4, 4] : tensor<4x4x4xf16> to tensor<2x4x4xf16>
+    %2 = IE.AffineReshape(%0) {dim_mapping = [[0], [0], [1]], shape_value = [8, 4]} : tensor<2x4x4xf16> -> tensor<8x4xf16>
+    %3 = IE.AffineReshape(%1) {dim_mapping = [[0], [0], [1]], shape_value = [8, 4]} : tensor<2x4x4xf16> -> tensor<8x4xf16>
+    return %2, %3 : tensor<8x4xf16>, tensor<8x4xf16>
+
+    // CHECK:       [[RESHAPE:%.+]] = IE.AffineReshape([[INPUT]])
+    // CHECK-SAME{LITERAL}:   {dim_mapping = [[0], [0], [1]], shape_value = [16, 4]} : tensor<4x4x4xf16> -> tensor<16x4xf16>
+    // CHECK-DAG:   [[SLICE_4:%.+]] = IE.Slice [[RESHAPE]] [4, 0] [8, 4] : tensor<16x4xf16> to tensor<8x4xf16>
+    // CHECK-DAG:   [[SLICE_8:%.+]] = IE.Slice [[RESHAPE]] [8, 0] [8, 4] : tensor<16x4xf16> to tensor<8x4xf16>
+    // CHECK-NOT:   IE.Slice [[RESHAPE]] [0, 0] [8, 4]
+    // CHECK:       return [[SLICE_4]], [[SLICE_8]] : tensor<8x4xf16>, tensor<8x4xf16>
+}

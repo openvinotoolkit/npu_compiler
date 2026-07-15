@@ -89,7 +89,7 @@ enum Location : uint32_t { NONE, DDR, NN_CMX };
 
 #pragma pack(push, 1)
 struct MemRefData {
-    uint32_t dataAddr;  // Can't use pointers, since they have platform-dependent size.
+    uint64_t dataAddr;  // Can't use pointers, since they have platform-dependent size.
                         // Will be located in WIN_F.
 
     uint32_t isStatic;  // Boolean flag to indicate static shape vs dynamic shape.

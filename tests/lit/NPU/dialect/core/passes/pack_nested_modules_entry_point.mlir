@@ -44,7 +44,7 @@ module @mainModuleCalleeFuncs {
     DataInfo "output" : tensor<1x3x60x60xf16>
   }
 
-  func.func private @func0(tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
+  func.func nested @func0(tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
 
   func.func @main(%arg0: tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16> {
     %callee = call @func0(%arg0) : (tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
@@ -57,7 +57,7 @@ module @mainModuleCalleeFuncs {
   // CHECK:         config.Resources {{.+}} of @global
   // CHECK:         net.NetworkInfo entryPoint : @main
 
-  // CHECK:         func.func private @func0
+  // CHECK:         func.func nested @func0
 
   // CHECK:         func.func @main
   // CHECK:           call @func0
@@ -80,8 +80,8 @@ module @mainModuleMultipleCalleeFuncs {
     return %callee_2 : tensor<1x3x60x60xf16>
   }
 
-  func.func private @func1(tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
-  func.func private @func2(tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
+  func.func nested @func1(tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
+  func.func nested @func2(tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
 
   func.func @main(%arg0: tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16> {
     %callee = call @func1(%arg0) : (tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
@@ -92,7 +92,7 @@ module @mainModuleMultipleCalleeFuncs {
   // CHECK:         Core.NestedCall @NPUModule::@func1
   // CHECK:         call @func2
 
-  // CHECK:       func.func private @func2
+  // CHECK:       func.func nested @func2
 
   // CHECK:       module @NPUModule {{.+}} {
   // CHECK:         config.PipelineOptions @Options {
@@ -100,7 +100,7 @@ module @mainModuleMultipleCalleeFuncs {
   // CHECK:         config.Resources {{.+}} of @global
   // CHECK:         net.NetworkInfo entryPoint : @main
 
-  // CHECK:         func.func private @func1
+  // CHECK:         func.func nested @func1
 
   // CHECK:         func.func @main
   // CHECK:           call @func1
@@ -123,8 +123,8 @@ module @mainModuleMultipleCalleeFuncsNested {
   }
 
   module @nestedModule {
-    func.func private @func1(tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
-    func.func private @func2(tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
+    func.func nested @func1(tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
+    func.func nested @func2(tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
   }
 
   func.func @main(%arg0: tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16> {
@@ -143,8 +143,8 @@ module @mainModuleMultipleCalleeFuncsNested {
   // CHECK:         net.NetworkInfo entryPoint : @main
 
   // CHECK:         module @nestedModule {
-  // CHECK:           func.func private @func1
-  // CHECK:           func.func private @func2
+  // CHECK:           func.func nested @func1
+  // CHECK:           func.func nested @func2
   // CHECK:         }
 
   // CHECK:         func.func @main
@@ -168,12 +168,12 @@ module @mainModuleMultipleCalleeFuncsNestedModule {
   }
 
   module @nestedModule1 {
-    func.func private @func1(tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
+    func.func nested @func1(tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
   }
 
   module @nestedModule2 {
-    func.func private @func2(tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
-    func.func private @func3(tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
+    func.func nested @func2(tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
+    func.func nested @func3(tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
   }
 
   func.func @main(%arg0: tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16> {
@@ -186,7 +186,7 @@ module @mainModuleMultipleCalleeFuncsNestedModule {
   // CHECK:         Core.NestedCall @NPUModule::@nestedModule2::@func3
 
   // CHECK:       module @nestedModule1 {
-  // CHECK:         func.func private @func1
+  // CHECK:         func.func nested @func1
   // CHECK:       }
 
   // CHECK:       module @NPUModule {{.+}} {
@@ -196,8 +196,8 @@ module @mainModuleMultipleCalleeFuncsNestedModule {
   // CHECK:         net.NetworkInfo entryPoint : @main
 
   // CHECK:         module @nestedModule2 {
-  // CHECK:           func.func private @func2
-  // CHECK:           func.func private @func3
+  // CHECK:           func.func nested @func2
+  // CHECK:           func.func nested @func3
   // CHECK:         }
 
   // CHECK:         func.func @main
@@ -215,7 +215,7 @@ module @mainModuleCalleeChain {
   }
 
   module @nestedModule {
-    func.func private @func1(tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
+    func.func nested @func1(tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
   }
 
   func.func @func0(%arg0: tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16> {
@@ -235,7 +235,7 @@ module @mainModuleCalleeChain {
   // CHECK:         net.NetworkInfo entryPoint : @main
 
   // CHECK:         module @nestedModule {
-  // CHECK:           func.func private @func1
+  // CHECK:           func.func nested @func1
   // CHECK:         }
 
   // CHECK:         func.func @func0

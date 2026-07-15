@@ -288,8 +288,7 @@ func.func @ShapeCastWithSegmentedInputDistributedTensorType(%arg0: !InputDistrib
     240x16x1x1xf16, #NHWC, @CMX_NN, {
     mode = "SEGMENTED",
     num_tiles = [2, 1, 1, 1],
-    num_clusters = 2 : i64,
-    alignment = [16, 1, 1, 1]
+    num_clusters = 2 : i64
 }>
 
 // CHECK-LABEL: ShapeCastWithSegmentedInputAndOutputHaveDifferentSize
@@ -303,7 +302,7 @@ func.func @ShapeCastWithSegmentedInputAndOutputHaveDifferentSize(%arg0: !InputDi
     // CHECK-SAME:    !VPUIP.DistributedBuffer<240x10x1x1xf16, {order = #NHWC, strides = [16, 1, 10, 10]}, @CMX_NN
     // CHECK-SAME:       mode = "SEGMENTED", num_tiles = [2, 1, 1, 1], num_clusters = 2 : i64, alignment = [16, 1, 1, 1]
     // CHECK-SAME: -> !VPUIP.DistributedBuffer<240x16x1x1xf16, #NHWC, @CMX_NN
-    // CHECK-SAME:       mode = "SEGMENTED", num_tiles = [2, 1, 1, 1], num_clusters = 2 : i64, alignment = [16, 1, 1, 1]
+    // CHECK-SAME:       mode = "SEGMENTED", num_tiles = [2, 1, 1, 1], num_clusters = 2 : i64
     // CHECK: return [[SHAPECAST]] : !VPUIP.DistributedBuffer<240x16x1x1xf16, #NHWC, @CMX_NN
-    // CHECK-SAME:       mode = "SEGMENTED", num_tiles = [2, 1, 1, 1], num_clusters = 2 : i64, alignment = [16, 1, 1, 1]
+    // CHECK-SAME:       mode = "SEGMENTED", num_tiles = [2, 1, 1, 1], num_clusters = 2 : i64
 }

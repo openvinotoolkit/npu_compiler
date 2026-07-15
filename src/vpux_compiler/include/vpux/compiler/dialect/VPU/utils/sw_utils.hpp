@@ -190,7 +190,8 @@ std::optional<SmallVector<int64_t>> getSWEltwiseAlignment(mlir::Operation* op, S
 
 bool isSWEltwiseAndNeedsAlignment(mlir::Operation* op);
 
-std::optional<SmallVector<int64_t>> getSWAlignment(mlir::Operation* op, ShapeRef divisors, ShapeRef shape);
+std::optional<SmallVector<int64_t>> getSWAlignment(mlir::Operation* op, ShapeRef divisors, ShapeRef shape,
+                                                   bool enableOptimizationAlignment = true);
 
 // Check if the op has accurate VPUNN cost
 bool opHasAccurateCost(mlir::Operation* op);

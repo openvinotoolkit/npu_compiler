@@ -41,7 +41,7 @@ SmallVector<vpux::NDTypeInterface> getTiledBuffers(vpux::NDTypeInterface input, 
                                               output.changeShape(ShapeRef(outputShape))};
 }
 
-bool checkInsertReshapeDimOrder(DimsOrder dimOrder, bool acrossChannel) {
+bool checkInsertReshapeDimOrder(const DimsOrder& dimOrder, bool acrossChannel) {
     if (dimOrder == DimsOrder::HCNW || dimOrder == DimsOrder::HNWC || dimOrder == DimsOrder::CWNH) {
         return false;
     }

@@ -95,8 +95,8 @@ public:
 
         const size_t totalWeights = weightsShape[0] * weightsShape[1] * weightsShape[2] * weightsShape[3] *
                                     (weightsShape.size() > 4 ? weightsShape[4] : 1);
-        // Generates values in range [1, 5] to exercise both i4 and i8 weight types with zero-point tables
-        std::vector<int8_t> weights = generateRange<int8_t>(totalWeights, /*min_val=*/1, /*max_val=*/5);
+        // Generates values in range [1, 3] to exercise u2, i4 and i8 weight types with zero-point tables
+        std::vector<int8_t> weights = generateRange<int8_t>(totalWeights, /*min_val=*/1, /*max_val=*/3);
 
         auto i_weights = std::make_shared<ov::op::v0::Constant>(weight_type, weightsShape, weights);
         auto f_weights = std::make_shared<ov::opset6::Convert>(i_weights, float_element_type);
@@ -197,7 +197,29 @@ const auto testCases = std::vector<FQAsSubMul>{
     createTest(20000, 1, 1, 1.0f, 1.0f),
 };
 
-/* E#206577
+const auto u2TestCases = std::vector<FQAsSubMul>{
+    // 80 channels: ZP in range [1, 3], scale = 1
+    createTest(80, 1, 3, 1.0f, 1.0f),
+    // 80 channels: ZP = 0, scales in range [1.3, 3.0]
+    createTest(80, 0, 0, 1.0f, 1.0f),
+    // 80 channels: ZP = 1, scales in range [1.3, 3.0]
+    createTest(80, 1, 1, 1.0f, 1.0f),
+
+    // 16 channels: ZP in range [1, 3], scale = 1
+    createTest(16, 1, 3, 1.0f, 1.0f),
+    // 16 channels: ZP = 0, scales in range [1.3, 3.0]
+    createTest(16, 0, 0, 1.0f, 1.0f),
+    // 16 channels: ZP = 1, scales in range [1.3, 3.0]
+    createTest(16, 1, 1, 1.0f, 1.0f),
+
+    // 20000 channels: ZP in range [1, 3], scale = 1
+    createTest(20000, 1, 3, 1.0f, 1.0f),
+    // 20000 channels: ZP = 0, scales in range [1.3, 3.0]
+    createTest(20000, 0, 0, 1.0f, 1.0f),
+    // 20000 channels: ZP = 1, scales in range [1.3, 3.0]
+    createTest(20000, 1, 1, 1.0f, 1.0f),
+};
+
 const auto dataPointerTableCases = ::testing::Combine(
         ::testing::ValuesIn(testCases),
         ::testing::Values(ov::element::i8),  // Weight type
@@ -205,16 +227,24 @@ const auto dataPointerTableCases = ::testing::Combine(
         ::testing::Values(ConvType::Depthwise),
         ::testing::Values(test_utils::TARGET_DEVICE));
 
-INSTANTIATE_TEST_SUITE_P(dataPointerTable_Depthwise, NewWeightTablesConvTest, dataPointerTableCases,
-                         NewWeightTablesConvTest::getTestCaseName);
-*/
 const auto zeroPointTableCases = ::testing::Combine(
         ::testing::ValuesIn(testCases),
         ::testing::Values(ov::element::i4, ov::element::i8),  // Weight types
         ::testing::Values(ov::element::f16, ov::element::f32), // Computation precision
         ::testing::Values(ConvType::Regular),
         ::testing::Values(test_utils::TARGET_DEVICE));
+
+const auto u2ZeroPointTableCases = ::testing::Combine(
+        ::testing::ValuesIn(u2TestCases),
+        ::testing::Values(ov::element::u2),  // Weight types
+        ::testing::Values(ov::element::f16, ov::element::f32), // Computation precision
+        ::testing::Values(ConvType::Regular),
+        ::testing::Values(test_utils::TARGET_DEVICE));
 // clang-format on
 
 INSTANTIATE_TEST_SUITE_P(zeroPointTable, NewWeightTablesConvTest, zeroPointTableCases,
+                         NewWeightTablesConvTest::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(u2ZeroPointTable, NewWeightTablesConvTest, u2ZeroPointTableCases,
+                         NewWeightTablesConvTest::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(dataPointerTable_Depthwise, NewWeightTablesConvTest, dataPointerTableCases,
                          NewWeightTablesConvTest::getTestCaseName);

@@ -9,7 +9,7 @@
 // Since we don't have callers of generated_0 we can safely append llvm.noalias attributes.
 module @SingleCosLayer {
   module @VPU.SW {
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 
     func.func @generated_0(%arg0: memref<1x1x1x1000xf16>, %arg1: memref<1x1x1x1000xf16>) -> memref<1x1x1x1000xf16> {
       affine.for %arg2 = 0 to 1 {
@@ -42,7 +42,7 @@ module @SingleCosLayer {
 
 module @SingleCosLayerNoAlias {
   module @VPU.SW {
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 
     func.func @generated_0(%arg0: memref<1x1x1x1000xf16>, %arg1: memref<1x1x1x1000xf16>) -> memref<1x1x1x1000xf16> {
       affine.for %arg2 = 0 to 1 {
@@ -87,7 +87,7 @@ module @SingleCosLayerNoAlias {
 
 module @SingleCosLayerInPlace {
   module @VPU.SW {
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 
     func.func @generated_0(%arg0: memref<1x1x1x1000xf16>, %arg1: memref<1x1x1x1000xf16>) -> memref<1x1x1x1000xf16> {
       affine.for %arg2 = 0 to 1 {
@@ -132,7 +132,7 @@ module @SingleCosLayerInPlace {
 
 module @SingleCosLayerTwoCallsWithInPlace {
   module @VPU.SW {
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 
     func.func @generated_0(%arg0: memref<1x1x1x1000xf16>, %arg1: memref<1x1x1x1000xf16>) -> memref<1x1x1x1000xf16> {
       affine.for %arg2 = 0 to 1 {
@@ -182,7 +182,7 @@ module @SingleCosLayerTwoCallsWithInPlace {
 
 module @SingleCosLayerTwoCalls {
   module @VPU.SW {
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 
     func.func @generated_0(%arg0: memref<1x1x1x1000xf16>, %arg1: memref<1x1x1x1000xf16>) -> memref<1x1x1x1000xf16> {
       affine.for %arg2 = 0 to 1 {
@@ -221,5 +221,48 @@ module @SingleCosLayerTwoCalls {
     %1 = VPUIP.Copy inputs(%results1 : memref<1x1x1x1000xf16, [@CMX_NN, 0]>) outputs(%alloc_1 : memref<1x1x1x1000xf16>) -> memref<1x1x1x1000xf16>
     %2 = VPUIP.Copy inputs(%1 : memref<1x1x1x1000xf16>) outputs(%arg1 : memref<1x1x1x1000xf16>) -> memref<1x1x1x1000xf16>
     return %2 : memref<1x1x1x1000xf16>
+  }
+}
+
+// -----
+
+// Constant values should be propagated in the IR even though they need to be
+// encoded as function arguments. In this case, both memref offsets are known to be
+// zero.
+
+// CHECK: module @MemrefStaticVals
+module @MemrefStaticVals {
+  module @VPU.SW {
+    // CHECK: llvm.func @generated_0(
+    // CHECK-SAME: {{%.+}}: !llvm.ptr, [[ARG1:%.+]]: !llvm.ptr {llvm.noalias}, {{%.+}}: i32, {{%.+}}: i32, {{%.+}}: i32, {{%.+}}: i32, {{%.+}}: i32, {{.*}}: !llvm.ptr, [[ARG8:%.+]]: !llvm.ptr {llvm.noalias}, {{%.+}}: i32, {{%.+}}: i32, {{%.+}}: i32, {{%.+}}: i32, {{%.+}}: i32)
+    func.func @generated_0(%arg0: memref<10x?xf32>, %arg1: memref<10x?xf32>) {
+      memref.copy %arg0, %arg1 : memref<10x?xf32> to memref<10x?xf32>
+      return
+      // CHECK: "llvm.intr.memcpy"([[ARG8]], [[ARG1]], {{%.+}})
+      // CHECK-NEXT: return
+    }
+  }
+}
+
+// -----
+
+// Index arguments are passed in memory as i64.
+
+// CHECK: module @IndexArgs
+module @IndexArgs {
+  module @VPU.SW {
+    // CHECK: llvm.func @generated_0(
+    // CHECK-SAME: {{%.+}}: !llvm.ptr, [[ARG1:%.+]]: !llvm.ptr {llvm.noalias}, {{%.+}}: i32, {{%.+}}: i32, {{%.+}}: i32, {{%.+}}: i32, {{%.+}}: i32, [[ARG7:%.+]]: i64)
+    func.func @generated_0(%arg0: memref<10x?xi32>, %arg1 : index) {
+      %c1 = arith.constant 1 : i32
+      %c0 = arith.constant 0 : index
+      affine.store %c1, %arg0[%c0, %arg1] : memref<10x?xi32>
+      return
+
+// CHECK:      [[TRUNC:%.+]] = llvm.trunc [[ARG7]] : i64 to i32
+// CHECK:      [[ADD:%.+]] = llvm.add {{%.+}}, [[TRUNC]] overflow<nsw, nuw> : i32
+// CHECK:      [[GEP:%.+]] = llvm.getelementptr inbounds|nuw [[ARG1]]{{\[}}[[ADD]]{{\]}} : (!llvm.ptr, i32) -> !llvm.ptr, i32
+// CHECK:      llvm.store {{%.+}}, [[GEP]] : i32, !llvm.ptr
+    }
   }
 }

@@ -74,16 +74,17 @@ private:
 
 public:
     template <class TargetOp>
-    TargetOp getTargetOpWithSpecificLayoutAndSingleUser(mlir::Operation* op, DimsOrder inTargetOrder,
-                                                        DimsOrder outTargetOrder) const;
+    TargetOp getTargetOpWithSpecificLayoutAndSingleUser(mlir::Operation* op, const DimsOrder& inTargetOrder,
+                                                        const DimsOrder& outTargetOrder) const;
 
     bool isSupportedGroupConv();
     mlir::LogicalResult replacePattern();
 };
 
 template <class TargetOp>
-TargetOp ReshapeMVNPattern::getTargetOpWithSpecificLayoutAndSingleUser(mlir::Operation* op, DimsOrder inTargetOrder,
-                                                                       DimsOrder outTargetOrder) const {
+TargetOp ReshapeMVNPattern::getTargetOpWithSpecificLayoutAndSingleUser(mlir::Operation* op,
+                                                                       const DimsOrder& inTargetOrder,
+                                                                       const DimsOrder& outTargetOrder) const {
     if (auto targetOp = mlir::dyn_cast_or_null<TargetOp>(op)) {
         if (targetOp->getResult(0).hasOneUse()) {
             auto inType = mlir::cast<vpux::NDTypeInterface>(targetOp->getOperand(0).getType());

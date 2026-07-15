@@ -186,7 +186,7 @@ func.func @NCEPermuteSOC(%arg0: !Input_DDR) -> !Output_CMX {
 
 func.func @SOKDistributedSEGOutput(%input_cmx: !InputDistributed) -> !OutputDistributed {
 
-    %output_cmx = VPU.NCE.MaxPool(%input_cmx) {
+    %output_cmx = VPU.NCE.MaxPool(%input_cmx) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64>,
                 pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
                 strides = [1, 1],
@@ -263,7 +263,7 @@ func.func @SOKDistributedSEGOutput(%input_cmx: !InputDistributed) -> !OutputDist
 !OutputStub_CMX = tensor<1x80x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
 
 func.func @SOKDistributedDUPSEGOutput(%input_cmx: !InputDistributed) -> !OutputDistributed {
-    %output_cmx = VPU.NCE.MaxPool(%input_cmx) {
+    %output_cmx = VPU.NCE.MaxPool(%input_cmx) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             strides = [1, 1],

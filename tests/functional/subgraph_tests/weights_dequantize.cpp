@@ -9,6 +9,7 @@
 
 #include "openvino/op/convert.hpp"
 #include "openvino/op/convolution.hpp"
+#include "openvino/op/matmul.hpp"
 #include "openvino/op/multiply.hpp"
 #include "openvino/op/subtract.hpp"
 
@@ -138,4 +139,48 @@ const auto basicCasesM = ::testing::Combine(
 
 INSTANTIATE_TEST_SUITE_P(precommit_WeightsDequantize, WeightsDequantize, basicCasesM,
                          WeightsDequantize::getTestCaseName);
+
+class WeightsAsInputDequantizeSI8Matmul : public VpuOv2LayerTest {
+public:
+    void SetUp() override {
+        targetDevice = test_utils::TARGET_DEVICE;
+        rel_threshold = 0.5f;
+
+        const ov::Shape actShape{1, 128, 2048};
+        const ov::Shape weightShape{2048, 32};
+        constexpr float zp = -17.0f;
+        constexpr float scale = 3.3336121123284101e-4f;
+        constexpr auto signedInt8WeightType = ov::element::i8;
+
+        init_input_shapes(static_shapes_to_test_representation({actShape, weightShape}));
+        const auto act = std::make_shared<ov::op::v0::Parameter>(ov::element::f16, inputDynamicShapes.at(0));
+        const auto weightsI8 = std::make_shared<ov::op::v0::Parameter>(signedInt8WeightType, inputDynamicShapes.at(1));
+
+        const auto actF32 = std::make_shared<ov::op::v0::Convert>(act, ov::element::f32);
+        const auto weightsF32 = std::make_shared<ov::op::v0::Convert>(weightsI8, ov::element::f32);
+        const auto zpConst =
+                std::make_shared<ov::op::v0::Constant>(ov::element::f32, ov::Shape{1, 1}, std::vector<float>{zp});
+        const auto subZp = std::make_shared<ov::op::v1::Subtract>(weightsF32, zpConst);
+        const auto scaleConst =
+                std::make_shared<ov::op::v0::Constant>(ov::element::f32, ov::Shape{1, 1}, std::vector<float>{scale});
+        const auto dequantizedWeights = std::make_shared<ov::op::v1::Multiply>(subZp, scaleConst);
+
+        const auto matmul = std::make_shared<ov::op::v0::MatMul>(actF32, dequantizedWeights, false, false);
+
+        const ov::ResultVector results{std::make_shared<ov::op::v0::Result>(matmul)};
+        function =
+                std::make_shared<ov::Model>(results, ov::ParameterVector{act, weightsI8}, "InputDequantizeSI8Matmul");
+    }
+};
+
+TEST_F(WeightsAsInputDequantizeSI8Matmul, NPU4000_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU4000);
+}
+
+TEST_F(WeightsAsInputDequantizeSI8Matmul, NPU5010_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
 }  // namespace WeightsDequantizeDefinition

@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/transforms/rewriters.hpp"
 #include "vpux/compiler/dialect/IE/utils/fake_quantize_utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
@@ -157,6 +158,11 @@ template <typename ConcreteOp>
 mlir::LogicalResult GroupWisePatternRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp origOp,
                                                                           mlir::PatternRewriter& rewriter) const {
     _log.trace("Got op {0} at {1}", origOp->getName(), origOp->getLoc());
+
+    // Do not decompose if asymmetric per-channel zero-point is supported
+    if (config::asymmetricPerChannelZeroPointSupported(getModuleOp(origOp))) {
+        return matchFailed(rewriter, origOp, "Don't decompose when asymmetricPerChannelZeroPoint enabled.");
+    }
 
     // Match the weights dequantize structure once...
     const auto maybeWdInfo = IE::WeightsDequantizeStructureInfo::create(origOp, _log.nest());

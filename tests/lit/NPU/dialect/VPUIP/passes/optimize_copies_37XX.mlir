@@ -14,8 +14,8 @@
     num_clusters = 2
 }>
 
-!InputStub_CMX = memref<1x30x120x120xf16, #NHWC, [@CMX_NN, 0]>
-!SpilledOutput_DDR = memref<1x30x120x120xf16, #NHWC, [@CMX_NN, 0]>
+!InputStub_CMX = memref<1x30x120x120xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!SpilledOutput_DDR = memref<1x30x120x120xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
 func.func @NotFuseCMXCopyToTheFrontOfTillingCopyDueToCMXSizeLimitation() -> !InputStub_CMX {
   %0 = VPURT.AllocDistributed -> !InputDistributedType
@@ -28,17 +28,17 @@ func.func @NotFuseCMXCopyToTheFrontOfTillingCopyDueToCMXSizeLimitation() -> !Inp
   return %4 : !InputStub_CMX
 
   // CHECK:   [[BUF_0:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x30x120x120xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
-  // CHECK:   [[BUF_1:%.+]] = memref.alloc() : memref<1x30x120x120xf16, #NHWC, [@CMX_NN, 0]>
-  // CHECK:   [[COPY_0:%.+]] = VPUIP.Copy inputs([[BUF_0]] : !VPUIP.DistributedBuffer<1x30x120x120xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>) outputs([[BUF_1]] : memref<1x30x120x120xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x30x120x120xf16, #NHWC, [@CMX_NN, 0]>
-  // CHECK:   return [[COPY_0]] : memref<1x30x120x120xf16, #NHWC, [@CMX_NN, 0]>
+  // CHECK:   [[BUF_1:%.+]] = memref.alloc() : memref<1x30x120x120xf16, {order = #NHWC}, [@CMX_NN, 0]>
+  // CHECK:   [[COPY_0:%.+]] = VPUIP.Copy inputs([[BUF_0]] : !VPUIP.DistributedBuffer<1x30x120x120xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>) outputs([[BUF_1]] : memref<1x30x120x120xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x30x120x120xf16, {order = #NHWC}, [@CMX_NN, 0]>
+  // CHECK:   return [[COPY_0]] : memref<1x30x120x120xf16, {order = #NHWC}, [@CMX_NN, 0]>
 }
 
 // -----
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
 module @VPU.SW  {
-    func.func private @builtin_DynamicTile(memref<*xsi32>, memref<*xsi32>) attributes {VPU.kernel_code = "dynamic_tile.cpp", VPU.kernel_entry = "dynamic_tile"}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_DynamicTile(memref<*xsi32>, memref<*xsi32>) attributes {VPU.kernel_code = "dynamic_tile.cpp", VPU.kernel_entry = "dynamic_tile"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
 // CHECK-LABEL: func.func @NotEraseCMX2CMXCopyForDynamicTile
@@ -76,4 +76,113 @@ func.func @NotEraseCMX2CMXCopyForDynamicTile(%arg0 : memref<1x100xsi32, [@CMX_NN
   // CHECK:              VPUIP.SW.Kernel.run {attrs = [2, [1, 1]]}({{[^:]+}}, {{[^:]+}}, {{[^:]+}}) : memref<1x100xsi32, [@CMX_NN, 0]>, memref<2xsi32, [@CMX_NN, 0]>, memref<1x100xsi32, [@CMX_NN, 0]>
 
   // CHECK:      return [[RESULTS]] : memref<1x100xsi32, [@CMX_NN, 0]>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!qElemType = !quant.uniform<u8:f16, 0.014214559629851697>
+
+// CHECK-LABEL: @SkipCopySeqDistributedCMXSubViewIntoConcatView
+// CHECK-SAME:      [[SPLIT_SRC:%.+]]: !VPUIP.DistributedBuffer<1x144x20x20x!qElemType,
+// CHECK-SAME:      [[CST:%.+]]: memref<1x144x20x20x!qElemType, {order = #NHWC}>
+func.func @SkipCopySeqDistributedCMXSubViewIntoConcatView(
+        %split_src: !VPUIP.DistributedBuffer<
+            1x144x20x20x!qElemType,
+            {order = #NHWC, strides = [115200, 1, 5760, 288]}, @CMX_NN,
+            {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>,
+        %cst: memref<1x144x20x20x!qElemType, {order = #NHWC}>)
+        -> !VPUIP.DistributedBuffer<
+            1x288x20x20x!qElemType, #NHWC, @CMX_NN,
+            {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}> {
+
+    // parentCopyOp: CMX(Distributed) -> DDR intermediate buffer
+    %ddr_alloc = memref.alloc() : memref<1x144x20x20x!qElemType, {order = #NHWC}>
+    %parent_copy = VPUIP.Copy
+        inputs(%split_src : !VPUIP.DistributedBuffer<
+            1x144x20x20x!qElemType,
+            {order = #NHWC, strides = [115200, 1, 5760, 288]}, @CMX_NN,
+            {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>)
+        outputs(%ddr_alloc : memref<1x144x20x20x!qElemType, {order = #NHWC}>)
+        -> memref<1x144x20x20x!qElemType, {order = #NHWC}>
+
+    // CMX ConcatView output buffer (SEGMENTED)
+    %cmx_concat_buf = VPURT.AllocDistributed ->
+        !VPUIP.DistributedBuffer<1x288x20x20x!qElemType, #NHWC, @CMX_NN,
+            {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
+
+    // CMX SubView [0,0,0,0] -- copyOp writes DDR -> this distributed CMX SubView -> ConcatView
+    %cmx_subview0 = VPUIP.SubView %cmx_concat_buf [0, 0, 0, 0] [1, 144, 20, 20] :
+        !VPUIP.DistributedBuffer<1x288x20x20x!qElemType, #NHWC, @CMX_NN,
+            {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
+        to !VPUIP.DistributedBuffer<1x144x20x20x!qElemType,
+            {order = #NHWC, strides = [115200, 1, 5760, 288]}, @CMX_NN,
+            {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
+
+    // copyOp (DDR -> CMX SubView, distributed): CopyOpSequence candidate with parent_copy
+    // guard must block fusion: fusing would use split_src (CMX SubView) as source directly
+    %copy0 = VPUIP.Copy
+        inputs(%parent_copy : memref<1x144x20x20x!qElemType, {order = #NHWC}>)
+        outputs(%cmx_subview0 : !VPUIP.DistributedBuffer<
+            1x144x20x20x!qElemType,
+            {order = #NHWC, strides = [115200, 1, 5760, 288]}, @CMX_NN,
+            {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>)
+        -> !VPUIP.DistributedBuffer<1x144x20x20x!qElemType,
+            {order = #NHWC, strides = [115200, 1, 5760, 288]}, @CMX_NN,
+            {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
+
+    // CMX SubView [0,144,0,0] -- const -> CMX SubView -> ConcatView
+    %cmx_subview1 = VPUIP.SubView %cmx_concat_buf [0, 144, 0, 0] [1, 144, 20, 20] :
+        !VPUIP.DistributedBuffer<1x288x20x20x!qElemType, #NHWC, @CMX_NN,
+            {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
+        to !VPUIP.DistributedBuffer<1x144x20x20x!qElemType,
+            {order = #NHWC, strides = [115200, 1, 5760, 288]}, @CMX_NN,
+            {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
+    %copy1 = VPUIP.Copy
+        inputs(%cst : memref<1x144x20x20x!qElemType, {order = #NHWC}>)
+        outputs(%cmx_subview1 : !VPUIP.DistributedBuffer<
+            1x144x20x20x!qElemType,
+            {order = #NHWC, strides = [115200, 1, 5760, 288]}, @CMX_NN,
+            {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>)
+        -> !VPUIP.DistributedBuffer<1x144x20x20x!qElemType,
+            {order = #NHWC, strides = [115200, 1, 5760, 288]}, @CMX_NN,
+            {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
+
+    %concat = VPUIP.ConcatView
+        inputs(%copy0, %copy1 :
+            !VPUIP.DistributedBuffer<1x144x20x20x!qElemType,
+                {order = #NHWC, strides = [115200, 1, 5760, 288]}, @CMX_NN,
+                {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>,
+            !VPUIP.DistributedBuffer<1x144x20x20x!qElemType,
+                {order = #NHWC, strides = [115200, 1, 5760, 288]}, @CMX_NN,
+                {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>)
+        outputs(%cmx_concat_buf : !VPUIP.DistributedBuffer<
+            1x288x20x20x!qElemType, #NHWC, @CMX_NN,
+            {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>)
+        -> !VPUIP.DistributedBuffer<1x288x20x20x!qElemType, #NHWC, @CMX_NN,
+            {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
+
+    return %concat : !VPUIP.DistributedBuffer<
+        1x288x20x20x!qElemType, #NHWC, @CMX_NN,
+        {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
+
+    // DDR intermediate buffer must be preserved (not fused away)
+    // CHECK:      [[DDR_ALLOC:%.+]] = memref.alloc() : memref<1x144x20x20x!qElemType, {order = #NHWC}>
+    // CHECK:      [[PARENT_COPY:%.+]] = VPUIP.Copy
+    // CHECK-SAME:     inputs([[SPLIT_SRC]]
+    // CHECK-SAME:     outputs([[DDR_ALLOC]]
+    // CHECK:      [[CMX_BUF:%.+]] = VPURT.AllocDistributed
+    // CHECK:      [[CMX_SV0:%.+]] = VPUIP.SubView [[CMX_BUF]] [0, 0, 0, 0] [1, 144, 20, 20]
+    // CHECK:      [[COPY0:%.+]] = VPUIP.Copy
+    // CHECK-SAME:     inputs([[PARENT_COPY]]
+    // CHECK-SAME:     outputs([[CMX_SV0]]
+    // CHECK:      [[CMX_SV1:%.+]] = VPUIP.SubView [[CMX_BUF]] [0, 144, 0, 0] [1, 144, 20, 20]
+    // CHECK:      [[COPY1:%.+]] = VPUIP.Copy
+    // CHECK-SAME:     inputs([[CST]]
+    // CHECK-SAME:     outputs([[CMX_SV1]]
+    // CHECK:      [[CONCAT:%.+]] = VPUIP.ConcatView
+    // CHECK-SAME:     inputs([[COPY0]], [[COPY1]]
+    // CHECK-SAME:     outputs([[CMX_BUF]]
+    // CHECK:      return [[CONCAT]]
 }

@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2025 Intel Corporation
+// Copyright (C) 2025-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -51,8 +51,8 @@ TEST_P(MLIR_VPU_WeightsSeparation, ConvertMemPermuteToTransposeAndReorder) {
     const auto vals = generateValues<float>(baseType.getNumElements());
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
-    Const::ContentSetup baseContentAttrSetupOriginal(baseType);
-    Const::ContentSetup baseContentAttrSetupTransformed(baseType);
+    Const::ContentSetup baseContentAttrSetupOriginal(baseAttr, baseType);
+    Const::ContentSetup baseContentAttrSetupTransformed(baseAttr, baseType);
 
     // Expected values
     baseContentAttrSetupOriginal = baseContentAttrSetupOriginal.memPermute(dstOrder, memPerm);

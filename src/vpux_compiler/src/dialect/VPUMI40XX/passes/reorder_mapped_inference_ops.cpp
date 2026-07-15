@@ -8,11 +8,14 @@
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 
 #include <npu_40xx_nnrt.hpp>
+
+#include <array>
 
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/SmallVector.h>
@@ -134,24 +137,70 @@ void linearizeDeclareTaskBufferOps(mlir::func::FuncOp func, mlir::OpBuilder& bui
     }
 }
 
-template <VPURT::BufferSection SEC>
-bool buffSec(VPURT::DeclareBufferOp op) {
-    return op.getSection() == SEC;
-}
-
-template <int ENGINE_ID>
-bool engineId(VPUMI40XX::NNDMAOp op) {
-    return op.getPort() == ENGINE_ID;
-}
-
-template <VPURegMapped::TaskType TASK_TYPE>
-auto taskType(size_t tileIndex, size_t listIndex = 0) {
-    auto condition = [tileIndex, listIndex](VPUMI40XX::DeclareTaskBufferOp operation) {
-        const auto index = mlir::cast<vpux::VPURegMapped::IndexType>(operation.getIndex().getType());
-        return operation.getTaskType() == TASK_TYPE && index.getTileIdx() == tileIndex &&
-               index.getListIdx() == listIndex;
+// Linearize firmware-visible DeclareBufferOp sections in one traversal.
+// Only the sections that require deterministic ordering for firmware are bucketed here.
+void linearizeDeclareBufferOpsBySection(mlir::func::FuncOp func, mlir::OpBuilder& builder) {
+    constexpr std::array<VPURT::BufferSection, 7> kSectionOrder = {
+            VPURT::BufferSection::NetworkInput,    VPURT::BufferSection::NetworkOutput,
+            VPURT::BufferSection::ProfilingOutput, VPURT::BufferSection::DDR,
+            VPURT::BufferSection::CMX_NN,          VPURT::BufferSection::MAC_Accumulators,
+            VPURT::BufferSection::Register,
     };
-    return condition;
+
+    const auto getBucketIndex = [&](VPURT::BufferSection section) -> size_t {
+        for (size_t idx = 0; idx < kSectionOrder.size(); ++idx) {
+            if (kSectionOrder[idx] == section) {
+                return idx;
+            }
+        }
+
+        return kSectionOrder.size();
+    };
+
+    std::array<vpux::SmallVector<mlir::Operation*>, kSectionOrder.size()> sectionOps = {};
+
+    // Single scan: bucket ops by explicit section order. Unsupported sections are intentionally left in place.
+    for (auto op : func.getOps<VPURT::DeclareBufferOp>()) {
+        const auto bucketIdx = getBucketIndex(op.getSection());
+        if (bucketIdx < kSectionOrder.size()) {
+            sectionOps[bucketIdx].push_back(op.getOperation());
+        }
+    }
+
+    // Emit buckets in the explicit firmware-facing section sequence.
+    for (size_t sectionIdx = 0; sectionIdx < kSectionOrder.size(); ++sectionIdx) {
+        for (auto* op : sectionOps[sectionIdx]) {
+            auto* lastOp = moveOrCloneOp(op, builder);
+            builder.setInsertionPointAfter(lastOp);
+        }
+    }
+}
+
+// Collect all NNDMAOps by engine in one traversal.
+// Bucket ops by engine once, then emit them in deterministic engine order.
+// The engine count is provided by the IR config (available DMA executors), so do not
+// duplicate architecture policy in this pass.
+void linearizeNNDMAOpsByEngine(mlir::func::FuncOp func, mlir::OpBuilder& builder) {
+    const auto engineCount = checked_cast<size_t>(config::getNumOfDMAPorts(func.getOperation()));
+    if (engineCount == 0) {
+        return;
+    }
+
+    vpux::SmallVector<vpux::SmallVector<mlir::Operation*>> engineOps(engineCount);
+    for (auto op : func.getOps<VPUMI40XX::NNDMAOp>()) {
+        const auto engineIdx = checked_cast<size_t>(op.getPort());
+        if (engineIdx >= engineCount) {
+            continue;
+        }
+        engineOps[engineIdx].push_back(op.getOperation());
+    }
+
+    for (size_t engineIdx = 0; engineIdx < engineCount; ++engineIdx) {
+        for (auto* op : engineOps[engineIdx]) {
+            auto* lastOp = moveOrCloneOp(op, builder);
+            builder.setInsertionPointAfter(lastOp);
+        }
+    }
 }
 
 void ReorderMPIOpsPass::safeRunOnFunc() {
@@ -173,13 +222,8 @@ void ReorderMPIOpsPass::safeRunOnFunc() {
 
     linearizeOps<Const::DeclareOp>(func, builder);
 
-    linearizeOps<VPURT::DeclareBufferOp>(func, builder, buffSec<VPURT::BufferSection::NetworkInput>);
-    linearizeOps<VPURT::DeclareBufferOp>(func, builder, buffSec<VPURT::BufferSection::NetworkOutput>);
-    linearizeOps<VPURT::DeclareBufferOp>(func, builder, buffSec<VPURT::BufferSection::ProfilingOutput>);
-    linearizeOps<VPURT::DeclareBufferOp>(func, builder, buffSec<VPURT::BufferSection::DDR>);
-    linearizeOps<VPURT::DeclareBufferOp>(func, builder, buffSec<VPURT::BufferSection::CMX_NN>);
-    linearizeOps<VPURT::DeclareBufferOp>(func, builder, buffSec<VPURT::BufferSection::MAC_Accumulators>);
-    linearizeOps<VPURT::DeclareBufferOp>(func, builder, buffSec<VPURT::BufferSection::Register>);
+    // Linearize firmware-visible DeclareBufferOp sections in a single IR scan.
+    linearizeDeclareBufferOpsBySection(func, builder);
 
     linearizeOps<VPUMI40XX::DeclareKernelTextOp>(func, builder);
     linearizeOps<VPUMI40XX::DeclareKernelEntryOp>(func, builder);
@@ -196,8 +240,7 @@ void ReorderMPIOpsPass::safeRunOnFunc() {
 
     linearizeOps<VPURegMapped::ViewTaskRangeOp>(func, builder);
 
-    linearizeOps<VPUMI40XX::NNDMAOp>(func, builder, engineId<0>);
-    linearizeOps<VPUMI40XX::NNDMAOp>(func, builder, engineId<1>);
+    linearizeNNDMAOpsByEngine(func, builder);
 }
 
 }  // namespace

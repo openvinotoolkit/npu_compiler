@@ -27,7 +27,7 @@ private:
 
 class MultiClusterPermuteDMARewriter final : public mlir::OpRewritePattern<VPUIP::PermuteDMAOp> {
 public:
-    MultiClusterPermuteDMARewriter(mlir::MLIRContext* ctx, int64_t dmaPortCount, Logger log);
+    MultiClusterPermuteDMARewriter(mlir::MLIRContext* ctx, int64_t dmaPortCount, bool useDMADescriptorAttr, Logger log);
 
     mlir::LogicalResult matchAndRewrite(VPUIP::PermuteDMAOp permuteDMAOp, mlir::PatternRewriter& rewriter) const final;
 
@@ -48,6 +48,7 @@ private:
                                               mlir::PatternRewriter& rewriter) const;
 
     int64_t _dmaPortCount;
+    bool _useDMADescriptorAttr;
     Logger _log;
 };
 

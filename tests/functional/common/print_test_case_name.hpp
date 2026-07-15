@@ -1,11 +1,16 @@
 //
-// Copyright (C) 2023-2025 Intel Corporation
+// Copyright (C) 2023-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
 #pragma once
 
 #include <gtest/gtest.h>
+
+#include <algorithm>
+#include <cctype>
+#include <functional>
+#include <string>
 
 // Used as a custom test case printer for the google test.
 // It will transform a string like "Normalized: true, NmsThreshold: 0.45"

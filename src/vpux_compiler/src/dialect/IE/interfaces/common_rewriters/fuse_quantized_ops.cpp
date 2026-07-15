@@ -79,20 +79,13 @@ IE::TransposedConvolutionOp FuseWithTransposedConv::createNewConvBasedOp(IE::Qua
 }
 
 mlir::LogicalResult FuseWithMaxPool::matchAndRewrite(IE::QuantizeOp quantizeOp, mlir::PatternRewriter& rewriter) const {
-    if (!_isPerAxesQuantSupported && isPerAxisQuant(quantizeOp.getOutput())) {
-        return mlir::failure();
-    }
-
     auto maxPoolOp = quantizeOp.getInput().getDefiningOp<IE::MaxPoolOp>();
     if (maxPoolOp == nullptr) {
         return mlir::failure();
     }
 
-    if (!areAllUsersQuantized(maxPoolOp)) {
-        return mlir::failure();
-    }
-
-    if (!isQuantizationSupported(quantizeOp, maxPoolOp, IE::TypeComparisonMode::ALLOW_DIFFERENT_QUANT)) {
+    auto quantizedLayerOp = mlir::dyn_cast<IE::QuantizedLayerOpInterface>(maxPoolOp.getOperation());
+    if (!quantizedLayerOp || !quantizedLayerOp.isInOutQuantizationCompatible(quantizeOp.getOperation())) {
         return mlir::failure();
     }
 
@@ -100,28 +93,21 @@ mlir::LogicalResult FuseWithMaxPool::matchAndRewrite(IE::QuantizeOp quantizeOp, 
         return mlir::failure();
     }
 
-    // MaxPool IDU does not support zero-point subtraction, so it compensates by ignoring output zero-point as well.
-    // Since we are not subtracting the input zero-point, the non-linear post-op will operate on improper data.
-    // Only zero-centered values would be supported. Currently, quantized MaxPool is disabled for all post-ops.
-    auto layerWithPostOp = mlir::dyn_cast<IE::LayerWithPostOpInterface>(maxPoolOp.getOperation());
-    if (layerWithPostOp != nullptr && layerWithPostOp.hasPPE()) {
+    if (!quantizedLayerOp.isOutputQuantizationFusable(IE::isPerAxisQuant(quantizeOp.getOutput()),
+                                                      /*isFloatInput=*/false)) {
         return mlir::failure();
     }
 
+    if (!quantizedLayerOp.isInputQuantizationFusable()) {
+        return mlir::failure();
+    }
     auto inputDequantizeOp = maxPoolOp.getInput().getDefiningOp<IE::DequantizeOp>();
-    if (inputDequantizeOp == nullptr) {
-        return mlir::failure();
-    }
-
-    if (isPerAxisQuant(inputDequantizeOp.getInput())) {
-        return mlir::failure();
-    }
 
     rewriter.replaceOpWithNewOp<IE::MaxPoolOp>(
                     quantizeOp, quantizeOp.getType(), inputDequantizeOp.getInput(), maxPoolOp.getKernelSize(),
                     maxPoolOp.getStrides(), maxPoolOp.getPadsBegin(), maxPoolOp.getPadsEnd(),
                     maxPoolOp.getRoundingType(), maxPoolOp.getPostOpAttr(), maxPoolOp.getClampAttr(),
-                    maxPoolOp.getOutputPaddingAttr(), maxPoolOp.getInputPaddingAttr())
+                    maxPoolOp.getStaticScaleAttr(), maxPoolOp.getOutputPaddingAttr(), maxPoolOp.getInputPaddingAttr())
             ->setLoc(maxPoolOp->getLoc());
 
     return mlir::success();
@@ -129,20 +115,13 @@ mlir::LogicalResult FuseWithMaxPool::matchAndRewrite(IE::QuantizeOp quantizeOp, 
 
 mlir::LogicalResult FuseWithAveragePool::matchAndRewrite(IE::QuantizeOp quantizeOp,
                                                          mlir::PatternRewriter& rewriter) const {
-    if (!_isPerAxesQuantSupported && isPerAxisQuant(quantizeOp.getOutput())) {
-        return mlir::failure();
-    }
-
     auto avgPoolOp = quantizeOp.getInput().getDefiningOp<IE::AvgPoolOp>();
     if (avgPoolOp == nullptr) {
         return mlir::failure();
     }
 
-    if (!areAllUsersQuantized(avgPoolOp)) {
-        return mlir::failure();
-    }
-
-    if (!isQuantizationSupported(quantizeOp, avgPoolOp, IE::TypeComparisonMode::ALLOW_DIFFERENT_QUANT)) {
+    auto quantizedLayerOp = mlir::dyn_cast<IE::QuantizedLayerOpInterface>(avgPoolOp.getOperation());
+    if (!quantizedLayerOp || !quantizedLayerOp.isInOutQuantizationCompatible(quantizeOp.getOperation())) {
         return mlir::failure();
     }
 
@@ -150,22 +129,16 @@ mlir::LogicalResult FuseWithAveragePool::matchAndRewrite(IE::QuantizeOp quantize
         return mlir::failure();
     }
 
-    // AveragePool IDU does not support zero-point subtraction, so it compensates by ignoring output zero-point as well.
-    // Since we are not subtracting the input zero-point, the non-linear post-op will operate on improper data.
-    // Only zero-centered values would be supported. Currently, quantized AveragePool is disabled for all post-ops.
-    auto layerWithPostOp = mlir::dyn_cast<IE::LayerWithPostOpInterface>(avgPoolOp.getOperation());
-    if (layerWithPostOp != nullptr && layerWithPostOp.hasPPE()) {
+    if (!quantizedLayerOp.isOutputQuantizationFusable(IE::isPerAxisQuant(quantizeOp.getOutput()),
+                                                      /*isFloatInput=*/false)) {
         return mlir::failure();
     }
 
+    if (!quantizedLayerOp.isInputQuantizationFusable()) {
+        return mlir::failure();
+    }
     auto inputDequantizeOp = avgPoolOp.getInput().getDefiningOp<IE::DequantizeOp>();
-    if (inputDequantizeOp == nullptr) {
-        return mlir::failure();
-    }
 
-    if (isPerAxisQuant(inputDequantizeOp.getInput())) {
-        return mlir::failure();
-    }
     auto users = avgPoolOp.getResult().getUsers();
     auto userSize = std::distance(users.begin(), users.end());
     auto newLoc = takeOpLoc(avgPoolOp, "{0}", userSize);
@@ -383,27 +356,21 @@ mlir::LogicalResult FuseWithMatMul::matchAndRewrite(IE::QuantizeOp quantizeOp, m
         return mlir::failure();
     }
 
-    if (!areAllUsersQuantized(matMulOp)) {
+    auto quantizedLayerOp = mlir::dyn_cast<IE::QuantizedLayerOpInterface>(matMulOp.getOperation());
+    if (!quantizedLayerOp || !quantizedLayerOp.isInOutQuantizationCompatible(quantizeOp.getOperation())) {
         return mlir::failure();
     }
 
-    if (!isQuantizationSupported(quantizeOp, matMulOp, IE::TypeComparisonMode::STRICT_EQUAL)) {
+    if (!quantizedLayerOp.isOutputQuantizationFusable(IE::isPerAxisQuant(quantizeOp.getOutput()),
+                                                      /*isFloatInput=*/false)) {
         return mlir::failure();
     }
 
+    if (!quantizedLayerOp.isInputQuantizationFusable()) {
+        return mlir::failure();
+    }
     auto input1DequantizeOp = matMulOp.getInput1().getDefiningOp<IE::DequantizeOp>();
-    if (input1DequantizeOp == nullptr) {
-        return mlir::failure();
-    }
-
     auto input2DequantizeOp = matMulOp.getInput2().getDefiningOp<IE::DequantizeOp>();
-    if (input2DequantizeOp == nullptr) {
-        return mlir::failure();
-    }
-
-    if (isPerAxisQuant(input1DequantizeOp.getInput()) || isPerAxisQuant(input2DequantizeOp.getInput())) {
-        return mlir::failure();
-    }
 
     rewriter.replaceOp(quantizeOp, cloneMatMulOp(rewriter, matMulOp, quantizeOp.getType(),
                                                  input1DequantizeOp.getInput(), input2DequantizeOp.getInput()));

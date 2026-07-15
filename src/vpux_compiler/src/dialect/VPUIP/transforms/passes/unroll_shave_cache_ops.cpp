@@ -31,6 +31,8 @@ namespace vpux::VPUIP {
 #include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
 }  // namespace vpux::VPUIP
 
+using namespace vpux;
+
 constexpr StringLiteral cacheFlushInvalidateFuncName{"cache_flush_invalidate"};
 constexpr StringLiteral cacheFlushFuncName{"cache_flush"};
 

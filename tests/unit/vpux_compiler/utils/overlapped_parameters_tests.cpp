@@ -42,7 +42,7 @@ TEST_P(GetOverlapDistributionParamsTests, GetMemoryViewFromProducerConsumers) {
     const auto expectedMemoryOffsets = params.memoryOffsets;
 
     auto registry = vpux::createDialectRegistry();
-    auto interfacesRegistry = vpux::createInterfacesRegistry(vpux::config::ArchKind::NPU37XX);
+    auto interfacesRegistry = vpux::createInterfacesRegistry(vpux::config::Platform::NPU3720);
     interfacesRegistry->registerInterfaces(registry);
 
     mlir::MLIRContext ctx(registry);
@@ -97,17 +97,17 @@ llvm::StringLiteral poolwith2ConvConsumers = R"(
                 strides = [1, 1]}
                     -> tensor<1x144x28x27xf16, {order = #NHWC}>
 
-            %1 = VPU.NCE.Convolution(%0, %w0, %weightsTable) {
+            %1 = VPU.NCE.Convolution(%0, %w0, %weightsTable) rawFilterShape [144, 144, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-                    rawFilterShape = [144, 144, 3, 3],
+                    
                     strides = [1, 1]}
                         : tensor<1x144x28x27xf16, {order = #NHWC}>, tensor<144x144x3x3xf16, {order = #NHWC}>, tensor<144x1x1x4xsi32> -> tensor<1x144x28x27xf16, {order = #NHWC}>
 
-            %2 = VPU.NCE.Convolution(%0, %w1, %weightsTable) {
+            %2 = VPU.NCE.Convolution(%0, %w1, %weightsTable) rawFilterShape [144, 144, 5, 5] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 2 : i64, right = 2 : i64, top = 2 : i64, bottom = 2 : i64>,
-                    rawFilterShape = [144, 144, 5, 5],
+                    
                     strides = [1, 1]}
                         : tensor<1x144x28x27xf16, {order = #NHWC}>, tensor<144x144x5x5xf16, {order = #NHWC}>, tensor<144x1x1x4xsi32> -> tensor<1x144x28x27xf16, {order = #NHWC}>
 
@@ -136,24 +136,24 @@ llvm::StringLiteral poolwith3ConvConsumers = R"(
                 strides = [1, 1]}
                     -> tensor<1x144x28x27xf16, {order = #NHWC}>
 
-            %1 = VPU.NCE.Convolution(%0, %w0, %weightsTable) {
+            %1 = VPU.NCE.Convolution(%0, %w0, %weightsTable) rawFilterShape [144, 144, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-                    rawFilterShape = [144, 144, 3, 3],
+                    
                     strides = [1, 1]}
                         : tensor<1x144x28x27xf16, {order = #NHWC}>, tensor<144x144x3x3xf16, {order = #NHWC}>, tensor<144x1x1x4xsi32> -> tensor<1x144x28x27xf16, {order = #NHWC}>
 
-            %2 = VPU.NCE.Convolution(%0, %w1, %weightsTable) {
+            %2 = VPU.NCE.Convolution(%0, %w1, %weightsTable) rawFilterShape [144, 144, 5, 5] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 2 : i64, right = 2 : i64, top = 2 : i64, bottom = 2 : i64>,
-                    rawFilterShape = [144, 144, 5, 5],
+                    
                     strides = [1, 1]}
                         : tensor<1x144x28x27xf16, {order = #NHWC}>, tensor<144x144x5x5xf16, {order = #NHWC}>, tensor<144x1x1x4xsi32> -> tensor<1x144x28x27xf16, {order = #NHWC}>
 
-            %3 = VPU.NCE.Convolution(%0, %w2, %weightsTable) {
+            %3 = VPU.NCE.Convolution(%0, %w2, %weightsTable) rawFilterShape [144, 144, 7, 9] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 4 : i64, right = 4 : i64, top = 3 : i64, bottom = 3 : i64>,
-                    rawFilterShape = [144, 144, 7, 9],
+                    
                     strides = [1, 1]}
                         : tensor<1x144x28x27xf16, {order = #NHWC}>, tensor<144x144x7x9xf16, {order = #NHWC}>, tensor<144x1x1x4xsi32> -> tensor<1x144x28x27xf16, {order = #NHWC}>
 
@@ -235,8 +235,8 @@ llvm::StringLiteral poolwith2NCEInterpConsumers = R"(
                            #VPU.SEInterpolate<mode = <BILINEAR>, coordinate_transformation_mode = <ASYMMETRIC>,
                                               scale = [1.0, 1.0, 2.0, 2.0]>>
 
-            %1 = VPU.NCE.Interpolate(%input0, %w0, %weightsTable) {
-                rawFilterShape = [96, 96, 2, 2],
+            %1 = VPU.NCE.Interpolate(%input0, %w0, %weightsTable) rawFilterShape [96, 96, 2, 2] {
+                
                 strides = [1, 1],
                 mode = #VPU.nce_interpolate_mode<BILINEAR>,
                 scales_attr = [2, 2],
@@ -254,8 +254,8 @@ llvm::StringLiteral poolwith2NCEInterpConsumers = R"(
                            #VPU.SEInterpolate<mode = <BILINEAR>, coordinate_transformation_mode = <ASYMMETRIC>,
                                               scale = [1.0, 1.0, 3.0, 3.0]>>
 
-            %2 = VPU.NCE.Interpolate(%input1, %w1, %weightsTable) {
-                rawFilterShape = [96, 96, 3, 3],
+            %2 = VPU.NCE.Interpolate(%input1, %w1, %weightsTable) rawFilterShape [96, 96, 3, 3] {
+                
                 strides = [1, 1],
                 mode = #VPU.nce_interpolate_mode<BILINEAR>,
                 scales_attr = [3, 3],
@@ -303,18 +303,18 @@ llvm::StringLiteral poolWithNCEInterpAndConvConsumers = R"(
                            #VPU.SEInterpolate<mode = <BILINEAR>, coordinate_transformation_mode = <ASYMMETRIC>,
                                               scale = [1.0, 1.0, 2.0, 2.0]>>
 
-            %1 = VPU.NCE.Interpolate(%input0, %w0, %weightsTable) {
-                rawFilterShape = [96, 96, 2, 2],
+            %1 = VPU.NCE.Interpolate(%input0, %w0, %weightsTable) rawFilterShape [96, 96, 2, 2] {
+                
                 strides = [1, 1],
                 mode = #VPU.nce_interpolate_mode<BILINEAR>,
                 scales_attr = [2, 2],
                 ppe = #VPU.PPEStub<>}
                     -> tensor<1x96x40x40xf16, {order = #NHWC}>
 
-            %2 = VPU.NCE.Convolution(%0, %w1, %weightsTable) {
+            %2 = VPU.NCE.Convolution(%0, %w1, %weightsTable) rawFilterShape [96, 96, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-                rawFilterShape = [96, 96, 3, 3],
+                
                 strides = [1, 1]}
                     : tensor<1x96x20x20xf16, {order = #NHWC}>, tensor<1x96x40x40xf16, {order = #NHWC}>, tensor<96x1x1x4xsi32> -> tensor<1x96x20x20xf16, {order = #NHWC}>
 
@@ -370,17 +370,17 @@ llvm::StringLiteral convConsumersSameKernelDiffStrides = R"(
                 strides = [1, 1]}
                     -> tensor<1x32x28x27xf16, {order = #NHWC}>
 
-            %1 = VPU.NCE.Convolution(%0, %weights, %weightsTable) {
+            %1 = VPU.NCE.Convolution(%0, %weights, %weightsTable) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    rawFilterShape = [32, 32, 1, 1],
+                    
                     strides = [2, 2]}
                         : tensor<1x32x28x27xf16, {order = #NHWC}>, tensor<32x32x1x1xf16, {order = #NHWC}>, tensor<32x1x1x4xsi32> -> tensor<1x32x14x14xf16, {order = #NHWC}>
 
-            %2 = VPU.NCE.Convolution(%0, %weights, %weightsTable) {
+            %2 = VPU.NCE.Convolution(%0, %weights, %weightsTable) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    rawFilterShape = [32, 32, 1, 1],
+                    
                     strides = [1, 1]}
                         : tensor<1x32x28x27xf16, {order = #NHWC}>, tensor<32x32x1x1xf16, {order = #NHWC}>, tensor<32x1x1x4xsi32> -> tensor<1x32x28x27xf16, {order = #NHWC}>
 
@@ -409,24 +409,24 @@ llvm::StringLiteral consumersWithMismatchedMemoryView = R"(
                 strides = [1, 1]}
                     -> tensor<1x16x112x111xf16, {order = #NHWC}>
 
-            %1 = VPU.NCE.Convolution(%0, %w0, %weightsTable) {
+            %1 = VPU.NCE.Convolution(%0, %w0, %weightsTable) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    rawFilterShape = [16, 16, 1, 1],
+                    
                     strides = [1, 1]}
                         : tensor<1x16x112x111xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x112x111xf16, {order = #NHWC}>
 
-            %2 = VPU.NCE.Convolution(%0, %w1, %weightsTable) {
+            %2 = VPU.NCE.Convolution(%0, %w1, %weightsTable) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    rawFilterShape = [16, 16, 1, 1],
+                    
                     strides = [2, 2]}
                         : tensor<1x16x112x111xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x56x56xf16, {order = #NHWC}>
 
-            %3 = VPU.NCE.Convolution(%0, %w2, %weightsTable) {
+            %3 = VPU.NCE.Convolution(%0, %w2, %weightsTable) rawFilterShape [16, 16, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>,
-                    rawFilterShape = [16, 16, 3, 3],
+                    
                     strides = [2, 2]}
                         : tensor<1x16x112x111xf16, {order = #NHWC}>, tensor<16x16x3x3xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x56x55xf16, {order = #NHWC}>
 
@@ -485,24 +485,24 @@ llvm::StringLiteral consumerNotSOHOrWCompatible = R"(
                 strides = [1, 1]}
                     -> tensor<1x16x8x8xf16, {order = #NHWC}>
 
-            %1 = VPU.NCE.Convolution(%0, %w0, %weightsTable) {
+            %1 = VPU.NCE.Convolution(%0, %w0, %weightsTable) rawFilterShape [16, 16, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-                    rawFilterShape = [16, 16, 3, 3],
+                    
                     strides = [1, 1]}
                         : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<16x16x3x3xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x8x8xf16, {order = #NHWC}>
 
-            %2 = VPU.NCE.Convolution(%0, %w1, %weightsTable) {
+            %2 = VPU.NCE.Convolution(%0, %w1, %weightsTable) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    rawFilterShape = [16, 16, 1, 1],
+                    
                     strides = [2, 2]}
                         : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x4x4xf16, {order = #NHWC}>
 
-            %3 = VPU.NCE.Convolution(%0, %w2, %weightsTable) {
+            %3 = VPU.NCE.Convolution(%0, %w2, %weightsTable) rawFilterShape [16, 16, 7, 7] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    rawFilterShape = [16, 16, 7, 7],
+                    
                     strides = [1, 1]}
                         : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<16x16x7x7xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x2x2xf16, {order = #NHWC}>
 
@@ -580,10 +580,10 @@ llvm::StringLiteral mixedConsumers = R"(
                     tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00]}
                   : tensor<1x16x96x160xf16, {order = #NHWC}>
                   -> tensor<1x16x192x320xf16, {order = #NHWC}>
-            %2 = VPU.NCE.Convolution(%0, %weights, %weightsTable) {
+            %2 = VPU.NCE.Convolution(%0, %weights, %weightsTable) rawFilterShape [16, 16, 5, 5] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 2 : i64, right = 2 : i64, top = 2 : i64, bottom = 2 : i64>,
-                    rawFilterShape = [16, 16, 5, 5],
+                    
                     strides = [1, 1]}
                         : tensor<1x16x96x160xf16, {order = #NHWC}>, tensor<16x16x5x5xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x96x160xf16, {order = #NHWC}>
 
@@ -654,7 +654,7 @@ TEST_P(GetSegmentedOverlappedDistributionParamsTests, GetMemoryViewForSegmentedO
     const auto expectedComputeOffsets = params.expectedComputeOffsets;
 
     auto registry = vpux::createDialectRegistry();
-    auto interfacesRegistry = vpux::createInterfacesRegistry(vpux::config::ArchKind::NPU37XX);
+    auto interfacesRegistry = vpux::createInterfacesRegistry(vpux::config::Platform::NPU3720);
     interfacesRegistry->registerInterfaces(registry);
 
     mlir::MLIRContext ctx(registry);

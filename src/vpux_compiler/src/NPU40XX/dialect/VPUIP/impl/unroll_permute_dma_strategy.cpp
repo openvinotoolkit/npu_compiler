@@ -14,7 +14,7 @@ UnrollPermuteDMAStrategy::UnrollPermuteDMAStrategy(mlir::MLIRContext* ctx, int64
 
 void UnrollPermuteDMAStrategy::addPatterns(llvm::SmallVector<mlir::RewritePatternSet>& patterns, Logger& log) const {
     mlir::RewritePatternSet patternSet1(_ctx);
-    patternSet1.add<vpux::VPUIP::MultiClusterPermuteDMARewriter>(_ctx, _dmaPortCount, log);
+    patternSet1.add<vpux::VPUIP::MultiClusterPermuteDMARewriter>(_ctx, _dmaPortCount, false, log);
     mlir::RewritePatternSet patternSet2(_ctx);
     patternSet2.add<vpux::VPUIP::SingleClusterPermuteDMARewriter>(_ctx, _dmaPortCount, log);
 

@@ -19,8 +19,6 @@ using StrOption = mlir::detail::PassOptions::Option<std::string>;
 using BoolOption = mlir::detail::PassOptions::Option<bool>;
 using DoubleOption = mlir::detail::PassOptions::Option<double>;
 
-enum class WorkloadManagementStatus { ENABLED = 0, DISABLED = 1, FAILED = 2 };
-
 enum class WorkloadManagementMode { PWLM_V0_1_PAGES = 0, FWLM_V1_PAGES = 1 };
 
 enum class AllocateDDRStackFrames { ENABLED = 0, DISABLED = 1 };
@@ -42,13 +40,21 @@ enum class DMAFifoType { SW = 0, HW = 1 };
  */
 enum class WeightsTableReuseMode { ENABLED = 0, VF_ENABLED = 1, DISABLED = 2 };
 
-StringLiteral stringifyEnum(WorkloadManagementStatus val);
-std::optional<WorkloadManagementStatus> symbolizeWorkloadManagementStatus(llvm::StringRef str);
+enum class SkipOCMode { SKIP_NONE = 0, SKIP_LARGE_SPATIAL = 1, SKIP_ALL = 2 };
+
+enum class AutoUnrollingMode { DISABLED = 0, INNER = 1, OUTER = 2, ALL = 3, BIGGEST = 4 };
+
+enum class VFMergeConfiguration { COST_BASED = 0, GREEDY = 1 };
+
+std::optional<WorkloadManagementMode> symbolizeWorkloadManagementMode(llvm::StringRef str);
 StringLiteral stringifyEnum(WorkloadManagementBarrierProgrammingMode val);
 StringLiteral stringifyEnum(DMAFifoType val);
 StringLiteral stringifyEnum(WeightsTableReuseMode val);
+StringLiteral stringifyEnum(VFMergeConfiguration val);
 std::optional<std::string> convertToOptional(const StrOption& strOption);
 StringLiteral stringifyEnum(WorkloadManagementMode val);
+StringLiteral stringifyEnum(SkipOCMode val);
+StringLiteral stringifyEnum(AutoUnrollingMode val);
 bool isOptionEnabled(const BoolOption& option);
 }  // namespace vpux
 
@@ -65,14 +71,25 @@ struct format_provider<vpux::WorkloadManagementMode> {
     }
 };
 
-inline ::llvm::raw_ostream& operator<<(::llvm::raw_ostream& p, vpux::WorkloadManagementStatus value) {
+inline ::llvm::raw_ostream& operator<<(::llvm::raw_ostream& p, vpux::SkipOCMode value) {
     auto valueStr = vpux::stringifyEnum(value);
     return p << valueStr;
 }
 
 template <>
-struct format_provider<vpux::WorkloadManagementStatus> {
-    static void format(const vpux::WorkloadManagementStatus& val, raw_ostream& OS, StringRef /*Options*/) {
+struct format_provider<vpux::SkipOCMode> {
+    static void format(const vpux::SkipOCMode& val, raw_ostream& OS, StringRef /*Options*/) {
+        OS << vpux::stringifyEnum(val);
+    }
+};
+
+inline ::llvm::raw_ostream& operator<<(::llvm::raw_ostream& p, vpux::AutoUnrollingMode value) {
+    return p << vpux::stringifyEnum(value);
+}
+
+template <>
+struct format_provider<vpux::AutoUnrollingMode> {
+    static void format(const vpux::AutoUnrollingMode& val, raw_ostream& OS, StringRef /*Options*/) {
         OS << vpux::stringifyEnum(val);
     }
 };

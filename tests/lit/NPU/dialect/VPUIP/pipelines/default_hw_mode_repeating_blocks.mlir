@@ -15,8 +15,8 @@ module @ChainCalls {
         DataInfo "output" : tensor<1x3x62x62xf16>
     }
 
-    // CHECK-NOT: func.func private @foo
-    func.func private @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
+    // CHECK-NOT: func.func nested @foo
+    func.func nested @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
         %0 = VPUIP.Copy inputs(%in: !MemRef) outputs(%out: !MemRef) -> !MemRef
         return %0 : !MemRef
     }
@@ -68,13 +68,13 @@ module @SwKernelsChainCalls {
     }
 
     module @VPU.SW {
-        func.func private @builtin_SoftMax(memref<*xf16>, memref<*xf16>, i64, i64)
+        func.func nested @builtin_SoftMax(memref<*xf16>, memref<*xf16>, i64, i64)
             attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.task_type = @COMPUTE}
-        func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+        func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
     }
 
-    // CHECK-NOT: func.func private @foo
-    func.func private @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
+    // CHECK-NOT: func.func nested @foo
+    func.func nested @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
         %alloc = memref.alloc() : !MemRef
         %0 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_SoftMax
             inputs(%in as %0: !MemRef) outputs(%alloc as %1: !MemRef) on tile 0
@@ -154,13 +154,13 @@ module @SwKernelsIndependentCalls {
     }
 
     module @VPU.SW {
-        func.func private @builtin_SoftMax(memref<*xf16>, memref<*xf16>, i64, i64)
+        func.func nested @builtin_SoftMax(memref<*xf16>, memref<*xf16>, i64, i64)
             attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.task_type = @COMPUTE}
-        func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+        func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
     }
 
-    // CHECK-NOT: func.func private @foo
-    func.func private @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
+    // CHECK-NOT: func.func nested @foo
+    func.func nested @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
         %alloc = memref.alloc() : !MemRef
         %0 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_SoftMax
             inputs(%in as %0: !MemRef) outputs(%alloc as %1: !MemRef) on tile 0

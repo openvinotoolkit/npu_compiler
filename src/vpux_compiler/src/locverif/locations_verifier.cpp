@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/Shave/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/control_flow.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
@@ -63,7 +64,7 @@ bool isOpFromIgnoredDialect(mlir::Operation* op) {
     return !isOpFromAnyDialect<Core::CoreDialect, Const::ConstDialect, IE::IEDialect, VPU::VPUDialect,
                                VPUIP::VPUIPDialect, VPURT::VPURTDialect, config::ConfigDialect, mlir::BuiltinDialect,
                                mlir::func::FuncDialect, net::NetDialect, mlir::arith::ArithDialect,
-                               mlir::tensor::TensorDialect>(op);
+                               mlir::tensor::TensorDialect, Shave::ShaveDialect>(op);
 }
 
 bool isOpFromHostCompilePipeline(mlir::Operation* op) {
@@ -87,7 +88,7 @@ bool isIgnoredOpType(mlir::Operation* op) {
     // Other locations. SparseBuffer[Un]Group is just change of type representation, so no need to verify it
     bool isIgnoredOp = mlir::isa<VPUIP::GroupSparseBufferOp, VPUIP::UngroupSparseBufferOp, net::DataInfoOp,
                                  mlir::UnrealizedConversionCastOp>(op);
-    bool isHostPipeline = config::getCompilationMode(op) == config::CompilationMode::HostCompile;
+    bool isHostPipeline = config::isHostCompileMode(op);
     return isViewLikeOp || isControlFlowOp || isMemoryAllocOp || isSetupOp || isIgnoredOp || isHostPipeline;
 }
 

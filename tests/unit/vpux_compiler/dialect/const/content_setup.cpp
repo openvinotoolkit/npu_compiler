@@ -40,7 +40,7 @@ public:
 
     Const::ContentSetup getContentSetup(ArrayRef<int64_t> shape, mlir::Type type) {
         const auto baseType = mlir::RankedTensorType::get(shape, type);
-        return Const::ContentSetup(baseType);
+        return Const::ContentSetup(nullptr, baseType);
     }
 
     template <typename T>
@@ -811,7 +811,7 @@ TEST_F(MLIR_ContentSetupTest, Invalidated) {
 }
 
 TEST_F(MLIR_ContentSetupTest, InvalidBaseContent) {
-    EXPECT_THROW(Const::ContentSetup(nullptr), std::exception);
+    EXPECT_THROW(Const::ContentSetup(nullptr, nullptr), std::exception);
 }
 
 //
@@ -1949,7 +1949,7 @@ using SwapQuantizeAndLayoutTransformationsParams =
 
 // This workaround is needed because using DimsOrder to initialize global variables (as needed for gtest test
 // instances) is undefined behaviour.
-SmallVector<SwapQuantizeAndLayoutTransformationsParams> getSwapQuantizeAndLayoutTransformationsParams() {
+std::vector<SwapQuantizeAndLayoutTransformationsParams> getSwapQuantizeAndLayoutTransformationsParams() {
     return {SwapQuantizeAndLayoutTransformationsParams{vpux::DimsOrder::NHWC,  // inOrd
                                                        vpux::DimsOrder::NHWC,  // dstOrd
                                                        vpux::DimsOrder::NWCH,  // memPerm
@@ -2500,7 +2500,7 @@ TEST_F(MLIR_ContentSetupTest, MoveSubViewIntoFuseSubByteWeights) {
     const std::vector<uint8_t> vals = {10};
     const auto baseWeightsAttr = Const::createConstContent(baseWeightsType, ArrayRef(vals));
 
-    Const::ContentSetup baseWeightsContentAttrSetup(baseWeightsType);
+    Const::ContentSetup baseWeightsContentAttrSetup(baseWeightsAttr, baseWeightsType);
     auto weights = Const::ContentAttr::get(baseWeightsAttr,
                                            baseWeightsContentAttrSetup.castElemType(mlir::IntegerType::get(&ctx, 4)));
 
@@ -2809,7 +2809,7 @@ public:
             };
         }
 
-        auto setup = Const::ContentSetup(_inType)
+        auto setup = Const::ContentSetup(nullptr, _inType)
                              .affineReshape(dimMappingAttr, outShapeAttr)
                              .subview(ShapeRef(subView.offset), ShapeRef(subView.shape));
         const auto inAttr = Const::createConstContent(_inType, ArrayRef(_values));

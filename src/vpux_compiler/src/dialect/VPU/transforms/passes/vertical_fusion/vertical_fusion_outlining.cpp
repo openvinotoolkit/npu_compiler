@@ -89,7 +89,7 @@ void VerticalFusionOutliner::buildFuncOps(mlir::ModuleOp moduleOp, ArrayRef<Smal
         if (config::getWeightsTableReuseMode(func) == WeightsTableReuseMode::VF_ENABLED && isPureVFRegion(slice)) {
             func->setAttr(VPU::PureVerticalFusionRegionAttrName, mlir::UnitAttr::get(ctx));
         }
-        func.setPrivate();
+        func.setNested();
         OpBuilderLogger builderLog(getLogger().nest());
         auto builder = mlir::OpBuilder::atBlockEnd(func.addEntryBlock(), &builderLog);
 

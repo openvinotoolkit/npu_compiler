@@ -16,7 +16,7 @@ using namespace vpux::bitc;
 class Encoder::Impl {
 public:
     Impl();
-    void encode(const BitCompactorConfig& config, const std::vector<uint8_t>& in, std::vector<uint8_t>& out);
+    bool encode(const BitCompactorConfig& config, const std::vector<uint8_t>& in, std::vector<uint8_t>& out);
 
 private:
     typedef void (Encoder::Impl::*AlgorithmEncoder)(AlgorithmParam& param);
@@ -87,8 +87,8 @@ Encoder::Encoder() {
     impl_ = std::make_unique<Impl>();
 }
 
-void Encoder::encode(const BitCompactorConfig& config, const std::vector<uint8_t>& in, std::vector<uint8_t>& out) {
-    impl_->encode(config, in, out);
+bool Encoder::encode(const BitCompactorConfig& config, const std::vector<uint8_t>& in, std::vector<uint8_t>& out) {
+    return impl_->encode(config, in, out);
 }
 
 Encoder::~Encoder() {
@@ -747,16 +747,17 @@ void Encoder::Impl::pack_sparse_data(const BitCompactorConfig& config) {
     bit_stream_in_ = BitStream{dst};
 }
 
-void Encoder::Impl::encode(const BitCompactorConfig& config, const std::vector<uint8_t>& in,
+bool Encoder::Impl::encode(const BitCompactorConfig& config, const std::vector<uint8_t>& in,
                            std::vector<uint8_t>& out) {
     init(config, in);
     if (config.sparse_mode_enable) {
         pack_sparse_data(config);
     }
+
     if (config.bypass_compression) {
         out.resize(bit_stream_in_.source_stream_length());
         memcpy(out.data(), bit_stream_in_.get_byte_pointer(0), bit_stream_in_.source_stream_length());
-        return;
+        return true;
     }
 
     uint64_t bits{};
@@ -789,6 +790,8 @@ void Encoder::Impl::encode(const BitCompactorConfig& config, const std::vector<u
         write_last_blk(input_blocks, block_stream, last_block_elements);
     }
     write_to_output(out, block_stream);
+
+    return true;
 }
 
 void Encoder::Impl::write_residual(const BitCompactorConfig& config, BitStream& stream, const AlgorithmParam& param) {

@@ -251,18 +251,18 @@ mlir::LogicalResult NCEConvolutionSplitOverInputChannel::matchAndRewrite(VPU::NC
     Shape nTilesOnDim(inputShape.size(), 1);
     nTilesOnDim[Dims4D::Act::C] = maxTiles;
     SmallVector<int64_t> alignment(inputShape.size(), 1);
-    const auto inType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType());
     const auto weightsType = mlir::cast<vpux::NDTypeInterface>(origOp.getFilter().getType());
-    const auto inAlignment = VPU::NCEInvariant::getAlignment(inType.getElementType());
-    const auto weightsAlignment = VPU::NCEInvariant::getAlignment(weightsType.getElementType());
+    auto alignedOp = mlir::dyn_cast<IE::AlignedChannelsOpInterface>(origOp.getOperation());
+    const auto inAlignment = alignedOp.getInputChannelAlignment();
+    const auto weightsAlignment =
+            VPU::NCEInvariant::getWeightSetAlignment(origOp.getOperation(), weightsType.getElementType());
     // Weights alignment requirement is IC * KH * KW aligned with weightsAlignment. For
     // int4 case, weightsAlignment = 32, if KH = 2, then IC = 16 can meet the requirement.
     // So here we fist check if inAlignment can meet the requirement or not.
-    if ((inAlignment * kernelW * kernelH) % weightsAlignment == 0) {
-        alignment[Dims4D::Act::C.ind()] = inAlignment;
-    } else {
-        alignment[Dims4D::Act::C.ind()] = weightsAlignment;
-    }
+    const auto kernelSpatialSize = kernelH * kernelW;
+    const auto weightsICAlignment = weightsAlignment / std::gcd(weightsAlignment, kernelSpatialSize);
+
+    alignment[Dims4D::Act::C.ind()] = std::lcm(inAlignment, weightsICAlignment);
 
     const auto tiles = fillDividedTiles(nTilesOnDim, inputShape, std::optional<ArrayRef<int64_t>>(alignment));
 
@@ -296,7 +296,12 @@ mlir::LogicalResult NCEConvolutionSplitOverInputChannel::matchAndRewrite(VPU::NC
                    this->getDebugName(), origOp->getLoc(), origOp);
         return mlir::failure();
     }
-
+    // Skip if origOp has reduce outputs, which are not supported after the split.
+    if (VPU::hasReduceOutputs(origOp)) {
+        _log.trace("[{0}] Skipping NCEConvolutionSplitOverInputChannel: NCEConvolution with reduce outputs at '{1}'",
+                   this->getDebugName(), origOp->getLoc());
+        return mlir::failure();
+    }
     SmallVector<VPU::NCEConvolutionOp> convOps;
     SmallVector<VPU::NCEEltwiseOp> addOps;
     SmallVector<VPU::DequantizeOp> dequantizeOps;

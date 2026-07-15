@@ -16,7 +16,7 @@ def Bytecode_VersionedOpInterface : OpInterface<"VersionedOpInterface"> {
     let methods = [
         InterfaceMethod<
             "Get the minimum version of the operation (i.e. the version in which the operation was introduced)",
-            "vpux::bytecode::Version", "getMinVersion"
+            "intel_npu::vm::Version", "getMinVersion"
         >,
     ];
 }
@@ -46,7 +46,7 @@ def Bytecode_InstructionOpInterface : OpInterface<"InstructionOpInterface"> {
     let methods = [
         InterfaceMethod<
             "Get the operation's opcode",
-            "vpux::bytecode::OpCode", "getOpcode"
+            "intel_npu::vm::OpCode", "getOpcode"
         >,
         InterfaceMethod<
             "Get the operation's addressing mode",

@@ -53,8 +53,7 @@ private:
 
         const auto outputType = mlir::cast<vpux::NDTypeInterface>(getMemRefType(
                 {dmaSection.getSize() / 4}, getUInt32Type(ctx), DimsOrder::C, VPURT::BufferSection::ProfilingOutput));
-        const auto profilingOutputType =
-                mlir::MemRefType::get(outputType.getShape().raw(), outputType.getElementType());
+        const auto profilingOutputType = getMemRefType(outputType.getShape(), outputType.getElementType());
 
         auto dmaHwpBase = builderFunc.create<VPURT::DeclareBufferOp>(
                 mlir::NameLoc::get(mlir::StringAttr::get(ctx, "dmaHwpBase")), profilingOutputType,
@@ -149,8 +148,7 @@ private:
         VPUX_THROW_UNLESS(pllSizeBytes == profiling::WORKPOINT_BUFFER_SIZE, "Bad PLL section size: {0}", pllSizeBytes);
         const auto outputType = mlir::cast<vpux::NDTypeInterface>(getMemRefType(
                 {pllSizeBytes / 4}, getUInt32Type(ctx), DimsOrder::C, VPURT::BufferSection::ProfilingOutput));
-        const auto profilingOutputType =
-                mlir::MemRefType::get(outputType.getShape().raw(), outputType.getElementType());
+        const auto profilingOutputType = getMemRefType(outputType.getShape(), outputType.getElementType());
 
         auto workpointBase = builderFunc.create<VPURT::DeclareBufferOp>(
                 mlir::NameLoc::get(mlir::StringAttr::get(ctx, "workpointBase")), profilingOutputType,

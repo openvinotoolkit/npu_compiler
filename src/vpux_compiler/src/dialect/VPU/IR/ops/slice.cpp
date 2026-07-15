@@ -169,8 +169,8 @@ mlir::OpFoldResult VPU::SliceOp::fold(FoldAdaptor adaptor) {
 mlir::LogicalResult vpux::VPU::SliceOp::verify() {
     const auto loc = getLoc();
 
-    const auto inShape = getShape(getInput());
-    const auto outShape = getShape(getOutput());
+    const auto inShape = getBoundedShape(getInput());
+    const auto outShape = getBoundedShape(getOutput());
     const auto sliceOffsets = parseIntArrayAttr<int64_t>(getStaticOffsets());
     if (inShape.size() != outShape.size()) {
         return errorAt(loc, "Input shape '{0}' and output shape '{1}' must have the same rank", inShape, outShape);
@@ -330,6 +330,18 @@ void vpux::VPU::SliceOp::adjustAttrs(const TilingInfo&, const TileInfo& outputTi
     setStaticSizesAttr(getIntArrayAttr(getContext(), outputTile.shape));
 }
 
+bool vpux::VPU::SliceOp::isSupportedTilingDim(DimArrRef tilingDims) {
+    if (tilingDims.empty()) {
+        return true;
+    }
+
+    const auto srcShape = getShape(getInput());
+    const auto dstShape = getShape(getOutput());
+    return llvm::none_of(tilingDims, [&](Dim dim) {
+        return srcShape[dim] != dstShape[dim];
+    });
+}
+
 bool vpux::VPU::SliceOp::isVFSupported() {
     if (!getInput().hasOneUse() || !getOutput().hasOneUse()) {
         return false;
@@ -340,6 +352,146 @@ bool vpux::VPU::SliceOp::isVFSupported() {
     }
     auto userOp = *getOutput().user_begin();
     return VPU::opHasAccurateCost(userOp);
+}
+
+//
+// DistributedCastOpInterface
+//
+
+mlir::FailureOr<std::pair<mlir::Type, VPU::DistributionInfo>> vpux::VPU::SliceOp::inferCastedTypeAndDistribution(
+        vpux::NDTypeInterface inType, VPU::DistributionInfo& distribution) {
+    if (inType == nullptr || mlir::isa<VPU::DistributedTensorType>(inType) ||
+        distribution.getDistributionMode() == DistributionMode::NONE) {
+        return mlir::failure();
+    }
+
+    const auto srcShape = inType.getShape();
+    const auto dstType = mlir::cast<vpux::NDTypeInterface>(getOutput().getType());
+    const auto outShape = dstType.getShape();
+
+    // Identify the dims that are reduced by the slice operation
+    const auto sliceDims = IE::getDiffInOutSizeDims(srcShape, outShape);
+
+    const auto mode = distribution.getDistributionMode();
+    const bool isSegmented = VPU::bitEnumContainsAny(mode, VPU::DistributionMode::SEGMENTED);
+    const bool isOverlapped = VPU::bitEnumContainsAny(mode, VPU::DistributionMode::OVERLAPPED);
+    const bool isDuplicated = VPU::bitEnumContainsAny(mode, VPU::DistributionMode::DUPLICATED);
+    const bool isMulticasted = VPU::bitEnumContainsAny(mode, VPU::DistributionMode::MULTICASTED);
+
+    // Guard: the slice must not reduce the memory-visible tiling axis.
+    // For compound modes the memory tiling axis may differ from num_tiles (the compute axis).
+    if (isSegmented && isOverlapped) {
+        // SEGMENTED|OVERLAPPED: memory layout is OVERLAPPED, described by memory_num_tiles.
+        const auto memNumTiles = distribution.getMemoryNumTiles();
+        VPUX_THROW_UNLESS(memNumTiles.has_value(), "SEGMENTED|OVERLAPPED distribution requires memory_num_tiles");
+        const auto memTilingDim = Dim(getDistributedTilingAxis(memNumTiles.value()));
+        if (llvm::find(sliceDims, memTilingDim) != sliceDims.end()) {
+            return mlir::failure();
+        }
+    } else if ((isSegmented || isOverlapped) && !isDuplicated && !isMulticasted) {
+        // Pure SEGMENTED or pure OVERLAPPED: num_tiles defines the single tiling axis.
+        // SEGMENTED|DUPLICATED / SEGMENTED|MULTICASTED are excluded: every cluster holds a full
+        // copy in memory, so no tiling axis constrains propagation.
+        const auto tilingDim = Dim(getDistributedTilingAxis(distribution.getNumTiles()));
+        if (llvm::find(sliceDims, tilingDim) != sliceDims.end()) {
+            return mlir::failure();
+        }
+    }
+
+    const auto typeComponents = TypeComponents().setShape(outShape);
+    const bool hasExplicit = VPU::isDistributionWithExplicitShapesAndOffsets(distribution);
+
+    // Adjust alignment for the slice operation: scale down or drop alignment when the aligned
+    // dimension is among the sliced dimensions, matching the logic in SliceOp::inferReturnTypes.
+    auto* ctx = getOperation()->getContext();
+    const auto distAttr = VPU::DistributionInfo::getAttrFromClass(ctx, distribution);
+    const auto adjustedDistAttr = VPU::updateSliceLikeOpsAlignment(ctx, srcShape, outShape, distAttr);
+    auto adjustedDistribution = VPU::DistributionInfo::getClassFromAttr(adjustedDistAttr);
+
+    // Helper: reduce per-cluster shapes along the sliced dims to their output size.
+    const auto slicePerClusterShapes =
+            [&](ArrayRef<SmallVector<int64_t>> perClusterShapes) -> SmallVector<SmallVector<int64_t>> {
+        SmallVector<SmallVector<int64_t>> newShapes(perClusterShapes.begin(), perClusterShapes.end());
+        for (auto& shape : newShapes) {
+            for (auto dim : sliceDims) {
+                shape[dim.ind()] = outShape[dim];
+            }
+        }
+        return newShapes;
+    };
+
+    // Cast ops operate on the memory view of the distributed tensor. For compound modes with a
+    // broadcast-in-memory component (DUPLICATED or MULTICASTED), the SEGMENTED compute aspect is
+    // irrelevant to downstream consumers. Reduce to plain DUPLICATED with no tiling parameters.
+    if (isSegmented && (isDuplicated || isMulticasted)) {
+        VPU::DistributionInfo outDistribution;
+        if (!hasExplicit) {
+            outDistribution = VPU::DistributionInfo(VPU::DistributionMode::DUPLICATED,
+                                                    /*numTiles=*/{}, /*kernel=*/{}, /*strides=*/{},
+                                                    /*padding=*/std::nullopt, distribution.getNumClusters(),
+                                                    /*alignment=*/{}, distribution.hasUniformDistributedSegments(),
+                                                    /*computeShapes=*/{}, /*computeOffsets=*/{},
+                                                    /*memoryShapes=*/{}, /*memoryOffsets=*/{},
+                                                    distribution.hasEqualMemoryAndComputeView(),
+                                                    /*memoryNumTiles=*/std::nullopt);
+        } else {
+            // All clusters hold an identical full copy of the output tensor.
+            const int64_t numClusters = distribution.getNumClusters();
+            const SmallVector<int64_t> outShapeVec(outShape.begin(), outShape.end());
+            const SmallVector<SmallVector<int64_t>> allSameShapes(numClusters, outShapeVec);
+            const SmallVector<int64_t> zeroOff(outShape.size(), 0);
+            const SmallVector<SmallVector<int64_t>> allZeroOffsets(numClusters, zeroOff);
+            outDistribution = VPU::DistributionInfo(VPU::DistributionMode::DUPLICATED,
+                                                    /*numTiles=*/{}, /*kernel=*/{}, /*strides=*/{},
+                                                    /*padding=*/std::nullopt, numClusters,
+                                                    /*alignment=*/{}, distribution.hasUniformDistributedSegments(),
+                                                    allSameShapes, allZeroOffsets, allSameShapes, allZeroOffsets,
+                                                    distribution.hasEqualMemoryAndComputeView(),
+                                                    /*memoryNumTiles=*/std::nullopt);
+        }
+        return std::make_pair(mlir::cast<mlir::Type>(inType.changeTypeComponents(typeComponents)),
+                              std::move(outDistribution));
+    }
+
+    // For SEGMENTED|OVERLAPPED, the memory view is OVERLAPPED. The SEGMENTED compute aspect is
+    // dropped and memory_num_tiles is promoted to num_tiles for the pure OVERLAPPED output.
+    if (isSegmented && isOverlapped) {
+        const auto memNumTiles = distribution.getMemoryNumTiles();  // non-null: validated in guard above
+        VPU::DistributionInfo outDistribution;
+        if (!hasExplicit) {
+            outDistribution = VPU::DistributionInfo(
+                    VPU::DistributionMode::OVERLAPPED, memNumTiles.value(), distribution.getKernel(),
+                    distribution.getStrides(), distribution.getPadding(), distribution.getNumClusters(),
+                    adjustedDistribution.getAlignment(), distribution.hasUniformDistributedSegments(),
+                    /*computeShapes=*/{}, /*computeOffsets=*/{},
+                    /*memoryShapes=*/{}, /*memoryOffsets=*/{}, distribution.hasEqualMemoryAndComputeView(),
+                    /*memoryNumTiles=*/std::nullopt);
+        } else {
+            // Apply the slice to the OVERLAPPED memory shapes (halos on the tiling dim are preserved;
+            // only the sliced dims are narrowed). Compute and memory shapes are stored explicitly.
+            const auto newMemShapes = slicePerClusterShapes(distribution.getMemoryShapes());
+            outDistribution = VPU::DistributionInfo(
+                    VPU::DistributionMode::OVERLAPPED, memNumTiles.value(), distribution.getKernel(),
+                    distribution.getStrides(), distribution.getPadding(), distribution.getNumClusters(),
+                    adjustedDistribution.getAlignment(), distribution.hasUniformDistributedSegments(), newMemShapes,
+                    distribution.getMemoryOffsets(), newMemShapes, distribution.getMemoryOffsets(),
+                    distribution.hasEqualMemoryAndComputeView(),
+                    /*memoryNumTiles=*/std::nullopt);
+        }
+        return std::make_pair(mlir::cast<mlir::Type>(inType.changeTypeComponents(typeComponents)),
+                              std::move(outDistribution));
+    }
+
+    // Non-compound mode
+    if (!hasExplicit) {
+        return std::make_pair(mlir::cast<mlir::Type>(inType.changeTypeComponents(typeComponents)),
+                              std::move(adjustedDistribution));
+    }
+
+    adjustedDistribution.setMemoryShapes(slicePerClusterShapes(distribution.getMemoryShapes()));
+    adjustedDistribution.setComputeShapes(slicePerClusterShapes(distribution.getComputeShapes()));
+    return std::make_pair(mlir::cast<mlir::Type>(inType.changeTypeComponents(typeComponents)),
+                          std::move(adjustedDistribution));
 }
 
 //

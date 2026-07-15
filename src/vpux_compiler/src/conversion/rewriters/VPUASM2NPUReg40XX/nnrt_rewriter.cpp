@@ -11,6 +11,7 @@
 
 #include <npu_40xx_nnrt.hpp>
 
+using namespace vpux;
 using namespace NPUReg40XX;
 using namespace NPUReg40XX::Descriptors;
 

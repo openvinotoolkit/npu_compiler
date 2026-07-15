@@ -187,9 +187,40 @@ void insertBinaryDimsIntoVector(SmallVector<uint8_t>& dimsVector, vpux::NDTypeIn
     }
 }
 
-void insertBinaryStridesIntoVector(SmallVector<uint8_t>& stridesVector, vpux::NDTypeInterface ndType) {
-    auto strides = ndType.getMemStrides();
-    for (auto&& stride : strides | reversed) {
+void insertBinaryStridesIntoVector(SmallVector<uint8_t>& stridesVector, vpux::NDTypeInterface ndType,
+                                   bool normalizeUnitDimStrides) {
+    const auto strides = ndType.getMemStrides();
+    const auto memShape = ndType.getMemShape();
+    const auto rank = static_cast<int64_t>(strides.size());
+
+    // A size-1 dimension's stride may be inherited from a parent subview and
+    // exceed the compact value expected by SW kernels. Because dim==1, the
+    // stride is never multiplied by a loop index, so normalizing it to compact
+    // form is safe and cannot misrepresent non-contiguous layouts.
+    // Normalize each unit-dim stride to: normalized_inner_stride * inner_dim_size.
+    // Process from innermost to outermost so each outer level builds on the
+    // already-normalized inner result.
+    //
+    // Example:
+    //  Cluster shape 1x1x1x16384xf16 (NHWC) split across 2 ACT-SHAVEs; each SHAVE
+    //  operates on a subview of shape 1x1x1x8192xf16 (NHWC).
+    //
+    //  mem-shape    (N, H, W, C): [1, 1, 8192, 1]
+    //  raw strides  (N, H, W, C): [16384, 16384, 1, 1] elems
+    //  norm strides (N, H, W, C): [8192,  8192,  1, 1] elems
+    //
+    SmallVector<Bit> normalizedStrides(rank);
+    for (int64_t i = rank - 1; i >= 0; --i) {
+        const auto md = MemDim(i);
+        if (normalizeUnitDimStrides && memShape[md] == 1 && i + 1 < rank) {
+            const auto innerMd = MemDim(i + 1);
+            normalizedStrides[i] = normalizedStrides[i + 1] * memShape[innerMd];
+        } else {
+            normalizedStrides[i] = strides[md];
+        }
+    }
+
+    for (auto&& stride : normalizedStrides | reversed) {
         ArrayRef<uint8_t> valueAsArray(reinterpret_cast<const uint8_t*>(&stride), sizeof(stride));
         stridesVector.insert(stridesVector.end(), valueAsArray.begin(), valueAsArray.end());
     }

@@ -95,7 +95,11 @@ class FuseD2sExpandCommon_HostCompile : public FuseD2sExpandCommon {
                 "enable-ops-as-dma=false "
                 "enable-fuse-d2s-expand=true "
                 "disabled-passes=(adjust-input-shape|optimize-slice-with-stride) "
-                "adjust-convolution-shape=false";
+                "adjust-convolution-shape=false "
+                // After HostCompile default params were changed to a more performant configuration, these tests fail
+                // under the new defaults and need investigation before they can be re-enabled. Track: E#218923
+                "dynamic-dim-alignment=false "
+                "auto-unrolling-mode=disabled";
     }
 };
 

@@ -10,19 +10,31 @@
 #include "vpux/compiler/dialect/VPU/utils/eltwise_utils.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/types.hpp"
-#include "vpux/utils/core/type/float16.hpp"
 
 #include <llvm/ADT/APFloat.h>
 #include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinTypeInterfaces.h>
 #include <mlir/IR/BuiltinTypes.h>
+#include <mlir/IR/QuantStorageTypeInterface.h>
 #include <mlir/Support/LLVM.h>
 
 #include <cmath>
 #include <cstdint>
 
 using namespace vpux;
+
+namespace {
+
+mlir::FailureOr<std::tuple<double, double>> getStorageRange(mlir::Type type, bool isSigned) {
+    if (auto quantStorageType = mlir::dyn_cast<mlir::QuantStorageTypeInterface>(type)) {
+        return std::make_tuple(static_cast<double>(quantStorageType.getDefaultMinimum(isSigned)),
+                               static_cast<double>(quantStorageType.getDefaultMaximum(isSigned)));
+    }
+    return mlir::failure();
+}
+
+}  // namespace
 
 //
 // Utilities for quantized types
@@ -79,6 +91,44 @@ bool vpux::isSupportedEltwiseQuantization(mlir::Type lhsElemType, mlir::Type rhs
                 }
             }
         }
+    }
+
+    return true;
+}
+
+bool vpux::isSupportedEltwisePerAxisQuantization(mlir::Type lhsElemType, mlir::Type rhsElemType, LogCb logCb) {
+    const auto lhsPerAxisType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(lhsElemType);
+    const auto rhsPerAxisType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(rhsElemType);
+
+    if (lhsPerAxisType == nullptr || rhsPerAxisType == nullptr) {
+        logCb(formatv("Per-axis eltwise quantization requires both inputs to be per-axis quantized"));
+        return false;
+    }
+
+    // Both inputs must have identical quantization: same scales, zero-points, expressed type,
+    // storage type, signedness, and quantized dimension.
+    if (lhsElemType != rhsElemType) {
+        logCb(formatv("Per-axis eltwise inputs must have identical quantization types, got '{0}' and '{1}'",
+                      lhsElemType, rhsElemType));
+        return false;
+    }
+
+    return isSupportedEltwisePerAxisQuantization(lhsElemType, logCb);
+}
+
+bool vpux::isSupportedEltwisePerAxisQuantization(mlir::Type perAxisElemType, LogCb logCb) {
+    const auto perAxisType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(perAxisElemType);
+
+    if (perAxisType == nullptr) {
+        logCb(formatv("Expected a per-axis quantized type, got '{0}'", perAxisElemType));
+        return false;
+    }
+
+    // The WT scale table is indexed by output channel (OC), so quantization must be along the channel axis.
+    if (perAxisType.getQuantizedDimension() != Dims4D::Act::C.ind()) {
+        logCb(formatv("Per-axis eltwise quantization must be along the channel axis (dim {0}), got dim {1}",
+                      Dims4D::Act::C.ind(), perAxisType.getQuantizedDimension()));
+        return false;
     }
 
     return true;
@@ -190,7 +240,7 @@ static void extractSubChannelFloatToSmallVector(mlir::DenseElementsAttr scales, 
 
 // APInt supports any width bit type, so i1, i2, i3, i4, i8, i16, i32 are supported
 // If it is either signed or unsigned we can extend with the sign bit or with zero
-static void extractSubChannelIntToSmallVector(DenseElementsAttr zeroPoints, const int64_t blockIndex,
+static void extractSubChannelIntToSmallVector(mlir::DenseElementsAttr zeroPoints, const int64_t blockIndex,
                                               const int64_t zeroPointsWidth, bool isUnsigned,
                                               mlir::SmallVector<int64_t>& slicedZeroPoints) {
     slicedZeroPoints.reserve(zeroPointsWidth);
@@ -806,118 +856,151 @@ bool vpux::isSymmetricZeroPoint(mlir::quant::QuantizedType quantType) {
     return std::all_of(zeroPoints.begin(), zeroPoints.end(), isSymmetricZP);
 }
 
-mlir::FailureOr<std::tuple<double, double>> vpux::getLowFpRange(mlir::Type lowFpType) {
-    if (mlir::isa<mlir::Float8E4M3FNType>(lowFpType)) {
-        return std::make_tuple(static_cast<double>(mlir::quant::QuantizedType::getDefaultMinimumForF8E4M3FN()),
-                               static_cast<double>(mlir::quant::QuantizedType::getDefaultMaximumForF8E4M3FN()));
-    }
-    if (mlir::isa<mlir::Float8E5M2Type>(lowFpType)) {
-        return std::make_tuple(static_cast<double>(mlir::quant::QuantizedType::getDefaultMinimumForF8E5M2()),
-                               static_cast<double>(mlir::quant::QuantizedType::getDefaultMaximumForF8E5M2()));
-    }
-    if (mlir::isa<mlir::Float4E2M1FNType>(lowFpType)) {
-        return std::make_tuple(static_cast<double>(mlir::quant::QuantizedType::getDefaultMinimumForF4E2M1FN()),
-                               static_cast<double>(mlir::quant::QuantizedType::getDefaultMaximumForF4E2M1FN()));
-    }
-    return mlir::failure();
-}
+mlir::FailureOr<std::tuple<double, double, mlir::Type>> vpux::getStorageParams(mlir::MLIRContext* ctx, int64_t levels,
+                                                                               bool isSigned) {
+    auto min = 0.;
+    auto max = static_cast<double>(levels - 1);
+    mlir::Type storageType;
 
-std::tuple<double, double, mlir::Type> vpux::getStorageParams(mlir::MLIRContext* ctx, int64_t levels, bool isSigned) {
     switch (levels) {
     case 256:
         if (isSigned) {
-            return {-128., 127., getSInt8Type(ctx)};
+            min = -128.;
+            max = 127.;
+            storageType = getSInt8Type(ctx);
+        } else {
+            storageType = getUInt8Type(ctx);
         }
+        break;
 
-        return {0., static_cast<double>(levels - 1), getUInt8Type(ctx)};
     case 255:
         if (isSigned) {
-            return {-127., 127., getSInt8Type(ctx)};
+            min = -127.;
+            max = 127.;
+            storageType = getSInt8Type(ctx);
+        } else {
+            storageType = getUInt8Type(ctx);
         }
+        break;
 
-        return {0., static_cast<double>(levels - 1), getUInt8Type(ctx)};
     case 65536:
         if (isSigned) {
-            return {-32768., 32767., getSInt16Type(ctx)};
+            min = -32768.;
+            max = 32767.;
+            storageType = getSInt16Type(ctx);
+        } else {
+            storageType = getUInt16Type(ctx);
         }
+        break;
 
-        return {0., static_cast<double>(levels - 1), getUInt16Type(ctx)};
     case 16:
         if (isSigned) {
-            return {-8., 7., getSInt4Type(ctx)};
+            min = -8.;
+            max = 7.;
+            storageType = getSInt4Type(ctx);
+        } else {
+            storageType = getUInt4Type(ctx);
         }
+        break;
 
-        return {0., static_cast<double>(levels - 1), getUInt4Type(ctx)};
     case 15:
         if (isSigned) {
-            return {-7., 7., getSInt4Type(ctx)};
+            min = -7.;
+            max = 7.;
+            storageType = getSInt4Type(ctx);
+        } else {
+            storageType = getUInt4Type(ctx);
         }
+        break;
 
-        return {0., static_cast<double>(levels - 1), getUInt4Type(ctx)};
     case 4:
         if (isSigned) {
-            return {-2., 1., getSInt2Type(ctx)};
+            min = -2.;
+            max = 1.;
+            storageType = getSInt2Type(ctx);
+        } else {
+            storageType = getUInt2Type(ctx);
         }
+        break;
 
-        return {0., static_cast<double>(levels - 1), getUInt2Type(ctx)};
     // Because in the absence of I1 support, we must use U8 datatype.
     // [Track number: E#24341].
     case 2:
         if (isSigned) {
-            return {0., 1., getSInt8Type(ctx)};
+            min = 0.;
+            max = 1.;
+            storageType = getSInt8Type(ctx);
+        } else {
+            storageType = getUInt8Type(ctx);
         }
-
-        return {0., static_cast<double>(levels - 1), getUInt8Type(ctx)};
+        break;
 
     default:
-        VPUX_THROW("Got unsupported levels '{0}'", levels);
+        return mlir::failure();
     }
+
+    return std::tuple(min, max, storageType);
 }
 
-std::tuple<double, double, mlir::Type> vpux::getStorageParams(mlir::Type lowPrecisionType) {
-    // SI8 / UI8 / SI4 / UI4
-    if (const auto intType = mlir::dyn_cast<mlir::IntegerType>(lowPrecisionType)) {
-        VPUX_THROW_WHEN(intType.isSignless(), "Signless types do not have a range.");
-        const auto isSigned = intType.isSigned();
-        const auto bitWidth = intType.getWidth();
-        const auto storageMin = mlir::quant::QuantizedType::getDefaultMinimumForInteger(isSigned, bitWidth);
-        const auto storageMax = mlir::quant::QuantizedType::getDefaultMaximumForInteger(isSigned, bitWidth);
+mlir::FailureOr<std::tuple<double, double, mlir::Type>> vpux::getStorageParams(mlir::Type type) {
+    double min = 0.;
+    double max = 0.;
+    mlir::Type storageType;
 
-        return {storageMin, storageMax, lowPrecisionType};
+    if (const auto quantileType = mlir::dyn_cast<vpux::type::QuantileType>(type)) {
+        storageType = quantileType.getStorageType();
+
+        const auto range = getStorageRange(quantileType, quantileType.shouldDefaultToSigned());
+        if (mlir::failed(range)) {
+            return mlir::failure();
+        }
+
+        min = std::get<0>(*range);
+        max = std::get<1>(*range);
+    } else if (const auto intType = mlir::dyn_cast<mlir::IntegerType>(type)) {
+        // SI8 / UI8 / SI4 / UI4
+        if (intType.isSignless()) {
+            return mlir::failure();
+        }
+        const auto range = getStorageRange(intType, intType.isSigned());
+        if (mlir::failed(range)) {
+            return mlir::failure();
+        }
+        min = std::get<0>(*range);
+        max = std::get<1>(*range);
+        storageType = type;
+    } else if (isLowFpType(type)) {
+        // Low FP types (Float8, Float4, etc.)
+        // All low-FP data types are signed
+        const auto range = getStorageRange(type, /*isSigned=*/true);
+        if (mlir::failed(range)) {
+            return mlir::failure();
+        }
+        min = std::get<0>(*range);
+        max = std::get<1>(*range);
+        storageType = type;
+    } else {
+        return mlir::failure();
     }
 
-    // Low FP types
-    if (const auto minMax = getLowFpRange(lowPrecisionType); mlir::succeeded(minMax)) {
-        return {std::get<0>(*minMax), std::get<1>(*minMax), lowPrecisionType};
-    }
-
-    // Quantile float types (NF4)
-    if (const auto quantileType = mlir::dyn_cast<vpux::type::QuantileType>(lowPrecisionType)) {
-        const auto bitWidth = quantileType.getStorageWidth();
-
-        // Although the quantile float representable range is [first_quantile, last_quantile], its storage type is a
-        // unsigned integer of the same bit-width. The storage range is set according to the storage type.
-        const auto storageType =
-                mlir::IntegerType::get(lowPrecisionType.getContext(), bitWidth, mlir::IntegerType::Unsigned);
-        const auto storageMin = mlir::quant::QuantizedType::getDefaultMinimumForInteger(/*isSigned=*/false, bitWidth);
-        const auto storageMax = mlir::quant::QuantizedType::getDefaultMaximumForInteger(/*isSigned=*/false, bitWidth);
-
-        return {storageMin, storageMax, storageType};
-    }
-
-    VPUX_THROW("Got unsupported low precision type '{0}'", lowPrecisionType);
+    return std::tuple(min, max, storageType);
 }
 
-std::tuple<double, double> vpux::getRepresentableRange(mlir::Type lowPrecisionType) {
+mlir::FailureOr<std::tuple<double, double>> vpux::getRepresentableRange(mlir::Type lowPrecisionType) {
     // Quantile float types (NF4)
     if (const auto quantileType = mlir::dyn_cast<vpux::type::QuantileType>(lowPrecisionType)) {
         const auto quantileTable = quantileType.getQuantiles();
-        return {quantileTable.front(), quantileTable.back()};
+        return std::tuple(quantileTable.front(), quantileTable.back());
     }
 
     // For the other types, the storage range is also the representable range.
-    const auto [min, max, _] = getStorageParams(lowPrecisionType);
-    return {min, max};
+    const auto storageParams = getStorageParams(lowPrecisionType);
+    if (mlir::failed(storageParams)) {
+        return mlir::failure();
+    }
+
+    const auto [min, max, _] = *storageParams;
+    return std::tuple(min, max);
 }
 
 bool vpux::isFloat8(mlir::Type type) {

@@ -88,6 +88,10 @@ public:
 /**
  * MVN1 Input=0 special case E#96869
  */
+
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(Mvn1LayerTest);
+
 class Mvn1ZeroInputLayerTestCommon : public Mvn1LayerTest, virtual public VpuOv2LayerTest {};
 
 class Mvn1ZeroInputLayerTest_NPU3720_HW : public Mvn1ZeroInputLayerTestCommon {};
@@ -149,11 +153,14 @@ TEST_P(Mvn1ZeroInputLayerTest_NPU4000_HW, HW) {
 
 // -------------- MVN6 test classes
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(Mvn6LayerTest);
+
 class Mvn6LayerTestCommon : public Mvn6LayerTest, virtual public VpuOv2LayerTest {};
 
 class Mvn6LayerTestCommonFP32 : public Mvn6LayerTestCommon {
     void configure_model() override {
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp16";
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp";
     }
 };
 
@@ -241,9 +248,9 @@ const auto genMvn6LessParams = [](auto shape, auto axes, auto eps) {
 
 const std::vector<std::vector<ov::Shape>> inputShapesForOrder = {{{1, 4, 2, 1024}}};
 
-const std::vector<std::vector<ov::Shape>> inputShapes4D = {{{1, 4, 512, 1}}, {{1, 999, 2, 3}}, {{1, 16, 5, 8}},
-                                                           {{2, 19, 5, 10}}, {{7, 32, 2, 8}},  {{5, 8, 3, 5}},
-                                                           {{4, 41, 6, 9}},  {{1, 32, 4, 1}}
+const std::vector<std::vector<ov::Shape>> inputShapes4D = {
+        {{1, 4, 512, 1}}, {{1, 999, 2, 3}}, {{1, 16, 5, 8}}, {{2, 19, 5, 10}}, {{7, 32, 2, 8}},
+        {{5, 8, 3, 5}},   {{4, 41, 6, 9}},  {{1, 32, 4, 1}}, {{1, 5, 1, 96}}
 #if 0  // extra shapes
         {{5, 2, 7, 3}},   {{1, 3, 17, 21}}, {{2, 5, 13, 27}}, {{1, 7, 55, 33}}, {{4, 9, 7, 2}},  {{3, 13, 9, 9}}, {{1, 16, 12,
         11}}, {{1, 512, 3, 2}},

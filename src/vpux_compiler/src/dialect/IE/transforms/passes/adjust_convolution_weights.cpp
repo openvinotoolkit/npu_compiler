@@ -49,7 +49,7 @@ mlir::Value createNewWeights(IE::ConvolutionOp convOp, mlir::Value weights, int6
 
     auto realWeightsOffsets = SmallVector<int64_t>(weightShape.size(), 0);
 
-    auto realWeights = rewriter.createOrFold<IE::SliceOp>(convOp->getLoc(), weights,
+    auto realWeights = rewriter.createOrFold<IE::SliceOp>(appendLoc(convOp.getLoc(), "slice_weights"), weights,
                                                           getIntArrayAttr(convOp.getContext(), realWeightsOffsets),
                                                           getIntArrayAttr(convOp.getContext(), realWeightsSizes));
 
@@ -80,20 +80,22 @@ mlir::Value createNewWeights(IE::ConvolutionOp convOp, mlir::Value weights, int6
     for (size_t i = 0; i < realChannelOfConcatInputs.size(); ++i) {
         realWeightsSizes[Dims4D::Filter::IC.ind()] = realChannelOfConcatInputs[i];
 
-        auto subWeightsSlice = rewriter.createOrFold<IE::SliceOp>(
-                convOp->getLoc(), realWeights, getIntArrayAttr(convOp.getContext(), subWeightsOffsets),
-                getIntArrayAttr(convOp.getContext(), realWeightsSizes));
+        auto subWeightsSlice =
+                rewriter.createOrFold<IE::SliceOp>(appendLoc(convOp.getLoc(), "slice_weights_{0}", i), realWeights,
+                                                   getIntArrayAttr(convOp.getContext(), subWeightsOffsets),
+                                                   getIntArrayAttr(convOp.getContext(), realWeightsSizes));
         subWeightsOffsets[Dims4D::Filter::IC.ind()] += realChannelOfConcatInputs[i];
 
         padEnd[Dims4D::Filter::IC.ind()] = junkChannelOfConcatInputs[i];
-        auto subWeightsExpand = rewriter.createOrFold<IE::ExpandOp>(convOp->getLoc(), subWeightsSlice,
-                                                                    getIntArrayAttr(rewriter, ArrayRef(padBegin)),
-                                                                    getIntArrayAttr(rewriter, ArrayRef(padEnd)));
+        auto subWeightsExpand = rewriter.createOrFold<IE::ExpandOp>(
+                appendLoc(convOp.getLoc(), "expand_weights_{0}", i), subWeightsSlice,
+                getIntArrayAttr(rewriter, ArrayRef(padBegin)), getIntArrayAttr(rewriter, ArrayRef(padEnd)));
 
         newConcatInputs.push_back(subWeightsExpand);
     }
 
-    return rewriter.createOrFold<IE::ConcatOp>(convOp->getLoc(), newConcatInputs, getConcatAxis(concatOp).value());
+    return rewriter.createOrFold<IE::ConcatOp>(appendLoc(convOp.getLoc(), "concat_weights"), newConcatInputs,
+                                               getConcatAxis(concatOp).value());
 }
 
 /*
@@ -231,7 +233,7 @@ mlir::LogicalResult AdjustConvWeights::matchAndRewrite(IE::ExpandOp expandOp, ml
         return mlir::failure();
     }
 
-    auto newConcatOp = rewriter.create<IE::ConcatOp>(concatOp->getLoc(), concatInputs, concatAxisVal);
+    auto newConcatOp = rewriter.create<IE::ConcatOp>(takeOpLoc(concatOp, "concat_in"), concatInputs, concatAxisVal);
 
     auto paddedFilter = createNewWeights(convOp, convOp.getFilter(), getShape(expandOp.getInput())[Dims4D::Act::C],
                                          concatOp, rewriter);

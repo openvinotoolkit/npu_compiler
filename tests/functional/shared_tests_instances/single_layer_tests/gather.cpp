@@ -12,6 +12,15 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(GatherLayerTest);
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(Gather7LayerTest);
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(Gather8LayerTest);
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(Gather8IndiceScalarLayerTest);
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(Gather8withIndicesDataLayerTest);
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(GatherStringWithIndicesDataLayerTest);
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(GatherMixedPrecLayerTest);
+
 class GatherLayerTest_NPU3720 : public GatherLayerTest, virtual public VpuOv2LayerTest {};
 class GatherLayerTest_NPU4000 : public GatherLayerTest, virtual public VpuOv2LayerTest {};
 class GatherLayerTest_NPU5010 : public GatherLayerTest, virtual public VpuOv2LayerTest {};

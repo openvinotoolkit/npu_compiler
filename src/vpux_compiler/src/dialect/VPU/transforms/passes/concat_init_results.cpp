@@ -43,10 +43,55 @@ std::vector<VPU::ConstArg> convertSplitsToMainConstArgs(ArrayRef<VPU::Transforma
     return args.takeVector();
 }
 
-struct DerivedWeightsSeparationInfo {
-    std::vector<VPU::ConstArg> topLevelMainArgs;
-    std::vector<std::vector<VPU::ConstArg>> slicedSplits;
+struct ObfuscationInfo {
+    std::vector<std::vector<size_t>> inputGroupsToObfuscate;
+    std::vector<size_t> inputsToPreserve;
 };
+
+ObfuscationInfo matchInitResultsToMainInputs(const Logger& log, net::NetworkInfoOp netInfo,
+                                             const std::vector<std::vector<VPU::ConstArg>>& resultsOfAllInits) {
+    ObfuscationInfo info;
+
+    log.debug("Analyzing NetworkInfo to match init results to indices");
+    DenseMap<mlir::StringRef, size_t> argToIndex;
+    const auto dataInfoOps = to_small_vector(netInfo.getInputsInfo().getOps<net::DataInfoOp>());
+    for (size_t i = 0; i < dataInfoOps.size(); ++i) {
+        net::DataInfoOp dataInfo = dataInfoOps[i];
+        const auto name = dataInfo.getName();
+        if (bool toBeObfuscated = name.starts_with(VPU::INIT_OUTPUT_PREFIX); toBeObfuscated) {
+            log.nest().debug("{0} data info entry (index {1}) is an init result", dataInfo, i);
+            assert(!argToIndex.contains(name) && "Every entry can appear exactly once");
+            argToIndex[name] = i;
+        } else {
+            log.nest().debug("{0} data info entry (index {1}) is NOT an init result", dataInfo, i);
+            info.inputsToPreserve.push_back(i);
+        }
+    }
+
+    for (const auto& singleInitResults : resultsOfAllInits) {
+        auto& currentGroup = info.inputGroupsToObfuscate.emplace_back();
+        currentGroup.reserve(singleInitResults.size());
+
+        for (const auto& arg : singleInitResults) {
+            const auto uniqueName = arg.getUniqueName();
+            const auto it = argToIndex.find(uniqueName);
+            VPUX_THROW_WHEN(it == argToIndex.end(), "Matching init result to main input failed for \"{0}\"",
+                            uniqueName);
+
+            log.nest().debug("Init result \"{0}\" has index {1}", uniqueName, it->second);
+            currentGroup.push_back(it->second);
+
+            argToIndex.erase(it);
+        }
+    }
+
+    // sanity check
+    VPUX_THROW_UNLESS(argToIndex.empty(),
+                      "Matching init results to main inputs failed - there are {0} unmatched entries",
+                      argToIndex.size());
+
+    return info;
+}
 
 // Returns a unique name for concatenated init results (and, consequently, for
 // main inputs).
@@ -58,7 +103,7 @@ std::string getUniqueConcatenatedNameOfInitResults(ArrayRef<VPU::ConstArg> args,
 
     llvm::hash_code hashCode{0};
     for (const auto& arg : args) {
-        const size_t hash = Const::ContentAttr::getTransformationHash(arg.transformations);
+        const size_t hash = Const::ContentAttr::getTransformationHash(arg.content, arg.transformations);
         hashCode = llvm::hash_combine(hashCode, hash);
     }
     return formatv("{0}{1}_hash_{2}_concat", vpux::VPU::INIT_OUTPUT_PREFIX, initPart, hashCode);
@@ -71,8 +116,6 @@ mlir::RankedTensorType stripEncoding(mlir::RankedTensorType origin) {
 
 class ConcatInitResults final : public VPU::impl::ConcatInitResultsBase<ConcatInitResults> {
 public:
-    enum class Mode { Unspecified, GenerateMain, GenerateInit };
-
     explicit ConcatInitResults(const Logger& log) {
         Base::initLogger(log, Base::getArgumentName());
     }
@@ -96,17 +139,19 @@ private:
 
     void updateInit(mlir::func::FuncOp initFunc);
     void updateNetworkInfoForInit(net::NetworkInfoOp netInfo, mlir::func::FuncOp initFunc,
-                                  const DerivedWeightsSeparationInfo& info);
+                                  const std::vector<std::vector<VPU::ConstArg>>& resultsOfAllInits);
 
-    size_t updateTopLevelMain(mlir::func::FuncOp mainFunc, const DerivedWeightsSeparationInfo& info);
-    void updateNetworkInfoForMain(net::NetworkInfoOp netInfo, mlir::func::FuncOp mainFunc, size_t newInputsOffset,
-                                  const DerivedWeightsSeparationInfo& info);
+    std::vector<size_t> updateTopLevelMain(net::NetworkInfoOp netInfo, mlir::func::FuncOp mainFunc,
+                                           const std::vector<std::vector<VPU::ConstArg>>& resultsOfAllInits);
+    void updateNetworkInfoForMain(net::NetworkInfoOp netInfo, mlir::func::FuncOp mainFunc,
+                                  ArrayRef<size_t> preservedArgIndices,
+                                  const std::vector<std::vector<VPU::ConstArg>>& resultsOfAllInits);
 
-    const char* stringifyEnum(Mode mode) {
+    const char* stringifyEnum(VPU::WeightsSeparationMode mode) {
         switch (mode) {
-        case Mode::GenerateMain:
+        case VPU::WeightsSeparationMode::GenerateMain:
             return "gen-main";
-        case Mode::GenerateInit:
+        case VPU::WeightsSeparationMode::GenerateInit:
             return "gen-init";
         default:
             return "UNKNOWN";
@@ -116,7 +161,7 @@ private:
     static constexpr int64_t DEFAULT_INIT_PART = -1;
     static constexpr vpux::Byte DEFAULT_MEMORY_LIMIT = vpux::Byte(std::numeric_limits<int64_t>::max());
 
-    Mode _mode = Mode::Unspecified;
+    VPU::WeightsSeparationMode _mode = VPU::WeightsSeparationMode::Unspecified;
     int64_t _initPart = DEFAULT_INIT_PART;
     vpux::Byte _memoryLimit = DEFAULT_MEMORY_LIMIT;
 };
@@ -133,7 +178,7 @@ void ConcatInitResults::updateInit(mlir::func::FuncOp initFunc) {
 }
 
 void ConcatInitResults::updateNetworkInfoForInit(net::NetworkInfoOp netInfo, mlir::func::FuncOp initFunc,
-                                                 const DerivedWeightsSeparationInfo& info) {
+                                                 const std::vector<std::vector<VPU::ConstArg>>& resultsOfAllInits) {
     OpBuilderLogger builderLog(_log.nest());
     mlir::OpBuilder builder(&getContext(), &builderLog);
 
@@ -142,7 +187,7 @@ void ConcatInitResults::updateNetworkInfoForInit(net::NetworkInfoOp netInfo, mli
     net::eraseSectionEntries(outputsRegion);
     builder.setInsertionPointToStart(&outputsRegion.front());
 
-    const auto& thisInitResults = info.slicedSplits[_initPart];
+    const auto& thisInitResults = resultsOfAllInits[_initPart];
 
     const auto outputName = getUniqueConcatenatedNameOfInitResults(thisInitResults, _initPart);
     // Note: guaranteed single result by definition of this pass
@@ -153,72 +198,64 @@ void ConcatInitResults::updateNetworkInfoForInit(net::NetworkInfoOp netInfo, mli
     _log.nest().debug("Added \"DataInfo\" {0} : {1}", outputName, outputType);
 }
 
-std::vector<size_t> matchInitPartOutputsToMainInputs(const std::vector<VPU::ConstArg>& allNewMainInputs,
-                                                     const std::vector<VPU::ConstArg>& args, size_t offsetToNewInputs) {
-    std::vector<size_t> blockArgs;
-    blockArgs.reserve(args.size());
-
-    for (const auto& arg : args) {
-        auto it = llvm::find(allNewMainInputs, arg);
-        VPUX_THROW_WHEN(it == allNewMainInputs.end(), "Init result not found in main inputs");
-        const auto argIndex = std::distance(allNewMainInputs.begin(), it);
-        blockArgs.push_back(offsetToNewInputs + argIndex);
-    }
-
-    return blockArgs;
-}
-
-size_t ConcatInitResults::updateTopLevelMain(mlir::func::FuncOp mainFunc, const DerivedWeightsSeparationInfo& info) {
-    auto allNewMainInputs = info.topLevelMainArgs;
-    const size_t oldBlockArgsBegin = static_cast<size_t>(mainFunc.getNumArguments()) - allNewMainInputs.size();
-
-    const auto& slicedSplits = info.slicedSplits;
-    for (size_t i = 0; i < slicedSplits.size(); ++i) {
-        auto indices = matchInitPartOutputsToMainInputs(allNewMainInputs, slicedSplits[i], oldBlockArgsBegin);
-        _log.debug("Running obfuscateInputs():");
-        VPU::obfuscateInputs(_log.nest(), appendLoc(mainFunc.getLoc(), "obfuscated_inputs{0}", i), mainFunc, indices,
-                             [](mlir::OpBuilder& builder, mlir::Location loc, mlir::Value input,
-                                ArrayRef<int64_t> offsets, ArrayRef<int64_t> sizes) {
-                                 return builder.create<VPU::SliceOp>(loc, input, offsets, sizes);
-                             });
-
-        // during input obfuscation, old arguments are deleted. this means that
-        // main inputs have changed and the next iteration has to be adjusted.
-        llvm::sort(indices, std::not_fn(std::less<size_t>{}));
-        for (size_t index : indices) {
-            const auto i = index - oldBlockArgsBegin;
-            allNewMainInputs.erase(allNewMainInputs.begin() + i);
-        }
-    }
-
-    return oldBlockArgsBegin;
+std::vector<size_t> ConcatInitResults::updateTopLevelMain(
+        net::NetworkInfoOp netInfo, mlir::func::FuncOp mainFunc,
+        const std::vector<std::vector<VPU::ConstArg>>& resultsOfAllInits) {
+    const auto obfuscationInfo = matchInitResultsToMainInputs(_log, netInfo, resultsOfAllInits);
+    _log.debug("Running obfuscateInputGroups():");
+    VPU::obfuscateInputGroups(_log.nest(), appendLoc(mainFunc.getLoc(), "obfuscated_inputs"), mainFunc,
+                              obfuscationInfo.inputGroupsToObfuscate,
+                              [](mlir::OpBuilder& builder, mlir::Location loc, mlir::Value input,
+                                 ArrayRef<int64_t> offsets, ArrayRef<int64_t> sizes) {
+                                  return builder.create<VPU::SliceOp>(loc, input, offsets, sizes);
+                              });
+    return obfuscationInfo.inputsToPreserve;
 }
 
 void ConcatInitResults::updateNetworkInfoForMain(net::NetworkInfoOp netInfo, mlir::func::FuncOp mainFunc,
-                                                 size_t newInputsOffset, const DerivedWeightsSeparationInfo& info) {
+                                                 ArrayRef<size_t> preservedArgIndices,
+                                                 const std::vector<std::vector<VPU::ConstArg>>& resultsOfAllInits) {
     OpBuilderLogger builderLog(_log.nest());
     mlir::OpBuilder builder(&getContext(), &builderLog);
 
-    // update input types
-    auto& inputsRegion = netInfo.getInputsInfo();
-    // Note: preserve original, non-constant inputs information
-    net::eraseSectionEntries(inputsRegion, newInputsOffset);
-    builder.setInsertionPointToEnd(&inputsRegion.front());
+    auto log = _log;
+    log.debug("Updating network info for main");
+    log = log.nest();
 
-    _log.debug("Updating network info for main:");
+    // it is generally easier to re-create the whole InputsInfo section from
+    // scratch than to update it in-place (removing arbitrary entries)
+    auto& inputsRegion = netInfo.getInputsInfo();
+    builder.setInsertionPointToStart(&inputsRegion.front());
+
+    log.debug("Copying original data info entries ({0} in total) that must remain:", preservedArgIndices.size());
+    const auto originalDataInfos = to_small_vector(inputsRegion.getOps<net::DataInfoOp>());
+    for (size_t i : preservedArgIndices) {
+        auto originalDataInfo = originalDataInfos[i];
+        builder.clone(*originalDataInfo);
+        log.nest().debug("Copied data info with name {0}", originalDataInfo.getName());
+    }
+
+    // the amount of preserved inputs acts as an offset to find correct "new"
+    // argument in the main function
+    const auto newInputsOffset = preservedArgIndices.size();
+
+    log.debug("Adding new data info entries ({0} in total) for obfuscated init results:", resultsOfAllInits.size());
     // take naming convention from init results - the order must match by
     // definition of the main update procedure
-    for (size_t i = 0; i < info.slicedSplits.size(); ++i) {
+    for (size_t i = 0; i < resultsOfAllInits.size(); ++i) {
         const auto initPart = static_cast<int64_t>(i);
-        const auto& initPartResults = info.slicedSplits[i];
+        const auto& initPartResults = resultsOfAllInits[i];
 
         const auto inputName = getUniqueConcatenatedNameOfInitResults(initPartResults, initPart);
         const auto inputType = stripEncoding(
                 mlir::cast<mlir::RankedTensorType>(mainFunc.getFunctionType().getInput(newInputsOffset + i)));
         builder.create<net::DataInfoOp>(appendLoc(netInfo.getLoc(), "concat_in{0}", i), inputName, inputType);
 
-        _log.nest().debug("Added \"DataInfo\" {0} : {1}", inputName, inputType);
+        log.nest().debug("Added \"DataInfo\" {0} : {1}", inputName, inputType);
     }
+
+    // once refreshed data entries are added, delete original entries
+    net::eraseSectionEntries(inputsRegion, newInputsOffset + resultsOfAllInits.size());
 }
 
 void ConcatInitResults::safeRunOnModule() {
@@ -239,7 +276,7 @@ void ConcatInitResults::safeRunOnModule() {
 
     auto [netInfo, entryPointFunc] = net::getFromModule(moduleOp);
 
-    DerivedWeightsSeparationInfo info = [&]() {
+    std::vector<std::vector<VPU::ConstArg>> resultsOfAllInits = [&]() {
         auto infoOpt = getCachedAnalysis<VPU::WeightsSeparationInfo>();
         VPUX_THROW_UNLESS(infoOpt.has_value(), "VPU::WeightsSeparationInfo analysis must be cached");
         const auto& info = infoOpt->get();
@@ -252,31 +289,22 @@ void ConcatInitResults::safeRunOnModule() {
             }
         }
 
-        DerivedWeightsSeparationInfo data;
-
-        // Note: default-sorted splits collected through the tree is *exactly* the
-        // splits that are going into the main function (order-wise).
-        data.topLevelMainArgs = convertSplitsToMainConstArgs(splits);
+        std::vector<std::vector<VPU::ConstArg>> data;
 
         // TODO: move stable-sort inside WeigbhtsSeparationInfo once we get rid
         // of the topLevelMainArgs
         std::stable_sort(splits.begin(), splits.end());
 
         const auto slicedSplits = VPU::sliceAccordingToMemoryLimit(_log, splits, _memoryLimit);
-        llvm::transform(slicedSplits, std::back_inserter(data.slicedSplits), convertSplitsToMainConstArgs);
+        llvm::transform(slicedSplits, std::back_inserter(data), convertSplitsToMainConstArgs);
 
         return data;
     }();
 
     if (_log.isActive(LogLevel::Debug)) {
-        _log.debug("Top-level main arguments in '{0}':", stringifyEnum(_mode));
-        for (const auto& [index, arg] : info.topLevelMainArgs | indexed) {
-            _log.nest().debug("Arg #{0}: {1}", index, arg);
-        }
-
-        _log.debug("The amount of inits in '{0}' is {1}", stringifyEnum(_mode), info.slicedSplits.size());
+        _log.debug("The amount of inits in '{0}' is {1}", stringifyEnum(_mode), resultsOfAllInits.size());
         _log.debug("Transformation splits for every init in '{0}':", stringifyEnum(_mode));
-        for (const auto& [i, splits] : info.slicedSplits | indexed) {
+        for (const auto& [i, splits] : resultsOfAllInits | indexed) {
             for (const auto& [j, split] : splits | indexed) {
                 _log.nest().debug("Init part #{0}, arg #{1}: {2}", i, j, split);
             }
@@ -284,16 +312,16 @@ void ConcatInitResults::safeRunOnModule() {
     }
 
     switch (_mode) {
-    case Mode::GenerateInit: {
+    case VPU::WeightsSeparationMode::GenerateInit: {
         VPUX_THROW_UNLESS(entryPointFunc.getSymName().starts_with("init"), "Expected init function, got {0}",
                           entryPointFunc.getSymName());
         updateInit(entryPointFunc);
-        updateNetworkInfoForInit(netInfo, entryPointFunc, info);
+        updateNetworkInfoForInit(netInfo, entryPointFunc, resultsOfAllInits);
         break;
     }
-    case Mode::GenerateMain: {
-        const auto offset = updateTopLevelMain(entryPointFunc, info);
-        updateNetworkInfoForMain(netInfo, entryPointFunc, offset, info);
+    case VPU::WeightsSeparationMode::GenerateMain: {
+        const auto preservedArgIndices = updateTopLevelMain(netInfo, entryPointFunc, resultsOfAllInits);
+        updateNetworkInfoForMain(netInfo, entryPointFunc, preservedArgIndices, resultsOfAllInits);
         break;
     }
     default:
@@ -306,9 +334,9 @@ mlir::LogicalResult ConcatInitResults::initialize(mlir::MLIRContext*) {
         auto modeString = wsExtractionMode.getValue();
 
         if (modeString == "gen-main") {
-            _mode = Mode::GenerateMain;
+            _mode = VPU::WeightsSeparationMode::GenerateMain;
         } else if (modeString == "gen-init") {
-            _mode = Mode::GenerateInit;
+            _mode = VPU::WeightsSeparationMode::GenerateInit;
         } else {
             return mlir::failure();
         }
@@ -326,7 +354,7 @@ mlir::LogicalResult ConcatInitResults::deferredInitialize(mlir::ModuleOp moduleO
 
     // verify correctness
     switch (_mode) {
-    case Mode::GenerateInit: {
+    case VPU::WeightsSeparationMode::GenerateInit: {
         const bool validGenerateInit = (limitSpecified == initPartSpecified);
         if (!validGenerateInit) {
             moduleOp->emitError(
@@ -336,7 +364,7 @@ mlir::LogicalResult ConcatInitResults::deferredInitialize(mlir::ModuleOp moduleO
         }
         break;
     }
-    case Mode::GenerateMain: {
+    case VPU::WeightsSeparationMode::GenerateMain: {
         if (initPartSpecified) {
             moduleOp->emitError(formatv("{0} is not supported in monolithic mode", initPart.getArgStr()));
             return mlir::failure();

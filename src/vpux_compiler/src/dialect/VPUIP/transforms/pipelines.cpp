@@ -66,7 +66,7 @@ void vpux::VPUIP::buildDMAUnrollingPipeline(mlir::OpPassManager& pm, Logger log)
 
 void vpux::VPUIP::buildOptimizeCopiesPipeline(mlir::OpPassManager& pm, const VPUIP::OptimizeCopiesOptionsBase& options,
                                               Logger log) {
-    pm.addPass(VPUIP::createOptimizeCopiesPass(options.workloadManagementMode, log));
+    pm.addPass(VPUIP::createOptimizeCopiesPass(log));
     pm.addPass(VPUIP::createUniquifyWeightsTableCopiesPass(log));
     pm.addPass(VPUIP::createOptimizeConcatViewCopiesPass(log));
     pm.addPass(VPUIP::createFuseDDRCopiesIntoConcats(log));

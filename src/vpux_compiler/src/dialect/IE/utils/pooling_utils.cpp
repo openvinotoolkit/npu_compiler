@@ -53,7 +53,7 @@ mlir::Operation* IE::createIdentityMaxPool(mlir::Value input, mlir::Type outType
     return rewriter.create<IE::MaxPoolOp>(
             appendLoc(input.getLoc(), "to_maxpool"), outType, input, getIntArrayAttr(ctx, poolKernels),
             getIntArrayAttr(ctx, poolStrides), getIntArrayAttr(ctx, pads), getIntArrayAttr(ctx, pads),
-            IE::RoundingTypeAttr::get(ctx, IE::RoundingType::FLOOR), nullptr, nullptr, nullptr, nullptr);
+            IE::RoundingTypeAttr::get(ctx, IE::RoundingType::FLOOR), nullptr, nullptr, nullptr, nullptr, nullptr);
 }
 
 //

@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true enable-sw-kernel-fifo-per-shave-engine=false" --add-sw-kernel-instruction-prefetch="minimum-shave-start-time-for-prefetch=5000" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true enable-sw-kernel-fifo-per-shave-engine=false" --add-sw-kernel-instruction-prefetch="minimum-shave-init-time-dummy-kernels=5000 minimum-shave-idle-time-for-prefetch=0" %s | FileCheck %s
 // REQUIRES: platform-NPU4000
 
 !DummyDDRT = memref<16000x1x1x1xf16, @DDR>
@@ -18,20 +18,19 @@
 //  Other    : [ SyncDMA ] |
 //
 
-module @subgraph attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
+module @PrefetchAtStartOfSchedule attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
   VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096, 4096, 4096]
   module @VPU.SW {
-    func.func private @builtin_SoftMax(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i64, i64) attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.task_type = @COMPUTE}
-    func.func private @builtin_TopK(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, memref<*xsi32, @CMX_NN>, i64, i64, i64, i64) attributes {VPU.kernel_code = "topk.cpp", VPU.kernel_entry = "topk", VPU.task_type = @COMPUTE}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_SoftMax(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i64, i64) attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.task_type = @COMPUTE}
+    func.func nested @builtin_TopK(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, memref<*xsi32, @CMX_NN>, i64, i64, i64, i64) attributes {VPU.kernel_code = "topk.cpp", VPU.kernel_entry = "topk", VPU.task_type = @COMPUTE}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
   config.Resources {activity_factor = 0.078934384661980161 : f64} 2 of @NCE at 1.700000e+03 MHz {
     builtin.module @ReservedMemory {
       module @DummySWKernelsForInstructionPrefetchReservedMemory {
-        config.MemoryResource 8 bytes of @CMX_NN offset 1474552
+        config.MemoryResource 16 bytes of @CMX_NN offset 1474544
       }
     }
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU
@@ -54,14 +53,17 @@ module @subgraph attributes {config.compilationMode = #config.compilation_mode<D
     %6 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %7 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    // CHECK:       [[BARRIER_0:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK:       [[BARRIER_1:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK:       [[BARRIER_2:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK:       [[BARRIER_3:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK:       [[BARRIER_4:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK:       [[BARRIER_5:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK:       [[BARRIER_6:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK:       [[BARRIER_7:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
+    // CHECK:       [[BARRIER_0:%.+]] = VPURT.DeclareVirtualBarrier
+    // CHECK:       [[BARRIER_1:%.+]] = VPURT.DeclareVirtualBarrier
+    // CHECK:       [[BARRIER_2:%.+]] = VPURT.DeclareVirtualBarrier
+    // CHECK:       [[BARRIER_3:%.+]] = VPURT.DeclareVirtualBarrier
+    // CHECK:       [[BARRIER_4:%.+]] = VPURT.DeclareVirtualBarrier
+    // CHECK:       [[BARRIER_5:%.+]] = VPURT.DeclareVirtualBarrier
+    // CHECK:       [[BARRIER_6:%.+]] = VPURT.DeclareVirtualBarrier
+    // CHECK:       [[BARRIER_7:%.+]] = VPURT.DeclareVirtualBarrier
+
+    // CHECK:       [[PREFETCH_SRC:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1474544> -> memref<1x1x1x1xf16, [@CMX_NN, 0]>
+    // CHECK:       [[PREFETCH_DST:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1474552> -> memref<1x1x1x1xf16, [@CMX_NN, 0]>
 
     %28 = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR>
     %ddr_buf = VPURT.DeclareBuffer <DDR> <0> -> !DummyDDRT
@@ -121,44 +123,46 @@ module @subgraph attributes {config.compilationMode = #config.compilation_mode<D
     }
     }
 
-    // CHECK:       VPURT.Task updates([[BARRIER_0]] : !VPURT.Barrier) {
+    // CHECK:       VPURT.Task updates([[BARRIER_0]] : !VPURT.Barrier)
     // CHECK-NEXT:        VPUIP.SyncDMA
 
-    // CHECK:       VPURT.Task updates([[BARRIER_1]] : !VPURT.Barrier) {
+    // CHECK:       VPURT.Task updates([[BARRIER_1]] : !VPURT.Barrier)
     // CHECK-NEXT:        VPUIP.SW.Kernel
     // CHECK-SAME:        @VPU.SW::@builtin_SoftMax
+    // CHECK-SAME:        inputs([[PREFETCH_SRC]]
+    // CHECK-SAME:        outputs([[PREFETCH_DST]]
 
-    // CHECK:       VPURT.Task waits([[BARRIER_0]] : !VPURT.Barrier) updates([[BARRIER_2]] : !VPURT.Barrier) {
+    // CHECK:       VPURT.Task waits([[BARRIER_0]] : !VPURT.Barrier) updates([[BARRIER_2]] : !VPURT.Barrier)
     // CHECK-NEXT:        VPUIP.NNDMA
 
-    // CHECK:       VPURT.Task waits([[BARRIER_2]] : !VPURT.Barrier) updates([[BARRIER_3]] : !VPURT.Barrier) {
+    // CHECK:       VPURT.Task waits([[BARRIER_2]] : !VPURT.Barrier) updates([[BARRIER_3]] : !VPURT.Barrier)
     // CHECK-NEXT:        VPUIP.NNDMA
 
-    // CHECK:       VPURT.Task waits([[BARRIER_3]] : !VPURT.Barrier) updates([[BARRIER_4]] : !VPURT.Barrier) {
+    // CHECK:       VPURT.Task waits([[BARRIER_3]] : !VPURT.Barrier) updates([[BARRIER_4]] : !VPURT.Barrier)
     // CHECK-NEXT:        VPUIP.NNDMA
 
-    // CHECK:       VPURT.Task waits([[BARRIER_4]] : !VPURT.Barrier) updates([[BARRIER_1]] : !VPURT.Barrier) {
+    // CHECK:       VPURT.Task waits([[BARRIER_4]] : !VPURT.Barrier) updates([[BARRIER_1]] : !VPURT.Barrier)
     // CHECK-NEXT:        VPUIP.NNDMA
 
-    // CHECK:       VPURT.Task waits([[BARRIER_4]] : !VPURT.Barrier) updates([[BARRIER_1]] : !VPURT.Barrier) {
+    // CHECK:       VPURT.Task waits([[BARRIER_4]] : !VPURT.Barrier) updates([[BARRIER_1]] : !VPURT.Barrier)
     // CHECK-NEXT:        VPUIP.NNDMA
 
-    // CHECK:       VPURT.Task waits([[BARRIER_1]] : !VPURT.Barrier) updates([[BARRIER_5]] : !VPURT.Barrier) {
+    // CHECK:       VPURT.Task waits([[BARRIER_1]] : !VPURT.Barrier) updates([[BARRIER_5]] : !VPURT.Barrier)
     // CHECK:             VPUIP.SW.Kernel
     // CHECK-SAME:        @VPU.SW::@builtin_SoftMax
 
-    // CHECK:       VPURT.Task waits([[BARRIER_1]] : !VPURT.Barrier) updates([[BARRIER_5]] : !VPURT.Barrier) {
+    // CHECK:       VPURT.Task waits([[BARRIER_1]] : !VPURT.Barrier) updates([[BARRIER_5]] : !VPURT.Barrier)
     // CHECK:             VPUIP.SW.Kernel
     // CHECK-SAME:        @VPU.SW::@builtin_SoftMax
 
-    // CHECK:       VPURT.Task waits([[BARRIER_5]] : !VPURT.Barrier) updates([[BARRIER_6]] : !VPURT.Barrier) {
+    // CHECK:       VPURT.Task waits([[BARRIER_5]] : !VPURT.Barrier) updates([[BARRIER_6]] : !VPURT.Barrier)
     // CHECK:             VPUIP.SW.Kernel
     // CHECK-SAME:        @VPU.SW::@builtin_TopK
 
-    // CHECK:       VPURT.Task waits([[BARRIER_6]] : !VPURT.Barrier) updates([[BARRIER_7]] : !VPURT.Barrier) {
+    // CHECK:       VPURT.Task waits([[BARRIER_6]] : !VPURT.Barrier) updates([[BARRIER_7]] : !VPURT.Barrier)
     // CHECK-NEXT:        VPUIP.NNDMA
 
-    // CHECK:       VPURT.Task waits([[BARRIER_7]] : !VPURT.Barrier) {
+    // CHECK:       VPURT.Task waits([[BARRIER_7]] : !VPURT.Barrier)
     // CHECK:             VPUIP.SW.Kernel
     // CHECK-SAME:        @VPU.SW::@builtin_SoftMax
 

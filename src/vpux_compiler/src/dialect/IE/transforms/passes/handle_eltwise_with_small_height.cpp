@@ -109,10 +109,13 @@ mlir::LogicalResult HandleEltwiseWithSmallHeight::matchAndRewrite(IE::AddOp addO
         return matchFailed(_log, rewriter, addOp, "Small H dim not found");
     }
 
-    VPUX_THROW_UNLESS(input1Shape[Dims4D::Act::C] % VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT == 0,
-                      "Input channels '{0}' is not aligned by '{1}'", input1Shape[Dims4D::Act::C],
-                      VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT);
-    auto channelAlignmentFactor = input1Shape[Dims4D::Act::C] / VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT;
+    const auto channelAlignment = vpux::VPU::NCEInvariant::getAlignment(input1Type.getElementType());
+    if (input1Shape[Dims4D::Act::C] % channelAlignment) {
+        return matchFailed(_log, rewriter, addOp, "Input channels {0} are not properly aligned to {1}.",
+                           input1Shape[Dims4D::Act::C], channelAlignment);
+    }
+
+    auto channelAlignmentFactor = input1Shape[Dims4D::Act::C] / channelAlignment;
     bool canReshapeC = allowsChannelsReshape(addOp) && channelAlignmentFactor > 1;
 
     Shape newInputShape(input1Shape.size());
@@ -130,7 +133,7 @@ mlir::LogicalResult HandleEltwiseWithSmallHeight::matchAndRewrite(IE::AddOp addO
                                VPU::NCEInvariant::VPU_SPATIAL_ALIGNMENT);
         }
 
-        newInputShape[Dims4D::Act::C] = VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT;
+        newInputShape[Dims4D::Act::C] = channelAlignment;
         totalHW = input1Shape[Dims4D::Act::H] * input1Shape[Dims4D::Act::W] * channelAlignmentFactor;
         factors = vpux::getFactorsListWithMinLimit(totalHW, VPU::NCEInvariant::VPU_SPATIAL_ALIGNMENT);
         if (factors.empty()) {

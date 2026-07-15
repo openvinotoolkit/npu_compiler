@@ -59,7 +59,7 @@ mlir::Value createConst(
     const auto dataAttr = createConstContent(type, values);
     VPUX_THROW_UNLESS(dataAttr != nullptr, "Data is incompatible with the supplied type {0}", type.getElementType());
 
-    Const::ContentSetup setup(mlir::cast<mlir::Type>(dataAttr.getType()));
+    Const::ContentSetup setup(dataAttr, mlir::cast<mlir::Type>(dataAttr.getType()));
     setup = transform(setup);
 
     auto contentAttr = Const::ContentAttr::get(dataAttr, setup);

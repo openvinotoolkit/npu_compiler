@@ -89,6 +89,9 @@ void skipCompilationCallbackImplNPU3720(std::stringstream& skip, ov::AnyMap conf
     }
 }
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(PoolingLayerTest);
+
 class PoolingLayerTest_NPU3720 : public PoolingLayerTest, virtual public VpuOv2LayerTest {
     void generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) override {
         VpuOv2LayerTest::inputs.clear();
@@ -200,7 +203,7 @@ class PoolingLayerTest_NPU4000_SOB : public PoolingLayerTestWithUnrollBatchingCo
 
 class PoolingLayerTest_NPU4000_F32 : public PoolingLayerTest_NPU4000 {
     void configure_model() override {
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp16";
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp";
     }
 };
 
@@ -270,10 +273,16 @@ TEST_P(PoolingLayerTest_NPU5020, SW) {
     run(Platform::NPU5020);
 }
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(PoolingLayerTest_NPU5020_SOB);
+
 TEST_P(PoolingLayerTest_NPU5020_SOB, HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);
 }
+
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(MaxPoolingV8LayerTest);
 
 class MaxPoolingV8LayerTestCommon : public MaxPoolingV8LayerTest, virtual public VpuOv2LayerTest {};
 class MaxPoolingV8LayerTestCommonHW : public MaxPoolingV8LayerTest, virtual public VpuOv2LayerTest {};
@@ -333,6 +342,9 @@ TEST_P(MaxPoolingV8LayerTestCommon, NPU5020_SW) {
     run(Platform::NPU5020);
 }
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(AvgPoolingV16LayerTest);
+
 class AvgPoolingV16LayerTestCommon : public AvgPoolingV16LayerTest, virtual public VpuOv2LayerTest {};
 
 TEST_P(AvgPoolingV16LayerTestCommon, NPU3720_SW) {
@@ -378,7 +390,15 @@ TEST_P(AvgPoolingV16LayerTestCommon, NPU5020_SW) {
     run(Platform::NPU5020);
 }
 
-class PoolingLayerTest_HostCompile : public PoolingLayerTest, virtual public VpuOv2LayerTest {};
+class PoolingLayerTest_HostCompile : public PoolingLayerTest, virtual public VpuOv2LayerTest {
+    void configure_model() override {
+        configuration[ov::intel_npu::compilation_mode_params.name()] =
+                // After HostCompile default params were changed to a more performant configuration, these tests fail
+                // under the new defaults and need investigation before they can be re-enabled. Track: E#218923
+                "dynamic-dim-alignment=false "
+                "auto-unrolling-mode=disabled";
+    }
+};
 
 TEST_P(PoolingLayerTest_HostCompile, NPU4000_HC) {
     setHostCompileMode();

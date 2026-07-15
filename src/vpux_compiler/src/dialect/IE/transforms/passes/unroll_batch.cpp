@@ -60,7 +60,7 @@ SmallVector<mlir::Value> sliceInputs(mlir::PatternRewriter& rewriter, mlir::Oper
             Shape sizes = shape.raw();
             sizes[Dim(0)] = 1;
             const auto sizesAttr = getIntArrayAttr(rewriter.getContext(), sizes);
-            auto newLoc = appendLoc(input.getLoc(), "slice_{0}_{1}", offsets, sizes);
+            auto newLoc = appendLoc(origOp->getLoc(), "slice_in{0}_batch{1}", inputIdx, sliceIdx);
             const auto subViewOp = rewriter.createOrFold<IE::SliceOp>(newLoc, input, offsetsAttr, sizesAttr);
             slices.push_back(subViewOp);
         } else {

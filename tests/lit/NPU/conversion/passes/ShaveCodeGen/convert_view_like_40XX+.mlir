@@ -170,3 +170,31 @@ func.func @zip(%arg0: tensor<1x1000x1x1xf32, {order = #NHWC}>) ->  tensor<1x1000
   } -> tensor<1x1000x1x1xf32, {order = #NHCW}>
   return %0 : tensor<1x1000x1x1xf32, {order = #NHCW}>
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!qElemType = !quant.uniform<i8:f16:1, {0.0090698242187499996,0.0081949869791666674,0.0094848632812500003,0.0088582356770833329}>
+!qElemType1 = !quant.uniform<i8:f16:0, {0.0090698242187499996,0.0081949869791666674,0.0094848632812500003,0.0088582356770833329}>
+
+// CHECK-DAG: [[QT:!.+]] = !quant.uniform<i8:f16:1, {0.0090698242187499996,0.0081949869791666674,0.0094848632812500003,0.0088582356770833329}>
+// CHECK-DAG: [[QT1:!.+]] = !quant.uniform<i8:f16:0, {0.0090698242187499996,0.0081949869791666674,0.0094848632812500003,0.0088582356770833329}>
+
+// CHECK: func.func @biz(
+func.func @biz(%arg0: tensor<1x4x1x4096x!qElemType>) -> tensor<4x4096x1x1x!qElemType1> {
+// CHECK: IE.CodeGenCapsule inputs({{%.+}} as [[ARG1:%.+]]: tensor<1x4x1x4096xi8>) {
+// CHECK-NEXT:        [[ARGCAST:%.+]] = quant.scast [[ARG1]] : tensor<1x4x1x4096xi8> to tensor<1x4x1x4096x[[QT]]>
+// CHECK-NEXT:        [[SCAST:%.+]] = quant.scast [[ARGCAST]] : tensor<1x4x1x4096x[[QT]]> to tensor<1x4x1x4096xi8>
+// CHECK-NEXT:        [[COLLAPSE:%.+]] = tensor.collapse_shape [[SCAST]] {{\[\[}}0, 1, 2, 3{{\]\]}} : tensor<1x4x1x4096xi8> into tensor<16384xi8>
+// CHECK-NEXT:        [[EXPAND:%.+]] = tensor.expand_shape [[COLLAPSE]] {{\[\[}}0, 1, 2, 3{{\]\]}} output_shape [4, 4096, 1, 1] : tensor<16384xi8> into tensor<4x4096x1x1xi8>
+// CHECK-NEXT:        [[SCAST:%.+]] = quant.scast [[EXPAND]] : tensor<4x4096x1x1xi8> to tensor<4x4096x1x1x[[QT1]]>
+// CHECK-NEXT:        [[YIELDCAST:%.+]] = quant.scast [[SCAST]] : tensor<4x4096x1x1x[[QT1]]> to tensor<4x4096x1x1xi8>
+// CHECK-NEXT:        IE.CGCYield [[YIELDCAST]] : tensor<4x4096x1x1xi8>
+  %0 = IE.CodeGenCapsule inputs(%arg0 as %arg1: tensor<1x4x1x4096x!qElemType>) {
+    %1 = IE.AffineReshape(%arg1) {dim_mapping = [[0], [0], [0], [1, 2, 3]], shape_value = [4, 4096, 1, 1]} :
+        tensor<1x4x1x4096x!qElemType> -> tensor<4x4096x1x1x!qElemType1>
+    IE.CGCYield %1 : tensor<4x4096x1x1x!qElemType1>
+  } -> tensor<4x4096x1x1x!qElemType1>
+  return %0 : tensor<4x4096x1x1x!qElemType1>
+}

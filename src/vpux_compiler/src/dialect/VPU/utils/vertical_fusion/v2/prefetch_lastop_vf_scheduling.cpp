@@ -27,11 +27,12 @@ bool PrefetchingLastOpVFScheduling::validate(VFConfig& config, const TilingOpera
     auto inputSize =
             getInputsSize(config, tilingInfo) - getSharedSizeByAllTiles(config.getInputs(), config, tilingInfo);
 
-    auto opTiling = tilingInfo->get(lastOp, index);
+    auto opTiling = tilingInfo->getRef(lastOp, index);
     VPUX_THROW_WHEN(!opTiling.has_value(), "There is no information about tile {0} of operation {1}", index, *lastOp);
 
+    const auto& opTilingValue = opTiling.value().get();
     auto largestOpSize = VPU::getRequiredCMX(
-            lastOp, config.getOperationTypes(lastOp, opTiling.value().second, opTiling.value().first.tiles));
+            lastOp, config.getOperationTypes(lastOp, opTilingValue.second, opTilingValue.first.tiles));
     largestOpSize -= getSharedSizeByAllTiles({lastOp}, config, tilingInfo);
 
     auto sharedSize = getSharedSizeByAllTiles(config.getVFOperations().getArrayRef(), config, tilingInfo);

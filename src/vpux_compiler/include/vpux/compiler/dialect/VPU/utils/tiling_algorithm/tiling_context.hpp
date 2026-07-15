@@ -6,6 +6,7 @@
 #pragma once
 
 #include "vpux/compiler/dialect/VPU/utils/tiling_algorithm/tiling_alg_interface.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vf_merge_configuration.hpp"
 
 namespace vpux {
 namespace VPU {
@@ -23,7 +24,8 @@ public:
 
     mlir::LogicalResult applyTiling(mlir::RewriterBase& builder, Logger log);
 
-    SmallVector<mlir::Operation*> applySCFTilingAndFusion(mlir::RewriterBase& builder, Logger log);
+    SmallVector<mlir::Operation*> applySCFTilingAndFusion(mlir::RewriterBase& builder,
+                                                          const MergeConfiguration& mergeConfig, Logger log);
 
 private:
     std::unique_ptr<ITilingAlgorithm> _tilingAlgorithm;

@@ -8,9 +8,9 @@
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!InputType = memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>
-!WeightType = memref<64x16x7x7xf16, #NHWC, [@CMX_NN, 0]>
-!OutputType = memref<1x64x32x32xf16, #NHWC, [@CMX_NN, 0]>
+!InputType = memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!WeightType = memref<64x16x7x7xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!OutputType = memref<1x64x32x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
 !ProfType = memref<4xui64, [@CMX_NN, 0]>
 !ProfOutputType = memref<4xui64>
 
@@ -47,7 +47,7 @@ func.func @main(%input: !InputType, %weights: !WeightType) -> (!OutputType, !Pro
 
   //CHECK:    [[PROF_BUF:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1024> -> memref<4xui64, [@CMX_NN, 0]>
   //CHECK:    [[NEW_PROF_BUF:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<4xui64, [@CMX_NN, 0]>
-  //CHECK:    [[OUT_BUF:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <2048> -> memref<1x64x32x32xf16, #NHWC, [@CMX_NN, 0]>
+  //CHECK:    [[OUT_BUF:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <2048> -> memref<1x64x32x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
   //CHECK:        VPUIP.NCEClusterTask
   //CHECK-SAME:   profiling_data([[NEW_PROF_BUF]] : memref<4xui64, [@CMX_NN, 0]>)
   //CHECK:        DPUTask

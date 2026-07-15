@@ -13,8 +13,12 @@ For example, sideloading can be used with `compile_tool` or `benchmark_app` from
 ## General Steps
 
 1. **Create a new directory** (e.g., `cid_alt_rel`, `cid_alt_deb`, or `cid_alt_rdi`) for your sideload libraries.
-2. **Copy the Driver Compiler library** (`libnpu_driver_compiler.so` for Linux, `npu_driver_compiler.dll` for Windows) into the directory.
-   - For Windows Debug builds, rename `npu_driver_compilerd.dll` to `npu_driver_compiler.dll`.
+2. **Copy the Driver Compiler libraries**:
+   - For Linux: `libopenvino_intel_npu_compiler_loader.so` and `libopenvino_intel_npu_compiler.so`
+   - For Windows: `openvino_intel_npu_compiler_loader.dll` and `openvino_intel_npu_compiler.dll`
+   - For Windows Debug builds, rename: 
+      `openvino_intel_npu_compiler_loaderd.dll` to `openvino_intel_npu_compiler_loader.dll`
+      `openvino_intel_npu_compilerd.dll` to `openvino_intel_npu_compiler.dll`
 3. **Copy the required oneTBB libraries** (release or debug, matching your build type) into the same directory.
 4. **Set the appropriate environment variable** to point to this directory:
    - Linux: `export LD_LIBRARY_PATH=/path/to/your/dir`
@@ -34,7 +38,8 @@ For example, sideloading can be used with `compile_tool` or `benchmark_app` from
 mkdir cid_alt_rel && cd cid_alt_rel
 
 # 2. Copy Driver Compiler
-cp /path/to/libnpu_driver_compiler.so .
+cp /path/to/libopenvino_intel_npu_compiler_loader.so .
+cp /path/to/libopenvino_intel_npu_compiler.so .
 
 # 3. Copy Release oneTBB libraries
 # Release:
@@ -44,7 +49,7 @@ cp /path/to/libtbbmalloc.so.xx.xx libtbbmalloc.so.2
 # 4. Set sideloading environment variable
 export LD_LIBRARY_PATH=$(pwd)
 ```
->Note: Use ldd libnpu_driver_compiler.so to check which TBB variant is required.
+>Note: Use ldd libopenvino_intel_npu_compiler.so to check which TBB variant is required.
 </details>
 
 <details>
@@ -55,7 +60,8 @@ export LD_LIBRARY_PATH=$(pwd)
 mkdir cid_alt_rdi && cd cid_alt_rdi
 
 # 2. Copy Driver Compiler
-cp /path/to/libnpu_driver_compiler.so .
+cp /path/to/libopenvino_intel_npu_compiler_loader.so .
+cp /path/to/libopenvino_intel_npu_compiler.so .
 
 # 3. Copy **Debug** oneTBB libraries
 cp /path/to/libtbb_debug.so.xx.xx libtbb_debug.so.12
@@ -74,7 +80,8 @@ export LD_LIBRARY_PATH=$(pwd)
 mkdir cid_alt_deb && cd cid_alt_deb
 
 # 2. Copy Driver Compiler
-cp /path/to/libnpu_driver_compiler.so .
+cp /path/to/libopenvino_intel_npu_compiler_loader.so .
+cp /path/to/libopenvino_intel_npu_compiler.so .
 
 # 3. Copy Debug oneTBB libraries
 cp /path/to/libtbb_debug.so.xx.xx libtbb_debug.so.12
@@ -96,7 +103,8 @@ md cid_alt_rel
 cd cid_alt_rel
 
 @REM 2. Copy Driver Compiler
-copy C:\path\to\npu_driver_compiler.dll .
+copy C:\path\to\openvino_intel_npu_compiler_loader.dll .
+copy C:\path\to\openvino_intel_npu_compiler.dll .
 
 @REM 3. Copy Release oneTBB libraries
 @REM Release:
@@ -117,8 +125,8 @@ md cid_alt_rdi
 cd cid_alt_rdi
 
 @REM 2. Copy Driver Compiler
-copy C:\path\to\npu_driver_compiler.dll .
-
+copy C:\path\to\openvino_intel_npu_compiler_loader.dll .
+copy C:\path\to\openvino_intel_npu_compiler.dll .
 
 @REM 3. Copy **Debug** oneTBB libraries
 copy C:\path\to\tbb12_debug.dll .
@@ -138,7 +146,8 @@ md cid_alt_deb
 cd cid_alt_deb
 
 @REM 2. Copy Debug Driver Compiler and rename for Debug build
-copy C:\path\to\npu_driver_compilerd.dll npu_driver_compiler.dll
+copy C:\path\to\openvino_intel_npu_compiler_loaderd.dll openvino_intel_npu_compiler_loader.dll
+copy C:\path\to\openvino_intel_npu_compilerd.dll openvino_intel_npu_compiler.dll
 
 @REM 3. Copy Debug oneTBB libraries
 @REM Debug:

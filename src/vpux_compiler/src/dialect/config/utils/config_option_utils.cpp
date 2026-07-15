@@ -60,23 +60,6 @@ bool config::hasFP16CompressedConv(mlir::Operation* op) {
     return config::getConstraint<bool>(op, FP16_COMPRESSED_CONV);
 }
 
-// Max Kernel Size
-bool config::hasMaxKernelSize(mlir::Operation* op) {
-    auto module = getModuleOp(op);
-    auto pipelineOptionOp = module.lookupSymbol<config::PipelineOptionsOp>(config::PIPELINE_OPTIONS);
-    if (pipelineOptionOp != nullptr) {
-        auto attrValue = pipelineOptionOp.lookupSymbol<config::OptionOp>(config::MAX_KERNEL_SIZE);
-        if (attrValue != nullptr) {
-            return true;
-        }
-    }
-    return false;
-}
-
-int64_t config::getMaxKernelSize(mlir::Operation* op) {
-    return config::getConstraint<int64_t>(op, MAX_KERNEL_SIZE);
-}
-
 // Reduce Operation Support
 bool config::isReduceOpSupportedOnNCE(mlir::Operation* op) {
     return config::getConstraint<bool>(op, REDUCE_SUPPORTED);
@@ -101,33 +84,33 @@ bool config::hasEnableExtraStaticShapeOps(mlir::ModuleOp module) {
     return config::tryGetBoolPassOption(module, ENABLE_EXTRA_STATIC_SHAPE_OPS).value_or(false);
 }
 
-// Workload Management Status
-WorkloadManagementStatus config::getWorkloadManagementStatus(mlir::ModuleOp moduleOp) {
+// Workload Management Mode
+WorkloadManagementMode config::getWorkloadManagementMode(mlir::ModuleOp moduleOp) {
     auto pipelineOptionOp = moduleOp.lookupSymbol<config::PipelineOptionsOp>(config::PIPELINE_OPTIONS);
-    VPUX_THROW_WHEN(pipelineOptionOp == nullptr, "Failed to find PipelineOptions to fetch workload management status");
+    VPUX_THROW_WHEN(pipelineOptionOp == nullptr, "Failed to find PipelineOptions to fetch workload management mode");
 
-    auto wlmStatusConfigOp = pipelineOptionOp.lookupSymbol<config::OptionOp>(WORKLOAD_MANAGEMENT_STATUS);
-    VPUX_THROW_WHEN(wlmStatusConfigOp == nullptr, "Failed to find config.OptionOp to fetch workload management status");
+    auto wlmModeConfigOp = pipelineOptionOp.lookupSymbol<config::OptionOp>(WORKLOAD_MANAGEMENT_MODE);
+    VPUX_THROW_WHEN(wlmModeConfigOp == nullptr, "Failed to find config.OptionOp to fetch workload management mode");
 
-    auto wlmStatusString = mlir::dyn_cast<mlir::StringAttr>(wlmStatusConfigOp.getOptionValue());
-    VPUX_THROW_WHEN(wlmStatusString == nullptr, "{0} config.OptionOp is expected to be a string, got {1}",
-                    WORKLOAD_MANAGEMENT_STATUS, wlmStatusConfigOp);
+    auto wlmModeString = mlir::dyn_cast<mlir::StringAttr>(wlmModeConfigOp.getOptionValue());
+    VPUX_THROW_WHEN(wlmModeString == nullptr, "{0} config.OptionOp is expected to be a string, got {1}",
+                    WORKLOAD_MANAGEMENT_MODE, wlmModeConfigOp);
 
-    auto wlmStatus = vpux::symbolizeWorkloadManagementStatus(wlmStatusString.getValue());
-    VPUX_THROW_WHEN(!wlmStatus.has_value(), "Failed to symbolize workload management status from string '{0}'",
-                    wlmStatusString.getValue());
+    auto wlmMode = vpux::symbolizeWorkloadManagementMode(wlmModeString.getValue());
+    VPUX_THROW_WHEN(!wlmMode.has_value(), "Failed to symbolize workload management mode from string '{0}'",
+                    wlmModeString.getValue());
 
-    return wlmStatus.value();
+    return wlmMode.value();
 }
 
-void config::setWorkloadManagementStatus(mlir::ModuleOp moduleOp, WorkloadManagementStatus value) {
+void config::setWorkloadManagementMode(mlir::ModuleOp moduleOp, WorkloadManagementMode value) {
     auto context = moduleOp.getContext();
     auto pipelineOptionsOp = config::getPipelineOptionsOp(*context, moduleOp);
-    const auto attrName = mlir::StringAttr::get(context, WORKLOAD_MANAGEMENT_STATUS);
+    const auto attrName = mlir::StringAttr::get(context, WORKLOAD_MANAGEMENT_MODE);
     auto attrValue = mlir::StringAttr::get(context, stringifyEnum(value));
 
-    if (auto wlmStatusConfigOp = pipelineOptionsOp.lookupSymbol<config::OptionOp>(attrName)) {
-        wlmStatusConfigOp.setOptionValueAttr(attrValue);
+    if (auto wlmModeConfigOp = pipelineOptionsOp.lookupSymbol<config::OptionOp>(attrName)) {
+        wlmModeConfigOp.setOptionValueAttr(attrValue);
     } else {
         auto optionsBuilder = mlir::OpBuilder::atBlockBegin(&pipelineOptionsOp.getOptions().front());
         optionsBuilder.create<config::OptionOp>(optionsBuilder.getUnknownLoc(), attrName, attrValue);
@@ -171,11 +154,7 @@ bool config::isFifoPerShaveEngineEnabled(mlir::Operation* op) {
     return config::getConstraint<bool>(op, config::USE_DEDICATED_FIFO_PER_SHAVE_ENGINE);
 }
 
-bool config::hasSupportForFifoPerShaveEngine(config::ArchKind arch, bool enableWorkloadManagement) {
-    if (!enableWorkloadManagement) {
-        return false;
-    }
-
+bool config::hasSupportForFifoPerShaveEngine(config::ArchKind arch) {
     if (arch == config::ArchKind::NPU37XX) {
         return false;
     }
@@ -202,4 +181,16 @@ bool config::hasUseLegacyBarriers(mlir::Operation* op) {
     }
     auto boolAttr = mlir::dyn_cast<mlir::BoolAttr>(attrValue.getOptionValue());
     return boolAttr != nullptr && boolAttr.getValue();
+}
+
+// Enable SoftmaxMaskAware to account for an upward adjustment of the FP16 minimum threshold.
+bool config::isSoftmaxMaskAwareEnabled(mlir::Operation* op) {
+    return config::getConstraint<bool>(op, SOFTMAX_MASK_AWARE);
+}
+double config::getSoftmaxMaskAwareThreshold(mlir::Operation* op) {
+    return config::getConstraint<double>(op, SOFTMAX_MASK_AWARE_THRESHOLD);
+}
+
+bool config::isBarrierFifoDummyEntrySupported([[maybe_unused]] config::ArchKind arch) {
+    return false;
 }

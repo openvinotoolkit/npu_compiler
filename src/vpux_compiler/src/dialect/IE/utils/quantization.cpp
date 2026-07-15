@@ -16,7 +16,6 @@
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
-#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
@@ -24,6 +23,8 @@
 #include "vpux/compiler/utils/quantization.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
+#include <mlir/Support/LLVM.h>
+#include <vpux/utils/core/error.hpp>
 
 using namespace vpux;
 
@@ -140,7 +141,9 @@ mlir::quant::QuantizedType IE::getQuantizedType(const Const::ContentAttr& lowCon
     const auto ctx = lowConst.getContext();
 
     if (levels.has_value()) {
-        const auto [storageMin, storageMax, storageType] = getStorageParams(ctx, *levels, isSigned);
+        const auto storageParams = getStorageParams(ctx, *levels, isSigned);
+        VPUX_THROW_WHEN(mlir::failed(storageParams), "Unsupported quantization levels '{0}'", levels);
+        const auto [storageMin, storageMax, storageType] = *storageParams;
 
         if (isPerAxisQuant) {
             return mlir::quant::UniformQuantizedPerAxisType::get(
@@ -154,7 +157,9 @@ mlir::quant::QuantizedType IE::getQuantizedType(const Const::ContentAttr& lowCon
 
     if (lowFpType.has_value()) {
         const auto lowFpTypeVal = lowFpType.value();
-        const auto [storageMin, storageMax, storageType] = getStorageParams(lowFpTypeVal);
+        const auto storageParams = getStorageParams(lowFpTypeVal);
+        VPUX_THROW_WHEN(mlir::failed(storageParams), "Unsupported lowFpType '{0}'", lowFpTypeVal);
+        const auto [storageMin, storageMax, storageType] = *storageParams;
 
         if (isLowFpType(lowFpTypeVal)) {
             const auto hasUnsupportedZP = llvm::any_of(zeroPoints, [](int64_t zp) {
@@ -189,6 +194,37 @@ mlir::quant::QuantizedType IE::getQuantizedType(const Const::ContentAttr& lowCon
     }
 
     VPUX_THROW("Got neither levels (for integer types) nor lowFpType");
+}
+
+bool IE::canConvertToSignedQuantizedType(const Const::ContentAttr& inLowConst, const Const::ContentAttr& inHighConst,
+                                         const Const::ContentAttr& outLowConst, const Const::ContentAttr& outHighConst,
+                                         std::optional<int64_t> levels, std::optional<mlir::Type> lowFpType,
+                                         IE::AutoBroadcastType broadcast, const Logger& log) {
+    if (levels.has_value() == lowFpType.has_value()) {
+        return false;
+    }
+
+    auto isAllZeroPoints = [](const auto& zeroPoints) {
+        return llvm::all_of(zeroPoints, [](int64_t zp) {
+            return zp == 0;
+        });
+    };
+
+    auto inScalesAndZeroPoints =
+            getScalesAndZeroPointsFromContentAttr(inLowConst, inHighConst, broadcast, levels, lowFpType, true, log);
+    if (mlir::failed(inScalesAndZeroPoints)) {
+        return false;
+    }
+    if (!isAllZeroPoints(std::get<1>(*inScalesAndZeroPoints))) {
+        return false;
+    }
+
+    auto outScalesAndZeroPoints =
+            getScalesAndZeroPointsFromContentAttr(outLowConst, outHighConst, broadcast, levels, lowFpType, true, log);
+    if (mlir::failed(outScalesAndZeroPoints)) {
+        return false;
+    }
+    return isAllZeroPoints(std::get<1>(*outScalesAndZeroPoints));
 }
 
 mlir::FailureOr<int32_t> IE::getQuantizedDimension(ShapeRef lowShape, ShapeRef highShape,
@@ -245,9 +281,17 @@ mlir::FailureOr<std::tuple<SmallVector<double>, SmallVector<int64_t>>> IE::getSc
     double qMin = 0.;
     double qMax = 0.;
     if (levels.has_value()) {
-        std::tie(qMin, qMax, std::ignore) = getStorageParams(ctx, *levels, isSigned);
+        const auto storageParams = getStorageParams(ctx, *levels, isSigned);
+        if (mlir::failed(storageParams)) {
+            return mlir::failure();
+        }
+        std::tie(qMin, qMax, std::ignore) = *storageParams;
     } else if (lowFpType.has_value()) {
-        std::tie(qMin, qMax) = getRepresentableRange(*lowFpType);
+        const auto representableRange = getRepresentableRange(*lowFpType);
+        if (mlir::failed(representableRange)) {
+            return mlir::failure();
+        }
+        std::tie(qMin, qMax) = *representableRange;
     } else {
         VPUX_THROW("Got neither levels (for integer types) nor lowFpType");
     }
@@ -436,6 +480,25 @@ mlir::Value IE::findQuantizedInput(mlir::Value opInput, bool allowPerAxisQuantiz
     return maybeDequant.getInput();
 }
 
+mlir::Operation* IE::findDynDequantized(mlir::Value opInput, bool allowPerAxisQuantize) {
+    if (opInput == nullptr) {
+        return nullptr;
+    }
+
+    // When the input is not a DequantizeOp, the pass is not applicable
+    auto maybeDequant = opInput.getDefiningOp<IE::DynamicDequantizeOp>();
+    if (maybeDequant == nullptr) {
+        return nullptr;
+    }
+
+    const auto dequantType = mlir::cast<vpux::NDTypeInterface>(maybeDequant.getInput().getType());
+    if (!allowPerAxisQuantize && !mlir::isa<mlir::quant::UniformQuantizedType>(dequantType.getElementType())) {
+        return nullptr;
+    }
+
+    return maybeDequant;
+}
+
 bool IE::isSymmetricQuantType(mlir::quant::QuantizedType type) {
     int64_t targetZeroPoint = 0;
     if (auto uniformType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(type)) {
@@ -569,7 +632,7 @@ Const::DeclareOp vpux::IE::createFQConst(mlir::MLIRContext* ctx, mlir::Location 
             mlir::RankedTensorType::get({1, 1, 1, 1}, mlir::Float32Type::get(ctx)), ArrayRef(val));
     VPUX_THROW_UNLESS(denseElementVal != nullptr, "Failed to generate the denseElementVal.");
     auto cstAttr = Const::ContentAttr::get(
-            denseElementVal, Const::ContentSetup(denseElementVal.getType())
+            denseElementVal, Const::ContentSetup(denseElementVal, denseElementVal.getType())
                                      .castElemType(mlir::cast<vpux::NDTypeInterface>(argType).getElementType()));
     return rewriter.create<Const::DeclareOp>(loc, argType, std::move(cstAttr));
 }
@@ -600,9 +663,9 @@ mlir::Value vpux::IE::createFQScaling(mlir::Location loc, mlir::Value input, flo
 
     if (lowFpType.has_value()) {
         // Low precision floating-point case
-        const auto rangeOrFail = vpux::getLowFpRange(*lowFpType);
-        VPUX_THROW_WHEN(mlir::failed(rangeOrFail), "Unsupported FQ lowFpType: {0}", *lowFpType);
-        const auto lowVal = std::get<0>(*rangeOrFail), highVal = std::get<1>(*rangeOrFail);
+        const auto storageParams = getStorageParams(*lowFpType);
+        VPUX_THROW_WHEN(mlir::failed(storageParams), "Unsupported lowFpType '{0}'", *lowFpType);
+        const auto [lowVal, highVal, _] = *storageParams;
 
         auto fqInLowVal = Const::createFloatConst(rewriter, loc, fqArgType, lowVal);
         auto fqInHighVal = Const::createFloatConst(rewriter, loc, fqArgType, highVal);
@@ -791,8 +854,24 @@ mlir::FailureOr<double> IE::getQuantizedSplatConstant(mlir::Value input) {
             });
 }
 
-int64_t vpux::IE::getMaximumQuantizationLevels([[maybe_unused]] int64_t currentLevels,
-                                               [[maybe_unused]] mlir::Operation* op) {
+int64_t vpux::IE::getMaximumQuantizationLevels(int64_t currentLevels, mlir::Operation* op) {
+    if (currentLevels != QuantizationLevels::QUANT_LEVELS_16BIT) {
+        return QuantizationLevels::QUANT_LEVELS_8BIT;
+    }
+    for (auto result : op->getResults()) {
+        if (result.use_empty()) {
+            continue;
+        }
+        // Allow 16-bit only if ALL users support it
+        if (llvm::all_of(result.getUsers(), [](mlir::Operation* userOp) {
+                if (auto quantizedLayerOp = mlir::dyn_cast<IE::QuantizedLayerOpInterface>(userOp)) {
+                    return quantizedLayerOp.getMaximumQuantizationLevels() == QuantizationLevels::QUANT_LEVELS_16BIT;
+                }
+                return false;
+            })) {
+            return QuantizationLevels::QUANT_LEVELS_16BIT;
+        }
+    }
     return QuantizationLevels::QUANT_LEVELS_8BIT;
 }
 
@@ -945,10 +1024,17 @@ bool vpux::IE::keepIntTypeForSIWeightsAsInputOrConst(mlir::Operation* op) {
             const auto isPerChannelQuant =
                     isChannelTheOnlyNonOneDim(fqOp.getInputLow()) || isChannelTheOnlyNonOneDim(fqOp.getInputHigh());
 
-            if (isPerChannelQuant && isAsymmetricPerChannelZeroPointSupported) {
+            auto outLowConst = fqOp.getOutputLow().getDefiningOp<Const::DeclareOp>();
+            auto outHighConst = fqOp.getOutputHigh().getDefiningOp<Const::DeclareOp>();
+
+            const auto canConvertToSigned = canConvertToSignedQuantizedType(
+                    inLowConst.getContentAttr(), inHighConst.getContentAttr(), outLowConst.getContentAttr(),
+                    outHighConst.getContentAttr(), fqOp.getLevels(), fqOp.getLowFpType(), fqOp.getAutoBroadcast());
+
+            if (isPerChannelQuant && isAsymmetricPerChannelZeroPointSupported && !canConvertToSigned) {
                 return false;
             }
-            if (!isPerAxisQuant && isAsymmetricPerTensorZeroPointSupported) {
+            if (!isPerAxisQuant && isAsymmetricPerTensorZeroPointSupported && !canConvertToSigned) {
                 return false;
             }
         }
@@ -968,10 +1054,18 @@ bool vpux::IE::keepIntTypeForSIWeightsAsInputOrConst(mlir::Operation* op) {
         return false;
     };
 
+    auto areBothInputAndWeightsSigned = [](mlir::Operation* op) -> bool {
+        auto inputElemType = mlir::cast<NDTypeInterface>(op->getOperand(0).getType()).getElementType();
+        auto weightsElemType = mlir::cast<NDTypeInterface>(op->getOperand(1).getType()).getElementType();
+        auto inputQType = mlir::dyn_cast<mlir::quant::QuantizedType>(inputElemType);
+        auto weightsQType = mlir::dyn_cast<mlir::quant::QuantizedType>(weightsElemType);
+        return inputQType != nullptr && weightsQType != nullptr && inputQType.isSigned() && weightsQType.isSigned();
+    };
+
     // If current or child NCEOp candidate has SI weights as input, keep Integer data type
     if (isNCEOpCandidatesWithWeights(op)) {
         auto weightsType = mlir::cast<NDTypeInterface>(op->getOperand(0).getType());
-        if (isAsymmetricZPSupported(weightsType)) {
+        if (!areBothInputAndWeightsSigned(op) && isAsymmetricZPSupported(weightsType)) {
             return false;
         }
 
@@ -980,24 +1074,25 @@ bool vpux::IE::keepIntTypeForSIWeightsAsInputOrConst(mlir::Operation* op) {
         }
     }
 
-    auto isSIRequiredByAllUsers = llvm::all_of(op->getUsers(), [isAsymmetricZPSupported](const auto& user) {
-        auto childNCEOps = findNCEOpCandidatesWithWeights(user);
-        if (mlir::succeeded(childNCEOps)) {
-            if (llvm::all_of(childNCEOps.value(), [&](mlir::Operation* childNCEOp) {
-                    auto weightsType = mlir::cast<NDTypeInterface>(childNCEOp->getOperand(1).getType());
-                    return isAsymmetricZPSupported(weightsType);
-                })) {
-                return false;
-            }
+    auto isSIRequiredByAllUsers =
+            llvm::all_of(op->getUsers(), [isAsymmetricZPSupported, areBothInputAndWeightsSigned](const auto& user) {
+                auto childNCEOps = findNCEOpCandidatesWithWeights(user);
+                if (mlir::succeeded(childNCEOps)) {
+                    if (llvm::all_of(childNCEOps.value(), [&](mlir::Operation* childNCEOp) {
+                            auto weightsType = mlir::cast<NDTypeInterface>(childNCEOp->getOperand(1).getType());
+                            return !areBothInputAndWeightsSigned(childNCEOp) && isAsymmetricZPSupported(weightsType);
+                        })) {
+                        return false;
+                    }
 
-            if (llvm::all_of(childNCEOps.value(), [&](mlir::Operation* childNCEOp) {
-                    return nceOpCandidateHasSIWeightsAsInputOrConst(childNCEOp);
-                })) {
-                return true;
-            }
-        }
-        return false;
-    });
+                    if (llvm::all_of(childNCEOps.value(), [&](mlir::Operation* childNCEOp) {
+                            return nceOpCandidateHasSIWeightsAsInputOrConst(childNCEOp);
+                        })) {
+                        return true;
+                    }
+                }
+                return false;
+            });
 
     return isSIRequiredByAllUsers;
 }
@@ -1064,4 +1159,34 @@ bool vpux::IE::isInputQuantizationSupported(mlir::Value activationInput, mlir::V
         }
     }
     return true;
+}
+
+bool vpux::IE::checkQuantizePattern(mlir::Type activationStorageType, mlir::Type filterStorageType,
+                                    llvm::ArrayRef<std::pair<unsigned, unsigned>> patterns) {
+    return llvm::any_of(patterns, [&](auto p) {
+        const auto [actBits, wtBits] = p;
+        return (activationStorageType.isSignedInteger(actBits) && filterStorageType.isSignedInteger(wtBits)) ||
+               (activationStorageType.isUnsignedInteger(actBits) && filterStorageType.isUnsignedInteger(wtBits)) ||
+               (activationStorageType.isSignlessInteger(actBits) && filterStorageType.isSignlessInteger(wtBits));
+    });
+}
+
+bool vpux::IE::hasIdentityQuantizationParams(mlir::Type quantizedElemType) {
+    if (auto uniformType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(quantizedElemType)) {
+        return isDoubleEqual(uniformType.getScale(), 1.0) && uniformType.getZeroPoint() == 0;
+    }
+
+    if (auto perAxisType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(quantizedElemType)) {
+        if (!llvm::all_of(perAxisType.getScales(), [](double scale) {
+                return isDoubleEqual(scale, 1.0);
+            })) {
+            return false;
+        }
+
+        return llvm::all_of(perAxisType.getZeroPoints(), [](int64_t zp) {
+            return zp == 0;
+        });
+    }
+
+    return false;
 }

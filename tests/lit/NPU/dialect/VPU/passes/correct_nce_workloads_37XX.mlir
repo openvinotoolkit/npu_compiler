@@ -18,10 +18,10 @@ func.func @ConvLargeSparseOutput(%input_ddr: tensor<1x64x40x40xf16, {order = #NH
     %weights = VPU.Copy(%cst_weights) {out_mem_space = @CMX_NN} : tensor<384x64x4x4xf16, {order = #NHWC}> -> tensor<384x64x4x4xf16, {mem_space = @CMX_NN, order = #NHWC}>
     %weights_table = VPU.Copy(%cst_weights_table) {out_mem_space = @CMX_NN} : tensor<384x1x1x4xsi32, {order = #NHWC}> -> tensor<384x1x1x4xsi32, {mem_space = @CMX_NN, order = #NHWC}>
 
-    %conv_out = VPU.NCE.Convolution(%input, %weights, %weights_table) {
+    %conv_out = VPU.NCE.Convolution(%input, %weights, %weights_table) rawFilterShape [384, 64, 4, 4] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            rawFilterShape = [384, 64, 4, 4],
+            
             strides = [1, 1]
         } : tensor<1x64x40x40xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<384x64x4x4xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<384x1x1x4xsi32, {mem_space = @CMX_NN, order = #NHWC}> -> !VPU.SparseTensor<data=tensor<1x384x37x37xf16, {mem_space = @CMX_NN, order = #NHWC}>, sparsity_map=tensor<1x384x37x37xi1, {mem_space = @CMX_NN, order = #NHWC}>> {
                 VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 384, 40, 80] pad [0, 0, 0, 0] #VPU.mpe_mode<CUBOID_4x16>
@@ -44,10 +44,10 @@ func.func @ConvLargeSparseOutput(%input_ddr: tensor<1x64x40x40xf16, {order = #NH
 
     // Equal channels per clusters which are a power of two
 
-    // CHECK:       [[CONV_OUT:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) {
+    // CHECK:       [[CONV_OUT:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [384, 64, 4, 4] {
     // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
     // CHECK-SAME:      ppe = #VPU.PPEStub<>,
-    // CHECK-SAME:      strides = [1, 1]}
+    // CHECK-SAME:      resultSegmentSizes = array<i32: 1, 0, 0, 0>, strides = [1, 1]}
     // CHECK-SAME:      -> !VPU.SparseTensor<data=tensor<1x384x37x37xf16, {mem_space = @CMX_NN, order = #NHWC}>, sparsity_map=tensor<1x384x37x37xi1, {mem_space = @CMX_NN, order = #NHWC}>> {
     // CHECK:               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 256, 40, 80] pad [0, 0, 0, 0] <CUBOID_4x16>
     // CHECK:               VPU.DPU.Workload outOffsets [0, 256, 0, 0] outSizes [1, 128, 40, 80] pad [0, 0, 0, 0] <CUBOID_4x16>

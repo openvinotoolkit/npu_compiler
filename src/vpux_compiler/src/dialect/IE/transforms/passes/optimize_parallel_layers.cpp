@@ -1050,9 +1050,10 @@ void MoveSoftmaxAfterConcat::createNewSubgraphAndReplace(ArrayRef<IE::SoftMaxOp>
     auto firstSoftmaxOp = siblingLayerOps.front();
     auto inputType = mlir::cast<vpux::NDTypeInterface>(firstSoftmaxOp.getInput().getType());
     auto softmaxAxis = vpux::getPositiveAxisInd(firstSoftmaxOp.getAxisIndAttr(), inputType.getRank());
-    auto newSoftmax = rewriter.create<IE::SoftMaxOp>(takeOpLoc(firstSoftmaxOp, "new_softmax"), newConcat.getOutput(),
-                                                     getIntAttr(rewriter.getContext(), softmaxAxis),
-                                                     firstSoftmaxOp.getPadSizeAttr());
+    auto newSoftmax = rewriter.create<IE::SoftMaxOp>(
+            takeOpLoc(firstSoftmaxOp, "new_softmax"), newConcat.getOutput(),
+            getIntAttr(rewriter.getContext(), softmaxAxis), firstSoftmaxOp.getPadSizeAttr(),
+            firstSoftmaxOp.getDstElemTypeAttr(), firstSoftmaxOp.getMaskAwareAttr());
 
     rewriter.replaceOp(origOp, newSoftmax.getOutput());
 }

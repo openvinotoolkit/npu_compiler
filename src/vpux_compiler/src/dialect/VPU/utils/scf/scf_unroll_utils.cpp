@@ -158,16 +158,16 @@ SmallVector<OpType> collectOpsFromUnrolledBlocks(llvm::ArrayRef<mlir::Operation*
 
     for (size_t i = 0; i < totalBlocks; ++i) {
         size_t opIndex = index + i * numOriginalOps;
-        if (opIndex < allUnrolledOps.size()) {
-            if (auto op = mlir::dyn_cast<OpType>(allUnrolledOps[opIndex])) {
-                collectedOps.push_back(op);
-            } else {
-                // Handle error: expected operation type not found
-                assert(false && "Expected operation type not found at calculated index");
-            }
-        } else {
-            assert(false && "Operation index out of bounds. Failed to collect ops from unrolled blocks.");
+        if (opIndex >= allUnrolledOps.size()) {
+            assert(false && "Operation index out of bounds in collectOpsFromUnrolledBlocks");
+            return {};
         }
+
+        auto op = mlir::dyn_cast<OpType>(allUnrolledOps[opIndex]);
+        if (!op) {
+            return {};
+        }
+        collectedOps.push_back(op);
     }
 
     return collectedOps;
@@ -254,7 +254,7 @@ void setBuilderPositionToEndOfBlock(mlir::OpBuilder& builder, mlir::Block* block
  * - {END, END}      = {1, 1} - single block at end
  */
 void generateCombinationsRecursively(int64_t currentDimIndex, ArrayRef<int64_t> blockSizes,
-                                     ArrayRef<int64_t> dimensionIdx, int64_t currentChoice,
+                                     ArrayRef<vpux::Dim> dimensionIdx, int64_t currentChoice,
                                      SmallVector<int64_t>& results) {
     if (currentDimIndex == static_cast<int64_t>(blockSizes.size())) {
         results.push_back(currentChoice);
@@ -274,11 +274,9 @@ void generateCombinationsRecursively(int64_t currentDimIndex, ArrayRef<int64_t> 
                                      {TilePosition::END, TilePosition::END}};
     }
 
-    BlockEncodingUtils encodingUtils;
     for (auto combination : validStartEndCombinations) {
-        auto newValue = encodingUtils.encodeValue(vpux::Dim(dimensionIdx[currentDimIndex]), currentChoice,
-                                                  static_cast<int64_t>(combination.first),
-                                                  static_cast<int64_t>(combination.second));
+        auto newValue = encodeRangePosition(dimensionIdx[currentDimIndex], currentChoice, combination.first,
+                                            combination.second);
         generateCombinationsRecursively(currentDimIndex + 1, blockSizes, dimensionIdx, newValue, results);
     }
 }
@@ -328,7 +326,7 @@ void generateCombinationsRecursively(int64_t currentDimIndex, ArrayRef<int64_t> 
  * - ... (continues with MIDDLE→MIDDLE and MIDDLE→END for H dimension)
  *
  * Encoding Process:
- * Each combination is encoded using BlockEncodingUtils.encodeValue() which packs
+ * Each combination is encoded using encodeRangePosition() which packs
  * the start/end positions into a single integer value using bit manipulation.
  * The encoding follows NCHW dimension order with 4 bits per dimension.
  *
@@ -342,7 +340,7 @@ void generateCombinationsRecursively(int64_t currentDimIndex, ArrayRef<int64_t> 
  * @param dimensionIdx Vector of dimension indices in NCHW order
  * @return Vector of encoded combination values representing valid block spans
  */
-SmallVector<int64_t> generateUnrollCombinations(ArrayRef<int64_t> blockSizes, ArrayRef<int64_t> dimensionIdx) {
+SmallVector<int64_t> generateUnrollCombinations(ArrayRef<int64_t> blockSizes, ArrayRef<vpux::Dim> dimensionIdx) {
     SmallVector<int64_t> results;
 
     // Validation
@@ -369,30 +367,29 @@ SmallVector<int64_t> generateUnrollCombinations(ArrayRef<int64_t> blockSizes, Ar
     return results;
 }
 
-void generateBlockIdsRecursively(int64_t currentDimIndex, ArrayRef<int64_t> blockSizes, ArrayRef<int64_t> dimensionIdx,
-                                 int64_t blockValue, int64_t currentValue, SmallVector<int64_t>& results) {
+void generateBlockIdsRecursively(int64_t currentDimIndex, ArrayRef<int64_t> blockSizes,
+                                 ArrayRef<vpux::Dim> dimensionIdx, int64_t blockValue, int64_t currentValue,
+                                 SmallVector<int64_t>& results) {
     if (currentDimIndex == static_cast<int64_t>(blockSizes.size())) {
         results.push_back(currentValue);
         return;
     }
 
-    BlockEncodingUtils encodingUtils;
     auto blockCount = blockSizes[currentDimIndex];
     SmallVector<int64_t> currentBlocks = {currentValue};
-    auto [startBlk, endBlk] =
-            encodingUtils.decodeStartAndEndBlkIds(vpux::Dim(dimensionIdx[currentDimIndex]), blockValue);
+    auto [startBlk, endBlk] = decodeRangePosition(blockValue, dimensionIdx[currentDimIndex]);
     if (blockCount > 1) {
         for (size_t i = 1; i < static_cast<size_t>(blockCount); ++i) {
             currentBlocks.push_back(currentValue);
         }
-        encodingUtils.insertBlockId(vpux::Dim(dimensionIdx[currentDimIndex]), currentBlocks[0], startBlk);
+        currentBlocks[0] = setDimPosition(currentBlocks[0], dimensionIdx[currentDimIndex], startBlk);
         for (size_t i = 1; i < static_cast<size_t>(blockCount - 1); ++i) {
-            encodingUtils.insertBlockId(vpux::Dim(dimensionIdx[currentDimIndex]), currentBlocks[i], 0);
+            currentBlocks[i] = setDimPosition(currentBlocks[i], dimensionIdx[currentDimIndex], TilePosition::MIDDLE);
         }
-        encodingUtils.insertBlockId(vpux::Dim(dimensionIdx[currentDimIndex]), currentBlocks[blockCount - 1], endBlk);
+        currentBlocks[blockCount - 1] =
+                setDimPosition(currentBlocks[blockCount - 1], dimensionIdx[currentDimIndex], endBlk);
     } else {
-        // auto dimStartBlkId = getBlockId(vpux::Dim(dimensionIdx[currentDimIndex]), startBlk);
-        encodingUtils.insertBlockId(vpux::Dim(dimensionIdx[currentDimIndex]), currentBlocks[0], startBlk);
+        currentBlocks[0] = setDimPosition(currentBlocks[0], dimensionIdx[currentDimIndex], startBlk);
     }
 
     for (auto block : currentBlocks) {
@@ -442,9 +439,6 @@ void generateBlockIdsRecursively(int64_t currentDimIndex, ArrayRef<int64_t> bloc
  * For single block dimensions (factor=1):
  * - Block gets the START block ID (same as start and end)
  *
- * Special handling for single dimension:
- * - Result is right-shifted by 2 bits to match expected format
- *
  * @param config Unroll configuration containing factors and access order
  * @param blockValue Encoded value containing start/end block positions for all dimensions
  * @return Vector of block position IDs, one for each unrolled block
@@ -452,29 +446,6 @@ void generateBlockIdsRecursively(int64_t currentDimIndex, ArrayRef<int64_t> bloc
 SmallVector<int64_t> generateUnrollBlockIds(const UnrollConfig& config, int64_t blockValue) {
     SmallVector<int64_t> results;
     generateBlockIdsRecursively(0, config.unrollFactors, config.accessOrder, blockValue, 0, results);
-
-    // If there is only one dimension, block id is in first 2 bits
-    if (config.accessOrder.size() == 1) {
-        for (auto& result : results) {
-            switch (config.accessOrder[0]) {
-            case 0:
-                result = result >> N_SHIFT;
-                break;
-            case 1:
-                result = result >> C_SHIFT;
-                break;
-            case 2:
-                result = result >> H_SHIFT;
-                break;
-            case 3:
-                break;
-            default:
-                assert(false && "Invalid dimension index in access order");
-                break;
-            }
-            result = result & TWO_BIT_MASK;
-        }
-    }
     return results;
 }
 
@@ -521,41 +492,32 @@ SmallVector<int64_t> generateUnrollBlockIds(const UnrollConfig& config, int64_t 
  *
  */
 mlir::Value encodeBlockPositionId(mlir::OpBuilder& builder, SmallVector<mlir::Value>& inputBlockIdVals,
-                                  ArrayRef<int64_t> accessPattern) {
+                                  ArrayRef<vpux::Dim> accessPattern) {
     assert(inputBlockIdVals.size() == 2 && "Need start and end output block position ids");
 
-    SmallVector<int64_t> shiftBits = {6, 4, 2, 0};                // N, C, H, W
-    SmallVector<int64_t> shiftBitsForBlockStart = {12, 8, 4, 0};  // N, C, H, W
-    SmallVector<int64_t> shiftBitsForBlockEnd = {14, 10, 6, 2};   // N, C, H, W
-
-    // Initialize return value to 0
     mlir::Value returnVal = builder.create<mlir::arith::ConstantIndexOp>(builder.getUnknownLoc(), 0);
 
-    bool hasOneDynDim = accessPattern.size() == 1;
-    auto mask2Bits = builder.create<mlir::arith::ConstantIndexOp>(builder.getUnknownLoc(), 3);
-    for (auto [idx, dim] : llvm::enumerate(accessPattern)) {
-        auto dimStart = inputBlockIdVals[0];
-        auto dimEnd = inputBlockIdVals[1];
-        if (!hasOneDynDim) {
-            auto cstStart = builder.create<mlir::arith::ConstantIndexOp>(builder.getUnknownLoc(), shiftBits[dim]);
-            auto dimVal = builder.create<mlir::arith::ShRUIOp>(builder.getUnknownLoc(), inputBlockIdVals[0], cstStart);
-            dimStart = builder.create<mlir::arith::AndIOp>(builder.getUnknownLoc(), dimVal, mask2Bits);
+    auto mask2Bits = builder.create<mlir::arith::ConstantIndexOp>(builder.getUnknownLoc(),
+                                                                  static_cast<int64_t>((1LL << NUMBITS) - 1));
+    for (auto dim : accessPattern) {
+        auto pointShift = getTilePositionShift(dim);
+        auto cstPointShift = builder.create<mlir::arith::ConstantIndexOp>(builder.getUnknownLoc(), pointShift);
+        auto dimVal = builder.create<mlir::arith::ShRUIOp>(builder.getUnknownLoc(), inputBlockIdVals[0], cstPointShift);
+        auto dimStart = builder.create<mlir::arith::AndIOp>(builder.getUnknownLoc(), dimVal, mask2Bits);
 
-            auto dimVal2 = builder.create<mlir::arith::ShRUIOp>(builder.getUnknownLoc(), inputBlockIdVals[1], cstStart);
-            dimEnd = builder.create<mlir::arith::AndIOp>(builder.getUnknownLoc(), dimVal2, mask2Bits);
-        }
+        auto dimVal2 =
+                builder.create<mlir::arith::ShRUIOp>(builder.getUnknownLoc(), inputBlockIdVals[1], cstPointShift);
+        auto dimEnd = builder.create<mlir::arith::AndIOp>(builder.getUnknownLoc(), dimVal2, mask2Bits);
 
-        auto cstBlkStart =
-                builder.create<mlir::arith::ConstantIndexOp>(builder.getUnknownLoc(), shiftBitsForBlockStart[dim]);
-        auto cstBlkEnd =
-                builder.create<mlir::arith::ConstantIndexOp>(builder.getUnknownLoc(), shiftBitsForBlockEnd[dim]);
+        auto baseShift = getTilePositionShift(dim) * 2;
+        auto cstBlkStart = builder.create<mlir::arith::ConstantIndexOp>(builder.getUnknownLoc(), baseShift);
+        auto cstBlkEnd = builder.create<mlir::arith::ConstantIndexOp>(builder.getUnknownLoc(),
+                                                                      baseShift + static_cast<int64_t>(NUMBITS));
 
         auto shiftedStart = builder.create<mlir::arith::ShLIOp>(builder.getUnknownLoc(), dimStart, cstBlkStart);
         auto shiftedEnd = builder.create<mlir::arith::ShLIOp>(builder.getUnknownLoc(), dimEnd, cstBlkEnd);
 
         auto combined = builder.create<mlir::arith::OrIOp>(builder.getUnknownLoc(), shiftedStart, shiftedEnd);
-
-        // Accumulate all dimensions into the final encoded value
         returnVal = builder.create<mlir::arith::OrIOp>(builder.getUnknownLoc(), returnVal, combined);
     }
     return returnVal;
@@ -675,7 +637,7 @@ SmallVector<vpux::VPU::ConcatOp> insertConcatOp(mlir::OpBuilder& builder, mlir::
 
     // Process dimensions from innermost (rightmost) to outermost (leftmost)
     for (size_t dimIdx = config.accessOrder.size(); dimIdx-- > 0;) {
-        unsigned dim = config.accessOrder[dimIdx];
+        auto dimInd = config.accessOrder[dimIdx].ind();
         int64_t factor = config.unrollFactors[dimIdx];
 
         SmallVector<mlir::Value> nextLevel;
@@ -692,7 +654,7 @@ SmallVector<vpux::VPU::ConcatOp> insertConcatOp(mlir::OpBuilder& builder, mlir::
             // Concatenate if more than one element
             if (group.size() > 1) {
                 auto lastConcatOp =
-                        builder.create<VPU::ConcatOp>(appendLoc(loc, "concat"), mlir::ValueRange(group), dim);
+                        builder.create<VPU::ConcatOp>(appendLoc(loc, "concat"), mlir::ValueRange(group), dimInd);
                 builder.setInsertionPointAfter(lastConcatOp);
                 nextLevel.push_back(lastConcatOp.getResult());
                 concatOps.push_back(lastConcatOp);
@@ -756,9 +718,9 @@ SliceSizeInfo collectSliceSizes(ArrayRef<T> opsOfType, uint64_t index, const Unr
     SliceSizeInfo info;
 
     // Initialize size vectors for each unrolled dimension
-    for (const auto& dim : config.accessOrder) {
-        size_t index = &dim - &config.accessOrder[0];
-        info.dimToSizes[dim].resize(config.unrollFactors[index], 0);
+    for (size_t i = 0; i < config.accessOrder.size(); ++i) {
+        auto dimInd = config.accessOrder[i].ind();
+        info.dimToSizes[dimInd].resize(config.unrollFactors[i], 0);
     }
 
     // Collect sizes from all extract_slice ops
@@ -772,13 +734,13 @@ SliceSizeInfo collectSliceSizes(ArrayRef<T> opsOfType, uint64_t index, const Unr
 
         // Store size for each unrolled dimension at this position
         for (size_t i = 0; i < config.accessOrder.size(); ++i) {
-            unsigned dim = config.accessOrder[i];
+            auto dimInd = config.accessOrder[i].ind();
             int64_t blockIndex = multiDimIndices[i];
-            int64_t sliceSize = sizes[dim];
+            int64_t sliceSize = sizes[dimInd];
 
             if (sliceSize != mlir::ShapedType::kDynamic) {
                 // Take maximum size seen at this position
-                info.dimToSizes[dim][blockIndex] = std::max(info.dimToSizes[dim][blockIndex], sliceSize);
+                info.dimToSizes[dimInd][blockIndex] = std::max(info.dimToSizes[dimInd][blockIndex], sliceSize);
             }
         }
     }
@@ -802,16 +764,16 @@ SmallVector<int64_t> calculateVPUSliceOffset(int64_t linearIdx, llvm::ArrayRef<T
 
     // Calculate offset for each unrolled dimension
     for (size_t i = 0; i < config.accessOrder.size(); ++i) {
-        unsigned dim = config.accessOrder[i];
+        auto dimInd = config.accessOrder[i].ind();
         int64_t blockIndex = multiDimIndices[i];
 
         // Accumulate sizes of all blocks before this one
         int64_t accumulatedOffset = 0;
         for (int64_t prevIdx = 0; prevIdx < blockIndex; ++prevIdx) {
-            accumulatedOffset += sizeInfo.dimToSizes[dim][prevIdx];
+            accumulatedOffset += sizeInfo.dimToSizes[dimInd][prevIdx];
         }
 
-        offset[dim] = accumulatedOffset;
+        offset[dimInd] = accumulatedOffset;
     }
 
     return offset;
@@ -838,9 +800,9 @@ SmallVector<int64_t> calculateCombinedShape(llvm::ArrayRef<mlir::RankedTensorTyp
 
     // Initialize size vectors for unrolled dimensions
     for (size_t i = 0; i < config.accessOrder.size(); ++i) {
-        size_t dim = config.accessOrder[i];
+        auto dimInd = config.accessOrder[i].ind();
         int64_t factor = config.unrollFactors[i];
-        dimToSizes[dim].resize(factor, 0);
+        dimToSizes[dimInd].resize(factor, 0);
     }
 
     // Collect sizes from all tensors
@@ -850,28 +812,29 @@ SmallVector<int64_t> calculateCombinedShape(llvm::ArrayRef<mlir::RankedTensorTyp
 
         // For each unrolled dimension, track the size at this grid position
         for (size_t i = 0; i < config.accessOrder.size(); ++i) {
-            size_t dim = config.accessOrder[i];
+            auto dimInd = config.accessOrder[i].ind();
             int64_t posInGrid = gridPos[i];
-            int64_t size = shape[dim];
+            int64_t size = shape[dimInd];
 
             // Take maximum size at this position (in case of varying sizes)
             if (size != mlir::ShapedType::kDynamic) {
-                dimToSizes[dim][posInGrid] = std::max(dimToSizes[dim][posInGrid], size);
+                dimToSizes[dimInd][posInGrid] = std::max(dimToSizes[dimInd][posInGrid], size);
             }
         }
     }
 
     // Accumulate sizes for each unrolled dimension
     for (auto dim : config.accessOrder) {
+        auto dimInd = dim.ind();
         int64_t totalSize = 0;
 
         // Sum all sizes across positions in this dimension
-        for (int64_t size : dimToSizes[dim]) {
+        for (int64_t size : dimToSizes[dimInd]) {
             totalSize += size;
         }
 
         if (totalSize > 0) {
-            combinedShape[dim] = totalSize;
+            combinedShape[dimInd] = totalSize;
         }
     }
 
@@ -1014,8 +977,8 @@ void handleOpResults(mlir::OpBuilder& builder, mlir::IRMapping& valueMapper, Arr
  *   // Original code replaced with:
  *   %merged_result = func.call @merged_vpu_func_0(%input) : (tensor<1x8xf32>) -> tensor<1x8xf32>
  */
-mlir::LogicalResult handleCallOps(mlir::OpBuilder& builder, mlir::IRMapping& valueMapper,
-                                  ArrayRef<mlir::func::CallOp> callOps, const UnrollConfig& config) {
+mlir::LogicalResult tryMergeCallOps(mlir::OpBuilder& builder, mlir::IRMapping& valueMapper,
+                                    ArrayRef<mlir::func::CallOp> callOps, const UnrollConfig& config) {
     mlir::OpBuilder::InsertionGuard guard(builder);
     mlir::IRMapping mapper;
 
@@ -1029,7 +992,7 @@ mlir::LogicalResult handleCallOps(mlir::OpBuilder& builder, mlir::IRMapping& val
 
     std::string suffix = "";
     auto firstCallOp = callOps.front();
-    mlir::func::FuncOp firstFuncOp = module.lookupSymbol<mlir::func::FuncOp>(firstCallOp.getCallee());
+    auto firstFuncOp = module.lookupSymbol<mlir::func::FuncOp>(firstCallOp.getCallee());
     for (auto callOp : callOps) {
         for (auto operand : callOp.getOperands()) {
             if (mlir::isa<VPU::SliceOp>(operand.getDefiningOp())) {
@@ -1230,34 +1193,33 @@ AdjustedOffsetsAndSizes computeMergedBlockAndSlices(const SmallVector<SmallVecto
  */
 AdjustedOffsetsAndSizes computeSliceOffsetsAndSizes(llvm::ArrayRef<mlir::tensor::ExtractSliceOp> extractSliceOps,
                                                     const UnrollConfig& config, std::optional<int64_t> caseValue = {}) {
-    BlockEncodingUtils encodingUtils;
     OpChainAnalysis opAnalyzer;
     ValueRangeMap mapper;
 
     if (caseValue.has_value()) {
         // Inside IndexSwitchOp: determine induction variable values based on block positions
         for (size_t loopIdx = 0; loopIdx < config.accessOrder.size(); ++loopIdx) {
-            auto dimIdx = config.accessOrder[loopIdx];
-            auto dim = vpux::Dim(dimIdx);
+            auto dim = config.accessOrder[loopIdx];
             auto forOp = config.forOps[loopIdx];
-            auto startBlk = encodingUtils.decodeStartAndEndBlkIds(dim, caseValue.value()).first;
-            auto [low, high, step] = opAnalyzer.getForOpParams(forOp);
+            auto startBlk = decodeRangePosition(caseValue.value(), dim).first;
+            auto [low, high, step] = opAnalyzer.getLoopBoundsAndStep(forOp);
             auto inductionVar = forOp.getInductionVar();
+            bool isUnrolledDim = (loopIdx < config.unrollFactors.size() && config.unrollFactors[loopIdx] > 1);
 
-            switch (static_cast<TilePosition>(startBlk)) {
+            switch (startBlk) {
             case TilePosition::START:
-                mapper[inductionVar] = {low};
+                mapper[inductionVar] = {isUnrolledDim ? 0 : low};
                 break;
             case TilePosition::MIDDLE:
-                mapper[inductionVar] = {low + step};
+                mapper[inductionVar] = {isUnrolledDim ? step : low + step};
                 break;
             case TilePosition::END:
                 mapper[inductionVar] = {high - step};
                 break;
             case TilePosition::FULLBLK:
-                VPUX_THROW("Unexpected FULLBLK position for dimension {0} in extract slice analysis", dimIdx);
+                VPUX_THROW("Unexpected FULLBLK position for dimension {0} in extract slice analysis", dim.ind());
             default:
-                VPUX_THROW("Unknown TilePosition {0} for dimension {1}", startBlk, dimIdx);
+                VPUX_THROW("Unknown TilePosition {0} for dimension {1}", static_cast<int64_t>(startBlk), dim.ind());
             }
         }
     } else {
@@ -1328,15 +1290,21 @@ AdjustedOffsetsAndSizes computeSliceOffsetsAndSizes(llvm::ArrayRef<mlir::tensor:
  *   %1 = VPU.Slice %merged[0, 4] [1, 4] -> tensor<1x4xf32>
  *   %2 = VPU.Slice %merged[0, 8] [1, 4] -> tensor<1x4xf32>
  */
-mlir::LogicalResult handleExtractSliceOps(mlir::OpBuilder& builder, mlir::IRMapping& valueMapper, int64_t idx,
-                                          int64_t originalOpCount, size_t totalBlocks,
-                                          SmallVector<mlir::Operation*>& allUnrolledOps, const UnrollConfig& config) {
+mlir::LogicalResult tryMergeUnrolledExtractSliceOps(mlir::OpBuilder& builder, mlir::IRMapping& valueMapper, int64_t idx,
+                                                    int64_t originalOpCount, size_t totalBlocks,
+                                                    SmallVector<mlir::Operation*>& allUnrolledOps,
+                                                    const UnrollConfig& config) {
     mlir::OpBuilder::InsertionGuard guard(builder);
     SmallVector<mlir::tensor::ExtractSliceOp> extractSliceOps;
 
     for (size_t i = 0; i < totalBlocks; ++i) {
-        auto currentExtractSliceOp =
-                mlir::cast<mlir::tensor::ExtractSliceOp>(allUnrolledOps[idx + i * originalOpCount]);
+        auto* op = allUnrolledOps[idx + i * originalOpCount];
+        // Verify the operation is actually an ExtractSliceOp before casting
+        if (!mlir::isa<mlir::tensor::ExtractSliceOp>(op)) {
+            return errorAt(op, "Expected tensor.extract_slice operation at index {0} but found {1}",
+                           idx + i * originalOpCount, op->getName());
+        }
+        auto currentExtractSliceOp = mlir::cast<mlir::tensor::ExtractSliceOp>(op);
         extractSliceOps.push_back(currentExtractSliceOp);
     }
 
@@ -1418,15 +1386,15 @@ mlir::LogicalResult handleExtractSliceOps(mlir::OpBuilder& builder, mlir::IRMapp
  *
  * Where %concatenated_source is the result of previous VPU.Concat operations
  */
-mlir::LogicalResult handleInsertSliceOps(mlir::OpBuilder& builder, mlir::Block* block, mlir::IRMapping& valueMapper,
-                                         int64_t index, int64_t originalOpCount, size_t totalBlocks,
-                                         SmallVector<mlir::Operation*>& allUnrolledOps) {
+mlir::LogicalResult tryMergeUnrolledInsertSliceOps(mlir::OpBuilder& builder, mlir::Block* block,
+                                                   mlir::IRMapping& valueMapper, int64_t index, int64_t originalOpCount,
+                                                   size_t totalBlocks, SmallVector<mlir::Operation*>& allUnrolledOps) {
     auto sliceOps = collectOpsFromUnrolledBlocks<mlir::tensor::InsertSliceOp>(
             allUnrolledOps, index, static_cast<int64_t>(totalBlocks), originalOpCount);
     if (sliceOps.size() != totalBlocks) {
-        llvm::errs() << "Mismatch in number of InsertSliceOps collected. Expected: " << totalBlocks
-                     << ", Found: " << sliceOps.size() << "\n";
-        return mlir::failure();
+        return errorAt(sliceOps.empty() ? allUnrolledOps[index] : sliceOps.front(),
+                       "Mismatch in number of InsertSliceOps collected. Expected: {0}, Found: {1}", totalBlocks,
+                       sliceOps.size());
     }
 
     auto firstInsertSliceOp = sliceOps.front();
@@ -1435,8 +1403,8 @@ mlir::LogicalResult handleInsertSliceOps(mlir::OpBuilder& builder, mlir::Block* 
     auto origStrides = firstInsertSliceOp.getMixedStrides();
 
     if (!valueMapper.contains(firstInsertSliceOp.getSource())) {
-        llvm::errs() << "Source of InsertSliceOp not found in value mapper. Cannot proceed with merge.\n";
-        return mlir::failure();
+        return errorAt(firstInsertSliceOp,
+                       "Source of InsertSliceOp not found in value mapper. Cannot proceed with merge.");
     }
 
     auto srcOperand = valueMapper.lookup(firstInsertSliceOp.getSource());
@@ -1499,20 +1467,38 @@ mlir::LogicalResult handleInsertSliceOps(mlir::OpBuilder& builder, mlir::Block* 
     return mlir::success();
 }
 
-mlir::LogicalResult handleTensorCastOps(mlir::OpBuilder& builder, mlir::Block* block, mlir::IRMapping& valueMapper,
-                                        mlir::tensor::CastOp firstCastOp) {
+mlir::LogicalResult tryMergeTensorCastOps(mlir::OpBuilder& builder, mlir::Block* block, mlir::IRMapping& valueMapper,
+                                          mlir::tensor::CastOp firstCastOp) {
     if (!valueMapper.contains(firstCastOp.getSource())) {
-        llvm::errs() << "Source of CastOp not found in value mapper. Cannot proceed with merge.\n";
-        return mlir::failure();
+        return errorAt(firstCastOp, "Source of CastOp not found in value mapper. Cannot proceed with merge.");
     }
 
     auto srcOperand = valueMapper.lookup(firstCastOp.getSource());
     auto srcShape = mlir::cast<mlir::RankedTensorType>(srcOperand.getType()).getShape();
     auto prevDstType = mlir::cast<mlir::RankedTensorType>(firstCastOp.getDest().getType());
+    auto prevDstShape = prevDstType.getShape();
     SmallVector<int64_t> boundsVec(srcShape.begin(), srcShape.end());
     BoundsRef boundsRef(boundsVec);
-    auto boundedDstType = mlir::dyn_cast<Core::BoundedTensorType>(prevDstType);
-    const auto updatedDynamicInputType = boundedDstType.changeBounds(boundsRef);
+
+    // When the canonicalizer resolves a dynamic dim to a static value, srcShape may reflect the merged
+    // (post-unroll concatenated) size while prevDstShape still reflects the pre-merge tile size.
+    // Use srcDim (the actual merged size) for conflicting dims so the cast and downstream insert_slice see the correct
+    // shape.
+    SmallVector<int64_t> updatedShapeVec;
+    for (auto [srcDim, dstDim] : llvm::zip(srcShape, prevDstShape)) {
+        const bool srcStatic = srcDim != mlir::ShapedType::kDynamic;
+        const bool dstStatic = dstDim != mlir::ShapedType::kDynamic;
+        if (srcStatic && dstStatic && srcDim != dstDim) {
+            updatedShapeVec.push_back(srcDim);
+        } else {
+            updatedShapeVec.push_back(dstDim);
+        }
+    }
+    auto ndPrevDstType = mlir::cast<vpux::NDTypeInterface>(prevDstType);
+    mlir::Type updatedDynamicInputType = ndPrevDstType.changeShape(ShapeRef(updatedShapeVec));
+    if (auto updatedBoundedType = mlir::dyn_cast<Core::BoundedTensorType>(updatedDynamicInputType)) {
+        updatedDynamicInputType = updatedBoundedType.changeBounds(boundsRef);
+    }
 
     mlir::Location insertionLoc = builder.getUnknownLoc();
     setBuilderPositionToEndOfBlock(builder, block, insertionLoc);
@@ -1553,9 +1539,9 @@ mlir::LogicalResult handleTensorCastOps(mlir::OpBuilder& builder, mlir::Block* b
  * @param config Unroll configuration containing factors and access order
  * @return LogicalResult indicating success or failure of the merge operation
  */
-mlir::LogicalResult handleIndexSwitchOps(mlir::OpBuilder& builder, mlir::IRMapping& valueMapper, int64_t idx,
-                                         int64_t originalOpCount, size_t totalBlocks,
-                                         SmallVector<mlir::Operation*>& allUnrolledOps, const UnrollConfig& config) {
+mlir::LogicalResult tryMergeSwitchOps(mlir::OpBuilder& builder, mlir::IRMapping& valueMapper, int64_t idx,
+                                      int64_t originalOpCount, size_t totalBlocks,
+                                      SmallVector<mlir::Operation*>& allUnrolledOps, const UnrollConfig& config) {
     mlir::OpBuilder::InsertionGuard guard(builder);
 
     SmallVector<mlir::scf::IndexSwitchOp> indexSwitchOps;
@@ -1668,31 +1654,31 @@ mlir::LogicalResult mergeUnrollOperationsInBlock(mlir::Block* block, const Unrol
     for (auto index = 0; index < numOriginalOps; ++index) {
         auto currentOp = allUnrolledOps[index];
 
-        auto result = llvm::TypeSwitch<mlir::Operation*, mlir::LogicalResult>(currentOp)
-                              .Case<mlir::tensor::ExtractSliceOp>([&](auto) {
-                                  return handleExtractSliceOps(mergeBuilder, valueMapper, index, numOriginalOps,
-                                                               totalBlocks, allUnrolledOps, config);
-                              })
-                              .Case<mlir::tensor::InsertSliceOp>([&](auto) {
-                                  return handleInsertSliceOps(mergeBuilder, block, valueMapper, index, numOriginalOps,
-                                                              totalBlocks, allUnrolledOps);
-                              })
-                              .Case<mlir::func::CallOp>([&](auto) {
-                                  auto callOps = collectOpsFromUnrolledBlocks<mlir::func::CallOp>(
-                                          allUnrolledOps, index, static_cast<int64_t>(totalBlocks), numOriginalOps);
-                                  return handleCallOps(mergeBuilder, valueMapper, callOps, config);
-                              })
-                              .Case<mlir::tensor::CastOp>([&](auto castOp) {
-                                  return handleTensorCastOps(mergeBuilder, block, valueMapper, castOp);
-                              })
-                              .Case<mlir::scf::IndexSwitchOp>([&](auto) {
-                                  return handleIndexSwitchOps(mergeBuilder, valueMapper, index, numOriginalOps,
-                                                              totalBlocks, allUnrolledOps, config);
-                              })
-                              .Default([&](mlir::Operation* op) -> mlir::LogicalResult {
-                                  llvm::errs() << "Unhandled operation during unroll merging: " << *op << "\n";
-                                  return mlir::failure();
-                              });
+        auto result =
+                llvm::TypeSwitch<mlir::Operation*, mlir::LogicalResult>(currentOp)
+                        .Case<mlir::tensor::ExtractSliceOp>([&](auto) {
+                            return tryMergeUnrolledExtractSliceOps(mergeBuilder, valueMapper, index, numOriginalOps,
+                                                                   totalBlocks, allUnrolledOps, config);
+                        })
+                        .Case<mlir::tensor::InsertSliceOp>([&](auto) {
+                            return tryMergeUnrolledInsertSliceOps(mergeBuilder, block, valueMapper, index,
+                                                                  numOriginalOps, totalBlocks, allUnrolledOps);
+                        })
+                        .Case<mlir::func::CallOp>([&](auto) {
+                            auto callOps = collectOpsFromUnrolledBlocks<mlir::func::CallOp>(
+                                    allUnrolledOps, index, static_cast<int64_t>(totalBlocks), numOriginalOps);
+                            return tryMergeCallOps(mergeBuilder, valueMapper, callOps, config);
+                        })
+                        .Case<mlir::tensor::CastOp>([&](auto castOp) {
+                            return tryMergeTensorCastOps(mergeBuilder, block, valueMapper, castOp);
+                        })
+                        .Case<mlir::scf::IndexSwitchOp>([&](auto) {
+                            return tryMergeSwitchOps(mergeBuilder, valueMapper, index, numOriginalOps, totalBlocks,
+                                                     allUnrolledOps, config);
+                        })
+                        .Default([&](mlir::Operation* op) -> mlir::LogicalResult {
+                            return errorAt(op, "Unhandled operation type {0} during unroll merging", op->getName());
+                        });
 
         if (mlir::failed(result)) {
             return mlir::failure();
@@ -1721,7 +1707,7 @@ mlir::LogicalResult mergeUnrolledOperations(mlir::scf::ForOp forOp, SmallVector<
     UnrollConfig config;
     for (auto tileDimInfo : tileDimInfoVec) {
         config.unrollFactors.push_back(tileDimInfo.numBlocks);
-        config.accessOrder.push_back(tileDimInfo.dimension.ind());
+        config.accessOrder.push_back(tileDimInfo.dimension);
         config.forOps.push_back(tileDimInfo.forOp);
     }
 

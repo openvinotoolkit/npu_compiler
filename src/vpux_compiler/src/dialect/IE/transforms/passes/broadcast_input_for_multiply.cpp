@@ -26,13 +26,17 @@ using namespace vpux;
 
 namespace {
 
+const uint32_t levelCount = 2;
+const SmallVector<mlir::PatternBenefit> benefitLevels = getBenefitLevels(levelCount);
+
 //
 // BroadcastInputRewriter
 //
 
 class BroadcastInputRewriter final : public mlir::OpRewritePattern<IE::MultiplyOp> {
 public:
-    BroadcastInputRewriter(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::MultiplyOp>(ctx), _log(log) {
+    BroadcastInputRewriter(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
+            : mlir::OpRewritePattern<IE::MultiplyOp>(ctx, benefit), _log(log) {
         setDebugName("BroadcastInputRewriter");
     }
 
@@ -230,26 +234,205 @@ mlir::LogicalResult BroadcastInputRewriter::matchAndRewrite(IE::MultiplyOp origO
 }
 
 //
+// FuseBroadCastRewriter
+//
+// Matches the pattern: Tile (broadcast) -> optional(PermuteCast) -> Multiply
+// and fuses the Tile into the Multiply by replacing the Tile output with the
+// Tile input, so the broadcast is performed implicitly by NUMPY Multiply rather
+// than by an explicit Tile op. If a PermuteCast sits between the Tile and the
+// Multiply, a new PermuteCast on the un-tiled input is inserted instead.
+
+class FuseBroadCastRewriter final : public mlir::OpRewritePattern<IE::MultiplyOp> {
+public:
+    FuseBroadCastRewriter(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
+            : mlir::OpRewritePattern<IE::MultiplyOp>(ctx, benefit), _log(log) {
+        setDebugName("FuseBroadCastRewriter");
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::MultiplyOp multiplyOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    bool isBroadcastShape(ShapeRef inShape, ShapeRef outShape) const;
+    Shape inferShapeThroughPermuteCast(MemShapeRef inMemShape, const mlir::AffineMap memPerm,
+                                       const DimsOrder& dstOrder) const;
+
+    Logger _log;
+};
+
+bool FuseBroadCastRewriter::isBroadcastShape(ShapeRef inShape, ShapeRef outShape) const {
+    if (inShape.size() != outShape.size()) {
+        return false;
+    }
+
+    for (size_t i = 0; i < inShape.size(); i++) {
+        const auto inDim = inShape[Dim(i)];
+        const auto outDim = outShape[Dim(i)];
+        // The dimension is either the same or broadcasted from 1
+        if (inDim != 1 && inDim != outDim) {
+            return false;
+        }
+    }
+    return true;
+}
+
+Shape FuseBroadCastRewriter::inferShapeThroughPermuteCast(MemShapeRef inMemShape, const mlir::AffineMap memPerm,
+                                                          const DimsOrder& dstOrder) const {
+    const auto newInMemShape = applyPerm(inMemShape.toValues(), memPerm);
+    return dstOrder.toLogicalOrder(newInMemShape);
+}
+
+mlir::LogicalResult FuseBroadCastRewriter::matchAndRewrite(IE::MultiplyOp multiplyOp,
+                                                           mlir::PatternRewriter& rewriter) const {
+    _log.trace("[{0}] Got '{1}' at '{2}'", this->getDebugName(), multiplyOp->getName(), multiplyOp->getLoc());
+
+    if (multiplyOp.getAutoBroadcast() != IE::AutoBroadcastType::NUMPY) {
+        _log.trace("The auto_broadcast is not NUMPY — skipping");
+        return mlir::failure();
+    }
+
+    if (multiplyOp.getOutputPaddingAttr() || multiplyOp.getInputPaddingAttr()) {
+        return mlir::failure();
+    }
+
+    // Find the following pattern:
+    //   Tile (broadcast) -> optional(PermuteCast) -> Multiply
+    IE::PermuteCastOp permuteCastOp;
+    IE::TileOp tileOp;
+    for (auto* defOp : {multiplyOp.getInput1().getDefiningOp(), multiplyOp.getInput2().getDefiningOp()}) {
+        auto permuteCandidate = mlir::dyn_cast_if_present<IE::PermuteCastOp>(defOp);
+        auto tileCandidate = mlir::dyn_cast_if_present<IE::TileOp>(defOp);
+        if (!permuteCandidate && !tileCandidate) {
+            continue;
+        }
+        if (permuteCandidate) {
+            tileCandidate = mlir::dyn_cast_if_present<IE::TileOp>(permuteCandidate.getInput().getDefiningOp());
+        }
+        if (!tileCandidate || !tileCandidate->hasOneUse()) {
+            continue;
+        }
+        if (!isBroadcastShape(getShape(tileCandidate.getInput()), getShape(tileCandidate.getOutput()))) {
+            continue;
+        }
+        permuteCastOp = permuteCandidate;
+        tileOp = tileCandidate;
+        break;
+    }
+
+    if (!tileOp) {
+        _log.trace("No broadcast op found");
+        return mlir::failure();
+    }
+
+    auto tileInput = tileOp.getInput();
+    const auto tileInType = mlir::cast<NDTypeInterface>(tileInput.getType());
+    Shape newInShape(tileInType.getShape().raw());
+    if (permuteCastOp != nullptr) {
+        // Pattern: Tile -> PermuteCast -> Multiply
+        // The PermuteCast reorders dimensions in memory, so we can't use the Tile's
+        // logical shapes directly. Instead, project both the Tile input and output
+        // memory shapes through the same permutation to obtain their logical shapes
+        // as seen by the Multiply operand (i.e. after the PermuteCast).
+        const auto tileInMemShape = tileInType.getMemShape();
+        const auto tileOutMemShape = mlir::cast<NDTypeInterface>(tileOp.getOutput().getType()).getMemShape();
+        const auto permuteDstOrder = DimsOrder::fromAffineMap(permuteCastOp.getDstOrder());
+        const auto permuteMemPerm = permuteCastOp.getMemPerm();
+        newInShape = inferShapeThroughPermuteCast(tileInMemShape, permuteMemPerm, permuteDstOrder);
+        auto newOutShape = inferShapeThroughPermuteCast(tileOutMemShape, permuteMemPerm, permuteDstOrder);
+        // Verify the projected shapes still form a valid broadcast pair (each dim is
+        // either equal or the input dim is 1), otherwise the fusion is unsafe.
+        if (!isBroadcastShape(newInShape, newOutShape)) {
+            return mlir::failure();
+        }
+
+        // Sanity-check: the projected output shape must match the actual PermuteCast
+        // output shape; a mismatch indicates an unexpected layout transformation.
+        if (newOutShape != getShape(permuteCastOp.getOutput())) {
+            return mlir::failure();
+        }
+    }
+
+    // For dims where the fused (small) PermuteCast output has size 1, the other Multiply input
+    // must cover that dim fully (i.e. equal the output shape), so NUMPY broadcast produces the
+    // correct output shape.
+    const auto isTileOnInput1 = permuteCastOp != nullptr ? (multiplyOp.getInput1() == permuteCastOp.getOutput())
+                                                         : (multiplyOp.getInput1() == tileOp.getOutput());
+    const auto otherInput = isTileOnInput1 ? multiplyOp.getInput2() : multiplyOp.getInput1();
+    const auto otherInputShape = getShape(otherInput);
+    const auto outputShape = getShape(multiplyOp.getOutput());
+    const auto rank = outputShape.size();
+
+    if (newInShape.size() != rank || otherInputShape.size() != rank) {
+        return mlir::failure();
+    }
+    for (size_t i = 0; i < rank; ++i) {
+        if (newInShape[Dim(i)] == 1 && otherInputShape[Dim(i)] != outputShape[Dim(i)]) {
+            return mlir::failure();
+        }
+    }
+
+    const auto multiplyLoc = multiplyOp->getLoc();
+    auto newInput = tileInput;
+    if (permuteCastOp != nullptr) {
+        auto newPermuteCast =
+                rewriter.create<IE::PermuteCastOp>(takeOpLoc(permuteCastOp, "permute_in"), newInput,
+                                                   permuteCastOp.getDstOrderAttr(), permuteCastOp.getMemPermAttr());
+        newInput = newPermuteCast.getOutput();
+    }
+
+    const auto multiplyOutputType = mlir::cast<vpux::NDTypeInterface>(multiplyOp.getOutput().getType());
+    const auto newInput1 = isTileOnInput1 ? newInput : multiplyOp.getInput1();
+    const auto newInput2 = isTileOnInput1 ? multiplyOp.getInput2() : newInput;
+    auto newMultiplyOp = rewriter.create<IE::MultiplyOp>(
+            takeOpLoc(multiplyOp, "fuse_broadcast"), multiplyOutputType, newInput1, newInput2,
+            multiplyOp.getAutoBroadcastAttr(), multiplyOp.getPostOpAttr(), multiplyOp.getClampAttr(),
+            multiplyOp.getOutputPaddingAttr(), multiplyOp.getInputPaddingAttr());
+    rewriter.replaceOp(multiplyOp, newMultiplyOp.getOutput());
+
+    _log.trace("Fuse broadcast into multiply for better performance at '{0}'", multiplyLoc);
+    return mlir::success();
+}
+
+//
 // BroadcastInputForMultiplyPass
 //
 class BroadcastInputForMultiplyPass final :
         public IE::impl::BroadcastInputForMultiplyBase<BroadcastInputForMultiplyPass> {
 public:
-    explicit BroadcastInputForMultiplyPass(Logger log) {
+    explicit BroadcastInputForMultiplyPass(bool broadcastInputForMultiply, Logger log)
+            : _enableBroadcastInputForMultiply(broadcastInputForMultiply) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
+    mlir::LogicalResult initialize(mlir::MLIRContext* ctx) final;
+
 private:
     void safeRunOnFunc() final;
+    bool _enableBroadcastInputForMultiply;
 };
+
+mlir::LogicalResult BroadcastInputForMultiplyPass::initialize(mlir::MLIRContext* ctx) {
+    if (mlir::failed(Base::initialize(ctx))) {
+        return mlir::failure();
+    }
+
+    if (broadcastInputForMultiply.hasValue()) {
+        _enableBroadcastInputForMultiply = broadcastInputForMultiply.getValue();
+    }
+
+    return mlir::success();
+}
 
 void BroadcastInputForMultiplyPass::safeRunOnFunc() {
     auto func = getOperation();
     auto& ctx = getContext();
 
     mlir::RewritePatternSet patterns(&ctx);
-    patterns.add<BroadcastInputRewriter>(&ctx, _log);
-    IE::PermuteCastOp::getCanonicalizationPatterns(patterns, &ctx);
+    patterns.add<FuseBroadCastRewriter>(&ctx, benefitLevels[0], _log);
+    if (_enableBroadcastInputForMultiply) {
+        patterns.add<BroadcastInputRewriter>(&ctx, benefitLevels[1], _log);
+        IE::PermuteCastOp::getCanonicalizationPatterns(patterns, &ctx);
+    }
 
     if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
@@ -258,6 +441,6 @@ void BroadcastInputForMultiplyPass::safeRunOnFunc() {
 
 }  // namespace
 
-std::unique_ptr<mlir::Pass> vpux::IE::createBroadcastInputForMultiplyPass(Logger log) {
-    return std::make_unique<BroadcastInputForMultiplyPass>(log);
+std::unique_ptr<mlir::Pass> vpux::IE::createBroadcastInputForMultiplyPass(bool broadcastInputForMultiply, Logger log) {
+    return std::make_unique<BroadcastInputForMultiplyPass>(broadcastInputForMultiply, log);
 }

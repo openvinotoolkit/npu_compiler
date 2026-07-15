@@ -80,10 +80,24 @@ mlir::LogicalResult InterpolateOpConverter::matchAndRewrite(IE::InterpolateOp or
         axes2 = std::move(axes);
     }
 
-    SmallVector<int64_t> sizes1, scale1;
-    for (auto axis : axes1) {
-        sizes1.push_back(outputShape[vpux::Dim(axis)]);
-        scale1.push_back(outputShape[vpux::Dim(axis)] / inputShape[vpux::Dim(axis)]);
+    // Check if original scales are available for SCALES mode
+    const auto calcMode = origOp.getAttr().getShapeCalcMode();
+    const bool isScalesMode = calcMode != nullptr && calcMode.getValue() == IE::InterpolateCalcMode::SCALES;
+    SmallVector<double> origScales;
+    if (isScalesMode && origOp.getScalesAttrAttr()) {
+        origScales = parseFPArrayAttr<double>(origOp.getScalesAttrAttr());
+    }
+
+    SmallVector<int64_t> sizes1;
+    SmallVector<double> scale1;
+    for (size_t i = 0; i < axes1.size(); ++i) {
+        sizes1.push_back(outputShape[vpux::Dim(axes1[i])]);
+        if (isScalesMode && i < origScales.size()) {
+            scale1.push_back(origScales[i]);
+        } else {
+            scale1.push_back(static_cast<double>(outputShape[vpux::Dim(axes1[i])]) /
+                             static_cast<double>(inputShape[vpux::Dim(axes1[i])]));
+        }
     }
 
     const auto sizesAttr1 = getIntArrayAttr(origOp.getContext(), sizes1);
@@ -92,7 +106,7 @@ mlir::LogicalResult InterpolateOpConverter::matchAndRewrite(IE::InterpolateOp or
 
     SmallVector<int64_t> interpolate1Shape(inputShape.raw());
     for (size_t i = 0; i < axes1.size(); ++i) {
-        interpolate1Shape[axes1[i]] *= scale1[i];
+        interpolate1Shape[axes1[i]] = sizes1[i];
     }
 
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
@@ -104,11 +118,17 @@ mlir::LogicalResult InterpolateOpConverter::matchAndRewrite(IE::InterpolateOp or
             origOp.getInitialInputDimsAttrAttr(), origOp.getInitialOutputDimsAttrAttr(), origOp.getAttr(),
             origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
 
-    SmallVector<int64_t> sizes2, scale2;
-    for (auto axis : axes2) {
-        auto dim = vpux::Dim(axis);
-        sizes2.push_back(outputShape[dim]);
-        scale2.push_back(outputShape[dim] / interpolate1Shape[axis]);
+    SmallVector<int64_t> sizes2;
+    SmallVector<double> scale2;
+    for (size_t i = 0; i < axes2.size(); ++i) {
+        sizes2.push_back(outputShape[vpux::Dim(axes2[i])]);
+        size_t origScaleIdx = axes1.size() + i;
+        if (isScalesMode && origScaleIdx < origScales.size()) {
+            scale2.push_back(origScales[origScaleIdx]);
+        } else {
+            scale2.push_back(static_cast<double>(outputShape[vpux::Dim(axes2[i])]) /
+                             static_cast<double>(interpolate1Shape[axes2[i]]));
+        }
     }
 
     const auto sizesAttr2 = getIntArrayAttr(origOp.getContext(), sizes2);
@@ -117,7 +137,7 @@ mlir::LogicalResult InterpolateOpConverter::matchAndRewrite(IE::InterpolateOp or
 
     SmallVector<int64_t> interpolate2Shape(interpolate1Shape.begin(), interpolate1Shape.end());
     for (size_t i = 0; i < axes2.size(); ++i) {
-        interpolate2Shape[axes2[i]] *= scale2[i];
+        interpolate2Shape[axes2[i]] = sizes2[i];
     }
 
     auto interpolate2OutputType = outputType.changeShape(vpux::ShapeRef(interpolate2Shape));

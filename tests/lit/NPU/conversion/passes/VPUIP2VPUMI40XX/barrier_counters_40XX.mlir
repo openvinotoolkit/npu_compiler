@@ -14,16 +14,16 @@ module @mainModule {
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [2048, 2048, 2048, 2048]
 module @VPU.SW {
-  func.func private @builtin_Convert(memref<*xf16, [@CMX_NN, 0]>, memref<*xf32, [@CMX_NN, 0]>) attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert"}
-  func.func private @builtin_MemPermute(memref<*x!qElemType, [@CMX_NN, 0]>, memref<*x!qElemType, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
-  func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+  func.func nested @builtin_Convert(memref<*xf16, [@CMX_NN, 0]>, memref<*xf32, [@CMX_NN, 0]>) attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert"}
+  func.func nested @builtin_MemPermute(memref<*x!qElemType, [@CMX_NN, 0]>, memref<*x!qElemType, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
+  func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 net.NetworkInfo entryPoint : @barrier_counters inputsInfo : {
   DataInfo "input_0" : tensor<1x16x16x16xf16>
 } outputsInfo : {
   DataInfo "output_0" : tensor<1x32x8x16xf16>
 }
-func.func private @barrier_counters(%arg0: memref<1x16x16x16xf16, #NHWC, @DDR>, %arg1: memref<1x32x8x16xf16>) -> memref<1x32x8x16xf16> {
+func.func nested @barrier_counters(%arg0: memref<1x16x16x16xf16, {order = #NHWC}, @DDR>, %arg1: memref<1x32x8x16xf16>) -> memref<1x32x8x16xf16> {
     %b0 = VPURT.ConfigureBarrier<0> -> !VPURT.Barrier
     %b1 = VPURT.ConfigureBarrier<1> -> !VPURT.Barrier
     %b2 = VPURT.ConfigureBarrier<2> -> !VPURT.Barrier
@@ -35,8 +35,8 @@ func.func private @barrier_counters(%arg0: memref<1x16x16x16xf16, #NHWC, @DDR>, 
     %m1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x8x56x56x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     %m2 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x48x56x56x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     %m3 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<48x8x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
-    %m4 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<48x1x1x4xsi32, {order = #NCHW}, [@CMX_NN, 0]>
-    %m5 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<48x8x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>
+    %m4 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<48x1x1x4xsi32, [@CMX_NN, 0]>
+    %m5 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<48x8x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     %m6 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<48x1x1x4xsi32, [@CMX_NN, 0]>
     %m7 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1x1x8xui8, [@CMX_NN, 0]>
     %m8 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x48x28x28x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
@@ -53,7 +53,7 @@ func.func private @barrier_counters(%arg0: memref<1x16x16x16xf16, #NHWC, @DDR>, 
         %t0 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 33741 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
         input(%m1 : memref<1x8x56x56x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
         weights(%m3 : memref<48x8x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
-        weight_table(%m4 : memref<48x1x1x4xsi32, {order = #NCHW}, [@CMX_NN, 0]>)
+        weight_table(%m4 : memref<48x1x1x4xsi32, [@CMX_NN, 0]>)
         parent_input(%m1 : memref<1x8x56x56x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
         parent_output(%m2 : memref<1x48x56x56x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
         outputs(%m2 : memref<1x48x56x56x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
@@ -66,7 +66,7 @@ func.func private @barrier_counters(%arg0: memref<1x16x16x16xf16, #NHWC, @DDR>, 
     VPURT.Task waits(%b2 : !VPURT.Barrier) updates(%b3 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
         %t0 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 27694 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>, kernel_size = [3, 3], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<DWCONV>}>
         input(%m2 : memref<1x48x56x56x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
-        weights(%m5 : memref<48x8x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>)
+        weights(%m5 : memref<48x8x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
         weight_table(%m6 : memref<48x1x1x4xsi32, [@CMX_NN, 0]>)
         parent_input(%m2 : memref<1x48x56x56x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
         parent_output(%m8 : memref<1x48x28x28x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
@@ -102,16 +102,16 @@ module @mainModule {
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [2048, 2048, 2048, 2048]
 module @VPU.SW {
-  func.func private @builtin_Convert(memref<*xf16, [@CMX_NN, 0]>, memref<*xf32, [@CMX_NN, 0]>) attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert"}
-  func.func private @builtin_MemPermute(memref<*x!qElemType, [@CMX_NN, 0]>, memref<*x!qElemType, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
-  func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+  func.func nested @builtin_Convert(memref<*xf16, [@CMX_NN, 0]>, memref<*xf32, [@CMX_NN, 0]>) attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert"}
+  func.func nested @builtin_MemPermute(memref<*x!qElemType, [@CMX_NN, 0]>, memref<*x!qElemType, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
+  func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 net.NetworkInfo entryPoint : @barrier_counters inputsInfo : {
   DataInfo "input_0" : tensor<1x16x16x16xf16>
 } outputsInfo : {
   DataInfo "output_0" : tensor<1x32x8x16xf16>
 }
-func.func private @barrier_counters(%arg0: memref<1x16x16x16xf16, #NHWC, @DDR>, %arg1: memref<1x32x8x16xf16>) -> memref<1x32x8x16xf16> {
+func.func nested @barrier_counters(%arg0: memref<1x16x16x16xf16, {order = #NHWC}, @DDR>, %arg1: memref<1x32x8x16xf16>) -> memref<1x32x8x16xf16> {
     %b0 = VPURT.ConfigureBarrier<0> -> !VPURT.Barrier
     %b1 = VPURT.ConfigureBarrier<1> -> !VPURT.Barrier
     %b2 = VPURT.ConfigureBarrier<2> -> !VPURT.Barrier
@@ -123,8 +123,8 @@ func.func private @barrier_counters(%arg0: memref<1x16x16x16xf16, #NHWC, @DDR>, 
     %m1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x8x56x56x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     %m2 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x48x56x56x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     %m3 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<48x8x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
-    %m4 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<48x1x1x4xsi32, {order = #NCHW}, [@CMX_NN, 0]>
-    %m5 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<48x8x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>
+    %m4 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<48x1x1x4xsi32, [@CMX_NN, 0]>
+    %m5 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<48x8x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     %m6 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<48x1x1x4xsi32, [@CMX_NN, 0]>
     %m7 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1x1x8xui8, [@CMX_NN, 0]>
     %m8 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x48x28x28x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
@@ -141,7 +141,7 @@ func.func private @barrier_counters(%arg0: memref<1x16x16x16xf16, #NHWC, @DDR>, 
         %t0 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 33741 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
         input(%m1 : memref<1x8x56x56x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
         weights(%m3 : memref<48x8x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
-        weight_table(%m4 : memref<48x1x1x4xsi32, {order = #NCHW}, [@CMX_NN, 0]>)
+        weight_table(%m4 : memref<48x1x1x4xsi32, [@CMX_NN, 0]>)
         parent_input(%m1 : memref<1x8x56x56x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
         parent_output(%m2 : memref<1x48x56x56x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
         outputs(%m2 : memref<1x48x56x56x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
@@ -154,7 +154,7 @@ func.func private @barrier_counters(%arg0: memref<1x16x16x16xf16, #NHWC, @DDR>, 
     VPURT.Task waits(%b2 : !VPURT.Barrier) updates(%b3 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
         %t0 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 27694 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>, kernel_size = [3, 3], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<DWCONV>}>
         input(%m2 : memref<1x48x56x56x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
-        weights(%m5 : memref<48x8x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>)
+        weights(%m5 : memref<48x8x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
         weight_table(%m6 : memref<48x1x1x4xsi32, [@CMX_NN, 0]>)
         parent_input(%m2 : memref<1x48x56x56x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
         parent_output(%m8 : memref<1x48x28x28x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)

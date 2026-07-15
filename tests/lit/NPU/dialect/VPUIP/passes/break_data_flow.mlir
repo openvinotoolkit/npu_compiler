@@ -7,7 +7,7 @@
 // REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
 module @VPU.SW {
-func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {
+func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {
         VPU.kernel_code = "activation_relu.cpp", VPU.kernel_entry = "activation_relu", VPU.task_type = @COMPUTE
     }
 }
@@ -82,14 +82,14 @@ func.func @LinearGraph(%arg0: memref<10xf16>, %arg1: memref<10xf16>) -> memref<1
     num_clusters = 4 : i64
 }>
 
-!InputBufferDdr = memref<1x64x8x16xf16, #NHWC, @DDR>
+!InputBufferDdr = memref<1x64x8x16xf16, {order = #NHWC}, @DDR>
 !InputSliceBuffer = memref<1x64x8x16xf16, {order = #NHWC, strides = [16384, 1, 1024, 64]}, @CMX_NN>
-!OutputBuffer = memref<1x64x16x16xf16, #NHWC, @CMX_NN>
-!OutputBufferDdr = memref<1x64x16x16xf16, #NHWC, @DDR>
+!OutputBuffer = memref<1x64x16x16xf16, {order = #NHWC}, @CMX_NN>
+!OutputBufferDdr = memref<1x64x16x16xf16, {order = #NHWC}, @DDR>
 
 // CHECK-LABEL: @VPUIPConcatView
-// CHECK-SAME: 		[[ARG0:%.+]]: memref<1x64x8x16xf16, #NHWC, @DDR>
-// CHECK-SAME: 		[[ARG1:%.+]]: memref<1x64x16x16xf16, #NHWC, @DDR>
+// CHECK-SAME: 		[[ARG0:%.+]]: memref<1x64x8x16xf16, {order = #NHWC}, @DDR>
+// CHECK-SAME: 		[[ARG1:%.+]]: memref<1x64x16x16xf16, {order = #NHWC}, @DDR>
 func.func @VPUIPConcatView(%arg0: !InputBufferDdr, %arg1: !OutputBufferDdr) -> !OutputBufferDdr {
     %0 = VPURT.AllocDistributed -> !InputDistributedBuffer
 
@@ -138,8 +138,8 @@ func.func @VPUIPConcatView(%arg0: !InputBufferDdr, %arg1: !OutputBufferDdr) -> !
     // CHECK: 		    {{[^:]+}} = VPUIP.NNDMA
     // CHECK-SAME:                      inputs([[ALLOC]]
     // CHECK-SAME:                      outputs([[ARG1]]
-    // CHECK: 		  async.yield [[ARG1]] : memref<1x64x16x16xf16, #NHWC, @DDR>
+    // CHECK: 		  async.yield [[ARG1]] : memref<1x64x16x16xf16, {order = #NHWC}, @DDR>
 
-    // CHECK: [[VAL:%.+]] = async.await [[F2]] : !async.value<memref<1x64x16x16xf16, #NHWC, @DDR>>
-    // CHECK: return [[VAL]] : memref<1x64x16x16xf16, #NHWC, @DDR>
+    // CHECK: [[VAL:%.+]] = async.await [[F2]] : !async.value<memref<1x64x16x16xf16, {order = #NHWC}, @DDR>>
+    // CHECK: return [[VAL]] : memref<1x64x16x16xf16, {order = #NHWC}, @DDR>
 }

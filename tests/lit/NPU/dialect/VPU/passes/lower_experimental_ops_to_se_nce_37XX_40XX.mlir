@@ -38,9 +38,8 @@ func.func @main(%arg0: tensor<1x64x16x16xf16, {order = #NHWC}>) -> tensor<1x64x1
   // CHECK-SAME:            sparsity_map=tensor<1x64x8x8xi1, {order = #NHWC}>,
   // CHECK-SAME:            storage_element_table=tensor<1x4x8x8xi32, {order = #NHWC}>,
   // CHECK-SAME:            #VPU.SEDilatedConv<dilation = [2, 2], kernelStride = [1, 1], kernelSize = [3, 3], dataOffset = [0, 0, 0, 0], dataSizes = [1, 64, 16, 16]>>
-  // CHECK:         [[DW_OUT_1:%.+]] = VPU.NCE.DepthConvolution([[SPARSE_INPUT_1]], [[WEIGHTS]], [[WT]])
-  // CHECK-SAME:        pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>
-  // CHECK-SAME:        rawFilterShape = [64, 1, 3, 3]
+  // CHECK:         [[DW_OUT_1:%.+]] = VPU.NCE.DepthConvolution([[SPARSE_INPUT_1]], [[WEIGHTS]], [[WT]]) rawFilterShape [64, 1, 3, 3]
+  // CHECK-SAME:        pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>      
   // CHECK-SAME:            -> tensor<1x64x8x8xf16, {order = #NHWC}>
 
   // Sub-conv 2
@@ -56,9 +55,8 @@ func.func @main(%arg0: tensor<1x64x16x16xf16, {order = #NHWC}>) -> tensor<1x64x1
   // CHECK-SAME:            sparsity_map=tensor<1x64x8x8xi1, {order = #NHWC}>,
   // CHECK-SAME:            storage_element_table=tensor<1x4x8x8xi32, {order = #NHWC}>,
   // CHECK-SAME:            #VPU.SEDilatedConv<dilation = [2, 2], kernelStride = [1, 1], kernelSize = [3, 3], dataOffset = [0, 0, 0, 1], dataSizes = [1, 64, 16, 15]>>
-  // CHECK:         [[DW_OUT_2:%.+]] = VPU.NCE.DepthConvolution([[SPARSE_INPUT_2]], [[WEIGHTS]], [[WT]])
+  // CHECK:         [[DW_OUT_2:%.+]] = VPU.NCE.DepthConvolution([[SPARSE_INPUT_2]], [[WEIGHTS]], [[WT]]) rawFilterShape [64, 1, 3, 3]
   // CHECK-SAME:            pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>
-  // CHECK-SAME:            rawFilterShape = [64, 1, 3, 3]
   // CHECK-SAME:                -> tensor<1x64x8x8xf16, {order = #NHWC}>
 
   // Sub-conv 3
@@ -74,9 +72,8 @@ func.func @main(%arg0: tensor<1x64x16x16xf16, {order = #NHWC}>) -> tensor<1x64x1
   // CHECK-SAME:            sparsity_map=tensor<1x64x8x8xi1, {order = #NHWC}>,
   // CHECK-SAME:            storage_element_table=tensor<1x4x8x8xi32, {order = #NHWC}>,
   // CHECK-SAME:            #VPU.SEDilatedConv<dilation = [2, 2], kernelStride = [1, 1], kernelSize = [3, 3], dataOffset = [0, 0, 1, 0], dataSizes = [1, 64, 15, 16]>>
-  // CHECK:         [[DW_OUT_3:%.+]] = VPU.NCE.DepthConvolution([[SPARSE_INPUT_3]], [[WEIGHTS]], [[WT]])
-  // CHECK-SAME:        pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>
-  // CHECK-SAME:        rawFilterShape = [64, 1, 3, 3]
+  // CHECK:         [[DW_OUT_3:%.+]] = VPU.NCE.DepthConvolution([[SPARSE_INPUT_3]], [[WEIGHTS]], [[WT]]) rawFilterShape [64, 1, 3, 3]
+  // CHECK-SAME:        pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>       
   // CHECK-SAME:            -> tensor<1x64x8x8xf16, {order = #NHWC}>
 
   // Sub-conv 4
@@ -92,9 +89,8 @@ func.func @main(%arg0: tensor<1x64x16x16xf16, {order = #NHWC}>) -> tensor<1x64x1
   // CHECK-SAME:            sparsity_map=tensor<1x64x8x8xi1, {order = #NHWC}>,
   // CHECK-SAME:            storage_element_table=tensor<1x4x8x8xi32, {order = #NHWC}>,
   // CHECK-SAME:            #VPU.SEDilatedConv<dilation = [2, 2], kernelStride = [1, 1], kernelSize = [3, 3], dataOffset = [0, 0, 1, 1], dataSizes = [1, 64, 15, 15]>>
-  // CHECK:         [[DW_OUT_4:%.+]] = VPU.NCE.DepthConvolution([[SPARSE_INPUT_4]], [[WEIGHTS]], [[WT]])
+  // CHECK:         [[DW_OUT_4:%.+]] = VPU.NCE.DepthConvolution([[SPARSE_INPUT_4]], [[WEIGHTS]], [[WT]]) rawFilterShape [64, 1, 3, 3]
   // CHECK-SAME:        pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>
-  // CHECK-SAME:        rawFilterShape = [64, 1, 3, 3]
   // CHECK-SAME:            -> tensor<1x64x8x8xf16, {order = #NHWC}>
 
   // Interleave output with strided Concat
@@ -147,10 +143,10 @@ func.func @main(%arg0: tensor<1x960x65x65xf16, {order = #NHWC}>) -> tensor<1x960
 
     // CHECK-SAME:  #VPU.SEDilatedConv<dilation = [2, 2], kernelStride = [1, 1], kernelSize = [3, 3], dataOffset = [0, 0, 0, 0], dataSizes = [1, 960, 65, 65]>>
 
-    // CHECK:       [[DEPTHCONV1:%.+]] = VPU.NCE.DepthConvolution([[SPARSETENSOR1]], [[WEIGHTS]], [[WEIGHTTABLE:%.+]]) {
+    // CHECK:       [[DEPTHCONV1:%.+]] = VPU.NCE.DepthConvolution([[SPARSETENSOR1]], [[WEIGHTS]], [[WEIGHTTABLE:%.+]]) rawFilterShape [960, 1, 3, 3] {
     // CHECK-SAME:    pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64,
     // CHECK-SAME:    bottom = 1 : i64>,
-    // CHECK-SAME:    rawFilterShape = [960, 1, 3, 3], strides = [1, 1]} -> tensor<1x960x33x33xf16>
+    // CHECK-SAME:    strides = [1, 1]} -> tensor<1x960x33x33xf16>
 
     // CHECK:       [[SET2:%.+]] = VPU.StorageElementTable {dataElemType = f16, dataShape = [1, 960, 65, 65],
     // CHECK-SAME:    seAttr = #VPU.SEDilatedConv<dilation = [2, 2], kernelStride = [1, 1], kernelSize = [3, 3], dataOffset = [0, 0, 0, 1],
@@ -161,10 +157,10 @@ func.func @main(%arg0: tensor<1x960x65x65xf16, {order = #NHWC}>) -> tensor<1x960
     // CHECK-SAME:    kernelStride = [1, 1], kernelSize = [3, 3], dataOffset = [0, 0, 0, 1], dataSizes = [1, 960, 65, 64]>} ->
     // CHECK-SAME:    !VPU.SparseTensor<data=tensor<1x960x65x65xf16, {order = #NHWC}>, sparsity_map=tensor<1x960x33x32xi1, {order = #NHWC}>, storage_element_table=tensor<1x60x33x32xi32, {order = #NHWC}>,
     // CHECK-SAME:    #VPU.SEDilatedConv<dilation = [2, 2], kernelStride = [1, 1], kernelSize = [3, 3], dataOffset = [0, 0, 0, 1], dataSizes = [1, 960, 65, 64]>>
-    // CHECK:       [[DEPTHCONV2:%.+]] = VPU.NCE.DepthConvolution([[SPARSETENSOR2]], [[WEIGHTS]], [[WEIGHTTABLE:%.+]]) {
+    // CHECK:       [[DEPTHCONV2:%.+]] = VPU.NCE.DepthConvolution([[SPARSETENSOR2]], [[WEIGHTS]], [[WEIGHTTABLE:%.+]]) rawFilterShape [960, 1, 3, 3] {
     // CHECK-SAME:    pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64,
     // CHECK-SAME:    bottom = 1 : i64>,
-    // CHECK-SAME:     rawFilterShape = [960, 1, 3, 3], strides = [1, 1]} -> tensor<1x960x33x32xf16>
+    // CHECK-SAME:    strides = [1, 1]} -> tensor<1x960x33x32xf16>
 
     // CHECK:       [[SET3:%.+]] = VPU.StorageElementTable {dataElemType = f16, dataShape = [1, 960, 65, 65],
     // CHECK-SAME:    seAttr = #VPU.SEDilatedConv<dilation = [2, 2], kernelStride = [1, 1], kernelSize = [3, 3], dataOffset = [0, 0, 1, 0],
@@ -175,10 +171,10 @@ func.func @main(%arg0: tensor<1x960x65x65xf16, {order = #NHWC}>) -> tensor<1x960
     // CHECK-SAME:    kernelStride = [1, 1], kernelSize = [3, 3], dataOffset = [0, 0, 1, 0], dataSizes = [1, 960, 64, 65]>} ->
     // CHECK-SAME:    !VPU.SparseTensor<data=tensor<1x960x65x65xf16, {order = #NHWC}>, sparsity_map=tensor<1x960x32x33xi1, {order = #NHWC}>, storage_element_table=tensor<1x60x32x33xi32, {order = #NHWC}>,
     // CHECK-SAME:    #VPU.SEDilatedConv<dilation = [2, 2], kernelStride = [1, 1], kernelSize = [3, 3], dataOffset = [0, 0, 1, 0], dataSizes = [1, 960, 64, 65]>>
-    // CHECK:       [[DEPTHCONV3:%.+]] = VPU.NCE.DepthConvolution([[SPARSETENSOR3]], [[WEIGHTS]], [[WEIGHTTABLE:%.+]]) {
+    // CHECK:       [[DEPTHCONV3:%.+]] = VPU.NCE.DepthConvolution([[SPARSETENSOR3]], [[WEIGHTS]], [[WEIGHTTABLE:%.+]]) rawFilterShape [960, 1, 3, 3] {
     // CHECK-SAME:    pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64,
     // CHECK-SAME:    bottom = 1 : i64>,
-    // CHECK-SAME:    rawFilterShape = [960, 1, 3, 3], strides = [1, 1]} -> tensor<1x960x32x33xf16>
+    // CHECK-SAME:    strides = [1, 1]} -> tensor<1x960x32x33xf16>
 
     // CHECK:       [[SET4:%.+]] = VPU.StorageElementTable {dataElemType = f16, dataShape = [1, 960, 65, 65],
     // CHECK-SAME:    seAttr = #VPU.SEDilatedConv<dilation = [2, 2], kernelStride = [1, 1], kernelSize = [3, 3], dataOffset = [0, 0, 1, 1],
@@ -189,10 +185,10 @@ func.func @main(%arg0: tensor<1x960x65x65xf16, {order = #NHWC}>) -> tensor<1x960
     // CHECK-SAME:    kernelStride = [1, 1], kernelSize = [3, 3], dataOffset = [0, 0, 1, 1], dataSizes = [1, 960, 64, 64]>} ->
     // CHECK-SAME:    !VPU.SparseTensor<data=tensor<1x960x65x65xf16, {order = #NHWC}>, sparsity_map=tensor<1x960x32x32xi1, {order = #NHWC}>, storage_element_table=tensor<1x60x32x32xi32, {order = #NHWC}>,
     // CHECK-SAME:    #VPU.SEDilatedConv<dilation = [2, 2], kernelStride = [1, 1], kernelSize = [3, 3], dataOffset = [0, 0, 1, 1], dataSizes = [1, 960, 64, 64]>>
-    // CHECK:       [[DEPTHCONV4:%.+]] = VPU.NCE.DepthConvolution([[SPARSETENSOR4]], [[WEIGHTS]], [[WEIGHTTABLE:%.+]]) {
+    // CHECK:       [[DEPTHCONV4:%.+]] = VPU.NCE.DepthConvolution([[SPARSETENSOR4]], [[WEIGHTS]], [[WEIGHTTABLE:%.+]]) rawFilterShape [960, 1, 3, 3] {
     // CHECK-SAME:    pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64,
     // CHECK-SAME:    bottom = 1 : i64>,
-    // CHECK-SAME:    rawFilterShape = [960, 1, 3, 3], strides = [1, 1]} -> tensor<1x960x32x32xf16>
+    // CHECK-SAME:    strides = [1, 1]} -> tensor<1x960x32x32xf16>
 
     // CHECK:       [[CONCAT:%.+]] = VPU.Concat([[DEPTHCONV1]], [[DEPTHCONV2]], [[DEPTHCONV3]], [[DEPTHCONV4]])
     // CHECK-SAME{LITERAL}: static_offsets = [[0, 0, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0], [0, 0, 1, 1]]
@@ -250,9 +246,9 @@ func.func @main(%arg0: tensor<1x960x65x65x!qElemTypeIn, {order = #NHWC}>) -> ten
     // CHECK-SAME:                      storage_element_table=tensor<1x60x33x33xi32, {order = #NHWC}>,
     // CHECK-SAME:  #VPU.SEDilatedConv<dilation = [2, 2], kernelStride = [1, 1], kernelSize = [3, 3], dataOffset = [0, 0, 0, 0], dataSizes = [1, 960, 65, 65]>>
 
-    // CHECK:       [[DEPTHCONV1:%.+]] = VPU.NCE.DepthConvolution([[SPARSETENSOR1]], [[WEIGHTS]], [[WEIGHTTABLE:%.+]])
+    // CHECK:       [[DEPTHCONV1:%.+]] = VPU.NCE.DepthConvolution([[SPARSETENSOR1]], [[WEIGHTS]], [[WEIGHTTABLE:%.+]]) rawFilterShape [960, 1, 3, 3]
     // CHECK-SAME:    pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-    // CHECK-SAME:    rawFilterShape = [960, 1, 3, 3], strides = [1, 1]} -> tensor<1x960x33x33x[[QELEMTYPE_OUT]]>
+    // CHECK-SAME:    strides = [1, 1]} -> tensor<1x960x33x33x[[QELEMTYPE_OUT]]>
 
     // CHECK:       [[SET2:%.+]] = VPU.StorageElementTable {dataElemType = [[QELEMTYPE_IN]], dataShape = [1, 960, 65, 65],
     // CHECK-SAME:    seAttr = #VPU.SEDilatedConv<dilation = [2, 2], kernelStride = [1, 1], kernelSize = [3, 3], dataOffset = [0, 0, 0, 1],
@@ -266,9 +262,9 @@ func.func @main(%arg0: tensor<1x960x65x65x!qElemTypeIn, {order = #NHWC}>) -> ten
     // CHECK-SAME:                      storage_element_table=tensor<1x60x33x32xi32, {order = #NHWC}>,
     // CHECK-SAME:    #VPU.SEDilatedConv<dilation = [2, 2], kernelStride = [1, 1], kernelSize = [3, 3], dataOffset = [0, 0, 0, 1], dataSizes = [1, 960, 65, 64]>>
 
-    // CHECK:       [[DEPTHCONV2:%.+]] = VPU.NCE.DepthConvolution([[SPARSETENSOR2]], [[WEIGHTS]], [[WEIGHTTABLE:%.+]])
+    // CHECK:       [[DEPTHCONV2:%.+]] = VPU.NCE.DepthConvolution([[SPARSETENSOR2]], [[WEIGHTS]], [[WEIGHTTABLE:%.+]]) rawFilterShape [960, 1, 3, 3]
     // CHECK-SAME:     pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-    // CHECK-SAME:     rawFilterShape = [960, 1, 3, 3], strides = [1, 1]} -> tensor<1x960x33x32x[[QELEMTYPE_OUT]]>
+    // CHECK-SAME:     strides = [1, 1]} -> tensor<1x960x33x32x[[QELEMTYPE_OUT]]>
 
     // CHECK:       [[SET3:%.+]] = VPU.StorageElementTable {dataElemType = [[QELEMTYPE_IN]], dataShape = [1, 960, 65, 65],
     // CHECK-SAME:    seAttr = #VPU.SEDilatedConv<dilation = [2, 2], kernelStride = [1, 1], kernelSize = [3, 3], dataOffset = [0, 0, 1, 0],
@@ -282,9 +278,9 @@ func.func @main(%arg0: tensor<1x960x65x65x!qElemTypeIn, {order = #NHWC}>) -> ten
     // CHECK-SAME:                      storage_element_table=tensor<1x60x32x33xi32, {order = #NHWC}>,
     // CHECK-SAME:    #VPU.SEDilatedConv<dilation = [2, 2], kernelStride = [1, 1], kernelSize = [3, 3], dataOffset = [0, 0, 1, 0], dataSizes = [1, 960, 64, 65]>>
 
-    // CHECK:       [[DEPTHCONV3:%.+]] = VPU.NCE.DepthConvolution([[SPARSETENSOR3]], [[WEIGHTS]], [[WEIGHTTABLE:%.+]])
+    // CHECK:       [[DEPTHCONV3:%.+]] = VPU.NCE.DepthConvolution([[SPARSETENSOR3]], [[WEIGHTS]], [[WEIGHTTABLE:%.+]]) rawFilterShape [960, 1, 3, 3]
     // CHECK-SAME:    pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-    // CHECK-SAME:    rawFilterShape = [960, 1, 3, 3], strides = [1, 1]} -> tensor<1x960x32x33x[[QELEMTYPE_OUT]]>
+    // CHECK-SAME:    strides = [1, 1]} -> tensor<1x960x32x33x[[QELEMTYPE_OUT]]>
 
     // CHECK:       [[SET4:%.+]] = VPU.StorageElementTable {dataElemType = [[QELEMTYPE_IN]], dataShape = [1, 960, 65, 65],
     // CHECK-SAME:    seAttr = #VPU.SEDilatedConv<dilation = [2, 2], kernelStride = [1, 1], kernelSize = [3, 3], dataOffset = [0, 0, 1, 1],
@@ -298,9 +294,9 @@ func.func @main(%arg0: tensor<1x960x65x65x!qElemTypeIn, {order = #NHWC}>) -> ten
     // CHECK-SAME:                      storage_element_table=tensor<1x60x32x32xi32, {order = #NHWC}>,
     // CHECK-SAME:    #VPU.SEDilatedConv<dilation = [2, 2], kernelStride = [1, 1], kernelSize = [3, 3], dataOffset = [0, 0, 1, 1], dataSizes = [1, 960, 64, 64]>>
 
-    // CHECK:       [[DEPTHCONV4:%.+]] = VPU.NCE.DepthConvolution([[SPARSETENSOR4]], [[WEIGHTS]], [[WEIGHTTABLE:%.+]])
+    // CHECK:       [[DEPTHCONV4:%.+]] = VPU.NCE.DepthConvolution([[SPARSETENSOR4]], [[WEIGHTS]], [[WEIGHTTABLE:%.+]]) rawFilterShape [960, 1, 3, 3]
     // CHECK-SAME:    pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-    // CHECK-SAME:    rawFilterShape = [960, 1, 3, 3], strides = [1, 1]} -> tensor<1x960x32x32x[[QELEMTYPE_OUT]]>
+    // CHECK-SAME:    strides = [1, 1]} -> tensor<1x960x32x32x[[QELEMTYPE_OUT]]>
 
     // CHECK:       [[CONCAT:%.+]] = VPU.Concat([[DEPTHCONV1]], [[DEPTHCONV2]], [[DEPTHCONV3]], [[DEPTHCONV4]])
     // CHECK-SAME{LITERAL}: static_offsets = [[0, 0, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0], [0, 0, 1, 1]]

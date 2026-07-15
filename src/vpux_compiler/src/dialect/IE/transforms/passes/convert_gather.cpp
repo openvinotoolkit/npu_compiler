@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/utils/broadcast_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -37,6 +38,8 @@ public:
 public:
     class GatherToSlice;
     class GatherToReverse;
+    class GatherRepeatInterleaveToBroadcast;
+    class FuseBroadcastGatherND;
 
 private:
     void safeRunOnFunc() final;
@@ -186,6 +189,197 @@ mlir::LogicalResult ConvertGatherPass::GatherToReverse::matchAndRewrite(IE::Gath
 }
 
 //
+// GatherRepeatInterleaveToBroadcast
+//
+// Converts a Gather that implements repeat_interleave(n) into Reshape + Broadcast + Reshape.
+// Pattern: indices = [0, 0, 1, 1, 2, 2, ...] (each value repeated n times).
+//
+// Before:
+//   Gather(input[..., D, ...], indices=[D*n], axis=A) -> [..., D*n, ...]
+//
+// After:
+//   Reshape(input, [..., D, 1, ...]) -> Broadcast([..., D, n, ...]) -> Reshape([..., D*n, ...])
+//
+
+class ConvertGatherPass::GatherRepeatInterleaveToBroadcast final : public mlir::OpRewritePattern<IE::GatherOp> {
+public:
+    GatherRepeatInterleaveToBroadcast(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::GatherOp>(ctx), _log(log) {
+        setDebugName("ConvertGatherPass::GatherRepeatInterleaveToBroadcast");
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::GatherOp gatherOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult ConvertGatherPass::GatherRepeatInterleaveToBroadcast::matchAndRewrite(
+        IE::GatherOp gatherOp, mlir::PatternRewriter& rewriter) const {
+    _log.trace("[{0}] Got '{1}' at '{2}'", this->getDebugName(), gatherOp->getName(), gatherOp->getLoc());
+
+    if (!checkAttrsForGatherOp(gatherOp)) {
+        return mlir::failure();
+    }
+
+    auto indices = gatherOp.getIndices().getDefiningOp<Const::DeclareOp>();
+    const auto indicesContent = indices.getContent();
+    const auto indicesNums = indicesContent.getType().getNumElements();
+
+    if (indicesNums <= 1) {
+        return mlir::failure();
+    }
+
+    const auto axisVal = gatherOp.getAxisValue().value();
+    const auto inputShape = getShape(gatherOp.getInput());
+    const auto axisDim = inputShape[Dim(axisVal)];
+
+    if (axisDim == 0 || indicesNums % axisDim != 0) {
+        return mlir::failure();
+    }
+
+    const auto repeatFactor = indicesNums / axisDim;
+    if (repeatFactor <= 1) {
+        return mlir::failure();
+    }
+
+    // Verify indices follow repeat_interleave(n) pattern: indices[i] = i / repeatFactor
+    const auto vals = to_small_vector(indicesContent.getValues<int64_t>());
+    for (int64_t i = 0; i < indicesNums; ++i) {
+        if (vals[i] != i / repeatFactor) {
+            return mlir::failure();
+        }
+    }
+
+    _log.trace("[{0}] Detected repeat_interleave({1}) on axis {2}, dim {3} -> {4}", this->getDebugName(), repeatFactor,
+               axisVal, axisDim, indicesNums);
+
+    auto* ctx = rewriter.getContext();
+    const auto loc = gatherOp.getLoc();
+
+    SmallVector<int64_t> reshapeShape1(inputShape.begin(), inputShape.end());
+    reshapeShape1.insert(reshapeShape1.begin() + axisVal + 1, 1);
+
+    auto reshape1 = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "unsqueeze"), gatherOp.getInput(),
+                                                   getIntArrayAttr(ctx, reshapeShape1));
+
+    SmallVector<int64_t> broadcastShape(std::move(reshapeShape1));
+    broadcastShape[axisVal + 1] = repeatFactor;
+
+    auto broadcastResult =
+            IE::createBroadcast(rewriter, appendLoc(loc, "repeat"), reshape1.getOutput(), ShapeRef(broadcastShape));
+
+    const auto outputShape = to_small_vector(getShape(gatherOp.getOutput()));
+    rewriter.replaceOpWithNewOp<IE::ReshapeOp>(gatherOp, broadcastResult, getIntArrayAttr(ctx, outputShape));
+
+    return mlir::success();
+}
+
+//
+// FuseBroadcastGatherND
+//
+// Folds away a GatherND whose input is a Broadcast (NUMPY or BIDIRECTIONAL mode) when all of the
+// first `lastDim` left-padded broadcast input dimensions are size 1 and at least one of them is a
+// broadcasting axis (i.e. expands to > 1 in the output). Under these conditions every index tuple
+// selects identical data, so the GatherND is redundant.
+//
+// Before:
+//   Broadcast(input[...] -> [1 x N x ...rest...]) -> GatherND(indices shape=[..., lastDim]) -> out
+//
+// After:
+//   Reshape(input, [...rest...]) -> Broadcast(-> out_shape)
+//
+
+class ConvertGatherPass::FuseBroadcastGatherND final : public mlir::OpRewritePattern<IE::GatherNDOp> {
+public:
+    FuseBroadcastGatherND(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::GatherNDOp>(ctx), _log(log) {
+        setDebugName("ConvertGatherPass::FuseBroadcastGatherND");
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::GatherNDOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult ConvertGatherPass::FuseBroadcastGatherND::matchAndRewrite(IE::GatherNDOp origOp,
+                                                                              mlir::PatternRewriter& rewriter) const {
+    _log.trace("[{0}] Got '{1}' at '{2}'", this->getDebugName(), origOp->getName(), origOp->getLoc());
+
+    auto broadcastOp = origOp.getInput().getDefiningOp<IE::BroadcastOp>();
+    if (broadcastOp == nullptr) {
+        return mlir::failure();
+    }
+
+    const auto outType = mlir::cast<mlir::ShapedType>(origOp.getOutput().getType());
+    if (!outType.hasStaticShape()) {
+        return mlir::failure();
+    }
+
+    // EXPLICIT mode uses an axis mapping that may reorder dimensions.
+    const auto broadcastMode = broadcastOp.getMode().value_or(IE::BroadcastType::NUMPY);
+    if (broadcastMode == IE::BroadcastType::EXPLICIT) {
+        return mlir::failure();
+    }
+
+    const int64_t batchDims = origOp.getBatchDims();
+    if (batchDims != 0) {
+        return mlir::failure();
+    }
+
+    const auto indicesType = mlir::cast<mlir::ShapedType>(origOp.getIndices().getType());
+    const auto indicesShape = indicesType.getShape();
+    if (indicesShape.empty()) {
+        return mlir::failure();
+    }
+
+    const int64_t lastDim = indicesShape.back();
+    const auto broadcastInputShape = to_small_vector(getShape(broadcastOp.getInput()));
+    const auto broadcastOutputShape = to_small_vector(getShape(broadcastOp.getOutput()));
+
+    if (broadcastInputShape.size() > broadcastOutputShape.size()) {
+        return mlir::failure();
+    }
+
+    if (static_cast<int64_t>(broadcastOutputShape.size()) < lastDim) {
+        return mlir::failure();
+    }
+
+    const int64_t rankDiff =
+            static_cast<int64_t>(broadcastOutputShape.size()) - static_cast<int64_t>(broadcastInputShape.size());
+    SmallVector<int64_t> alignedInputShape(rankDiff, 1);
+    alignedInputShape.append(broadcastInputShape.begin(), broadcastInputShape.end());
+
+    bool hasBroadcastAxis = false;
+    for (int64_t d = 0; d < lastDim; ++d) {
+        if (alignedInputShape[d] != 1) {
+            return mlir::failure();
+        }
+        if (broadcastOutputShape[d] > 1) {
+            hasBroadcastAxis = true;
+        }
+    }
+    if (!hasBroadcastAxis) {
+        return mlir::failure();
+    }
+
+    SmallVector<int64_t> reshapeShape(alignedInputShape.begin() + lastDim, alignedInputShape.end());
+
+    const auto ctx = rewriter.getContext();
+    const auto loc = origOp.getLoc();
+
+    auto reshapeOp = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "reshape"), broadcastOp.getInput(),
+                                                    getIntArrayAttr(ctx, reshapeShape));
+
+    const auto outShape = to_small_vector(outType.getShape());
+    auto newBroadcast =
+            IE::createBroadcast(rewriter, appendLoc(loc, "broadcast"), reshapeOp.getOutput(), ShapeRef(outShape));
+
+    rewriter.replaceOp(origOp, newBroadcast);
+    return mlir::success();
+}
+
+//
 // safeRunOnFunc
 //
 
@@ -195,6 +389,8 @@ void ConvertGatherPass::safeRunOnFunc() {
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<GatherToSlice>(&ctx, _log);
     patterns.add<GatherToReverse>(&ctx, _log);
+    patterns.add<GatherRepeatInterleaveToBroadcast>(&ctx, _log);
+    patterns.add<FuseBroadcastGatherND>(&ctx, _log);
 
     auto func = getOperation();
     if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {

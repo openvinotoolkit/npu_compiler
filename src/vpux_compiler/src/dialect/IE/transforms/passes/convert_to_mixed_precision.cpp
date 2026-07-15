@@ -8,18 +8,25 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/matmul.hpp"
+#include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPU/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/Value.h>
+#include <mlir/Support/LLVM.h>
+
+#include <cmath>
+#include <numeric>
 
 namespace vpux::IE {
 #define GEN_PASS_DECL_CONVERTTOMIXEDPRECISION
@@ -32,7 +39,8 @@ using namespace IE;
 
 mlir::LogicalResult FloatOutConvRewriter::matchAndRewrite(IE::ConvolutionOp convolutionOp,
                                                           mlir::PatternRewriter& rewriter) const {
-    if (!_isMixPrecisionSupported(convolutionOp, false, _log)) {
+    auto quantizedLayerOp = mlir::dyn_cast<IE::QuantizedLayerOpInterface>(convolutionOp.getOperation());
+    if (!quantizedLayerOp || !quantizedLayerOp.isMixPrecisionSupported(false)) {
         return mlir::failure();
     }
     if (mlir::failed(checkRescaledBiasRange(convolutionOp))) {
@@ -61,7 +69,9 @@ mlir::LogicalResult FloatOutConvRewriter::matchAndRewrite(IE::ConvolutionOp conv
 
 mlir::LogicalResult FloatOutGroupConvRewriter::matchAndRewrite(IE::GroupConvolutionOp groupConvolutionOp,
                                                                mlir::PatternRewriter& rewriter) const {
-    if (IE::areAnyUserQuantizeOps(groupConvolutionOp) || !_isMixPrecisionSupported(groupConvolutionOp, false, _log)) {
+    auto quantizedLayerOp = mlir::dyn_cast<IE::QuantizedLayerOpInterface>(groupConvolutionOp.getOperation());
+    if (IE::areAnyUserQuantizeOps(groupConvolutionOp) || !quantizedLayerOp ||
+        !quantizedLayerOp.isMixPrecisionSupported(false)) {
         return mlir::failure();
     }
     if (mlir::failed(checkRescaledBiasRange(groupConvolutionOp))) {
@@ -94,7 +104,8 @@ mlir::LogicalResult FloatOutGroupConvRewriter::matchAndRewrite(IE::GroupConvolut
 
 mlir::LogicalResult FloatOutTransposedConvRewriter::matchAndRewrite(IE::TransposedConvolutionOp origOp,
                                                                     mlir::PatternRewriter& rewriter) const {
-    if (IE::areAnyUserQuantizeOps(origOp) || !_isMixPrecisionSupported(origOp, false, _log)) {
+    auto quantizedLayerOp = mlir::dyn_cast<IE::QuantizedLayerOpInterface>(origOp.getOperation());
+    if (IE::areAnyUserQuantizeOps(origOp) || !quantizedLayerOp || !quantizedLayerOp.isMixPrecisionSupported(false)) {
         return mlir::failure();
     }
     if (mlir::failed(checkRescaledBiasRange(origOp))) {
@@ -126,7 +137,8 @@ mlir::LogicalResult FloatOutTransposedConvRewriter::matchAndRewrite(IE::Transpos
 
 mlir::LogicalResult FloatOutMatMulRewriter::matchAndRewrite(IE::MatMulOp matmulOp,
                                                             mlir::PatternRewriter& rewriter) const {
-    if (IE::areAnyUserQuantizeOps(matmulOp) || !_isMixPrecisionSupported(matmulOp, false, _log)) {
+    auto quantizedLayerOp = mlir::dyn_cast<IE::QuantizedLayerOpInterface>(matmulOp.getOperation());
+    if (IE::areAnyUserQuantizeOps(matmulOp) || !quantizedLayerOp || !quantizedLayerOp.isMixPrecisionSupported(false)) {
         return mlir::failure();
     }
 
@@ -152,7 +164,8 @@ mlir::LogicalResult FloatOutMatMulRewriter::matchAndRewrite(IE::MatMulOp matmulO
 
 mlir::LogicalResult FloatOutAvgPoolRewriter::matchAndRewrite(IE::AvgPoolOp avgPoolOp,
                                                              mlir::PatternRewriter& rewriter) const {
-    if (IE::areAnyUserQuantizeOps(avgPoolOp) || !_isMixPrecisionSupported(avgPoolOp, false, _log)) {
+    auto quantizedLayerOp = mlir::dyn_cast<IE::QuantizedLayerOpInterface>(avgPoolOp.getOperation());
+    if (IE::areAnyUserQuantizeOps(avgPoolOp) || !quantizedLayerOp || !quantizedLayerOp.isMixPrecisionSupported(false)) {
         return mlir::failure();
     }
     // Although the operation could support per channel quant params because is depthwise,
@@ -173,7 +186,8 @@ mlir::LogicalResult FloatOutAvgPoolRewriter::matchAndRewrite(IE::AvgPoolOp avgPo
 }
 
 mlir::LogicalResult FloatOutAddRewriter::matchAndRewrite(IE::AddOp addOp, mlir::PatternRewriter& rewriter) const {
-    if (IE::areAnyUserQuantizeOps(addOp) || !_isMixPrecisionSupported(addOp, false, _log)) {
+    auto quantizedLayerOp = mlir::dyn_cast<IE::QuantizedLayerOpInterface>(addOp.getOperation());
+    if (IE::areAnyUserQuantizeOps(addOp) || !quantizedLayerOp || !quantizedLayerOp.isMixPrecisionSupported(false)) {
         return mlir::failure();
     }
     // This transformation assumes that each input has IE::DequantizeOp producer
@@ -216,10 +230,18 @@ mlir::LogicalResult QuantizeWithNCERewriter::matchAndRewrite(IE::QuantizeOp orig
                            "{0} is a quantization-agnostic operation, mixed precision is not supported",
                            maybeNCETask->getName());
     }
-    if (!_isPerAxesSupported && isOutputPerAxisQuant &&
-        mlir::isa<IE::AddOp, IE::SubtractOp, IE::MultiplyOp, IE::AvgPoolOp>(maybeNCETask)) {
+
+    auto quantizedLayerOp = mlir::dyn_cast<IE::QuantizedLayerOpInterface>(maybeNCETask);
+    if (!quantizedLayerOp) {
+        return matchFailed(_log, rewriter, origOp, "Producer {0} does not support QuantizedLayerOpInterface",
+                           maybeNCETask->getName());
+    }
+
+    if (!quantizedLayerOp.isOutputQuantizationFusable(isOutputPerAxisQuant, /*isFloatInput=*/true)) {
         return matchFailed(_log, rewriter, origOp,
-                           "IE.AvgPool and Eltwise do not support per-channel quantized output");
+                           "Producer {0} does not support output quantization fusion for float-input mixed "
+                           "precision: per-channel quantized output or required PPE/post-op is unsupported",
+                           maybeNCETask->getName());
     }
 
     auto outType = mlir::cast<vpux::NDTypeInterface>(origOp->getResult(0).getType());
@@ -230,18 +252,12 @@ mlir::LogicalResult QuantizeWithNCERewriter::matchAndRewrite(IE::QuantizeOp orig
         return mlir::failure();
     }
 
-    auto layerWithPostOp = mlir::dyn_cast_or_null<IE::LayerWithPostOpInterface>(maybeNCETask);
-    if (layerWithPostOp != nullptr && layerWithPostOp.hasPPE() &&
-        !_checkPostOp(layerWithPostOp, isOutputPerAxisQuant, /*isFloatInput=*/true)) {
-        return matchFailed(_log, rewriter, origOp, "Layer with PostOp not supported");
-    }
-
     // NCE tasks with float input and quant output support LeakyReLU only per-tensor quantize output.
     // One would expect that with ops ran sequential: BIAS->SCALE->PRELU, we could easily support prelu and per axis
     // quant params. But actually in HW, depending on the sign of the FP BIAS result, you either execute SCALE or PRELU.
     // So for the negative values we'd have to combine the prelu alpha parameter and the requant scale into the per
     // tensor param for prelu scale. This explains why we can't have prelu with per axis quant in fp mode
-    if (!_isMixPrecisionSupported(maybeNCETask, !isOutputPerAxisQuant, _log)) {
+    if (!quantizedLayerOp.isMixPrecisionSupported(!isOutputPerAxisQuant)) {
         return matchFailed(_log, rewriter, origOp, "Producer {0} is not supported", maybeNCETask->getName());
     }
 
@@ -256,6 +272,162 @@ mlir::LogicalResult QuantizeWithNCERewriter::matchAndRewrite(IE::QuantizeOp orig
 
     return mlir::success();
 }
+
+template <typename ConcreteOp>
+mlir::LogicalResult MixedFloatInQuantWeightsWithDynamicDequantizeRewriter<ConcreteOp>::matchAndRewrite(
+        ConcreteOp convOp, mlir::PatternRewriter& rewriter) const {
+    auto quantizedLayerOp = mlir::dyn_cast<IE::QuantizedLayerOpInterface>(convOp.getOperation());
+    if (!quantizedLayerOp || !quantizedLayerOp.isMixPrecisionSupported(true)) {
+        return mlir::failure();
+    }
+
+    auto ctx = convOp->getContext();
+    auto op = convOp.getOperation();
+
+    const auto dequantizeType = IE::findQuantizedInput(op->getOperand(0), false);
+    auto dynamicDequantOp =
+            mlir::dyn_cast_if_present<IE::DynamicDequantizeOp>(IE::findDynDequantized(op->getOperand(1), true));
+
+    auto isFP8 = false;
+
+    if (dequantizeType != nullptr) {
+        const auto inType = mlir::cast<vpux::NDTypeInterface>(dequantizeType.getType());
+        const auto elemType = inType.getElementType();
+        // Only FP8 dequantized activations are supported by this rewriter; other dequantized activations are handled
+        // elsewhere.
+        isFP8 = vpux::isFloat8(elemType) || vpux::isFloat8Quantized(elemType);
+        if (!isFP8) {
+            return mlir::failure();
+        }
+    }
+
+    if (dynamicDequantOp == nullptr) {
+        return mlir::failure();
+    }
+    const auto filterDequantizeInput = dynamicDequantOp.getInput();
+    const auto filterDequantizeScale = dynamicDequantOp.getScale();
+    const auto filterDequantizeZP = dynamicDequantOp.getZp();
+
+    const auto quantFilterDequantizeType = mlir::dyn_cast<mlir::quant::QuantizedType>(
+            mlir::cast<vpux::NDTypeInterface>(filterDequantizeInput.getType()).getElementType());
+    if (quantFilterDequantizeType == nullptr) {
+        return mlir::failure();
+    }
+
+    const auto isSignedQuantizedType = [](mlir::quant::QuantizedType quantType) {
+        if (mlir::isa<mlir::quant::UniformQuantizedType, mlir::quant::UniformQuantizedPerAxisType>(quantType)) {
+            const auto quantized = mlir::cast<mlir::quant::QuantizedType>(quantType);
+            if (const auto quantileFloatStorage =
+                        mlir::dyn_cast<vpux::type::QuantileType>(quantized.getStorageType())) {
+                mlir::Type quantileType = quantileFloatStorage.getQuantileType();
+                auto intType = mlir::dyn_cast<mlir::IntegerType>(quantileType);
+                return intType == nullptr || intType.isSigned();
+            }
+        }
+        return quantType.isSigned();
+    };
+
+    const auto perChannelQuantType =
+            mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(quantFilterDequantizeType);
+    const auto perTensorQuantType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(quantFilterDequantizeType);
+    const auto isSymmetricQuant = IE::isSymmetricQuantType(quantFilterDequantizeType);
+    auto moduleOp = getModuleOp(convOp.getOperation());
+    const auto isAsymmetricPerChannelSupported = config::asymmetricPerChannelZeroPointSupported(moduleOp);
+    const auto isAsymmetricPerTensorSupported = config::asymmetricPerTensorZeroPointSupported(moduleOp);
+
+    // Only signed quant is supported for input + wt mixed precision
+    if (!isSignedQuantizedType(quantFilterDequantizeType) ||
+        (perChannelQuantType && !isAsymmetricPerChannelSupported && !isSymmetricQuant) ||
+        (perTensorQuantType && !isAsymmetricPerTensorSupported && !isSymmetricQuant)) {
+        return mlir::failure();
+    }
+
+    if (isFP8) {
+        const auto storageType = quantFilterDequantizeType.getStorageType();
+        if (mlir::isa<mlir::IntegerType>(storageType) && storageType.getIntOrFloatBitWidth() == 8) {
+            // Activation FP8 quantization with uint8/int8 weights is not supported in mixed precision mode.
+            return mlir::failure();
+        }
+    }
+
+    const auto hasLeakyReLUConsumer = llvm::any_of(convOp->getUsers(), [](mlir::Operation* op) {
+        return mlir::isa<IE::LeakyReluOp>(op);
+    });
+
+    if (mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(quantFilterDequantizeType) &&
+        (hasLeakyReLUConsumer || IE::hasLeakyReLUPostOp(convOp))) {
+        return mlir::failure();
+    }
+
+    auto scale = [&]() -> mlir::Value {
+        if (filterDequantizeScale == nullptr) {
+            return nullptr;
+        }
+
+        const auto scaleType = mlir::cast<vpux::NDTypeInterface>(filterDequantizeScale.getType());
+        if (scaleType.getElementType().isF32()) {
+            return filterDequantizeScale;
+        }
+
+        // Use a dummy identity MaxPool (1x1 kernel, stride 1, no padding) to perform
+        // the f16 -> f32 type conversion instead of a plain ConvertOp.
+        // Reshape the scale tensor so channels <= 256; remaining elements are
+        // distributed as equally as possible across H and W.
+        const auto origShape = scaleType.getShape();
+        const int64_t totalElems =
+                std::accumulate(origShape.begin(), origShape.end(), int64_t(1), std::multiplies<int64_t>());
+
+        // Find the largest supported channel count that divides totalElems.
+        const auto& strategyFactory = VPU::getVPUStrategyFactory(ctx);
+        SmallVector<int64_t> supportedChannels(strategyFactory->getSupportedChannelsDW());
+        int64_t C = 1;
+        for (const int64_t candidate : supportedChannels) {
+            if (candidate <= totalElems && totalElems % candidate == 0) {
+                C = candidate;
+                break;
+            }
+        }
+
+        // Split the remaining elements into H and W (roughly equal).
+        const auto rem = totalElems / C;
+        auto H = static_cast<int64_t>(std::sqrt(static_cast<double>(rem)));
+        while (H > 1 && rem % H != 0) {
+            --H;
+        }
+        const auto W = rem / H;
+
+        const SmallVector<int64_t> poolShape = {1, C, H, W};
+        const auto poolShapeAttr = getIntArrayAttr(ctx, poolShape);
+
+        // Reshape scale into [1, C, H, W] for the MaxPool.
+        auto reshapedScale = rewriter.createOrFold<IE::ReshapeOp>(
+                appendLoc(filterDequantizeScale.getLoc(), "scale_reshape_in"), filterDequantizeScale, poolShapeAttr);
+
+        // Identity MaxPool outputs fp32.
+        const auto reshapedType = mlir::cast<vpux::NDTypeInterface>(reshapedScale.getType());
+        const auto fp32PoolType = reshapedType.changeElemType(mlir::Float32Type::get(ctx));
+        auto maxPoolOut = IE::createIdentityMaxPool(reshapedScale, fp32PoolType, rewriter)->getResult(0);
+
+        // Reshape back to the original logical shape with fp32 element type.
+        const auto origShapeAttr = getIntArrayAttr(ctx, SmallVector<int64_t>(origShape.begin(), origShape.end()));
+        return rewriter.createOrFold<IE::ReshapeOp>(appendLoc(filterDequantizeScale.getLoc(), "scale_reshape_out"),
+                                                    maxPoolOut, origShapeAttr);
+    }();
+
+    auto newInput = dequantizeType != nullptr ? dequantizeType : convOp.getInput();
+
+    if (auto origOp = mlir::dyn_cast_if_present<IE::ConvolutionOp>(op)) {
+        rewriter.replaceOpWithNewOp<IE::ConvolutionOp>(
+                origOp, origOp.getOutput().getType(), newInput, filterDequantizeInput, origOp.getBias(), scale,
+                filterDequantizeZP, origOp.getStridesAttr(), origOp.getPadsBeginAttr(), origOp.getPadsEndAttr(),
+                origOp.getDilationsAttr(), origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getStaticScaleAttr(),
+                origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+    }
+
+    return mlir::success();
+}
+
+template class vpux::IE::MixedFloatInQuantWeightsWithDynamicDequantizeRewriter<vpux::IE::ConvolutionOp>;
 
 namespace {
 

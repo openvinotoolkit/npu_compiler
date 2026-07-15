@@ -28,6 +28,7 @@ namespace vpux::VPUIP {
 #include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
 }  // namespace vpux::VPUIP
 
+using namespace vpux;
 using namespace vpux::VPUIP;
 
 namespace {

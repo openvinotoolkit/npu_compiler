@@ -53,10 +53,11 @@ private:
     mlir::Value extractScale(mlir::Location origOpLoc, mlir::Value meanVar, int64_t weightsTableC,
                              mlir::Type fp32ElemType, mlir::PatternRewriter& rewriter) const;
     // Compute bias = -mean, input shape [1, C, 1, 1], output shape [C, 1, 1, 1] (after reshape)
-    mlir::Value computeBias(mlir::Location origOpLoc, mlir::Value mean, int64_t weightsTableC, DimsOrder inOrder,
+    mlir::Value computeBias(mlir::Location origOpLoc, mlir::Value mean, int64_t weightsTableC, const DimsOrder& inOrder,
                             VPU::MVN1NormalizeOp origOp, mlir::PatternRewriter& rewriter) const;
     mlir::Value createWeightsTable(mlir::Location origOpLoc, mlir::Value scale, mlir::Value bias, int64_t weightsTableC,
-                                   mlir::Type fp32ElemType, DimsOrder inOrder, mlir::PatternRewriter& rewriter) const;
+                                   mlir::Type fp32ElemType, const DimsOrder& inOrder,
+                                   mlir::PatternRewriter& rewriter) const;
 
     Logger _log;
 };
@@ -109,7 +110,7 @@ mlir::Value RunMVNNormalizeOnDPU::extractScale(mlir::Location origOpLoc, mlir::V
 // Input:  mean with shape [1, C, 1, 1]
 // Output: bias with shape [C, 1, 1, 1] in fp32 (for weights table)
 mlir::Value RunMVNNormalizeOnDPU::computeBias(mlir::Location origOpLoc, mlir::Value mean, int64_t weightsTableC,
-                                              DimsOrder inOrder, VPU::MVN1NormalizeOp origOp,
+                                              const DimsOrder& inOrder, VPU::MVN1NormalizeOp origOp,
                                               mlir::PatternRewriter& rewriter) const {
     auto ctx = rewriter.getContext();
     auto fp32ElemType = mlir::Float32Type::get(ctx);
@@ -135,6 +136,7 @@ mlir::Value RunMVNNormalizeOnDPU::computeBias(mlir::Location origOpLoc, mlir::Va
 
     auto bias =
             rewriter.create<VPU::NCEEltwiseOp>(appendLoc(origOpLoc, "_compute_bias"), mean.getType(), mean, negOne,
+                                               /*weight_table_scale=*/nullptr, /*weight_table_bias=*/nullptr,
                                                VPU::EltwiseTypeAttr::get(ctx, opType), bias_ppeAttr, mpeEngineModeAttr,
                                                /*multi_cluster_strategy*/ nullptr,
                                                /*is_inplace*/ nullptr, nullptr, nullptr)
@@ -154,8 +156,8 @@ mlir::Value RunMVNNormalizeOnDPU::computeBias(mlir::Location origOpLoc, mlir::Va
 // Create weights table with shape [C, 1, 1, 4]
 // Layout: [sparsityPointers(2), scale(1), bias(1)]
 mlir::Value RunMVNNormalizeOnDPU::createWeightsTable(mlir::Location origOpLoc, mlir::Value scale, mlir::Value bias,
-                                                     int64_t weightsTableC, mlir::Type fp32ElemType, DimsOrder inOrder,
-                                                     mlir::PatternRewriter& rewriter) const {
+                                                     int64_t weightsTableC, mlir::Type fp32ElemType,
+                                                     const DimsOrder& inOrder, mlir::PatternRewriter& rewriter) const {
     auto ctx = rewriter.getContext();
 
     // Create weightsSparsityPointers with shape [C, 1, 1, 2] and initialized to 0
@@ -233,10 +235,16 @@ mlir::LogicalResult RunMVNNormalizeOnDPU::matchAndRewrite(VPU::MVN1NormalizeOp o
     if (auto mpeEngineInterface = mlir::dyn_cast<IE::MPEEngineInfoOpInterface>(origOp.getOperation())) {
         mpeEngineModeAttr = mlir::cast<VPU::MPEEngineAttr>(mpeEngineInterface.getMPEEngineMode());
     }
-    rewriter.replaceOpWithNewOp<VPU::NCEMaxPoolOp>(origOp, origOp.getInput(), weightsTable,
-                                                   getIntArrayAttr(ctx, maxPoolKernels),
-                                                   getIntArrayAttr(ctx, maxPoolStrides), padAttr, ppeAttr,
-                                                   mpeEngineModeAttr, nullptr, nullptr, nullptr, nullptr);
+    auto newMaxPoolOp = rewriter.create<VPU::NCEMaxPoolOp>(
+            origOp->getLoc(), origOp.getOutput().getType(),
+            /*reduceXyMax */ nullptr,
+            /*reduceXyMin */ nullptr,
+            /*reduceTensorMinMax */ nullptr, origOp.getInput(), weightsTable, nullptr, nullptr,
+            getIntArrayAttr(ctx, maxPoolKernels), getIntArrayAttr(ctx, maxPoolStrides), padAttr, ppeAttr,
+            mpeEngineModeAttr, nullptr,
+            /*MultiClusterStrategyAttr=*/nullptr, /*maxPoolOp.getOutputPaddingAttr()=*/nullptr,
+            /*maxPoolOp.getInputPaddingAttr()=*/nullptr, /*axesValue=*/nullptr);
+    rewriter.replaceOp(origOp, newMaxPoolOp.getOutput());
 
     return mlir::success();
 }

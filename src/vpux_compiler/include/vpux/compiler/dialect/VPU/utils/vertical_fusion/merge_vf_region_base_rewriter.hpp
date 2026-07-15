@@ -68,14 +68,11 @@ protected:
                                                  VPU::VerticalFusionOp mergedOp) const = 0;
     bool isLegalFusion(VPU::VerticalFusionOp currentOp, VPU::VerticalFusionOp prevOp) const;
     bool checkOtherVFInput(VPU::VerticalFusionOp currentOp, VPU::VerticalFusionOp prevOp) const;
-    bool checkVFCostFunction(VPU::VerticalFusionOp prevOp, VPU::VerticalFusionOp currentOp,
-                             VFCaseType& mergedCase) const;
+    virtual bool checkVFCostFunction(VPU::VerticalFusionOp prevOp, VPU::VerticalFusionOp currentOp,
+                                     VFCaseType& mergedCase) const = 0;
     bool waitOtherUsers(VPU::VerticalFusionOp newBlock, VPU::VerticalFusionOp parentVFOp) const;
     void fuseBlocks(mlir::PatternRewriter& rewriter, VPU::VerticalFusionOp currentOp,
                     VPU::VerticalFusionOp mergedOp) const;
-
-    VPUNNCostParameters fillInCostParam(mlir::Operation* operation, const OutputTiling& tiling,
-                                        const SmallVector<TileInfo>& inputTiles, const bool enablePrefetching) const;
 
     bool isTileOverOutputChannel(VFConfigType& vfConfig) const;
     bool hasTiling(ArrayRef<int64_t> tilingInfo) const;

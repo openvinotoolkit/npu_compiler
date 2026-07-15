@@ -3,9 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
 
 #include <mlir/IR/PatternMatch.h>
@@ -77,10 +79,18 @@ mlir::LogicalResult vpux::IE::OneHotOp::inferReturnTypeComponents(
         return mlir::failure();
     }
     int64_t depthVal = checked_cast<int64_t>(*depth);
-    if (axis < 0) {
-        outShape.insert(outShape.end() + 1 + axis, depthVal);
+
+    if (oneHot.getRankExpanded().value_or(false)) {
+        // rank_expanded mode: input rank == output rank.
+        // The axis dim of the input is a placeholder 1; replace it with depth.
+        const auto axisIdx = axis < 0 ? static_cast<int64_t>(outShape.size()) + axis : axis;
+        outShape[axisIdx] = depthVal;
     } else {
-        outShape.insert(outShape.begin() + axis, depthVal);
+        if (axis < 0) {
+            outShape.insert(outShape.end() + 1 + axis, depthVal);
+        } else {
+            outShape.insert(outShape.begin() + axis, depthVal);
+        }
     }
 
     inferredReturnShapes.emplace_back(outShape, outElemType);
@@ -131,11 +141,84 @@ mlir::LogicalResult ConvertConstToAttr::matchAndRewrite(IE::OneHotOp oneHotOp, m
     const auto onValueAttrValue = onValueContent.getSplatValue<float>();
     const auto offValueAttrValue = offValueContent.getSplatValue<float>();
 
-    rewriter.replaceOpWithNewOp<IE::OneHotOp>(oneHotOp, oneHotOp.getType(), oneHotOp.getInput(), nullptr, nullptr,
-                                              nullptr, rewriter.getI64IntegerAttr(depthAttrValue),
-                                              rewriter.getF64FloatAttr(onValueAttrValue),
-                                              rewriter.getF64FloatAttr(offValueAttrValue), oneHotOp.getAxisAttr(),
-                                              oneHotOp.getModeAttr(), oneHotOp.getOutputType());
+    rewriter.replaceOpWithNewOp<IE::OneHotOp>(
+            oneHotOp, oneHotOp.getType(), oneHotOp.getInput(), nullptr, nullptr, nullptr,
+            rewriter.getI64IntegerAttr(depthAttrValue), rewriter.getF64FloatAttr(onValueAttrValue),
+            rewriter.getF64FloatAttr(offValueAttrValue), oneHotOp.getAxisAttr(), oneHotOp.getModeAttr(),
+            oneHotOp.getRankExpandedAttr(), oneHotOp.getOutputType());
+
+    return mlir::success();
+}
+
+//
+//
+// NormalizeAxis
+//
+
+class NormalizeAxis final : public mlir::OpRewritePattern<IE::OneHotOp> {
+public:
+    using mlir::OpRewritePattern<IE::OneHotOp>::OpRewritePattern;
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::OneHotOp oneHotOp, mlir::PatternRewriter& rewriter) const final;
+};
+
+mlir::LogicalResult NormalizeAxis::matchAndRewrite(IE::OneHotOp oneHotOp, mlir::PatternRewriter& rewriter) const {
+    const auto axis = oneHotOp.getAxisAttr();
+    if (axis >= 0) {
+        return mlir::failure();
+    }
+
+    const auto outRank =
+            static_cast<int64_t>(mlir::cast<vpux::NDTypeInterface>(oneHotOp.getOutput().getType()).getRank());
+    const auto normalizedAxis = getIntAttr(rewriter.getContext(), outRank + axis);
+
+    rewriter.replaceOpWithNewOp<IE::OneHotOp>(oneHotOp, oneHotOp.getType(), oneHotOp.getInput(), oneHotOp.getDepth(),
+                                              oneHotOp.getOnValue(), oneHotOp.getOffValue(),
+                                              oneHotOp.getDepthAttrAttr(), oneHotOp.getOnValueAttrAttr(),
+                                              oneHotOp.getOffValueAttrAttr(), normalizedAxis, oneHotOp.getModeAttr(),
+                                              oneHotOp.getRankExpandedAttr(), oneHotOp.getOutputTypeAttr());
+
+    return mlir::success();
+}
+
+//
+// ExpandInputRank
+//
+
+class ExpandInputRank final : public mlir::OpRewritePattern<IE::OneHotOp> {
+public:
+    using mlir::OpRewritePattern<IE::OneHotOp>::OpRewritePattern;
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::OneHotOp oneHotOp, mlir::PatternRewriter& rewriter) const final;
+};
+
+mlir::LogicalResult ExpandInputRank::matchAndRewrite(IE::OneHotOp oneHotOp, mlir::PatternRewriter& rewriter) const {
+    // Already expanded.
+    if (oneHotOp.getRankExpanded().value_or(false)) {
+        return mlir::failure();
+    }
+
+    const auto inType = mlir::cast<vpux::NDTypeInterface>(oneHotOp.getInput().getType());
+    const auto outType = mlir::cast<vpux::NDTypeInterface>(oneHotOp.getOutput().getType());
+    if (inType.getRank() == outType.getRank()) {
+        return mlir::failure();
+    }
+
+    // Insert a size-1 dimension at the axis position so that input rank == output rank.
+    auto inShape = to_small_vector(inType.getShape());
+    const auto axis = oneHotOp.getAxisAttr();
+    inShape.insert(inShape.begin() + axis, int64_t(1));
+
+    const auto newInShapeAttr = getIntArrayAttr(rewriter.getContext(), inShape);
+    auto inputReshape = rewriter.createOrFold<IE::ReshapeOp>(oneHotOp->getLoc(), oneHotOp.getInput(), newInShapeAttr);
+
+    rewriter.replaceOpWithNewOp<IE::OneHotOp>(
+            oneHotOp, oneHotOp.getType(), inputReshape, oneHotOp.getDepth(), oneHotOp.getOnValue(),
+            oneHotOp.getOffValue(), oneHotOp.getDepthAttrAttr(), oneHotOp.getOnValueAttrAttr(),
+            oneHotOp.getOffValueAttrAttr(), oneHotOp.getAxisAttr(), oneHotOp.getModeAttr(),
+            /*rank_expanded=*/mlir::BoolAttr::get(rewriter.getContext(), true), oneHotOp.getOutputType());
 
     return mlir::success();
 }
@@ -148,4 +231,6 @@ mlir::LogicalResult ConvertConstToAttr::matchAndRewrite(IE::OneHotOp oneHotOp, m
 
 void vpux::IE::OneHotOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns, mlir::MLIRContext* context) {
     patterns.add<ConvertConstToAttr>(context);
+    patterns.add<NormalizeAxis>(context);
+    patterns.add<ExpandInputRank>(context);
 }

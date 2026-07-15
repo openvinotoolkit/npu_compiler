@@ -51,10 +51,12 @@ const SchemaAndPtrType getProfilingMetaBufferVerified(const uint8_t* buffer, siz
 }
 
 const SchemaAndPtrType extractProfilingMetadata(const uint8_t* data, size_t size) {
-    const uint32_t metadataEncoding = getProfilingSectionEncoding(data, size);
+    VPUX_THROW_WHEN(size < HEADER_SIZE_V1, "Profiling metadata section too small");
+
+    const uint32_t metadataEncoding = *reinterpret_cast<const uint32_t*>(data);
     VPUX_THROW_UNLESS(metadataEncoding == PROFILING_SECTION_ENCODING, "Incompatible profiling metadata encoding");
 
-    const auto schemaAndPtr = getProfilingMetaBufferVerified(data + HEADER_SIZE_V1, size);
+    const auto schemaAndPtr = getProfilingMetaBufferVerified(data + HEADER_SIZE_V1, size - HEADER_SIZE_V1);
     const auto schemaMajorVersion = schemaAndPtr.first->majorVersion();
     // Mismatch of schema major version leads to full incompatibility
     VPUX_THROW_UNLESS(schemaMajorVersion == PROFILING_METADATA_VERSION_MAJOR,
@@ -79,11 +81,11 @@ const SchemaAndPtrType getProfilingSectionDataElf(const uint8_t* blobData, size_
     elf::DDRAccessManager<elf::DDRAlwaysEmplace> elfAccess(blobData, blobSize);
     elf::Reader<elf::ELF_Bitness::Elf64> reader(&elfAccess);
     for (size_t i = 0; i < reader.getSectionsNum(); ++i) {
-        const auto section = reader.getSection(i);
+        const auto& section = reader.getSection(i);
         const std::string secName = section.getName();
         if (secName == ".profiling") {
-            const uint8_t* profMetaSection = section.getData<uint8_t>();
-            const size_t sectionSize = section.getEntriesNum();
+            const auto* profMetaSection = section.getData<uint8_t>();
+            const size_t sectionSize = section.getEntriesNum<uint8_t>();
             return extractProfilingMetadata(profMetaSection, sectionSize);
         }
     }
@@ -98,11 +100,6 @@ SchemaAndPtrType getProfilingSectionDataImpl(const uint8_t* blobData, size_t blo
 
 namespace vpux {
 namespace profiling {
-
-uint32_t getProfilingSectionEncoding(const uint8_t* data, size_t size) {
-    VPUX_THROW_WHEN(size < sizeof(uint32_t), "Malformed profiling metadata section");
-    return *reinterpret_cast<const uint32_t*>(data);
-}
 
 std::vector<uint8_t> constructProfilingSectionWithHeader(flatbuffers::DetachedBuffer rawMetadataFb) {
     constexpr size_t SECTION_ENCODING_INDEX = 0;

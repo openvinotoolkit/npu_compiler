@@ -105,14 +105,14 @@ NPU_API(int32_t) npu_level_zero_append_barrier(void* commandList) {
 
 NPU_API(int32_t)
 npu_level_zero_create_graph(void* kernel, int64_t kernelSize, void* context, void* device, void* ddiTable,
-                            void* commandList, void* commandQueue) {
+                            void* commandList, void* commandQueue, void* execCtx) {
     printf("npu_level_zero_create_graph was called\n");
     RETURN_SUCCESS();
 }
 
 NPU_API(int32_t)
 npu_level_zero_create_graphs(void** kernels, int64_t* kernelSizes, int32_t numKernels, void* context, void* device,
-                             void* ddiTable, void* commandList, void* commandQueue) {
+                             void* ddiTable, void* commandList, void* commandQueue, void* execCtx) {
     printf("npu_level_zero_create_graphs was called\n");
     RETURN_SUCCESS();
 }
@@ -251,10 +251,11 @@ struct execution_context {
     std::vector<ze_event_handle_t> events;
     ze_event_pool_handle_t eventPool;
     size_t numSubGraphs;
-    bool isEventPoolInitialized;
+    bool isInitialized;
     size_t curEventIndex;
     size_t signalEventCount;
     std::unique_ptr<scratch_buffer, ze_memory_deleter> scratchBuffer = nullptr;
+    bool isOptimizedDynamicStridesSupported = false;
 
     execution_context(size_t numSubGraphs, size_t numNetworkArgs)
             : argumentBindings(numSubGraphs), mutableCommandListIds(numSubGraphs), numSubGraphs(numSubGraphs) {
@@ -262,11 +263,15 @@ struct execution_context {
             bindings.resize(numNetworkArgs);
         }
         eventPool = nullptr;
-        isEventPoolInitialized = false;
+        isInitialized = false;
         curEventIndex = 0;
         signalEventCount = 0;
     }
 
+    execution_context(const execution_context&) = delete;
+    execution_context(execution_context&&) = delete;
+    execution_context& operator=(const execution_context&) = delete;
+    execution_context& operator=(execution_context&&) = delete;
     ~execution_context() {
         if (eventPool != nullptr) {
             for (auto& event : events) {
@@ -369,6 +374,18 @@ struct execution_context {
         resetEvents();
     }
 
+    int32_t initialize(ze_graph_dditable_ext_t* ddiTable, ze_device_handle_t deviceHandle,
+                       ze_context_handle_t context) {
+        isOptimizedDynamicStridesSupported = false;
+        if (ddiTable != nullptr && ddiTable->pfnCompilerIsOptionSupported != nullptr) {
+            isOptimizedDynamicStridesSupported =
+                    ddiTable->pfnCompilerIsOptionSupported(deviceHandle, ZE_NPU_DRIVER_OPTIONS,
+                                                           "OPTIMIZED_DYNAMIC_STRIDES", nullptr) == ZE_RESULT_SUCCESS;
+        }
+
+        return createEventPool(deviceHandle, context);
+    }
+
     int32_t createEventPool(ze_device_handle_t deviceHandle, ze_context_handle_t context) {
         if (numSubGraphs > 1) {
             auto eventCount = (numSubGraphs - 1);
@@ -385,7 +402,7 @@ struct execution_context {
             }
         }
 
-        isEventPoolInitialized = true;
+        isInitialized = true;
         return ZE_RESULT_SUCCESS;
     }
 
@@ -523,7 +540,8 @@ NPU_API(void*) npu_level_zero_alloc(int64_t bytes, void* context, void* executio
 
     if (scratchBuffer == nullptr || scratchBuffer->size < bytes) {
         if (logger) {
-            logger->info("Allocating scratch buffer of size {0} bytes", bytes);
+            logger->info("Allocating scratch buffer of size {0} bytes, previous ptr {1}", bytes,
+                         scratchBuffer ? scratchBuffer->data : nullptr);
         }
         ze_host_mem_alloc_flag_t flag = {};
         ze_host_mem_alloc_desc_t desc = {ZE_STRUCTURE_TYPE_HOST_MEM_ALLOC_DESC, nullptr,
@@ -535,8 +553,12 @@ NPU_API(void*) npu_level_zero_alloc(int64_t bytes, void* context, void* executio
 
         if (res == ZE_RESULT_SUCCESS) {
             scratchBuffer.reset(new scratch_buffer{contextHandle, data, bytes});
-
+            if (logger) {
+                logger->info("Allocated scratch buffer of size {0} bytes, ptr {1}", bytes, data);
+            }
             return data;
+        } else if (logger) {
+            logger->info("Cannot allocate scratch buffer of size {0} bytes, result {1}", bytes, res);
         }
     }
 
@@ -567,24 +589,32 @@ NPU_API(int32_t) npu_level_zero_append_barrier(void* commandList) {
 
 NPU_API(int32_t)
 npu_level_zero_create_graph(void* kernel, int64_t kernelSize, void* context, void* device, void* ddiTable,
-                            void* commandList, void* commandQueue) {
+                            void* commandList, void* commandQueue, void* execCtx) {
     if (logger) {
         logger->info("Creating graph for kernel at address {0} of size {1}", kernel, kernelSize);
     }
 
-    auto* ddiTableHandle = static_cast<ze_graph_dditable_ext_t*>(ddiTable);
+    auto ddiTableHandle = static_cast<ze_graph_dditable_ext_t*>(ddiTable);
+    auto contextHandle = static_cast<ze_context_handle_t>(context);
+    auto deviceHandle = static_cast<ze_device_handle_t>(device);
+    auto execContext = reinterpret_cast<execution_context*>(execCtx);
+
     if (::ddiTableHandle == nullptr) {
         ::ddiTableHandle = ddiTableHandle;
     }
 
-    ze_graph_desc_t desc = {
-            ZE_STRUCTURE_TYPE_GRAPH_DESC,       nullptr, ZE_GRAPH_FORMAT_NATIVE, static_cast<size_t>(kernelSize),
-            reinterpret_cast<uint8_t*>(kernel), nullptr};
+    // Note: ZE_BIT(4) will be replaced when ZE_GRAPH_FLAG_OPTIMIZE_FOR_DYNAMIC_SHAPES is available
+    //       in openvino/level-zero-ext
+    const uint32_t flag = (execContext != nullptr && execContext->isOptimizedDynamicStridesSupported) ? ZE_BIT(4) : 0;
+    ze_graph_desc_2_t desc = {ZE_STRUCTURE_TYPE_GRAPH_DESC_2,
+                              nullptr,
+                              ZE_GRAPH_FORMAT_NATIVE,
+                              static_cast<size_t>(kernelSize),
+                              reinterpret_cast<uint8_t*>(kernel),
+                              nullptr /* build flag */,
+                              flag};
 
-    auto contextHandle = static_cast<ze_context_handle_t>(context);
-    auto deviceHandle = static_cast<ze_device_handle_t>(device);
-
-    ze_pfnGraphCreate_ext_t pfnCreate = ddiTableHandle->pfnCreate;
+    auto pfnCreate = ddiTableHandle->pfnCreate2;
     ze_graph_handle_t graphHandle = nullptr;
     auto result = pfnCreate(contextHandle, deviceHandle, &desc, &graphHandle);
     ERROR_HANDLE(result, "Failed to create graph, kern: %p, size: %" PRId64, kernel, kernelSize);
@@ -638,7 +668,7 @@ npu_level_zero_create_graph(void* kernel, int64_t kernelSize, void* context, voi
 
 NPU_API(int32_t)
 npu_level_zero_create_graphs(void** kernels, int64_t* kernelSizes, int32_t numKernels, void* context, void* device,
-                             void* ddiTable, void* commandList, void* commandQueue) {
+                             void* ddiTable, void* commandList, void* commandQueue, void* execCtx) {
     auto* ddiTableHandle = static_cast<ze_graph_dditable_ext_t*>(ddiTable);
     auto commandListHandle = static_cast<ze_command_list_handle_t>(commandList);
     auto commandQueueHandle = static_cast<ze_command_queue_handle_t>(commandQueue);
@@ -741,15 +771,16 @@ npu_level_zero_execute_graph(void** inputDescs, int32_t numInputs, void** output
                 kernelNameStr, kernel, kernelSize, commandListIndex, execCtx);
     }
 
+    auto* ddiTableHandle = static_cast<ze_graph_dditable_ext_t*>(ddiTable);
     auto* execContext = reinterpret_cast<execution_context*>(execCtx);
-    if (execCtx != nullptr && execContext->isEventPoolInitialized == false) {
+    if (execCtx != nullptr && execContext->isInitialized == false) {
         if (logger) {
             logger->info("Creating event pool for execution context");
         }
 
         auto deviceHandle = static_cast<ze_device_handle_t>(device);
         auto contextHandle = static_cast<ze_context_handle_t>(context);
-        auto result = execContext->createEventPool(deviceHandle, contextHandle);
+        auto result = execContext->initialize(ddiTableHandle, deviceHandle, contextHandle);
         ERROR_HANDLE(result, "Failed to create event pool for execution context");
     }
     auto inputs = reinterpret_cast<vpux::HostExec::MemRefDesc*>(inputDescs);
@@ -818,7 +849,8 @@ npu_level_zero_execute_graph(void** inputDescs, int32_t numInputs, void** output
         }
 #endif
         // this is required until graph_init function is generated
-        auto result = npu_level_zero_create_graph(kernel, kernelSize, context, device, ddiTable, nullptr, nullptr);
+        auto result =
+                npu_level_zero_create_graph(kernel, kernelSize, context, device, ddiTable, nullptr, nullptr, execCtx);
 
         ERROR_HANDLE(result, "Failed to compile a graph, kern: %p, size: %" PRId64, kernel, kernelSize);
 
@@ -834,7 +866,6 @@ npu_level_zero_execute_graph(void** inputDescs, int32_t numInputs, void** output
                      ", outputs: %" PRId32,
                      kernel, kernelSize, graphInfo.numArgs, numInputs, numOutputs);
     }
-    auto* ddiTableHandle = static_cast<ze_graph_dditable_ext_t*>(ddiTable);
 
     const auto graphHandle = graphInfo.graphHandle;
     if (logger) {
@@ -1336,7 +1367,7 @@ npu_level_zero_update_mutable_command_list(void* handle, void* networkArgArr, ui
                 }
 
                 // Process mutable arguments
-                for (auto& binding : bindingsPerCmdList[index]) {
+                for (auto& binding : bindingsPerCmdList[argIndex]) {
                     const void* bufferPtr = reinterpret_cast<void*>((networkArgArray)[argIndex] + binding.bufferOffset);
                     ze_mutable_graph_argument_exp_desc_t desc = {ZE_STRUCTURE_TYPE_MUTABLE_GRAPH_ARGUMENT_EXP_DESC,
                                                                  nullptr, binding.cmdId,
@@ -1364,6 +1395,83 @@ npu_level_zero_update_mutable_command_list(void* handle, void* networkArgArr, ui
         }
     } else {
         ERROR_HANDLE(ZE_RESULT_ERROR_INVALID_NULL_POINTER, "Invalid nullpointer");
+    }
+
+    RETURN_SUCCESS();
+}
+
+NPU_API(int32_t)
+npu_level_zero_execute_mutable_command_list(void* handle, void* networkArgArr, uint64_t networkArgArraySize,
+                                            void* argIndexArr, uint64_t argIndexSize, void* commandLists,
+                                            uint64_t numCommandLists, void* commandQueue, void* fence) {
+    if (logger) {
+        logger->info("npu_level_zero_execute_mutable_command_list");
+    }
+
+    if (handle == nullptr || argIndexArr == nullptr || networkArgArr == nullptr || commandLists == nullptr ||
+        commandQueue == nullptr) {
+        ERROR_HANDLE(ZE_RESULT_ERROR_INVALID_NULL_POINTER, "Invalid nullpointer");
+    }
+
+    execution_context* context = reinterpret_cast<execution_context*>(handle);
+    ze_command_list_handle_t* cmdLists = reinterpret_cast<ze_command_list_handle_t*>(commandLists);
+    uint64_t* networkArgArray = reinterpret_cast<uint64_t*>(networkArgArr);
+    uint64_t* argIndexArray = reinterpret_cast<uint64_t*>(argIndexArr);
+
+    if (numCommandLists < context->argumentBindings.size()) {
+        ERROR_HANDLE(ZE_RESULT_ERROR_INVALID_ARGUMENT, "Number of command lists does not match with execution context");
+    }
+
+    auto commandQueueHandle = reinterpret_cast<ze_command_queue_handle_t>(commandQueue);
+    auto fenceHandle = reinterpret_cast<ze_fence_handle_t>(fence);
+    for (size_t i = 0; i < context->argumentBindings.size(); ++i) {
+        auto& bindingsPerCmdList = context->argumentBindings[i];
+
+        bool updatedCmdLists = false;
+        for (uint64_t index = 0; index < argIndexSize; ++index) {
+            uint64_t argIndex = argIndexArray[index];
+
+            if (argIndex >= networkArgArraySize || argIndex >= context->argumentBindings[i].size()) {
+                ERROR_HANDLE(ZE_RESULT_ERROR_INVALID_ARGUMENT, "Invalid argument index");
+            }
+            // Process mutable arguments
+            for (auto& binding : bindingsPerCmdList[argIndex]) {
+                const void* bufferPtr = reinterpret_cast<void*>((networkArgArray)[argIndex] + binding.bufferOffset);
+                ze_mutable_graph_argument_exp_desc_t desc = {ZE_STRUCTURE_TYPE_MUTABLE_GRAPH_ARGUMENT_EXP_DESC, nullptr,
+                                                             binding.cmdId, static_cast<uint32_t>(binding.argIndex),
+                                                             bufferPtr};
+                ze_mutable_commands_exp_desc_t mutable_commands_exp_desc_t = {
+                        ZE_STRUCTURE_TYPE_MUTABLE_COMMANDS_EXP_DESC, &desc, 0};
+                auto result =
+                        zeCommandListUpdateMutableCommandsExp(binding.commandListHandle, &mutable_commands_exp_desc_t);
+                if (logger) {
+                    std::ostringstream oss;
+                    oss << "Updating mutable argument:" << binding << " with buffer pointer " << std::hex << bufferPtr
+                        << std::dec << ", result: " << result;
+                    logger->info("{0}", oss.str());
+                }
+
+                if (result != ZE_RESULT_SUCCESS) {
+                    std::ostringstream oss;
+                    oss << "Failed to set mutable argument:" << binding << " with buffer pointer " << std::hex
+                        << bufferPtr << std::dec;
+
+                    ERROR_HANDLE(result, "%s", oss.str().c_str());
+                }
+                updatedCmdLists = true;
+            }
+        }
+
+        if (updatedCmdLists) {
+            auto result = zeCommandListClose(cmdLists[i]);
+            ERROR_HANDLE(result, "Failed to zeCommandListClose with command list: %p", cmdLists[i]);
+        }
+
+        ze_fence_handle_t usedFence = i == context->argumentBindings.size() - 1 ? fenceHandle : nullptr;
+
+        auto result = zeCommandQueueExecuteCommandLists(commandQueueHandle, 1, &cmdLists[i], usedFence);
+        ERROR_HANDLE(result, "Failed to zeCommandQueueExecuteCommandList with command queue: %p, command list: %p",
+                     commandQueue, cmdLists[i]);
     }
 
     RETURN_SUCCESS();

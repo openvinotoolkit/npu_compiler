@@ -81,6 +81,21 @@ bool vpux::VPU::RoPEOp::supportCycleCostCalculation() {
 }
 
 //
+// VerticalFusionOpInterface
+//
+
+// RoPE operates on element pairs along the last axis; tiling on that axis would break rotation
+DimArr vpux::VPU::RoPEOp::restrictedFusionAxes() {
+    const auto mode = getMode();
+    if (llvm::is_contained({IE::RoPEMode::SPLIT_HALF, IE::RoPEMode::INTERLEAVED, IE::RoPEMode::PAIRWISE}, mode)) {
+        const auto outputType = mlir::cast<vpux::NDTypeInterface>(getOutput().getType());
+        const auto outputRank = outputType.getShape().size();
+        return {Dim(outputRank - 1)};
+    }
+    return {};
+}
+
+//
 // TilingBuilderOpInterface
 //
 

@@ -373,9 +373,10 @@ void ComputeNCEInputWorkloadsPass::safeRunOnFunc() {
 
                 auto workloadWithInputOffsets = builder.create<DPUWorkloadOp>(
                         workload.getLoc(), workload.getOutOffsets(), workload.getOutSizes(),
-                        workload.getStaticOutOffsetsAttr(), workload.getStaticOutSizesAttr(), std::nullopt,
-                        std::nullopt, inStartAttr, inSizeAttr, workload.getMpeModeAttr(), workload.getPad(),
-                        workload.getStaticPadAttr(), workload.getClusterIdAttr());
+                        workload.getStaticOutOffsetsAttr(), workload.getStaticOutSizesAttr(),
+                        /* inOffsets */ mlir::ValueRange{},
+                        /* inSizes */ mlir::ValueRange{}, inStartAttr, inSizeAttr, workload.getMpeModeAttr(),
+                        workload.getPad(), workload.getStaticPadAttr(), workload.getClusterIdAttr());
 
                 _log.trace("DpuTaskOp '{0}' replaced with {1}", workload, workloadWithInputOffsets);
 

@@ -7,14 +7,14 @@
 // REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
 module @VPU.SW {
-func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
+func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
     attributes {
         VPU.kernel_code = "activation_relu.cpp",
         VPU.kernel_entry = "activation_relu",
         VPU.task_type = @COMPUTE
     }
 
-func.func private @runtime()
+func.func nested @runtime()
     attributes {
         VPU.kernel_code = "nnActEntry"
     }
@@ -165,29 +165,29 @@ func.func @TiledGraph(%in : memref<10x10x1xf16>, %out_buf : memref<10x10x1xf16>)
 // CHECK-LABEL: @WeightsTableOp
 // CHECK-SAME: ([[ARG_0:%.+]]: memref<1x1x16x64xf32>, [[ARG_1:%.+]]: memref<16x1x1x4xsi32>) -> memref<16x1x1x4xsi32>
 func.func @WeightsTableOp(%arg0: memref<1x1x16x64xf32>, %arg1: memref<16x1x1x4xsi32>) -> memref<16x1x1x4xsi32> {
-    %cst0 = const.Declare memref<16x16x1x1xf16, #NHWC> =
+    %cst0 = const.Declare memref<16x16x1x1xf16, {order = #NHWC}> =
         dense<1.000000e+00> : tensor<16x16x1x1xf16>, [#const.Reorder<#NHWC>]
 
     %buf0 = memref.alloc() : memref<1x1x16x64xf16>
-    %buf1 = memref.alloc() : memref<1x16x1x64xf16, #NHWC>
-    %buf2 = memref.alloc() : memref<16x16x1x1xf16, #NHWC, @CMX_NN>
-    %buf3 = memref.alloc() : memref<1x16x1x64xf16, #NHWC, @CMX_NN>
+    %buf1 = memref.alloc() : memref<1x16x1x64xf16, {order = #NHWC}>
+    %buf2 = memref.alloc() : memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>
+    %buf3 = memref.alloc() : memref<1x16x1x64xf16, {order = #NHWC}, @CMX_NN>
 
     %1 = VPUIP.GenericReshape inputs(%buf0 : memref<1x1x16x64xf16>) -> memref<1x16x1x64xf16>
 
-    %t2, %f2 = async.execute -> !async.value<memref<1x16x1x64xf16, #NHWC>> {
-        %2 = VPUIP.PermuteDMA <{mem_perm = #NHWC}> inputs(%1 : memref<1x16x1x64xf16>) outputs(%buf1 : memref<1x16x1x64xf16, #NHWC>)
-            -> memref<1x16x1x64xf16, #NHWC>
-        async.yield %2 : memref<1x16x1x64xf16, #NHWC>
+    %t2, %f2 = async.execute -> !async.value<memref<1x16x1x64xf16, {order = #NHWC}>> {
+        %2 = VPUIP.PermuteDMA <{mem_perm = #NHWC}> inputs(%1 : memref<1x16x1x64xf16>) outputs(%buf1 : memref<1x16x1x64xf16, {order = #NHWC}>)
+            -> memref<1x16x1x64xf16, {order = #NHWC}>
+        async.yield %2 : memref<1x16x1x64xf16, {order = #NHWC}>
     }
-    %2 = async.await %f2 : !async.value<memref<1x16x1x64xf16, #NHWC>>
+    %2 = async.await %f2 : !async.value<memref<1x16x1x64xf16, {order = #NHWC}>>
 
-    %t3, %f3 = async.execute -> !async.value<memref<16x16x1x1xf16, #NHWC, @CMX_NN>> {
-        %3 = VPUIP.Copy inputs(%cst0 : memref<16x16x1x1xf16, #NHWC>) outputs(%buf2 : memref<16x16x1x1xf16, #NHWC, @CMX_NN>)
-            -> memref<16x16x1x1xf16, #NHWC, @CMX_NN>
-        async.yield %3 : memref<16x16x1x1xf16, #NHWC, @CMX_NN>
+    %t3, %f3 = async.execute -> !async.value<memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>> {
+        %3 = VPUIP.Copy inputs(%cst0 : memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf2 : memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>)
+            -> memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>
+        async.yield %3 : memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>
     }
-    %3 = async.await %f3 : !async.value<memref<16x16x1x1xf16, #NHWC, @CMX_NN>>
+    %3 = async.await %f3 : !async.value<memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>>
 
     %4 = const.Declare memref<16x1x1x4xsi32> = dense<10> : tensor<16x1x1x4xsi32>
 
@@ -199,27 +199,27 @@ func.func @WeightsTableOp(%arg0: memref<1x1x16x64xf32>, %arg1: memref<16x1x1x4xs
 
     return %5 : memref<16x1x1x4xsi32>
     // CHECK-DAG:       [[WEIGHT_TABLE_CST:%.+]] = const.Declare memref<16x1x1x4xsi32> = dense<10> : tensor<16x1x1x4xsi32>
-    // CHECK-DAG:       [[CST0:%.+]] = const.Declare memref<16x16x1x1xf16, #NHWC>
+    // CHECK-DAG:       [[CST0:%.+]] = const.Declare memref<16x16x1x1xf16, {order = #NHWC}>
 
     // CHECK:       [[BUF0:%.+]] = memref.alloc() : memref<1x1x16x64xf16>
-    // CHECK:       [[BUF1:%.+]] = memref.alloc() : memref<1x16x1x64xf16, #NHWC>
-    // CHECK:       [[BUF2:%.+]] = memref.alloc() : memref<16x16x1x1xf16, #NHWC, @CMX_NN>
+    // CHECK:       [[BUF1:%.+]] = memref.alloc() : memref<1x16x1x64xf16, {order = #NHWC}>
+    // CHECK:       [[BUF2:%.+]] = memref.alloc() : memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>
 
-    // CHECK:       [[T2:%.+]], [[F2:%.+]] = async.execute -> !async.value<memref<1x16x1x64xf16, #NHWC>>
+    // CHECK:       [[T2:%.+]], [[F2:%.+]] = async.execute -> !async.value<memref<1x16x1x64xf16, {order = #NHWC}>>
     // CHECK:           [[VAR1:%.+]] = VPUIP.GenericReshape inputs([[BUF0]] : memref<1x1x16x64xf16>)
     // CHECK:           [[VAR2:%.+]] = VPUIP.PermuteDMA
     // CHECK-SAME:          {mem_perm = #NHWC}
     // CHECK-SAME:          inputs([[VAR1]] : memref<1x16x1x64xf16>)
-    // CHECK-SAME:          outputs([[BUF1]] : memref<1x16x1x64xf16, #NHWC>)
-    // CHECK:           async.yield [[VAR2]] : memref<1x16x1x64xf16, #NHWC>
-    // CHECK:       [[VAR2:%.+]] = async.await [[F2]] : !async.value<memref<1x16x1x64xf16, #NHWC>>
+    // CHECK-SAME:          outputs([[BUF1]] : memref<1x16x1x64xf16, {order = #NHWC}>)
+    // CHECK:           async.yield [[VAR2]] : memref<1x16x1x64xf16, {order = #NHWC}>
+    // CHECK:       [[VAR2:%.+]] = async.await [[F2]] : !async.value<memref<1x16x1x64xf16, {order = #NHWC}>>
 
-    // CHECK:       [[T3:%.+]], [[F3:%.+]] = async.execute -> !async.value<memref<16x16x1x1xf16, #NHWC, @CMX_NN>> {
+    // CHECK:       [[T3:%.+]], [[F3:%.+]] = async.execute -> !async.value<memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>> {
     // CHECK:           [[VAR3:%.+]] = VPUIP.Copy
-    // CHECK-SAME:          inputs([[CST0]] : memref<16x16x1x1xf16, #NHWC>)
-    // CHECK-SAME:          outputs([[BUF2]] : memref<16x16x1x1xf16, #NHWC, @CMX_NN>)
-    // CHECK:           async.yield [[VAR3]] : memref<16x16x1x1xf16, #NHWC, @CMX_NN>
-    // CHECK:       [[VAR3:%.+]] = async.await [[F3]] : !async.value<memref<16x16x1x1xf16, #NHWC, @CMX_NN>>
+    // CHECK-SAME:          inputs([[CST0]] : memref<16x16x1x1xf16, {order = #NHWC}>)
+    // CHECK-SAME:          outputs([[BUF2]] : memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>)
+    // CHECK:           async.yield [[VAR3]] : memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK:       [[VAR3:%.+]] = async.await [[F3]] : !async.value<memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>>
 
     // CHECK:       [[T5:%.+]], [[F5:%.+]] = async.execute -> !async.value<memref<16x1x1x4xsi32>> {
     // CHECK:           [[VAR5:%.+]] = VPUIP.Copy

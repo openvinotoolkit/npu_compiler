@@ -32,14 +32,14 @@ VPURT.SW.Runtime
 module @VPU.SW {
     // The declaration should match C++ params structure in decomposed form.
     // `memref` will be translated to `MemRefData`, while raw scalars will be translated as is.
-    func.func private @builtin_sau_dp4_m(%input0 : memref<*xsi32>, %input1 : memref<*xsi32>, %output : memref<*xsi32>)
+    func.func nested @builtin_sau_dp4_m(%input0 : memref<*xsi32>, %input1 : memref<*xsi32>, %output : memref<*xsi32>)
         attributes {
             VPU.kernel_code = "sau_dp4m.cpp",
             VPU.kernel_entry = "sau_dp4m"
         }
 
     // management kernel definition
-    func.func private @runtime()
+    func.func nested @runtime()
         attributes {
             VPU.kernel_code = "nnActEntry"
         }

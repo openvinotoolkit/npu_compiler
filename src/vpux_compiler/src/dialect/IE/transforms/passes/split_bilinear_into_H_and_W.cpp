@@ -284,8 +284,9 @@ mlir::LogicalResult SplitBilinearIntoHAndWPass::BilinearInterpolateOpConverter::
     auto padsBegin = getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0});
     auto padsEnd = getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0});
     auto dilations = getIntArrayAttr(ctx, SmallVector<int64_t>{1, 1});
-    auto convOp = rewriter.create<IE::ConvolutionOp>(interpOnWLoc, convOutputType, interpolateOnH.getOutput(), weight,
-                                                     strides, padsBegin, padsEnd, dilations);
+    auto convOp = rewriter.create<IE::ConvolutionOp>(appendLoc(interpOnWLoc, "conv"), convOutputType,
+                                                     interpolateOnH.getOutput(), weight, strides, padsBegin, padsEnd,
+                                                     dilations);
 
     const SmallVector<int64_t> reshapeOutputShape = {
             convOutputShape[Dims4D::Act::N], convOutputShape[Dims4D::Act::C] / 2, convOutputShape[Dims4D::Act::H],
@@ -295,18 +296,19 @@ mlir::LogicalResult SplitBilinearIntoHAndWPass::BilinearInterpolateOpConverter::
                                                          {Dims4D::Act::C.ind()},
                                                          {Dims4D::Act::H.ind()},
                                                          {Dims4D::Act::H.ind(), Dims4D::Act::W.ind()}};
-    auto reshapeOp = rewriter.create<IE::AffineReshapeOp>(
-            interpOnWLoc, convOp.getOutput(), getIntArrayOfArray(ctx, inDimMapping), reshapeOutputShapeAttr);
+    auto reshapeOp =
+            rewriter.create<IE::AffineReshapeOp>(appendLoc(interpOnWLoc, "reshape"), convOp.getOutput(),
+                                                 getIntArrayOfArray(ctx, inDimMapping), reshapeOutputShapeAttr);
 
     auto offsets = SmallVector<int64_t>(interpolateOnHOutputShape.size(), 0);
     auto sizes = SmallVector<int64_t>(interpolateOnHOutputShape.begin(), interpolateOnHOutputShape.end());
 
     sizes[Dims4D::Act::W.ind()] = 1;
-    auto leftSlice = rewriter.create<IE::SliceOp>(interpOnWLoc, interpolateOnH.getOutput(),
+    auto leftSlice = rewriter.create<IE::SliceOp>(appendLoc(interpOnWLoc, "left_slice"), interpolateOnH.getOutput(),
                                                   getIntArrayAttr(ctx, offsets), getIntArrayAttr(ctx, sizes));
 
     offsets[Dims4D::Act::W.ind()] = interpolateOnHOutputShape[Dims4D::Act::W] - 1;
-    auto rightSlice = rewriter.create<IE::SliceOp>(interpOnWLoc, interpolateOnH.getOutput(),
+    auto rightSlice = rewriter.create<IE::SliceOp>(appendLoc(interpOnWLoc, "right_slice"), interpolateOnH.getOutput(),
                                                    getIntArrayAttr(ctx, offsets), getIntArrayAttr(ctx, sizes));
 
     SmallVector<mlir::Value> concatVector;

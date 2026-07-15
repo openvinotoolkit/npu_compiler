@@ -4,6 +4,8 @@
 //
 
 #include "vpux/compiler/conversion/passes/VPU2VPUIP/bufferizable_ops_interface.hpp"
+#include "vpux/compiler/dialect/Shave/IR/dialect.hpp"
+#include "vpux/compiler/dialect/Shave/IR/ops/meta-ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement_fwd.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/specialized_fwd.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops_interfaces.hpp"
@@ -35,8 +37,11 @@ public:
         auto log = Logger::global().nest("one-shot-bufferize-SoftwareLayerOp", 0);
         log.trace("Got {0} at {1}", origOp->getName(), origOp->getLoc());
 
+        // E-208406: Uniquify the software layer interfaces
         constexpr bool opIsSwLayerOperation = MainOpType::template hasTrait<VPU::LayerOpInterface::Trait>() ||
-                                              MainOpType::template hasTrait<VPUIP::SoftwareLayerOpInterface::Trait>();
+                                              MainOpType::template hasTrait<VPUIP::SoftwareLayerOpInterface::Trait>() ||
+                                              MainOpType::template hasTrait<Shave::KernelWrapperOpInterface::Trait>();
+
         static_assert(opIsSwLayerOperation, "MainOpType is not a Software layer operation");
 
         auto module = origOp->template getParentOfType<mlir::ModuleOp>();

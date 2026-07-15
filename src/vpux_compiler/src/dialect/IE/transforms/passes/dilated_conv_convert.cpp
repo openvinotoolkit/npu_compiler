@@ -140,7 +140,8 @@ mlir::Value createDilatedConvOp(mlir::PatternRewriter& rewriter, IE::Convolution
                                 mlir::ArrayAttr padsBeginAttr, mlir::ArrayAttr padsEndAttr,
                                 mlir::ArrayAttr dilationsAttr) {
     return IE::cloneConvolutionOp(rewriter, convOp, input, convOp.getFilter(), convOp.getBias(), convOp.getScale(),
-                                  convOp.getStridesAttr(), padsBeginAttr, padsEndAttr, dilationsAttr)
+                                  convOp.getZeroPoints(), convOp.getStridesAttr(), padsBeginAttr, padsEndAttr,
+                                  dilationsAttr)
             .getResult();
 }
 

@@ -465,8 +465,9 @@ mlir::LogicalResult DecompressDMARewriter::matchAndRewrite(VPUIP::DecompressDMAO
             0,                   // cleanAfter
             adaptor.getIsOutOfOrder(), adaptor.getIsCritical(),
             _isMemorySideCacheEnabled && enableMemorySideCache(inputType, outputType), tileIdx,
-            VPUIP::DMAAccMode::DECOMPRESSION, adaptor.getActCompressionSizeEntry(),
-            adaptor.getActCompressionSparsityMap(),
+            VPUIP::DMAAccMode::DECOMPRESSION,
+            decompressDMAOp.getDmaEncodingAlgoAttr(),  // dmaEncodingAlgo
+            adaptor.getActCompressionSizeEntry(), adaptor.getActCompressionSparsityMap(),
             nullptr,  // dmaTransaction
             nullptr,  // dmaDescriptor
             adaptor.getDmaHwpIdAttr(), adaptor.getProfilingMetadataAttr(),
@@ -556,6 +557,7 @@ mlir::LogicalResult GatherDMARewriter::matchAndRewrite(VPUIP::GatherDMAOp gather
             adaptor.getIsOutOfOrder(), adaptor.getIsCritical(),
             _isMemorySideCacheEnabled && enableMemorySideCache(inputType, outputType), tileIdx,
             VPUIP::DMAAccMode::DISABLE,
+            nullptr,  // dmaEncodingAlgo
             nullptr,  // actCompressionSizeEntry
             nullptr,  // actCompressionSparsityMap
             nullptr,  // dmaTransaction
@@ -705,6 +707,7 @@ mlir::LogicalResult BarrierProgDMARewriter::matchAndRewrite(VPUIP::BarProgDMAOp 
             adaptor.getIsOutOfOrder(), adaptor.getIsCritical(),
             _isMemorySideCacheEnabled && enableMemorySideCache(inputType, outputType), tileIdx,
             VPUIP::DMAAccMode::DISABLE,
+            nullptr,  // dmaEncodingAlgo
             nullptr,  // actCompressionSizeEntry
             nullptr,  // actCompressionSparsityMap
             nullptr,  // dmaTransaction
@@ -759,6 +762,7 @@ mlir::LogicalResult FetchDMARewriter::matchAndRewrite(VPUIP::FetchDMAOp fetchDMA
             adaptor.getIsOutOfOrder(), adaptor.getIsCritical(),
             _isMemorySideCacheEnabled && enableMemorySideCache(inputType, outputType), tileIdx,
             VPUIP::DMAAccMode::DISABLE,
+            nullptr,  // dmaEncodingAlgo
             nullptr,  // actCompressionSizeEntry
             nullptr,  // actCompressionSparsityMap
             nullptr,  // dmaTransaction
@@ -813,6 +817,7 @@ mlir::LogicalResult EnqueueDMARewriter::matchAndRewrite(VPUIP::EnqueueDMAOp enqu
             adaptor.getIsOutOfOrder(), adaptor.getIsCritical(),
             _isMemorySideCacheEnabled && enableMemorySideCache(inputType, outputType), tileIdx,
             VPUIP::DMAAccMode::DISABLE,
+            nullptr,  // dmaEncodingAlgo
             nullptr,  // actCompressionSizeEntry
             nullptr,  // actCompressionSparsityMap
             nullptr,  // dmaTransaction
@@ -867,6 +872,7 @@ mlir::LogicalResult SkipDMARewriter::matchAndRewrite(VPUIP::SkipDMAOp skipDMAOp,
             adaptor.getIsOutOfOrder(), adaptor.getIsCritical(),
             _isMemorySideCacheEnabled && enableMemorySideCache(inputType, outputType), tileIdx,
             VPUIP::DMAAccMode::DISABLE,
+            nullptr,  // dmaEncodingAlgo
             nullptr,  // actCompressionSizeEntry
             nullptr,  // actCompressionSparsityMap
             nullptr,  // dmaTransaction

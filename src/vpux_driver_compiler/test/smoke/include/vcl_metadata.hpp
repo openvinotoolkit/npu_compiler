@@ -22,7 +22,7 @@
 #include "openvino/runtime/tensor.hpp"
 #include "openvino/util/variant_visitor.hpp"
 
-namespace vcl {
+namespace VCLTest {
 
 namespace utils {
 static inline size_t align_size_to_standard_page_size(size_t size) {
@@ -517,4 +517,4 @@ inline size_t Metadata<METADATA_VERSION_2_3>::get_metadata_size() const {
     return metadataSize;
 }
 
-}  // namespace vcl
+}  // namespace VCLTest

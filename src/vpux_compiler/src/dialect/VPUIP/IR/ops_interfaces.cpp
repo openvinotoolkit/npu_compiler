@@ -62,6 +62,20 @@ bool isCompressConvolution(VPUIP::NCEClusterTaskOp nceOp) {
     return false;
 }
 
+bool isSameBuffer(mlir::Value rootInput, mlir::Value rootWeights) {
+    if (rootInput == rootWeights) {
+        return true;
+    }
+    auto inputBuf = mlir::dyn_cast_or_null<VPURT::DeclareBufferOp>(rootInput.getDefiningOp());
+    auto weightsBuf = mlir::dyn_cast_or_null<VPURT::DeclareBufferOp>(rootWeights.getDefiningOp());
+    if (inputBuf == nullptr || weightsBuf == nullptr) {
+        return false;
+    }
+    return inputBuf.getSection() == weightsBuf.getSection() &&
+           inputBuf.getSectionIndex() == weightsBuf.getSectionIndex() &&
+           inputBuf.getByteOffset() == weightsBuf.getByteOffset();
+}
+
 bool verifyCMX(mlir::Operation* op, Logger log) {
     bool isLayerOpInterface = mlir::isa_and_nonnull<VPUIP::LayerOpInterface>(op);
 
@@ -131,7 +145,13 @@ bool verifyCMX(mlir::Operation* op, Logger log) {
 
         } else {
             appendToVectorIfInCMX(clusterTaskOp.getInput());
-            appendToVectorIfInCMX(clusterTaskOp.getWeights());
+            const auto rootInput = vpux::VPUIP::getRootBuffer(clusterTaskOp.getInput());
+            const auto rootWeights = clusterTaskOp.getWeights() != nullptr
+                                             ? vpux::VPUIP::getRootBuffer(clusterTaskOp.getWeights())
+                                             : mlir::Value{};
+            if (!(rootWeights && isSameBuffer(rootInput, rootWeights))) {
+                appendToVectorIfInCMX(clusterTaskOp.getWeights());
+            }
             appendToVectorIfInCMX(clusterTaskOp.getWeightTable());
             appendToVectorIfInCMX(clusterTaskOp.getProfilingData());
             appendToVectorIfInCMX(clusterTaskOp.getOutputBuff());

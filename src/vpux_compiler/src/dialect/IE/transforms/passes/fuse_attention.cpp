@@ -118,7 +118,84 @@ std::tuple<mlir::Value, mlir::Value, mlir::Value, mlir::Value, bool, SmallVector
     SmallVector<int64_t> origOutputShape;
 
     const auto batch = queryShape.raw()[0];
-    if (batch != 1) {
+    const auto qChannels = queryShape.raw()[1];
+
+    // Get K and V shapes
+    const auto keyType = mlir::cast<NDTypeInterface>(inputK.getType());
+    const auto valueType = mlir::cast<NDTypeInterface>(inputV.getType());
+    const auto keyShape = keyType.getShape();
+    const auto valueShape = valueType.getShape();
+    const auto kChannels = keyShape.raw()[1];
+    const auto vChannels = valueShape.raw()[1];
+    const bool sameBatch = (keyShape.raw()[0] == batch) && (valueShape.raw()[0] == batch);
+
+    // Check for GQA configuration: qHeads > kvHeads and kvHeads > 1
+    const bool isGQA = sameBatch && (qChannels > kChannels) && (kChannels > 1) && (kChannels == vChannels) &&
+                       (qChannels % kChannels == 0);
+
+    if (isGQA) {
+        // GQA reshaping: Q=[N, qC, H, W] K=[N, kC, H, W] -> Q=[N*kC, qC/kC, H, W] K=[N*kC, 1, H, W]
+        const auto qSeqLen = queryShape.raw()[2];
+        const auto qHeadDim = queryShape.raw()[3];
+        const auto kSeqLen = keyShape.raw()[2];
+        const auto kHeadDim = keyShape.raw()[3];
+        const auto vSeqLen = valueShape.raw()[2];
+        const auto vHeadDim = valueShape.raw()[3];
+
+        const auto newBatch = batch * kChannels;
+        const auto newQChannels = qChannels / kChannels;
+
+        // Reshape Q: [N, qC, H, W] -> [N*kC, qC/kC, H, W]
+        SmallVector<int64_t> newQShape = {newBatch, newQChannels, qSeqLen, qHeadDim};
+        optimizedQ =
+                builder.create<IE::ReshapeOp>(appendLoc(loc, "reshape_q_gqa"), inputQ, getIntArrayAttr(ctx, newQShape))
+                        .getOutput();
+
+        // Reshape K: [N, kC, H, W] -> [N*kC, 1, H, W]
+        SmallVector<int64_t> newKShape = {newBatch, 1, kSeqLen, kHeadDim};
+        optimizedK =
+                builder.create<IE::ReshapeOp>(appendLoc(loc, "reshape_k_gqa"), inputK, getIntArrayAttr(ctx, newKShape))
+                        .getOutput();
+
+        // Reshape V: [N, vC, H, W] -> [N*vC, 1, H, W]
+        SmallVector<int64_t> newVShape = {newBatch, 1, vSeqLen, vHeadDim};
+        optimizedV =
+                builder.create<IE::ReshapeOp>(appendLoc(loc, "reshape_v_gqa"), inputV, getIntArrayAttr(ctx, newVShape))
+                        .getOutput();
+
+        // Reshape mask to match GQA-reshaped Q/K/V batch and channel dimensions.
+        // Per-head mask [maskBatch, qC, S, T] -> [newBatch, qC/kC, S, T];
+        // batch-only mask [batch, 1, S, T] -> [newBatch, 1, S, T];
+        // broadcast mask [1, 1, S, T] kept as-is.
+        if (mask) {
+            const auto maskShape = mlir::cast<NDTypeInterface>(mask.getType()).getShape();
+            if (maskShape.size() == 4) {
+                const auto maskBatch = maskShape.raw()[0];
+                const auto maskChannels = maskShape.raw()[1];
+                int64_t newMaskBatch = maskBatch;
+                int64_t newMaskChannels = maskChannels;
+                if (maskChannels == qChannels && maskChannels > 1) {
+                    newMaskChannels = newQChannels;
+                    if (maskBatch == batch) {
+                        newMaskBatch = newBatch;
+                    }
+                } else if (maskBatch == batch && maskBatch > 1) {
+                    newMaskBatch = newBatch;
+                }
+                if (newMaskBatch != maskBatch || newMaskChannels != maskChannels) {
+                    SmallVector<int64_t> newMaskShape = {newMaskBatch, newMaskChannels, maskShape.raw()[2],
+                                                         maskShape.raw()[3]};
+                    optimizedMask = builder.create<IE::ReshapeOp>(appendLoc(loc, "reshape_mask_gqa"), mask,
+                                                                  getIntArrayAttr(ctx, newMaskShape))
+                                            .getOutput();
+                }
+            }
+        }
+
+        needsReshapeBack = true;
+        // Match existing convention: use dimension 2 from V for head dimension
+        origOutputShape = {batch, qChannels, qSeqLen, vSeqLen};
+    } else if (batch != 1) {
         auto getNCProduct = [](mlir::Value input) -> std::optional<int64_t> {
             if (!input) {
                 return std::nullopt;
@@ -192,11 +269,6 @@ std::tuple<mlir::Value, mlir::Value, mlir::Value, mlir::Value, bool, SmallVector
                 needsReshapeBack = true;
 
                 // Compute broadcasted output shape from Q, K, V
-                const auto keyType = mlir::cast<NDTypeInterface>(inputK.getType());
-                const auto valueType = mlir::cast<NDTypeInterface>(inputV.getType());
-                const auto keyShape = keyType.getShape();
-                const auto valueShape = valueType.getShape();
-
                 const auto maxBatch = std::max({queryShape.raw()[0], keyShape.raw()[0], valueShape.raw()[0]});
                 const auto maxChannels = std::max({queryShape.raw()[1], keyShape.raw()[1], valueShape.raw()[1]});
                 const auto seqLen = queryShape.raw()[2];
@@ -284,9 +356,6 @@ mlir::Value extractUnbroadcastedInput(mlir::OpBuilder& builder, mlir::Location l
     auto currentType = mlir::cast<NDTypeInterface>(current.getType());
     const auto currentShape = currentType.getShape().raw();
 
-    SmallVector<int64_t> expectedShape(currentShape.begin(), currentShape.end());
-    expectedShape[inputRank - 3] = 1;
-
     if (auto reshapeOp = current.getDefiningOp<IE::ReshapeOp>()) {
         current = reshapeOp.getInput();
     } else if (auto affineReshapeOp = current.getDefiningOp<IE::AffineReshapeOp>()) {
@@ -305,16 +374,16 @@ mlir::Value extractUnbroadcastedInput(mlir::OpBuilder& builder, mlir::Location l
         const auto unbroadcastedRank = unbroadcastedType.getRank();
         const auto unbroadcastedShape = unbroadcastedType.getShape().raw();
 
-        if (unbroadcastedRank < 2 || unbroadcastedShape[unbroadcastedRank - 1] != expectedShape[inputRank - 1] ||
-            unbroadcastedShape[unbroadcastedRank - 2] != expectedShape[inputRank - 2]) {
+        // Verify last two dimensions (sequence length and embedding dimension) match
+        if (unbroadcastedRank < 2 || unbroadcastedShape[unbroadcastedRank - 1] != currentShape[inputRank - 1] ||
+            unbroadcastedShape[unbroadcastedRank - 2] != currentShape[inputRank - 2]) {
             return input;
         }
 
-        // Only MQA cases are supported (number of heads = 1)
+        // Build expected shape preserving the actual KV heads (supports both MQA and GQA)
+        SmallVector<int64_t> expectedShape(currentShape.begin(), currentShape.end());
         const auto unbroadcastedHeads = unbroadcastedRank == 2 ? 1 : unbroadcastedShape[unbroadcastedRank - 3];
-        if (unbroadcastedHeads != 1) {
-            return input;
-        }
+        expectedShape[inputRank - 3] = unbroadcastedHeads;
 
         // If the same rank, check if the shape matches expected shape
         bool needsReshape = (unbroadcastedRank != inputRank);
@@ -335,10 +404,99 @@ mlir::Value extractUnbroadcastedInput(mlir::OpBuilder& builder, mlir::Location l
 }
 
 //
+// squeezeSDPALeadingOnesTo4D
+//
+
+// Drop leading size==1 dims (everything but the trailing seq_len/head_dim) until the shape is 4D.
+// Rightmost eligible dims are dropped first so the outermost batch dim stays in slot 0 and the
+// resulting layout remains [batch, heads, seq_len, head_dim]. Returns nullopt when there are not
+// enough squeezable dims.
+std::optional<SmallVector<int64_t>> squeezeLeadingOnesTo4D(ArrayRef<int64_t> shape) {
+    const int64_t rank = static_cast<int64_t>(shape.size());
+    if (rank <= 4) {
+        return SmallVector<int64_t>(shape.begin(), shape.end());
+    }
+
+    int64_t toRemove = rank - 4;
+    SmallVector<bool> drop(rank, false);
+    for (int64_t i = rank - 3; i >= 0 && toRemove > 0; --i) {
+        if (shape[i] == 1) {
+            drop[i] = true;
+            --toRemove;
+        }
+    }
+    if (toRemove != 0) {
+        return std::nullopt;
+    }
+
+    SmallVector<int64_t> result;
+    for (int64_t i = 0; i < rank; ++i) {
+        if (!drop[i]) {
+            result.push_back(shape[i]);
+        }
+    }
+    return result;
+}
+
+// Some exporters emit SDPA with rank > 4 caused only by leading size==1 dims (e.g. a singleton GQA
+// group dim, giving 5D q/k/v like [1, heads, 1, seq, head_dim]). FuseAttention's matchers only
+// accept rank in [3, 4], so such SDPAs would be left untouched and later lower onto the `sdpa`
+// SHAVE kernel, which is not prebuilt on NPU50XX and fails at blob load.
+// Fold the size==1 dims away here, so the matchers below can handle it;
+// the output is reshaped back to the original rank.
+void squeezeSDPALeadingOnesTo4D(IE::SDPAOp sdpaOp) {
+    // All operands that will be reshaped (q/k/v and the optional mask) must be reducible to 4D;
+    // bail out otherwise so we never erase the original op and leave a rank-mismatched SDPA.
+    const auto isReducible = [](mlir::Value val) {
+        return val == nullptr || getShape(val).size() <= 4 || squeezeLeadingOnesTo4D(getShape(val).raw()).has_value();
+    };
+    if (!isReducible(sdpaOp.getInputQ()) || !isReducible(sdpaOp.getInputK()) || !isReducible(sdpaOp.getInputV()) ||
+        !isReducible(sdpaOp.getInputMask())) {
+        return;
+    }
+
+    mlir::OpBuilder builder(sdpaOp);
+    const auto ctx = builder.getContext();
+    auto to4D = [&](mlir::Value val, StringRef tag) -> mlir::Value {
+        if (val == nullptr || getShape(val).size() <= 4) {
+            return val;
+        }
+        const auto newShape = squeezeLeadingOnesTo4D(getShape(val).raw()).value();
+        return builder
+                .create<IE::ReshapeOp>(appendLoc(sdpaOp.getLoc(), "squeeze_{0}", tag), val,
+                                       getIntArrayAttr(ctx, newShape))
+                .getOutput();
+    };
+
+    auto newSDPA = builder.create<IE::SDPAOp>(appendLoc(sdpaOp.getLoc(), "to_4d"), to4D(sdpaOp.getInputQ(), "q"),
+                                              to4D(sdpaOp.getInputK(), "k"), to4D(sdpaOp.getInputV(), "v"),
+                                              to4D(sdpaOp.getInputMask(), "m"), sdpaOp.getInputScale(),
+                                              sdpaOp.getInputSink(), sdpaOp.getCausalAttr());
+
+    auto unsqueeze = builder.create<IE::ReshapeOp>(appendLoc(sdpaOp.getLoc(), "unsqueeze_out"), newSDPA.getOutput(),
+                                                   getIntArrayAttr(ctx, getShape(sdpaOp.getOutput()).raw()));
+    sdpaOp.getOutput().replaceAllUsesWith(unsqueeze.getOutput());
+    sdpaOp.erase();
+}
+
+//
 // safeRunOnFunc
 //
 void FuseAttentionPass::safeRunOnFunc() {
     auto func = getOperation();
+
+    // Collapse SDPAs with squeezable leading size==1 dims to 4D first so the rank-[3, 4] matchers
+    // below can pick them up. Collected up front since squeezeSDPALeadingOnesTo4D erases ops.
+    SmallVector<IE::SDPAOp> highRankSDPAs;
+    func->walk([&](IE::SDPAOp sdpaOp) {
+        if (getShape(sdpaOp.getInputQ()).size() > 4 || getShape(sdpaOp.getInputK()).size() > 4 ||
+            getShape(sdpaOp.getInputV()).size() > 4) {
+            highRankSDPAs.push_back(sdpaOp);
+        }
+    });
+    for (auto sdpaOp : highRankSDPAs) {
+        squeezeSDPALeadingOnesTo4D(sdpaOp);
+    }
 
     func->walk([&](IE::SDPAOp sdpaOp) {
         auto inputKType = mlir::cast<NDTypeInterface>(sdpaOp.getInputK().getType());
@@ -613,6 +771,90 @@ void FuseAttentionPass::safeRunOnFunc() {
         }
 
         createAttention(matMulVOp, inputQ, inputK, inputV, attentionMask, scale, sink, bias);
+    });
+
+    // MQA head-folding: for AttentionOp with qHeads > 1 and kvHeads == 1, reshape Q from
+    // [N, qHeads, tSL, E] to [N, 1, qHeads*tSL, E] and tile the mask along the tSL dimension.
+    // Since all Q heads share the same K and V in MQA, this is mathematically equivalent and
+    // merges qHeads separate DPU matmuls into a single larger one, improving hardware utilization.
+    func->walk([&](IE::AttentionOp attentionOp) {
+        const auto qType = mlir::cast<NDTypeInterface>(attentionOp.getInputQ().getType());
+        const auto kType = mlir::cast<NDTypeInterface>(attentionOp.getInputK().getType());
+
+        if (qType.getRank() != 4 || kType.getRank() != 4) {
+            return;
+        }
+
+        const auto qShape = qType.getShape().raw();
+        const auto kShape = kType.getShape().raw();
+        const auto N = qShape[0];
+        const auto qHeads = qShape[1];
+        const auto tSL = qShape[2];
+        const auto E = qShape[3];
+        const auto kvHeads = kShape[1];
+        const auto sSL = kShape[2];
+
+        // Guard: MQA only (qHeads > 1, kvHeads == 1). Bias support requires tiles along the
+        // attention-score dimension and is left for a follow-on change.
+        if (qHeads <= 1 || kvHeads != 1 || attentionOp.getInputBias() != nullptr) {
+            return;
+        }
+
+        // Restrict head-folding to shape configurations known to improve performance.
+        // Other shapes regress, so they are intentionally excluded until validated.
+        struct FoldShape {
+            int64_t qHeads;
+            int64_t tSL;
+            int64_t sSL;
+            int64_t E;
+        };
+        static const SmallVector<FoldShape> ALLOWED_MQA_FOLD_SHAPES = {
+                // {qHeads, tSL, sSL, E}
+                {8, 10, 826, 256},
+        };
+        const auto matchesAllowed = [&](const FoldShape& s) {
+            return s.qHeads == qHeads && s.tSL == tSL && s.sSL == sSL && s.E == E;
+        };
+        if (!llvm::any_of(ALLOWED_MQA_FOLD_SHAPES, matchesAllowed)) {
+            return;
+        }
+
+        auto builder = mlir::OpBuilder(attentionOp);
+        const auto ctx = builder.getContext();
+        const auto loc = attentionOp->getLoc();
+
+        // Reshape Q: [N, qHeads, tSL, E] -> [N, 1, qHeads*tSL, E]
+        const auto newTSL = qHeads * tSL;
+        SmallVector<int64_t> newQShape = {N, 1, newTSL, E};
+        auto reshapedQ = builder.create<IE::ReshapeOp>(appendLoc(loc, "mqa_fold_q"), attentionOp.getInputQ(),
+                                                       getIntArrayAttr(ctx, newQShape))
+                                 .getOutput();
+
+        // Tile mask along the tSL dimension (second-to-last) by qHeads.
+        // Mask row h*tSL+t maps to original row t, matching the head-folded Q layout.
+        mlir::Value tiledMask = attentionOp.getInputMask();
+        if (tiledMask) {
+            const auto maskRank = mlir::cast<NDTypeInterface>(tiledMask.getType()).getRank();
+            SmallVector<int64_t> maskTiles(maskRank, 1);
+            maskTiles[maskRank - 2] = qHeads;
+            tiledMask = builder.create<IE::TileOp>(appendLoc(loc, "mqa_fold_mask"), tiledMask, nullptr,
+                                                   getIntArrayAttr(ctx, maskTiles))
+                                .getOutput();
+        }
+
+        auto newAttOp = builder.create<IE::AttentionOp>(appendLoc(loc, "mqa_fold_attention"), reshapedQ,
+                                                        attentionOp.getInputK(), attentionOp.getInputV(), tiledMask,
+                                                        attentionOp.getInputScale(), attentionOp.getInputSink(),
+                                                        /*bias=*/nullptr, attentionOp.getPadSizeSAttr());
+
+        // Reshape output: [N, 1, qHeads*tSL, vE] -> original [N, qHeads, tSL, vE]
+        const auto origOutputShape = mlir::cast<NDTypeInterface>(attentionOp.getOutput().getType()).getShape().raw();
+        SmallVector<int64_t> reshapeBackShape(origOutputShape.begin(), origOutputShape.end());
+        auto reshapedOut = builder.create<IE::ReshapeOp>(appendLoc(loc, "mqa_unfold_output"), newAttOp.getOutput(),
+                                                         getIntArrayAttr(ctx, reshapeBackShape));
+
+        attentionOp.getOutput().replaceAllUsesWith(reshapedOut.getOutput());
+        attentionOp.erase();
     });
 }
 

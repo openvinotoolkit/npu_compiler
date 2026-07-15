@@ -36,20 +36,31 @@ private:
 };
 
 //
+// FunctionOutlinerExhaustive
+//
+
+class FunctionOutlinerExhaustive final : public IFunctionOutliner {
+public:
+    FunctionOutlinerExhaustive(Logger log);
+    SmallVector<OutliningInstance> getOutliningTargets(mlir::func::FuncOp mainFunction) override;
+
+private:
+    Logger _log;
+};
+
+//
 // FunctionOutlinerRepeatingBlocks
 //
 
 class FunctionOutlinerRepeatingBlocks final : public IFunctionOutliner {
 public:
-    FunctionOutlinerRepeatingBlocks(size_t minOpsInBlock, size_t maxNumIterations, bool separateFunctions,
-                                    bool weightsAsInputs, Logger log);
+    FunctionOutlinerRepeatingBlocks(size_t minOpsInBlock, size_t maxNumIterations, bool weightsAsInputs, Logger log);
 
     SmallVector<OutliningInstance> getOutliningTargets(mlir::func::FuncOp mainFunction) override;
 
 private:
     size_t _minOpsInBlock;
     size_t _maxNumIterations;
-    bool _separateFunctions;
     bool _weightsAsInputs;
     Logger _log;
 };
@@ -80,19 +91,11 @@ struct NaiveOptions {
 struct RepeatingBlocksOptions {
     static constexpr size_t MIN_OPS_IN_BLOCK_DEFAULT = 30;
     static constexpr size_t MAX_NUM_ITERATIONS_DEFAULT = 100;
-    static constexpr bool WEIGHTS_AS_INPUTS_DEFAULT = false;
+    static constexpr bool WEIGHTS_AS_INPUTS_DEFAULT = true;
 
     size_t minOpsInBlock;
     size_t maxNumIterations;
     bool weightsAsInputs;
-};
-
-struct RepeatingBlocksSeparateFunctionsOptions {
-    static constexpr size_t MIN_OPS_IN_BLOCK_DEFAULT = 30;
-    static constexpr size_t MAX_NUM_ITERATIONS_DEFAULT = 100;
-
-    size_t minOpsInBlock;
-    size_t maxNumIterations;
 };
 
 struct BatchingOptions {};
@@ -102,9 +105,7 @@ struct BatchingOptions {};
 //
 
 class OutlinerPassOptions {
-    std::vector<std::variant<NaiveOptions, RepeatingBlocksOptions, RepeatingBlocksSeparateFunctionsOptions,
-                             BatchingOptions>>
-            _options;
+    std::vector<std::variant<NaiveOptions, RepeatingBlocksOptions, BatchingOptions>> _options;
 
 public:
     template <class T>

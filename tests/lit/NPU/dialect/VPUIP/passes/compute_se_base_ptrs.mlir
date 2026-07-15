@@ -9,18 +9,18 @@
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!Input_DDR = memref<1x16x3x3xf16, #NHWC>
-!InputSM_DDR = memref<1x16x3x3xi1, #NHWC>
-!InputSE_DDR = memref<1x1x3x3xi32, #NHWC>
-!Weights_DDR = memref<16x16x1x1xf16, #NHWC>
+!Input_DDR = memref<1x16x3x3xf16, {order = #NHWC}>
+!InputSM_DDR = memref<1x16x3x3xi1, {order = #NHWC}>
+!InputSE_DDR = memref<1x1x3x3xi32, {order = #NHWC}>
+!Weights_DDR = memref<16x16x1x1xf16, {order = #NHWC}>
 !WeightsSM_DDR = memref<16x1x1x128xi1>
 
-!Input_CMX = memref<1x16x3x3xf16, #NHWC, [@CMX_NN, 0]>
-!InputSM_CMX = memref<1x16x3x3xi1, #NHWC, [@CMX_NN, 0]>
-!InputSE_CMX = memref<1x1x3x3xi32, #NHWC, [@CMX_NN, 0]>
-!Weights_CMX = memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+!Input_CMX = memref<1x16x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!InputSM_CMX = memref<1x16x3x3xi1, {order = #NHWC}, [@CMX_NN, 0]>
+!InputSE_CMX = memref<1x1x3x3xi32, {order = #NHWC}, [@CMX_NN, 0]>
+!Weights_CMX = memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
 !WeightsSM_CMX = memref<16x1x1x128xi1, [@CMX_NN, 0]>
-!Output_CMX = memref<1x16x3x3xf16, #NHWC, [@CMX_NN, 0]>
+!Output_CMX = memref<1x16x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
 // CHECK-LABEL:  func.func @SETableSingleCluster
 func.func @SETableSingleCluster(%input_data: !Input_DDR, %input_sm: !InputSM_DDR) -> !Output_CMX {
@@ -88,7 +88,7 @@ func.func @SETableSingleCluster(%input_data: !Input_DDR, %input_sm: !InputSM_DDR
     // CHECK-SAME:    basePtrs = dense<0> : tensor<9xi32>,
     // CHECK-SAME:    dataElemType = f16, dataShape = [1, 16, 3, 3],
     // CHECK-SAME:    seDepth = 1 : i64, seSize = [16]
-    // CHECK-SAME:  } -> memref<1x1x3x3xi32, #NHWC>
+    // CHECK-SAME:  } -> memref<1x1x3x3xi32, {order = #NHWC}>
 }
 
 // -----
@@ -136,18 +136,18 @@ func.func @SETableSingleCluster(%input_data: !Input_DDR, %input_sm: !InputSM_DDR
     num_clusters = 2
 }>
 
-!Input_DDR = memref<1x16x3x3xf16, #NHWC>
-!InputSM_DDR = memref<1x16x3x3xi1, #NHWC>
-!InputSE_DDR = memref<1x1x3x3xi32, #NHWC>
-!Weights_DDR = memref<16x16x1x1xf16, #NHWC>
+!Input_DDR = memref<1x16x3x3xf16, {order = #NHWC}>
+!InputSM_DDR = memref<1x16x3x3xi1, {order = #NHWC}>
+!InputSE_DDR = memref<1x1x3x3xi32, {order = #NHWC}>
+!Weights_DDR = memref<16x16x1x1xf16, {order = #NHWC}>
 !WeightsSM_DDR = memref<16x1x1x128xi1>
 
-!Input_CMX = memref<1x16x3x3xf16, #NHWC, @CMX_NN>
-!InputSM_CMX = memref<1x16x3x3xi1, #NHWC, @CMX_NN>
-!InputSE_CMX = memref<1x1x3x3xi32, #NHWC, @CMX_NN>
-!Weights_CMX = memref<16x16x1x1xf16, #NHWC, @CMX_NN>
+!Input_CMX = memref<1x16x3x3xf16, {order = #NHWC}, @CMX_NN>
+!InputSM_CMX = memref<1x16x3x3xi1, {order = #NHWC}, @CMX_NN>
+!InputSE_CMX = memref<1x1x3x3xi32, {order = #NHWC}, @CMX_NN>
+!Weights_CMX = memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>
 !WeightsSM_CMX = memref<16x1x1x128xi1, @CMX_NN>
-!Output_CMX = memref<1x16x3x3xf16, #NHWC, @CMX_NN>
+!Output_CMX = memref<1x16x3x3xf16, {order = #NHWC}, @CMX_NN>
 
 // CHECK-LABEL:  func.func @SETableMultiCluster
 func.func @SETableMultiCluster(%input_data: !Input_DDR, %input_sm: !InputSM_DDR) -> !OutputDistributed {
@@ -207,7 +207,7 @@ func.func @SETableMultiCluster(%input_data: !Input_DDR, %input_sm: !InputSM_DDR)
     // CHECK-SAME:                      1, 1, 1]> : tensor<9xi32>,
     // CHECK-SAME:    dataElemType = f16, dataShape = [1, 16, 3, 3],
     // CHECK-SAME:    seDepth = 1 : i64, seSize = [16]
-    // CHECK-SAME:  } -> memref<1x1x3x3xi32, #NHWC>
+    // CHECK-SAME:  } -> memref<1x1x3x3xi32, {order = #NHWC}>
 }
 
 // -----
@@ -255,18 +255,18 @@ func.func @SETableMultiCluster(%input_data: !Input_DDR, %input_sm: !InputSM_DDR)
     num_clusters = 2
 }>
 
-!Input_DDR = memref<1x16x3x3xf16, #NHWC>
-!InputSM_DDR = memref<1x16x6x6xi1, #NHWC>
-!InputSE_DDR = memref<1x1x6x6xi32, #NHWC>
-!Weights_DDR = memref<16x16x1x1xf16, #NHWC>
+!Input_DDR = memref<1x16x3x3xf16, {order = #NHWC}>
+!InputSM_DDR = memref<1x16x6x6xi1, {order = #NHWC}>
+!InputSE_DDR = memref<1x1x6x6xi32, {order = #NHWC}>
+!Weights_DDR = memref<16x16x1x1xf16, {order = #NHWC}>
 !WeightsSM_DDR = memref<16x1x1x128xi1>
 
-!Input_CMX = memref<1x16x3x3xf16, #NHWC, @CMX_NN>
-!InputSM_CMX = memref<1x16x6x6xi1, #NHWC, @CMX_NN>
-!InputSE_CMX = memref<1x1x6x6xi32, #NHWC, @CMX_NN>
-!Weights_CMX = memref<16x16x1x1xf16, #NHWC, @CMX_NN>
+!Input_CMX = memref<1x16x3x3xf16, {order = #NHWC}, @CMX_NN>
+!InputSM_CMX = memref<1x16x6x6xi1, {order = #NHWC}, @CMX_NN>
+!InputSE_CMX = memref<1x1x6x6xi32, {order = #NHWC}, @CMX_NN>
+!Weights_CMX = memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>
 !WeightsSM_CMX = memref<16x1x1x128xi1, @CMX_NN>
-!Output_CMX = memref<1x16x6x6xf16, #NHWC, @CMX_NN>
+!Output_CMX = memref<1x16x6x6xf16, {order = #NHWC}, @CMX_NN>
 
 // CHECK-LABEL:  func.func @Interpolate
 func.func @Interpolate(%input_data: !Input_DDR, %input_sm: !InputSM_DDR) -> !OutputDistributed {
@@ -343,7 +343,7 @@ func.func @Interpolate(%input_data: !Input_DDR, %input_sm: !InputSM_DDR) -> !Out
     // CHECK-SAME:                                nearest_mode = <FLOOR>,
     // CHECK-SAME:                                offsets = [0, 0, 0, 0], sizes = [1, 32, 6, 6]>,
     // CHECK-SAME:    seDepth = 1 : i64, seSize = [16]
-    // CHECK-SAME:  } -> memref<1x1x6x6xi32, #NHWC>
+    // CHECK-SAME:  } -> memref<1x1x6x6xi32, {order = #NHWC}>
 }
 
 // -----
@@ -391,18 +391,18 @@ func.func @Interpolate(%input_data: !Input_DDR, %input_sm: !InputSM_DDR) -> !Out
     num_clusters = 2
 }>
 
-!Input_DDR = memref<1x32x3x3xf16, #NHWC>
-!InputSM_DDR = memref<1x32x6x6xi1, #NHWC>
-!InputSE_DDR = memref<1x2x6x6xi32, #NHWC>
-!Weights_DDR = memref<32x32x1x1xf16, #NHWC>
+!Input_DDR = memref<1x32x3x3xf16, {order = #NHWC}>
+!InputSM_DDR = memref<1x32x6x6xi1, {order = #NHWC}>
+!InputSE_DDR = memref<1x2x6x6xi32, {order = #NHWC}>
+!Weights_DDR = memref<32x32x1x1xf16, {order = #NHWC}>
 !WeightsSM_DDR = memref<32x1x1x128xi1>
 
-!Input_CMX = memref<1x32x3x3xf16, #NHWC, @CMX_NN>
-!InputSM_CMX = memref<1x32x6x6xi1, #NHWC, @CMX_NN>
-!InputSE_CMX = memref<1x2x6x6xi32, #NHWC, @CMX_NN>
-!Weights_CMX = memref<32x32x1x1xf16, #NHWC, @CMX_NN>
+!Input_CMX = memref<1x32x3x3xf16, {order = #NHWC}, @CMX_NN>
+!InputSM_CMX = memref<1x32x6x6xi1, {order = #NHWC}, @CMX_NN>
+!InputSE_CMX = memref<1x2x6x6xi32, {order = #NHWC}, @CMX_NN>
+!Weights_CMX = memref<32x32x1x1xf16, {order = #NHWC}, @CMX_NN>
 !WeightsSM_CMX = memref<32x1x1x128xi1, @CMX_NN>
-!Output_CMX = memref<1x32x6x6xf16, #NHWC, @CMX_NN>
+!Output_CMX = memref<1x32x6x6xf16, {order = #NHWC}, @CMX_NN>
 
 // CHECK-LABEL:  func.func @InterpolateSESize
 func.func @InterpolateSESize(%input_data: !Input_DDR, %input_sm: !InputSM_DDR) -> !OutputDistributed {
@@ -479,7 +479,7 @@ func.func @InterpolateSESize(%input_data: !Input_DDR, %input_sm: !InputSM_DDR) -
     // CHECK-SAME:                                nearest_mode = <FLOOR>,
     // CHECK-SAME:                                offsets = [0, 0, 0, 0], sizes = [1, 32, 6, 6]>,
     // CHECK-SAME:    seDepth = 2 : i64, seSize = [16, 16]
-    // CHECK-SAME:  } -> memref<1x2x6x6xi32, #NHWC>
+    // CHECK-SAME:  } -> memref<1x2x6x6xi32, {order = #NHWC}>
 }
 
 // -----
@@ -527,18 +527,18 @@ func.func @InterpolateSESize(%input_data: !Input_DDR, %input_sm: !InputSM_DDR) -
     num_clusters = 2
 }>
 
-!Input_DDR = memref<1x16x3x3xf16, #NHWC>
-!InputSM_DDR = memref<1x16x4x6xi1, #NHWC>
-!InputSE_DDR = memref<1x1x4x6xi32, #NHWC>
-!Weights_DDR = memref<16x16x1x1xf16, #NHWC>
+!Input_DDR = memref<1x16x3x3xf16, {order = #NHWC}>
+!InputSM_DDR = memref<1x16x4x6xi1, {order = #NHWC}>
+!InputSE_DDR = memref<1x1x4x6xi32, {order = #NHWC}>
+!Weights_DDR = memref<16x16x1x1xf16, {order = #NHWC}>
 !WeightsSM_DDR = memref<16x1x1x128xi1>
 
-!Input_CMX = memref<1x16x3x3xf16, #NHWC, @CMX_NN>
-!InputSM_CMX = memref<1x16x4x6xi1, #NHWC, @CMX_NN>
-!InputSE_CMX = memref<1x1x4x6xi32, #NHWC, @CMX_NN>
-!Weights_CMX = memref<16x16x1x1xf16, #NHWC, @CMX_NN>
+!Input_CMX = memref<1x16x3x3xf16, {order = #NHWC}, @CMX_NN>
+!InputSM_CMX = memref<1x16x4x6xi1, {order = #NHWC}, @CMX_NN>
+!InputSE_CMX = memref<1x1x4x6xi32, {order = #NHWC}, @CMX_NN>
+!Weights_CMX = memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>
 !WeightsSM_CMX = memref<16x1x1x128xi1, @CMX_NN>
-!Output_CMX = memref<1x16x4x6xf16, #NHWC, @CMX_NN>
+!Output_CMX = memref<1x16x4x6xf16, {order = #NHWC}, @CMX_NN>
 
 // CHECK-LABEL:  func.func @InterpolateOutputOffsets
 func.func @InterpolateOutputOffsets(%input_data: !Input_DDR, %input_sm: !InputSM_DDR) -> !OutputDistributed {
@@ -613,7 +613,7 @@ func.func @InterpolateOutputOffsets(%input_data: !Input_DDR, %input_sm: !InputSM
     // CHECK-SAME:                                nearest_mode = <FLOOR>,
     // CHECK-SAME:                                offsets = [0, 0, 1, 0], sizes = [1, 32, 4, 6]>,
     // CHECK-SAME:    seDepth = 1 : i64, seSize = [16]
-    // CHECK-SAME:  } -> memref<1x1x4x6xi32, #NHWC>
+    // CHECK-SAME:  } -> memref<1x1x4x6xi32, {order = #NHWC}>
 }
 
 // -----
@@ -661,20 +661,20 @@ func.func @InterpolateOutputOffsets(%input_data: !Input_DDR, %input_sm: !InputSM
     num_clusters = 2
 }>
 
-!Input_DDR = memref<1x16x6x16xf16, #NHWC, @DDR>
-!Input_DDR_Tile = memref<1x16x4x6xf16, #NHWC, @DDR>
-!InputSM_DDR_Tile = memref<1x16x11x20xi1, #NHWC, @DDR>
-!InputSE_DDR_Tile = memref<1x1x11x20xi32, #NHWC, @DDR>
-!Weights_DDR = memref<16x16x3x3xf16, #NHWC, @DDR>
+!Input_DDR = memref<1x16x6x16xf16, {order = #NHWC}, @DDR>
+!Input_DDR_Tile = memref<1x16x4x6xf16, {order = #NHWC}, @DDR>
+!InputSM_DDR_Tile = memref<1x16x11x20xi1, {order = #NHWC}, @DDR>
+!InputSE_DDR_Tile = memref<1x1x11x20xi32, {order = #NHWC}, @DDR>
+!Weights_DDR = memref<16x16x3x3xf16, {order = #NHWC}, @DDR>
 !WeightsSM_DDR = memref<16x1x1x256xi1, @DDR>
-!Output_DDR = memref<1x16x18x18xf16, #NHWC, @DDR>
+!Output_DDR = memref<1x16x18x18xf16, {order = #NHWC}, @DDR>
 
-!Input_CMX_Tile = memref<1x16x4x6xf16, #NHWC, @CMX_NN>
-!InputSM_CMX_Tile = memref<1x16x11x20xi1, #NHWC, @CMX_NN>
-!InputSE_CMX_Tile = memref<1x1x11x20xi32, #NHWC, @CMX_NN>
-!Weights_CMX = memref<16x16x3x3xf16, #NHWC, @CMX_NN>
+!Input_CMX_Tile = memref<1x16x4x6xf16, {order = #NHWC}, @CMX_NN>
+!InputSM_CMX_Tile = memref<1x16x11x20xi1, {order = #NHWC}, @CMX_NN>
+!InputSE_CMX_Tile = memref<1x1x11x20xi32, {order = #NHWC}, @CMX_NN>
+!Weights_CMX = memref<16x16x3x3xf16, {order = #NHWC}, @CMX_NN>
 !WeightsSM_CMX = memref<16x1x1x256xi1, @CMX_NN>
-!Output_CMX_Tile = memref<1x16x9x18xf16, #NHWC, @CMX_NN>
+!Output_CMX_Tile = memref<1x16x9x18xf16, {order = #NHWC}, @CMX_NN>
 
 // CHECK-LABEL:  func.func @InterpolateTileAndMultiCluster
 func.func @InterpolateTileAndMultiCluster(%input_data: !Input_DDR, %input_sm_0: !InputSM_DDR_Tile, %input_sm_1: !InputSM_DDR_Tile) -> !Output_DDR {
@@ -692,7 +692,7 @@ func.func @InterpolateTileAndMultiCluster(%input_data: !Input_DDR, %input_sm_0: 
               } -> !InputSE_DDR_Tile
 
     %input_sub_1 = VPUIP.SubView %input_data [0, 0, 2, 0] [1, 16, 4, 6]
-                   : memref<1x16x6x16xf16, #NHWC, @DDR> to memref<1x16x4x6xf16, {order = #NHWC, strides = [1536, 1, 256, 16]}, @DDR>
+                   : memref<1x16x6x16xf16, {order = #NHWC}, @DDR> to memref<1x16x4x6xf16, {order = #NHWC, strides = [1536, 1, 256, 16]}, @DDR>
     %input_alloc_1 = memref.alloc() : !Input_DDR_Tile
     %input_copy_1 = VPUIP.Copy inputs(%input_sub_1 : memref<1x16x4x6xf16, {order = #NHWC, strides = [1536, 1, 256, 16]}, @DDR>)
                                outputs(%input_alloc_1 : !Input_DDR_Tile) -> !Input_DDR_Tile
@@ -704,7 +704,7 @@ func.func @InterpolateTileAndMultiCluster(%input_data: !Input_DDR, %input_sm_0: 
                                 offsets = [0, 0, 3, 0], sizes = [1, 16, 11, 20], initial_input_shape = [1, 16, 6, 6], initial_output_shape = [1, 16, 18, 18]>>
 
     %input_sub_0 = VPUIP.SubView %input_data [0, 0, 0, 0] [1, 16, 4, 6]
-                   : memref<1x16x6x16xf16, #NHWC, @DDR> to memref<1x16x4x6xf16, {order = #NHWC, strides = [1536, 1, 256, 16]}, @DDR>
+                   : memref<1x16x6x16xf16, {order = #NHWC}, @DDR> to memref<1x16x4x6xf16, {order = #NHWC, strides = [1536, 1, 256, 16]}, @DDR>
     %input_alloc_0 = memref.alloc() :!Input_DDR_Tile
     %input_copy_0 = VPUIP.Copy inputs(%input_sub_0 : memref<1x16x4x6xf16, {order = #NHWC, strides = [1536, 1, 256, 16]}, @DDR>)
                                outputs(%input_alloc_0 : !Input_DDR_Tile) -> !Input_DDR_Tile
@@ -839,7 +839,7 @@ func.func @InterpolateTileAndMultiCluster(%input_data: !Input_DDR, %input_sm_0: 
     // CHECK-SAME:                                scale = [1.000000e+00, 1.000000e+00, 3.000000e+00, 3.000000e+00],
     // CHECK-SAME:                                offsets = [0, 0, 0, 0], sizes = [1, 16, 11, 20], initial_input_shape = [1, 16, 6, 6], initial_output_shape = [1, 16, 18, 18]>,
     // CHECK-SAME:    seDepth = 1 : i64, seSize = [16]
-    // CHECK-SAME:  } -> memref<1x1x11x20xi32, #NHWC, @DDR>
+    // CHECK-SAME:  } -> memref<1x1x11x20xi32, {order = #NHWC}, @DDR>
 
     // CHECK:       VPUIP.StorageElementTable {
     // CHECK-SAME:    basePtrs = dense<[
@@ -860,7 +860,7 @@ func.func @InterpolateTileAndMultiCluster(%input_data: !Input_DDR, %input_sm_0: 
     // CHECK-SAME:                                scale = [1.000000e+00, 1.000000e+00, 3.000000e+00, 3.000000e+00],
     // CHECK-SAME:                                offsets = [0, 0, 3, 0], sizes = [1, 16, 11, 20], initial_input_shape = [1, 16, 6, 6], initial_output_shape = [1, 16, 18, 18]>,
     // CHECK-SAME:    seDepth = 1 : i64, seSize = [16]
-    // CHECK-SAME:  } -> memref<1x1x11x20xi32, #NHWC, @DDR>
+    // CHECK-SAME:  } -> memref<1x1x11x20xi32, {order = #NHWC}, @DDR>
 }
 
 // -----
@@ -908,18 +908,18 @@ func.func @InterpolateTileAndMultiCluster(%input_data: !Input_DDR, %input_sm_0: 
     num_clusters = 2
 }>
 
-!Input_DDR = memref<1x16x2x2xf16, #NHWC>
-!InputSM_DDR = memref<1x16x5x5xi1, #NHWC>
-!InputSE_DDR = memref<1x1x5x5xi32, #NHWC>
-!Weights_DDR = memref<16x16x3x3xf16, #NHWC>
+!Input_DDR = memref<1x16x2x2xf16, {order = #NHWC}>
+!InputSM_DDR = memref<1x16x5x5xi1, {order = #NHWC}>
+!InputSE_DDR = memref<1x1x5x5xi32, {order = #NHWC}>
+!Weights_DDR = memref<16x16x3x3xf16, {order = #NHWC}>
 !WeightsSM_DDR = memref<16x1x1x256xi1>
 
-!Input_CMX = memref<1x16x2x2xf16, #NHWC, @CMX_NN>
-!InputSM_CMX = memref<1x16x5x5xi1, #NHWC, @CMX_NN>
-!InputSE_CMX = memref<1x1x5x5xi32, #NHWC, @CMX_NN>
-!Weights_CMX = memref<16x16x3x3xf16, #NHWC, @CMX_NN>
+!Input_CMX = memref<1x16x2x2xf16, {order = #NHWC}, @CMX_NN>
+!InputSM_CMX = memref<1x16x5x5xi1, {order = #NHWC}, @CMX_NN>
+!InputSE_CMX = memref<1x1x5x5xi32, {order = #NHWC}, @CMX_NN>
+!Weights_CMX = memref<16x16x3x3xf16, {order = #NHWC}, @CMX_NN>
 !WeightsSM_CMX = memref<16x1x1x256xi1, @CMX_NN>
-!Output_CMX = memref<1x16x3x3xf16, #NHWC, @CMX_NN>
+!Output_CMX = memref<1x16x3x3xf16, {order = #NHWC}, @CMX_NN>
 
 // CHECK-LABEL:  func.func @InterpolateBilinearAlignCornersOutputOffsets
 func.func @InterpolateBilinearAlignCornersOutputOffsets(%input_data: !Input_DDR, %input_sm: !InputSM_DDR) -> !OutputDistributed {
@@ -995,5 +995,5 @@ func.func @InterpolateBilinearAlignCornersOutputOffsets(%input_data: !Input_DDR,
     // CHECK-SAME:                                offsets = [0, 0, 1, 1], sizes = [1, 16, 5, 5],
     // CHECK-SAME:                                initial_input_shape = [1, 16, 3, 3], initial_output_shape = [1, 16, 7, 7]>,
     // CHECK-SAME:    seDepth = 1 : i64, seSize = [16]
-    // CHECK-SAME:  } -> memref<1x1x5x5xi32, #NHWC>
+    // CHECK-SAME:  } -> memref<1x1x5x5xi32, {order = #NHWC}>
 }

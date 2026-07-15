@@ -19,7 +19,7 @@ void NNDMAOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState,
                     mlir::ValueRange waitBarriers, mlir::ValueRange updateBarriers,
                     VPUMI40XX::DMATransactionAttr dma_transaction, VPUIP::DMADescriptorAttr dma_descriptor) {
     build(odsBuilder, odsState, index, taskLocation, input, mlir::ValueRange(output_buff), previousDma, waitBarriers,
-          updateBarriers, 0, 0, false, false, false, 0, VPUIP::DMAAccMode::DISABLE,
+          updateBarriers, 0, 0, false, false, false, 0, VPUIP::DMAAccMode::DISABLE, /*dmaEncodingAlgo*/ nullptr,
           /*act_compression_size_entry*/ nullptr, /*act_compression_sparsity_map*/ nullptr, dma_transaction,
           dma_descriptor, 0, nullptr, 0, nullptr, /*enqueue_target_barrier*/ nullptr, /*wlmPage*/ nullptr,
           /*physicalBarrierRangeAttr*/ nullptr, /*enqueueDMAAttr*/ nullptr, /*fetchDMAAttr*/ nullptr,
@@ -37,8 +37,27 @@ void NNDMAOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState,
                     mlir::Value indices, mlir::Value enqueueBarrier, mlir::IntegerAttr wlmPage) {
     build(odsBuilder, odsState, index, taskLocation, input, mlir::ValueRange(output_buff), previousDma, waitBarriers,
           updateBarriers, start_after, clean_after, is_out_of_order, is_critical, enable_msc, port, acceleration_mode,
-          act_compression_size_entry, act_compression_sparsity_map, dma_transaction, dma_descriptor, dma_hwp_id,
-          profilingMetadata, allow_different_in_out_shapes, indices, enqueueBarrier, wlmPage,
+          /*dmaEncodingAlgo*/ nullptr, act_compression_size_entry, act_compression_sparsity_map, dma_transaction,
+          dma_descriptor, dma_hwp_id, profilingMetadata, allow_different_in_out_shapes, indices, enqueueBarrier,
+          wlmPage,
+          /*physicalBarrierRangeAttr*/ nullptr, /*enqueueDMAAttr*/ nullptr, /*fetchDMAAttr*/ nullptr,
+          /*addressingMode*/ nullptr, /*skipDmaAttr*/ nullptr);
+}
+
+void NNDMAOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState, mlir::Type index,
+                    mlir::Value taskLocation, mlir::Value input, mlir::ValueRange output_buff, mlir::Value previousDma,
+                    mlir::ValueRange waitBarriers, mlir::ValueRange updateBarriers, uint64_t start_after,
+                    uint64_t clean_after, bool is_out_of_order, bool is_critical, bool enable_msc, int64_t port,
+                    VPUIP::DMAAccMode acceleration_mode, VPUIP::DMAEncodingAlgoAttr dma_encoding_algo,
+                    mlir::Value act_compression_size_entry, mlir::Value act_compression_sparsity_map,
+                    VPUMI40XX::DMATransactionAttr dma_transaction, VPUIP::DMADescriptorAttr dma_descriptor,
+                    mlir::IntegerAttr dma_hwp_id, VPUIP::DmaProfilingMetadataAttr profilingMetadata,
+                    bool allow_different_in_out_shapes, mlir::Value indices, mlir::Value enqueueBarrier,
+                    mlir::IntegerAttr wlmPage) {
+    build(odsBuilder, odsState, index, taskLocation, input, mlir::ValueRange(output_buff), previousDma, waitBarriers,
+          updateBarriers, start_after, clean_after, is_out_of_order, is_critical, enable_msc, port, acceleration_mode,
+          dma_encoding_algo, act_compression_size_entry, act_compression_sparsity_map, dma_transaction, dma_descriptor,
+          dma_hwp_id, profilingMetadata, allow_different_in_out_shapes, indices, enqueueBarrier, wlmPage,
           /*physicalBarrierRangeAttr*/ nullptr, /*enqueueDMAAttr*/ nullptr, /*fetchDMAAttr*/ nullptr,
           /*addressingMode*/ nullptr, /*skipDmaAttr*/ nullptr);
 }
@@ -82,6 +101,21 @@ mlir::LogicalResult NNDMAOp::verify() {
                            "Input and output shapes are not equal: {0} != {1}. Not equal shapes allowed in case "
                            "getAccelerationMode() and getAllowDifferentInOutShapes() enabled only.",
                            inputShape, outputShape);
+        }
+    }
+    if (getAccelerationMode() == VPUIP::DMAAccMode::DECOMPRESSION) {
+        if (!getDmaEncodingAlgo().has_value()) {
+            return errorAt(
+                    getLoc(),
+                    "Operation {0}: dma_encoding_algo attribute should be set when acceleration mode is DECOMPRESSION",
+                    getOperationName());
+        }
+    } else {
+        if (getDmaEncodingAlgo().has_value()) {
+            return errorAt(getLoc(),
+                           "Operation {0}: dma_encoding_algo attribute should only be set when acceleration mode is "
+                           "DECOMPRESSION",
+                           getOperationName());
         }
     }
     return ::mlir::success();

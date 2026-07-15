@@ -348,11 +348,16 @@ mlir::LogicalResult SimplifyDynamicCast::matchAndRewrite(mlir::tensor::CastOp ca
     const auto& nestedLog = _log.nest();
 
     if (sourceType.hasStaticShape() || !resultType.hasStaticShape()) {
-        if (sourceType.hasStaticShape() && llvm::all_of(castOp.getResult().getUsers(), [&](mlir::Operation* user) {
-                auto userType = mlir::cast<mlir::ShapedType>(user->getResult(0).getType());
-                return userType.hasStaticShape();
-            })) {
-            rewriter.replaceAllUsesWith(castOp, castOp.getSource());
+        if (sourceType.hasStaticShape()) {
+            auto users = castOp.getResult().getUsers();
+            rewriter.replaceOp(castOp, castOp.getSource());
+            if (!resultType.hasStaticShape()) {
+                for (auto* user : users) {
+                    if (mlir::isa<mlir::InferTypeOpInterface>(user)) {
+                        vpux::inferReturnTypes(user, vpux::InferShapedTypeMode::SHAPE);
+                    }
+                }
+            }
             return mlir::success();
         }
         return matchFailed(nestedLog, rewriter, castOp,
@@ -440,19 +445,6 @@ void FullUnrollSCFLoopPass::unrollTiling(ArrayRef<mlir::scf::ForOp> loopVector,
         moduleOp->walk([&](mlir::Operation* operation) {
             if (operation->getNumResults() == 0 || !mlir::isa<mlir::InferTypeOpInterface>(operation)) {
                 return;
-            }
-
-            // TODO E-204401 replace static raw shape attribute with dynamic one corrected in tiling stage
-            if (operation->hasAttr("rawFilterShape")) {
-                auto rawFilterShape = Shape(
-                        parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(operation->getAttr("rawFilterShape"))));
-
-                auto filterShape = getShape(operation->getOperand(1));
-                if (!mlir::ShapedType::isDynamic(filterShape[Dims4D::Filter::OC])) {
-                    rawFilterShape[Dims4D::Filter::OC] = filterShape[Dims4D::Filter::OC];
-                    operation->setAttr("rawFilterShape",
-                                       getIntArrayAttr(operation->getContext(), rawFilterShape.raw()));
-                }
             }
 
             auto type = mlir::dyn_cast<vpux::NDTypeInterface>(operation->getResult(0).getType());
@@ -633,10 +625,10 @@ void fillInDistribution(VPU::OpChainAnalysis& analysis, mlir::OffsetSizeAndStrid
 
     distribution.setComputeShapes(sizes);
     distribution.setComputeOffsets(offsets);
-    distribution.setMemoryShapes(sizes);
-    distribution.setMemoryOffsets(offsets);
+    distribution.setMemoryShapes(std::move(sizes));
+    distribution.setMemoryOffsets(std::move(offsets));
     distribution.setNumClusters(numClusters);
-    distribution.setNumTiles(numTiles);
+    distribution.setNumTiles(std::move(numTiles));
 }
 
 VPU::DistributedTensorType getDistributedTypeForInput(VPU::OpChainAnalysis& analysis, mlir::Operation* computeOp,
@@ -985,7 +977,7 @@ void FullUnrollSCFLoopPass::safeRunOnModule() {
     auto moduleOp = getOperation();
 
     // full unrolling is not applicable for host pipeline
-    if (config::getCompilationMode(moduleOp) == config::CompilationMode::HostCompile) {
+    if (config::isHostCompileMode(moduleOp)) {
         return;
     }
 

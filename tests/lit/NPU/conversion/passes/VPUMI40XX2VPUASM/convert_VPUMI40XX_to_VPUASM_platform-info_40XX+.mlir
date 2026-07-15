@@ -18,16 +18,16 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
     DataInfo "output_2" : tensor<16x32x1x1xf16, {order = #NHWC}>
   }
   VPUASM.InputBindings inputDeclarations : {
-    VPUASM.DeclareBuffer @input_0_buffDecl !VPUASM.Buffer< "NetworkInput"[0] <0> : memref<16x32x1x1xf16, #NHWC, @DDR> :  swizzling(0)>
+    VPUASM.DeclareBuffer @input_0_buffDecl !VPUASM.Buffer< "NetworkInput"[0] <0> : memref<16x32x1x1xf16, {order = #NHWC}, @DDR> :  swizzling(0)>
   }
   VPUASM.OutputBindings outputDeclarations : {
-    VPUASM.DeclareBuffer @output_0_buffDecl !VPUASM.Buffer< "NetworkOutput"[0] <0> : memref<16x32x1x1xf16, #NHWC, @DDR> :  swizzling(0)>
-    VPUASM.DeclareBuffer @output_1_buffDecl !VPUASM.Buffer< "NetworkOutput"[1] <0> : memref<16x32x1x1xf16, #NHWC, @DDR> :  swizzling(0)>
-    VPUASM.DeclareBuffer @output_2_buffDecl !VPUASM.Buffer< "NetworkOutput"[2] <0> : memref<16x32x1x1xf16, #NHWC, @DDR> :  swizzling(0)>
+    VPUASM.DeclareBuffer @output_0_buffDecl !VPUASM.Buffer< "NetworkOutput"[0] <0> : memref<16x32x1x1xf16, {order = #NHWC}, @DDR> :  swizzling(0)>
+    VPUASM.DeclareBuffer @output_1_buffDecl !VPUASM.Buffer< "NetworkOutput"[1] <0> : memref<16x32x1x1xf16, {order = #NHWC}, @DDR> :  swizzling(0)>
+    VPUASM.DeclareBuffer @output_2_buffDecl !VPUASM.Buffer< "NetworkOutput"[2] <0> : memref<16x32x1x1xf16, {order = #NHWC}, @DDR> :  swizzling(0)>
   }
   VPUASM.ProfilingBindings profilingDeclarations : {
   }
-  func.func private @main() {
+  func.func nested @main() {
     %2 = VPUMI40XX.PlatformInfo -> <0:0:0>
     %miV = VPUMI40XX.MappedInferenceVersion(11 _ 4 _ 10) -> !VPURegMapped.Index<0:0:0>
     %mi = VPUMI40XX.MappedInference dmaCount([[0, 0]]) invariantCount([0]) variantCount([0]) actKernelRangesCount([[0, 0]]) actKernelInvocationsCount([[0, 0]]) mediaCount(0) barrierCount(0) bootstrapBarriersCount(0) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>

@@ -15,7 +15,7 @@ module {
     DataInfo "output_shape" : tensor<4xsi32>
   }
   module @VPU.SW {
-    func.func private @builtin_Concat(memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, none, none) attributes {VPU.kernel_code = "concat.cpp", VPU.kernel_entry = "concat"}
+    func.func nested @builtin_Concat(memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, none, none) attributes {VPU.kernel_code = "concat.cpp", VPU.kernel_entry = "concat"}
   }
   // CHECK-LABEL: @DynamicConcat
   func.func @DynamicConcat(%arg0: memref<1x3x5x16xf16, [@CMX_NN, 0]>, %arg1: memref<4xsi32, [@CMX_NN, 0]>) -> (memref<2x3x5x16xf16, [@CMX_NN, 0]>, memref<4xsi32, [@CMX_NN, 0]>) {

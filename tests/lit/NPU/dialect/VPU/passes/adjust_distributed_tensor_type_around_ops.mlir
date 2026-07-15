@@ -34,7 +34,7 @@
 }>
 
 !WeightsDistributed = !VPU.DistributedTensor<
-    64x128x1x1xi8, #NHWC, @CMX_NN, {
+    64x128x1x1xsi8, #NHWC, @CMX_NN, {
     mode = "DUPLICATED",
     num_clusters = 2 : i64,
     uniform_distributed_segments,
@@ -70,18 +70,18 @@
 // CHECK-LABEL: @AdjustInputDistributedType
 // CHECK-SAME:    ([[ARG0:%.+]]: !VPU.DistributedTensor<1x128x104x64xi8,
 func.func @AdjustInputDistributedType(%arg0: !InputDistributed1) -> !OutputDistributed {
-    %cst_0 = const.Declare tensor<64x128x1x1xi8, {order = #NHWC}> = dense<1> : tensor<64x128x1x1xi8>, [#const.Reorder<#NHWC>]
+    %cst_0 = const.Declare tensor<64x128x1x1xsi8, {order = #NHWC}> = dense<1> : tensor<64x128x1x1xsi8>, [#const.Reorder<#NHWC>]
     %0 = VPU.Copy(%arg0) : !InputDistributed1 -> tensor<1x128x104x64xi8, {order = #NHWC}>
     %1 = VPU.Copy(%0) {out_mem_space = @CMX_NN} : tensor<1x128x104x64xi8, {order = #NHWC}> -> !InputDistributed2
 
-    %2 = VPU.Copy(%cst_0) {out_mem_space = @CMX_NN} : tensor<64x128x1x1xi8, {order = #NHWC}> -> !WeightsDistributed
-    %4 = VPU.NCE.Convolution(%1, %2) {
+    %2 = VPU.Copy(%cst_0) {out_mem_space = @CMX_NN} : tensor<64x128x1x1xsi8, {order = #NHWC}> -> !WeightsDistributed
+    %4 = VPU.NCE.Convolution(%1, %2) rawFilterShape [64, 128, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         ppe = #VPU.PPEStub<>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-        rawFilterShape = [64, 128, 1, 1], strides = [1, 1]} : !InputDistributed2, !WeightsDistributed -> !OutputDistributed
+         strides = [1, 1]} : !InputDistributed2, !WeightsDistributed -> !OutputDistributed
     return %4 : !OutputDistributed
 
-    // CHECK:    [[WEIGHTS:%.+]] = const.Declare tensor<64x128x1x1xi8, {order = #NHWC}> = dense<1> : tensor<64x128x1x1xi8>, [#const.Reorder<#NHWC>]
+    // CHECK:    [[WEIGHTS:%.+]] = const.Declare tensor<64x128x1x1xsi8, {order = #NHWC}> = dense<1> : tensor<64x128x1x1xsi8>, [#const.Reorder<#NHWC>]
     // CHECK:    [[INPUT_COPY0:%.+]] = VPU.Copy([[ARG0]]) :
     // CHECK-SAME{LITERAL}:      !VPU.DistributedTensor<1x128x104x64xi8, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments,
     // CHECK-SAME{LITERAL}:       compute_shapes = [[1, 128, 52, 64], [1, 128, 52, 64]],
@@ -97,7 +97,7 @@ func.func @AdjustInputDistributedType(%arg0: !InputDistributed1) -> !OutputDistr
     // CHECK-NOT{LITERAL}:       memory_shapes = [[1, 128, 52, 64], [1, 128, 52, 64]],
     // CHECK-SAME{LITERAL}:      memory_offsets = [[0, 0, 0, 0], [0, 0, 50, 0]]}>
     // CHECK-NOT{LITERAL}:       memory_offsets = [[0, 0, 0, 0], [0, 0, 52, 0]]
-    // CHECK:    [[WEIGHTS_COPY:%.+]] = VPU.Copy([[WEIGHTS]]) {out_mem_space = @CMX_NN} : tensor<64x128x1x1xi8, {order = #NHWC}>
+    // CHECK:    [[WEIGHTS_COPY:%.+]] = VPU.Copy([[WEIGHTS]]) {out_mem_space = @CMX_NN} : tensor<64x128x1x1xsi8, {order = #NHWC}>
     // CHECK:    [[CONV:%.+]] = VPU.NCE.Convolution([[INPUT_COPY1]], [[WEIGHTS_COPY]])
     // CHECK:    return [[CONV]]
 }

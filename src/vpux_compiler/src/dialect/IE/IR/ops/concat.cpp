@@ -15,8 +15,7 @@
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
-#include "vpux/compiler/utils/loop.hpp"
-#include "vpux/compiler/utils/quantization.hpp"
+
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
 
@@ -450,10 +449,9 @@ SmallVector<mlir::Value> getAllConstInputOp(IE::ConcatOp origOp) {
 }
 
 mlir::LogicalResult FuseConstConcat::matchAndRewrite(IE::ConcatOp origOp, mlir::PatternRewriter& rewriter) const {
-    // Convert below scenario to a Const
     //        Const  Const  Const
     //          |      |      |
-    //           \     |     /         =>   Const
+    //           \     |     /         =>   Const [#const.Concat<...>]
     //              Concat
     //                 |
     //
@@ -466,80 +464,27 @@ mlir::LogicalResult FuseConstConcat::matchAndRewrite(IE::ConcatOp origOp, mlir::
         return mlir::failure();
     }
 
-    auto offsetAttr = parseIntArrayOfArrayAttr<uint64_t>(origOp.getStaticOffsets().value());
-    if (offsetAttr.size() != constInputs.size()) {
+    if (!origOp.getStaticOffsets().has_value()) {
         return mlir::failure();
     }
+    auto staticOffsets = origOp.getStaticOffsets().value();
 
     const auto axis = getConcatAxesFromOffsets(origOp, getShape(origOp.getOutput()));
     if (axis.size() != 1) {
         return mlir::failure();
     }
-    const auto axisValue = *axis.begin();
 
-    auto outNdInterface = mlir::dyn_cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
-    const auto contentElemType = outNdInterface.getElementType();
+    std::vector<Const::ContentAttr> inputContents;
+    inputContents.reserve(constInputs.size());
+    for (auto input : constInputs) {
+        auto declareOp = input.getDefiningOp<Const::DeclareOp>();
+        inputContents.push_back(declareOp.getContentAttr());
+    }
 
-    auto contentElemQType = mlir::dyn_cast<mlir::quant::QuantizedType>(contentElemType);
+    const auto axisValue = axis.begin()->ind();
+    auto contentAttr = Const::createConcatContentAttr(rewriter.getContext(), staticOffsets, axisValue, inputContents);
 
-    auto contentStorageType =
-            (contentElemQType != nullptr) ? normalizeQuantStorageType(contentElemQType) : contentElemType;
-
-    // We need byteAligned element type since concat and similar const dialect attributes
-    // do not support sub-byte element type, and we will do sub-byte unpacking in the content transformation
-    auto byteAlignedElemType = isSubByteType(contentStorageType)
-                                       ? (contentStorageType.isSignedInteger() ? getSInt8Type(origOp.getContext())
-                                                                               : getUInt8Type(origOp.getContext()))
-                                       : contentStorageType;
-
-    auto output = Const::Content::allocTempBuffer(outNdInterface, byteAlignedElemType, false);
-    auto outBuf = output.getRawTempBuf();
-    const auto elemSize = vpux::getElemTypeSize(byteAlignedElemType).to<Byte>().count();
-
-    auto outPhyShape = outNdInterface.getMemShape().raw();
-    auto memDimIndex = outNdInterface.getDimsOrder().dimPos(axisValue);
-    const auto preDims = std::accumulate(outPhyShape.begin(), outPhyShape.begin() + memDimIndex, (int64_t)1,
-                                         std::multiplies<int64_t>());
-    const auto afterDims = std::accumulate(outPhyShape.begin() + memDimIndex + 1, outPhyShape.end(), (int64_t)1,
-                                           std::multiplies<int64_t>());
-    const auto planeSizeInBytes = (afterDims * outPhyShape[memDimIndex]) * elemSize;
-
-    loop_1d(LoopExecPolicy::Parallel, getContext(), constInputs.size(), [&](int64_t inIndex) {
-        auto cst = constInputs[inIndex].getDefiningOp<Const::DeclareOp>();
-        auto contentAttr = cst.getContentAttr().transform().castElemType(byteAlignedElemType).get();
-        auto content = contentAttr.fold();
-        auto cstShape = content.getType().getShape();
-        auto singleCopyElements = afterDims * cstShape[axisValue];
-        auto singleCopyBytes = singleCopyElements * elemSize;
-        auto planeOffset = offsetAttr[inIndex][axisValue.ind()] * afterDims * elemSize;
-        const auto bufSize = checked_cast<size_t>(content.getType().getTotalAllocSize().count());
-        std::vector<char> inBuf(bufSize);
-        content.copyTo(MutableArrayRef(inBuf.data(), bufSize));
-        loop_1d(LoopExecPolicy::Parallel, getContext(), preDims, [&](uint64_t n) {
-            std::copy_n(inBuf.data() + (n * singleCopyBytes), singleCopyBytes,
-                        outBuf.data() + ((n * planeSizeInBytes) + planeOffset));
-        });
-    });
-
-    auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(outNdInterface);
-    auto [denseAttr, contentAttrSetup] = [&]() -> std::pair<mlir::DenseElementsAttr, Const::ContentSetup> {
-        if (auto qtype = mlir::dyn_cast<mlir::quant::QuantizedType>(contentElemType)) {
-            rankedTensorType = mlir::cast<mlir::RankedTensorType>(outNdInterface.changeElemType(
-                    isSubByteType(contentElemType) ? byteAlignedElemType : normalizeQuantStorageType(qtype)));
-            return {Const::createConstContent(rankedTensorType, output.getRawStorageBuf()),
-                    Const::ContentSetup(rankedTensorType).castElemType(qtype)};
-        } else if (isSubByteType(contentElemType)) {
-            rankedTensorType = mlir::cast<mlir::RankedTensorType>(outNdInterface.changeElemType(byteAlignedElemType));
-            return {Const::createConstContent(rankedTensorType, output.getRawStorageBuf()),
-                    Const::ContentSetup(rankedTensorType).castElemType(contentElemType)};
-        } else {
-            return {Const::createConstContent(rankedTensorType, output.getRawStorageBuf()),
-                    Const::ContentSetup(rankedTensorType)};
-        }
-    }();
-
-    rewriter.replaceOpWithNewOp<Const::DeclareOp>(origOp, origOp.getType(),
-                                                  Const::ContentAttr::get(denseAttr, contentAttrSetup));
+    rewriter.replaceOpWithNewOp<Const::DeclareOp>(origOp, origOp.getType(), contentAttr);
     return mlir::success();
 }
 

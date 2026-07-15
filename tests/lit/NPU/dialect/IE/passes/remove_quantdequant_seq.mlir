@@ -25,14 +25,14 @@ func.func @RemoveQuantDequantSequence(%arg0: tensor<1x3x16x16xf16>) -> (tensor<1
 
   return %6, %4 : tensor<1x3x14x14xf16>, tensor<1x3x14x14xf16>
 
-  //CHECK: [[VAL1:%.+]] = IE.Quantize([[ARG_0]]) {dstElemType = !qElemType} : tensor<1x3x16x16xf16> -> tensor<1x3x16x16x!qElemType>
-  //CHECK-DAG: [[WEIGHTS:%.+]] = const.Declare tensor<3x3x3x3x!qElemType1> =
-  //CHECK-SAME:                 dense<1.000000e+00> : tensor<3x3x3x3xf16>,
-  //CHECK-SAME:                 [#const.CastElemType<ui8>, #const.CastElemType<!qElemType1>]
-  //CHECK: [[VAL2:%.+]] = IE.Dequantize([[WEIGHTS]]) {dstElemType = f16} : tensor<3x3x3x3x!qElemType1> -> tensor<3x3x3x3xf16>
+  // CHECK: [[VAL1:%.+]] = IE.Quantize([[ARG_0]]) {dstElemType = !qElemType} : tensor<1x3x16x16xf16> -> tensor<1x3x16x16x!qElemType>
+  // CHECK-DAG: [[WEIGHTS:%.+]] = const.Declare tensor<3x3x3x3x!qElemType1> =
+  // CHECK-SAME:                 dense<1.000000e+00> : tensor<3x3x3x3xf16>,
+  // CHECK-SAME:                 [#const.CastElemType<ui8>, #const.CastElemType<!qElemType1>]
+  // CHECK: [[VAL2:%.+]] = IE.Dequantize([[WEIGHTS]]) {dstElemType = f16} : tensor<3x3x3x3x!qElemType1> -> tensor<3x3x3x3xf16>
 
-  //CHECK: [[VAL3:%.+]] = IE.Convolution([[ARG_0]], [[VAL2]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x3x16x16xf16>, tensor<3x3x3x3xf16> -> tensor<1x3x14x14xf16>
-  //CHECK: return [[VAL3]], [[VAL3]]
+  // CHECK: [[VAL3:%.+]] = IE.Convolution([[ARG_0]], [[VAL2]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x3x16x16xf16>, tensor<3x3x3x3xf16> -> tensor<1x3x14x14xf16>
+  // CHECK: return [[VAL3]], [[VAL3]]
 }
 
 // -----
@@ -51,12 +51,12 @@ func.func @RemoveQuantReshapeDequantSequence(%arg0: tensor<1x4420x1x2xf16>, %arg
         tensor<1x4420x1x2xf16>, tensor<1x4420x1x2xf16> -> tensor<1x4420x1x2xf16>
   return %5 : tensor<1x4420x1x2xf16>
 
-  //CHECK: [[VAL0:%.+]] = IE.AffineReshape([[ARG_0]])
-  //CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [2], [3]], shape_value = [1, 1, 4420, 2]} : tensor<1x4420x1x2xf16> -> tensor<1x1x4420x2xf16>
-  //CHECK: [[VAL1:%.+]] = IE.AffineReshape([[VAL0]])
-  //CHECK-SAME{LITERAL}: {dim_mapping = [[0], [0], [1, 2], [3]], shape_value = [1, 4420, 1, 2]} : tensor<1x1x4420x2xf16> -> tensor<1x4420x1x2xf16>
-  //CHECK: [[VAL2:%.+]] = IE.Add([[VAL1]], [[ARG_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x4420x1x2xf16>, tensor<1x4420x1x2xf16> -> tensor<1x4420x1x2xf16>
-  //CHECK: return [[VAL2]]
+  // CHECK: [[VAL0:%.+]] = IE.AffineReshape([[ARG_0]])
+  // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [2], [3]], shape_value = [1, 1, 4420, 2]} : tensor<1x4420x1x2xf16> -> tensor<1x1x4420x2xf16>
+  // CHECK: [[VAL1:%.+]] = IE.AffineReshape([[VAL0]])
+  // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [0], [1, 2], [3]], shape_value = [1, 4420, 1, 2]} : tensor<1x1x4420x2xf16> -> tensor<1x4420x1x2xf16>
+  // CHECK: [[VAL2:%.+]] = IE.Add([[VAL1]], [[ARG_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x4420x1x2xf16>, tensor<1x4420x1x2xf16> -> tensor<1x4420x1x2xf16>
+  // CHECK: return [[VAL2]]
 }
 
 // -----
@@ -76,8 +76,8 @@ func.func @RemoveQuantReshapeDequantMaxPool(%arg0: tensor<1x64x40x112x112xf16>) 
   %2 = IE.Dequantize(%1) {dstElemType = f16} : tensor<1x64x40x112x112x!qElemType> -> tensor<1x64x40x112x112xf16>
   return %2 : tensor<1x64x40x112x112xf16>
 
-    //CHECK: [[MAXPOOL:%.+]] = IE.MaxPool([[ARG_0]]) {kernel_size = [3, 3, 3], pads_begin = [1, 1, 1], pads_end = [1, 1, 1], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1, 1]} : tensor<1x64x40x112x112xf16> -> tensor<1x64x40x112x112xf16>
-    //CHECK: return [[MAXPOOL]] : tensor<1x64x40x112x112xf16>
+    // CHECK: [[MAXPOOL:%.+]] = IE.MaxPool([[ARG_0]]) {kernel_size = [3, 3, 3], pads_begin = [1, 1, 1], pads_end = [1, 1, 1], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1, 1]} : tensor<1x64x40x112x112xf16> -> tensor<1x64x40x112x112xf16>
+    // CHECK: return [[MAXPOOL]] : tensor<1x64x40x112x112xf16>
 }
 
 // -----
@@ -95,9 +95,9 @@ func.func @RemoveQuantConcatDequantSeqNoElemTypeInfoOpInterface(%arg0: tensor<1x
 
   return %4 : tensor<1x16800x2x1xf16>
 
-  //CHECK: [[VAL0:%.+]] = IE.Concat([[INPUT0]], [[INPUT1]], [[INPUT2]])
-  //CHECK-SAME{LITERAL}: {static_offsets = [[0, 0, 0, 0], [0, 12800, 0, 0], [0, 16000, 0, 0]]} : tensor<1x12800x2x1xf16>, tensor<1x3200x2x1xf16>, tensor<1x800x2x1xf16> -> tensor<1x16800x2x1xf16>
-  //CHECK: return [[VAL0]]
+  // CHECK: [[VAL0:%.+]] = IE.Concat([[INPUT0]], [[INPUT1]], [[INPUT2]])
+  // CHECK-SAME{LITERAL}: {static_offsets = [[0, 0, 0, 0], [0, 12800, 0, 0], [0, 16000, 0, 0]]} : tensor<1x12800x2x1xf16>, tensor<1x3200x2x1xf16>, tensor<1x800x2x1xf16> -> tensor<1x16800x2x1xf16>
+  // CHECK: return [[VAL0]]
 }
 
 // -----
@@ -118,17 +118,17 @@ func.func @RemoveQuantConcatDequantSeq(%arg0: tensor<1x12800x2x1xf16>, %arg1: te
   %8 = IE.Dequantize(%7) {dstElemType = f16} : tensor<1x16800x2x1x!qElemType> -> tensor<1x16800x2x1xf16>
   return %8 : tensor<1x16800x2x1xf16>
 
-  //CHECK: [[VAL0:%.+]] = IE.AffineReshape([[INPUT0]])
-  //CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 1, 12800, 2]} : tensor<1x12800x2x1xf16> -> tensor<1x1x12800x2xf16>
-  //CHECK: [[VAL1:%.+]] = IE.AffineReshape([[INPUT1]])
-  //CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 1, 3200, 2]} : tensor<1x3200x2x1xf16> -> tensor<1x1x3200x2xf16>
-  //CHECK: [[VAL2:%.+]] = IE.AffineReshape([[INPUT2]])
-  //CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 1, 800, 2]} : tensor<1x800x2x1xf16> -> tensor<1x1x800x2xf16>
-  //CHECK: [[VAL3:%.+]] = IE.Concat([[VAL0]], [[VAL1]], [[VAL2]])
-  //CHECK-SAME{LITERAL}: {static_offsets = [[0, 0, 0, 0], [0, 0, 12800, 0], [0, 0, 16000, 0]]} : tensor<1x1x12800x2xf16>, tensor<1x1x3200x2xf16>, tensor<1x1x800x2xf16> -> tensor<1x1x16800x2xf16>
-  //CHECK: [[VAL4:%.+]] = IE.AffineReshape([[VAL3]])
-  //CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 16800, 2, 1]} : tensor<1x1x16800x2xf16> -> tensor<1x16800x2x1xf16>
-  //CHECK: return [[VAL4]]
+  // CHECK: [[VAL0:%.+]] = IE.AffineReshape([[INPUT0]])
+  // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 1, 12800, 2]} : tensor<1x12800x2x1xf16> -> tensor<1x1x12800x2xf16>
+  // CHECK: [[VAL1:%.+]] = IE.AffineReshape([[INPUT1]])
+  // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 1, 3200, 2]} : tensor<1x3200x2x1xf16> -> tensor<1x1x3200x2xf16>
+  // CHECK: [[VAL2:%.+]] = IE.AffineReshape([[INPUT2]])
+  // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 1, 800, 2]} : tensor<1x800x2x1xf16> -> tensor<1x1x800x2xf16>
+  // CHECK: [[VAL3:%.+]] = IE.Concat([[VAL0]], [[VAL1]], [[VAL2]])
+  // CHECK-SAME{LITERAL}: {static_offsets = [[0, 0, 0, 0], [0, 0, 12800, 0], [0, 0, 16000, 0]]} : tensor<1x1x12800x2xf16>, tensor<1x1x3200x2xf16>, tensor<1x1x800x2xf16> -> tensor<1x1x16800x2xf16>
+  // CHECK: [[VAL4:%.+]] = IE.AffineReshape([[VAL3]])
+  // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 16800, 2, 1]} : tensor<1x1x16800x2xf16> -> tensor<1x16800x2x1xf16>
+  // CHECK: return [[VAL4]]
 }
 
 // -----
@@ -151,29 +151,29 @@ func.func @DontRemoveQuantConcatElemTypeConcatDequantSeq(%arg0: tensor<1x12800x2
   %10 = IE.Dequantize(%9) {dstElemType = f16} : tensor<1x1x17600x2x!qElemType> -> tensor<1x1x17600x2xf16>
   return %10 : tensor<1x1x17600x2xf16>
 
-  //CHECK: [[VAL0:%.+]] = IE.Quantize([[INPUT0]])
-  //CHECK-SAME{LITERAL}: {dstElemType = !qElemType} : tensor<1x12800x2x1xf16> -> tensor<1x12800x2x1x!qElemType>
-  //CHECK: [[VAL1:%.+]] = IE.AffineReshape([[VAL0]])
-  //CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 1, 12800, 2]} : tensor<1x12800x2x1x!qElemType> -> tensor<1x1x12800x2x!qElemType>
-  //CHECK: [[VAL2:%.+]] = IE.Quantize([[INPUT1]])
-  //CHECK-SAME{LITERAL}: {dstElemType = !qElemType} : tensor<1x3200x2x1xf16> -> tensor<1x3200x2x1x!qElemType>
-  //CHECK: [[VAL3:%.+]] = IE.AffineReshape([[VAL2]])
-  //CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 1, 3200, 2]} : tensor<1x3200x2x1x!qElemType> -> tensor<1x1x3200x2x!qElemType>
-  //CHECK: [[VAL4:%.+]] = IE.Quantize([[INPUT2]])
-  //CHECK-SAME{LITERAL}: {dstElemType = !qElemType} : tensor<1x800x2x1xf16> -> tensor<1x800x2x1x!qElemType>
-  //CHECK: [[VAL5:%.+]] = IE.AffineReshape([[VAL4]])
-  //CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 1, 800, 2]} : tensor<1x800x2x1x!qElemType> -> tensor<1x1x800x2x!qElemType>
-  //CHECK: [[VAL6:%.+]] = IE.Concat([[VAL1]], [[VAL3]], [[VAL5]])
-  //CHECK-SAME{LITERAL}: {static_offsets = [[0, 0, 0, 0], [0, 0, 12800, 0], [0, 0, 16000, 0]]} : tensor<1x1x12800x2x!qElemType>, tensor<1x1x3200x2x!qElemType>, tensor<1x1x800x2x!qElemType> -> tensor<1x1x16800x2x!qElemType>
-  //CHECK: [[VAL7:%.+]] = IE.AffineReshape([[VAL6]])
-  //CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 16800, 2, 1]} : tensor<1x1x16800x2x!qElemType> -> tensor<1x16800x2x1x!qElemType>
-  //CHECK: [[VAL8:%.+]] = IE.AffineReshape([[VAL7]])
-  //CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 1, 16800, 2]} : tensor<1x16800x2x1x!qElemType> -> tensor<1x1x16800x2x!qElemType>
-  //CHECK: [[VAL9:%.+]] = IE.Concat([[VAL5]], [[VAL8]])
-  //CHECK-SAME{LITERAL}: {static_offsets = [[0, 0, 0, 0], [0, 0, 800, 0]]} : tensor<1x1x800x2x!qElemType>, tensor<1x1x16800x2x!qElemType> -> tensor<1x1x17600x2x!qElemType>
-  //CHECK: [[VAL10:%.+]] = IE.Dequantize([[VAL9]])
-  //CHECK-SAME{LITERAL}: {dstElemType = f16} : tensor<1x1x17600x2x!qElemType> -> tensor<1x1x17600x2xf16>
-  //CHECK: return [[VAL10]]
+  // CHECK: [[VAL0:%.+]] = IE.Quantize([[INPUT0]])
+  // CHECK-SAME{LITERAL}: {dstElemType = !qElemType} : tensor<1x12800x2x1xf16> -> tensor<1x12800x2x1x!qElemType>
+  // CHECK: [[VAL1:%.+]] = IE.AffineReshape([[VAL0]])
+  // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 1, 12800, 2]} : tensor<1x12800x2x1x!qElemType> -> tensor<1x1x12800x2x!qElemType>
+  // CHECK: [[VAL2:%.+]] = IE.Quantize([[INPUT1]])
+  // CHECK-SAME{LITERAL}: {dstElemType = !qElemType} : tensor<1x3200x2x1xf16> -> tensor<1x3200x2x1x!qElemType>
+  // CHECK: [[VAL3:%.+]] = IE.AffineReshape([[VAL2]])
+  // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 1, 3200, 2]} : tensor<1x3200x2x1x!qElemType> -> tensor<1x1x3200x2x!qElemType>
+  // CHECK: [[VAL4:%.+]] = IE.Quantize([[INPUT2]])
+  // CHECK-SAME{LITERAL}: {dstElemType = !qElemType} : tensor<1x800x2x1xf16> -> tensor<1x800x2x1x!qElemType>
+  // CHECK: [[VAL5:%.+]] = IE.AffineReshape([[VAL4]])
+  // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 1, 800, 2]} : tensor<1x800x2x1x!qElemType> -> tensor<1x1x800x2x!qElemType>
+  // CHECK: [[VAL6:%.+]] = IE.Concat([[VAL1]], [[VAL3]], [[VAL5]])
+  // CHECK-SAME{LITERAL}: {static_offsets = [[0, 0, 0, 0], [0, 0, 12800, 0], [0, 0, 16000, 0]]} : tensor<1x1x12800x2x!qElemType>, tensor<1x1x3200x2x!qElemType>, tensor<1x1x800x2x!qElemType> -> tensor<1x1x16800x2x!qElemType>
+  // CHECK: [[VAL7:%.+]] = IE.AffineReshape([[VAL6]])
+  // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 16800, 2, 1]} : tensor<1x1x16800x2x!qElemType> -> tensor<1x16800x2x1x!qElemType>
+  // CHECK: [[VAL8:%.+]] = IE.AffineReshape([[VAL7]])
+  // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 1, 16800, 2]} : tensor<1x16800x2x1x!qElemType> -> tensor<1x1x16800x2x!qElemType>
+  // CHECK: [[VAL9:%.+]] = IE.Concat([[VAL5]], [[VAL8]])
+  // CHECK-SAME{LITERAL}: {static_offsets = [[0, 0, 0, 0], [0, 0, 800, 0]]} : tensor<1x1x800x2x!qElemType>, tensor<1x1x16800x2x!qElemType> -> tensor<1x1x17600x2x!qElemType>
+  // CHECK: [[VAL10:%.+]] = IE.Dequantize([[VAL9]])
+  // CHECK-SAME{LITERAL}: {dstElemType = f16} : tensor<1x1x17600x2x!qElemType> -> tensor<1x1x17600x2xf16>
+  // CHECK: return [[VAL10]]
 }
 
 // -----
@@ -198,23 +198,23 @@ func.func @RemoveQuantConcatMultipleElemTypeDequantSeq(%arg0: tensor<1x12800x2x1
   %11 = IE.Dequantize(%10) {dstElemType = f16} : tensor<1x16800x2x1x!qElemType> -> tensor<1x16800x2x1xf16>
   return %11 : tensor<1x16800x2x1xf16>
 
-  //CHECK: [[VAL0:%.+]] = IE.AffineReshape([[INPUT0]])
-  //CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 1, 12800, 2]} : tensor<1x12800x2x1xf16> -> tensor<1x1x12800x2xf16>
-  //CHECK: [[VAL1:%.+]] = IE.Reorder([[VAL0]])
-  //CHECK-SAME{LITERAL}: {dstOrder = #NCHW} : tensor<1x1x12800x2xf16> -> tensor<1x1x12800x2xf16>
-  //CHECK: [[VAL2:%.+]] = IE.AffineReshape([[INPUT1]])
-  //CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 1, 3200, 2]} : tensor<1x3200x2x1xf16> -> tensor<1x1x3200x2xf16>
-  //CHECK: [[VAL3:%.+]] = IE.Reorder([[VAL2]])
-  //CHECK-SAME{LITERAL}: {dstOrder = #NCHW} : tensor<1x1x3200x2xf16> -> tensor<1x1x3200x2xf16>
-  //CHECK: [[VAL4:%.+]] = IE.AffineReshape([[INPUT2]])
-  //CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 1, 800, 2]} : tensor<1x800x2x1xf16> -> tensor<1x1x800x2xf16>
-  //CHECK: [[VAL5:%.+]] = IE.Reorder([[VAL4]])
-  //CHECK-SAME{LITERAL}: {dstOrder = #NCHW} : tensor<1x1x800x2xf16> -> tensor<1x1x800x2xf16>
-  //CHECK: [[VAL6:%.+]] = IE.Concat([[VAL1]], [[VAL3]], [[VAL5]])
-  //CHECK-SAME{LITERAL}: {static_offsets = [[0, 0, 0, 0], [0, 0, 12800, 0], [0, 0, 16000, 0]]} : tensor<1x1x12800x2xf16>, tensor<1x1x3200x2xf16>, tensor<1x1x800x2xf16> -> tensor<1x1x16800x2xf16>
-  //CHECK: [[VAL7:%.+]] = IE.AffineReshape([[VAL6]])
-  //CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 16800, 2, 1]} : tensor<1x1x16800x2xf16> -> tensor<1x16800x2x1xf16>
-  //CHECK: return [[VAL7]]
+  // CHECK: [[VAL0:%.+]] = IE.AffineReshape([[INPUT0]])
+  // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 1, 12800, 2]} : tensor<1x12800x2x1xf16> -> tensor<1x1x12800x2xf16>
+  // CHECK: [[VAL1:%.+]] = IE.Reorder([[VAL0]])
+  // CHECK-SAME{LITERAL}: {dstOrder = #NCHW} : tensor<1x1x12800x2xf16> -> tensor<1x1x12800x2xf16>
+  // CHECK: [[VAL2:%.+]] = IE.AffineReshape([[INPUT1]])
+  // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 1, 3200, 2]} : tensor<1x3200x2x1xf16> -> tensor<1x1x3200x2xf16>
+  // CHECK: [[VAL3:%.+]] = IE.Reorder([[VAL2]])
+  // CHECK-SAME{LITERAL}: {dstOrder = #NCHW} : tensor<1x1x3200x2xf16> -> tensor<1x1x3200x2xf16>
+  // CHECK: [[VAL4:%.+]] = IE.AffineReshape([[INPUT2]])
+  // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 1, 800, 2]} : tensor<1x800x2x1xf16> -> tensor<1x1x800x2xf16>
+  // CHECK: [[VAL5:%.+]] = IE.Reorder([[VAL4]])
+  // CHECK-SAME{LITERAL}: {dstOrder = #NCHW} : tensor<1x1x800x2xf16> -> tensor<1x1x800x2xf16>
+  // CHECK: [[VAL6:%.+]] = IE.Concat([[VAL1]], [[VAL3]], [[VAL5]])
+  // CHECK-SAME{LITERAL}: {static_offsets = [[0, 0, 0, 0], [0, 0, 12800, 0], [0, 0, 16000, 0]]} : tensor<1x1x12800x2xf16>, tensor<1x1x3200x2xf16>, tensor<1x1x800x2xf16> -> tensor<1x1x16800x2xf16>
+  // CHECK: [[VAL7:%.+]] = IE.AffineReshape([[VAL6]])
+  // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 16800, 2, 1]} : tensor<1x1x16800x2xf16> -> tensor<1x16800x2x1xf16>
+  // CHECK: return [[VAL7]]
 }
 
 // -----
@@ -253,12 +253,12 @@ func.func @Handle_Multiple_Users_Quant_Dequant_Seq(%arg0: tensor<4x64x199x63xf16
 
   return %2, %6 : tensor<1x64x199x63xf16>, tensor<1x64x25x9xf16>
 
-  //CHECK: [[VAL0:%.+]] = IE.Slice [[ARG_0]] [2, 0, 0, 0] [1, 64, 199, 63] : tensor<4x64x199x63xf16> to tensor<1x64x199x63xf16>
-  //CHECK: [[VAL1:%.+]] = IE.Slice [[VAL0]] [0, 0, 0, 0] [1, 64, 1, 63] : tensor<1x64x199x63xf16> to tensor<1x64x1x63xf16>
-  //CHECK: [[VAL2:%.+]] = IE.Concat([[VAL0]], [[VAL1]])
-  //CHECK-SAME{LITERAL}: {static_offsets = [[0, 0, 0, 0], [0, 0, 199, 0]]} : tensor<1x64x199x63xf16>, tensor<1x64x1x63xf16> -> tensor<1x64x200x63xf16>
-  //CHECK: [[VAL3:%.+]] = IE.MaxPool([[VAL2]]) {kernel_size = [8, 7], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [8, 7]} : tensor<1x64x200x63xf16> -> tensor<1x64x25x9xf16>
-  //CHECK: return [[VAL0]], [[VAL3]] : tensor<1x64x199x63xf16>, tensor<1x64x25x9xf16>
+  // CHECK: [[VAL0:%.+]] = IE.Slice [[ARG_0]] [2, 0, 0, 0] [1, 64, 199, 63] : tensor<4x64x199x63xf16> to tensor<1x64x199x63xf16>
+  // CHECK: [[VAL1:%.+]] = IE.Slice [[VAL0]] [0, 0, 0, 0] [1, 64, 1, 63] : tensor<1x64x199x63xf16> to tensor<1x64x1x63xf16>
+  // CHECK: [[VAL2:%.+]] = IE.Concat([[VAL0]], [[VAL1]])
+  // CHECK-SAME{LITERAL}: {static_offsets = [[0, 0, 0, 0], [0, 0, 199, 0]]} : tensor<1x64x199x63xf16>, tensor<1x64x1x63xf16> -> tensor<1x64x200x63xf16>
+  // CHECK: [[VAL3:%.+]] = IE.MaxPool([[VAL2]]) {kernel_size = [8, 7], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [8, 7]} : tensor<1x64x200x63xf16> -> tensor<1x64x25x9xf16>
+  // CHECK: return [[VAL0]], [[VAL3]] : tensor<1x64x199x63xf16>, tensor<1x64x25x9xf16>
 }
 
 // -----
@@ -271,10 +271,10 @@ func.func @Ignore_Pattern_FuncOpArg_ElemTypeInfoOp_ConcatOp(%arg0: tensor<1x1x14
   %2 = IE.Concat(%0, %1) {static_offsets = [[0, 0, 0, 0], [0, 1, 0, 0]]} : tensor<1x1x1440x160xf16>, tensor<1x1x1440x160xf16> -> tensor<1x2x1440x160xf16>
   return %2 : tensor<1x2x1440x160xf16>
 
-  //CHECK: [[VAL0:%.+]] = IE.Slice [[ARG_0]]
-  //CHECK: [[VAL1:%.+]] = IE.Slice [[ARG_0]]
-  //CHECK: [[VAL2:%.+]] = IE.Concat([[VAL0]], [[VAL1]])
-  //CHECK: return [[VAL2]]
+  // CHECK: [[VAL0:%.+]] = IE.Slice [[ARG_0]]
+  // CHECK: [[VAL1:%.+]] = IE.Slice [[ARG_0]]
+  // CHECK: [[VAL2:%.+]] = IE.Concat([[VAL0]], [[VAL1]])
+  // CHECK: return [[VAL2]]
 }
 
 // -----
@@ -288,7 +288,125 @@ func.func @RemoveQuantDequantSeqWithSameInputConcat(%arg0: tensor<1x16x32x32xf16
   %2 = IE.Dequantize(%1) {dstElemType = f16} : tensor<1x32x32x32x!qElemType> -> tensor<1x32x32x32xf16>
   return %2 : tensor<1x32x32x32xf16>
 
-  //CHECK: [[VAL0:%.+]] = IE.Concat(%arg0, %arg0)
-  //CHECK-SAME{LITERAL}: {static_offsets = [[0, 0, 0, 0], [0, 16, 0, 0]]} : tensor<1x16x32x32xf16>, tensor<1x16x32x32xf16> -> tensor<1x32x32x32xf16>
-  //CHECK: return [[VAL0]]
+  // CHECK: [[VAL0:%.+]] = IE.Concat(%arg0, %arg0)
+  // CHECK-SAME{LITERAL}: {static_offsets = [[0, 0, 0, 0], [0, 16, 0, 0]]} : tensor<1x16x32x32xf16>, tensor<1x16x32x32xf16> -> tensor<1x32x32x32xf16>
+  // CHECK: return [[VAL0]]
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 1.1534313725490195:128>
+
+// CHECK-LABEL: @DontRemove_QuantInterpolateDequant_SESupported
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: tensor<1x16x8x8xf16>)
+func.func @DontRemove_QuantInterpolateDequant_SESupported(%arg0: tensor<1x16x8x8xf16>) -> tensor<1x16x16x16xf16> {
+  %0 = IE.Quantize(%arg0) {dstElemType = !qElemType} : tensor<1x16x8x8xf16> -> tensor<1x16x8x8x!qElemType>
+  %1 = IE.Interpolate(%0) {
+        attr = #IE.Interpolate<antialias = false, coord_mode = <ASYMMETRIC>, cube_coeff = -7.500000e-01 : f64,
+                               mode = <NEAREST>, nearest_mode = <FLOOR>,
+                               pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0],
+                               shape_calc_mode = <SCALES>>,
+        axes_attr = [2, 3],
+        operandSegmentSizes = array<i32: 1, 0, 0, 0>,
+        scales_attr = [2.000000e+00, 2.000000e+00],
+        sizes_attr = [16, 16]
+      } : tensor<1x16x8x8x!qElemType> -> tensor<1x16x16x16x!qElemType>
+  %2 = IE.Dequantize(%1) {dstElemType = f16} : tensor<1x16x16x16x!qElemType> -> tensor<1x16x16x16xf16>
+  return %2 : tensor<1x16x16x16xf16>
+
+  // CHECK: [[QUANT:%.+]] = IE.Quantize([[ARG_0]]) {dstElemType = !qElemType} : tensor<1x16x8x8xf16> -> tensor<1x16x8x8x!qElemType>
+  // CHECK: [[INTERP:%.+]] = IE.Interpolate([[QUANT]])
+  // CHECK-SAME: tensor<1x16x8x8x!qElemType> -> tensor<1x16x16x16x!qElemType>
+  // CHECK: [[DEQUANT:%.+]] = IE.Dequantize([[INTERP]]) {dstElemType = f16} : tensor<1x16x16x16x!qElemType> -> tensor<1x16x16x16xf16>
+  // CHECK: return [[DEQUANT]]
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 1.1534313725490195:128>
+
+// CHECK-LABEL: @Remove_QuantInterpolateDequant_SENotSupported
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: tensor<1x16x8x8xf16>)
+func.func @Remove_QuantInterpolateDequant_SENotSupported(%arg0: tensor<1x16x8x8xf16>) -> tensor<1x16x16x16xf16> {
+  %0 = IE.Quantize(%arg0) {dstElemType = !qElemType} : tensor<1x16x8x8xf16> -> tensor<1x16x8x8x!qElemType>
+  %1 = IE.Interpolate(%0) {
+        attr = #IE.Interpolate<antialias = true, coord_mode = <ASYMMETRIC>, cube_coeff = -7.500000e-01 : f64,
+                               mode = <LINEAR_ONNX>, nearest_mode = <FLOOR>,
+                               pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0],
+                               shape_calc_mode = <SCALES>>,
+        axes_attr = [2, 3],
+        operandSegmentSizes = array<i32: 1, 0, 0, 0>,
+        scales_attr = [2.000000e+00, 2.000000e+00],
+        sizes_attr = [16, 16]
+      } : tensor<1x16x8x8x!qElemType> -> tensor<1x16x16x16x!qElemType>
+  %2 = IE.Dequantize(%1) {dstElemType = f16} : tensor<1x16x16x16x!qElemType> -> tensor<1x16x16x16xf16>
+  return %2 : tensor<1x16x16x16xf16>
+
+  // CHECK-NOT: IE.Quantize
+  // CHECK-NOT: IE.Dequantize
+  // CHECK: [[INTERP:%.+]] = IE.Interpolate([[ARG_0]])
+  // CHECK-SAME: tensor<1x16x8x8xf16> -> tensor<1x16x16x16xf16>
+  // CHECK: return [[INTERP]]
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 0.15016976150811887:128>
+
+// CHECK-LABEL: @SkipConcatPatternWithMultiResultConsumer
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: tensor<1x256x1x1xf16>, [[ARG_1:%[^:]+]]: tensor<1x256x1x1xf16>)
+func.func @SkipConcatPatternWithMultiResultConsumer(%arg0: tensor<1x256x1x1xf16>, %arg1: tensor<1x256x1x1xf16>) -> (tensor<1x256x1x1xf16>, tensor<1x256x1x1x!qElemType>) {
+  %0 = IE.Quantize(%arg0) {dstElemType = !qElemType} : tensor<1x256x1x1xf16> -> tensor<1x256x1x1x!qElemType>
+  %1 = IE.Quantize(%arg1) {dstElemType = !qElemType} : tensor<1x256x1x1xf16> -> tensor<1x256x1x1x!qElemType>
+  %2 = IE.Concat(%0, %1) {static_offsets = [[0, 0, 0, 0], [0, 256, 0, 0]]} : tensor<1x256x1x1x!qElemType>, tensor<1x256x1x1x!qElemType> -> tensor<1x512x1x1x!qElemType>
+  %3 = IE.AffineReshape(%2) {dim_mapping = [[0], [1], [1], [1]], shape_value = [1, 512]} : tensor<1x512x1x1x!qElemType> -> tensor<1x512x!qElemType>
+  %4:2 = IE.Split(%3) {axis_value = 1 : i64, num_splits = 2 : i64} : tensor<1x512x!qElemType> -> tensor<1x256x!qElemType>, tensor<1x256x!qElemType>
+  %5 = IE.AffineReshape(%4#0) {dim_mapping = [[0], [1, 2, 3]], shape_value = [1, 256, 1, 1]} : tensor<1x256x!qElemType> -> tensor<1x256x1x1x!qElemType>
+  %6 = IE.Dequantize(%5) {dstElemType = f16} : tensor<1x256x1x1x!qElemType> -> tensor<1x256x1x1xf16>
+  %7 = IE.AffineReshape(%4#1) {dim_mapping = [[0], [1, 2, 3]], shape_value = [1, 256, 1, 1]} : tensor<1x256x!qElemType> -> tensor<1x256x1x1x!qElemType>
+  return %6, %7 : tensor<1x256x1x1xf16>, tensor<1x256x1x1x!qElemType>
+
+  // CHECK: [[VAL0:%.+]] = IE.Quantize([[ARG_0]]) {dstElemType = !qElemType} : tensor<1x256x1x1xf16> -> tensor<1x256x1x1x!qElemType>
+  // CHECK: [[VAL1:%.+]] = IE.Quantize([[ARG_1]]) {dstElemType = !qElemType} : tensor<1x256x1x1xf16> -> tensor<1x256x1x1x!qElemType>
+  // CHECK: [[VAL2:%.+]] = IE.Concat([[VAL0]], [[VAL1]])
+  // CHECK-SAME{LITERAL}: {static_offsets = [[0, 0, 0, 0], [0, 256, 0, 0]]} : tensor<1x256x1x1x!qElemType>, tensor<1x256x1x1x!qElemType> -> tensor<1x512x1x1x!qElemType>
+  // CHECK: [[VAL3:%.+]] = IE.AffineReshape([[VAL2]])
+  // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [1], [1], [1]], shape_value = [1, 512]} : tensor<1x512x1x1x!qElemType> -> tensor<1x512x!qElemType>
+  // CHECK: [[VAL4:%.+]]:2 = IE.Split([[VAL3]]) {axis_value = 1 : i64, num_splits = 2 : i64} : tensor<1x512x!qElemType> -> tensor<1x256x!qElemType>, tensor<1x256x!qElemType>
+  // CHECK: [[VAL5:%.+]] = IE.AffineReshape([[VAL4]]#0)
+  // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [1, 2, 3]], shape_value = [1, 256, 1, 1]} : tensor<1x256x!qElemType> -> tensor<1x256x1x1x!qElemType>
+  // CHECK: [[VAL6:%.+]] = IE.Dequantize([[VAL5]]) {dstElemType = f16} : tensor<1x256x1x1x!qElemType> -> tensor<1x256x1x1xf16>
+  // CHECK: [[VAL7:%.+]] = IE.AffineReshape([[VAL4]]#1)
+  // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [1, 2, 3]], shape_value = [1, 256, 1, 1]} : tensor<1x256x!qElemType> -> tensor<1x256x1x1x!qElemType>
+  // CHECK: return [[VAL6]], [[VAL7]] : tensor<1x256x1x1xf16>, tensor<1x256x1x1x!qElemType>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 0.15016976150811887:128>
+
+// CHECK-LABEL: @SkipConcatPatternWithMultiResultProducer
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: tensor<1x512x1x1xf16>)
+func.func @SkipConcatPatternWithMultiResultProducer(%arg0: tensor<1x512x1x1xf16>) -> (tensor<1x512x1x1xf16>, tensor<1x256x1x1x!qElemType>) {
+  %0 = IE.Quantize(%arg0) {dstElemType = !qElemType} : tensor<1x512x1x1xf16> -> tensor<1x512x1x1x!qElemType>
+  %1 = IE.AffineReshape(%0) {dim_mapping = [[0], [1], [1], [1]], shape_value = [1, 512]} : tensor<1x512x1x1x!qElemType> -> tensor<1x512x!qElemType>
+  %2:2 = IE.Split(%1) {axis_value = 1 : i64, num_splits = 2 : i64} : tensor<1x512x!qElemType> -> tensor<1x256x!qElemType>, tensor<1x256x!qElemType>
+  %3 = IE.AffineReshape(%2#0) {dim_mapping = [[0], [1, 2, 3]], shape_value = [1, 256, 1, 1]} : tensor<1x256x!qElemType> -> tensor<1x256x1x1x!qElemType>
+  %4 = IE.AffineReshape(%2#1) {dim_mapping = [[0], [1, 2, 3]], shape_value = [1, 256, 1, 1]} : tensor<1x256x!qElemType> -> tensor<1x256x1x1x!qElemType>
+  %5 = IE.Concat(%3, %3) {static_offsets = [[0, 0, 0, 0], [0, 256, 0, 0]]} : tensor<1x256x1x1x!qElemType>, tensor<1x256x1x1x!qElemType> -> tensor<1x512x1x1x!qElemType>
+  %6 = IE.Dequantize(%5) {dstElemType = f16} : tensor<1x512x1x1x!qElemType> -> tensor<1x512x1x1xf16>
+  return %6, %4 : tensor<1x512x1x1xf16>, tensor<1x256x1x1x!qElemType>
+
+  // CHECK: [[VAL0:%.+]] = IE.Quantize([[ARG_0]]) {dstElemType = !qElemType} : tensor<1x512x1x1xf16> -> tensor<1x512x1x1x!qElemType>
+  // CHECK: [[VAL1:%.+]] = IE.AffineReshape([[VAL0]])
+  // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [1], [1], [1]], shape_value = [1, 512]} : tensor<1x512x1x1x!qElemType> -> tensor<1x512x!qElemType>
+  // CHECK: [[VAL2:%.+]]:2 = IE.Split([[VAL1]]) {axis_value = 1 : i64, num_splits = 2 : i64} : tensor<1x512x!qElemType> -> tensor<1x256x!qElemType>, tensor<1x256x!qElemType>
+  // CHECK: [[VAL3:%.+]] = IE.AffineReshape([[VAL2]]#0)
+  // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [1, 2, 3]], shape_value = [1, 256, 1, 1]} : tensor<1x256x!qElemType> -> tensor<1x256x1x1x!qElemType>
+  // CHECK: [[VAL4:%.+]] = IE.AffineReshape([[VAL2]]#1)
+  // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [1, 2, 3]], shape_value = [1, 256, 1, 1]} : tensor<1x256x!qElemType> -> tensor<1x256x1x1x!qElemType>
+  // CHECK: [[VAL5:%.+]] = IE.Concat([[VAL3]], [[VAL3]])
+  // CHECK-SAME{LITERAL}: {static_offsets = [[0, 0, 0, 0], [0, 256, 0, 0]]} : tensor<1x256x1x1x!qElemType>, tensor<1x256x1x1x!qElemType> -> tensor<1x512x1x1x!qElemType>
+  // CHECK: [[VAL6:%.+]] = IE.Dequantize([[VAL5]]) {dstElemType = f16} : tensor<1x512x1x1x!qElemType> -> tensor<1x512x1x1xf16>
+  // CHECK: return [[VAL6]], [[VAL4]] : tensor<1x512x1x1xf16>, tensor<1x256x1x1x!qElemType>
 }

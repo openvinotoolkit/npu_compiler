@@ -6,7 +6,9 @@
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
+#include "vpux/compiler/dialect/IE/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/utils/reduce_infer.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_reduce_utils.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/adjust_layout_utils.hpp"
@@ -47,8 +49,9 @@ namespace {
 template <class ConcreteOp>
 class InsertMemPermuteBeforeAndAfterReduceOp final : public mlir::OpRewritePattern<ConcreteOp> {
 public:
-    InsertMemPermuteBeforeAndAfterReduceOp(mlir::MLIRContext* ctx, Logger log)
-            : mlir::OpRewritePattern<ConcreteOp>(ctx, benefitLow), _log(log) {
+    InsertMemPermuteBeforeAndAfterReduceOp(mlir::MLIRContext* ctx, Logger log,
+                                           IE::ChannelAxisReductionWithDPUParentCheckerBase* checker)
+            : mlir::OpRewritePattern<ConcreteOp>(ctx, benefitLow), _log(log), _channelReductionChecker(checker) {
         this->setDebugName("InsertMemPermuteBeforeAndAfterReduceOp");
     }
 
@@ -63,7 +66,8 @@ private:
         return axisMemPos.ind() == inputRank - 1;
     }
 
-    DimsOrder calculateOptimalOrderMapForReduce(DimsOrder origOrder, int64_t reduceAxis, mlir::MLIRContext* ctx) const {
+    DimsOrder calculateOptimalOrderMapForReduce(const DimsOrder& origOrder, int64_t reduceAxis,
+                                                mlir::MLIRContext* ctx) const {
         auto size = origOrder.numDims();
         SmallVector<unsigned int> permVec;
         auto memDimInd = origOrder.toMemDim(Dim(reduceAxis)).ind();
@@ -79,6 +83,7 @@ private:
 
 private:
     Logger _log;
+    IE::ChannelAxisReductionWithDPUParentCheckerBase* _channelReductionChecker;
 };
 
 template <class ConcreteOp>
@@ -97,6 +102,10 @@ mlir::LogicalResult InsertMemPermuteBeforeAndAfterReduceOp<ConcreteOp>::matchAnd
     const auto inOrder = DimsOrder::fromValue(reduceOp.getInput());
     const auto origLoc = reduceOp->getLoc();
     const auto axes = parseIntArrayAttr<int64_t>(reduceOp.getAxesValue().value());
+    if (_channelReductionChecker->isChannelAxisReductionWithDPUParent(reduceOp, axes, _log)) {
+        return matchFailed(rewriter, reduceOp,
+                           "Reduce op has a DPU parent on channel axis; preserving fusion opportunity");
+    }
     if (axes.size() != 1) {
         return matchFailed(rewriter, reduceOp, "Only support Reduce op with one dimension");
     }
@@ -151,7 +160,8 @@ mlir::LogicalResult InsertMemPermuteBeforeAndAfterReduceOp<ConcreteOp>::matchAnd
 class OptimizeReduceOpsWithMemPermutePass final :
         public IE::impl::OptimizeReduceOpsWithMemPermuteBase<OptimizeReduceOpsWithMemPermutePass> {
 public:
-    explicit OptimizeReduceOpsWithMemPermutePass(Logger log) {
+    OptimizeReduceOpsWithMemPermutePass(bool enableFuseReduceMinMaxToDpu, Logger log) {
+        this->enableFuseReduceMinMaxToDpu = enableFuseReduceMinMaxToDpu;
         Base::initLogger(log, Base::getArgumentName());
     }
 
@@ -163,17 +173,22 @@ void OptimizeReduceOpsWithMemPermutePass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
 
+    const auto& strategyFactory = IE::getIEStrategyFactory(&ctx);
+    const auto channelReductionChecker =
+            strategyFactory->getChannelAxisReductionWithDPUParentChecker(enableFuseReduceMinMaxToDpu);
+
     mlir::RewritePatternSet patterns(&ctx);
-    patterns.add<InsertMemPermuteBeforeAndAfterReduceOp<IE::ReduceSumOp>>(&ctx, _log);
-    patterns.add<InsertMemPermuteBeforeAndAfterReduceOp<IE::ReduceMeanOp>>(&ctx, _log);
-    patterns.add<InsertMemPermuteBeforeAndAfterReduceOp<IE::ReduceMinOp>>(&ctx, _log);
-    patterns.add<InsertMemPermuteBeforeAndAfterReduceOp<IE::ReduceMaxOp>>(&ctx, _log);
+    patterns.add<InsertMemPermuteBeforeAndAfterReduceOp<IE::ReduceSumOp>>(&ctx, _log, channelReductionChecker.get());
+    patterns.add<InsertMemPermuteBeforeAndAfterReduceOp<IE::ReduceMeanOp>>(&ctx, _log, channelReductionChecker.get());
+    patterns.add<InsertMemPermuteBeforeAndAfterReduceOp<IE::ReduceMinOp>>(&ctx, _log, channelReductionChecker.get());
+    patterns.add<InsertMemPermuteBeforeAndAfterReduceOp<IE::ReduceMaxOp>>(&ctx, _log, channelReductionChecker.get());
 
     collectOpsAndApplyPatterns(func, std::move(patterns));
 }
 
 }  // namespace
 
-std::unique_ptr<mlir::Pass> vpux::IE::createOptimizeReduceOpsWithMemPermutePass(Logger log) {
-    return std::make_unique<OptimizeReduceOpsWithMemPermutePass>(log);
+std::unique_ptr<mlir::Pass> vpux::IE::createOptimizeReduceOpsWithMemPermutePass(bool enableFuseReduceMinMaxToDpu,
+                                                                                Logger log) {
+    return std::make_unique<OptimizeReduceOpsWithMemPermutePass>(enableFuseReduceMinMaxToDpu, log);
 }

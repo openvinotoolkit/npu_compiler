@@ -4,7 +4,9 @@
 //
 
 #include "vpux/compiler/NPU50XX/dialect/IE/strategies_initializer.hpp"
+#include "vpux/compiler/NPU37XX/dialect/IE/impl/channel_axis_reduction_with_dpu_parent_checker.hpp"
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/convert_quantize_ops_to_nce_ops_strategy.hpp"
+#include "vpux/compiler/NPU37XX/dialect/IE/impl/propagate_and_fuse_quantize_dequantize_strategy.hpp"
 #include "vpux/compiler/NPU40XX/dialect/IE/impl/d2s_to_transposed_conv_verifier.hpp"
 #include "vpux/compiler/NPU40XX/dialect/IE/impl/map_bilinear_interpolate_on_dpu_strategy.hpp"
 #include "vpux/compiler/NPU50XX/dialect/IE/impl/convert_to_mixed_precision_strategy.hpp"
@@ -64,6 +66,11 @@ class StrategyFactory50XX : public IE::StrategyFactory {
         return std::make_unique<arch50xx::ConvertToMixedPrecisionStrategy>(enableFloatInQuantWeightsMixedMode);
     }
 
+    std::unique_ptr<IPropagateAndFuseQuantizeDequantizeStrategy> getPropagateAndFuseQuantizeDequantizeStrategy(
+            const bool seOpsEnabled) override {
+        return std::make_unique<arch37xx::PropagateAndFuseQuantizeDequantizeStrategy>(seOpsEnabled);
+    }
+
     std::unique_ptr<D2SToTransposedConvVerifierBase> getD2SToTransposedConvVerifier() override {
         return std::make_unique<IE::arch40xx::D2SToTransposedConvVerifier>();
     }
@@ -76,6 +83,11 @@ class StrategyFactory50XX : public IE::StrategyFactory {
             mlir::func::FuncOp func, const bool enableDynamicQuantizationForStaticCase) override {
         return std::make_unique<IE::arch50xx::InitialLowPrecisionTransformationsPipelineStrategy>(
                 enableDynamicQuantizationForStaticCase, func);
+    }
+
+    std::unique_ptr<ChannelAxisReductionWithDPUParentCheckerBase> getChannelAxisReductionWithDPUParentChecker(
+            bool /*enableFuseReduceMinMaxToDpu*/) override {
+        return std::make_unique<IE::arch37xx::ChannelAxisReductionWithDPUParentChecker>();
     }
 };
 }  // namespace vpux::IE

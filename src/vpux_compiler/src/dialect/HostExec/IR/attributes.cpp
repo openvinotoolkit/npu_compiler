@@ -50,3 +50,28 @@ void HostExec::setHostCompileInferenceExecFuncAttribute(mlir::func::FuncOp func)
 bool HostExec::isHostCompileInferenceExecFunc(mlir::func::FuncOp func) {
     return func ? func->hasAttr(HostCompileInferenceExec) : false;
 }
+
+//
+// HostCompileInferenceExpectedCommandListsNumber
+//
+
+namespace {
+constexpr StringLiteral HostCompileInferenceExpectedCommandListsNumber = "HostExec.InferenceExpectedCommandListsNumber";
+}  // namespace
+
+void HostExec::setHostCompileInferenceExpectedCommandListsNumber(mlir::func::FuncOp func, size_t commandListsNumber) {
+    VPUX_THROW_WHEN(func == nullptr,
+                    "Cannot insert the attribute 'HostCompileInferenceExpectedCommandListsNumber' in nullptr FuncOp");
+    func->setAttr(HostCompileInferenceExpectedCommandListsNumber,
+                  vpux::getIntAttr(func.getContext(), commandListsNumber));
+}
+
+std::optional<size_t> HostExec::getHostCompileInferenceExpectedCommandListsNumber(mlir::func::FuncOp func) {
+    if (func == nullptr || func->hasAttr(HostCompileInferenceExpectedCommandListsNumber) == false) {
+        return {};
+    }
+
+    return mlir::cast<mlir::IntegerAttr>(func->getAttr(HostCompileInferenceExpectedCommandListsNumber))
+            .getValue()
+            .getZExtValue();
+}

@@ -26,6 +26,6 @@ public:
 // createInterface
 //
 
-std::unique_ptr<IInterfaceRegistry> createInterfacesRegistry(config::ArchKind arch);
+std::unique_ptr<IInterfaceRegistry> createInterfacesRegistry(config::Platform platform);
 
 }  // namespace vpux

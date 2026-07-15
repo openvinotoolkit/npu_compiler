@@ -382,18 +382,15 @@ bool vpux::VPU::isSOCSegmentedNCEOp(mlir::Operation* op) {
            (config::getArch(op) > config::ArchKind::NPU40XX && mlir::isa<VPU::NCEEltwiseOp>(op));
 }
 
-bool vpux::VPU::inputProducersCompatible(mlir::Operation* op, mlir::DenseSet<mlir::Operation*> handledUsers) {
-    // propagate tiled ops
-    if (mlir::isa<VPU::ConcatOp>(op)) {
-        return isSegmentedInputCompatible(op, std::move(handledUsers));
-    }
-    // propagate through slice
-    if (mlir::isa<VPU::SliceOp>(op)) {
-        return isSegmentedInputCompatible(op, std::move(handledUsers));
-    }
-    // propagate copy
-    if (mlir::isa<VPU::CopyOp>(op)) {
-        return isSegmentedInputCompatible(op, std::move(handledUsers));
+bool vpux::VPU::inputProducersCompatible(mlir::Operation* op) {
+    mlir::DenseSet<mlir::Operation*> handledUsers;
+    return inputProducersCompatible(op, handledUsers);
+}
+
+bool vpux::VPU::inputProducersCompatible(mlir::Operation* op, mlir::DenseSet<mlir::Operation*>& handledUsers) {
+    // Propagate through ops that preserve segmented producer compatibility.
+    if (mlir::isa<VPU::ConcatOp, VPU::SliceOp, VPU::CopyOp>(op)) {
+        return isSegmentedInputCompatible(op, handledUsers);
     }
 
     if (auto checkDistributed = mlir::dyn_cast<vpux::VPU::DistributedTypeInterface>(op->getResult(0).getType())) {
@@ -421,7 +418,12 @@ bool vpux::VPU::inputProducersCompatible(mlir::Operation* op, mlir::DenseSet<mli
     return isSOCSegmentedOp(op);
 }
 
-bool vpux::VPU::isSegmentedInputCompatible(mlir::Operation* op, mlir::DenseSet<mlir::Operation*> handledUsers) {
+bool vpux::VPU::isSegmentedInputCompatible(mlir::Operation* op) {
+    mlir::DenseSet<mlir::Operation*> handledUsers;
+    return isSegmentedInputCompatible(op, handledUsers);
+}
+
+bool vpux::VPU::isSegmentedInputCompatible(mlir::Operation* op, mlir::DenseSet<mlir::Operation*>& handledUsers) {
     // For SW kernel, SplitOverKernel means input is tiled on channel axis
     if (mlir::isa<VPU::SWOpInterface>(op)) {
         return true;
@@ -463,11 +465,11 @@ bool vpux::VPU::isSegmentedInputCompatible(mlir::Operation* op, mlir::DenseSet<m
     for (auto input : op->getOperands()) {
         if (auto vfOp = input.getDefiningOp<VPU::VerticalFusionOp>()) {
             auto* lastVFOp = vfOp.getBody()->getTerminator()->getOperand(0).getDefiningOp();
-            if (!inputProducersCompatible(lastVFOp)) {
+            if (!inputProducersCompatible(lastVFOp, handledUsers)) {
                 return false;
             }
         } else if (auto definingOp = input.getDefiningOp()) {
-            if (!inputProducersCompatible(definingOp)) {
+            if (!inputProducersCompatible(definingOp, handledUsers)) {
                 return false;
             }
         }
@@ -1061,6 +1063,14 @@ bool vpux::VPU::isSWOpWithAlignedChannelReq(VPU::ClusteredOpInterface swOp, vpux
     return false;
 }
 
+bool vpux::VPU::isWeightsLikeOperand(VPU::NCEOpInterface nceOp, mlir::Value operand) {
+    return nceOp->getNumOperands() > 1 &&
+           (operand == nceOp.getWeightsOperand() || operand == nceOp.getWeightsTableOperand() ||
+            operand == nceOp.getWeightTableScaleOperand() || operand == nceOp.getWeightZeroPointsOperand() ||
+            operand == nceOp.getWeightTableBiasOperand() || operand == nceOp.getWeightTableDataPtrOperand()) &&
+           !mlir::isa<VPU::NCEEltwiseOp>(nceOp.getOperation());
+}
+
 bool vpux::VPU::isWeightsDequant(mlir::Operation* origOp) {
     if (auto dequant = mlir::dyn_cast<VPU::DequantizeOp>(origOp)) {
         if (auto conv = mlir::dyn_cast<VPU::NCEConvolutionOp>(*dequant.getOutput().getUsers().begin())) {
@@ -1397,7 +1407,8 @@ SmallVector<int64_t> vpux::VPU::getWeightsTensorNumTiles(VPU::ClusteredOpInterfa
         strategy == VPU::MultiClusterStrategy::HKSwitch || strategy == VPU::MultiClusterStrategy::SplitOverBatch) {
         return {1, 1, 1, 1};
     } else if (strategy == VPU::MultiClusterStrategy::SplitOverKernel) {
-        auto OC = tensorType.getShape()[Dims4D::Filter::OC];
+        const auto tensorShape = getBoundedShape(tensorType);
+        const auto OC = tensorShape[Dims4D::Filter::OC];
         auto uniformDistributedSegments = VPU::isUniformDistributedSegmentsSupported(clusteredOp);
         int64_t numClustersToUseForLayer = getNumberOfClustersForSOKToAvoidAlignment(
                 OC, numClustersAvailableForCompilation, uniformDistributedSegments);
@@ -1831,6 +1842,13 @@ int64_t vpux::VPU::getOptimalNumClusters(mlir::Operation* operation, ShapeRef ou
             // E#149000 : Proper implementation should be done for Dequantize with correct alignment
             const auto dequantizeOC = outputShape[Dims4D::Act::N];
             numClustersToUseForLayer = std::min(numClustersToUseForLayer, dequantizeOC);
+        } else if (auto flashSdpaOp = mlir::dyn_cast<VPU::FlashSDPAOp>(operation)) {
+            // FlashSDPA kernel requires exactly 1 KV head per cluster invocation.
+            // Cap num clusters by kvHeads (= keyShape[C]) so the residual SOK tile
+            // produced by flash-sdpa-tiling (kvHeads < numClustersAvailable) runs
+            // on fewer clusters with one KV head each.
+            const auto kvHeads = getShape(flashSdpaOp.getKey())[Dims4D::Act::C];
+            numClustersToUseForLayer = std::min(numClustersToUseForLayer, kvHeads);
         } else if (mlir::isa<VPU::SWOpInterface>(operation)) {
             numClustersToUseForLayer = std::min(numClustersToUseForLayer, OC);
         } else if (mlir::isa<VPU::NCEPermuteOp>(operation) && OC % KMB_DPU_CHANNELS_ALIGNMENT != 0) {
@@ -1851,6 +1869,12 @@ int64_t vpux::VPU::getOptimalNumClusters(mlir::Operation* operation, ShapeRef ou
     if (strategy == VPU::MultiClusterStrategy::SplitOverBatch) {
         const int64_t maxNumClusters = outputShape[Dims4D::Act::N];
         optimalNumberOfClusters = std::min(maxNumClusters, numClustersAvailableForCompilation);
+    }
+
+    // Limit number clusters to batch size for SOG.
+    if (strategy == VPU::MultiClusterStrategy::SplitOverGroup) {
+        const int64_t numGroups = outputShape[DimsGroups5D::Act::G];
+        optimalNumberOfClusters = std::min(numGroups, numClustersAvailableForCompilation);
     }
 
     if (auto ioDmaOp = mlir::dyn_cast<VPU::SwIoDmaOpInterface>(operation)) {
@@ -2379,13 +2403,13 @@ VPU::DistributedTypeInterface vpux::VPU::getDistributedActivationTypeFromOp(
         }
     }
 
-    auto uniformDistributedSegments = VPU::getUniformDistributedSegments(clusteredOp, inputType.getShape().raw(),
-                                                                         activationTensorDistributionMode,
-                                                                         activationTensorNumTiles, customAlignmentArr);
+    const auto inputShape = getBoundedShape(inputType);
+    auto uniformDistributedSegments =
+            VPU::getUniformDistributedSegments(clusteredOp, inputShape.raw(), activationTensorDistributionMode,
+                                               activationTensorNumTiles, customAlignmentArr);
 
     auto getOverlappedParams = [&]() -> OverlapDistributionParams {
         if (isSEPDWConv(clusteredOp) && customStrategy == VPU::MultiClusterStrategy::SplitOverKernel) {
-            const auto inputShape = inputType.getShape();
             auto supportedWorkload = getSupportedPerClusterShapesAndOffsetsForSEPDWConv(clusteredOp, inputShape,
                                                                                         numClusters, Dims4D::Act::C,
                                                                                         /*isBroadcasted*/ false);
@@ -2407,7 +2431,7 @@ VPU::DistributedTypeInterface vpux::VPU::getDistributedActivationTypeFromOp(
                                                  inputType, tileInfo);
         }
 
-        return getExplicitOverlapParamsForSWOpInput(swOp, actualOutputType.getShape(), activationTensorNumTiles,
+        return getExplicitOverlapParamsForSWOpInput(swOp, getBoundedShape(actualOutputType), activationTensorNumTiles,
                                                     customAlignmentArr, tileInfo);
     };
 
@@ -2444,19 +2468,19 @@ VPU::DistributedTypeInterface vpux::VPU::getDistributedFilterTypeFromOp(VPU::NCE
     const auto weightsTensorDistributionMode = getWeightsTensorDistributionMode(customStrategy);
     const auto weightsTensorNumTiles = getWeightsTensorNumTiles(clusteredOp, inputType, numClusters, customStrategy);
 
-    const auto channelSize = inputType.getShape()[Dims4D::Filter::OC];
+    const auto inputShape = getBoundedShape(inputType);
+    const auto channelSize = inputShape[Dims4D::Filter::OC];
     const auto weightAlignment = getWeightsTensorAlignment(clusteredOp, customStrategy, numClusters, channelSize);
     if (weightAlignment.has_value()) {
         weightAlignmentArr = weightAlignment.value();
     }
 
     auto uniformDistributedSegments = VPU::getUniformDistributedSegments(
-            mlir::cast<VPU::ClusteredOpInterface>(nceOp.getOperation()), inputType.getShape().raw(),
+            mlir::cast<VPU::ClusteredOpInterface>(nceOp.getOperation()), inputShape.raw(),
             weightsTensorDistributionMode, weightsTensorNumTiles, weightAlignmentArr);
 
     auto getOverlappedParams = [&]() -> OverlapDistributionParams {
         if (isSEPDWConv(nceOp.getOperation()) && customStrategy == VPU::MultiClusterStrategy::SplitOverKernel) {
-            const auto inputShape = inputType.getShape();
             auto supportedWorkload = getSupportedPerClusterShapesAndOffsetsForSEPDWConv(clusteredOp, inputShape,
                                                                                         numClusters, Dims4D::Filter::OC,
                                                                                         /*isBroadcasted*/ false);
@@ -2536,27 +2560,53 @@ bool vpux::VPU::hasSpillDueToIncompatibleDistributionMode(VPU::DistributedTensor
 }
 
 VPU::DistributedTypeInterface vpux::VPU::getDistributedOutputType(
-        mlir::Operation* op, std::optional<VPU::MultiClusterStrategy> customStrategy) {
+        mlir::Operation* op, mlir::Value result, std::optional<VPU::MultiClusterStrategy> customStrategy) {
+    auto iter = llvm::find(op->getResults(), result);
+    VPUX_THROW_WHEN(iter == op->getResults().end(), "Cannot find result {0} in {1}", result, op);
+    auto resultIdx = std::distance(op->getResults().begin(), iter);
+
     VPU::ClusteredOpInterface clusteredOp = nullptr;
     if (auto vfOp = mlir::dyn_cast_or_null<VPU::VerticalFusionOp>(op)) {
-        clusteredOp = getLastClusterOpForVFOp(vfOp);
+        auto yieldedValue = vfOp.getBody()->getTerminator()->getOperand(resultIdx);
+        clusteredOp = mlir::dyn_cast_if_present<VPU::ClusteredOpInterface>(yieldedValue.getDefiningOp());
+        if (clusteredOp == nullptr) {
+            return nullptr;
+        }
+
+        result = yieldedValue;
     } else {
         clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(op);
     }
     if (clusteredOp == nullptr) {
         return nullptr;
     }
-    auto outType = mlir::cast<vpux::NDTypeInterface>(clusteredOp->getResult(0).getType());
     auto multiClusterStrategy = customStrategy.has_value() ? customStrategy : clusteredOp.getMultiClusterStrategy();
     if (!multiClusterStrategy.has_value()) {
         return nullptr;
     }
-    auto numClusters = vpux::VPU::getOptimalNumClusters(clusteredOp, outType.getShape(), multiClusterStrategy.value());
+
+    // num clusters is computed based on the main result type
+    auto outType = mlir::cast<vpux::NDTypeInterface>(clusteredOp->getResult(0).getType());
+    auto numClusters =
+            vpux::VPU::getOptimalNumClusters(clusteredOp, getBoundedShape(outType), multiClusterStrategy.value());
     if (numClusters <= 1) {
         return nullptr;
     }
 
-    return getDistributedOutputTypeFromOp(clusteredOp, outType, numClusters, multiClusterStrategy.value());
+    auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(clusteredOp.getOperation());
+    auto mainOutType = getDistributedOutputTypeFromOp(clusteredOp, outType, numClusters, multiClusterStrategy.value());
+    if (nceOp == nullptr || result == clusteredOp->getResult(0)) {
+        return mainOutType;
+    }
+
+    auto reduceTypes = getReduceOutputType(nceOp.getOperation(), mainOutType);
+    for (int64_t idx = 1; idx < nceOp->getNumResults(); ++idx) {
+        if (nceOp->getResult(idx) == result) {
+            return mlir::dyn_cast_if_present<VPU::DistributedTypeInterface>(reduceTypes[idx - 1]);
+        }
+    }
+
+    return nullptr;
 }
 
 VPU::DistributedTypeInterface vpux::VPU::getDistributedInputType(
@@ -2584,13 +2634,14 @@ VPU::DistributedTypeInterface vpux::VPU::getDistributedInputType(
     }
     auto inputType = mlir::cast<vpux::NDTypeInterface>(operand.getType());
     auto outputType = mlir::cast<vpux::NDTypeInterface>(clusteredOp->getResult(0).getType());
-    const auto numClusters = clusteredOp.getOptimalNumClusters(outputType.getShape(), multiClusterStrategy.value());
+    const auto numClusters =
+            clusteredOp.getOptimalNumClusters(getBoundedShape(outputType), multiClusterStrategy.value());
     if (numClusters <= 1) {
         return nullptr;
     }
 
     auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(clusteredOp.getOperation());
-    return (nceOp != nullptr && nceOp.getWeightsOperand() == operand)
+    return (nceOp != nullptr && isWeightsLikeOperand(nceOp, operand))
                    ? VPU::getDistributedFilterTypeFromOp(nceOp, inputType, numClusters, multiClusterStrategy.value())
                    : VPU::getDistributedActivationTypeFromOp(clusteredOp, operand, inputType, numClusters,
                                                              multiClusterStrategy.value());
@@ -2638,9 +2689,9 @@ VPU::DistributedTypeInterface vpux::VPU::getDistributedOutputTypeFromOp(
     }
     const auto outputTensorDistributionMode = getOutputTensorDistributionMode(clusteredOp, customStrategy, outputType);
     auto outputAlignmentArr = getOutAlignment(clusteredOp, numClusters, customStrategy, inputTypes, outputType);
-    auto uniformDistributedSegments =
-            VPU::getUniformDistributedSegments(clusteredOp, outputType.getShape().raw(), outputTensorDistributionMode,
-                                               outputTensorNumTiles, outputAlignmentArr);
+    const auto outputShape = getBoundedShape(outputType);
+    auto uniformDistributedSegments = VPU::getUniformDistributedSegments(
+            clusteredOp, outputShape.raw(), outputTensorDistributionMode, outputTensorNumTiles, outputAlignmentArr);
     const auto outputMemoryTensorNumTiles =
             (outputTensorDistributionMode == (DistributionMode::SEGMENTED | DistributionMode::OVERLAPPED))
                     ? getOutputTensorMemoryNumTiles(clusteredOp, customStrategy, outputType)
@@ -2654,7 +2705,6 @@ VPU::DistributedTypeInterface vpux::VPU::getDistributedOutputTypeFromOp(
         const auto isBroadcasted =
                 outputTensorDistributionMode == (DistributionMode::SEGMENTED | DistributionMode::DUPLICATED);
 
-        const auto outputShape = outputType.getShape();
         auto supportedWorkload = getSupportedPerClusterShapesAndOffsetsForSEPDWConv(
                 clusteredOp, outputShape, numClusters, Dims4D::Act::C, isBroadcasted);
 
@@ -2877,18 +2927,18 @@ OverlapDistributionParams getFusedOverlappedParams(const VPU::DistributionInfo& 
                                                    const bool equalComputeAndMemoryView) {
     OverlapDistributionParams finalOverlapParams = {};
     if (!fusedOverlapParams.getMemoryShapes().empty() || !dist.getMemoryShapes().empty()) {
-        auto finalMemoryShapes = fusedOverlapParams.getMemoryShapes().empty()
-                                         ? SmallVector<SmallVector<int64_t>>(dist.getMemoryShapes())
-                                         : fusedOverlapParams.getMemoryShapes();
-        auto finalMemoryOffsets = fusedOverlapParams.getMemoryOffsets().empty()
-                                          ? SmallVector<SmallVector<int64_t>>(dist.getMemoryOffsets())
-                                          : fusedOverlapParams.getMemoryOffsets();
-        auto finalComputeShapes = fusedOverlapParams.getComputeShapes().empty()
-                                          ? SmallVector<SmallVector<int64_t>>(dist.getComputeShapes())
-                                          : fusedOverlapParams.getComputeShapes();
-        auto finalComputeOffsets = fusedOverlapParams.getComputeOffsets().empty()
-                                           ? SmallVector<SmallVector<int64_t>>(dist.getComputeOffsets())
-                                           : fusedOverlapParams.getComputeOffsets();
+        ArrayRef<SmallVector<int64_t>> finalMemoryShapes = fusedOverlapParams.getMemoryShapes().empty()
+                                                                   ? dist.getMemoryShapes()
+                                                                   : fusedOverlapParams.getMemoryShapes();
+        ArrayRef<SmallVector<int64_t>> finalMemoryOffsets = fusedOverlapParams.getMemoryOffsets().empty()
+                                                                    ? dist.getMemoryOffsets()
+                                                                    : fusedOverlapParams.getMemoryOffsets();
+        ArrayRef<SmallVector<int64_t>> finalComputeShapes = fusedOverlapParams.getComputeShapes().empty()
+                                                                    ? dist.getComputeShapes()
+                                                                    : fusedOverlapParams.getComputeShapes();
+        ArrayRef<SmallVector<int64_t>> finalComputeOffsets = fusedOverlapParams.getComputeOffsets().empty()
+                                                                     ? dist.getComputeOffsets()
+                                                                     : fusedOverlapParams.getComputeOffsets();
 
         finalOverlapParams.setMemoryShapes(finalMemoryShapes);
         finalOverlapParams.setMemoryOffsets(finalMemoryOffsets);
@@ -3475,6 +3525,7 @@ vpux::Byte vpux::VPU::getTotalAllocSizeWithDistribution(vpux::NDTypeInterface ty
                           type.getShape(), distribution);
         perClusterShapes = optionalPerClusterMemoryShapes.value();
     } else {
+        perClusterShapes.reserve(distribution.getMemoryShapes().size());
         for (auto& shape : distribution.getMemoryShapes()) {
             perClusterShapes.push_back(Shape(shape));
         }
@@ -3661,6 +3712,8 @@ mlir::FailureOr<OverlapDistributionParams> vpux::VPU::getSupportedPerClusterShap
 
     SmallVector<SmallVector<int64_t>> perClusterShapes;
     SmallVector<SmallVector<int64_t>> perClusterOffsets;
+    perClusterShapes.reserve(tileSize.size());
+    perClusterOffsets.reserve(tileSize.size());
     int64_t offset = 0;
     for (auto& tile : tileSize) {
         auto tileShape = Shape(shape);
@@ -3677,10 +3730,11 @@ mlir::FailureOr<OverlapDistributionParams> vpux::VPU::getSupportedPerClusterShap
     }
 
     const auto zeroOffset = SmallVector<int64_t>(shape.size(), 0);
-    const auto broadcastedOffsets = SmallVector<SmallVector<int64_t>>(perClusterOffsets.size(), zeroOffset);
-    const auto broadcastedShapes = SmallVector<SmallVector<int64_t>>(perClusterShapes.size(), to_small_vector(shape));
+    auto broadcastedOffsets = SmallVector<SmallVector<int64_t>>(perClusterOffsets.size(), zeroOffset);
+    auto broadcastedShapes = SmallVector<SmallVector<int64_t>>(perClusterShapes.size(), to_small_vector(shape));
 
-    return OverlapDistributionParams(broadcastedShapes, broadcastedOffsets, perClusterShapes, perClusterOffsets);
+    return OverlapDistributionParams(std::move(broadcastedShapes), std::move(broadcastedOffsets),
+                                     std::move(perClusterShapes), std::move(perClusterOffsets));
 }
 
 bool vpux::VPU::hasDistributedTypesIO(mlir::Operation* op) {
@@ -3730,6 +3784,7 @@ bool VPU::arePerClusterDistributionMemoryShapeAndOffsetsEqual(vpux::NDTypeInterf
             sourceMemoryShapes = optionalMemoryShapes.value();
         }
     } else {
+        sourceMemoryShapes.reserve(sourceDistribution.getMemoryShapes().size());
         for (auto& shape : sourceDistribution.getMemoryShapes()) {
             sourceMemoryShapes.push_back(Shape(shape));
         }
@@ -3742,6 +3797,7 @@ bool VPU::arePerClusterDistributionMemoryShapeAndOffsetsEqual(vpux::NDTypeInterf
             targetMemoryShapes = optionalMemoryShapes.value();
         }
     } else {
+        targetMemoryShapes.reserve(targetDistribution.getMemoryShapes().size());
         for (auto& shape : targetDistribution.getMemoryShapes()) {
             targetMemoryShapes.push_back(Shape(shape));
         }
@@ -3751,6 +3807,7 @@ bool VPU::arePerClusterDistributionMemoryShapeAndOffsetsEqual(vpux::NDTypeInterf
         sourceMemoryOffsets =
                 VPU::getPerClusterMemoryShapeOffsets(srcShape, sourceDistribution, srcType.getElementType());
     } else {
+        sourceMemoryOffsets.reserve(sourceDistribution.getMemoryOffsets().size());
         for (auto& shape : sourceDistribution.getMemoryOffsets()) {
             sourceMemoryOffsets.push_back(Shape(shape));
         }
@@ -3760,6 +3817,7 @@ bool VPU::arePerClusterDistributionMemoryShapeAndOffsetsEqual(vpux::NDTypeInterf
         targetMemoryOffsets =
                 VPU::getPerClusterMemoryShapeOffsets(targetShape, targetDistribution, targetType.getElementType());
     } else {
+        targetMemoryOffsets.reserve(targetDistribution.getMemoryOffsets().size());
         for (auto& shape : targetDistribution.getMemoryOffsets()) {
             targetMemoryOffsets.push_back(Shape(shape));
         }

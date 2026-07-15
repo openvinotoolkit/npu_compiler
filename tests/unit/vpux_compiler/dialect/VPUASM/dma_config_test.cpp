@@ -9,6 +9,8 @@
 
 namespace {
 
+using namespace vpux;
+
 struct DMAConfigTestParams {
     DMATransaction inTransaction = {};
     VPUASM::DMATransactionConfig expectedConfig = {};

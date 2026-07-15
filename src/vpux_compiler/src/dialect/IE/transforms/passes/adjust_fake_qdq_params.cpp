@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/normalization.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
@@ -19,7 +20,9 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
+#include <mlir/IR/Dominance.h>
 #include <mlir/IR/PatternMatch.h>
+#include <mlir/Transforms/CSE.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
 #include <queue>
@@ -183,6 +186,113 @@ bool isFqRangeOutOfBounds(IE::FakeQuantizeOp fqOp, float inScale = 1.0f, float o
 bool areFQValsEqual(IE::FakeQuantizeOp fqOp) {
     auto [inLow, inHigh, outLow, outHigh] = getFqValues(fqOp);
     return (inLow == outLow) && (inHigh == outHigh);
+}
+
+// Walk up from `val` through any chain of FakeQuantize or Convert ops to the first opaque producer.
+// FuseRMSNorm sees through both, so the guard must too (e.g. an Input -> Convert -> square variant).
+mlir::Operation* skipTransparentProducer(mlir::Value val) {
+    auto* op = val.getDefiningOp();
+    while (mlir::isa_and_nonnull<IE::FakeQuantizeOp, IE::ConvertOp>(op)) {
+        op = op->getOperand(0).getDefiningOp();
+    }
+    return op;
+}
+
+// True if op is the RMSNorm square: an IE::PowerOp with a single use. MultiplyOp x*x is excluded —
+// it also appears in unrelated FQ-propagation patterns that must still be adjusted. hasOneUse()
+// mirrors FuseRMSNorm::getPowerOp: a multi-use Power cannot be fused, so no guard is needed.
+bool isSquareProducer(mlir::Operation* op) {
+    return mlir::isa_and_nonnull<IE::PowerOp>(op) && op->hasOneUse();
+}
+
+// True if `op` is the variance reduce of an RMSNorm: a ReduceMean or ReduceSum whose (skipped) input
+// is a square. FuseRMSNorm fuses both reduce variants.
+bool isVarianceReduce(mlir::Operation* op) {
+    if (!mlir::isa_and_nonnull<IE::ReduceMeanOp, IE::ReduceSumOp>(op)) {
+        return false;
+    }
+    return isSquareProducer(skipTransparentProducer(op->getOperand(0)));
+}
+
+// True if `op`'s result reaches a variance reduce (ReduceMean/ReduceSum), skipping any FakeQuantize or
+// Convert ops in between. Uses a visited set to avoid redundant work on fan-out graphs.
+static bool reachesVarianceReduceImpl(mlir::Operation* op, llvm::DenseSet<mlir::Operation*>& visited) {
+    for (auto* user : op->getUsers()) {
+        if (mlir::isa<IE::ReduceMeanOp, IE::ReduceSumOp>(user)) {
+            return true;
+        }
+        if (mlir::isa<IE::FakeQuantizeOp, IE::ConvertOp>(user) && visited.insert(user).second) {
+            if (reachesVarianceReduceImpl(user, visited)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool reachesVarianceReduce(mlir::Operation* op) {
+    llvm::DenseSet<mlir::Operation*> visited;
+    return reachesVarianceReduceImpl(op, visited);
+}
+
+// True if op is the RMS variance square: a PowerOp whose result reaches a variance reduce.
+bool isVarianceSquare(mlir::Operation* op) {
+    return isSquareProducer(op) && reachesVarianceReduce(op);
+}
+
+// Given the (skipped) producer of a FakeQuantize op, return the RMS variance square if the producer
+// lies on the variance chain (the square itself, the variance reduce, or the eps Add); else null.
+mlir::Operation* getVarianceSquare(mlir::Operation* prod) {
+    if (isVarianceSquare(prod)) {
+        return prod;
+    }
+    if (isVarianceReduce(prod)) {
+        return skipTransparentProducer(prod->getOperand(0));
+    }
+    if (auto addOp = mlir::dyn_cast_or_null<IE::AddOp>(prod)) {
+        for (auto operand : addOp.getOperands()) {
+            auto* maybeReduce = skipTransparentProducer(operand);
+            if (isVarianceReduce(maybeReduce)) {
+                return skipTransparentProducer(maybeReduce->getOperand(0));
+            }
+        }
+    }
+    return nullptr;
+}
+
+// True if op's result reaches a variance square (possibly through intervening Convert ops).
+// Only Convert is skipped — a FQ boundary means we have crossed into a distinct quantizer, which
+// is not the input-x FQ we are trying to guard.
+static bool feedsVarianceSquare(mlir::Operation* op, llvm::DenseSet<mlir::Operation*>& visited) {
+    for (auto* user : op->getUsers()) {
+        if (isVarianceSquare(user)) {
+            return true;
+        }
+        if (mlir::isa<IE::ConvertOp>(user) && visited.insert(user).second) {
+            if (feedsVarianceSquare(user, visited)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// True when fqOp is on the RMSNorm variance chain (square → ReduceMean → Add(eps)) or is the input-x
+// FQ that feeds the square. Rescaling any of them breaks FuseRMSNorm.
+// No Divide check: the guard fires on the variance square/chain which is the structural invariant
+// needed by FuseRMSNorm; a Divide consumer is not required.
+bool isRMSNormVarianceBranchFakeQuantize(IE::FakeQuantizeOp fqOp) {
+    // input-x quantizer: feeds the variance square, possibly through transparent Convert ops.
+    {
+        llvm::DenseSet<mlir::Operation*> visited;
+        visited.insert(fqOp);
+        if (feedsVarianceSquare(fqOp, visited)) {
+            return true;
+        }
+    }
+
+    // x² / variance / (variance+eps) quantizer: its producer lies on the variance chain.
+    return getVarianceSquare(skipTransparentProducer(fqOp.getInput())) != nullptr;
 }
 
 //
@@ -961,6 +1071,16 @@ mlir::LogicalResult FakeQdqParamsRewriter::matchAndRewrite(IE::FakeQuantizeOp fa
         return matchFailed(rewriter, fakeQuantizeOp, "Skipping AdjustFQParams pass as FQ {0} at {1} is in range",
                            fakeQuantizeOp->getName(), fakeQuantizeOp->getLoc());
     }
+
+    // Do not rescale FakeQuantize ops on an RMSNorm variance branch: inserting a Multiply into the
+    // Power -> ReduceMean -> Add -> Sqrt chain breaks FuseRMSNorm, leaving the square in fp16 to
+    // overflow. Skipping lets the pattern fuse into IE::RMS, whose kernel squares in fp32.
+    if (isRMSNormVarianceBranchFakeQuantize(fakeQuantizeOp)) {
+        return matchFailed(rewriter, fakeQuantizeOp,
+                           "Skipping AdjustFQParams pass for RMSNorm variance-branch FQ {0} at {1} to allow RMS fusion",
+                           fakeQuantizeOp->getName(), fakeQuantizeOp->getLoc());
+    }
+
     // Followup: Generalize current implementation to:
     // per-channel and multi-channel FakeQuantize. Look at E#177612
 
@@ -1006,7 +1126,14 @@ void AdjustFakeQdqParamsPass::safeRunOnFunc() {
     auto func = getOperation();
     if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
+        return;
     }
+
+    // When a shared FQ has multiple users, the rescaling traversal inserts one Multiply per user.
+    // CSE merges identical Multiplies so downstream passes (e.g. FuseRMSNorm) see a single SSA value.
+    mlir::DominanceInfo domInfo;
+    mlir::IRRewriter rewriter(&ctx);
+    mlir::eliminateCommonSubExpressions(rewriter, domInfo, func);
 }
 
 }  // namespace

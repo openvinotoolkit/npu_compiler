@@ -28,6 +28,11 @@ extern const size_t COST_MODEL_5_1_SIZE;
 extern const char COST_MODEL_CACHE_5_1[];
 extern const size_t COST_MODEL_CACHE_5_1_SIZE;
 
+#ifdef VPUX_BUILTIN_PRECOMPUTED_STRATEGY_TABLE_5_1
+extern const char PRECOMPUTED_STRATEGY_TABLE_5_1[];
+extern const size_t PRECOMPUTED_STRATEGY_TABLE_5_1_SIZE;
+#endif  // VPUX_BUILTIN_PRECOMPUTED_STRATEGY_TABLE_5_1
+
 extern const char COST_MODEL_5_2[];
 extern const size_t COST_MODEL_5_2_SIZE;
 

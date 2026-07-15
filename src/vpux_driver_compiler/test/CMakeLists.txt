@@ -11,5 +11,6 @@ endif()
 
 set(COMPILER_LOADER_DLL openvino_intel_npu_compiler_loader)
 
+add_subdirectory(utils)
 add_subdirectory(functional)
 add_subdirectory(smoke)

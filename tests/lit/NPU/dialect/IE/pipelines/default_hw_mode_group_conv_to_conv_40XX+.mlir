@@ -54,7 +54,8 @@ module @GroupConvolutionToSingleConvolution {
 
         return %2 : tensor<1x96x128x256xf16>
 
-        // CHECK-DAG:       [[CST:%.+]] = const.Declare tensor<96x96x3x3x!qElemType, {order = #NHWC}> = dense_resource<__elided__> : tensor<96x96x3x3xf16>, [#const.CastElemType<!qElemType1>, #const.ConvertElemType<!qElemType>, #const.Reorder<#NHWC>]
+        // CHECK-DAG:       [[CST:%.+]] = const.Declare tensor<96x96x3x3x!qElemType, {order = #NHWC}> = dense<> : tensor<0xf80>, [#const.Concat<
+        // CHECK-SAME:          #const.CastElemType<!qElemType1>, #const.ConvertElemType<!qElemType>, #const.Reorder<#NHWC>]
 
         // CHECK:           [[PERMUTE_CAST0:%.+]] = IE.PermuteQuantize([[ARG0]])
         // CHECK-SAME:          {dstElemType = f16, dst_order = #NHWC, mem_perm = #NHWC, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0]}

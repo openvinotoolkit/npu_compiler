@@ -122,3 +122,22 @@ func.func @AdjustForSoftmaxMultiShaveOptNHWCwithBatch(%arg0: tensor<2x8x16x16xf1
     // CHECK:        [[SHAPECAST_OUT:%.+]] = VPU.ShapeCast {shape = [2, 8, 16, 16]} inputs([[SOFTMAX]] : tensor<1x8x32x16xf16, {order = #NHWC}>) -> tensor<2x8x16x16xf16, {order = #NHWC}>
     // CHECK:        return [[SHAPECAST_OUT]]
 }
+
+// -----
+
+// Verify that AdjustShapeForSoftmax also reshapes the precomputed max operand
+// consistently with the input shape adjustment.
+// input [1,2,16,32] axis=3 → [1,8,4,32] axis=3 (multiShaveOpt for 2 shaves)
+// max   [1,2,16, 1]       → [1,8,4, 1]  (axis dim stays 1, other dims follow input)
+// CHECK-LABEL: func.func @AdjustSoftMaxWithMaxMultiShave
+// CHECK-SAME: ([[INPUT:%.+]]: tensor<1x2x16x32xf16>, [[MAX:%.+]]: tensor<1x2x16x1xf16>)
+func.func @AdjustSoftMaxWithMaxMultiShave(%arg0: tensor<1x2x16x32xf16>, %max: tensor<1x2x16x1xf16>) -> tensor<1x2x16x32xf16> {
+    %0 = VPU.SoftMax(%arg0, %max) {axisInd = 3 : i64} : tensor<1x2x16x32xf16>, tensor<1x2x16x1xf16> -> tensor<1x2x16x32xf16>
+    return %0 : tensor<1x2x16x32xf16>
+
+    // CHECK: [[SHAPECAST_IN:%.+]] = VPU.ShapeCast {shape = [1, 8, 4, 32]} inputs([[INPUT]] : tensor<1x2x16x32xf16>) -> tensor<1x8x4x32xf16>
+    // CHECK: [[SHAPECAST_MAX:%.+]] = VPU.ShapeCast {shape = [1, 8, 4, 1]} inputs([[MAX]] : tensor<1x2x16x1xf16>) -> tensor<1x8x4x1xf16>
+    // CHECK: [[SOFTMAX:%.+]] = VPU.SoftMax([[SHAPECAST_IN]], [[SHAPECAST_MAX]]) {axisInd = 3 : i64} : tensor<1x8x4x32xf16>, tensor<1x8x4x1xf16> -> tensor<1x8x4x32xf16>
+    // CHECK: [[SHAPECAST_OUT:%.+]] = VPU.ShapeCast {shape = [1, 2, 16, 32]} inputs([[SOFTMAX]] : tensor<1x8x4x32xf16>) -> tensor<1x2x16x32xf16>
+    // CHECK: return [[SHAPECAST_OUT]] : tensor<1x2x16x32xf16>
+}
