@@ -26,12 +26,19 @@ npu_embed_bin_file(
 
 set(_npu50xx_ptc_source "${PROJECT_SOURCE_DIR}/artifacts/precomputed_strategy_cache/npu50xx_precomputed_strategy.ptc")
 
-npu_embed_bin_file(
-    TARGET precomputed_strategy_table_builtin_5_1
-    SOURCE_FILE "${_npu50xx_ptc_source}"
-    HEADER_FILE "${PROJECT_BINARY_DIR}/${gen_base_dst_include_dir}/dialect/VPU/generated/precomputed_strategy_table_builtin_5_1.hpp.inc"
-    VARIABLE_NAME "PRECOMPUTED_STRATEGY_TABLE_5_1"
-    MINIMUM_SIZE 16)
+if(EXISTS "${_npu50xx_ptc_source}")
+    npu_embed_bin_file(
+        TARGET precomputed_strategy_table_builtin_5_1
+        SOURCE_FILE "${_npu50xx_ptc_source}"
+        HEADER_FILE "${PROJECT_BINARY_DIR}/${gen_base_dst_include_dir}/dialect/VPU/generated/precomputed_strategy_table_builtin_5_1.hpp.inc"
+        VARIABLE_NAME "PRECOMPUTED_STRATEGY_TABLE_5_1"
+        MINIMUM_SIZE 16)
+    set(_npu50xx_have_ptc TRUE)
+else()
+    message(STATUS "NPU50XX precomputed strategy cache '${_npu50xx_ptc_source}' not found; "
+                   "compiler will fall back to on-the-fly tiling strategy selection.")
+    set(_npu50xx_have_ptc FALSE)
+endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/include_src.cmake")
 collect_cpp_excluding_nested_cmakelists(SRC_FILES "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -96,5 +103,7 @@ add_npu_library(npu_compiler_npu50xx
         openvino::npu_al
 )
 
-target_compile_definitions(npu_compiler_npu50xx PRIVATE VPUX_BUILTIN_PRECOMPUTED_STRATEGY_TABLE_5_1)
-add_dependencies(npu_compiler_npu50xx precomputed_strategy_table_builtin_5_1)
+if(_npu50xx_have_ptc)
+    target_compile_definitions(npu_compiler_npu50xx PRIVATE VPUX_BUILTIN_PRECOMPUTED_STRATEGY_TABLE_5_1)
+    add_dependencies(npu_compiler_npu50xx precomputed_strategy_table_builtin_5_1)
+endif()
