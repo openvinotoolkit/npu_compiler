@@ -347,7 +347,7 @@ void alignFQRanges(IE::ConcatOp origOp, MutableArrayRef<IE::FakeQuantizeOp> fqOp
             // Replace the old FQ operation with the FQ with new ranges + Clamp operation that preserves the original
             // range interval
             auto newFQOp = rewriter.create<IE::FakeQuantizeOp>(
-                    appendLoc(origOp->getLoc(), "fq_{0}", i), fqOpsToAlign[i].getInput(), commonInputLow,
+                    takeOpLoc(fqOpsToAlign[i], "fq_same_inout_{0}", i), fqOpsToAlign[i].getInput(), commonInputLow,
                     commonInputHigh, commonInputLow, commonInputHigh, commonLevels, nullptr,
                     fqOpsToAlign[i].getAutoBroadcastAttr());
             log.trace("Created new FQ op at {0}", newFQOp->getLoc());
@@ -355,12 +355,13 @@ void alignFQRanges(IE::ConcatOp origOp, MutableArrayRef<IE::FakeQuantizeOp> fqOp
             // Replace old FQ with new Clamp that preserve the old FQ's quantization ranges
             auto clampOp = rewriter.replaceOpWithNewOp<IE::ClampOp>(fqOpsToAlign[i], newFQOp.getOutput(), inputLowAttr,
                                                                     inputHighAttr);
+            extendOpLoc(clampOp, "clamp");
             log.trace("Created new Clamp op at {0}", clampOp->getLoc());
         } else {
             // if the in out range is different, insert a new range FQ then clamp back to old range.
             rewriter.setInsertionPointAfter(fqOpsToAlign[i]);
             auto newFQOp = rewriter.create<IE::FakeQuantizeOp>(
-                    appendLoc(origOp->getLoc(), "fq_{0}", i), fqOpsToAlign[i].getOutput(), commonInputLow,
+                    takeOpLoc(fqOpsToAlign[i], "fq_diff_inout_{0}", i), fqOpsToAlign[i].getOutput(), commonInputLow,
                     commonInputHigh, commonInputLow, commonInputHigh, commonLevels, nullptr,
                     fqOpsToAlign[i].getAutoBroadcastAttr());
             log.trace("Created new FQ op at {0} for different in out range case", newFQOp->getLoc());
@@ -369,8 +370,8 @@ void alignFQRanges(IE::ConcatOp origOp, MutableArrayRef<IE::FakeQuantizeOp> fqOp
             if (fqHasMaxRanges(fqOpsToAlign[i])) {
                 output = newFQOp.getOutput();
             } else {
-                auto clampOp = rewriter.create<IE::ClampOp>(appendLoc(origOp->getLoc(), "clamp"), newFQOp.getOutput(),
-                                                            inputLowAttr, inputHighAttr);
+                auto clampOp = rewriter.create<IE::ClampOp>(takeOpLoc(fqOpsToAlign[i], "clamp_{0}", i),
+                                                            newFQOp.getOutput(), inputLowAttr, inputHighAttr);
                 log.trace("Created new Clamp op at {0} for different in out range case", clampOp->getLoc());
                 output = clampOp.getOutput();
             }
@@ -549,16 +550,16 @@ mlir::LogicalResult AlignSliceRewriter::matchAndRewrite(IE::FakeQuantizeOp fqOp,
         }
     }
 
-    auto newFQOp = rewriter.create<IE::FakeQuantizeOp>(fqOp->getLoc(), sliceOp->getResult(0), parentFqOp.getInputLow(),
-                                                       parentFqOp.getInputHigh(), parentFqOp.getOutputLow(),
-                                                       parentFqOp.getOutputHigh(), fqOp.getLevelsAttr(),
-                                                       fqOp.getLowFpTypeAttr(), fqOp.getAutoBroadcastAttr());
+    auto newFQOp = rewriter.create<IE::FakeQuantizeOp>(
+            takeOpLoc(fqOp, "as_fq"), sliceOp->getResult(0), parentFqOp.getInputLow(), parentFqOp.getInputHigh(),
+            parentFqOp.getOutputLow(), parentFqOp.getOutputHigh(), fqOp.getLevelsAttr(), fqOp.getLowFpTypeAttr(),
+            fqOp.getAutoBroadcastAttr());
 
     if (fqOutputLowVal > parentFqOutputLowVal || fqOutputHighVal < parentFqOutputHighVal) {
         const auto inputLowAttr = getFPAttr(ctx, fqOutputLowVal);
         const auto inputHighAttr = getFPAttr(ctx, fqOutputHighVal);
-        auto clampOp = rewriter.create<IE::ClampOp>(appendLoc(fqOp->getLoc(), "clamp"), newFQOp.getOutput(),
-                                                    inputLowAttr, inputHighAttr);
+        auto clampOp = rewriter.create<IE::ClampOp>(takeOpLoc(fqOp, "clamp"), newFQOp.getOutput(), inputLowAttr,
+                                                    inputHighAttr);
         rewriter.replaceOp(fqOp, clampOp.getOutput());
     } else {
         rewriter.replaceOp(fqOp, newFQOp.getOutput());

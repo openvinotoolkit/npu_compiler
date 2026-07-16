@@ -16,7 +16,7 @@ module @Network {
     }
 
     module @VPU.SW {
-        func.func private @builtin_softmax(%input : memref<*xf16>, %output : memref<*xf16>, %axis : i64)
+        func.func nested @builtin_softmax(%input : memref<*xf16>, %output : memref<*xf16>, %axis : i64)
             attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax"}
     }
 
@@ -202,5 +202,64 @@ module @AddBuffersForStridedMemref {
         // CHECK: Core.NestedCall @Module0::@kernel({{[^,]+}}, [[CAST]])
         // CHECK: memref.copy {{%.+}}, [[ARG1]] : memref<1x3x?x?xf32> to memref<1x3x?x?xf32>
         // CHECK: return [[ARG1]] : memref<1x3x?x?xf32>
+    }
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @AddBuffersForDynStridedResult
+// Tests that a dynamic strided result from a nested outlined function is allocated
+// using arith.constant bound values from the callee's net.NetworkInfo, not as a
+// plain unresolved dynamic alloc. The strided layout is stripped for the alloc
+// and restored via memref.cast, matching the static-strided path in AddBuffersForStridedMemref
+module @AddBuffersForDynStridedResult {
+    net.NetworkInfo entryPoint : @main
+    inputsInfo : {
+        DataInfo "input" : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 50, 50]> : tensor<4xsi64>, order = #NCHW}>
+    } outputsInfo : {
+        DataInfo "output" : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 400, 400]> : tensor<4xsi64>, order = #NCHW}>
+    }
+
+    module @Module0 {
+        net.NetworkInfo entryPoint : @kernel
+        inputsInfo : {
+            DataInfo "in_0" : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 50, 50]> : tensor<4xsi64>, order = #NCHW}>
+        } outputsInfo : {
+            DataInfo "out_0" : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 400, 400]> : tensor<4xsi64>, order = #NCHW}>
+        }
+
+        // CHECK: func.func @kernel([[ARG0:%.+]]: memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>, [[ARG1:%.+]]: memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>) -> memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>
+        func.func @kernel(%arg0: memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>)
+                -> memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>> {
+            return %arg0 : memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>
+
+            // CHECK: [[COPY:%.+]] = VPUIP.Copy inputs([[ARG0]] : memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>) outputs([[ARG1]] : memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>) -> memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>
+            // CHECK: return [[COPY]] : memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>
+        }
+    }
+
+    // CHECK: func.func @main([[ARG0:%.+]]: memref<1x3x?x?xf16>, [[ARG1:%.+]]: memref<1x3x?x?xf16>) -> memref<1x3x?x?xf16>
+    func.func @main(%arg0: memref<1x3x?x?xf16>) -> memref<1x3x?x?xf16> {
+        %casted = memref.cast %arg0 : memref<1x3x?x?xf16> to memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>
+
+        %result = Core.NestedCall @Module0::@kernel(%casted)
+                : (memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>)
+                -> memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>
+
+        %out = memref.cast %result : memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>> to memref<1x3x?x?xf16>
+        return %out : memref<1x3x?x?xf16>
+
+        // Output buffer: dynamic dims 2 and 3 are filled from out_0 bounds [400, 400];
+        // strided layout is stripped for alloc and restored via memref.cast.
+        // CHECK: [[C400_0:%.+]] = arith.constant 400 : index
+        // CHECK: [[C400_1:%.+]] = arith.constant 400 : index
+        // CHECK: [[ALLOC:%.+]] = memref.alloc([[C400_0]], [[C400_1]]) : memref<1x3x?x?xf16>
+        // CHECK: [[OUT_CAST:%.+]] = memref.cast [[ALLOC]] : memref<1x3x?x?xf16> to memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>
+        // CHECK: [[RESULT:%.+]] = Core.NestedCall @Module0::@kernel({{[^,]+}}, [[OUT_CAST]])
+        // CHECK-SAME:  -> memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>
+        // CHECK: memref.copy {{%.+}}, [[ARG1]] : memref<1x3x?x?xf16> to memref<1x3x?x?xf16>
+        // CHECK: return [[ARG1]] : memref<1x3x?x?xf16>
     }
 }

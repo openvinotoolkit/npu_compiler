@@ -2432,3 +2432,71 @@ func.func @NotSwapTransWithAffineReshapeWhenNotSorted(%arg0: tensor<1x512x1x2688
     // CHECK-SAME:           order_value = #NWHC
     // CHECK:       return [[TRANSPOSE_1]] : tensor<1x512x8x336xf16>
 }
+
+// -----
+
+// CHECK-LABEL: @NotPropagateThroughRankReducingGather
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<15x1x128x1024xf16>, [[ARG1:%.+]]: tensor<1xsi32>)
+func.func @NotPropagateThroughRankReducingGather(%arg0: tensor<15x1x128x1024xf16>, %arg1: tensor<1xsi32>) -> tensor<1x1x128x1024xf16> {
+    %0 = IE.Gather(%arg0, %arg1) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 0 : i64} : tensor<15x1x128x1024xf16>, tensor<1xsi32> -> tensor<1x128x1024xf16>
+    %1 = IE.AffineReshape(%0) {dim_mapping = [[0, 1], [2], [3]], shape_value = [1, 1, 128, 1024]} : tensor<1x128x1024xf16> -> tensor<1x1x128x1024xf16>
+    return %1 : tensor<1x1x128x1024xf16>
+
+    // CHECK:       [[GATHER:%.+]] = IE.Gather([[ARG0]], [[ARG1]])
+    // CHECK-SAME:          {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 0 : i64}
+    // CHECK-SAME:          tensor<15x1x128x1024xf16>, tensor<1xsi32> -> tensor<1x128x1024xf16>
+    // CHECK:       [[RESHAPE:%.+]] = IE.AffineReshape([[GATHER]])
+    // CHECK-SAME{LITERAL}:  dim_mapping = [[0, 1], [2], [3]]
+    // CHECK-SAME:          shape_value = [1, 1, 128, 1024]
+    // CHECK:       return [[RESHAPE]] : tensor<1x1x128x1024xf16>
+}
+
+// -----
+
+!storageType = !quant.uniform<i4:f16, 1.000000e+00>
+!lutType = !quant.uniform<!QuantileType.quantile<ui4:f16, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00}>:f16, 1.000000e+00>
+
+// Lifting the LUT QuantizeCast above the AffineReshape places it next to the upstream storage QuantizeCast,
+// exposing a consecutive QuantizeCast pair that the QuantizeCast canonicalization later fuses.
+
+// CHECK-LABEL: @MoveLUTQuantizeCastThroughAffineReshape
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x2880x1x1xf16>, [[ARG1:%.+]]: tensor<32x2880xsi4>)
+func.func @MoveLUTQuantizeCastThroughAffineReshape(%arg0: tensor<1x2880x1x1xf16>, %arg1: tensor<32x2880xsi4>) -> tensor<1x32x1x1xf16> {
+    %qc_up = IE.QuantizeCast(%arg1) {dstElemType = !storageType} : tensor<32x2880xsi4> -> tensor<32x2880x!storageType>
+    %reshape = IE.AffineReshape(%qc_up) {dim_mapping = [[0], [1, 2, 3]], shape_value = [32, 2880, 1, 1]} : tensor<32x2880x!storageType> -> tensor<32x2880x1x1x!storageType>
+    %qc_lut = IE.QuantizeCast(%reshape) {dstElemType = !lutType} : tensor<32x2880x1x1x!storageType> -> tensor<32x2880x1x1x!lutType>
+    %dequant = IE.Dequantize(%qc_lut) {dstElemType = f16} : tensor<32x2880x1x1x!lutType> -> tensor<32x2880x1x1xf16>
+    %conv = IE.Convolution(%arg0, %dequant) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x2880x1x1xf16>, tensor<32x2880x1x1xf16> -> tensor<1x32x1x1xf16>
+    return %conv : tensor<1x32x1x1xf16>
+
+    // CHECK:       [[QC_UP:%.+]] = IE.QuantizeCast([[ARG1]])
+    // CHECK:       [[QC_LUT:%.+]] = IE.QuantizeCast([[QC_UP]])
+    // CHECK:       [[RESHAPE:%.+]] = IE.AffineReshape([[QC_LUT]])
+    // CHECK:       [[DEQUANT:%.+]] = IE.Dequantize([[RESHAPE]])
+    // CHECK:       [[CONV:%.+]] = IE.Convolution([[ARG0]], [[DEQUANT]])
+    // CHECK:       return [[CONV]]
+}
+
+// -----
+
+!storageType = !quant.uniform<i4:f16, 1.000000e+00>
+!lutType = !quant.uniform<!QuantileType.quantile<ui4:f16, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00}>:f16, 1.000000e+00>
+
+// Without an upstream QuantizeCast at the top of the reshape chain there is no consecutive pair to fuse, so
+// the LUT QuantizeCast is not moved.
+
+// CHECK-LABEL: @DoNotMoveLUTQuantizeCastWithoutUpstreamQuantizeCast
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x2880x1x1xf16>, [[ARG1:%.+]]: tensor<32x2880x!qElemType>)
+func.func @DoNotMoveLUTQuantizeCastWithoutUpstreamQuantizeCast(%arg0: tensor<1x2880x1x1xf16>, %arg1: tensor<32x2880x!storageType>) -> tensor<1x32x1x1xf16> {
+    %reshape = IE.AffineReshape(%arg1) {dim_mapping = [[0], [1, 2, 3]], shape_value = [32, 2880, 1, 1]} : tensor<32x2880x!storageType> -> tensor<32x2880x1x1x!storageType>
+    %qc_lut = IE.QuantizeCast(%reshape) {dstElemType = !lutType} : tensor<32x2880x1x1x!storageType> -> tensor<32x2880x1x1x!lutType>
+    %dequant = IE.Dequantize(%qc_lut) {dstElemType = f16} : tensor<32x2880x1x1x!lutType> -> tensor<32x2880x1x1xf16>
+    %conv = IE.Convolution(%arg0, %dequant) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x2880x1x1xf16>, tensor<32x2880x1x1xf16> -> tensor<1x32x1x1xf16>
+    return %conv : tensor<1x32x1x1xf16>
+
+    // CHECK:       [[RESHAPE:%.+]] = IE.AffineReshape([[ARG1]])
+    // CHECK:       [[QC_LUT:%.+]] = IE.QuantizeCast([[RESHAPE]])
+    // CHECK:       [[DEQUANT:%.+]] = IE.Dequantize([[QC_LUT]])
+    // CHECK:       [[CONV:%.+]] = IE.Convolution([[ARG0]], [[DEQUANT]])
+    // CHECK:       return [[CONV]]
+}

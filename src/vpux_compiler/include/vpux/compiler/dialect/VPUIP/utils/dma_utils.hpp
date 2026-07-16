@@ -13,6 +13,10 @@
 
 namespace vpux::VPUIP {
 
+// Assigned during unrolling passes to keep track of which DMAs belong to the same group.
+// Used by DMA port balancing passes later on.
+constexpr auto UNROLL_IDX = "unrollIdx";
+
 int64_t getDMAPortValue(mlir::Operation* wrappedTaskOp);
 
 std::string getDMAChannelTypeAsString(VPUIP::DmaChannelType channelType, config::ArchKind arch);

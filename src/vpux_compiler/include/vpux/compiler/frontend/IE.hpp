@@ -153,6 +153,7 @@ private:
                                const std::shared_ptr<ov::opset5::BatchNormInference>& origNode);
     mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset6::GatherElements>& origNode);
     mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset4::ScatterNDUpdate>& origNode);
+    mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset15::ScatterNDUpdate>& origNode);
     mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset3::ScatterUpdate>& origNode);
     mlir::Operation* parseNode(mlir::OpBuilder& builder,
                                const std::shared_ptr<ov::opset12::ScatterElementsUpdate>& origNode);
@@ -206,6 +207,7 @@ private:
     mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset5::Round>& origNode);
     mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset4::Mish>& origNode);
     mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset1::Erf>& origNode);
+    mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset1::Broadcast>& origNode);
     mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset3::Broadcast>& origNode);
     mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset3::Bucketize>& origNode);
     mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset1::Transpose>& origNode);
@@ -384,7 +386,7 @@ private:
 
 template <class NodeType>
 mlir::Operation* NGraphImporter::parseDispatch(mlir::OpBuilder& builder, const OrigNodePtr& origNode) {
-    auto targetPtr = ov::as_type_ptr<NodeType>(origNode);
+    auto targetPtr = std::dynamic_pointer_cast<NodeType>(origNode);
     OPENVINO_ASSERT(targetPtr != nullptr);
     return parseNode(builder, targetPtr);
 }

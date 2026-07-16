@@ -11,6 +11,9 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(DeformableConvolutionLayerTest);
+
 class DeformableConvolutionLayerTestCommon : public DeformableConvolutionLayerTest, virtual public VpuOv2LayerTest {};
 
 class DeformableConvolutionLayerTestTiling : public DeformableConvolutionLayerTestCommon {

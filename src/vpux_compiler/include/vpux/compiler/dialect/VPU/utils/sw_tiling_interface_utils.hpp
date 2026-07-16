@@ -10,13 +10,11 @@
 
 #include <mlir/IR/Operation.h>
 
-using namespace vpux;
-
 template <class ConcreteModel, class MainOpType>
-class SwLayerTilingInfoOpModelBase : public VPU::TilingInfoOpInterface::ExternalModel<ConcreteModel, MainOpType> {
+class SwLayerTilingInfoOpModelBase : public vpux::VPU::TilingInfoOpInterface::ExternalModel<ConcreteModel, MainOpType> {
 public:
-    bool isSupportedTiling(mlir::Operation* origOp, const OutputTiling& tiles, TilingMode tilingMode,
-                           Logger log) const {
+    bool isSupportedTiling(mlir::Operation* origOp, const vpux::OutputTiling& tiles, vpux::TilingMode tilingMode,
+                           vpux::Logger log) const {
         switch (tilingMode) {
         case vpux::TilingMode::ISOLATED:
             return vpux::VPU::isSupportedIsolatedTilingSwLayer(origOp, tiles, log);
@@ -29,8 +27,8 @@ public:
         }
     }
 
-    bool isSupportedTilingStrategy(mlir::Operation* origOp, const vpux::Shape& strategy, TilingMode tilingMode,
-                                   Logger log) const {
+    bool isSupportedTilingStrategy(mlir::Operation* origOp, const vpux::Shape& strategy, vpux::TilingMode tilingMode,
+                                   vpux::Logger log) const {
         return vpux::VPU::isSupportedTilingStrategyImpl(origOp, strategy, tilingMode, log);
     }
 };

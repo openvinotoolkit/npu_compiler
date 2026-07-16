@@ -20,14 +20,6 @@ Example:
 -->
 <skip_configs>
 
-    <!-- E#210236 -->
-    <skip_config>
-        <message>Sporadic failure</message>
-        <filters>
-            <filter>smoke_BehaviorTest/TestCompiledModelNPU.samePlatformProduceTheSameBlobCacheEnabled.*</filter>
-        </filters>
-    </skip_config>
-
     <!-- E###### -->
     <skip_config>
         <message>Tests break due to starting infer on IA side</message>
@@ -614,6 +606,7 @@ Example:
         </filters>
     </skip_config>
 
+    <!-- E#215114 -->
     <skip_config>
         <message>Output I4 / U4 precision is not currently supported.</message>
         <filters>
@@ -807,7 +800,7 @@ Example:
 
     <!-- E###### -->
     <skip_config>
-        <message>NPU cannot set properties for compiled models</message>
+        <message>NPU cannot set properties for compiled models except CACHE_ENCRYPTION_CALLBACKS, but is not convertible to string</message>
         <filters>
             <filter>.*OVClassCompiledModelSetCorrectConfigTest.canSetConfig.*</filter>
         </filters>
@@ -895,16 +888,6 @@ Example:
         </enable_rules>
         <filters>
             <filter>.*OVCompiledModelIncorrectDevice.CanNotCompileModelWithIncorrectDeviceID.*</filter>
-        </filters>
-    </skip_config>
-
-    <!-- C#181730 -->
-    <skip_config>
-        <message>Test fails on private platforms: unrecognized device ID (C#181730).</message>
-        <enable_rules>
-        </enable_rules>
-        <filters>
-            <filter>.*BooleanPrecisionInferRequestRunTests.BooleanTensorDataTypesForBooleanModelsWork.*COMPILER_TYPE.*PLUGIN.*</filter>
         </filters>
     </skip_config>
 
@@ -1026,7 +1009,7 @@ Example:
             <device>3720</device>
         </enable_rules>
         <filters>
-            <filter>.*ZeroGraphTest.SetAlignedBlob.*zeGraphNpuExtVersion=(1.13|1.14|1.15|1.16).*</filter>
+            <filter>.*ZeroGraphTest.SetAlignedBlob.*</filter>
             <filter>.*CpuVaTensorsTests.checkResultsAfterRawMemoryIsDestroyedAndReallocatedAfterEachRun.*</filter>
             <filter>.*CpuVaTensorsTests.checkResultsAfterRunningWithSameRawMemoryMultipleTimes.*</filter>
             <filter>.*CpuVaTensorsTests.checkResultsAfterRunningWithSameZeroTensorMultipleTimes.*</filter>
@@ -1051,6 +1034,7 @@ Example:
             <filter>.*smoke_DynamicShapes_SCF_AutoUnroll.*</filter>
         </filters>
     </skip_config>
+
     <!-- E#211625-->
     <skip_config>
         <message>Interpreter does not support mutable command list.</message>
@@ -1058,11 +1042,104 @@ Example:
             <filter>.*interpreter_runtime/NPUVMRuntimeCAPITest.UpdateMutableCommandList.*</filter>
         </filters>
     </skip_config>
+
     <!-- E#211620-->
     <skip_config>
         <message>Interpreter does not support shape prediction.</message>
         <filters>
             <filter>.*interpreter_runtime/NPUVMRuntimeCAPITest.PredictShape.*</filter>
+        </filters>
+    </skip_config>
+
+    <skip_config>
+        <message>TiWithLstmCell model won't provide `WeightlessCacheAttribute` in constants' rt_info</message>
+        <enable_rules>
+            <backend>LEVEL0</backend>
+        </enable_rules>
+        <filters>
+            <filter>.*WeightlessCacheAccuracy.TiWithLstmCell.*ENABLE_WEIGHTLESS.*</filter>
+        </filters>
+    </skip_config>
+
+    <!-- C#185847 -->
+    <skip_config>
+        <message>Write only (WO) properties will return empty ov::Any objects</message>
+        <enable_rules>
+            <backend>LEVEL0</backend>
+        </enable_rules>
+        <filters>
+            <filter>.*OVClassCompiledModelPropertiesTests.canCompileModelWithPropertiesAndCheckGetProperty.*CACHE_ENCRYPTION_CALLBACKS.*</filter>
+            <filter>.*OVPropertiesTests.canSetPropertyAndCheckGetProperty.*CACHE_ENCRYPTION_CALLBACKS.*</filter>
+            <filter>.*OVPropertiesDefaultSupportedTests.CanSetDefaultValueBackToPlugin.*</filter>
+            <filter>.*OVClassCompiledModelGetConfigTest.GetConfigNoThrow.*</filter>
+            <filter>.*OVSpecificDeviceGetConfigTest.GetConfigSpecificDeviceNoThrow.*</filter>
+        </filters>
+    </skip_config>
+
+    <!-- E#216296 -->
+    <skip_config>
+        <message>Test fails with compile error on MTL.</message>
+        <enable_rules>
+            <backend>LEVEL0</backend>
+            <device>3720</device>
+        </enable_rules>
+        <filters>
+            <filter>.*SerializationTestNPUW.CompiledModelPhase0CompatibilityExportSucceedsWithStaticAttention.*</filter>
+        </filters>
+    </skip_config>
+
+    <!-- E#218097 windows-->
+    <!-- E#214512 linux-->
+    <skip_config>
+        <message>CoreThreadingTest intermittent failures</message>
+        <filters>
+            <filter>.*CoreThreadingTestsWithIter.*</filter>
+        </filters>
+    </skip_config>
+
+    <!-- E#210236-->
+    <skip_config>
+        <message>samePlatformProduceTheSameBlobCacheEnabled fails sporadically, due to cache file open/close timings</message>
+        <enable_rules>
+            <operating_system>windows</operating_system>
+        </enable_rules>
+        <filters>
+            <filter>.*samePlatformProduceTheSameBlobCacheEnabled.*</filter>
+        </filters>
+    </skip_config>
+
+    <!-- E#218128-->
+    <skip_config>
+        <message>Added to a wrong platform config, thus never validated on CI and fails.</message>
+        <enable_rules>
+            <device>5010</device>
+        </enable_rules>
+        <filters>
+            <filter>.*QuantizedConvClampSubGraphTest.*</filter>
+        </filters>
+    </skip_config>
+
+    <skip_config>
+        <message>ExclusiveAsyncRequest is removed for NPU plugin, but tests still exist, and executed, so we skip them</message>
+        <filters>
+            <filter>.*InferRequestPropertiesTest.canSetExclusiveAsyncRequests.*</filter>
+            <filter>.*InferRequestPropertiesTest.ReusableCPUStreamsExecutor.*</filter>
+        </filters>
+    </skip_config>
+
+    <!-- C#187358-->
+    <skip_config>
+        <message>Unsupported IR API version! Val: 48.0</message>
+        <filters>
+            <filter>.*EncryptionCallbacks.EncryptionCallbacksSetSecureCompileFlag.*</filter>
+        </filters>
+    </skip_config>
+
+    <!-- E#218923-->
+    <skip_config>
+        <message>Fails after HostCompile default params were changed to a more performant configuration</message>
+        <filters>
+            <filter>.*InferWithHostCompileTests.*</filter>
         </filters>
     </skip_config>
 </skip_configs>

@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include "npu_bytecode_utils/type_section.hpp"
+
 #include <mlir/IR/BuiltinAttributes.h>
 
 //
@@ -15,3 +17,9 @@
 
 #define GET_ATTRDEF_CLASSES
 #include <vpux/compiler/dialect/bytecode/attributes.hpp.inc>
+
+namespace vpux::bytecode {
+
+intel_npu::vm::FloatTypeFormat convertToFloatTypeFormat(bytecode::FloatFormat format);
+
+}  // namespace vpux::bytecode

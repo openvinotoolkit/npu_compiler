@@ -49,13 +49,10 @@ class DistributionInfo;
 namespace vpux {
 namespace VPU {
 
-// This one represents a CMX_NN memory space with fragmentation consideration
-constexpr StringLiteral CMX_NN_FragmentationAware = "CMX_NN_FragmentationAware";
-
 /**
  * @brief Get DPU frequency
  *
- * @param arch - architecture
+ * @param platform - platform
  * @param ref - revision
  * @return DPU clock frequency [MHz]
  *
@@ -67,7 +64,7 @@ constexpr StringLiteral CMX_NN_FragmentationAware = "CMX_NN_FragmentationAware";
  * @note Values returned by this function are tight to definitions provided by
  * vpucostmodel.
  */
-unsigned int getDpuFrequency(vpux::config::ArchKind arch, vpux::config::RevisionID rev);
+unsigned int getDpuFrequency(vpux::config::Platform platform, vpux::config::RevisionID rev);
 
 /**
  * @brief Get maximal DMA bandwidth for a given architecture
@@ -92,18 +89,27 @@ double getDmaBandwidthGBps(mlir::ModuleOp module);
  */
 double getDmaBandwidthGBps(config::ArchKind arch);
 
-uint32_t getMaxArchDPUClusterNum(config::ArchKind arch);
-uint32_t getMaxArchDPUClusterNum(mlir::Operation* op);
-uint32_t getMaxDMAPorts(config::ArchKind arch);
+// Hardware capabilities per platform
+struct PlatformCapabilities {
+    uint32_t maxTiles;        // hardware upper limit on DPU cluster tiles
+    uint32_t dmaPorts;        // max DMA engine ports
+    int shavesPerTile;        // max SHAVE ACT executors per tile
+    int64_t barriersPerTile;  // number of HW barriers available per tile
+    Byte cmxWorkspaceSize;    // default CMX workspace per tile
+};
+
+const PlatformCapabilities& getPlatformCapabilities(config::Platform platform);
+uint32_t getMaxDPUClusterNum(config::Platform platform);
+uint32_t getMaxDMAPorts(config::Platform platform);
 
 /**
  * @brief return DMA bandwidth
  *
- * @param arch
+ * @param platform
  * @param revision - platform revision ID
  * @return DMA bandwidth in bytes per DPU clock cycle
  */
-double getDMABandwidth(config::ArchKind arch, config::RevisionID rev);
+double getDMABandwidth(config::Platform platform, config::RevisionID rev);
 
 /**
  * @brief NCE troughput
@@ -142,24 +148,19 @@ VPU::PPEMode getPPEMode(VPU::EltwiseType type);
 
 struct OverlapDistributionParams {
     OverlapDistributionParams() = default;
-    OverlapDistributionParams(const OverlapDistributionParams&) = default;
-
-    OverlapDistributionParams& operator=(const OverlapDistributionParams&) = default;
-
-    ~OverlapDistributionParams() = default;
 
     OverlapDistributionParams(ArrayRef<int64_t> kernel, VPU::Padding pads, ArrayRef<int64_t> stride,
                               bool equalComputeAndMemoryView = false)
             : _kernel(kernel), _pads(pads), _stride(stride), _equalComputeAndMemoryView(equalComputeAndMemoryView) {};
 
-    OverlapDistributionParams(ArrayRef<SmallVector<int64_t>> memoryShapes, ArrayRef<SmallVector<int64_t>> memoryOffsets,
-                              ArrayRef<SmallVector<int64_t>> computeShapes,
-                              ArrayRef<SmallVector<int64_t>> computeOffsets) {
-        llvm::copy(memoryShapes, std::back_inserter(_memoryShapes));
-        llvm::copy(memoryOffsets, std::back_inserter(_memoryOffsets));
-        llvm::copy(computeShapes, std::back_inserter(_computeShapes));
-        llvm::copy(computeOffsets, std::back_inserter(_computeOffsets));
-    };
+    OverlapDistributionParams(SmallVector<SmallVector<int64_t>> memoryShapes,
+                              SmallVector<SmallVector<int64_t>> memoryOffsets,
+                              SmallVector<SmallVector<int64_t>> computeShapes,
+                              SmallVector<SmallVector<int64_t>> computeOffsets)
+            : _memoryShapes(std::move(memoryShapes)),
+              _memoryOffsets(std::move(memoryOffsets)),
+              _computeShapes(std::move(computeShapes)),
+              _computeOffsets(std::move(computeOffsets)) {};
 
     bool hasNonnullComputeAndMemoryShapesOffsets() const {
         return (!_memoryShapes.empty()) && (!_memoryOffsets.empty()) && (!_computeShapes.empty()) &&
@@ -167,30 +168,41 @@ struct OverlapDistributionParams {
     }
 
     void setMemoryShapes(ArrayRef<SmallVector<int64_t>> memoryShapes) {
-        _memoryShapes.clear();
-        llvm::copy(memoryShapes, std::back_inserter(_memoryShapes));
+        _memoryShapes.assign(memoryShapes.begin(), memoryShapes.end());
+    }
+    void setMemoryShapes(SmallVector<SmallVector<int64_t>>&& memoryShapes) {
+        _memoryShapes = std::move(memoryShapes);
     }
 
     void setMemoryOffsets(ArrayRef<SmallVector<int64_t>> memoryOffsets) {
-        _memoryOffsets.clear();
-        llvm::copy(memoryOffsets, std::back_inserter(_memoryOffsets));
+        _memoryOffsets.assign(memoryOffsets.begin(), memoryOffsets.end());
+    }
+    void setMemoryOffsets(SmallVector<SmallVector<int64_t>>&& memoryOffsets) {
+        _memoryOffsets = std::move(memoryOffsets);
     }
 
     void setComputeShapes(ArrayRef<SmallVector<int64_t>> computeShapes) {
-        _computeShapes.clear();
-        llvm::copy(computeShapes, std::back_inserter(_computeShapes));
+        _computeShapes.assign(computeShapes.begin(), computeShapes.end());
+    }
+    void setComputeShapes(SmallVector<SmallVector<int64_t>>&& computeShapes) {
+        _computeShapes = std::move(computeShapes);
     }
 
     void setComputeOffsets(ArrayRef<SmallVector<int64_t>> computeOffsets) {
-        _computeOffsets.clear();
-        llvm::copy(computeOffsets, std::back_inserter(_computeOffsets));
+        _computeOffsets.assign(computeOffsets.begin(), computeOffsets.end());
+    }
+    void setComputeOffsets(SmallVector<SmallVector<int64_t>>&& computeOffsets) {
+        _computeOffsets = std::move(computeOffsets);
     }
 
     void setKernel(ArrayRef<int64_t> kernel) {
         _kernel = SmallVector<int64_t>(kernel);
     }
+    void setKernel(SmallVector<int64_t>&& kernel) {
+        _kernel = std::move(kernel);
+    }
 
-    SmallVector<int64_t> getKernel() const {
+    ArrayRef<int64_t> getKernel() const {
         return _kernel;
     }
 
@@ -205,8 +217,11 @@ struct OverlapDistributionParams {
     void setStride(ArrayRef<int64_t> stride) {
         _stride = SmallVector<int64_t>(stride);
     }
+    void setStride(SmallVector<int64_t>&& stride) {
+        _stride = std::move(stride);
+    }
 
-    SmallVector<int64_t> getStride() const {
+    ArrayRef<int64_t> getStride() const {
         return _stride;
     }
 
@@ -218,19 +233,19 @@ struct OverlapDistributionParams {
         return _equalComputeAndMemoryView;
     }
 
-    SmallVector<SmallVector<int64_t>> getMemoryShapes() const {
+    ArrayRef<SmallVector<int64_t>> getMemoryShapes() const {
         return _memoryShapes;
     }
 
-    SmallVector<SmallVector<int64_t>> getMemoryOffsets() const {
+    ArrayRef<SmallVector<int64_t>> getMemoryOffsets() const {
         return _memoryOffsets;
     }
 
-    SmallVector<SmallVector<int64_t>> getComputeShapes() const {
+    ArrayRef<SmallVector<int64_t>> getComputeShapes() const {
         return _computeShapes;
     }
 
-    SmallVector<SmallVector<int64_t>> getComputeOffsets() const {
+    ArrayRef<SmallVector<int64_t>> getComputeOffsets() const {
         return _computeOffsets;
     }
 
@@ -273,8 +288,9 @@ SmallVector<Shape> getPerClusterComputeShapeOffsets(ShapeRef shapeRef, const VPU
                                                     mlir::Type elementType);
 //
 SmallVector<PadInfo> getPerClusterPadding(DistributionInfoAttr distributionAttr, PadInfo kernelPadding);
-SmallVector<StridedShape> getPerClusterMemoryStridedShapes(ShapeRef shape, StridesRef strides, DimsOrder dimsOrder,
-                                                           DistributionModeAttr mode, ArrayRef<Shape> memoryShapes);
+SmallVector<StridedShape> getPerClusterMemoryStridedShapes(ShapeRef shape, StridesRef strides,
+                                                           const DimsOrder& dimsOrder, DistributionModeAttr mode,
+                                                           ArrayRef<Shape> memoryShapes);
 SmallVector<Shape> getOverlappedPerClusterNewMemoryShapes(ShapeRef newShape, ShapeRef origShape,
                                                           DistributionInfoAttr distributionAttr);
 SmallVector<Shape> getOverlappedPerClusterNewMemoryShapeOffsets(ShapeRef shapeRef,
@@ -284,6 +300,8 @@ bool isDistributedAttrWithExplicitShapesAndOffsets(DistributionInfoAttr distribu
 bool isDistributionWithExplicitShapesAndOffsets(const DistributionInfo& distribution);
 bool isUniformDistributedSegmentsSupported(mlir::Operation* op);
 bool isHaloAssistedSliceOptimizationSupported(mlir::Operation* op);
+bool isPipelineAwareConvSplitOverICSupported(config::Platform platform);
+bool isPipelineAwareConvSplitOverICSupported(mlir::Operation* op);
 SmallVector<Shape> arrayAttrToVecOfShapes(mlir::ArrayAttr arr);
 
 bool isSegmentedOverH(VPU::DistributionInfoAttr distAttr);
@@ -316,7 +334,7 @@ std::optional<VPU::MemoryKind> getMemKind(StringRef) {
 }
 
 std::optional<SmallVector<Shape>> splitSegmentedShape(ArrayRef<int64_t> shape, ArrayRef<int64_t> tilingScheme,
-                                                      const int64_t numClusters, const int64_t axis,
+                                                      int64_t numClusters, int64_t axis,
                                                       std::optional<ArrayRef<int64_t>> alignment,
                                                       bool uniformDistributedSegments, mlir::Type elementType);
 

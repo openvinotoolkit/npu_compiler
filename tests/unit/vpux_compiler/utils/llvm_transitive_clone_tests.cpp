@@ -33,7 +33,7 @@ TEST_P(LLVMTransitiveCloneTests, CloneFunctions) {
     const llvm::StringLiteral entry = params.entry;
     const llvm::StringLiteral swModuleName = params.swModule;
     auto registry = vpux::createDialectRegistry();
-    auto interfacesRegistry = vpux::createInterfacesRegistry(vpux::config::ArchKind::NPU40XX);
+    auto interfacesRegistry = vpux::createInterfacesRegistry(vpux::config::Platform::NPU4000);
     interfacesRegistry->registerInterfaces(registry);
 
     mlir::MLIRContext ctx(registry);

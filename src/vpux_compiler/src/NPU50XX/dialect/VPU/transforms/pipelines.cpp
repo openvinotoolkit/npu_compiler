@@ -18,13 +18,14 @@
 using namespace vpux;
 
 void vpux::VPU::arch50xx::buildIncrementalPipeline(mlir::OpPassManager& pm, const vpux::MCAndTilingOptionsBase& options,
-                                                   Logger log) {
+                                                   Logger log, bool enableLegacyConvSplitOverIC) {
     pm.addPass(VPU::createDecomposeMVNPass(log));
     if (options.enableRunMVNNormalizeOnDPU) {
         pm.addPass(VPU::createRunMVNNormalizeOnDPUPass(log));
     }
     pm.addPass(VPU::createMultiClusterStrategyAssignmentPass(options.enablePrefetching, options.opTilingCacheThreshold,
-                                                             options.mcOptimizationScope, log));
+                                                             options.mcOptimizationScope,
+                                                             options.enableTilingFullSearchSpace, log));
     if (options.enablePrintStatistics) {
         pm.addPass(VPU::createPrintNNCacheStatisticsPass(log, "multi-cluster-strategy-assignment"));
     }
@@ -39,16 +40,20 @@ void vpux::VPU::arch50xx::buildIncrementalPipeline(mlir::OpPassManager& pm, cons
 
     pm.addPass(VPU::createEnsureNCEOpsSizeRequirementsPass(/*enableOutputEnsurance=*/true,
                                                            /*enableDequantWeightEnsuranceBeforeStrategy=*/false,
-                                                           /*skipConvOC=*/"SKIP_LARGE_SPATIAL",
-                                                           /*skipEltwiseOC=*/"SKIP_LARGE_SPATIAL", log));
+                                                           /*skipConvOC=*/SkipOCMode::SKIP_LARGE_SPATIAL,
+                                                           /*skipEltwiseOC=*/SkipOCMode::SKIP_LARGE_SPATIAL,
+                                                           /*enableSplitChannelForDynamicDequantize=*/true, log));
     pm.addPass(VPU::createOptimizeConcatPass(/*optimizeOnlyOuterConcat*/ true,
                                              /*disablePassOnEntryFunctionForHostCompile=*/false, log));
 
-    VPU::buildTilingPipeline(pm, VPU::TilingOptions(options), log);
+    auto tilingOpts = VPU::TilingOptions(options);
+    tilingOpts.enableLegacyConvSplitOverIC = enableLegacyConvSplitOverIC;
+    VPU::buildTilingPipeline(pm, tilingOpts, log);
 
     if (options.enableScfComputeOpsOutlining) {
         VPU::buildScfComputeOpsOutliningPipeline(pm, options.loopUnrollFactor, options.enableProfiling,
-                                                 options.enableCascadedUnrolling, options.enableAutoUnrolling, log);
+                                                 options.enableCascadedUnrolling, options.autoUnrollingMode,
+                                                 options.enableWeightsExtraction, log);
     }
 
     auto& nestedPm = options.enableScfComputeOpsOutlining ? pm.nest<mlir::ModuleOp>() : pm;
@@ -103,6 +108,9 @@ void vpux::VPU::arch50xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
 
     pm.addPass(VPU::createConvertOpToDMAForPerformantExecutionPass(log));
     pm.addPass(VPU::createMoveConvertAroundViewLikeOpsPass(log));
+    if (options.enableSoftmaxDecomposition) {
+        pm.addPass(VPU::arch50xx::createDecomposeSoftmaxInSdpaPass(log));
+    }
     pm.addPass(VPU::createAdjustForOptimizedLayersPass(log));
     pm.addPass(VPU::createDetectionOutputDecompositionPass(log));
     pm.addPass(VPU::createSplitRealDFTOpsPass(log));
@@ -116,8 +124,9 @@ void vpux::VPU::arch50xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
 
     pm.addPass(VPU::createEnsureNCEOpsSizeRequirementsPass(options.enableOutputEnsurance,
                                                            options.enableDequantWeightEnsuranceBeforeStrategy,
-                                                           /*skipConvOC=*/"SKIP_LARGE_SPATIAL",
-                                                           /*skipEltwiseOC=*/"SKIP_ALL", log));
+                                                           /*skipConvOC=*/SkipOCMode::SKIP_LARGE_SPATIAL,
+                                                           /*skipEltwiseOC=*/SkipOCMode::SKIP_ALL,
+                                                           /*enableSplitChannelForDynamicDequantize=*/true, log));
     pm.addPass(VPU::createOptimizeConcatPass(/*optimizeOnlyOuterConcat*/ true,
                                              /*disablePassOnEntryFunctionForHostCompile=*/false, log));
 
@@ -138,7 +147,8 @@ void vpux::VPU::arch50xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     if (options.enableSMPipeline) {
         VPU::buildSMPipeline(pm, vpux::MCAndTilingOptionsBase(options), log);
     } else {
-        VPU::arch50xx::buildIncrementalPipeline(pm, vpux::MCAndTilingOptionsBase(options), log);
+        VPU::arch50xx::buildIncrementalPipeline(pm, vpux::MCAndTilingOptionsBase(options), log,
+                                                options.enableLegacyConvSplitOverIC);
     }
 
     auto& nestedPm = options.enableScfComputeOpsOutlining ? pm.nest<mlir::ModuleOp>() : pm;
@@ -187,7 +197,8 @@ void vpux::VPU::arch50xx::registerVPUPipelines() {
     mlir::PassPipelineRegistration<vpux::arch40xx::MCAndTilingOptionsDevice>(
             "incremental-pipeline", "Apply Incremental Pipeline",
             [](mlir::OpPassManager& pm, const vpux::arch40xx::MCAndTilingOptionsDevice& options) {
-                VPU::arch50xx::buildIncrementalPipeline(pm, vpux::MCAndTilingOptionsBase(options));
+                VPU::arch50xx::buildIncrementalPipeline(pm, vpux::MCAndTilingOptionsBase(options), Logger::global(),
+                                                        /*enableLegacyConvSplitOverIC=*/false);
             });
 
     mlir::PassPipelineRegistration<vpux::arch40xx::MCAndTilingOptionsDevice>(

@@ -13,6 +13,7 @@
 
 using namespace vpux;
 using namespace vpux::VPURegMapped;
+using namespace NPUReg40XX;
 
 namespace vpux {
 namespace vpuipdpu2npureg40xx {

@@ -7,9 +7,9 @@
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 using namespace vpux;
-
 mlir::LogicalResult vpux::VPU::FloorOp::inferReturnTypes(mlir::MLIRContext* ctx, std::optional<mlir::Location> optLoc,
                                                          mlir::ValueRange operands, mlir::DictionaryAttr attrs,
                                                          mlir::OpaqueProperties prop, mlir::RegionRange /*regions*/,
@@ -79,4 +79,10 @@ bool vpux::VPU::FloorOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeInterface> buffer
 
 bool vpux::VPU::FloorOp::supportCycleCostCalculation() {
     return true;
+}
+
+mlir::LogicalResult vpux::VPU::FloorOp::reifyResultShapes(mlir::OpBuilder& builder,
+                                                          mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    reifiedReturnShapes.emplace_back(reifyTrivialTensor(builder, getInput(), getLoc()));
+    return mlir::success();
 }

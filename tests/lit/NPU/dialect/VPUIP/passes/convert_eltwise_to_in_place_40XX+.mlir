@@ -35,13 +35,13 @@
         num_clusters = 2 : i64,
         uniform_distributed_segments}>
 
-// CHECK:    func @InplaceEltwiseUnequalTensorSize([[ARG_0:%[^:]+]]: memref<1x64x128x128x!qElemType, #NHWC, @CMX_NN>, [[ARG_1:%[^:]+]]: memref<64x64x3x3x!qElemType1, #NHWC, @CMX_NN>)
-func.func @InplaceEltwiseUnequalTensorSize(%activation: memref<1x64x128x128x!qElemType, #NHWC, @CMX_NN>, %weights: memref<64x64x3x3x!qElemType1, #NHWC, @CMX_NN>) -> !DistributedType2 {
+// CHECK:    func @InplaceEltwiseUnequalTensorSize([[ARG_0:%[^:]+]]: memref<1x64x128x128x!qElemType, {order = #NHWC}, @CMX_NN>, [[ARG_1:%[^:]+]]: memref<64x64x3x3x!qElemType1, {order = #NHWC}, @CMX_NN>)
+func.func @InplaceEltwiseUnequalTensorSize(%activation: memref<1x64x128x128x!qElemType, {order = #NHWC}, @CMX_NN>, %weights: memref<64x64x3x3x!qElemType1, {order = #NHWC}, @CMX_NN>) -> !DistributedType2 {
     %conv_cmx_outbuf = VPURT.AllocDistributed -> !DistributedType
     %0 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967300 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, kernel_size = [3, 3], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
-        input(%activation : memref<1x64x128x128x!qElemType, #NHWC, @CMX_NN>)
-        weights(%weights : memref<64x64x3x3x!qElemType1, #NHWC, @CMX_NN>)
-        parent_input(%activation : memref<1x64x128x128x!qElemType, #NHWC, @CMX_NN>)
+        input(%activation : memref<1x64x128x128x!qElemType, {order = #NHWC}, @CMX_NN>)
+        weights(%weights : memref<64x64x3x3x!qElemType1, {order = #NHWC}, @CMX_NN>)
+        parent_input(%activation : memref<1x64x128x128x!qElemType, {order = #NHWC}, @CMX_NN>)
         parent_output(%conv_cmx_outbuf : !DistributedType)
         outputs(%conv_cmx_outbuf : !DistributedType)
     ->  !DistributedType variants : {
@@ -51,14 +51,14 @@ func.func @InplaceEltwiseUnequalTensorSize(%activation: memref<1x64x128x128x!qEl
         PPETask {ppe = #VPU.PPEStub<>}
     }
 
-    %ddr_buf = memref.alloc() : memref<1x64x128x128x!qElemType3, #NHWC>
+    %ddr_buf = memref.alloc() : memref<1x64x128x128x!qElemType3, {order = #NHWC}>
     %1 = VPUIP.Copy
         inputs(%0 : !DistributedType)
-        outputs(%ddr_buf : memref<1x64x128x128x!qElemType3, #NHWC>)  ->  memref<1x64x128x128x!qElemType3, #NHWC>
+        outputs(%ddr_buf : memref<1x64x128x128x!qElemType3, {order = #NHWC}>)  ->  memref<1x64x128x128x!qElemType3, {order = #NHWC}>
 
     %eltwise_cmx_inbuf = VPURT.AllocDistributed -> !DistributedType
     %2 = VPUIP.Copy
-        inputs(%1 : memref<1x64x128x128x!qElemType3, #NHWC>)
+        inputs(%1 : memref<1x64x128x128x!qElemType3, {order = #NHWC}>)
         outputs(%eltwise_cmx_inbuf : !DistributedType)  ->  !DistributedType
 
     %eltwise_cmx_outbuf = VPURT.AllocDistributed -> !DistributedType2
@@ -88,9 +88,9 @@ func.func @InplaceEltwiseUnequalTensorSize(%activation: memref<1x64x128x128x!qEl
     // CHECK-SAME:                         uniform_distributed_segments}>
     // CHECK:    [[CONV:%.+]] = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967300 : i64} <{kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, kernel_size = [3, 3], kernel_strides = [1, 1],
     // CHECK-SAME:     task_type = #VPUIP.nce_task_type<CONV>}
-    // CHECK-SAME:     input([[ARG_0]] : memref<1x64x128x128x!qElemType, #NHWC, @CMX_NN>)
-    // CHECK-SAME:     weights([[ARG_1]] : memref<64x64x3x3x!qElemType1, #NHWC, @CMX_NN>)
-    // CHECK-SAME:     parent_input([[ARG_0]] : memref<1x64x128x128x!qElemType, #NHWC, @CMX_NN>)
+    // CHECK-SAME:     input([[ARG_0]] : memref<1x64x128x128x!qElemType, {order = #NHWC}, @CMX_NN>)
+    // CHECK-SAME:     weights([[ARG_1]] : memref<64x64x3x3x!qElemType1, {order = #NHWC}, @CMX_NN>)
+    // CHECK-SAME:     parent_input([[ARG_0]] : memref<1x64x128x128x!qElemType, {order = #NHWC}, @CMX_NN>)
     // CHECK-SAME:     parent_output([[CONV_CMX_OUTBUF]] : !VPUIP.DistributedBuffer<1x64x128x128x!qElemType3, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [3, 3], pads = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, strides = [1, 1], num_clusters = 2 : i64, uniform_distributed_segments}>)
     // CHECK-SAME:     outputs([[CONV_CMX_OUTBUF]] : !VPUIP.DistributedBuffer<1x64x128x128x!qElemType3, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [3, 3], pads = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, strides = [1, 1], num_clusters = 2 : i64, uniform_distributed_segments}>)
     // CHECK:     ->  !VPUIP.DistributedBuffer<1x64x128x128x!qElemType3, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [3, 3], pads = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, strides = [1, 1], num_clusters = 2 : i64, uniform_distributed_segments}> variants : {
@@ -100,10 +100,10 @@ func.func @InplaceEltwiseUnequalTensorSize(%activation: memref<1x64x128x128x!qEl
         // CHECK:     PPETask {ppe = #VPU.PPEStub<>}
     // CHECK:     }
 
-    // CHECK: [[DDR_BUF:%.+]] = memref.alloc() : memref<1x64x128x128x!qElemType3, #NHWC>
+    // CHECK: [[DDR_BUF:%.+]] = memref.alloc() : memref<1x64x128x128x!qElemType3, {order = #NHWC}>
     // CHECK:    [[CONV_COPY_OUT:%.+]] = VPUIP.Copy
     // CHECK-SAME:     inputs([[CONV]] : !VPUIP.DistributedBuffer<1x64x128x128x!qElemType3, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [3, 3], pads = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, strides = [1, 1], num_clusters = 2 : i64, uniform_distributed_segments}>)
-    // CHECK-SAME:     outputs([[DDR_BUF]] : memref<1x64x128x128x!qElemType3, #NHWC>)  ->  memref<1x64x128x128x!qElemType3, #NHWC>
+    // CHECK-SAME:     outputs([[DDR_BUF]] : memref<1x64x128x128x!qElemType3, {order = #NHWC}>)  ->  memref<1x64x128x128x!qElemType3, {order = #NHWC}>
 
     // CHECK: [[ELTWISE_CMX_INBUF:%.+]] = VPURT.AllocDistributed
     // CHECK-SAME:                    -> !VPUIP.DistributedBuffer<1x64x128x128x!qElemType3, #NHWC, @CMX_NN,
@@ -131,7 +131,7 @@ func.func @InplaceEltwiseUnequalTensorSize(%activation: memref<1x64x128x128x!qEl
     // CHECK-SAME:                         num_clusters = 2 : i64,
     // CHECK-SAME:                         uniform_distributed_segments}>
     // CHECK:    [[ELTWISE_COPY_IN:%.+]] = VPUIP.Copy
-    // CHECK-SAME:     inputs([[CONV_COPY_OUT]] : memref<1x64x128x128x!qElemType3, #NHWC>)
+    // CHECK-SAME:     inputs([[CONV_COPY_OUT]] : memref<1x64x128x128x!qElemType3, {order = #NHWC}>)
     // CHECK-SAME:     outputs([[ELTWISE_CMX_INBUF]] : !VPUIP.DistributedBuffer<1x64x128x128x!qElemType3, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [3, 3], pads = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, strides = [1, 1], num_clusters = 2 : i64, uniform_distributed_segments}>)  ->  !VPUIP.DistributedBuffer<1x64x128x128x!qElemType3, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [3, 3], pads = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, strides = [1, 1], num_clusters = 2 : i64, uniform_distributed_segments}>
 
     // CHECK: [[ELTWISE:%.+]] = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967300 : i64} <{is_inplace = true,

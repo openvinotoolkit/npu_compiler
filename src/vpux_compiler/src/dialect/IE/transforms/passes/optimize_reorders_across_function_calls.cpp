@@ -48,7 +48,7 @@ private:
     void collectFunctionCalls();
     SmallVector<IE::ReorderOp> getOuterReorderProducerOps(mlir::func::FuncOp funcOp, mlir::BlockArgument arg);
     SmallVector<Usage> getNonReorderUsers(mlir::Value value);
-    SmallVector<Usage> getCompatibleUsers(ArrayRef<Usage> userOps, DimsOrder inputOrder);
+    SmallVector<Usage> getCompatibleUsers(ArrayRef<Usage> userOps, const DimsOrder& inputOrder);
     std::map<size_t, ArgOperations> getOptimizableArguments(mlir::func::FuncOp funcOp);
     mlir::FailureOr<DimsOrder> getProducersInputOrder(ArrayRef<IE::ReorderOp> producerOps);
     std::map<size_t, size_t> updateFunctionArguments(mlir::func::FuncOp funcOp,
@@ -179,7 +179,7 @@ mlir::FailureOr<DimsOrder> OptimizeReordersAcrossFunctionCallsPass::getProducers
  * receives the operand with the new order, all other operands and return values must remain unchanged
  */
 SmallVector<Usage> OptimizeReordersAcrossFunctionCallsPass::getCompatibleUsers(ArrayRef<Usage> userOps,
-                                                                               DimsOrder inputOrder) {
+                                                                               const DimsOrder& inputOrder) {
     SmallVector<Usage> compatibleUserOps;
     for (auto& userPair : userOps) {
         auto userOp = userPair.userOp;

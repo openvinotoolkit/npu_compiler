@@ -11,7 +11,6 @@
 
 #include <memory>
 
-#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/utils/core/error.hpp"
 
 namespace vpux {
@@ -20,16 +19,18 @@ namespace vpux {
 // createInterfaceRegistry
 //
 
-std::unique_ptr<IInterfaceRegistry> createInterfacesRegistry(config::ArchKind arch) {
-    switch (arch) {
-    case config::ArchKind::NPU37XX:
+std::unique_ptr<IInterfaceRegistry> createInterfacesRegistry(config::Platform platform) {
+    switch (platform) {
+    case config::Platform::NPU3720:
         return std::make_unique<InterfacesRegistry37XX>();
-    case config::ArchKind::NPU40XX:
+    case config::Platform::NPU4000:
         return std::make_unique<InterfacesRegistry40XX>();
-    case config::ArchKind::NPU50XX:
+    case config::Platform::NPU5010:
+        return std::make_unique<InterfacesRegistry50XX>();
+    case config::Platform::NPU5020:
         return std::make_unique<InterfacesRegistry50XX>();
     default:
-        VPUX_THROW("Unsupported arch kind: {0}", arch);
+        VPUX_THROW("Unsupported platform: {0}", platform);
     }
 }
 

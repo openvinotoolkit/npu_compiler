@@ -54,8 +54,10 @@ VPU::DistributionInfoAttr updateSliceLikeOpsAlignment(mlir::MLIRContext* ctx, vp
 bool isSOCSegmentedOp(mlir::Operation* op);
 bool isSOCSegmentedSWOp(mlir::Operation* op);
 bool isSOCSegmentedNCEOp(mlir::Operation* op);
-bool inputProducersCompatible(mlir::Operation* op, mlir::DenseSet<mlir::Operation*> handledUsers = {});
-bool isSegmentedInputCompatible(mlir::Operation* op, mlir::DenseSet<mlir::Operation*> handledUsers = {});
+bool inputProducersCompatible(mlir::Operation* op, mlir::DenseSet<mlir::Operation*>& handledUsers);
+bool inputProducersCompatible(mlir::Operation* op);
+bool isSegmentedInputCompatible(mlir::Operation* op, mlir::DenseSet<mlir::Operation*>& handledUsers);
+bool isSegmentedInputCompatible(mlir::Operation* op);
 bool isSOKSegmentedOutputCompatible(mlir::Operation* op);
 bool hasDistributedTypesIO(mlir::Operation* op);
 int64_t getNumberOfClustersForSOKToAvoidAlignment(int64_t outputChannels, int64_t numClustersForCompilation,
@@ -220,7 +222,8 @@ vpux::NDTypeInterface getDistributedOutputTensorType(VPU::ClusteredOpInterface c
                                                      const bool hasExplicitDistributedAttr);
 // Get distributed output type for clustered op and vf op
 VPU::DistributedTypeInterface getDistributedOutputType(
-        mlir::Operation* op, std::optional<VPU::MultiClusterStrategy> customStrategy = std::nullopt);
+        mlir::Operation* op, mlir::Value result,
+        std::optional<VPU::MultiClusterStrategy> customStrategy = std::nullopt);
 
 // Get distributed input type for clustered op and vf op
 VPU::DistributedTypeInterface getDistributedInputType(
@@ -249,6 +252,7 @@ bool isSWOpChannelAlignmentCompatible(VPU::ClusteredOpInterface swOp, vpux::NDTy
 bool isSWOpWithAlignedChannelReq(VPU::ClusteredOpInterface swOp, vpux::NDTypeInterface inputType = nullptr,
                                  vpux::NDTypeInterface outputType = nullptr);
 bool isWeightsDequant(mlir::Operation* origOp);
+bool isWeightsLikeOperand(VPU::NCEOpInterface nceOp, mlir::Value operand);
 
 VPU::DistributedTensorType composeDistributedType(VPU::ClusteredOpInterface permuteOp,
                                                   VPU::DistributedTensorType distType, vpux::NDTypeInterface ndType,

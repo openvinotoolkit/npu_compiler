@@ -26,20 +26,27 @@ vpux::BitCompactorCodec::BitCompactorCodec(config::ArchKind arch_kind) {
 }
 
 mlir::FailureOr<std::vector<uint8_t>> vpux::BitCompactorCodec::compress(std::vector<uint8_t>& data,
-                                                                        CompressionMode mode, const Logger& log) const {
+                                                                        CompressionMode mode, CompressionPath compPath,
+                                                                        const Logger& log) const {
     VPUX_THROW_WHEN(data.empty(), "BitCompactorCodec::compress: Empty input data vector");
     VPUX_THROW_WHEN(mode == CompressionMode::FP16 && arch_type_ == vpux::bitc::ArchType::NPU27,
                     "BitCompactorCodec does not support FP16 compression");
 
     vpux::bitc::BitCompactorConfig config;
     config.arch_type = arch_type_;
+    VPUX_UNUSED(compPath);
     config.mode_fp16_enable = mode == CompressionMode::FP16;
 
     vpux::bitc::Encoder encoder{};
     std::vector<uint8_t> compressed_data;
 
     try {
-        encoder.encode(config, data, compressed_data);
+        auto status = encoder.encode(config, data, compressed_data);
+        if (!status) {
+            log.nest().trace("BitCompactorCodec::compress: compression failed");
+            return mlir::failure();
+        }
+
     } catch (const Exception& e) {
         log.nest().trace("BitCompactorCodec::compress: {0}", e.what());
         return mlir::failure();

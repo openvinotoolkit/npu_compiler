@@ -113,7 +113,6 @@ def VPU_GridSampleOp :
 
     let extraClassDeclaration = [{
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
-
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
     }] # baseExtraClassDeclaration;
 
@@ -129,7 +128,7 @@ def VPU_InterpolateOp :
                 DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
                 AttrSizedOperandSegments,
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>
             ]
@@ -202,9 +201,12 @@ def VPU_InterpolateDMAOp :
         VPU_LayerOp<
             "InterpolateDMA",
             [
+                VPU_SwIoDmaOpInterface,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>,
-                AttrSizedOperandSegments,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
+                DeclareOpInterfaceMethods<VPU_AuxiliaryBufferOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["getDistributedTypeForOpOperand",
+                                                                     "getDistributedTypeForOpResult"]>,
                 VPU_BoundsRepresentationInterface
             ]
         > {
@@ -213,24 +215,22 @@ def VPU_InterpolateDMAOp :
     let description = [{
         Interpolate where scale factors are runtime parameters. Output shape
         upper bound is derived from INTERPOLATE_SCALES_BOUND. Only spatial axes
-        (H, W) are supported. Data stays in DDR.
-        TODO: SHAVE kernels use DMA to fetch data into CMX. Multi-cluster and
-        multi-shave distribution is handled at runtime by the SHAVE kernel via
-        tile_id and shave_id parameters.
-
-        The \`coordinates\` and \`lambdas\` are pre-allocated buffers that the
-        SHAVE kernel overwrites at runtime with values derived from actual scales.
+        (H, W) are supported. Data stays in DDR; the SHAVE kernel uses DMA to
+        fetch data into CMX. Multi-cluster and multi-shave distribution is
+        handled at runtime by the SHAVE kernel via tile_id and shave_id
+        parameters. The aux_buffer is DUPLICATED across clusters for
+        multi-cluster execution.
     }];
 
     let arguments = (ins
         AnyTypeOf<[RankedTensorOf<[UI8, F16, F32, quant_QuantizedType]>, VPU_DistributedTensor]>:$input,
         AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$scales,
-        Optional<AnyTypeOf<[RankedTensorOf<[SI32]>, VPU_DistributedTensor]>>:$coordinates,
-        Optional<AnyTypeOf<[RankedTensorOf<[F16]>, VPU_DistributedTensor]>>:$lambdas,
+        AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>:$aux_buffer,
 
         I64ArrayAttr:$axes_attr,
         IE_InterpolateAttr:$attr,
 
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy,
         DefaultValuedAttr<VPU_BoundsRepresentationAttr, "vpux::VPU::BoundsRepresentation::BOUNDS">:$bounds_representation
     );
 
@@ -328,7 +328,7 @@ def VPU_YuvToRgbOp :
                 AttrSizedOperandSegments,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine NV12/I420 to RGB/BGR layer";

@@ -4,7 +4,10 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
+#include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/control_flow.hpp"
+#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/vertical_fusion_config.hpp"
@@ -113,15 +116,16 @@ mlir::FailureOr<TilingStorage> vpux::VPU::calculateTilingRegions(mlir::Operation
                     };
                     if (llvm::none_of(allValues, sameTile)) {
                         if (auto tilingInfoOp = mlir::dyn_cast<VPU::TilingInfoOpInterface>(currentOp)) {
-                            if (!isMultiClusterCompatibleForTiling(currentOp, {tile}, log) ||
-                                !tilingInfoOp.isSupportedTiling({tile}, TilingMode::ISOLATED, log)) {
-                                return mlir::failure();
-                            }
                             if (auto channelAlignOp = mlir::dyn_cast<IE::AlignedChannelsOpInterface>(currentOp)) {
                                 const auto channelDim = tile.shape.size() == 5 ? DimsGroups5D::Act::C : Dims4D::Act::C;
                                 if (tile.shape[channelDim] % channelAlignOp.getOutputChannelAlignment() != 0) {
                                     return mlir::failure();
                                 }
+                            }
+
+                            if (!isMultiClusterCompatibleForTiling(currentOp, {tile}, log) ||
+                                !tilingInfoOp.isSupportedTiling({tile}, TilingMode::ISOLATED, log)) {
+                                return mlir::failure();
                             }
                         }
                     }
@@ -141,7 +145,8 @@ mlir::FailureOr<TilingStorage> vpux::VPU::calculateTilingRegions(mlir::Operation
         // Store the tiling info for the current operation
         if (opStorage != nullptr) {
             opStorage->insert(currentOp, tileNumber, std::make_pair(inputTiling, tile));
-            log.trace("TileInfo inserted for operation at {0} tile {1}, {2}", currentOp->getLoc(), tileNumber, tile);
+            log.trace("TileInfo inserted for operation at {0} {1} tile {2}, {3}", currentOp->getName(),
+                      currentOp->getLoc(), tileNumber, tile);
         }
 
         // Process each operand of the current operation
@@ -352,10 +357,10 @@ mlir::FailureOr<SmallVector<ResultType>> vpux::VPU::backInferVFTiling(
         opTilingMap[curOp] = curTiling;
 
         if (auto tilingViewLikeOp = mlir::dyn_cast<VPU::TilingViewLikeOpInterface>(curOp)) {
-            curTiling = VPU::backInfer<ArgType, ResultType>(tilingViewLikeOp, curTiling, strategy);
             if (!isLegalTilingDim(tilingViewLikeOp, curTiling)) {
                 return mlir::failure();
             }
+            curTiling = VPU::backInfer<ArgType, ResultType>(tilingViewLikeOp, curTiling, strategy);
         }
 
         for (auto operand : curOp->getOperands()) {
@@ -490,6 +495,35 @@ VPU::VerticalFusionOp vpux::VPU::fuseOpsInBlock(mlir::OpBuilder& rewriter, VPU::
     mlir::UnitAttr isManualConfiguredAttr = isManualConfigured ? mlir::UnitAttr::get(vfOp.getContext()) : nullptr;
     return rewriter.create<VPU::VerticalFusionOp>(vfOp.getLoc(), vfOp->getResultTypes(), newOperands, bodyBuilder,
                                                   tilingInfo, isManualConfiguredAttr);
+}
+
+VPU::VerticalFusionOp vpux::VPU::fuseOpsInBlock(mlir::RewriterBase& rewriter, ArrayRef<VPU::VerticalFusionOp> ops,
+                                                mlir::ArrayAttr tilingInfo /*nullptr*/,
+                                                bool isManualConfigured /*false*/) {
+    VPUX_THROW_WHEN(ops.size() <= 1, "Cannot fuse VF op list with size {0}", ops.size());
+
+    auto mergedOp = ops.back();
+    bool isMergedOpTemporary = false;
+    for (size_t i = ops.size() - 1; i > 0; --i) {
+        auto oldMergedOp = mergedOp;
+        auto prevVFOp = ops[i - 1];
+        rewriter.setInsertionPoint(mergedOp);
+        mergedOp =
+                vpux::VPU::fuseOpsInBlock(rewriter, mergedOp, prevVFOp.getOperation(), tilingInfo, isManualConfigured);
+        if (mergedOp == nullptr) {
+            if (oldMergedOp != ops.back()) {
+                rewriter.eraseOp(oldMergedOp);
+            }
+            return nullptr;
+        }
+
+        if (isMergedOpTemporary && oldMergedOp != ops.back()) {
+            rewriter.eraseOp(oldMergedOp);
+        }
+        isMergedOpTemporary = true;
+    }
+
+    return mergedOp;
 }
 
 // fuseSingleViewOpsChainInBlock is needed when the predecessor is a linear chain of pure
@@ -630,13 +664,18 @@ bool vpux::VPU::isSpatialTiling(ArrayRef<int64_t> strategy) {
 };
 
 mlir::Operation* vpux::VPU::findParent(mlir::Value operand) {
-    auto parent = operand.getDefiningOp();
+    auto producerOut = findProducerValue(operand);
+    return producerOut != nullptr ? producerOut.getDefiningOp() : nullptr;
+}
 
-    while (parent != nullptr && isPureViewOp(parent)) {
-        parent = parent->getOperand(0).getDefiningOp();
+mlir::OpResult vpux::VPU::findProducerValue(mlir::Value operand) {
+    auto producerValue = mlir::dyn_cast_if_present<mlir::OpResult>(operand);
+    while (producerValue != nullptr && isPureViewOp(producerValue.getOwner())) {
+        auto parent = producerValue.getOwner();
+        producerValue = mlir::dyn_cast_if_present<mlir::OpResult>(parent->getOperand(0));
     }
 
-    return parent;
+    return producerValue;
 }
 
 SmallVector<mlir::OpOperand*> vpux::VPU::findUses(mlir::Operation* operation) {
@@ -752,6 +791,22 @@ VPU::DistributedTensorType vpux::VPU::inferDistributedTypeThroughViewOps(VPU::Di
     vpux::NDTypeInterface type =
             vpux::getTensorType(srcType.getShape(), srcType.getElementType(), srcType.getDimsOrder(),
                                 srcType.getMemSpace(), getBounds(srcType), getDynamicDimsMask(srcType));
+    auto getDataShape = [](vpux::NDTypeInterface type) {
+        if (auto sparseType = mlir::dyn_cast<VPU::SparseTensorType>(type)) {
+            auto ndType = mlir::cast<vpux::NDTypeInterface>(sparseType.getData());
+            return ndType.getShape();
+        }
+        return type.getShape();
+    };
+
+    auto isViewOpSizeChanged = [&](mlir::Operation* op) {
+        auto inType = mlir::cast<vpux::NDTypeInterface>(op->getOperand(0).getType());
+        auto outType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType());
+
+        return getDataShape(inType) != getDataShape(outType) && inType.getElemTypeSize() == outType.getElemTypeSize() &&
+               inType.getDimsOrder() == outType.getDimsOrder();
+    };
+
     auto distribution = VPU::DistributionInfo::getClassFromAttr(srcType.getDistribution());
     for (auto viewOp : viewOps) {
         if (auto distCastOp = mlir::dyn_cast<VPU::DistributedCastOpInterface>(viewOp)) {
@@ -761,8 +816,33 @@ VPU::DistributedTensorType vpux::VPU::inferDistributedTypeThroughViewOps(VPU::Di
             }
             type = mlir::cast<vpux::NDTypeInterface>(castedTypeWithDistribution.value().first);
             distribution = castedTypeWithDistribution.value().second;
+            continue;
+        } else if (isViewOpSizeChanged(viewOp) && VPU::isDistributionWithExplicitShapesAndOffsets(distribution)) {
+            // handle slice-like ops with size change, e.g. Slice
+            auto sliceInShape = getDataShape(viewOp->getOperand(0).getType());
+            auto sliceOutShape = getDataShape(viewOp->getResult(0).getType());
+
+            const auto sliceDims = IE::getDiffInOutSizeDims(sliceInShape, sliceOutShape);
+            if (VPU::isSegmentedLikeDistributionMode(type, distribution)) {
+                // Skip for segmented-like distribution and the size change is on the distributed dim,
+                auto tilingDim = Dim(VPU::getDistributedTilingAxis(distribution.getNumTiles()));
+                if (llvm::is_contained(sliceDims, tilingDim)) {
+                    return nullptr;
+                }
+            }
+
+            auto possibleDistribution = VPU::DistributionInfo::getAttrFromClass(viewOp->getContext(), distribution);
+            auto newDistributionAttr = VPU::updateSliceLikeOpsAlignment(viewOp->getContext(), type.getShape(),
+                                                                        sliceOutShape, possibleDistribution);
+            auto explicitDistribution =
+                    VPU::getExplicitDistrAttrForSliceLikeOps(newDistributionAttr, sliceOutShape, type.getShape().raw(),
+                                                             type.getElementType(), viewOp->getContext());
+            distribution = VPU::DistributionInfo::getClassFromAttr(explicitDistribution);
+            type = mlir::cast<vpux::NDTypeInterface>(viewOp->getResult(0).getType());
+            continue;
         }
     }
+
     TensorDistributionMap distributionMap;
     distributionMap.insert(std::make_pair(type, distribution));
     return mlir::cast<VPU::DistributedTensorType>(getDistributedTypeFromDistributionMap(type, distributionMap));

@@ -11,7 +11,6 @@
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 
 config.Resources 3 of @NCE at 1.700000e+03 MHz {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU
@@ -58,7 +57,6 @@ func.func @ApplyTilingNCEReduce(%arg0 : tensor<1x32x175x512xf16, {order = #NHWC}
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 
 config.Resources 3 of @NCE at 1.700000e+03 MHz {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU

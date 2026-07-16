@@ -89,6 +89,8 @@ const SmallVector<StringLiteral> SW_KERNELS_SUPPORTING_TILING = {"mvn1",
                                                                  "activation_sign",
                                                                  "prelu_fp16",
                                                                  "normalize_l2",
+                                                                 "normalize_l2_innermost",
+                                                                 "lrn",
                                                                  "reduce_l1",
                                                                  "reduce_l2",
                                                                  "reduce_logical_and",
@@ -123,6 +125,7 @@ const SmallVector<StringLiteral> SW_KERNELS_SUPPORTING_TILING = {"mvn1",
                                                                  "rope",
                                                                  "rope_ilv",
                                                                  "rope_pairwise",
+                                                                 "rope_pairwise_ilv",
                                                                  "sdpa",
                                                                  "random_uniform",
                                                                  "grid_sample",
@@ -195,6 +198,7 @@ const SmallVector<StringLiteral> SW_KERNELS_NEED_TILING_ALIGNMENT = {"mvn1",
                                                                      "eltwise_div",
                                                                      "prelu_fp16",
                                                                      "normalize_l2",
+                                                                     "normalize_l2_innermost",
                                                                      "eltwise_greater",
                                                                      "eltwise_less",
                                                                      "eltwise_sub",
@@ -214,14 +218,10 @@ const SmallVector<StringLiteral> SW_KERNELS_NEED_TILING_ALIGNMENT = {"mvn1",
                                                                      "activation_relu"};
 
 const SmallVector<StringLiteral> SW_KERNELS_USE_DPU = {"lstm_dpu", "attention", "flash_sdpa"};
-const SmallVector<StringLiteral> SW_KERNELS_IO_DMA = {"activation_atan_dma"};
+const SmallVector<StringLiteral> SW_KERNELS_IO_DMA = {"activation_atan_dma", "interpolate_dma", "scatter_update_dma"};
 
 constexpr StringLiteral vpuTaskTypeAttrName = "VPU.task_type";
 
-// TODO: E#208642, need support more sw kernel dispatching dma
-// Note: The kernel support for activation_dma_sigmoid isn't available, it's added to satisfy LIT
-// Note: This array is used only by NPU50XX and is not required to update this list for other archs
-const SmallVector<StringLiteral> SW_KERNELS_USING_DMA = {"activation_dma_sigmoid"};
 /// Identifies the logical task index for the SW operation. This is used to legalize schedule for SW operations which
 /// can submit DMAs on the fly
 constexpr StringLiteral LOGICAL_TASK_INDEX_ATTR_NAME = "logical_task";
@@ -237,7 +237,7 @@ mlir::SymbolRefAttr createBuiltInFunction(mlir::ModuleOp module, VPU::LayerOpInt
                                           ArrayRef<mlir::Value> operands, ArrayRef<mlir::Value> results,
                                           const VPUIP::KernelInfo& kernelInfo, const Logger& log);
 
-void createRuntimeKernelDefinition(mlir::ModuleOp module, const Logger& log, vpux::config::ArchKind arch);
+void createRuntimeKernelDefinition(mlir::ModuleOp module, const Logger& log);
 
 void initSwKernel(vpux::VPUIP::SwKernelOp swKernelOp, mlir::ValueRange inputs, mlir::ValueRange outputBuffs,
                   mlir::ArrayRef<mlir::Attribute> args, const vpux::Logger& log, VPUIP::SwKernelRun swKernelRunOp);
@@ -249,14 +249,15 @@ void initSwKernel(VPUIP::SwKernelOp swKernelOp, VPUIP::SwKernelRun swKernelRunOp
 SmallVector<int64_t> reversePermutation(mlir::AffineMap map);
 
 SmallString getSwKernelEntryName(VPUIP::SwKernelOp swKernelOp);
+std::optional<SmallString> getSwKernelEntryNameOpt(VPUIP::SwKernelOp swKernelOp);
 mlir::ModuleOp getVPUSWModule(mlir::ModuleOp module, const Logger& log);
 bool isActivationSwKernelOp(VPUIP::SwKernelOp swKernelOp);
 bool isSwKernelTilingSupported(VPUIP::SwKernelOp swKernelOp);
 bool isSwKernelUseDpu(VPUIP::SwKernelOp swKernelOp);
 bool isIoDmaSwKernel(VPUIP::SwKernelOp swKernelOp);
+bool isShvSyncDmaTask(VPURT::TaskOp taskOp);
 bool isDpuShaveKernelType(VPURT::TaskOp taskOp);
 bool isStridedDataAccessSupported(VPUIP::SwKernelOp swKernelOp);
-bool isSwKernelUsingDma(VPUIP::SwKernelOp swKernelOp);
 
 InputTiling backInferSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const SmallVector<vpux::TileInfo>& outputTiles,
                                        int tileId, Logger log);
@@ -286,7 +287,6 @@ mlir::SmallVector<mlir::Value> getDDRBuffers(mlir::ValueRange buffers);
 bool hasInputsInDDR(VPUIP::SwKernelOp swKernelTask);
 
 int64_t getSwKernelTilingAddressAlignment(VPUIP::SwKernelOp swkernelOp, config::ArchKind arch);
-std::pair<bool, size_t> getSwKernelInstructionPrefetchConfig(config::ArchKind arch);
 
 mlir::SymbolRefAttr createCacheHandlingFunction(mlir::MLIRContext* ctx, OpBuilderLogger& builderLog, Logger log,
                                                 VPUIP::SwKernelOp origOp, mlir::StringRef functionName,

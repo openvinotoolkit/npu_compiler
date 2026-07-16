@@ -76,6 +76,8 @@ endforeach()
 
 include(cmake/features.cmake)
 include(cmake/compile_options.cmake)
+add_compile_definitions(INTEL_EMBARGO_NPU5)
+add_compile_definitions(INTEL_EMBARGO_NPU5020)
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/dependencies.cmake")
     include(cmake/dependencies.cmake)
@@ -87,6 +89,7 @@ include(cmake/add_native_exec_target.cmake)
 include(cmake/add_tool_target.cmake)
 include(cmake/coverage.cmake)
 include(cmake/log_level.cmake)
+include(cmake/install_target_with_debug_files.cmake)
 
 if(ENABLE_PRIVATE_TESTS)
     enable_testing()
@@ -174,6 +177,7 @@ if(ENABLE_DEVELOPER_BUILD)
 endif()
 
 add_subdirectory(sw_runtime_kernels/kernels)
+add_subdirectory(sw_runtime_kernels/rt_kernel)
 
 add_subdirectory(src)
 

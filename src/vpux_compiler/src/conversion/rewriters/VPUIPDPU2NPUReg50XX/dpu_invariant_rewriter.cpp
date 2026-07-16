@@ -13,11 +13,8 @@
 #include "vpux/compiler/dialect/VPURegMapped/utils.hpp"
 #include "vpux/compiler/utils/traits_utils.hpp"
 
-#include <npu_40xx_nnrt.hpp>
-
 using namespace vpux;
 using namespace vpux::VPURegMapped;
-using namespace npu40xx;
 using namespace NPUReg50XX;
 
 namespace vpux {

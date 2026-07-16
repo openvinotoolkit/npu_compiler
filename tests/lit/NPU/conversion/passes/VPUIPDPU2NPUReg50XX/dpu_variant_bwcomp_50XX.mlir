@@ -17,9 +17,9 @@ module @Test {
     func.func @main() {
         ELF.Main {
             ELF.CreateLogicalSection @builtin.data.nncmx0 aligned(64) secType(SHT_NOBITS) secFlags(SHF_ALLOC) secLocation(<CMX_NN>) {
-                VPUASM.DeclareBuffer @DeclareBuffer_ActIn !VPUASM.Buffer< "CMX_NN"[0] <196736> : memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
-                VPUASM.DeclareBuffer @Weights !VPUASM.Buffer< "CMX_NN"[0] <213632> : memref<64x16x3x3xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
-                VPUASM.DeclareBuffer @DeclareBuffer_ActOut !VPUASM.Buffer< "CMX_NN"[0] <128> : memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
+                VPUASM.DeclareBuffer @DeclareBuffer_ActIn !VPUASM.Buffer< "CMX_NN"[0] <196736> : memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
+                VPUASM.DeclareBuffer @Weights !VPUASM.Buffer< "CMX_NN"[0] <213632> : memref<64x16x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
+                VPUASM.DeclareBuffer @DeclareBuffer_ActOut !VPUASM.Buffer< "CMX_NN"[0] <128> : memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
             }
             ELF.CreateLogicalSection @builtin.tasks.DPUVariant0 aligned(64) secType(SHT_NOBITS) secFlags(SHF_ALLOC) secLocation(<CMX_NN>) {
                 VPUASM.DeclareTaskBuffer @DeclareTaskBuffer_DPUVariant_0 idx(!VPURegMapped.Index<0:0:0>) <DPUVariant>
@@ -32,20 +32,20 @@ module @Test {
                 <{task_index = !VPURegMapped.Index<0:0:0>, task_location = @builtin.tasks.DPUInvariant0::@DeclareTaskBuffer_DPUInvariant_0, input = @builtin.data.nncmx0::@DeclareBuffer_ActIn,
                 output = @builtin.data.nncmx0::@DeclareBuffer_ActOut, nce_task_type = #VPUIP.nce_task_type<MAXPOOL>}>
                     DPUCfg : {
-                    ^bb0(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                        %weight_table: memref<16x1x1x1xi64, #NHWC, [@CMX_NN, 0]>,
-                        %act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>,
-                        %sparse_out: memref<1x16x64x64xi1, #NHWC, [@CMX_NN, 0]>):
+                    ^bb0(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                        %weight_table: memref<16x1x1x1xi64, {order = #NHWC}, [@CMX_NN, 0]>,
+                        %act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                        %sparse_out: memref<1x16x64x64xi1, {order = #NHWC}, [@CMX_NN, 0]>):
                     VPUIPDPU.IDUCfg {
-                        VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>)
+                        VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>)
                     }
                     VPUIPDPU.PPECfg {
                         VPUIPDPU.PPEFpAddMultBypass bypass_mode(ON)
                     }
                     VPUIPDPU.ODUCfg {
                         VPUIPDPU.ODUOutTensorSize dim_x(64) dim_y(64) dim_z(16)
-                        VPUIPDPU.ODUSparsity %sparse_out: memref<1x16x64x64xi1, #NHWC, [@CMX_NN, 0]>
-                        VPUIPDPU.ODUOutActivations out_activations(%act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>) data_width(ODU_DTYPE_16BIT)
+                        VPUIPDPU.ODUSparsity %sparse_out: memref<1x16x64x64xi1, {order = #NHWC}, [@CMX_NN, 0]>
+                        VPUIPDPU.ODUOutActivations out_activations(%act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>) data_width(ODU_DTYPE_16BIT)
                     }
                 }
             }
@@ -86,7 +86,7 @@ module @Test {
                     // CHECK:  UINT wt_swizzle_key = 2
                     // CHECK:  UINT wt_swizzle_sel = 1
 
-                    VPUIPDPU.BarrierCfg waits([1 : ui8, 2 : ui8]) updates([3 : ui8, 4 : ui8, 5 : ui8]) start_after(0) clean_after(0)
+                    VPUIPDPU.BarrierCfg waits([1 : ui16, 2 : ui16]) updates([3 : ui16, 4 : ui16, 5 : ui16]) start_after(0) clean_after(0)
                     VPUIPDPU.DPUGroup invariantIdx(!VPURegMapped.Index<0:0:0>) variantCount(4) <{isFirstVariant}>
                     // CHECK:  cbarrier_lo = UINT 6
                     // CHECK:  UINT cbarrier_hi = 0
@@ -211,7 +211,7 @@ module @Test {
                     // CHECK:  UINT wt_swizzle_key = 0
                     // CHECK:  UINT wt_swizzle_sel = 1
 
-                    VPUIPDPU.BarrierCfg waits([1 : ui8, 2 : ui8]) updates([3 : ui8, 4 : ui8, 5 : ui8]) start_after(0) clean_after(0)
+                    VPUIPDPU.BarrierCfg waits([1 : ui16, 2 : ui16]) updates([3 : ui16, 4 : ui16, 5 : ui16]) start_after(0) clean_after(0)
                     VPUIPDPU.DPUGroup invariantIdx(!VPURegMapped.Index<0:0:0>) variantCount(4)
                     // CHECK:  cbarrier_lo = UINT 0
                     // CHECK:  UINT cbarrier_hi = 0
@@ -231,7 +231,7 @@ module @Test {
                 DPUCfg: {
                 // CHECK-NOT:   VPUIPDPU.DPUVariant
                 // CHECK:       NPUReg50XX.DPUVariant
-                    ^bb0(%weights_tensor: memref<32x16x3x3xf16, #NHWC, [@CMX_NN, 0]>):
+                    ^bb0(%weights_tensor: memref<32x16x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>):
 
                     VPUIPDPU.IDUNthwNtk nthw_ntk(NTHW_NTK_16_4)
                     VPUIPDPU.IDUActSwizzle swizzle_key(SWIZZLE_KEY_4)
@@ -239,7 +239,7 @@ module @Test {
                     // CHECK:  UINT swizzle_key_offset = 4
                     // CHECK:  UINT noc_clk_en = 1
 
-                    VPUIPDPU.BarrierCfg waits([1 : ui8, 2 : ui8]) updates([3 : ui8, 4 : ui8, 5 : ui8]) start_after(0) clean_after(0)
+                    VPUIPDPU.BarrierCfg waits([1 : ui16, 2 : ui16]) updates([3 : ui16, 4 : ui16, 5 : ui16]) start_after(0) clean_after(0)
                     VPUIPDPU.DPUGroup invariantIdx(!VPURegMapped.Index<0:0:0>) variantCount(4)
                     // CHECK:  cbarrier_lo = UINT 0
                     // CHECK:  UINT cbarrier_hi = 0
@@ -265,11 +265,11 @@ module @Test {
                 DPUCfg: {
                 // CHECK-NOT:   VPUIPDPU.DPUVariant
                 // CHECK:       NPUReg50XX.DPUVariant
-                    ^bb0(%weights_tensor: memref<32x16x3x3xf16, #NHWC, [@CMX_NN, 0]>):
+                    ^bb0(%weights_tensor: memref<32x16x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>):
                     // CHECK:  UINT noc_clk_en = 1
                     // CHECK:  UINT shave_l2_cache_en = 0
 
-                    VPUIPDPU.BarrierCfg waits([1 : ui8, 2 : ui8]) updates([3 : ui8, 4 : ui8, 5 : ui8]) start_after(0) clean_after(0)
+                    VPUIPDPU.BarrierCfg waits([1 : ui16, 2 : ui16]) updates([3 : ui16, 4 : ui16, 5 : ui16]) start_after(0) clean_after(0)
                     VPUIPDPU.DPUGroup invariantIdx(!VPURegMapped.Index<0:0:0>) variantCount(4) <{isLastVariant}>
                     // CHECK:  cbarrier_lo = UINT 0
                     // CHECK:  UINT cbarrier_hi = 0
@@ -314,10 +314,10 @@ module @ProfilingTest {
     func.func @main() {
         ELF.Main {
             ELF.CreateLogicalSection @builtin.data.nncmx0 aligned(64) secType(SHT_NOBITS) secFlags(SHF_ALLOC) secLocation(<CMX_NN>) {
-                VPUASM.DeclareBuffer @DeclareBuffer_ActIn !VPUASM.Buffer< "CMX_NN"[0] <196736> : memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
-                VPUASM.DeclareBuffer @Weights !VPUASM.Buffer< "CMX_NN"[0] <213632> : memref<64x16x3x3xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
-                VPUASM.DeclareBuffer @DeclareBuffer_WeightTable !VPUASM.Buffer< "CMX_NN"[0] <0> : memref<16x1x1x1xi64, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
-                VPUASM.DeclareBuffer @DeclareBuffer_ActOut !VPUASM.Buffer< "CMX_NN"[0] <128> : memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
+                VPUASM.DeclareBuffer @DeclareBuffer_ActIn !VPUASM.Buffer< "CMX_NN"[0] <196736> : memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
+                VPUASM.DeclareBuffer @Weights !VPUASM.Buffer< "CMX_NN"[0] <213632> : memref<64x16x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
+                VPUASM.DeclareBuffer @DeclareBuffer_WeightTable !VPUASM.Buffer< "CMX_NN"[0] <0> : memref<16x1x1x1xi64, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
+                VPUASM.DeclareBuffer @DeclareBuffer_ActOut !VPUASM.Buffer< "CMX_NN"[0] <128> : memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
                 VPUASM.DeclareBuffer @DeclareBuffer_ProfilingData !VPUASM.Buffer< "CMX_NN"[0] <232064> : memref<4xui64, [@CMX_NN, 0]> :  swizzling(0)>
             }
             ELF.CreateLogicalSection @builtin.tasks.DPUVariant0 aligned(64) secType(SHT_NOBITS) secFlags(SHF_ALLOC) secLocation(<CMX_NN>) {
@@ -331,20 +331,20 @@ module @ProfilingTest {
                 input = @builtin.data.nncmx0::@DeclareBuffer_ActIn, output = @builtin.data.nncmx0::@DeclareBuffer_ActOut, profiling_data = @builtin.data.nncmx0::@DeclareBuffer_ProfilingData,
                 nce_task_type = #VPUIP.nce_task_type<MAXPOOL>}>
                     DPUCfg : {
-                    ^bb0(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                        %weight_table: memref<16x1x1x1xi64, #NHWC, [@CMX_NN, 0]>,
-                        %act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>,
-                        %sparse_out: memref<1x16x64x64xi1, #NHWC, [@CMX_NN, 0]>):
+                    ^bb0(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                        %weight_table: memref<16x1x1x1xi64, {order = #NHWC}, [@CMX_NN, 0]>,
+                        %act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                        %sparse_out: memref<1x16x64x64xi1, {order = #NHWC}, [@CMX_NN, 0]>):
                     VPUIPDPU.IDUCfg {
-                        VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>)
+                        VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>)
                     }
                     VPUIPDPU.PPECfg {
                         VPUIPDPU.PPEFpAddMultBypass bypass_mode(ON)
                     }
                     VPUIPDPU.ODUCfg {
                         VPUIPDPU.ODUOutTensorSize dim_x(64) dim_y(64) dim_z(16)
-                        VPUIPDPU.ODUSparsity %sparse_out: memref<1x16x64x64xi1, #NHWC, [@CMX_NN, 0]>
-                        VPUIPDPU.ODUOutActivations out_activations(%act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>) data_width(ODU_DTYPE_16BIT)
+                        VPUIPDPU.ODUSparsity %sparse_out: memref<1x16x64x64xi1, {order = #NHWC}, [@CMX_NN, 0]>
+                        VPUIPDPU.ODUOutActivations out_activations(%act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>) data_width(ODU_DTYPE_16BIT)
                     }
                 }
             }
@@ -362,7 +362,7 @@ module @ProfilingTest {
                     VPUIPDPU.IDUSEDense
                     VPUIPDPU.IDUActSwizzle swizzle_key(SWIZZLE_KEY_1)
                     VPUIPDPU.IDUWeightSwizzle wt_swizzle_key(SWIZZLE_KEY_2)
-                    VPUIPDPU.BarrierCfg waits([1 : ui8, 2 : ui8]) updates([3 : ui8, 4 : ui8, 5 : ui8]) start_after(0) clean_after(0)
+                    VPUIPDPU.BarrierCfg waits([1 : ui16, 2 : ui16]) updates([3 : ui16, 4 : ui16, 5 : ui16]) start_after(0) clean_after(0)
 
                     VPUIPDPU.ODUHaloCfg {
                         VPUIPDPU.ODUHaloRegion begin_coord_x(0) begin_coord_y(0) end_coord_x(15) end_coord_y(15) activations_offset(10) sparsity_offset(10) target_width(32) cast_to_tile("DPU_TILE_1|DPU_TILE_2")

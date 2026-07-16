@@ -369,11 +369,11 @@ func.func @QuantizedExpandWithPadsBegin(%arg0: memref<1x1x128x200x!qElemType>) -
 
     return %0 : memref<1x1x128x202x!qElemType>
 
-    // CHECK-DAG:       [[CST:%.+]] = const.Declare memref<1x1x128x1xui8> = dense<0> : tensor<256xui8>, [#const.SubView<[0], [128]>, #const.Reshape<[1, 1, 128, 1]>]
+    // CHECK-DAG:       [[CST:%.+]] = const.Declare memref<1x1x128x1x!qElemType> = dense<0> : tensor<256xi8>, [#const.SubView<[0], [128]>, #const.Reshape<[1, 1, 128, 1]>]
     // CHECK:           [[OUT_BUFFER_0:%.+]] = memref.alloc() : memref<1x1x128x202x!qElemType>
     // CHECK:       [[VIEW1:%.+]] = VPUIP.SubView [[OUT_BUFFER_0]] [0, 0, 0, 0] [1, 1, 128, 1]
     // CHECK-SAME:      : memref<1x1x128x202x!qElemType> to memref<1x1x128x1x!qElemType, {order = #NCHW, strides = [25856, 25856, 202, 1]}>
-    // CHECK:       [[COPY1:%.+]] = VPUIP.Copy inputs([[CST]] : memref<1x1x128x1xui8>)
+    // CHECK:       [[COPY1:%.+]] = VPUIP.Copy inputs([[CST]] : memref<1x1x128x1x!qElemType>)
     // CHECK-SAME:      outputs([[VIEW1]] : memref<1x1x128x1x!qElemType, {order = #NCHW, strides = [25856, 25856, 202, 1]}>)
 
     // CHECK:       [[VIEW2:%.+]] = VPUIP.SubView [[OUT_BUFFER_0]] [0, 0, 0, 1] [1, 1, 128, 200]
@@ -383,7 +383,7 @@ func.func @QuantizedExpandWithPadsBegin(%arg0: memref<1x1x128x200x!qElemType>) -
 
     // CHECK:       [[VIEW3:%.+]] = VPUIP.SubView [[OUT_BUFFER_0]] [0, 0, 0, 201] [1, 1, 128, 1]
     // CHECK-SAME:      : memref<1x1x128x202x!qElemType> to memref<1x1x128x1x!qElemType, {order = #NCHW, strides = [25856, 25856, 202, 1]}>
-    // CHECK:       [[COPY3:%.+]] = VPUIP.Copy inputs([[CST]] : memref<1x1x128x1xui8>)
+    // CHECK:       [[COPY3:%.+]] = VPUIP.Copy inputs([[CST]] : memref<1x1x128x1x!qElemType>)
     // CHECK-SAME:      outputs([[VIEW3]] : memref<1x1x128x1x!qElemType, {order = #NCHW, strides = [25856, 25856, 202, 1]}>)
 
     // CHECK:       [[OUT:%.+]] = VPUIP.ConcatView
@@ -395,4 +395,113 @@ func.func @QuantizedExpandWithPadsBegin(%arg0: memref<1x1x128x200x!qElemType>) -
 
     // CHECK:       return [[OUT]] : memref<1x1x128x202x!qElemType>
 
+}
+
+// -----
+
+!qElemType = !quant.uniform<i8:f16, 0.0069734788408466414>
+
+// CHECK-LABEL: func.func @SignedQuantizedExpandWithPadsBegin
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: memref<1x1x128x200x!qElemType>)
+func.func @SignedQuantizedExpandWithPadsBegin(%arg0: memref<1x1x128x200x!qElemType>) -> memref<1x1x128x202x!qElemType> {
+    %alloc_0 = memref.alloc() : memref<1x1x128x202x!qElemType>
+
+    %0 = VPUIP.Expand {pads_begin = [0, 0, 0, 1], pads_end = [0, 0, 0, 1]} inputs(%arg0 : memref<1x1x128x200x!qElemType>) outputs(%alloc_0 : memref<1x1x128x202x!qElemType>) -> memref<1x1x128x202x!qElemType>
+
+    return %0 : memref<1x1x128x202x!qElemType>
+
+    // CHECK-NOT:       VPUIP.Expand
+    // CHECK-DAG:       [[CST:%.+]] = const.Declare memref<1x1x128x1x!qElemType> = dense<0> : tensor<256xi8>, [#const.SubView<[0], [128]>, #const.Reshape<[1, 1, 128, 1]>]
+    // CHECK:           [[OUT_BUFFER_0:%.+]] = memref.alloc() : memref<1x1x128x202x!qElemType>
+    // CHECK:       [[VIEW1:%.+]] = VPUIP.SubView [[OUT_BUFFER_0]] [0, 0, 0, 0] [1, 1, 128, 1]
+    // CHECK:       [[COPY1:%.+]] = VPUIP.Copy inputs([[CST]] : memref<1x1x128x1x!qElemType>)
+
+    // CHECK:       [[VIEW2:%.+]] = VPUIP.SubView [[OUT_BUFFER_0]] [0, 0, 0, 1] [1, 1, 128, 200]
+    // CHECK:       [[COPY2:%.+]] = VPUIP.Copy inputs([[ARG_0]] : memref<1x1x128x200x!qElemType>)
+
+    // CHECK:       [[VIEW3:%.+]] = VPUIP.SubView [[OUT_BUFFER_0]] [0, 0, 0, 201] [1, 1, 128, 1]
+    // CHECK:       [[COPY3:%.+]] = VPUIP.Copy inputs([[CST]] : memref<1x1x128x1x!qElemType>)
+
+    // CHECK:       [[OUT:%.+]] = VPUIP.ConcatView
+    // CHECK-SAME:      inputs([[COPY1]], [[COPY2]], [[COPY3]]
+    // CHECK-SAME:      outputs([[OUT_BUFFER_0]] : memref<1x1x128x202x!qElemType>) -> memref<1x1x128x202x!qElemType>
+    // CHECK:       return [[OUT]] : memref<1x1x128x202x!qElemType>
+}
+
+// -----
+
+!qElemType = !quant.uniform<i8:f16, 0.005:5>
+
+// Non-zero zero-points require stored-zero-point padding; keep Expand for the DMA path.
+// CHECK-LABEL: func.func @SignedQuantizedExpandNonZeroZeroPoint
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: memref<1x3x4x4x!qElemType>)
+func.func @SignedQuantizedExpandNonZeroZeroPoint(%arg0: memref<1x3x4x4x!qElemType>) -> memref<1x4x4x4x!qElemType> {
+    %alloc_0 = memref.alloc() : memref<1x4x4x4x!qElemType>
+
+    %0 = VPUIP.Expand {pads_begin = [0, 0, 0, 0], pads_end = [0, 1, 0, 0]} inputs(%arg0 : memref<1x3x4x4x!qElemType>) outputs(%alloc_0 : memref<1x4x4x4x!qElemType>) -> memref<1x4x4x4x!qElemType>
+
+    return %0 : memref<1x4x4x4x!qElemType>
+
+    // CHECK-NOT:       const.Declare
+    // CHECK:           [[ALLOC_0:%.+]] = memref.alloc() : memref<1x4x4x4x!qElemType>
+    // CHECK:           [[EXPAND:%.+]] = VPUIP.Expand
+    // CHECK-SAME:      inputs([[ARG_0]] : memref<1x3x4x4x!qElemType>)
+    // CHECK-SAME:      outputs([[ALLOC_0]] : memref<1x4x4x4x!qElemType>) -> memref<1x4x4x4x!qElemType>
+    // CHECK:           return [[EXPAND]] : memref<1x4x4x4x!qElemType>
+}
+
+// -----
+
+!qElemType = !quant.uniform<i8:f16:1, {0.005, 0.006, 0.007}>
+
+// Per-axis parameters require axis-specific padding values; keep Expand for the DMA path.
+// CHECK-LABEL: func.func @PerAxisQuantizedExpand
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: memref<1x3x4x4x!qElemType>)
+func.func @PerAxisQuantizedExpand(%arg0: memref<1x3x4x4x!qElemType>) -> memref<1x3x4x5x!qElemType> {
+    %alloc_0 = memref.alloc() : memref<1x3x4x5x!qElemType>
+
+    %0 = VPUIP.Expand {pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 1]} inputs(%arg0 : memref<1x3x4x4x!qElemType>) outputs(%alloc_0 : memref<1x3x4x5x!qElemType>) -> memref<1x3x4x5x!qElemType>
+
+    return %0 : memref<1x3x4x5x!qElemType>
+
+    // CHECK-NOT:       const.Declare
+    // CHECK:           [[ALLOC_0:%.+]] = memref.alloc() : memref<1x3x4x5x!qElemType>
+    // CHECK:           [[EXPAND:%.+]] = VPUIP.Expand
+    // CHECK-SAME:      inputs([[ARG_0]] : memref<1x3x4x4x!qElemType>)
+    // CHECK-SAME:      outputs([[ALLOC_0]] : memref<1x3x4x5x!qElemType>) -> memref<1x3x4x5x!qElemType>
+    // CHECK:           return [[EXPAND]] : memref<1x3x4x5x!qElemType>
+}
+
+// -----
+
+!qElemType = !quant.uniform<si8:f16, 0.005>
+!qElemType1 = !quant.uniform<ui8:f16, 0.0038725490663565842>
+
+// Both signed and unsigned i8 zp=0 with zero `pads_begin` are decomposed here under the
+// default `defer-to-expand-dma=false`. One shared zero constant is emitted per signedness
+// bucket. The deferral path is covered separately in convert_expand_defer_to_expand_dma.mlir.
+// CHECK-LABEL: func.func @MixedSignedAndUnsignedQuantizedExpand
+// CHECK-SAME: ([[ARG_I8:%[^:]+]]: memref<1x3x4x4x!qElemType>, [[ARG_U8:%[^:]+]]: memref<1x3x6x6x!qElemType1>)
+func.func @MixedSignedAndUnsignedQuantizedExpand(
+        %arg0: memref<1x3x4x4x!qElemType>,
+        %arg1: memref<1x3x6x6x!qElemType1>) ->
+        (memref<1x4x4x4x!qElemType>, memref<1x4x6x6x!qElemType1>) {
+    %alloc_i8 = memref.alloc() : memref<1x4x4x4x!qElemType>
+    %alloc_u8 = memref.alloc() : memref<1x4x6x6x!qElemType1>
+
+    %0 = VPUIP.Expand {pads_begin = [0, 0, 0, 0], pads_end = [0, 1, 0, 0]} inputs(%arg0 : memref<1x3x4x4x!qElemType>) outputs(%alloc_i8 : memref<1x4x4x4x!qElemType>) -> memref<1x4x4x4x!qElemType>
+    %1 = VPUIP.Expand {pads_begin = [0, 0, 0, 0], pads_end = [0, 1, 0, 0]} inputs(%arg1 : memref<1x3x6x6x!qElemType1>) outputs(%alloc_u8 : memref<1x4x6x6x!qElemType1>) -> memref<1x4x6x6x!qElemType1>
+
+    return %0, %1 : memref<1x4x4x4x!qElemType>, memref<1x4x6x6x!qElemType1>
+
+    // CHECK-NOT:   VPUIP.Expand
+    // CHECK-DAG:   [[CST_U8:%.+]] = const.Declare memref<1x1x6x6x!qElemType1> = dense<0> : tensor<36xui8>
+    // CHECK-DAG:   [[CST_I8:%.+]] = const.Declare memref<1x1x4x4x!qElemType> = dense<0> : tensor<16xsi8>
+    // CHECK:       VPUIP.Copy inputs([[ARG_I8]]
+    // CHECK:       VPUIP.Copy inputs([[CST_I8]]
+    // CHECK:       [[OUT_I8:%.+]] = VPUIP.ConcatView
+    // CHECK:       VPUIP.Copy inputs([[ARG_U8]]
+    // CHECK:       VPUIP.Copy inputs([[CST_U8]]
+    // CHECK:       [[OUT_U8:%.+]] = VPUIP.ConcatView
+    // CHECK:       return [[OUT_I8]], [[OUT_U8]]
 }

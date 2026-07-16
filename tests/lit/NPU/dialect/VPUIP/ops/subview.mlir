@@ -9,31 +9,31 @@
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @Fold
-// CHECK-SAME: ([[ARG_0:%[^:]+]]: memref<1x3x8x4xf32, #NHWC>)
-func.func @Fold(%arg0: memref<1x3x8x4xf32, #NHWC>) -> memref<1x3x8x4xf32, #NHWC> {
-    %0 = const.Declare memref<1x3x16x16xf32, #NHWC> =
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: memref<1x3x8x4xf32, {order = #NHWC}>)
+func.func @Fold(%arg0: memref<1x3x8x4xf32, {order = #NHWC}>) -> memref<1x3x8x4xf32, {order = #NHWC}> {
+    %0 = const.Declare memref<1x3x16x16xf32, {order = #NHWC}> =
         dense<1.000000e+00> : tensor<1x3x16x16xf32>, [#const.Reorder<#NHWC>]
 
     %1 = VPUIP.SubView %0 [0, 0, 8, 12] [1, 3, 8, 4] :
-        memref<1x3x16x16xf32, #NHWC> to
+        memref<1x3x16x16xf32, {order = #NHWC}> to
         memref<1x3x8x4xf32, {order = #NHWC, strides = [768, 1, 48, 3]}>
 
     %2 = VPUIP.Copy
         inputs(%1 : memref<1x3x8x4xf32, {order = #NHWC, strides = [768, 1, 48, 3]}>)
-        outputs(%arg0 : memref<1x3x8x4xf32, #NHWC>)
-        -> memref<1x3x8x4xf32, #NHWC>
+        outputs(%arg0 : memref<1x3x8x4xf32, {order = #NHWC}>)
+        -> memref<1x3x8x4xf32, {order = #NHWC}>
 
-    return %2 : memref<1x3x8x4xf32, #NHWC>
+    return %2 : memref<1x3x8x4xf32, {order = #NHWC}>
 
-    // CHECK-DAG:       [[VAR0:%.+]] = const.Declare memref<1x3x8x4xf32, #NHWC> =
+    // CHECK-DAG:       [[VAR0:%.+]] = const.Declare memref<1x3x8x4xf32, {order = #NHWC}> =
     // CHECK-SAME:      [#const.SubView<[0, 0, 8, 12], [1, 3, 8, 4]>, #const.Reorder<#NHWC>]
     // CHECK-NOT:   VPUIP.SubView
 
     // CHECK:       [[VAR1:%.+]] = VPUIP.Copy
-    // CHECK-SAME:      inputs([[VAR0]] : memref<1x3x8x4xf32, #NHWC>)
-    // CHECK-SAME:      outputs([[ARG_0]] : memref<1x3x8x4xf32, #NHWC>)
+    // CHECK-SAME:      inputs([[VAR0]] : memref<1x3x8x4xf32, {order = #NHWC}>)
+    // CHECK-SAME:      outputs([[ARG_0]] : memref<1x3x8x4xf32, {order = #NHWC}>)
 
-    // CHECK:       return [[VAR1]] : memref<1x3x8x4xf32, #NHWC>
+    // CHECK:       return [[VAR1]] : memref<1x3x8x4xf32, {order = #NHWC}>
 }
 
 // -----
@@ -41,7 +41,7 @@ func.func @Fold(%arg0: memref<1x3x8x4xf32, #NHWC>) -> memref<1x3x8x4xf32, #NHWC>
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 module @VPU.SW {
-func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {
+func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {
         VPU.kernel_code = "activation_relu.cpp", VPU.kernel_entry = "activation_relu", VPU.task_type = @COMPUTE
     }
 }

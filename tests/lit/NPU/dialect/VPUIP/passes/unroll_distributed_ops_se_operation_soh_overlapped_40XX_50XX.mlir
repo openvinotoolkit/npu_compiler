@@ -79,15 +79,15 @@
     memory_offsets = [[0, 0, 0, 0], [0, 0, 5, 0]]
 }>
 
-!InputStub_CMX = memref<1x16x33x33xf16, #NHWC, @CMX_NN>
-!InputSparseMapStub_CMX = memref<1x16x33x33xi1, #NHWC, @CMX_NN>
-!InputSETableStub_CMX = memref<1x16x33x33xi32, #NHWC, @CMX_NN>
-!OutputStub_CMX = memref<1x16x33x33xf16, #NHWC, @CMX_NN>
-!OutputSparsityStub_CMX = memref<1x16x33x33xi1, #NHWC, @CMX_NN>
-!WeightsStub_CMX = memref<16x16x3x3xf16, #NHWC, @CMX_NN>
+!InputStub_CMX = memref<1x16x33x33xf16, {order = #NHWC}, @CMX_NN>
+!InputSparseMapStub_CMX = memref<1x16x33x33xi1, {order = #NHWC}, @CMX_NN>
+!InputSETableStub_CMX = memref<1x16x33x33xi32, {order = #NHWC}, @CMX_NN>
+!OutputStub_CMX = memref<1x16x33x33xf16, {order = #NHWC}, @CMX_NN>
+!OutputSparsityStub_CMX = memref<1x16x33x33xi1, {order = #NHWC}, @CMX_NN>
+!WeightsStub_CMX = memref<16x16x3x3xf16, {order = #NHWC}, @CMX_NN>
 !WeightsTableStub_CMX = memref<16x1x1x4xsi32, @CMX_NN>
 
-!Output_DDR = memref<1x16x10x10xf16, #NHWC, @DDR>
+!Output_DDR = memref<1x16x10x10xf16, {order = #NHWC}, @DDR>
 
 //CHECK-LABEL: @UnrollNceSoHSEPInterpolateOverlappedTwoClusters
 func.func @UnrollNceSoHSEPInterpolateOverlappedTwoClusters() -> !Output_DDR {
@@ -95,7 +95,7 @@ func.func @UnrollNceSoHSEPInterpolateOverlappedTwoClusters() -> !Output_DDR {
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %bar1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    %seTable_cst = const.Declare memref<1x1x22x22xi32, #NHWC, @DDR> = dense<[[[
+    %seTable_cst = const.Declare memref<1x1x22x22xi32, {order = #NHWC}, @DDR> = dense<[[[
         [0, 0, 0, 0, 0, 1024, 1024, 1024, 1024, 2048, 2048, 2048, 2048, 3072, 3072, 3072, 3072, 4096, 4096, 4096, 4096, 4096],
         [0, 0, 0, 0, 0, 1024, 1024, 1024, 1024, 2048, 2048, 2048, 2048, 3072, 3072, 3072, 3072, 4096, 4096, 4096, 4096, 4096],
         [0, 0, 0, 0, 0, 1024, 1024, 1024, 1024, 2048, 2048, 2048, 2048, 3072, 3072, 3072, 3072, 4096, 4096, 4096, 4096, 4096],
@@ -121,7 +121,7 @@ func.func @UnrollNceSoHSEPInterpolateOverlappedTwoClusters() -> !Output_DDR {
         ]]]> : tensor<1x1x22x22xi32, {order = #NHWC}>
     %seTable_CMX = VPURT.DeclareBuffer <CMX_NN> <4160> -> !InputSETableDistributed
     VPURT.Task updates(%bar0: !VPURT.Barrier) {
-        VPUIP.NNDMA inputs(%seTable_cst : memref<1x1x22x22xi32, #NHWC, @DDR>) outputs(%seTable_CMX : !InputSETableDistributed) -> !InputSETableDistributed
+        VPUIP.NNDMA inputs(%seTable_cst : memref<1x1x22x22xi32, {order = #NHWC}, @DDR>) outputs(%seTable_CMX : !InputSETableDistributed) -> !InputSETableDistributed
     }
 
     %parent_out = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> !Output_DDR
@@ -176,7 +176,7 @@ func.func @UnrollNceSoHSEPInterpolateOverlappedTwoClusters() -> !Output_DDR {
 
     return %parent_out: !Output_DDR
 
-    // CHECK{LITERAL}:  const.Declare memref<1x1x12x22xi32, #NHWC, @DDR> = dense<[[[
+    // CHECK{LITERAL}:  const.Declare memref<1x1x12x22xi32, {order = #NHWC}, @DDR> = dense<[[[
     // CHECK-SAME:      [0, 0, 0, 0, 0, 1024, 1024, 1024, 1024, 2048, 2048, 2048, 2048, 3072, 3072, 3072, 3072, 4096, 4096, 4096, 4096, 4096]
     // CHECK-SAME:      [0, 0, 0, 0, 0, 1024, 1024, 1024, 1024, 2048, 2048, 2048, 2048, 3072, 3072, 3072, 3072, 4096, 4096, 4096, 4096, 4096]
     // CHECK-SAME:      [0, 0, 0, 0, 0, 1024, 1024, 1024, 1024, 2048, 2048, 2048, 2048, 3072, 3072, 3072, 3072, 4096, 4096, 4096, 4096, 4096]
@@ -191,7 +191,7 @@ func.func @UnrollNceSoHSEPInterpolateOverlappedTwoClusters() -> !Output_DDR {
     // CHECK-SAME:      [10240, 10240, 10240, 10240, 10240, 11264, 11264, 11264, 11264, 12288, 12288, 12288, 12288, 13312, 13312, 13312, 13312, 14336, 14336, 14336, 14336, 14336]
     // CHECK{LITERAL}:  ]]]> : tensor<1x1x12x22xi32, {order = #NHWC}>
 
-    // CHECK{LITERAL}:  const.Declare memref<1x1x12x22xi32, #NHWC, @DDR> = dense<[[[
+    // CHECK{LITERAL}:  const.Declare memref<1x1x12x22xi32, {order = #NHWC}, @DDR> = dense<[[[
     // CHECK-SAME:      [0, 0, 0, 0, 0, 1024, 1024, 1024, 1024, 2048, 2048, 2048, 2048, 3072, 3072, 3072, 3072, 4096, 4096, 4096, 4096, 4096],
     // CHECK-SAME:      [0, 0, 0, 0, 0, 1024, 1024, 1024, 1024, 2048, 2048, 2048, 2048, 3072, 3072, 3072, 3072, 4096, 4096, 4096, 4096, 4096],
     // CHECK-SAME:      [0, 0, 0, 0, 0, 1024, 1024, 1024, 1024, 2048, 2048, 2048, 2048, 3072, 3072, 3072, 3072, 4096, 4096, 4096, 4096, 4096],
@@ -282,15 +282,15 @@ func.func @UnrollNceSoHSEPInterpolateOverlappedTwoClusters() -> !Output_DDR {
     memory_offsets = [[0, 0, 0, 0], [0, 0, 5, 0]]
 }>
 
-!InputStub_CMX = memref<1x16x33x33xf16, #NHWC, @CMX_NN>
-!InputSparseMapStub_CMX = memref<1x16x33x33xi1, #NHWC, @CMX_NN>
-!InputSETableStub_CMX = memref<1x16x33x33xi32, #NHWC, @CMX_NN>
-!OutputStub_CMX = memref<1x16x33x33xf16, #NHWC, @CMX_NN>
-!OutputSparsityStub_CMX = memref<1x16x33x33xi1, #NHWC, @CMX_NN>
-!WeightsStub_CMX = memref<16x16x3x3xf16, #NHWC, @CMX_NN>
+!InputStub_CMX = memref<1x16x33x33xf16, {order = #NHWC}, @CMX_NN>
+!InputSparseMapStub_CMX = memref<1x16x33x33xi1, {order = #NHWC}, @CMX_NN>
+!InputSETableStub_CMX = memref<1x16x33x33xi32, {order = #NHWC}, @CMX_NN>
+!OutputStub_CMX = memref<1x16x33x33xf16, {order = #NHWC}, @CMX_NN>
+!OutputSparsityStub_CMX = memref<1x16x33x33xi1, {order = #NHWC}, @CMX_NN>
+!WeightsStub_CMX = memref<16x16x3x3xf16, {order = #NHWC}, @CMX_NN>
 !WeightsTableStub_CMX = memref<16x1x1x4xsi32, @CMX_NN>
 
-!Output_DDR = memref<1x16x10x10xf16, #NHWC, @DDR>
+!Output_DDR = memref<1x16x10x10xf16, {order = #NHWC}, @DDR>
 
 //CHECK-LABEL: @UnrollNceSoHSEPInterpolateOverlappedTwoClustersAndTwoUsers
 func.func @UnrollNceSoHSEPInterpolateOverlappedTwoClustersAndTwoUsers() -> (!Output_DDR, !Output_DDR) {
@@ -301,7 +301,7 @@ func.func @UnrollNceSoHSEPInterpolateOverlappedTwoClustersAndTwoUsers() -> (!Out
     %bar3 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %bar4 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    %seTable_cst = const.Declare memref<1x1x22x22xi32, #NHWC, @DDR> = dense<[[[
+    %seTable_cst = const.Declare memref<1x1x22x22xi32, {order = #NHWC}, @DDR> = dense<[[[
         [0, 0, 0, 0, 0, 1024, 1024, 1024, 1024, 2048, 2048, 2048, 2048, 3072, 3072, 3072, 3072, 4096, 4096, 4096, 4096, 4096],
         [0, 0, 0, 0, 0, 1024, 1024, 1024, 1024, 2048, 2048, 2048, 2048, 3072, 3072, 3072, 3072, 4096, 4096, 4096, 4096, 4096],
         [0, 0, 0, 0, 0, 1024, 1024, 1024, 1024, 2048, 2048, 2048, 2048, 3072, 3072, 3072, 3072, 4096, 4096, 4096, 4096, 4096],
@@ -329,7 +329,7 @@ func.func @UnrollNceSoHSEPInterpolateOverlappedTwoClustersAndTwoUsers() -> (!Out
     // First NCE user
     %seTable_CMX_0 = VPURT.DeclareBuffer <CMX_NN> <4160> -> !InputSETableDistributed
     VPURT.Task updates(%bar0: !VPURT.Barrier) {
-        VPUIP.NNDMA inputs(%seTable_cst : memref<1x1x22x22xi32, #NHWC, @DDR>) outputs(%seTable_CMX_0 : !InputSETableDistributed) -> !InputSETableDistributed
+        VPUIP.NNDMA inputs(%seTable_cst : memref<1x1x22x22xi32, {order = #NHWC}, @DDR>) outputs(%seTable_CMX_0 : !InputSETableDistributed) -> !InputSETableDistributed
     }
 
     %parent_out_0 = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> !Output_DDR
@@ -385,7 +385,7 @@ func.func @UnrollNceSoHSEPInterpolateOverlappedTwoClustersAndTwoUsers() -> (!Out
     // Second NCE user
     %seTable_CMX_1 = VPURT.DeclareBuffer <CMX_NN> <4160> -> !InputSETableDistributed
     VPURT.Task waits(%bar2: !VPURT.Barrier) updates(%bar3: !VPURT.Barrier) {
-        VPUIP.NNDMA inputs(%seTable_cst : memref<1x1x22x22xi32, #NHWC, @DDR>) outputs(%seTable_CMX_1 : !InputSETableDistributed) -> !InputSETableDistributed
+        VPUIP.NNDMA inputs(%seTable_cst : memref<1x1x22x22xi32, {order = #NHWC}, @DDR>) outputs(%seTable_CMX_1 : !InputSETableDistributed) -> !InputSETableDistributed
     }
 
     %parent_out_1 = VPURT.DeclareBuffer <NetworkOutput> [10240] <0> -> !Output_DDR
@@ -442,7 +442,7 @@ func.func @UnrollNceSoHSEPInterpolateOverlappedTwoClustersAndTwoUsers() -> (!Out
     return %parent_out_0, %parent_out_1: !Output_DDR, !Output_DDR
 
     // This test is to check the same SETable constant is used by two different NCE ops
-    // CHECK{LITERAL}:  const.Declare memref<1x1x12x22xi32, #NHWC, @DDR> = dense<[[[
+    // CHECK{LITERAL}:  const.Declare memref<1x1x12x22xi32, {order = #NHWC}, @DDR> = dense<[[[
     // CHECK-SAME:      [0, 0, 0, 0, 0, 1024, 1024, 1024, 1024, 2048, 2048, 2048, 2048, 3072, 3072, 3072, 3072, 4096, 4096, 4096, 4096, 4096]
     // CHECK-SAME:      [0, 0, 0, 0, 0, 1024, 1024, 1024, 1024, 2048, 2048, 2048, 2048, 3072, 3072, 3072, 3072, 4096, 4096, 4096, 4096, 4096]
     // CHECK-SAME:      [0, 0, 0, 0, 0, 1024, 1024, 1024, 1024, 2048, 2048, 2048, 2048, 3072, 3072, 3072, 3072, 4096, 4096, 4096, 4096, 4096]
@@ -457,7 +457,7 @@ func.func @UnrollNceSoHSEPInterpolateOverlappedTwoClustersAndTwoUsers() -> (!Out
     // CHECK-SAME:      [10240, 10240, 10240, 10240, 10240, 11264, 11264, 11264, 11264, 12288, 12288, 12288, 12288, 13312, 13312, 13312, 13312, 14336, 14336, 14336, 14336, 14336]
     // CHECK{LITERAL}:  ]]]> : tensor<1x1x12x22xi32, {order = #NHWC}>
 
-    // CHECK{LITERAL}:  const.Declare memref<1x1x12x22xi32, #NHWC, @DDR> = dense<[[[
+    // CHECK{LITERAL}:  const.Declare memref<1x1x12x22xi32, {order = #NHWC}, @DDR> = dense<[[[
     // CHECK-SAME:      [0, 0, 0, 0, 0, 1024, 1024, 1024, 1024, 2048, 2048, 2048, 2048, 3072, 3072, 3072, 3072, 4096, 4096, 4096, 4096, 4096],
     // CHECK-SAME:      [0, 0, 0, 0, 0, 1024, 1024, 1024, 1024, 2048, 2048, 2048, 2048, 3072, 3072, 3072, 3072, 4096, 4096, 4096, 4096, 4096],
     // CHECK-SAME:      [0, 0, 0, 0, 0, 1024, 1024, 1024, 1024, 2048, 2048, 2048, 2048, 3072, 3072, 3072, 3072, 4096, 4096, 4096, 4096, 4096],
@@ -559,15 +559,15 @@ func.func @UnrollNceSoHSEPInterpolateOverlappedTwoClustersAndTwoUsers() -> (!Out
     memory_offsets = [[0, 0, 0, 0], [0, 0, 2, 0], [0, 0, 3, 0]]
 }>
 
-!InputStub_CMX = memref<1x16x33x33xf16, #NHWC, @CMX_NN>
-!InputSparseMapStub_CMX = memref<1x16x33x33xi1, #NHWC, @CMX_NN>
-!InputSETableStub_CMX = memref<1x16x33x33xi32, #NHWC, @CMX_NN>
-!OutputStub_CMX = memref<1x16x33x33xf16, #NHWC, @CMX_NN>
-!OutputSparsityStub_CMX = memref<1x16x33x33xi1, #NHWC, @CMX_NN>
-!WeightsStub_CMX = memref<16x16x3x3xf16, #NHWC, @CMX_NN>
+!InputStub_CMX = memref<1x16x33x33xf16, {order = #NHWC}, @CMX_NN>
+!InputSparseMapStub_CMX = memref<1x16x33x33xi1, {order = #NHWC}, @CMX_NN>
+!InputSETableStub_CMX = memref<1x16x33x33xi32, {order = #NHWC}, @CMX_NN>
+!OutputStub_CMX = memref<1x16x33x33xf16, {order = #NHWC}, @CMX_NN>
+!OutputSparsityStub_CMX = memref<1x16x33x33xi1, {order = #NHWC}, @CMX_NN>
+!WeightsStub_CMX = memref<16x16x3x3xf16, {order = #NHWC}, @CMX_NN>
 !WeightsTableStub_CMX = memref<16x1x1x4xsi32, @CMX_NN>
 
-!Output_DDR = memref<1x16x4x4xf16, #NCHW, @DDR>
+!Output_DDR = memref<1x16x4x4xf16, @DDR>
 
 //CHECK-LABEL: @UnrollNceSoHSEPOverlappedThreeClusters
 func.func @UnrollNceSoHSEPOverlappedThreeClusters() -> !Output_DDR {
@@ -578,7 +578,7 @@ func.func @UnrollNceSoHSEPOverlappedThreeClusters() -> !Output_DDR {
     %bar3 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %bar4 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    %seTable_cst = const.Declare memref<1x1x6x6xi32, #NHWC, @DDR> = dense<[[[
+    %seTable_cst = const.Declare memref<1x1x6x6xi32, {order = #NHWC}, @DDR> = dense<[[[
                                 [0, 0, 1024, 2048, 3072, 3072],
                                 [0, 0, 1024, 2048, 3072, 3072],
                                 [4096, 4096, 5120, 6144, 7168, 7168],
@@ -588,7 +588,7 @@ func.func @UnrollNceSoHSEPOverlappedThreeClusters() -> !Output_DDR {
                                 ]]]> : tensor<1x1x6x6xi32, {order = #NHWC}>
     %seTable_CMX = VPURT.DeclareBuffer <CMX_NN> <4160> -> !InputSETableDistributed
     VPURT.Task updates(%bar0: !VPURT.Barrier) {
-        VPUIP.NNDMA inputs(%seTable_cst : memref<1x1x6x6xi32, #NHWC, @DDR>) outputs(%seTable_CMX : !InputSETableDistributed) -> !InputSETableDistributed
+        VPUIP.NNDMA inputs(%seTable_cst : memref<1x1x6x6xi32, {order = #NHWC}, @DDR>) outputs(%seTable_CMX : !InputSETableDistributed) -> !InputSETableDistributed
     }
 
     %parent_out = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> !Output_DDR
@@ -630,20 +630,20 @@ func.func @UnrollNceSoHSEPOverlappedThreeClusters() -> !Output_DDR {
 
     return %parent_out: !Output_DDR
 
-    // CHECK{LITERAL}:  const.Declare memref<1x1x4x6xi32, #NHWC, @DDR> = dense<[[[
+    // CHECK{LITERAL}:  const.Declare memref<1x1x4x6xi32, {order = #NHWC}, @DDR> = dense<[[[
     // CHECK-SAME:      [0, 0, 1024, 2048, 3072, 3072]
     // CHECK-SAME:      [0, 0, 1024, 2048, 3072, 3072]
     // CHECK-SAME:      [4096, 4096, 5120, 6144, 7168, 7168]
     // CHECK-SAME:      [8192, 8192, 9216, 10240, 11264, 11264]
     // CHECK{LITERAL}:  ]]]> : tensor<1x1x4x6xi32, {order = #NHWC}>
 
-    // CHECK{LITERAL}:  const.Declare memref<1x1x3x6xi32, #NHWC, @DDR> = dense<[[[
+    // CHECK{LITERAL}:  const.Declare memref<1x1x3x6xi32, {order = #NHWC}, @DDR> = dense<[[[
     // CHECK-SAME:      [0, 0, 1024, 2048, 3072, 3072],
     // CHECK-SAME:      [4096, 4096, 5120, 6144, 7168, 7168],
     // CHECK-SAME:      [8192, 8192, 9216, 10240, 11264, 11264]
     // CHECK{LITERAL}:  ]]]> : tensor<1x1x3x6xi32, {order = #NHWC}>
 
-    // CHECK{LITERAL}:  const.Declare memref<1x1x3x6xi32, #NHWC, @DDR> = dense<[[[
+    // CHECK{LITERAL}:  const.Declare memref<1x1x3x6xi32, {order = #NHWC}, @DDR> = dense<[[[
     // CHECK-SAME:      [0, 0, 1024, 2048, 3072, 3072],
     // CHECK-SAME:      [4096, 4096, 5120, 6144, 7168, 7168],
     // CHECK-SAME:      [4096, 4096, 5120, 6144, 7168, 7168]
@@ -736,7 +736,7 @@ func.func @UnrollNceSoHSEPOverlappedThreeClusters() -> !Output_DDR {
     memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 2], [0, 0, 0, 3]]
 }>
 
-!Output_DDR = memref<1x16x4x4xf16, #NHWC, @DDR>
+!Output_DDR = memref<1x16x4x4xf16, {order = #NHWC}, @DDR>
 
 //CHECK-LABEL: @UnrollNceSoWSEPOverlappedThreeClusters
 func.func @UnrollNceSoWSEPOverlappedThreeClusters() -> !Output_DDR {
@@ -747,7 +747,7 @@ func.func @UnrollNceSoWSEPOverlappedThreeClusters() -> !Output_DDR {
     %bar3 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %bar4 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    %seTable_cst = const.Declare memref<1x1x6x6xi32, #NHWC, @DDR> = dense<[[[
+    %seTable_cst = const.Declare memref<1x1x6x6xi32, {order = #NHWC}, @DDR> = dense<[[[
                                 [0, 0, 1024, 2048, 2049, 2049],
                                 [0, 0, 1024, 2048, 2049, 2049],
                                 [4096, 4096, 5120, 6144, 6145, 6145],
@@ -757,7 +757,7 @@ func.func @UnrollNceSoWSEPOverlappedThreeClusters() -> !Output_DDR {
                                 ]]]> : tensor<1x1x6x6xi32, {order = #NHWC}>
     %seTable_CMX = VPURT.DeclareBuffer <CMX_NN> <4160> -> !InputSETableDistributedSOW
     VPURT.Task updates(%bar0: !VPURT.Barrier) {
-        VPUIP.NNDMA inputs(%seTable_cst : memref<1x1x6x6xi32, #NHWC, @DDR>) outputs(%seTable_CMX : !InputSETableDistributedSOW) -> !InputSETableDistributedSOW
+        VPUIP.NNDMA inputs(%seTable_cst : memref<1x1x6x6xi32, {order = #NHWC}, @DDR>) outputs(%seTable_CMX : !InputSETableDistributedSOW) -> !InputSETableDistributedSOW
     }
 
     %parent_out = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> !Output_DDR
@@ -799,7 +799,7 @@ func.func @UnrollNceSoWSEPOverlappedThreeClusters() -> !Output_DDR {
 
     return %parent_out: !Output_DDR
 
-    // CHECK{LITERAL}:  const.Declare memref<1x1x6x4xi32, #NHWC, @DDR> = dense<[[[
+    // CHECK{LITERAL}:  const.Declare memref<1x1x6x4xi32, {order = #NHWC}, @DDR> = dense<[[[
     // CHECK-SAME:      [0, 0, 1024, 2048]
     // CHECK-SAME:      [0, 0, 1024, 2048]
     // CHECK-SAME:      [4096, 4096, 5120, 6144]
@@ -808,7 +808,7 @@ func.func @UnrollNceSoWSEPOverlappedThreeClusters() -> !Output_DDR {
     // CHECK-SAME:      [12288, 12288, 13312, 14336]
     // CHECK{LITERAL}:  ]]]> : tensor<1x1x6x4xi32, {order = #NHWC}>
 
-    // CHECK{LITERAL}:  const.Declare memref<1x1x6x3xi32, #NHWC, @DDR> = dense<[[[
+    // CHECK{LITERAL}:  const.Declare memref<1x1x6x3xi32, {order = #NHWC}, @DDR> = dense<[[[
     // CHECK-SAME:      [0, 1024, 2048],
     // CHECK-SAME:      [0, 1024, 2048],
     // CHECK-SAME:      [4096, 5120, 6144],
@@ -817,7 +817,7 @@ func.func @UnrollNceSoWSEPOverlappedThreeClusters() -> !Output_DDR {
     // CHECK-SAME:      [12288, 13312, 14336]
     // CHECK{LITERAL}:  ]]]> : tensor<1x1x6x3xi32, {order = #NHWC}>
 
-    // CHECK{LITERAL}:  const.Declare memref<1x1x6x3xi32, #NHWC, @DDR> = dense<[[[
+    // CHECK{LITERAL}:  const.Declare memref<1x1x6x3xi32, {order = #NHWC}, @DDR> = dense<[[[
     // CHECK-SAME:      [0, 1024, 1024],
     // CHECK-SAME:      [0, 1024, 1024],
     // CHECK-SAME:      [4096, 5120, 5120],

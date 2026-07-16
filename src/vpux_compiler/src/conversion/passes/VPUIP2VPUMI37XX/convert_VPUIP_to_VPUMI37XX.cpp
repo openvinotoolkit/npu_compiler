@@ -19,6 +19,8 @@
 #include "vpux/compiler/utils/dma_limits.hpp"
 #include "vpux/compiler/utils/llvm_to_binary.hpp"
 
+#include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/Module.h>
 #include <llvm/Support/FileSystem.h>
 #include <mlir/IR/IRMapping.h>
 #include <mlir/Transforms/DialectConversion.h>

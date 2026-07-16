@@ -7,14 +7,14 @@
 // REQUIRES: platform-NPU3720 || platform-NPU4000
 
 module @VPU.SW {
-func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
+func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>)
     attributes {
         VPU.kernel_code = "activation_relu.cpp",
         VPU.kernel_entry = "activation_relu",
         VPU.task_type = @COMPUTE
     }
 
-func.func private @runtime()
+func.func nested @runtime()
     attributes {
         VPU.kernel_code = "nnActEntry"
     }

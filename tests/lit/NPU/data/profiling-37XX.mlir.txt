@@ -11,8 +11,8 @@
 module @age_gender attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
   VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096] loc(#loc)
   module @VPU.SW {
-    func.func private @builtin_Convert(memref<*xf32, @CMX_NN>, memref<*xf16, @CMX_NN>) attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert", VPU.task_type = @COMPUTE} loc(#loc)
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"} loc(#loc)
+    func.func nested @builtin_Convert(memref<*xf32, @CMX_NN>, memref<*xf16, @CMX_NN>) attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert", VPU.task_type = @COMPUTE} loc(#loc)
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"} loc(#loc)
   } loc(#loc)
   config.Resources {activity_factor = 0.16952737005729018 : f64} 2 of @NCE at 1.300000e+03 MHz {
     builtin.module @ReservedMemory {
@@ -20,7 +20,6 @@ module @age_gender attributes {config.compilationMode = #config.compilation_mode
         config.MemoryResource 512 bytes of @CMX_NN offset 0 loc(#loc)
       } loc(#loc)
     } loc(#loc)
-    config.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware loc(#loc)
     config.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64} loc(#loc)
     config.ExecutorResource 2 of @SHAVE_ACT loc(#loc)
     config.ExecutorResource 1 of @SHAVE_NN loc(#loc)

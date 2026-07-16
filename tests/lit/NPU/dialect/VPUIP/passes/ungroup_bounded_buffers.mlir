@@ -76,8 +76,8 @@ module @TestSwKernel attributes {config.compilationMode = #config.compilation_mo
   VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
 
   module @VPU.SW {
-    func.func private @builtin_ReLU(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>) attributes {VPU.kernel_code = "relu_fp16.cpp", VPU.kernel_entry = "relu_fp16"}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_ReLU(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>) attributes {VPU.kernel_code = "relu_fp16.cpp", VPU.kernel_entry = "relu_fp16"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 
   // CHECK-LABEL: main
@@ -184,20 +184,17 @@ module @TestSwKernel attributes {config.compilationMode = #config.compilation_mo
 module @DynamicReshape attributes {config.compilationMode = #config.compilation_mode<DefaultHW>, config.revisionID = #config.revision_id<REVISION_NONE>} {
   VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
   module @VPU.SW {
-    func.func private @builtin_DynamicReshape(memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, i64) attributes {VPU.kernel_code = "dynamic_reshape.cpp", VPU.kernel_entry = "dynamic_reshape", VPU.task_type = @COMPUTE}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_DynamicReshape(memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, i64) attributes {VPU.kernel_code = "dynamic_reshape.cpp", VPU.kernel_entry = "dynamic_reshape", VPU.task_type = @COMPUTE}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
   config.PipelineOptions @Options {
     config.Option @config.FP16CompressedConv : false
     config.Option @config.ReduceSupported : false
     config.Option @config.AutoPaddingODU : false
     config.Option @config.AutoPaddingIDU : false
-    config.Option @config.BarrierMaxVariantSum : 256
-    config.Option @config.BarrierMaxVariantCount : 256
-    config.Option @config.MaxKernelSize : 11
+    config.Option @config.BarrierMaxSlotCount : 256
   }
   config.Resources 2 of @NCE at 1.300000e+03 MHz {
-    config.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @SHAVE_NN
@@ -279,24 +276,22 @@ module attributes {config.platform = #config.platform<NPU4000>, config.compilati
     config.Option @config.AutoPaddingODU : false
     config.Option @config.AutoPaddingIDU : false
     config.Option @config.SprLUTEnabled : false
-    config.Option @config.BarrierMaxVariantSum : 64
-    config.Option @config.BarrierMaxVariantCount : 128
+    config.Option @config.BarrierMaxSlotCount : 256
     config.Option @config.MaxKernelSize : 11
   }
   config.ExecutorResource 1 of @M2I
   config.ExecutorResource 2 of @DMA_NN
   config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   module @VPU.SW {
-    func.func private @builtin_LSTMSequence(memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, i64) attributes {VPU.kernel_code = "lstm_sequence.cpp", VPU.kernel_entry = "lstm_sequence"}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_LSTMSequence(memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, i64) attributes {VPU.kernel_code = "lstm_sequence.cpp", VPU.kernel_entry = "lstm_sequence"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
   config.Resources 4 of @NCE at 1.850000e+03 MHz {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU
   }
-  func.func @TileDynamicLSTMSequence(%arg0: !VPUIP.BoundedBuffer<data=memref<1x1x35x512xf16>, dynamic_shape=memref<4xsi32>>, %arg1: memref<1x1x1x128xf16>, %arg2: memref<1x1x1x128xf16>, %arg3: memref<1x4x128x128xf16, #NWHC>, %arg4: memref<1x1x1x2xsi32>) -> (!VPUIP.BoundedBuffer<data=memref<1x1x35x128xf16>, dynamic_shape=memref<4xsi32>>, memref<1x1x1x128xf16>, memref<1x1x1x128xf16>) {
+  func.func @TileDynamicLSTMSequence(%arg0: !VPUIP.BoundedBuffer<data=memref<1x1x35x512xf16>, dynamic_shape=memref<4xsi32>>, %arg1: memref<1x1x1x128xf16>, %arg2: memref<1x1x1x128xf16>, %arg3: memref<1x4x128x128xf16, {order = #NWHC}>, %arg4: memref<1x1x1x2xsi32>) -> (!VPUIP.BoundedBuffer<data=memref<1x1x35x128xf16>, dynamic_shape=memref<4xsi32>>, memref<1x1x1x128xf16>, memref<1x1x1x128xf16>) {
     %alloc = memref.alloc() : memref<1x1x35x512xf16>
     %alloc_0 = memref.alloc() : memref<4xsi32>
     %0 = VPUIP.GroupBoundedBuffer(%alloc, %alloc_0) : memref<1x1x35x512xf16>, memref<4xsi32> -> !VPUIP.BoundedBuffer<data=memref<1x1x35x512xf16>, dynamic_shape=memref<4xsi32>>
@@ -304,8 +299,8 @@ module attributes {config.platform = #config.platform<NPU4000>, config.compilati
     %1 = VPUIP.Copy inputs(%arg1 : memref<1x1x1x128xf16>) outputs(%alloc_1 : memref<1x1x1x128xf16>) -> memref<1x1x1x128xf16>
     %alloc_2 = memref.alloc() : memref<1x1x1x128xf16>
     %2 = VPUIP.Copy inputs(%arg2 : memref<1x1x1x128xf16>) outputs(%alloc_2 : memref<1x1x1x128xf16>) -> memref<1x1x1x128xf16>
-    %alloc_3 = memref.alloc() : memref<1x4x128x128xf16, #NWHC>
-    %3 = VPUIP.Copy inputs(%arg3 : memref<1x4x128x128xf16, #NWHC>) outputs(%alloc_3 : memref<1x4x128x128xf16, #NWHC>) -> memref<1x4x128x128xf16, #NWHC>
+    %alloc_3 = memref.alloc() : memref<1x4x128x128xf16, {order = #NWHC}>
+    %3 = VPUIP.Copy inputs(%arg3 : memref<1x4x128x128xf16, {order = #NWHC}>) outputs(%alloc_3 : memref<1x4x128x128xf16, {order = #NWHC}>) -> memref<1x4x128x128xf16, {order = #NWHC}>
     %alloc_4 = memref.alloc() : memref<1x1x1x2xsi32>
     %4 = VPUIP.Copy inputs(%arg4 : memref<1x1x1x2xsi32>) outputs(%alloc_4 : memref<1x1x1x2xsi32>) -> memref<1x1x1x2xsi32>
     %alloc_5 = memref.alloc() : memref<1x1x35x128xf16>
@@ -313,9 +308,9 @@ module attributes {config.platform = #config.platform<NPU4000>, config.compilati
     %5 = VPUIP.GroupBoundedBuffer(%alloc_5, %alloc_6) : memref<1x1x35x128xf16>, memref<4xsi32> -> !VPUIP.BoundedBuffer<data=memref<1x1x35x128xf16>, dynamic_shape=memref<4xsi32>>
     %alloc_7 = memref.alloc() : memref<1x1x1x128xf16>
     %alloc_8 = memref.alloc() : memref<1x1x1x128xf16>
-    %results:6 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 6, 0, 0>} @VPU.SW::@builtin_LSTMSequence inputs(%0 as %arg5: !VPUIP.BoundedBuffer<data=memref<1x1x35x512xf16>, dynamic_shape=memref<4xsi32>>, %1 as %arg6: memref<1x1x1x128xf16>, %2 as %arg7: memref<1x1x1x128xf16>, %3 as %arg8: memref<1x4x128x128xf16, #NWHC>, %4 as %arg9: memref<1x1x1x2xsi32>, %0 as %arg10: !VPUIP.BoundedBuffer<data=memref<1x1x35x512xf16>, dynamic_shape=memref<4xsi32>>, %1 as %arg11: memref<1x1x1x128xf16>, %2 as %arg12: memref<1x1x1x128xf16>, %3 as %arg13: memref<1x4x128x128xf16, #NWHC>, %4 as %arg14: memref<1x1x1x2xsi32>) outputs(%5 as %arg15: !VPUIP.BoundedBuffer<data=memref<1x1x35x128xf16>, dynamic_shape=memref<4xsi32>>, %alloc_7 as %arg16: memref<1x1x1x128xf16>, %alloc_8 as %arg17: memref<1x1x1x128xf16>, %5 as %arg18: !VPUIP.BoundedBuffer<data=memref<1x1x35x128xf16>, dynamic_shape=memref<4xsi32>>, %alloc_7 as %arg19: memref<1x1x1x128xf16>, %alloc_8 as %arg20: memref<1x1x1x128xf16>) on tile 0 -> (!VPUIP.BoundedBuffer<data=memref<1x1x35x128xf16>, dynamic_shape=memref<4xsi32>>, memref<1x1x1x128xf16>, memref<1x1x1x128xf16>, !VPUIP.BoundedBuffer<data=memref<1x1x35x128xf16>, dynamic_shape=memref<4xsi32>>, memref<1x1x1x128xf16>, memref<1x1x1x128xf16>){
-      VPUIP.SW.Kernel.run {attrs = [0]}(%arg5, %arg6, %arg7, %arg8, %arg9, %arg15, %arg16, %arg17) : !VPUIP.BoundedBuffer<data=memref<1x1x35x512xf16>, dynamic_shape=memref<4xsi32>>, memref<1x1x1x128xf16>, memref<1x1x1x128xf16>, memref<1x4x128x128xf16, #NWHC>, memref<1x1x1x2xsi32>, !VPUIP.BoundedBuffer<data=memref<1x1x35x128xf16>, dynamic_shape=memref<4xsi32>>, memref<1x1x1x128xf16>, memref<1x1x1x128xf16>
-      VPUIP.SW.Kernel.run {attrs = [0]}(%arg10, %arg11, %arg12, %arg13, %arg14, %arg18, %arg19, %arg20) : !VPUIP.BoundedBuffer<data=memref<1x1x35x512xf16>, dynamic_shape=memref<4xsi32>>, memref<1x1x1x128xf16>, memref<1x1x1x128xf16>, memref<1x4x128x128xf16, #NWHC>, memref<1x1x1x2xsi32>, !VPUIP.BoundedBuffer<data=memref<1x1x35x128xf16>, dynamic_shape=memref<4xsi32>>, memref<1x1x1x128xf16>, memref<1x1x1x128xf16>
+    %results:6 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 6, 0, 0>} @VPU.SW::@builtin_LSTMSequence inputs(%0 as %arg5: !VPUIP.BoundedBuffer<data=memref<1x1x35x512xf16>, dynamic_shape=memref<4xsi32>>, %1 as %arg6: memref<1x1x1x128xf16>, %2 as %arg7: memref<1x1x1x128xf16>, %3 as %arg8: memref<1x4x128x128xf16, {order = #NWHC}>, %4 as %arg9: memref<1x1x1x2xsi32>, %0 as %arg10: !VPUIP.BoundedBuffer<data=memref<1x1x35x512xf16>, dynamic_shape=memref<4xsi32>>, %1 as %arg11: memref<1x1x1x128xf16>, %2 as %arg12: memref<1x1x1x128xf16>, %3 as %arg13: memref<1x4x128x128xf16, {order = #NWHC}>, %4 as %arg14: memref<1x1x1x2xsi32>) outputs(%5 as %arg15: !VPUIP.BoundedBuffer<data=memref<1x1x35x128xf16>, dynamic_shape=memref<4xsi32>>, %alloc_7 as %arg16: memref<1x1x1x128xf16>, %alloc_8 as %arg17: memref<1x1x1x128xf16>, %5 as %arg18: !VPUIP.BoundedBuffer<data=memref<1x1x35x128xf16>, dynamic_shape=memref<4xsi32>>, %alloc_7 as %arg19: memref<1x1x1x128xf16>, %alloc_8 as %arg20: memref<1x1x1x128xf16>) on tile 0 -> (!VPUIP.BoundedBuffer<data=memref<1x1x35x128xf16>, dynamic_shape=memref<4xsi32>>, memref<1x1x1x128xf16>, memref<1x1x1x128xf16>, !VPUIP.BoundedBuffer<data=memref<1x1x35x128xf16>, dynamic_shape=memref<4xsi32>>, memref<1x1x1x128xf16>, memref<1x1x1x128xf16>){
+      VPUIP.SW.Kernel.run {attrs = [0]}(%arg5, %arg6, %arg7, %arg8, %arg9, %arg15, %arg16, %arg17) : !VPUIP.BoundedBuffer<data=memref<1x1x35x512xf16>, dynamic_shape=memref<4xsi32>>, memref<1x1x1x128xf16>, memref<1x1x1x128xf16>, memref<1x4x128x128xf16, {order = #NWHC}>, memref<1x1x1x2xsi32>, !VPUIP.BoundedBuffer<data=memref<1x1x35x128xf16>, dynamic_shape=memref<4xsi32>>, memref<1x1x1x128xf16>, memref<1x1x1x128xf16>
+      VPUIP.SW.Kernel.run {attrs = [0]}(%arg10, %arg11, %arg12, %arg13, %arg14, %arg18, %arg19, %arg20) : !VPUIP.BoundedBuffer<data=memref<1x1x35x512xf16>, dynamic_shape=memref<4xsi32>>, memref<1x1x1x128xf16>, memref<1x1x1x128xf16>, memref<1x4x128x128xf16, {order = #NWHC}>, memref<1x1x1x2xsi32>, !VPUIP.BoundedBuffer<data=memref<1x1x35x128xf16>, dynamic_shape=memref<4xsi32>>, memref<1x1x1x128xf16>, memref<1x1x1x128xf16>
     }
     %6 = VPUIP.ConcatView inputs(%results#0, %results#3 : !VPUIP.BoundedBuffer<data=memref<1x1x35x128xf16>, dynamic_shape=memref<4xsi32>>, !VPUIP.BoundedBuffer<data=memref<1x1x35x128xf16>, dynamic_shape=memref<4xsi32>>) outputs(%5 : !VPUIP.BoundedBuffer<data=memref<1x1x35x128xf16>, dynamic_shape=memref<4xsi32>>) -> !VPUIP.BoundedBuffer<data=memref<1x1x35x128xf16>, dynamic_shape=memref<4xsi32>>
     %7 = VPUIP.ConcatView inputs(%results#1, %results#4 : memref<1x1x1x128xf16>, memref<1x1x1x128xf16>) outputs(%alloc_7 : memref<1x1x1x128xf16>) -> memref<1x1x1x128xf16>
@@ -339,12 +334,12 @@ module attributes {config.platform = #config.platform<NPU4000>, config.compilati
     // CHECK:     memref<1x1x35x512xf16>,
     // CHECK:     memref<1x1x1x128xf16>,
     // CHECK:     memref<1x1x1x128xf16>,
-    // CHECK:     memref<1x4x128x128xf16, #NWHC>,
+    // CHECK:     memref<1x4x128x128xf16, {order = #NWHC}>,
     // CHECK:     memref<1x1x1x2xsi32>,
     // CHECK:     memref<1x1x35x512xf16>,
     // CHECK:      memref<1x1x1x128xf16>,
     // CHECK:     memref<1x1x1x128xf16>,
-    // CHECK:     memref<1x4x128x128xf16, #NWHC>,
+    // CHECK:     memref<1x4x128x128xf16, {order = #NWHC}>,
     // CHECK:     memref<1x1x1x2xsi32>
     // CHECK:   ) dynamicInputShapes(
     // CHECK:     memref<4xsi32>
@@ -359,9 +354,9 @@ module attributes {config.platform = #config.platform<NPU4000>, config.compilati
     // CHECK:     memref<4xsi32>
     // CHECK:   ) on tile 0 -> (memref<1x1x35x128xf16>, memref<1x1x1x128xf16>, memref<1x1x1x128xf16>, memref<1x1x35x128xf16>, memref<1x1x1x128xf16>, memref<1x1x1x128xf16>, memref<4xsi32>){
     // CHECK:   VPUIP.SW.Kernel.run {attrs = [0, 0]}(
-    // CHECK:       memref<1x1x35x512xf16>, memref<1x1x1x128xf16>, memref<1x1x1x128xf16>, memref<1x4x128x128xf16, #NWHC>, memref<1x1x1x2xsi32>, memref<1x1x35x128xf16>, memref<1x1x1x128xf16>, memref<1x1x1x128xf16>
+    // CHECK:       memref<1x1x35x512xf16>, memref<1x1x1x128xf16>, memref<1x1x1x128xf16>, memref<1x4x128x128xf16, {order = #NWHC}>, memref<1x1x1x2xsi32>, memref<1x1x35x128xf16>, memref<1x1x1x128xf16>, memref<1x1x1x128xf16>
     // CHECK:   VPUIP.SW.Kernel.run {attrs = [0, 0]}(
-    // CHECK:       memref<1x1x35x512xf16>, memref<1x1x1x128xf16>, memref<1x1x1x128xf16>, memref<1x4x128x128xf16, #NWHC>, memref<1x1x1x2xsi32>, memref<1x1x35x128xf16>, memref<1x1x1x128xf16>, memref<1x1x1x128xf16>
+    // CHECK:       memref<1x1x35x512xf16>, memref<1x1x1x128xf16>, memref<1x1x1x128xf16>, memref<1x4x128x128xf16, {order = #NWHC}>, memref<1x1x1x2xsi32>, memref<1x1x35x128xf16>, memref<1x1x1x128xf16>, memref<1x1x1x128xf16>
     // CHECK: }
     // CHECK: [[CONCAT_VIEW_0:%.+]] = VPUIP.ConcatView inputs([[RESULTS]]#0, [[RESULTS]]#3 : memref<1x1x35x128xf16>, memref<1x1x35x128xf16>) outputs([[ALLOC_0]] : memref<1x1x35x128xf16>) -> memref<1x1x35x128xf16>
     // CHECK: [[CONCAT_VIEW_1:%.+]] = VPUIP.ConcatView inputs([[DYN_OUTPUT_SHAPES]], [[DYN_OUTPUT_SHAPES]] : memref<4xsi32>, memref<4xsi32>) outputs([[ALLOC_1]] : memref<4xsi32>) -> memref<4xsi32>
@@ -401,8 +396,8 @@ func.func @GroupBoundedBufferCanonicalize(%arg0: memref<1x8x384x384xf16>, %arg1:
 #C = affine_map<(d0) -> (d0)>
   VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
   module @VPU.SW {
-    func.func private @builtin_LSTMSequence(memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, i64) attributes {VPU.kernel_code = "lstm_sequence.cpp", VPU.kernel_entry = "lstm_sequence"}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_LSTMSequence(memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, i64) attributes {VPU.kernel_code = "lstm_sequence.cpp", VPU.kernel_entry = "lstm_sequence"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 
 !InputDistributed = !VPUIP.DistributedBuffer<1x2x35x512xf16, #NCHW, @CMX_NN, {
@@ -429,7 +424,7 @@ func.func @GroupBoundedBufferCanonicalize(%arg0: memref<1x8x384x384xf16>, %arg1:
 func.func @LSTMSequence(
     %input : !InputDistributed, %input_shape: !ShapeDistributed,
     %input1: memref<1x2x1x128xf16, @CMX_NN>, %input2: memref<1x2x1x128xf16, @CMX_NN>,
-    %input3: memref<2x4x128x128xf16, #NWHC, @CMX_NN>, %input4: memref<1x1x1x2xsi32, @CMX_NN>,
+    %input3: memref<2x4x128x128xf16, {order = #NWHC}, @CMX_NN>, %input4: memref<1x1x1x2xsi32, @CMX_NN>,
     %output: !OutputDistributed1, %output_shape: !ShapeDistributed,
     %output1: memref<1x2x1x128xf16, @CMX_NN>, %output2: memref<1x2x1x128xf16, @CMX_NN>,
     %lstm_output_shape : memref<4xsi32, @DDR>)
@@ -446,7 +441,7 @@ func.func @LSTMSequence(
                 dynamic_shape=!ShapeDistributed>,
             %input1 as %arg9: memref<1x2x1x128xf16, @CMX_NN>,
             %input2 as %arg10: memref<1x2x1x128xf16, @CMX_NN>,
-            %input3 as %arg11: memref<2x4x128x128xf16, #NWHC, @CMX_NN>,
+            %input3 as %arg11: memref<2x4x128x128xf16, {order = #NWHC}, @CMX_NN>,
             %input4 as %arg12: memref<1x1x1x2xsi32, @CMX_NN>)
             outputs(
             %bounded_output as %arg13: !VPUIP.BoundedBuffer<
@@ -466,7 +461,7 @@ func.func @LSTMSequence(
                         dynamic_shape=!ShapeDistributed>,
                         memref<1x2x1x128xf16, @CMX_NN>,
                         memref<1x2x1x128xf16, @CMX_NN>,
-                        memref<2x4x128x128xf16, #NWHC, @CMX_NN>,
+                        memref<2x4x128x128xf16, {order = #NWHC}, @CMX_NN>,
                         memref<1x1x1x2xsi32, @CMX_NN>,
                     !VPUIP.BoundedBuffer<
                         data=!OutputDistributed1,
@@ -492,9 +487,9 @@ func.func @LSTMSequence(
 #C = affine_map<(d0) -> (d0)>
   VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
   module @VPU.SW {
-    func.func private @builtin_LSTMSequence(memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, i64) attributes {VPU.kernel_code = "lstm_sequence.cpp", VPU.kernel_entry = "lstm_sequence"}
-    func.func private @builtin_DynamicReshape(memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, i64) attributes {VPU.kernel_code = "dynamic_reshape.cpp", VPU.kernel_entry = "dynamic_reshape", VPU.task_type = @COMPUTE}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_LSTMSequence(memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, i64) attributes {VPU.kernel_code = "lstm_sequence.cpp", VPU.kernel_entry = "lstm_sequence"}
+    func.func nested @builtin_DynamicReshape(memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, i64) attributes {VPU.kernel_code = "dynamic_reshape.cpp", VPU.kernel_entry = "dynamic_reshape", VPU.task_type = @COMPUTE}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 
 
@@ -541,8 +536,8 @@ func.func @LSTMSequenceOutputShape(
 
     %cst1 = const.Declare memref<1x2x1x128xf16, @CMX_NN> = dense<1.000000e+00> : memref<1x2x1x128xf16, @CMX_NN>
     %cst2 = const.Declare memref<1x2x1x128xf16, @CMX_NN> = dense<1.000000e+00> : memref<1x2x1x128xf16, @CMX_NN>
-    %cst3 = const.Declare memref<2x4x128x128xf16, #NWHC, @CMX_NN> = dense<1.000000e+00>
-          : memref<2x4x128x128xf16, #NWHC, @CMX_NN>
+    %cst3 = const.Declare memref<2x4x128x128xf16, {order = #NWHC}, @CMX_NN> = dense<1.000000e+00>
+          : memref<2x4x128x128xf16, {order = #NWHC}, @CMX_NN>
     %cst4 = const.Declare memref<1x1x1x2xsi32, @CMX_NN> = dense<1> : memref<1x1x1x2xsi32, @CMX_NN>
 
     %results_72:3 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 3, 0, 0>} @VPU.SW::@builtin_LSTMSequence
@@ -552,7 +547,7 @@ func.func @LSTMSequenceOutputShape(
                 dynamic_shape=!ShapeDistributed>,
             %cst1 as %arg9: memref<1x2x1x128xf16, @CMX_NN>,
             %cst2 as %arg10: memref<1x2x1x128xf16, @CMX_NN>,
-            %cst3 as %arg11: memref<2x4x128x128xf16, #NWHC, @CMX_NN>,
+            %cst3 as %arg11: memref<2x4x128x128xf16, {order = #NWHC}, @CMX_NN>,
             %cst4 as %arg12: memref<1x1x1x2xsi32, @CMX_NN>)
             outputs(
             %bounded_output as %arg13: !VPUIP.BoundedBuffer<
@@ -572,7 +567,7 @@ func.func @LSTMSequenceOutputShape(
                         dynamic_shape=!ShapeDistributed>,
                         memref<1x2x1x128xf16, @CMX_NN>,
                         memref<1x2x1x128xf16, @CMX_NN>,
-                        memref<2x4x128x128xf16, #NWHC, @CMX_NN>,
+                        memref<2x4x128x128xf16, {order = #NWHC}, @CMX_NN>,
                         memref<1x1x1x2xsi32, @CMX_NN>,
                     !VPUIP.BoundedBuffer<
                         data=!OutputDistributed1,

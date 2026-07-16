@@ -6,6 +6,8 @@
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/NPU40XX/utils.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
+#include "vpux/compiler/utils/options.hpp"
 
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
@@ -25,6 +27,11 @@
 #include "vpux/compiler/dialect/VPU/utils/layout_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sw_tiling_interface_utils.hpp"
+
+#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/arithmetic.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 
 #include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -136,7 +143,10 @@ mlir::LogicalResult vpux::VPU::details::verifyInputTypeOp(mlir::Operation* op, v
 
 mlir::LogicalResult vpux::VPU::details::verifyInputQuantization(mlir::Operation* op) {
     for (auto operand : op->getOperands()) {
-        auto inputType = mlir::cast<vpux::NDTypeInterface>(operand.getType());
+        auto inputType = mlir::dyn_cast<vpux::NDTypeInterface>(operand.getType());
+        if (inputType == nullptr) {
+            continue;
+        }
         auto elemType = inputType.getElementType();
 
         if (auto inputQType = mlir::dyn_cast<mlir::quant::QuantizedType>(elemType)) {
@@ -407,6 +417,7 @@ void vpux::VPU::registerSWTilingInfoOpInterfaceCommon(mlir::DialectRegistry& reg
         VPU::TileOp::attachInterface<SwLayerTilingInfoOpModel<VPU::TileOp>>(*ctx);
         VPU::DynamicTileOp::attachInterface<SwLayerTilingInfoOpModel<VPU::DynamicTileOp>>(*ctx);
         VPU::NormalizeL2Op::attachInterface<SwLayerTilingInfoOpModel<VPU::NormalizeL2Op>>(*ctx);
+        VPU::LRNOp::attachInterface<SwLayerTilingInfoOpModel<VPU::LRNOp>>(*ctx);
         VPU::YuvToRgbOp::attachInterface<SwLayerTilingInfoOpModel<VPU::YuvToRgbOp>>(*ctx);
         VPU::SquaredDifferenceOp::attachInterface<SwLayerTilingInfoOpModel<VPU::SquaredDifferenceOp>>(*ctx);
         VPU::GeluOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GeluOp>>(*ctx);

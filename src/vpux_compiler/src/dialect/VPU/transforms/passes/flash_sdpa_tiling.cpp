@@ -4,6 +4,7 @@
 //
 
 #include <llvm/ADT/STLExtras.h>
+#include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/Value.h>
 #include <mlir/Transforms/WalkPatternRewriteDriver.h>
 #include <map>
@@ -12,6 +13,7 @@
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
@@ -19,7 +21,9 @@
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
+#include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
+#include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/numeric.hpp"
 #include "vpux/utils/core/range.hpp"
@@ -34,25 +38,50 @@ using namespace vpux;
 
 namespace {
 
+// Transient op-attached attributes used to communicate the tiling strategy from
+// the annotate walk to the two rewriters. The Q rewriter consumes
+// head_and_q_num_tiles (a [headTiles, querySeqTiles] array, heads-first) and
+// preserves kv_num_tiles on cloned Q tiles for the KV rewriter.
+constexpr llvm::StringLiteral HEAD_AND_Q_NUM_TILES_ATTR_NAME = "head_and_q_num_tiles";
+constexpr llvm::StringLiteral KV_NUM_TILES_ATTR_NAME = "kv_num_tiles";
+
 // Explicit tiling strategy with semantic dimension names
 struct FlashSDPATilingStrategy {
     int64_t headTiles{1};      // Number of tiles on the Heads (C) dimension
     int64_t querySeqTiles{1};  // Number of tiles on Query sequence length (H)
-    int64_t kvNumBlocks{1};    // Number of KV sequence unrolls (propagated to UnrollFlashSDPA)
+    int64_t kvNumBlocks{1};    // Number of KV sequence unrolls
 };
 
-class FlashSDPATilingRewrite final : public mlir::OpRewritePattern<VPU::FlashSDPAOp> {
+struct FlashSDPAHeadTiling {
+    int64_t alignedGroupSize{1};
+    int64_t numTiles{1};
+};
+
+class FlashSDPAQTilingRewrite final : public mlir::OpRewritePattern<VPU::FlashSDPAOp> {
 public:
-    FlashSDPATilingRewrite(mlir::MLIRContext* ctx, bool enablePipelining, Logger log)
-            : mlir::OpRewritePattern<VPU::FlashSDPAOp>(ctx), _enablePipelining(enablePipelining), _log(log) {
-        setDebugName("FlashSDPARewrite");
+    FlashSDPAQTilingRewrite(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<VPU::FlashSDPAOp>(ctx), _log(log) {
+        setDebugName("FlashSDPAQTilingRewrite");
     }
 
 public:
     mlir::LogicalResult matchAndRewrite(VPU::FlashSDPAOp origOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
-    bool _enablePipelining = true;
+    Logger _log;
+};
+
+class FlashSDPAKVUnrollRewrite final : public mlir::OpRewritePattern<VPU::FlashSDPAOp> {
+public:
+    FlashSDPAKVUnrollRewrite(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<VPU::FlashSDPAOp>(ctx), _log(log) {
+        setDebugName("FlashSDPAKVUnrollRewrite");
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(VPU::FlashSDPAOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
     Logger _log;
 };
 
@@ -76,9 +105,10 @@ std::optional<int64_t> estimateRequiredKvNumBlocks(VPU::FlashSDPAOp origOp, Arra
     while (dimSize > alignment) {
         kvNumBlocks = divUp(sourceSeqLen, dimSize - alignment);
         dimSize = alignValUp(divUp(sourceSeqLen, kvNumBlocks), alignment);
+        const auto effectiveKvNumBlocks = divUp(sourceSeqLen, dimSize);
 
-        if (origOp.fitIntoCMXAfterKeyValueTiling(tiledTensors, reservedMem, kvNumBlocks)) {
-            return kvNumBlocks;
+        if (origOp.fitIntoCMXAfterKeyValueTiling(tiledTensors, reservedMem, effectiveKvNumBlocks)) {
+            return effectiveKvNumBlocks;
         }
     }
 
@@ -107,6 +137,29 @@ SmallVector<int64_t> getPipelinedBufferIndices(bool hasAttentionMask) {
     return indices;
 }
 
+// Number of head tiles is determined purely from input shapes: the kernel requires
+// exactly 1 KV head per cluster invocation. getAlignment() returns alignment[C] =
+// numClusters for SOK and 1 for Clustering, so per-cluster KV head count after
+// distribution is always 1.
+FlashSDPAHeadTiling computeHeadTiling(VPU::FlashSDPAOp origOp) {
+    const auto keyShape = getShape(origOp.getKey());
+    const auto kvHeads = keyShape[Dims4D::Act::C];
+
+    const auto resultShape = getShape(origOp.getResultRunningOutput());
+    const auto qHeads = resultShape[Dims4D::Act::C];
+
+    const auto alignment = getAlignment(origOp.getOperation(), {}, {});
+
+    VPUX_THROW_UNLESS(qHeads % kvHeads == 0,
+                      "Incorrect '{0}' configurations. Query heads dimension = '{1}' must be divisible by Key/Value "
+                      "heads dimension '{2}'",
+                      origOp->getName(), qHeads, kvHeads);
+
+    const auto groupSize = qHeads / kvHeads;
+    const auto alignedGroupSize = groupSize * alignment[Dims4D::Act::C.ind()];
+    return FlashSDPAHeadTiling{alignedGroupSize, divUp(qHeads, alignedGroupSize)};
+}
+
 // Estimate the query sequence tiling and KV blocks needed for a given head tile size,
 // always reserving memory for query pipelining.
 //
@@ -115,16 +168,13 @@ SmallVector<int64_t> getPipelinedBufferIndices(bool hasAttentionMask) {
 // [ Shared | Pipelined0 | Pipelined1 ] + [ Shared ]
 // [     CMX for 1 Op    ]     ^-- reserved CMX
 std::optional<FlashSDPATilingStrategy> estimateTiling(VPU::FlashSDPAOp origOp, bool enablePipelining, Logger log) {
-    // Unroll to 1 head per op
     const auto resultShape = getShape(origOp.getResultRunningOutput());
-    const auto qHeads = resultShape[Dims4D::Act::C];
-    const auto headTiles = qHeads;
+    const auto alignment = getAlignment(origOp.getOperation(), {}, {});
+    const auto headTiling = computeHeadTiling(origOp);
 
-    const auto alignment = getAlignment(origOp, {}, {});
-
+    // Unroll on the Heads dimension (see computeHeadTiling for the 1-KV-head-per-cluster rationale).
     auto tiledResultShape = Shape(resultShape);
-    const auto headDimSize = resultShape[Dims4D::Act::C];
-    tiledResultShape[Dims4D::Act::C] = alignValUp(divUp(headDimSize, headTiles), alignment[Dims4D::Act::C.ind()]);
+    tiledResultShape[Dims4D::Act::C] = headTiling.alignedGroupSize;
 
     // Now try to find query sequence tiling that fits CMX
     const auto seqLenDimSize = resultShape[Dims4D::Act::H];
@@ -169,9 +219,14 @@ std::optional<FlashSDPATilingStrategy> estimateTiling(VPU::FlashSDPAOp origOp, b
         return std::nullopt;
     }
 
-    return FlashSDPATilingStrategy{headTiles, querySeqTiles, kvNumBlocks.value()};
+    return FlashSDPATilingStrategy{headTiling.numTiles, querySeqTiles, kvNumBlocks.value()};
 }
 
+// Mirrors the generic VPU::applyTileStrategy (generate_tiling.cpp) but adds an input-tile
+// cache so identical operand slices are emitted only once: e.g. all query-sequence tiles of
+// a single head share the same key/value slice. The LIT test relies on this reuse (cloned Q
+// tiles point at the same Slice SSA value), so this specialized copy must not silently
+// diverge from the generic version's tiling/concat semantics.
 mlir::LogicalResult applyTileStrategyFlashSDPA(VPU::TilingBuilderOpInterface origOp, const OutputTiling& tiles,
                                                mlir::RewriterBase& rewriter, Logger log) {
     const auto results = origOp->getResults();
@@ -268,39 +323,65 @@ mlir::LogicalResult applyTileStrategyFlashSDPA(VPU::TilingBuilderOpInterface ori
     return mlir::success();
 }
 
-mlir::LogicalResult FlashSDPATilingRewrite::matchAndRewrite(VPU::FlashSDPAOp origOp,
-                                                            mlir::PatternRewriter& rewriter) const {
+// Estimate the tiling strategy once and stamp it onto the op as two transient
+// attributes. The Q rewriter and the KV rewriter each consume their respective
+// attribute and clear it. The Q rewriter leaves kv_num_tiles on cloned Q tiles
+// so KV unrolling can consume the same strategy per Q tile.
+mlir::LogicalResult annotateTilingStrategy(VPU::FlashSDPAOp op, bool enablePipelining, Logger log) {
+    auto resultShape = getShape(op.getResult(0));
+    if (resultShape.size() < 2) {
+        return errorAt(op, "Output shape must at least have a rank 2, got {0}", resultShape.size());
+    }
+
+    auto strategy = estimateTiling(op, enablePipelining, log.nest());
+    if (!strategy.has_value()) {
+        return errorAt(op, "Failed to estimate tiling for FlashSDPA operation. Tensors will not fit CMX.");
+    }
+
+    log.trace("Annotated tiling for '{0}': heads={1}, querySeq={2}, kv={3}", op->getLoc(), strategy->headTiles,
+              strategy->querySeqTiles, strategy->kvNumBlocks);
+
+    auto* ctx = op->getContext();
+    op->setAttr(HEAD_AND_Q_NUM_TILES_ATTR_NAME,
+                getIntArrayAttr(ctx, ArrayRef<int64_t>{strategy->headTiles, strategy->querySeqTiles}));
+    op->setAttr(KV_NUM_TILES_ATTR_NAME, getIntAttr(ctx, strategy->kvNumBlocks));
+    return mlir::success();
+}
+
+mlir::LogicalResult FlashSDPAQTilingRewrite::matchAndRewrite(VPU::FlashSDPAOp origOp,
+                                                             mlir::PatternRewriter& rewriter) const {
+    auto headAndQNumTilesAttr = origOp->getAttrOfType<mlir::ArrayAttr>(HEAD_AND_Q_NUM_TILES_ATTR_NAME);
+    if (headAndQNumTilesAttr == nullptr) {
+        return mlir::failure();
+    }
+
     _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp->getLoc());
     auto log = _log.nest();
 
-    auto resultShape = getShape(origOp.getResult(0));
-    auto resultRank = resultShape.size();
-    if (resultRank < 2) {
-        return errorAt(origOp, "Output shape must at least have a rank 2, got {0}", resultRank);
-    }
+    const auto headAndQNumTiles = parseIntArrayAttr<int64_t>(headAndQNumTilesAttr);
+    VPUX_THROW_UNLESS(headAndQNumTiles.size() == 2, "Expected '{0}' to hold [headTiles, querySeqTiles], got {1} values",
+                      HEAD_AND_Q_NUM_TILES_ATTR_NAME, headAndQNumTiles.size());
+    const auto headTiles = headAndQNumTiles[0];
+    const auto querySeqTiles = headAndQNumTiles[1];
 
-    auto strategy = estimateTiling(origOp, _enablePipelining, log);
-    if (!strategy.has_value()) {
-        return errorAt(origOp, "Failed to estimate tiling for FlashSDPA operation. Tensors will not fit CMX.");
-    }
-
-    log.trace("Computed tiling: heads={0}, querySeq={1}, kv={2}", strategy->headTiles, strategy->querySeqTiles,
-              strategy->kvNumBlocks);
-
-    // Save Key/Value tiling attribute to propagate the tiling decision to each FlashSDPAOp.
+    // Clear the marker before cloning so the Q-tile clones don't re-trigger this rewriter.
+    // The KV_NUM_TILES_ATTR_NAME attribute is left in place so the cloned tiles carry the
+    // KV-unrolling decision forward to the KV unrolling stage.
     rewriter.modifyOpInPlace(origOp, [&] {
-        origOp.setKvNumBlocks(strategy->kvNumBlocks);
+        origOp->removeAttr(HEAD_AND_Q_NUM_TILES_ATTR_NAME);
     });
 
-    // Build the tiling divisor shape: [N=1, C=headTiles, H=querySeqTiles, W=1]
+    // Build the tiling divisor shape: [N=Batch, C=headTiles, H=querySeqTiles, W=1].
+    // Heads (C) precede Q-sequence (H) so, with unrollSpatialFirst=false (NCHW order),
+    // tiles are enumerated heads-first then query-sequence.
     const auto firstOutputShape = getShape(origOp.getResultRunningOutput());
     auto tilingStrategy = Shape(firstOutputShape.size(), 1);
-    tilingStrategy[Dims4D::Act::N] = firstOutputShape[Dims4D::Act::N];  // Unroll on Batch
-    tilingStrategy[Dims4D::Act::C] = strategy->headTiles;
-    tilingStrategy[Dims4D::Act::H] = strategy->querySeqTiles;
+    tilingStrategy[Dims4D::Act::N] = firstOutputShape[Dims4D::Act::N];
+    tilingStrategy[Dims4D::Act::C] = headTiles;
+    tilingStrategy[Dims4D::Act::H] = querySeqTiles;
 
-    const auto alignment = getAlignment(origOp, {}, {});
-    const auto unrollSpatialFirst = true;
+    const auto alignment = getAlignment(origOp.getOperation(), {}, {});
+    const auto unrollSpatialFirst = false;
     const auto firstOutputTiles = fillDividedTiles(tilingStrategy, firstOutputShape, alignment, unrollSpatialFirst);
 
     if (mlir::failed(firstOutputTiles)) {
@@ -322,6 +403,116 @@ mlir::LogicalResult FlashSDPATilingRewrite::matchAndRewrite(VPU::FlashSDPAOp ori
 }
 
 //
+// FlashSDPAKVUnrollRewrite
+//
+
+mlir::Value createSlice(mlir::PatternRewriter& rewriter, mlir::Location loc, mlir::Value value, Dim dimension,
+                        int64_t beginOffset, int64_t endOffset, const Logger& log) {
+    auto shape = getShape(value);
+
+    auto sliceOffset = Shape(shape.size(), 0);
+    sliceOffset[dimension] = checked_cast<int64_t>(beginOffset);
+    auto offsetsAttr = getIntArrayAttr(rewriter.getContext(), sliceOffset);
+
+    auto sliceSize = Shape(shape);
+    sliceSize[dimension] = endOffset - beginOffset;
+    auto sizesAttr = getIntArrayAttr(rewriter.getContext(), sliceSize);
+
+    log.trace("Created SliceOp with offset {0} and size {1} at {2}", sliceOffset, sliceSize, loc);
+    return rewriter.create<VPU::SliceOp>(loc, value, offsetsAttr, sizesAttr);
+}
+
+mlir::LogicalResult FlashSDPAKVUnrollRewrite::matchAndRewrite(VPU::FlashSDPAOp origOp,
+                                                              mlir::PatternRewriter& rewriter) const {
+    auto kvNumTilesAttr = origOp->getAttrOfType<mlir::IntegerAttr>(KV_NUM_TILES_ATTR_NAME);
+    if (kvNumTilesAttr == nullptr) {
+        return mlir::failure();
+    }
+
+    _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp->getLoc());
+    auto log = _log.nest();
+    auto ctx = rewriter.getContext();
+
+    const auto kvNumBlocks = parseIntAttr<int64_t>(kvNumTilesAttr);
+
+    rewriter.modifyOpInPlace(origOp, [&] {
+        origOp->removeAttr(KV_NUM_TILES_ATTR_NAME);
+    });
+
+    if (kvNumBlocks < 2) {
+        log.trace("No need to tile the operation");
+        return mlir::success();
+    }
+
+    // Tiling parameters
+    const auto keyShape = getShape(origOp.getKey());
+    const auto sourceSeqLen = keyShape[Dims4D::Act::H];
+
+    // MatMul computed as DPU DWConv from SHAVE that requires channel alignment
+    // Because we use NCHW layout for the input tensors, the channel dimension is actually the width
+    // Second MatMul has Attention scores and Values tensors as an input, with "channels" == sourceSeqLen
+    // So we must align SourceSeqLen dimension to have a correct WeightsTable
+    const auto keyType = mlir::cast<NDTypeInterface>(origOp.getKey().getType());
+    const auto elemType = keyType.getElementType();
+    const auto alignment = vpux::VPU::NCEInvariant::getAlignment(elemType);
+
+    const auto tileSize = alignValUp(divUp(sourceSeqLen, kvNumBlocks), alignment);
+    const auto effectiveKvNumBlocks = divUp(sourceSeqLen, tileSize);
+
+    // Partial values that are chained through FlashSDPAOp
+    auto out = origOp.getInputRunningOutput();
+    auto max = origOp.getInputRunningMax();
+    auto sum = origOp.getInputRunningSum();
+
+    // Padding on SequenceLength is 0 for all operations except the last one
+    auto zeroPadAttr = getIntAttr(rewriter, 0);
+
+    auto query = origOp.getQuery();
+
+    const auto initIsHead = origOp.getIsHead();
+    const auto initIsTail = origOp.getIsTail();
+
+    VPU::FlashSDPAOp tiledOp;
+    for (auto i = int64_t{0}; i < effectiveKvNumBlocks; ++i) {
+        log.trace("Unrolling {0} - {1} / {2} times", origOp->getName(), i + 1, effectiveKvNumBlocks);
+        auto beginOffset = i * tileSize;
+        auto endOffset = std::min(beginOffset + tileSize, sourceSeqLen);
+
+        auto keySlice = createSlice(rewriter, appendLoc(origOp->getLoc(), "key_slice_{0}", i), origOp.getKey(),
+                                    Dims4D::Act::H, beginOffset, endOffset, log);
+        auto valueSlice = createSlice(rewriter, appendLoc(origOp->getLoc(), "value_slice_{0}", i), origOp.getValue(),
+                                      Dims4D::Act::H, beginOffset, endOffset, log);
+
+        auto attentionMaskSlice = mlir::Value{nullptr};
+        if (origOp.getAttentionMask() != nullptr) {
+            attentionMaskSlice = createSlice(rewriter, appendLoc(origOp->getLoc(), "attention_mask_slice_{0}", i),
+                                             origOp.getAttentionMask(), Dims4D::Act::W, beginOffset, endOffset, log);
+        }
+
+        auto isHeadAttr = mlir::BoolAttr::get(ctx, initIsHead && (i == 0));
+        auto isTailAttr = mlir::BoolAttr::get(ctx, initIsTail && (i + 1 == effectiveKvNumBlocks));
+
+        auto sourceSeqLenPadSize = (i + 1 == effectiveKvNumBlocks) ? origOp.getSourceSeqLenPadSizeAttr() : zeroPadAttr;
+
+        auto tileLoc = appendLoc(origOp->getLoc(), "flash_sdpa_kv_tile_{0}", i);
+        tiledOp = rewriter.create<VPU::FlashSDPAOp>(tileLoc, query, keySlice, valueSlice, out, max, sum,
+                                                    attentionMaskSlice, sourceSeqLenPadSize, isHeadAttr, isTailAttr,
+                                                    origOp.getMultiClusterStrategyAttr());
+
+        copyLoopAttributes(origOp, tiledOp.getOperation());
+        log.trace("Unrolled {0} - {1}", tiledOp->getName(), tiledOp->getResult(0));
+
+        // Propagate intermediate values to the next FlashSDPAOp (unused after the final tile).
+        out = tiledOp.getResultRunningOutput();
+        max = tiledOp.getResultRunningMax();
+        sum = tiledOp.getResultRunningSum();
+    }
+
+    rewriter.replaceOp(origOp, tiledOp);
+    return mlir::success();
+}
+
+//
 // FlashSDPATiling
 //
 
@@ -335,6 +526,9 @@ public:
 
 private:
     void safeRunOnFunc() final;
+
+    void applyQTilingPatterns(mlir::Operation* func);
+    void applyKVUnrollPatterns(mlir::Operation* func);
 
     bool _enablePipelining = true;
 };
@@ -350,20 +544,45 @@ mlir::LogicalResult FlashSDPATiling::initialize(mlir::MLIRContext* ctx) {
     return mlir::success();
 }
 
+void FlashSDPATiling::applyQTilingPatterns(mlir::Operation* func) {
+    auto* ctx = func->getContext();
+    mlir::RewritePatternSet patterns(ctx);
+    patterns.add<FlashSDPAQTilingRewrite>(ctx, _log);
+    mlir::walkAndApplyPatterns(func, std::move(patterns));
+}
+
+void FlashSDPATiling::applyKVUnrollPatterns(mlir::Operation* func) {
+    auto* ctx = func->getContext();
+    mlir::RewritePatternSet patterns(ctx);
+    patterns.add<FlashSDPAKVUnrollRewrite>(ctx, _log);
+    mlir::walkAndApplyPatterns(func, std::move(patterns));
+}
+
 void FlashSDPATiling::safeRunOnFunc() {
     auto func = getOperation();
-    auto& ctx = getContext();
 
-    // Mark each operation with a tiling loop index for loop-allocation scheduling
+    // 1) Annotate every FlashSDPA with head_and_q_num_tiles + kv_num_tiles. The Q rewriter
+    // consumes head_and_q_num_tiles and propagates kv_num_tiles to the cloned Q tiles.
+    auto annotateStatus = mlir::success();
+    func->walk([&](VPU::FlashSDPAOp op) {
+        if (mlir::failed(annotateTilingStrategy(op, _enablePipelining, _log))) {
+            annotateStatus = mlir::failure();
+        }
+    });
+    if (mlir::failed(annotateStatus)) {
+        signalPassFailure();
+        return;
+    }
+
+    // 2) Mark each operation with a tiling loop index for loop-allocation scheduling.
     func->walk([tilingIndex = 0ll](VPU::FlashSDPAOp flashSdpa) mutable {
         flashSdpa->setAttr(TILING_LOOP_INDEX_ATTR_NAME, TilingLoopIndexAttr::get(flashSdpa->getContext(), tilingIndex));
         ++tilingIndex;
     });
 
-    mlir::RewritePatternSet patterns(&ctx);
-    patterns.add<FlashSDPATilingRewrite>(&ctx, _enablePipelining, _log);
-
-    mlir::walkAndApplyPatterns(func, std::move(patterns));
+    // 3) Tile Heads/Query first, then unroll each resulting Q tile on Key/Value.
+    applyQTilingPatterns(func);
+    applyKVUnrollPatterns(func);
 }
 
 }  // namespace

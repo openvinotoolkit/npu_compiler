@@ -144,12 +144,9 @@ OutputTiling logSoftmaxPeakOutputTiling(const vpux::TileInfo& firstOutputTile) {
     return {correctedOutputTile, correctedOutputTile};
 }
 
-OutputTiling DynamicQuantizeOutputTiling(const vpux::TileInfo& firstOutputTile) {
-    const auto shapeSize = firstOutputTile.shape.size();
-    const auto oneShape = Shape(shapeSize, 1);
-    const auto zeroShape = Shape(shapeSize, 0);
-    const auto scaleTile = TileInfo(oneShape, zeroShape, oneShape);
-    const auto zpTile = TileInfo(oneShape, zeroShape, oneShape);
+OutputTiling DynamicQuantizeOutputTiling(const vpux::TileInfo& firstOutputTile, ShapeRef scaleShape, ShapeRef zpShape) {
+    auto scaleTile = TileInfo(scaleShape);
+    auto zpTile = TileInfo(zpShape);
 
     return {firstOutputTile, std::move(scaleTile), std::move(zpTile)};
 }
@@ -205,7 +202,7 @@ OutputTiling FlashSDPAOpOutputTiling(const vpux::TileInfo& firstOutputTile) {
     return OutputTiling{firstOutputTile, maxAndSumTile, maxAndSumTile};
 }
 
-InputTiling FlashSDPAOpInputTiling(const vpux::TileInfo& firstOutputTile, ShapeRef keyShape,
+InputTiling FlashSDPAOpInputTiling(const vpux::TileInfo& firstOutputTile, int64_t qHeads, ShapeRef keyShape,
                                    std::optional<ShapeRef> attentionMaskShape, ShapeRef auxBufferShape,
                                    ShapeRef dpuDescriptorBufferShape, ShapeRef weightsTable0Shape,
                                    ShapeRef weightsTable1Shape) {
@@ -213,12 +210,32 @@ InputTiling FlashSDPAOpInputTiling(const vpux::TileInfo& firstOutputTile, ShapeR
     const auto vEmbedding = firstOutputTile.shape[Dims4D::Act::W];
     const auto sourceSeqLen = keyShape[Dims4D::Act::H];
     const auto qkEmbedding = keyShape[Dims4D::Act::W];
-    const auto heads = keyShape[Dims4D::Act::C];
+    const auto kvHeads = keyShape[Dims4D::Act::C];
 
-    const auto queryShape = Shape{1, heads, targetSeqLen, qkEmbedding};
-    const auto valueShape = Shape{1, heads, sourceSeqLen, vEmbedding};
-    const auto runningOutShape = Shape{1, heads, targetSeqLen, vEmbedding};
-    const auto runningMaxShape = Shape{1, heads, targetSeqLen, 1};
+    VPUX_THROW_UNLESS(qHeads > 0, "FlashSDPAOpInputTiling expects positive Q head count, got {0}", qHeads);
+    VPUX_THROW_UNLESS(kvHeads > 0, "FlashSDPAOpInputTiling expects positive KV head count, got {0}", kvHeads);
+    VPUX_THROW_UNLESS(qHeads % kvHeads == 0,
+                      "FlashSDPAOpInputTiling expects Q head count {0} to be divisible by KV head count {1}", qHeads,
+                      kvHeads);
+
+    // GQA: Q may have more heads than K/V. The output tile's C dimension
+    // corresponds to Q heads. For K/V, we need to compute the corresponding
+    // K/V head tile based on the group ratio.
+    const auto gqaGroupSize = qHeads / kvHeads;  // Q heads per K/V head
+    const auto outputTileCOffset = firstOutputTile.offsets[Dims4D::Act::C];
+    const auto outputTileCSize = firstOutputTile.shape[Dims4D::Act::C];
+
+    VPUX_THROW_UNLESS(outputTileCOffset % gqaGroupSize == 0,
+                      "FlashSDPAOpInputTiling expects output tile C offset {0} to be a multiple of GQA group size {1}",
+                      outputTileCOffset, gqaGroupSize);
+    VPUX_THROW_UNLESS(outputTileCSize % gqaGroupSize == 0,
+                      "FlashSDPAOpInputTiling expects output tile C size {0} to be a multiple of GQA group size {1}",
+                      outputTileCSize, gqaGroupSize);
+
+    const auto queryShape = Shape{1, qHeads, targetSeqLen, qkEmbedding};
+    const auto valueShape = Shape{1, kvHeads, sourceSeqLen, vEmbedding};
+    const auto runningOutShape = Shape{1, qHeads, targetSeqLen, vEmbedding};
+    const auto runningMaxShape = Shape{1, qHeads, targetSeqLen, 1};
     const auto& runningSumShape = runningMaxShape;
 
     auto syncTilesDim = [](const auto& tensorFrom, auto dimFrom, auto& tensorTo, auto dimTo) {
@@ -228,34 +245,47 @@ InputTiling FlashSDPAOpInputTiling(const vpux::TileInfo& firstOutputTile, ShapeR
     };
 
     auto queryTile = TileInfo(queryShape);
+    syncTilesDim(firstOutputTile, Dims4D::Act::C, queryTile, Dims4D::Act::C);
+    syncTilesDim(firstOutputTile, Dims4D::Act::H, queryTile, Dims4D::Act::H);
+
     auto keyTile = TileInfo(keyShape);
     auto valueTile = TileInfo(valueShape);
 
+    // For GQA: map Q head tile to corresponding K/V head tile
+    // E.g., if Q has 32 heads and K/V has 8 heads (group_size=4),
+    // and the output tile has C shape=4 offset=8, then K/V tile has C shape=1 offset=2
+    if (gqaGroupSize > 1) {
+        const auto tileQHeads = firstOutputTile.shape[Dims4D::Act::C];
+        const auto tileQOffset = firstOutputTile.offsets[Dims4D::Act::C];
+
+        keyTile.shape[Dims4D::Act::C] = std::max(int64_t{1}, tileQHeads / gqaGroupSize);
+        keyTile.offsets[Dims4D::Act::C] = tileQOffset / gqaGroupSize;
+        keyTile.axis[Dims4D::Act::C] = firstOutputTile.axis[Dims4D::Act::C];
+
+        valueTile.shape[Dims4D::Act::C] = std::max(int64_t{1}, tileQHeads / gqaGroupSize);
+        valueTile.offsets[Dims4D::Act::C] = tileQOffset / gqaGroupSize;
+        valueTile.axis[Dims4D::Act::C] = firstOutputTile.axis[Dims4D::Act::C];
+    } else {
+        syncTilesDim(firstOutputTile, Dims4D::Act::C, keyTile, Dims4D::Act::C);
+        syncTilesDim(firstOutputTile, Dims4D::Act::C, valueTile, Dims4D::Act::C);
+    }
+
     auto auxBufferTile = TileInfo(auxBufferShape);
+    syncTilesDim(firstOutputTile, Dims4D::Act::H, auxBufferTile, Dims4D::Act::H);
 
     auto dpuDescriptorBufferTile = TileInfo(dpuDescriptorBufferShape);
     auto weightsTable0Tile = TileInfo(weightsTable0Shape);
     auto weightsTable1Tile = TileInfo(weightsTable1Shape);
 
     auto runningOutTile = TileInfo(runningOutShape);
-    auto runningMaxTile = TileInfo(runningMaxShape);
-    auto runningSumTile = TileInfo(runningSumShape);
-
-    syncTilesDim(firstOutputTile, Dims4D::Act::C, queryTile, Dims4D::Act::C);
-    syncTilesDim(firstOutputTile, Dims4D::Act::H, queryTile, Dims4D::Act::H);
-
-    syncTilesDim(firstOutputTile, Dims4D::Act::C, keyTile, Dims4D::Act::C);
-
-    syncTilesDim(firstOutputTile, Dims4D::Act::C, valueTile, Dims4D::Act::C);
-
-    syncTilesDim(firstOutputTile, Dims4D::Act::H, auxBufferTile, Dims4D::Act::H);
-
     syncTilesDim(firstOutputTile, Dims4D::Act::C, runningOutTile, Dims4D::Act::C);
     syncTilesDim(firstOutputTile, Dims4D::Act::H, runningOutTile, Dims4D::Act::H);
 
+    auto runningMaxTile = TileInfo(runningMaxShape);
     syncTilesDim(firstOutputTile, Dims4D::Act::C, runningMaxTile, Dims4D::Act::C);
     syncTilesDim(firstOutputTile, Dims4D::Act::H, runningMaxTile, Dims4D::Act::H);
 
+    auto runningSumTile = TileInfo(runningSumShape);
     syncTilesDim(firstOutputTile, Dims4D::Act::C, runningSumTile, Dims4D::Act::C);
     syncTilesDim(firstOutputTile, Dims4D::Act::H, runningSumTile, Dims4D::Act::H);
 

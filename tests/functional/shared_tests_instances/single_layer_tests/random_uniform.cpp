@@ -15,6 +15,9 @@ namespace ov {
 
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(RandomUniformLayerTest);
+
 class RandomLayerTestCommon : public RandomUniformLayerTest, virtual public VpuOv2LayerTest {
     // TODO: E#92001 Resolve the dependency of dummy parameter for layer with all constant inputs
     // OpenVino 'SetUp' builds the test-ngraph without any Parameter (since inputs are Constants) => Exception:
@@ -71,7 +74,7 @@ class RandomLayerTestCommon : public RandomUniformLayerTest, virtual public VpuO
 class RandomLayerTest_F32 : public RandomLayerTestCommon {
     void configure_model() override {
         VpuOv2LayerTest::configuration[ov::intel_npu::compilation_mode_params.name()] =
-                "disabled-passes=convert-precision-to-fp16";
+                "disabled-passes=convert-precision-to-fp";
     }
 };
 

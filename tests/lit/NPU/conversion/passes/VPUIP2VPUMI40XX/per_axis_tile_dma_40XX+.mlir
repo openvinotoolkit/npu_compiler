@@ -17,11 +17,11 @@ module @perAxisTileDMA {
 
   // Func simply returns arg1 without copying any PerAxisTileDMA results to it beforehand
   func.func @main(%arg0: memref<1xf16, @DDR>, %arg1: memref<1xf16, @DDR>) -> memref<1xf16, @DDR> {
-    %0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x4x122x120xf16, #NHWC, @DDR>
-    %1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x4x122x240xf16, #NHWC, [@CMX_NN, 0]>
+    %0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x4x122x120xf16, {order = #NHWC}, @DDR>
+    %1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x4x122x240xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     VPURT.Task {
-      %2 = VPUIP.PerAxisTileDMA <{axis = 3 : i64, port = 0 : i64, tiles = 2 : i64}> inputs(%0 : memref<1x4x122x120xf16, #NHWC, @DDR>) outputs(%1 : memref<1x4x122x240xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x4x122x240xf16, #NHWC, [@CMX_NN, 0]>
+      %2 = VPUIP.PerAxisTileDMA <{axis = 3 : i64, port = 0 : i64, tiles = 2 : i64}> inputs(%0 : memref<1x4x122x120xf16, {order = #NHWC}, @DDR>) outputs(%1 : memref<1x4x122x240xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x4x122x240xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
     return %arg1 : memref<1xf16, @DDR>

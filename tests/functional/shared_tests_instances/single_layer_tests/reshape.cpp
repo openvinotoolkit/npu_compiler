@@ -14,6 +14,9 @@ namespace ov {
 
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ReshapeLayerTest);
+
 class ReshapeLayerTestCommon : public ReshapeLayerTest, virtual public VpuOv2LayerTest {
 private:
     void SetUp() override {

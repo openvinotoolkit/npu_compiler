@@ -208,18 +208,18 @@ def IE_ReLUOp :
             [
                 IE_EltwiseOp,
                 DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
                 DeclareOpInterfaceMethods<StaticShapeOpInterface>
             ]
         > {
     let summary = "InferenceEngine ReLU layer";
 
     let arguments = (ins
-        RankedTensorOf<[F16, F32, F64]>:$input
+        RankedTensorOf<[F16, F32, F64, SI8, SI16, SI32, SI64]>:$input
     );
 
     let results = (outs
-        RankedTensorOf<[F16, F32, F64]>:$output
+        RankedTensorOf<[F16, F32, F64, SI8, SI16, SI32, SI64]>:$output
     );
 }
 
@@ -273,7 +273,7 @@ def IE_SoftMaxOp :
         IE_LayerOp<
             "SoftMax",
             [
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
                 DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
             ]
         > {
@@ -293,7 +293,8 @@ def IE_SoftMaxOp :
 
         IntAttr:$axisInd,
         OptionalAttr<IntAttr>:$padSize,
-        OptionalAttr<TypeAttr>:$dstElemType
+        OptionalAttr<TypeAttr>:$dstElemType,
+        UnitAttr:$maskAware
     );
 
     let results = (outs

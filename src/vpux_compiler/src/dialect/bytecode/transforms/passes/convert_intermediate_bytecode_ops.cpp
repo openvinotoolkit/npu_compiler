@@ -3,26 +3,38 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "npu_bytecode_utils/type_section.hpp"
 #include "vpux/compiler/dialect/bytecode/IR/attributes.hpp"
 #include "vpux/compiler/dialect/bytecode/IR/dialect.hpp"
+#include "vpux/compiler/dialect/bytecode/IR/ops/buffer.hpp"
 #include "vpux/compiler/dialect/bytecode/IR/ops/control_flow.hpp"
 #include "vpux/compiler/dialect/bytecode/IR/ops/external.hpp"
+#include "vpux/compiler/dialect/bytecode/IR/ops/register.hpp"
 #include "vpux/compiler/dialect/bytecode/IR/ops/section.hpp"
 #include "vpux/compiler/dialect/bytecode/transforms/passes.hpp"
+#include "vpux/compiler/dialect/bytecode/utils/builders.hpp"
 #include "vpux/compiler/dialect/bytecode/utils/serialization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/utils/core/error.hpp"
+#include "vpux/utils/core/small_vector.hpp"
 #include "vpux/utils/core/string_ref.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
+#include <llvm/ADT/StringMap.h>
 #include <llvm/ADT/StringSet.h>
+#include <llvm/Support/raw_ostream.h>
+#include <mlir/IR/Attributes.h>
 #include <mlir/IR/Builders.h>
+#include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinOps.h>
+#include <mlir/IR/BuiltinTypeInterfaces.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/Location.h>
 #include <mlir/Pass/Pass.h>
 #include <mlir/Support/LLVM.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <iterator>
 #include <memory>
 #include <string>
@@ -36,6 +48,16 @@ namespace vpux {
 using namespace vpux;
 
 namespace {
+
+SmallVector<int64_t> getStridesWithStaticZeroOffset(mlir::MemRefType memrefType, StringRef diagnosticContext) {
+    // MLIR utility handles identity layouts, StridedLayoutAttr and dynamic markers consistently.
+    auto [strides, offset] = memrefType.getStridesAndOffset();
+    VPUX_THROW_WHEN(mlir::ShapedType::isDynamic(offset), "{0} cannot encode dynamic offset for memref {1}",
+                    diagnosticContext, memrefType);
+    VPUX_THROW_WHEN(offset != 0, "{0} cannot encode non-zero offset {1} for memref {2}", diagnosticContext, offset,
+                    memrefType);
+    return std::move(strides);
+}
 
 class SectionOps {
     bytecode::ConstantSectionOp _constantSection;
@@ -68,18 +90,44 @@ class SectionOps {
         return key;
     }
 
-public:
     void addConstantSection(mlir::OpBuilder& builder, StringRef name) {
         _constantSection = bytecode::ConstantSectionOp::create(builder, createLoc(builder, name), name);
         _constantSection.getContent().emplaceBlock();
     }
+
     void addStringSection(mlir::OpBuilder& builder, StringRef name) {
         _stringSection = bytecode::StringSectionOp::create(builder, createLoc(builder, name), name);
         _stringSection.getContent().emplaceBlock();
     }
+
     void addTypeSection(mlir::OpBuilder& builder, StringRef name) {
         _typeSection = bytecode::TypeSectionOp::create(builder, createLoc(builder, name), name);
         _typeSection.getContent().emplaceBlock();
+    }
+
+public:
+    SectionOps(mlir::OpBuilder& builder, mlir::ModuleOp moduleOp) {
+        mlir::SymbolTable symbolTable(moduleOp);
+
+        // 2. Look up the operation by its symbol name (string)
+        auto constantSectionOp = symbolTable.lookup<bytecode::ConstantSectionOp>(bytecode::CONSTANT_SECTION_NAME);
+        if (constantSectionOp) {
+            _constantSection = constantSectionOp;
+        } else {
+            addConstantSection(builder, bytecode::CONSTANT_SECTION_NAME);
+        }
+        auto stringSectionOp = symbolTable.lookup<bytecode::StringSectionOp>(bytecode::STRING_SECTION_NAME);
+        if (stringSectionOp) {
+            _stringSection = stringSectionOp;
+        } else {
+            addStringSection(builder, bytecode::STRING_SECTION_NAME);
+        }
+        auto typeSectionOp = symbolTable.lookup<bytecode::TypeSectionOp>(bytecode::TYPE_SECTION_NAME);
+        if (typeSectionOp) {
+            _typeSection = typeSectionOp;
+        } else {
+            addTypeSection(builder, bytecode::TYPE_SECTION_NAME);
+        }
     }
 
     bytecode::StringOp addStringToSection(StringRef str, const std::string& prefix, mlir::Location origOpLoc) {
@@ -109,7 +157,7 @@ public:
             } else {
                 symName = "i" + width;
             }
-            typeAttr = mlir::TypeAttr::get(intType);
+            typeAttr = bytecode::IntegerTypeAttr::get(intType.getContext(), intType.getWidth(), !intType.isUnsigned());
         } else if (auto floatType = mlir::dyn_cast<mlir::FloatType>(type)) {
             auto width = static_cast<int64_t>(floatType.getWidth());
             symName = "f" + std::to_string(width);
@@ -125,25 +173,23 @@ public:
             } else if (format == bytecode::FloatFormat::E2M1) {
                 symName = "f" + std::to_string(width) + "_e2m1";
             }
-            typeAttr = mlir::TypeAttr::get(floatType);
+            typeAttr = bytecode::FloatTypeAttr::get(floatType.getContext(), floatType.getWidth(), format);
         } else if (auto memrefType = mlir::dyn_cast<mlir::MemRefType>(type)) {
-            // First, add the element type
-            auto elemSymName = addTypeToSection(memrefType.getElementType(), loc);
-            auto elemRef = mlir::FlatSymbolRefAttr::get(type.getContext(), elemSymName);
+            auto elementTypeSymName = addTypeToSection(memrefType.getElementType(), loc);
+            auto elementTypeRef = mlir::FlatSymbolRefAttr::get(type.getContext(), elementTypeSymName);
 
             auto shape = memrefType.getShape();
-            int64_t rank = memrefType.getRank();
+            const int64_t rank = memrefType.getRank();
+            VPUX_THROW_UNLESS(rank >= 0 && rank <= intel_npu::vm::BufferType::MAX_RANK,
+                              "Bytecode buffer_type rank {0} does not fit in buffer rank type with max {1}", rank,
+                              intel_npu::vm::BufferType::MAX_RANK);
 
-            // Extract strides and offset using MLIR's built-in utility, which correctly
-            // handles both identity layouts and StridedLayoutAttr, including dynamic dimensions
-            auto [strides, offset] = memrefType.getStridesAndOffset();
-            VPUX_THROW_WHEN(!mlir::ShapedType::isDynamic(offset) && offset != 0,
-                            "Bytecode buffer_type cannot encode non-zero offset {0}", offset);
+            auto strides = getStridesWithStaticZeroOffset(memrefType, "Bytecode buffer_type");
 
             symName = "buffer_type_" + std::to_string(_nextTypeIndex++);
             auto shapeAttr = mlir::DenseI64ArrayAttr::get(type.getContext(), shape);
             auto stridesAttr = mlir::DenseI64ArrayAttr::get(type.getContext(), strides);
-            typeAttr = bytecode::BufferTypeAttr::get(type.getContext(), elemRef, rank, shapeAttr, stridesAttr);
+            typeAttr = bytecode::BufferTypeAttr::get(type.getContext(), elementTypeRef, rank, shapeAttr, stridesAttr);
         } else {
             // Fallback: opaque type with 0 width
             symName = "opaque_" + std::to_string(_nextTypeIndex++);
@@ -160,6 +206,14 @@ public:
         _usedSymNames.insert(symName);
         _typeCache[key] = symName;
         return symName;
+    }
+
+    std::string getCachedTypeSymName(mlir::Type type) const {
+        auto key = getTypeKey(type);
+        auto it = _typeCache.find(key);
+        VPUX_THROW_UNLESS(it != _typeCache.end(), "Type '{0}' was not registered before freezing type-section indices",
+                          type);
+        return it->second;
     }
 
     // Decompose a FunctionType into bytecode type attributes and add to type section.
@@ -230,19 +284,83 @@ void convertExtAssertOp(bytecode::ExtAssertOp extAssertOp, SectionOps& sections)
 void convertExtFuncOp(bytecode::ExtFuncOp extFuncOp, SectionOps& sections) {
     auto funcType = extFuncOp.getFunctionType();
 
+    // Add the function name to the string section
+    auto funcName = sections.addStringToSection(extFuncOp.getSymName(), "function_name", extFuncOp.getLoc());
+
     // Decompose the function type into bytecode type attributes and add to the type section
     auto funcTypeSymName = sections.addFunctionTypeToSection(funcType, extFuncOp.getLoc());
 
     // Create the final FuncOp with a symbol reference to the function type in the type section
     mlir::OpBuilder builder(extFuncOp);
     builder.setInsertionPoint(extFuncOp);
+    auto funcNameRef = mlir::FlatSymbolRefAttr::get(extFuncOp.getContext(), funcName.getSymName());
     auto funcTypeRef = mlir::FlatSymbolRefAttr::get(extFuncOp.getContext(), funcTypeSymName);
     auto funcOp = bytecode::FuncOp::create(builder, extFuncOp.getLoc(), mlir::TypeRange{}, extFuncOp.getSymNameAttr(),
-                                           funcTypeRef);
+                                           funcNameRef, funcTypeRef);
 
     // Move the body from the ext.func to the new func
     funcOp.getBody().takeBody(extFuncOp.getBody());
     extFuncOp.erase();
+}
+
+// Lower ext.buffer.create to symbol-ref bytecode.buffer.create plus immediate-register scaffolding.
+void convertExtBufferCreateOp(bytecode::ExtBufferCreateOp extOp, SectionOps& sections) {
+    auto memrefType = extOp.getBufferType();
+    auto loc = extOp.getLoc();
+
+    auto elementTypeSymName = sections.getCachedTypeSymName(memrefType.getElementType());
+    auto elemTypeRef = mlir::FlatSymbolRefAttr::get(extOp.getContext(), elementTypeSymName);
+
+    auto strides = getStridesWithStaticZeroOffset(memrefType, "Bytecode buffer.create");
+    auto shape = memrefType.getShape();
+    VPUX_THROW_UNLESS(shape.size() == strides.size(), "Shape and strides arity mismatch ({0} vs {1}) for memref {2}",
+                      shape.size(), strides.size(), memrefType);
+    // Strides stay static (the host scratch buffer is contiguous); only extents may be dynamic.
+    for (auto stride : strides) {
+        VPUX_THROW_WHEN(mlir::ShapedType::isDynamic(stride),
+                        "Bytecode buffer.create requires static strides, got memref {0}", memrefType);
+    }
+
+    mlir::OpBuilder builder(extOp);
+    builder.setInsertionPoint(extOp);
+
+    // Splice dynamic_sizes into the dynamic slots and materialize static extents as immediates.
+    auto dynamicSizes = extOp.getDynamicSizes();
+    // Validate the dynamic-extent count up front so the splice below cannot index out of bounds on malformed IR.
+    VPUX_THROW_UNLESS(static_cast<size_t>(memrefType.getNumDynamicDims()) == dynamicSizes.size(),
+                      "Dynamic-extent count mismatch ({0} dynamic dims, {1} size operands) for memref {2}",
+                      memrefType.getNumDynamicDims(), dynamicSizes.size(), memrefType);
+    SmallVector<mlir::Value> shapeRegisters;
+    shapeRegisters.reserve(shape.size());
+    size_t dynIdx = 0;
+    for (auto dim : shape) {
+        if (mlir::ShapedType::isDynamic(dim)) {
+            shapeRegisters.push_back(dynamicSizes[dynIdx++]);
+        } else {
+            shapeRegisters.push_back(bytecode::materializeI64ImmediateRegister(builder, loc, dim));
+        }
+    }
+    auto strideRegisters = bytecode::materializeI64ImmediateRegisters(builder, loc, strides);
+
+    bytecode::BufferCreateOp::create(builder, loc, extOp.getDst(), elemTypeRef, shapeRegisters, strideRegisters);
+
+    extOp.erase();
+}
+
+// Lower ext.buffer.view to symbol-ref bytecode.buffer.view.
+void convertExtBufferViewOp(bytecode::ExtBufferViewOp extOp, SectionOps& sections) {
+    auto loc = extOp.getLoc();
+    auto elemType = extOp.getElemType();
+
+    auto elemTypeSymName = sections.getCachedTypeSymName(elemType);
+    auto symRef = mlir::FlatSymbolRefAttr::get(extOp.getContext(), elemTypeSymName);
+
+    mlir::OpBuilder builder(extOp);
+    builder.setInsertionPoint(extOp);
+
+    bytecode::BufferViewOp::create(builder, loc, extOp.getDst(), extOp.getSrc(), extOp.getByteOffset(), symRef,
+                                   extOp.getShape(), extOp.getStrides());
+    extOp.erase();
 }
 
 }  // namespace
@@ -274,7 +392,9 @@ private:
             return;
         }
 
-        auto sections = prepareSections(*funcSection);
+        // Introduce empty sections into the module operation
+        mlir::OpBuilder builder(*funcSection);
+        SectionOps sections(builder, moduleOp);
 
         // Convert ext.func operations first (collect before mutating)
         SmallVector<bytecode::ExtFuncOp> extFuncOps;
@@ -285,6 +405,33 @@ private:
             convertExtFuncOp(extFuncOp, sections);
         }
 
+        // First walk over ext.buffer.create: register element/buffer types in the type section
+        // so that the type-section ordering is frozen before resolving bytecode type indices.
+        SmallVector<bytecode::ExtBufferCreateOp> extBufferCreateOps;
+        (*funcSection)->walk([&](bytecode::ExtBufferCreateOp extOp) {
+            extBufferCreateOps.push_back(extOp);
+        });
+        for (auto extOp : extBufferCreateOps) {
+            sections.addTypeToSection(extOp.getBufferType(), extOp.getLoc());
+        }
+
+        // Rewrite each ext.buffer.create using the symbol names frozen in the type section.
+        for (auto extOp : extBufferCreateOps) {
+            convertExtBufferCreateOp(extOp, sections);
+        }
+
+        // Walk over ext.buffer.view: pre-register element types, then convert.
+        SmallVector<bytecode::ExtBufferViewOp> extBufferViewOps;
+        (*funcSection)->walk([&](bytecode::ExtBufferViewOp extOp) {
+            extBufferViewOps.push_back(extOp);
+        });
+        for (auto extOp : extBufferViewOps) {
+            sections.addTypeToSection(extOp.getElemType(), extOp.getLoc());
+        }
+        for (auto extOp : extBufferViewOps) {
+            convertExtBufferViewOp(extOp, sections);
+        }
+
         // Convert ext.assert operations inside the (now converted) functions
         SmallVector<bytecode::ExtAssertOp> extAssertOps;
         (*funcSection)->walk([&](bytecode::ExtAssertOp extAssertOp) {
@@ -293,16 +440,6 @@ private:
         for (auto extAssertOp : extAssertOps) {
             convertExtAssertOp(extAssertOp, sections);
         }
-    }
-
-    // Introduce empty sections into the module operation
-    SectionOps prepareSections(bytecode::FuncSectionOp funcSection) {
-        mlir::OpBuilder builder(funcSection);
-        SectionOps sections;
-        sections.addConstantSection(builder, bytecode::CONSTANT_SECTION_NAME);
-        sections.addStringSection(builder, bytecode::STRING_SECTION_NAME);
-        sections.addTypeSection(builder, bytecode::TYPE_SECTION_NAME);
-        return sections;
     }
 };
 

@@ -9,8 +9,7 @@
 #include "vpux/compiler/NPU50XX/dialect/NPUReg50XX/ops.hpp"
 #include "vpux/compiler/dialect/core/IR/strided_dmas_utils.hpp"
 
-#include <npu_40xx_nnrt.hpp>
-
+using namespace vpux;
 using namespace NPUReg50XX;
 using namespace NPUReg50XX::Descriptors;
 

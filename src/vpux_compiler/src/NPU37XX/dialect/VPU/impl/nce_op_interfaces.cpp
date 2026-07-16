@@ -113,7 +113,15 @@ class AveragePoolOpModel :
         public Cuboid16MpeModeModel {};
 
 class MaxPoolOpModel : public VPU::NCEMaxPoolOpModel<MaxPoolOpModel, VPU::NCEMaxPoolOp>, public Cuboid16MpeModeModel {};
-class EltwiseOpModel : public VPU::NCEEltwiseOpModel<EltwiseOpModel, VPU::NCEEltwiseOp>, public Cuboid8MpeModeModel {};
+class EltwiseOpModel : public VPU::NCEEltwiseOpModel<EltwiseOpModel, VPU::NCEEltwiseOp>, public Cuboid8MpeModeModel {
+public:
+    mlir::Value getWeightTableScaleOperand(mlir::Operation* op) const {
+        return mlir::cast<VPU::NCEEltwiseOp>(op).getWeightTableScale();
+    }
+    mlir::Value getWeightTableBiasOperand(mlir::Operation* op) const {
+        return mlir::cast<VPU::NCEEltwiseOp>(op).getWeightTableBias();
+    }
+};
 class PermuteOpModel : public VPU::NCEEltwiseOpModel<PermuteOpModel, VPU::NCEPermuteOp>, public Cuboid16MpeModeModel {};
 
 }  // namespace

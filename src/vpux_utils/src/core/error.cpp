@@ -23,9 +23,11 @@ void vpux::details::throwFormat(const char* file, int line, const std::string& m
     VPUX_UNUSED(line);
 
 #ifdef VPUX_DEVELOPER_BUILD
-    Logger::global().error("Got exception in {0}:{1} : {2}", file, line, message);
-#else
-    Logger::global().error("Got exception : {0}", message);
+    // The error will be reported once caught. Reporting it at throw site is purely debug feature
+    // and must be limited to respect user log level. Use OV_NPU_LOG_LEVEL=LOG_DEBUG to enable it.
+    if (Logger::global().isActive(LogLevel::Debug)) {
+        Logger::global().error("Got exception in {0}:{1} : {2}", file, line, message);
+    }
 #endif
 
     std::stringstream strm;
@@ -35,7 +37,6 @@ void vpux::details::throwFormat(const char* file, int line, const std::string& m
             << file << ':' << line << ' '
 #endif
             << message;
-    // E#94973 TODO catch this exception and rethrow as ov::Exception in OV linked layer
     throw ExceptionT(strm.str());
 }
 

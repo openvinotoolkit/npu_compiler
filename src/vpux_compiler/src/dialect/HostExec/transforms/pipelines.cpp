@@ -33,6 +33,20 @@ void HostExec::registerHostExecPipelines() {
             [](mlir::OpPassManager& pm, const HostExec::HostExecOptions& options) {
                 buildHostExecPipeline(pm, options.enablePipelinedCmdListRecording.getValue(), Logger::global());
             });
+
+    mlir::PassPipelineRegistration<HostExec::HostExecOptions>(
+            "output-shape-predict", "Predicts the output shapes for host compilation",
+            [](mlir::OpPassManager& pm, const HostExec::HostExecOptions&) {
+                buildOutputShapePredictPipeline(pm, Logger::global());
+            });
+}
+
+void HostExec::buildOutputShapePredictPipeline(mlir::OpPassManager& pm, Logger log) {
+    const auto grc = getDefaultGreedyRewriteConfig();
+    pm.addPass(HostExec::createExtractReturnShapesPass(log));
+    pm.addPass(mlir::memref::createResolveShapedTypeResultDimsPass());
+    pm.addPass(HostExec::createOutlineDimOperationsPass(log));
+    pm.addPass(mlir::createCanonicalizerPass(grc));
 }
 
 void HostExec::buildHostExecPipeline(mlir::OpPassManager& pm, bool enablePipelinedCmdListRecording, Logger /*log*/) {
@@ -71,8 +85,17 @@ void HostExec::buildHostExecPipeline(mlir::OpPassManager& pm, bool enablePipelin
 }
 
 void HostExec::buildBytecodeBackendPipeline(mlir::OpPassManager& pm, Logger log) {
+    const auto grc = getDefaultGreedyRewriteConfig();
+
     pm.addPass(HostExec::createSerializeELFToBinaryPass());
     pm.addPass(bytecode::createSerializeKernelsToBytecodePass());
+    pm.addPass(mlir::createLowerAffinePass());
+    pm.addPass(mlir::createSCFToControlFlowPass());
+    pm.addPass(HostExec::createInlineMainBatchingCallsPass(log));
+    pm.addPass(mlir::createCanonicalizerPass(grc));
+    pm.addPass(mlir::createCSEPass());
     pm.addPass(bytecode::createConvertHostcodeToBytecodePass(log));
+    pm.addPass(bytecode::createInjectBytecodeMetadataPass());
     pm.addPass(bytecode::createConvertIntermediateBytecodeOpsPass(log));
+    pm.addPass(bytecode::createAllocateBytecodeRegistersPass(log));
 }

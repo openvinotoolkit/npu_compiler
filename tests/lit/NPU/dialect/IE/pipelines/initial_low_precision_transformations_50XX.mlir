@@ -1,7 +1,6 @@
 //
-// Copyright (C) 2026 Intel Corporation.
+// Copyright (C) 2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
-//
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --run-initial-low-precision-transformations-rewriters="enable-dynamic-quantization-for-static-case" --initial-low-precision-transformations %s | FileCheck %s --strict-whitespace
@@ -21,10 +20,9 @@ func.func @UI2WeightsDequantizeToDynamicDequantize(%arg0: tensor<1x1x8192xf16>) 
   %6 = IE.Reshape(%5) {shape_value = [1, 1, 3072]} : tensor<1x3072xf32> -> tensor<1x1x3072xf32>
   return %6 : tensor<1x1x3072xf32>
 
-  // zero point constant
-  // CHECK-DAG:  const.Declare tensor<3072x128x1xf32> = dense<1> : tensor<3072x128x1xui2>, [#const.ConvertElemType<ui8>, #const.CastElemType<f32>]
-  // CHECK-DAG:  [[CST_WEIGHTS:%.+]] = const.Declare tensor<3072x128x64x!qElemType> = dense<0> : tensor<3072x128x64xui2>, [#const.ConvertElemType<ui8>, #const.CastElemType<f32>, #const.CastElemType<!qElemType>]
+  // CHECK-DAG:  [[CST_SCALE_RESHAPED:%.+]] = const.Declare tensor<3072x128xf32> = dense<2.000000e+00> : tensor<3072x128x1xf32>, [#const.Reshape<[3072, 128]>]
   // CHECK-DAG:  [[CST_SCALE:%.+]] = const.Declare tensor<3072x128x1xf32> = dense<2.000000e+00> : tensor<3072x128x1xf32>
+  // CHECK-DAG:  [[CST_WEIGHTS:%.+]] = const.Declare tensor<3072x128x64x!qElemType> = dense<0> : tensor<3072x128x64xui2>, [#const.ConvertElemType<ui8>, #const.CastElemType<f32>, #const.CastElemType<!qElemType>]
 
   // DynamicDequantizeOp
   // CHECK:      IE.DynamicDequantize([[CST_WEIGHTS]], [[CST_SCALE]]) {dstElemType = f32} : tensor<3072x128x64x!qElemType>, tensor<3072x128x1xf32> -> tensor<3072x128x64xf32>
@@ -34,8 +32,6 @@ func.func @UI2WeightsDequantizeToDynamicDequantize(%arg0: tensor<1x1x8192xf16>) 
   // CHECK-NEXT: IE.FullyConnected
   // CHECK-NEXT: IE.Reshape
   // CHECK-NEXT: IE.ReduceSum
-  // CHECK-NEXT: IE.Multiply
-  // CHECK-NEXT: IE.Reshape
   // CHECK-NEXT: IE.FullyConnected
   // CHECK-NEXT: IE.Subtract
   // CHECK-NEXT: IE.Reshape

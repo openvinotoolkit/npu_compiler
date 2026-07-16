@@ -3,16 +3,16 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "npu_driver_compiler.h"
 #include "vcl_tests_common.h"
 
 #include <stdint.h>
 #include <stdlib.h>
 #include <functional>
 #include <iostream>
+#include <string_view>
 #include <type_traits>
-
-class VCLSingleThreadTest : public VCLTestsUtils::VCLTestsCommon {
+namespace VCLTest {
+class VCLSingleThreadTest : public VCLTestsCommon {
 public:
     /**
      * @brief Call L0 compiler to compile model to blob
@@ -118,9 +118,9 @@ TEST_P(VCLSingleThreadTest, compileModel) {
 /// The path of config files for tests
 const auto cidTool = VCLSingleThreadTest::getCidToolPath();
 /// Models and configs for smoke test
-const auto smokeIRInfos = VCLSingleThreadTest::readJson2Vec(cidTool + VCLTestsUtils::SMOKE_TEST_CONFIG);
+const auto smokeIRInfos = VCLSingleThreadTest::readJson2Vec(cidTool + VCLTest::SMOKE_TEST_CONFIG);
 /// Models and configs for normal test
-const auto irInfos = VCLSingleThreadTest::readJson2Vec(cidTool + VCLTestsUtils::TEST_CONFIG);
+const auto irInfos = VCLSingleThreadTest::readJson2Vec(cidTool + VCLTest::TEST_CONFIG);
 /// Parameters for smoke tests
 const auto smokeParams = testing::Combine(testing::ValuesIn(smokeIRInfos));
 /// Parameters for normal tests
@@ -132,7 +132,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_SingleThreadCompilation, VCLSingleThreadTest, smo
 INSTANTIATE_TEST_SUITE_P(SingleThreadCompilation, VCLSingleThreadTest, params, VCLSingleThreadTest::getTestCaseName);
 
 template <typename VclAllocT>
-class VCLAllocatorSingleThreadTestBase : public VCLTestsUtils::VCLTestsCommon {
+class VCLAllocatorSingleThreadTestBase : public VCLTestsCommon {
 public:
     /**
      * @brief Call L0 compiler to compile model to blob
@@ -180,16 +180,16 @@ vcl_result_t VCLAllocatorSingleThreadTestBase<VclAllocT>::run(const std::string&
     std::function<void()> deallocate;
 
     if constexpr (std::is_same_v<VclAllocT, vcl_allocator2_t>) {
-        allocator.allocate = VCLTestsUtils::allocateBlob2;
-        allocator.deallocate = VCLTestsUtils::deallocateBlob2;
+        allocator.allocate = VCLTest::allocateBlob2;
+        allocator.deallocate = VCLTest::deallocateBlob2;
         deallocate = [&] {
             allocator.deallocate(&allocator, blob);
         };
         ret = vclAllocatedExecutableCreate2(compiler, exeDesc, &allocator, &blob, &size);
     } else {
         static_assert(std::is_same_v<VclAllocT, vcl_allocator_t>);
-        allocator.allocate = VCLTestsUtils::allocateBlob;
-        allocator.deallocate = VCLTestsUtils::deallocateBlob;
+        allocator.allocate = VCLTest::allocateBlob;
+        allocator.deallocate = VCLTest::deallocateBlob;
         deallocate = [&] {
             allocator.deallocate(blob);
         };
@@ -251,7 +251,7 @@ INSTANTIATE_TEST_SUITE_P(SingleThreadCompilation, VCLAllocatorSingleThreadTest, 
 INSTANTIATE_TEST_SUITE_P(SingleThreadCompilation, VCLAllocator2SingleThreadTest, params,
                          VCLAllocatorSingleThreadTest::getTestCaseName);
 
-class VCLAllocator3SingleThreadTest : public VCLTestsUtils::VCLTestsCommon {
+class VCLAllocator3SingleThreadTest : public VCLTestsCommon {
 public:
     vcl_result_t run(const std::string& options);
 };
@@ -292,8 +292,8 @@ vcl_result_t VCLAllocator3SingleThreadTest::run(const std::string& options) {
 
     vcl_executable_desc_t exeDesc = {getModelIR().data(), getModelIRSize(), options.c_str(), options.size() + 1};
     vcl_allocator2_t allocator;
-    allocator.allocate = VCLTestsUtils::allocateBlob2;
-    allocator.deallocate = VCLTestsUtils::deallocateBlob2;
+    allocator.allocate = VCLTest::allocateBlob2;
+    allocator.deallocate = VCLTest::deallocateBlob2;
 
     ret = vclAllocatedExecutableCreate3(compiler, exeDesc, &allocator, &blob, &blobSize, &compatibilityReqBuffer,
                                         &compatibilityReqSize);
@@ -340,3 +340,199 @@ INSTANTIATE_TEST_SUITE_P(smoke_SingleThreadCompilation, VCLAllocator3SingleThrea
 
 INSTANTIATE_TEST_SUITE_P(SingleThreadCompilation, VCLAllocator3SingleThreadTest, params,
                          VCLAllocatorSingleThreadTest::getTestCaseName);
+
+class VCLAllocator4SingleThreadTest : public VCLTestsCommon {
+public:
+    vcl_result_t run(const std::string& options);
+};
+
+vcl_result_t VCLAllocator4SingleThreadTest::run(const std::string& options) {
+    vcl_result_t ret = VCL_RESULT_SUCCESS;
+
+    vcl_compiler_desc_t compilerDesc;
+    compilerDesc.version.major = VCL_COMPILER_VERSION_MAJOR;
+    compilerDesc.version.minor = VCL_COMPILER_VERSION_MINOR;
+    compilerDesc.debugLevel = VCL_LOG_INFO;
+    vcl_device_desc_t deviceDesc = {sizeof(vcl_device_desc_t), 0x643e, 3, 5};
+    vcl_compiler_handle_t compiler = nullptr;
+    ret = vclCompilerCreate(&compilerDesc, &deviceDesc, &compiler, nullptr);
+    if (ret != VCL_RESULT_SUCCESS) {
+        printErrorInfo("Failed to create compiler! Result: 0x", ret);
+        return ret;
+    }
+
+    vcl_compiler_properties_t compilerProp;
+    ret = vclCompilerGetProperties(compiler, &compilerProp);
+    if (ret != VCL_RESULT_SUCCESS) {
+        printErrorInfo("Failed to query compiler props! Result: 0x", ret);
+        vclCompilerDestroy(compiler);
+        return ret;
+    }
+    std::cout << "\n############################################\n\n";
+    std::cout << " Current compiler info:\n"
+              << " ID: " << compilerProp.id << "\n"
+              << " Version: " << compilerProp.version.major << "." << compilerProp.version.minor << "\n"
+              << "\tSupported opsets: " << compilerProp.supportedOpsets << "\n";
+    std::cout << "\n############################################\n\n";
+
+    uint8_t* blob = nullptr;
+    uint64_t blobSize = 0;
+    vcl_executable_handle_t executable = nullptr;
+
+    vcl_executable_desc_t exeDesc = {getModelIR().data(), getModelIRSize(), options.c_str(), options.size() + 1};
+    vcl_allocator2_t allocator;
+    allocator.allocate = VCLTest::allocateBlob2;
+    allocator.deallocate = VCLTest::deallocateBlob2;
+
+    ret = vclAllocatedExecutableCreate4(compiler, exeDesc, &allocator, &blob, &blobSize, &executable);
+    if (ret != VCL_RESULT_SUCCESS || blob == nullptr || blobSize == 0 || executable == nullptr) {
+        printErrorInfo("Failed to create executable via vclAllocatedExecutableCreate4! Result: 0x", ret);
+        if (blob != nullptr) {
+            allocator.deallocate(&allocator, blob);
+        }
+        if (executable != nullptr) {
+            vclExecutableDestroy(executable);
+        }
+        vclCompilerDestroy(compiler);
+        return ret != VCL_RESULT_SUCCESS ? ret : VCL_RESULT_ERROR_UNKNOWN;
+    }
+
+    /// First call: get the required buffer size for the compatibility string
+    uint64_t compatibilityStringSize = 0;
+    ret = vclExecutableGetCompatibilityString(executable, nullptr, &compatibilityStringSize);
+    if (ret != VCL_RESULT_SUCCESS || compatibilityStringSize == 0) {
+        printErrorInfo("Failed to get compatibility string size! Result: 0x", ret);
+        allocator.deallocate(&allocator, blob);
+        vclExecutableDestroy(executable);
+        vclCompilerDestroy(compiler);
+        return ret != VCL_RESULT_SUCCESS ? ret : VCL_RESULT_ERROR_UNKNOWN;
+    }
+
+    /// Second call: retrieve the compatibility string into the allocated buffer
+    std::vector<char> compatibilityString(compatibilityStringSize);
+    ret = vclExecutableGetCompatibilityString(executable, compatibilityString.data(), &compatibilityStringSize);
+    if (ret != VCL_RESULT_SUCCESS) {
+        printErrorInfo("Failed to get compatibility string! Result: 0x", ret);
+        allocator.deallocate(&allocator, blob);
+        vclExecutableDestroy(executable);
+        vclCompilerDestroy(compiler);
+        return ret;
+    }
+    std::cout << "Compatibility string: " << compatibilityString.data() << "\n";
+    EXPECT_TRUE(std::string_view(compatibilityString.data(), compatibilityString.size()).substr(0, 9) == "compiler=");
+
+    allocator.deallocate(&allocator, blob);
+
+    ret = vclExecutableDestroy(executable);
+    if (ret != VCL_RESULT_SUCCESS) {
+        printErrorInfo("Failed to destroy executable! Result: 0x", ret);
+        vclCompilerDestroy(compiler);
+        return ret;
+    }
+
+    ret = vclCompilerDestroy(compiler);
+    if (ret != VCL_RESULT_SUCCESS) {
+        printErrorInfo("Failed to destroy compiler! Result: 0x", ret);
+        return ret;
+    }
+    return ret;
+}
+
+TEST_P(VCLAllocator4SingleThreadTest, compileModelWithCompatibilityString) {
+    EXPECT_EQ(run(getNetOptions()), VCL_RESULT_SUCCESS);
+}
+
+INSTANTIATE_TEST_SUITE_P(smoke_SingleThreadCompilation, VCLAllocator4SingleThreadTest, smokeParams,
+                         VCLAllocatorSingleThreadTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(SingleThreadCompilation, VCLAllocator4SingleThreadTest, params,
+                         VCLAllocatorSingleThreadTest::getTestCaseName);
+
+class VCLQueryNetworkSingleThreadTest : public VCLTestsCommon {
+public:
+    /**
+     * @brief Call query network APIs in a single thread for one model
+     *
+     * @param options Build flags of a model
+     */
+    vcl_result_t run(const std::string& options);
+};
+
+vcl_result_t VCLQueryNetworkSingleThreadTest::run(const std::string& options) {
+    vcl_result_t ret = VCL_RESULT_SUCCESS;
+
+    vcl_compiler_desc_t compilerDesc;
+    compilerDesc.version.major = VCL_COMPILER_VERSION_MAJOR;
+    compilerDesc.version.minor = VCL_COMPILER_VERSION_MINOR;
+    compilerDesc.debugLevel = VCL_LOG_ERROR;
+
+    vcl_device_desc_t deviceDesc = {sizeof(vcl_device_desc_t), 0x643e, 3, 5};
+    vcl_compiler_handle_t compiler = nullptr;
+    ret = vclCompilerCreate(&compilerDesc, &deviceDesc, &compiler, nullptr);
+    if (ret != VCL_RESULT_SUCCESS) {
+        printErrorInfo("Failed to create compiler! Result: 0x", ret);
+        return ret;
+    }
+
+    vcl_query_handle_t query = nullptr;
+    vcl_query_desc_t desc = {getModelIR().data(), getModelIRSize(), options.c_str(), options.size() + 1};
+
+    ret = vclQueryNetworkCreate(compiler, desc, &query);
+    if (ret != VCL_RESULT_SUCCESS) {
+        printErrorInfo("Failed to create query handle! Result: 0x", ret);
+        vclCompilerDestroy(compiler);
+        return ret;
+    }
+
+    uint64_t layerSize = 0;
+    ret = vclQueryNetwork(query, nullptr, &layerSize);
+    if (ret != VCL_RESULT_SUCCESS) {
+        printErrorInfo("Failed to get query result size! Result: 0x", ret);
+        vclQueryNetworkDestroy(query);
+        vclCompilerDestroy(compiler);
+        return ret;
+    }
+    if (layerSize == 0) {
+        std::cerr << "Query result size is zero after first vclQueryNetwork call." << std::endl;
+        vclQueryNetworkDestroy(query);
+        vclCompilerDestroy(compiler);
+        return VCL_RESULT_ERROR_INVALID_ARGUMENT;
+    }
+
+    std::vector<uint8_t> layerRawData(layerSize);
+    ret = vclQueryNetwork(query, layerRawData.data(), &layerSize);
+    if (ret != VCL_RESULT_SUCCESS) {
+        printErrorInfo("Failed to get query result! Result: 0x", ret);
+        vclQueryNetworkDestroy(query);
+        vclCompilerDestroy(compiler);
+        return ret;
+    }
+
+    ret = vclQueryNetworkDestroy(query);
+    if (ret != VCL_RESULT_SUCCESS) {
+        printErrorInfo("Failed to destroy query handle! Result: 0x", ret);
+        vclCompilerDestroy(compiler);
+        return ret;
+    }
+    query = nullptr;
+
+    ret = vclCompilerDestroy(compiler);
+    if (ret != VCL_RESULT_SUCCESS) {
+        printErrorInfo("Failed to destroy compiler! Result: 0x", ret);
+        return ret;
+    }
+
+    return ret;
+}
+
+TEST_P(VCLQueryNetworkSingleThreadTest, queryNetwork) {
+    EXPECT_EQ(run(getNetOptions()), VCL_RESULT_SUCCESS);
+}
+
+INSTANTIATE_TEST_SUITE_P(smoke_SingleThreadQueryNetwork, VCLQueryNetworkSingleThreadTest, smokeParams,
+                         VCLQueryNetworkSingleThreadTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(SingleThreadQueryNetwork, VCLQueryNetworkSingleThreadTest, params,
+                         VCLQueryNetworkSingleThreadTest::getTestCaseName);
+
+}  // namespace VCLTest

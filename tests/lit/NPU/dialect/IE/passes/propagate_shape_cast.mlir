@@ -657,3 +657,47 @@ func.func @NotSwapWithSoftmaxAxis3(%arg0: tensor<1x17x16x1xf16, {order = #NWCH}>
 
     // CHECK:               return [[SOFTMAX]] : tensor<1x1x17x16xf16, {order = #NWCH}>
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NHCW = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+
+// CHECK-LABEL: @SwapWithSoftmaxThroughPermuteCast
+// CHECK-SAME:    [[INPUT:%.+]]: tensor<1x16x1024x1xf16, {order = #NHWC}>
+func.func @SwapWithSoftmaxThroughPermuteCast(%arg0: tensor<1x16x1024x1xf16, {order = #NHWC}>) -> tensor<1x1x1024x16xf16, {order = #NHCW}> {
+    %0 = IE.ShapeCast {shape = [1, 1, 1024, 16]} inputs(%arg0 : tensor<1x16x1024x1xf16, {order = #NHWC}>) -> tensor<1x1x1024x16xf16, {order = #NHWC}>
+    %1 = IE.PermuteCast(%0) {dst_order = #NHCW, mem_perm = #NCWH} : tensor<1x1x1024x16xf16, {order = #NHWC}> -> tensor<1x1x1024x16xf16, {order = #NHCW}>
+    %2 = IE.SoftMax(%1) {axisInd = 2 : i64} : tensor<1x1x1024x16xf16, {order = #NHCW}> -> tensor<1x1x1024x16xf16, {order = #NHCW}>
+
+    return %2 : tensor<1x1x1024x16xf16, {order = #NHCW}>
+
+    // CHECK:               [[SOFTMAX:%.+]] = IE.SoftMax([[INPUT]]) {axisInd = 2 : i64} : tensor<1x16x1024x1xf16, {order = #NHWC}> -> tensor<1x16x1024x1xf16, {order = #NHWC}>
+    // CHECK:               [[SHAPE_CAST:%.+]] = IE.ShapeCast {shape = [1, 1, 1024, 16]} inputs([[SOFTMAX]] : tensor<1x16x1024x1xf16, {order = #NHWC}>) -> tensor<1x1x1024x16xf16, {order = #NHWC}>
+    // CHECK:               [[PERMUTE_CAST:%.+]] = IE.PermuteCast([[SHAPE_CAST]]) {dst_order = #NHCW, mem_perm = #NCWH} : tensor<1x1x1024x16xf16, {order = #NHWC}> -> tensor<1x1x1024x16xf16, {order = #NHCW}>
+
+    // CHECK:               return [[PERMUTE_CAST]] : tensor<1x1x1024x16xf16, {order = #NHCW}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NHCW = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+
+// CHECK-LABEL: @SwapWithSoftmaxThroughPermuteCastNonTrivialMemPerm
+// CHECK-SAME:    [[INPUT:%.+]]: tensor<1x1024x256x4xf16, {order = #NHWC}>
+func.func @SwapWithSoftmaxThroughPermuteCastNonTrivialMemPerm(%arg0: tensor<1x1024x256x4xf16, {order = #NHWC}>) -> tensor<1x1x1024x1024xf16, {order = #NHCW}> {
+    %0 = IE.ShapeCast {shape = [1, 1, 1024, 1024]} inputs(%arg0 : tensor<1x1024x256x4xf16, {order = #NHWC}>) -> tensor<1x1x1024x1024xf16, {order = #NHWC}>
+    %1 = IE.PermuteCast(%0) {dst_order = #NHCW, mem_perm = #NCWH} : tensor<1x1x1024x1024xf16, {order = #NHWC}> -> tensor<1x1x1024x1024xf16, {order = #NHCW}>
+    %2 = IE.SoftMax(%1) {axisInd = 3 : i64} : tensor<1x1x1024x1024xf16, {order = #NHCW}> -> tensor<1x1x1024x1024xf16, {order = #NHCW}>
+
+    return %2 : tensor<1x1x1024x1024xf16, {order = #NHCW}>
+
+    // CHECK:               [[SOFTMAX:%.+]] = IE.SoftMax([[INPUT]]) {axisInd = 1 : i64} : tensor<1x1024x256x4xf16, {order = #NHWC}> -> tensor<1x1024x256x4xf16, {order = #NHWC}>
+    // CHECK:               [[SHAPE_CAST:%.+]] = IE.ShapeCast {shape = [1, 1, 1024, 1024]} inputs([[SOFTMAX]] : tensor<1x1024x256x4xf16, {order = #NHWC}>) -> tensor<1x1x1024x1024xf16, {order = #NHWC}>
+    // CHECK:               [[PERMUTE_CAST:%.+]] = IE.PermuteCast([[SHAPE_CAST]]) {dst_order = #NHCW, mem_perm = #NCWH} : tensor<1x1x1024x1024xf16, {order = #NHWC}> -> tensor<1x1x1024x1024xf16, {order = #NHCW}>
+
+    // CHECK:               return [[PERMUTE_CAST]] : tensor<1x1x1024x1024xf16, {order = #NHCW}>
+}

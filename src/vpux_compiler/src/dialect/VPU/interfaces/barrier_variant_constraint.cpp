@@ -7,10 +7,6 @@
 
 using namespace vpux::VPU;
 
-size_t PerBarrierVariantConstraint::getPerBarrierMaxVariantSum() const {
-    return self->getPerBarrierMaxVariantSum();
-}
-
-size_t PerBarrierVariantConstraint::getPerBarrierMaxVariantCount() const {
-    return self->getPerBarrierMaxVariantCount();
+size_t PerBarrierSlotConstraint::getPerBarrierMaxSlotCount() const {
+    return self->getPerBarrierMaxSlotCount();
 }

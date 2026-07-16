@@ -9,8 +9,8 @@
 module @SimpleActivation attributes {config.compilationMode = #config.compilation_mode<ReferenceSW>} {
   VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
   module @VPU.SW {
-    func.func private @builtin_ReLU(memref<2x4x20x20xf16, [@CMX_NN, 0]>, memref<2x4x20x20xf16, [@CMX_NN, 0]>) attributes {VPU.kernel_code = "activation_relu.cpp", VPU.kernel_entry = "activation_relu"}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_ReLU(memref<2x4x20x20xf16, [@CMX_NN, 0]>, memref<2x4x20x20xf16, [@CMX_NN, 0]>) attributes {VPU.kernel_code = "activation_relu.cpp", VPU.kernel_entry = "activation_relu"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "Param_1" : tensor<?x?x?x?xf16>

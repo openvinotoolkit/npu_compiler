@@ -55,12 +55,7 @@ VPUIP::PhysicalBarrierRangeAttr getPidRangeForDMAProgBarrier(mlir::OpBuilder& bu
 
 void WlmLegalizePagesForBarrierDmasPass::safeRunOnFunc() {
     auto func = getOperation();
-    auto module = func->getParentOfType<mlir::ModuleOp>();
     auto nPhysBarrs = VPUIP::getNumAvailableBarriers(func);
-    if (config::getWorkloadManagementStatus(module) != WorkloadManagementStatus::ENABLED) {
-        // WLM is not supported, no need to run this pass
-        return;
-    }
     const auto numBarriers = numBarriersOpt.hasValue() ? numBarriersOpt.getValue() : nPhysBarrs;
 
     auto& barrierInfo = getAnalysis<BarrierInfo>();
@@ -103,31 +98,10 @@ void WlmLegalizePagesForBarrierDmasPass::safeRunOnFunc() {
         VPUX_THROW_UNLESS(waitBars.size() >= 1, "Invalid wait bars count");
 
         _log.trace("Barrier programming DMA for page {0}, insert after {1}:", pageInd, barProgDma.insertAfter);
-        // Create DMAs for each wait bar to satisfy 1-wait bar condition
-        // Last DMA would be the barrier programming DMA
-        auto dmaCount = waitBars.size();
-        for (size_t i = 0; i < dmaCount - 1; i++) {
-            auto waitBar = waitBars[i];
-
-            // Create DMA for wait bar
-            _log.nest().trace("Create sync DMA with wait bar {0}", waitBar);
-
-            auto insertPointOp = barrierInfo.getTaskOpAtIndex(insertPoint);
-            builder.setInsertionPointAfter(insertPointOp);
-
-            auto syncTaskOp =
-                    VPUIP::createSyncDMA(builder, inBuffer, outBuffer, 0, {}, {}, "pre_bar_reprogram_sync_dma");
-            syncTaskOp.setWlmPageAttr(insertPointOp.getWlmPageAttr());
-
-            auto syncTaskInd = barrierInfo.addNewTaskOp(syncTaskOp);
-            barrierInfo.addConsumer(waitBar, syncTaskInd);
-
-            insertPoint = syncTaskInd;
-            syncTaskOp.setWlmPage(pageInd);
-        }
 
         // Create placeholder DMA for barrier reprogramming
-        _log.nest().trace("Create barrier programming DMA with wait bar {0}", waitBars.back());
+        _log.nest().trace("Create barrier programming DMA with {0} wait barriers and {1} update barriers",
+                          waitBars.size(), updateBars.size());
 
         auto insertPointOp = barrierInfo.getTaskOpAtIndex(insertPoint);
         builder.setInsertionPointAfter(insertPointOp);
@@ -136,7 +110,10 @@ void WlmLegalizePagesForBarrierDmasPass::safeRunOnFunc() {
         barProgDMATaskOp.setWlmPage(pageInd);
 
         auto barProgDMATaskInd = barrierInfo.addNewTaskOp(barProgDMATaskOp);
-        barrierInfo.addConsumer(waitBars.back(), barProgDMATaskInd);
+        llvm::for_each(waitBars, [&](auto waitBar) {
+            _log.nest(2).trace("wait bar {0}", waitBar);
+            barrierInfo.addConsumer(waitBar, barProgDMATaskInd);
+        });
         llvm::for_each(updateBars, [&](auto updateBar) {
             _log.nest(2).trace("update bar {0}", updateBar);
             barrierInfo.addProducer(updateBar, barProgDMATaskInd);

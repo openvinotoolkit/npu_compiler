@@ -31,6 +31,7 @@ add_npu_library(npu_compiler_dialect_ie_transforms
         npu_compiler_dialect_vpu_utils
         npu_compiler_dialect_vpuip_interfaces
         npu_compiler_dialect_vpuip_utils
-        npu_compiler_act_kernels
+        npu_compiler_dialect_hostexec
+        npu_compiler_dialect_hostexec_transforms
         openvino::npu_al
 )

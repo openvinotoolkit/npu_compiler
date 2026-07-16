@@ -7,9 +7,9 @@
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 using namespace vpux;
-
 mlir::LogicalResult vpux::VPU::LogOp::inferReturnTypes(mlir::MLIRContext* ctx, std::optional<mlir::Location> optLoc,
                                                        mlir::ValueRange operands, mlir::DictionaryAttr attrs,
                                                        mlir::OpaqueProperties prop, mlir::RegionRange /*regions*/,
@@ -95,4 +95,10 @@ void vpux::VPU::LogOp::adjustAttrs(const TilingInfo& /*inputTiling*/, const Tile
 
 mlir::FailureOr<OutputTiling> vpux::VPU::LogOp::getTilingStrategy(TilingMode tilingMode, Logger log) {
     return vpux::getSWLayerTilingStrategy(this->getOperation(), tilingMode, log);
+}
+
+mlir::LogicalResult vpux::VPU::LogOp::reifyResultShapes(mlir::OpBuilder& builder,
+                                                        mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    reifiedReturnShapes.emplace_back(reifyTrivialTensor(builder, getInput(), getLoc()));
+    return mlir::success();
 }

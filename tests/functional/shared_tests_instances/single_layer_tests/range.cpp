@@ -12,6 +12,9 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(RangeLayerTest);
+
 class RangeLayerTestCommon : public RangeLayerTest, virtual public VpuOv2LayerTest {
     // Latest 'RangeLayerTest::SetUp' builds 'start,stop,step' as non-CONST inputs, thus unable to infer output shape.
     // So using older SetUp that builds CONST inputs.

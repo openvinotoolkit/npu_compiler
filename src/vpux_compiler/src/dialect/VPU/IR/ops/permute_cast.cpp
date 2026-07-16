@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 
 #include "vpux/compiler/dialect/VPU/utils/permute_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
@@ -144,8 +145,8 @@ SmallVector<int64_t> vpux::VPU::PermuteCastOp::backInferTilingStrategy(mlir::Arr
     const auto invPerm = mlir::inversePermutation(getMemPerm());
 
     VPUX_THROW_WHEN(outputTilingStrategy.size() != static_cast<size_t>(dstType.getRank()),
-                    "Output tiling strategy size {0} doesn't match dst type rank {1}", outputTilingStrategy.size(),
-                    dstType.getRank());
+                    "Output tiling strategy size {0} doesn't match dst type rank {1} for op @ {2}",
+                    outputTilingStrategy.size(), dstType.getRank(), getLoc());
 
     const auto outStrategy = Shape(outputTilingStrategy);
     const auto inputStrategy = inferShapeThroughPermute(outStrategy, dstType, srcType, invPerm);
@@ -187,8 +188,14 @@ void vpux::VPU::PermuteCastOp::adjustAttrs(const TilingInfo&, const TileInfo&, S
 }
 
 bool vpux::VPU::PermuteCastOp::isVFSupported() {
-    // E-163016 remove is VFSupported flag when scf and current algorithm is aligned
-    return false;
+    if (auto parentOp = getInput().getDefiningOp()) {
+        if (!VPU::opHasAccurateCost(parentOp)) {
+            return false;
+        }
+    }
+    return llvm::all_of(getOutput().getUsers(), [](mlir::Operation* userOp) {
+        return VPU::opHasAccurateCost(userOp);
+    });
 }
 
 namespace {
@@ -280,8 +287,17 @@ mlir::LogicalResult MergeParallelPermuteCast::matchAndRewrite(VPU::PermuteCastOp
             continue;
         }
 
+        if (origOp->getBlock() != permuteCastOp->getBlock()) {
+            continue;
+        }
+
         if (origOp.getMemPermAttr() == permuteCastOp.getMemPermAttr() &&
             origOp.getDstOrderAttr() == permuteCastOp.getDstOrderAttr()) {
+            // origOp must appear before permuteCastOp in the block, otherwise
+            // replacing permuteCastOp with origOp's output violates SSA dominance.
+            if (!origOp->isBeforeInBlock(permuteCastOp)) {
+                continue;
+            }
             permuteCastOps.push_back(permuteCastOp);
         }
     }

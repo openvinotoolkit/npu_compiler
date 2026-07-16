@@ -23,6 +23,7 @@
 
 #include "vpux/compiler/utils/error.hpp"
 
+#include <mlir/IR/Matchers.h>
 #include <openvino/op/convolution.hpp>
 #include <openvino/op/parameter.hpp>
 
@@ -60,6 +61,25 @@ bool vpux::VPU::NCECompressConvolutionOp::fitIntoCMX(vpux::NDTypeInterface input
            totalAvailableCMXSize;
 }
 
+/*
+ * Return the mixed raw filter shape by combining the static and dynamic raw filter shape values into a single
+ * SmallVector of OpFoldResults.
+ */
+SmallVector<mlir::OpFoldResult> vpux::VPU::NCECompressConvolutionOp::getMixedRawFilterShape() {
+    mlir::Builder builder(getContext());
+    return mlir::getMixedValues(getStaticRawFilterShape(), getRawFilterShape(), builder);
+}
+
+/*
+ * Return the constant raw filter shape by extracting the constant values from the mixed raw filter shape.
+ */
+SmallVector<int64_t> vpux::VPU::NCECompressConvolutionOp::getConstRawFilterShape() {
+    auto vals = mlir::getConstantIntValues(getMixedRawFilterShape());
+    VPUX_THROW_WHEN(!vals.has_value(), "Cannot get constant raw filter shape from NCECompressConvolutionOp '{0}'",
+                    getLoc());
+    return vals.value();
+}
+
 //
 // isDeprecated
 //
@@ -94,8 +114,14 @@ bool vpux::VPU::NCECompressConvolutionOp::isSupported(IE::ConvolutionOp op, LogC
 //
 
 static mlir::LogicalResult verifyConv(mlir::Location loc, mlir::Operation* op,
-                                      VPU::NCECompressConvolutionOpAdaptor opAdaptor, mlir::Value output) {
-    const auto filterShape = Shape(parseIntArrayAttr<int64_t>(opAdaptor.getRawFilterShape()));
+                                      VPU::NCECompressConvolutionOpAdaptor& opAdaptor, mlir::Value output) {
+    const auto filterShape = Shape(opAdaptor.getStaticRawFilterShape());
+    const auto KY = filterShape[Dims4D::Filter::KY];
+    const auto KX = filterShape[Dims4D::Filter::KX];
+
+    VPUX_THROW_WHEN(mlir::ShapedType::isDynamic(KY) || mlir::ShapedType::isDynamic(KX),
+                    "Dynamic kernel size is not supported for NCE operations");
+
     const auto kernelStrides = Shape(parseIntArrayAttr<int64_t>(opAdaptor.getStrides()));
     const auto padAttr = opAdaptor.getPad();
     const auto weightsTableShape = getShape(opAdaptor.getWeightsTable());
@@ -116,8 +142,8 @@ mlir::LogicalResult vpux::VPU::NCECompressConvolutionOp::verify() {
         return mlir::failure();
     }
 
-    const NCECompressConvolutionOpAdaptor convAdaptor(op->getOperands(), op->getAttrDictionary(),
-                                                      op->getPropertiesStorage(), op->getRegions());
+    NCECompressConvolutionOpAdaptor convAdaptor(op->getOperands(), op->getAttrDictionary(), op->getPropertiesStorage(),
+                                                op->getRegions());
     if (mlir::failed(verifyConv(getOperation()->getLoc(), op, convAdaptor, getOutput()))) {
         return mlir::failure();
     }
@@ -125,9 +151,13 @@ mlir::LogicalResult vpux::VPU::NCECompressConvolutionOp::verify() {
     const auto inputOrder = DimsOrder::fromValue(getInput());
     const auto filterOrder = DimsOrder::fromValue(getFilter());
 
-    const auto filterShape = Shape(parseIntArrayAttr<int64_t>(getRawFilterShape()));
-    VPUX_THROW_UNLESS(filterShape[Dims4D::Filter::IC] <= vpux::VPU::NCEInvariant::VPU_COMPRESSED_INPUT_CHANNEL_NUM,
-                      "Filter input channels : [{0}] must be less than [{1}]", filterShape[Dims4D::Filter::IC],
+    const auto mixedRawFilterShape = getMixedRawFilterShape();
+    const auto maybeIC = mlir::getConstantIntValue(mixedRawFilterShape[checked_cast<size_t>(Dims4D::Filter::IC.ind())]);
+    if (!maybeIC.has_value()) {
+        return errorAt(op, "Dynamic raw kernel shape IC is not supported for NCECompressConvolutionOp");
+    }
+    VPUX_THROW_UNLESS(maybeIC.value() <= vpux::VPU::NCEInvariant::VPU_COMPRESSED_INPUT_CHANNEL_NUM,
+                      "Filter input channels : [{0}] must be less than [{1}]", maybeIC.value(),
                       vpux::VPU::NCEInvariant::VPU_COMPRESSED_INPUT_CHANNEL_NUM);
 
     VPUX_THROW_UNLESS(inputOrder == DimsOrder::NHWC, "[{0}] Unsupported input layout [{1}], expected NHWC", getLoc(),
@@ -155,13 +185,13 @@ mlir::LogicalResult vpux::VPU::NCECompressConvolutionOp::inferReturnTypes(
     }
 
     const auto inShape = getShape(op.getInput());
-    // Raw filter shape for compress convolution has 3 IC actually used for weights.
-    // In order to infer return type we change the IC to aligned values of 4
-    // which is same as activation Channel value .
-    const auto filterShapeVect = parseIntArrayAttr<int64_t>(op.getRawFilterShape());
+    // RawFilterShape can have either static or dynamic dimensions, so we need to resolve it before inferring the output
+    // shape. Raw filter shape for compress convolution has 3 IC actually used for weights. In order to infer return
+    // type we change the IC to aligned values of 4 which is same as activation Channel value.
+    const auto resolvedFilterShape = VPU::resolveRawFilterShape(op.getStaticRawFilterShape(), op.getRawFilterShape());
     const auto filterShape =
-            Shape({filterShapeVect[Dims4D::Filter::OC.ind()], inShape[Dims4D::Act::C],
-                   filterShapeVect[Dims4D::Filter::KY.ind()], filterShapeVect[Dims4D::Filter::KX.ind()]});
+            Shape({resolvedFilterShape[Dims4D::Filter::OC.ind()], inShape[Dims4D::Act::C],
+                   resolvedFilterShape[Dims4D::Filter::KY.ind()], resolvedFilterShape[Dims4D::Filter::KX.ind()]});
 
     const auto windowStrides = parseIntArrayAttr<int64_t>(op.getStrides());
     const auto windowDilations = SmallVector<int64_t>({1, 1});
@@ -195,7 +225,7 @@ mlir::LogicalResult vpux::VPU::NCECompressConvolutionOp::inferReturnTypes(
 vpux::InputTiling vpux::VPU::NCECompressConvolutionOp::backInferTileInfo(const vpux::TileInfo& outputTile,
                                                                          vpux::Logger log) {
     const auto origInputShape = getBoundedShape(getInput());
-    const auto origFilterShape = Shape(parseIntArrayAttr<int64_t>(getRawFilterShape()));
+    const auto origFilterShape = Shape(getConstRawFilterShape());
     const auto origPadding = toPadInfo(getPad());
 
     // This op incorporates bias values in WeightsTable
@@ -382,7 +412,7 @@ mlir::LogicalResult vpux::VPU::NCECompressConvolutionOp::reifyResultShapes(
     const auto dataPaddingAbove = SmallVector<int64_t>({padTop, padLeft});
     const auto dataPaddingBelow = SmallVector<int64_t>({padBottom, padRight});
 
-    const auto rawFilterShape = Shape(parseIntArrayAttr<int64_t>(getRawFilterShape()));
+    const auto rawFilterShape = Shape(getStaticRawFilterShape());
     SmallVector<int64_t> kernelSize{rawFilterShape[Dims4D::Filter::KY], rawFilterShape[Dims4D::Filter::KX]};
 
     // Compute output shape using utility

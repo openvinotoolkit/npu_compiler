@@ -584,3 +584,46 @@ func.func @GroupsToAttrWithFQInput(%arg0: tensor<1x96x96x96xf32>) -> tensor<1x96
 
     // CHECK:           return [[GROUP_CONV]] : tensor<1x96x96x96xf32>
 }
+
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+!qElemType = !quant.uniform<ui4:f16, 1.000000e+00>
+
+// CHECK-LABEL: @ConvWithStaticScale
+// CHECK-SAME: ([[ARG0:%.+]]: tensor<1x32x16x16xf16, {order = #NHWC}>,
+// CHECK-SAME:  [[ARG1:%.+]]: tensor<32x32x1x1x!qElemType, {order = #NHWC}>,
+// CHECK-SAME:  [[ARG2:%.+]]: tensor<1x32x1x1xf16>)
+func.func @ConvWithStaticScale(%arg0: tensor<1x32x16x16xf16, {order = #NHWC}>,
+                               %arg1: tensor<32x32x1x1x!qElemType, {order = #NHWC}>,
+                               %arg2: tensor<1x32x1x1xf16>)
+        -> tensor<1x32x16x16xf16, {order = #NHWC}> {
+    %0 = IE.MaxPool(%arg2) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1], rounding_type = #IE.rounding_type<FLOOR>} : tensor<1x32x1x1xf16> -> tensor<1x32x1x1xf32>
+    %1 = IE.AffineReshape(%0) {dim_mapping = [[0], [0], [0], [0, 1, 2, 3]], shape_value = [32, 1, 1, 1]} : tensor<1x32x1x1xf32> -> tensor<32x1x1x1xf32>
+    %2 = IE.Convolution(%arg0, %arg1, %1) {
+        operandSegmentSizes = array<i32: 1, 1, 0, 1, 0>,
+        dilations = [1, 1],
+        pads_begin = [0, 0],
+        pads_end = [0, 0],
+        strides = [1, 1],
+        static_scale = 0.247436523 : f32
+    } : tensor<1x32x16x16xf16, {order = #NHWC}>, tensor<32x32x1x1x!qElemType, {order = #NHWC}>, tensor<32x1x1x1xf32>
+        -> tensor<1x32x16x16xf16, {order = #NHWC}>
+
+    return %2 : tensor<1x32x16x16xf16, {order = #NHWC}>
+
+    // CHECK:   [[MAXPOOL:%.+]] = IE.MaxPool([[ARG2]])
+    // CHECK-SAME:          static_scale = 0.247436523 : f32
+    // CHECK:   [[RESHAPE:%.+]] = IE.AffineReshape([[MAXPOOL]]) 
+    // CHECK-SAME:          : tensor<1x32x1x1xf32> -> tensor<32x1x1x1xf32>
+    
+    // CHECK:   [[OUT:%.+]] = IE.Convolution([[ARG0]], [[ARG1]], [[RESHAPE]])
+    // CHECK-SAME:      dilations = [1, 1],
+    // CHECK-SAME:      pads_begin = [0, 0],
+    // CHECK-SAME:      pads_end = [0, 0],
+    // CHECK-SAME:      strides = [1, 1]
+    // CHECK-SAME:      tensor<1x32x16x16xf16, {order = #NHWC}>, tensor<32x32x1x1x!qElemType, {order = #NHWC}>, tensor<32x1x1x1xf32> -> tensor<1x32x16x16xf16, {order = #NHWC}>
+
+    // CHECK:       return [[OUT]]
+}

@@ -65,9 +65,21 @@ bool isAligned(vpux::NDTypeInterface type, int64_t alignment, LogCb logCb);
 
 int64_t getAlignment(mlir::Type elemType);
 
+int64_t getWeightSetAlignment(mlir::Operation* op, mlir::Type weightsElemType);
+
 bool isInputActTypeSupported(vpux::NDTypeInterface type, int64_t alignment, bool supportsInputActCompression = false,
                              LogCb logCb = globalLogCb);
-bool isOutputActTypeSupported(vpux::NDTypeInterface type, int64_t alignment, LogCb logCb = globalLogCb);
+bool isOutputActTypeSupported(mlir::Operation* op, vpux::NDTypeInterface type, int64_t alignment,
+                              LogCb logCb = globalLogCb);
+
+//
+// Weights
+//
+
+// Returns true on architectures where the IDU can consume weight sets whose size
+// (IC * KY * KX * elemSize) is not a multiple of 16 bytes via the WT_PACK_EN /
+// WT_PTR_DIS_PACK_EN hardware path. When true, explicit padding can be skipped.
+bool supportsHWWeightSetPacking(mlir::Operation* op);
 
 //
 // WeightsTable information
@@ -80,6 +92,8 @@ SmallVector<Byte> getWeightsTableSize(mlir::Operation* op, int64_t OC, mlir::Val
                                       mlir::Value weightTableBias, mlir::Value weightTableZeroPoints);
 
 mlir::LogicalResult getWeightTableBuffers(mlir::Operation* op, SmallVector<Byte>& buffers, int64_t OC);
+
+Byte getWeightsTableSize(mlir::Operation* op, int64_t OC);
 
 //
 // Fuse PadOp check

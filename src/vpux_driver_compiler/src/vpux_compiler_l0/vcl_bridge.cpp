@@ -8,13 +8,22 @@
  * @brief The bridge from L0 driver compiler to user API
  */
 
-#include "vcl_common.hpp"
+#include "npu_driver_compiler.h"
+
+#include "intel_npu/config/options.hpp"
 #include "vcl_compiler.hpp"
 #include "vcl_executable.hpp"
 #include "vcl_profiling.hpp"
 #include "vcl_query_network.hpp"
+#include "vpux/utils/ov/config.hpp"
+
+#include <algorithm>
+#include <cstdlib>
+#include <optional>
 
 using namespace vpux;
+
+namespace {
 
 template <typename Allocator>
 class VCLBlobAllocator : public BlobAllocator {
@@ -48,63 +57,51 @@ private:
 template <typename Allocator>
 vcl_result_t allocatedExecutableCreate(vcl_compiler_handle_t compiler, vcl_executable_desc_t desc, Allocator* allocator,
                                        uint8_t** blob, uint64_t* size, uint8_t** compatibilityReqBuffer = nullptr,
-                                       uint64_t* compatibilityReqSize = nullptr) {
+                                       uint64_t* compatibilityReqSize = nullptr,
+                                       vcl_executable_handle_t* executable = nullptr) {
+    if (executable != nullptr) {
+        *executable = nullptr;
+    }
     if (!compiler || !allocator || !blob || !size || !desc.modelIRData) {
         return VCL_RESULT_ERROR_INVALID_ARGUMENT;
     }
-
     if (!compatibilityReqBuffer != !compatibilityReqSize) {
         // Both compatibilityReqBuffer and compatibilityReqSize should be provided together
         return VCL_RESULT_ERROR_INVALID_ARGUMENT;
     }
 
-    uint8_t* blobResult = nullptr;
-    uint64_t sizeResult = 0;
+    *blob = nullptr;
+    *size = 0;
     uint8_t* compatibilityReqBufferResult = nullptr;
     uint64_t compatibilityReqSizeResult = 0;
-    auto scoped = VPUXDriverCompiler::Scoped{[&]() {
-        *blob = blobResult;
-        *size = sizeResult;
+
+    VPUXDriverCompiler::VPUXCompilerL0* pCompiler = reinterpret_cast<VPUXDriverCompiler::VPUXCompilerL0*>(compiler);
+    auto& vclLogger = pCompiler->getLogger();
+
+    try {
+        // NetworkMetadata is part of the result, but unused in VCL
+        // it'd just get destroyed at function call here
+        VCLBlobAllocator vclAllocator{allocator};
+        const auto allocateCompatibilityString =
+                (compatibilityReqBuffer != nullptr) && (compatibilityReqSize != nullptr);
+        auto result = pCompiler->importNetwork(desc, vclAllocator, allocateCompatibilityString);
+        *blob = result.compiledNetwork.ptr;
+        *size = result.compiledNetwork.size;
+        compatibilityReqBufferResult = result.compatibilityString.ptr;
+        compatibilityReqSizeResult = result.compatibilityString.size;
         if (compatibilityReqBuffer) {
             *compatibilityReqBuffer = compatibilityReqBufferResult;
         }
         if (compatibilityReqSize) {
             *compatibilityReqSize = compatibilityReqSizeResult;
         }
-    }};
-
-    VPUXDriverCompiler::VPUXCompilerL0* pCompiler = reinterpret_cast<VPUXDriverCompiler::VPUXCompilerL0*>(compiler);
-    VPUXDriverCompiler::VCLLogger* vclLogger = pCompiler->getLogger();
-
-    /// To avoid access violation, need to convert to string
-    std::string descOptions(desc.options, desc.optionsSize);
-    vclLogger->info("config: {0}", descOptions);
-
-    /// Create info parser
-    VPUXDriverCompiler::BuildInfo buildInfo(pCompiler);
-    /// Parse user descriptions and store the input && output settings, compilation configs
-    if (auto ret = buildInfo.prepareBuildFlags(descOptions); ret != VCL_RESULT_SUCCESS) {
-        vclLogger->outputError(formatv("Failed to prepare io info and config! DescOptions: {0}", descOptions));
-        return ret;
-    }
-
-    /// Parse serialized model data and create the model container for compiler
-    if (auto ret = buildInfo.prepareModel(desc.modelIRData, desc.modelIRSize); ret != VCL_RESULT_SUCCESS) {
-        vclLogger->outputError("Failed to parse model info! Incorrect format!");
-        return ret;
-    }
-
-    try {
-        // NetworkMetadata is part of the result, but unused in VCL
-        // it'd just get destroyed at function call here
-        VCLBlobAllocator vcl_allocator{allocator};
-        const auto isCompatibilityReqRequested =
-                (compatibilityReqBuffer != nullptr) && (compatibilityReqSize != nullptr);
-        auto result = pCompiler->importNetwork(buildInfo, vcl_allocator, isCompatibilityReqRequested);
-        blobResult = result.compiledNetwork.ptr;
-        sizeResult = result.compiledNetwork.size;
-        compatibilityReqBufferResult = result.compatibilityString.ptr;
-        compatibilityReqSizeResult = result.compatibilityString.size;
+        if (executable != nullptr) {
+            *executable = reinterpret_cast<vcl_executable_handle_t>(new (
+                    std::nothrow) VPUXDriverCompiler::VPUXExecutableL0(result.metadata.compatibilityString, vclLogger));
+        }
+    } catch (const InvalidIrError& error) {
+        vclLogger->outputError(error.what());
+        return VCL_RESULT_ERROR_INVALID_IR;
     } catch (const std::exception& error) {
         vclLogger->outputError(formatv("Compiler returned msg:\n{0}", error.what()));
         return VCL_RESULT_ERROR_INVALID_ARGUMENT;
@@ -112,7 +109,6 @@ vcl_result_t allocatedExecutableCreate(vcl_compiler_handle_t compiler, vcl_execu
         vclLogger->outputError("Internal exception! Can't compile model!");
         return VCL_RESULT_ERROR_INVALID_ARGUMENT;
     }
-
     return VCL_RESULT_SUCCESS;
 }
 
@@ -123,34 +119,19 @@ vcl_result_t allocatedExecutableCreateWSOneShot(vcl_compiler_handle_t compiler, 
     }
 
     VPUXDriverCompiler::VPUXCompilerL0* pCompiler = reinterpret_cast<VPUXDriverCompiler::VPUXCompilerL0*>(compiler);
-    VPUXDriverCompiler::VCLLogger* vclLogger = pCompiler->getLogger();
-
-    /// To avoid access violation, need to convert to string
-    std::string descOptions(desc.options, desc.optionsSize);
-    vclLogger->info("config: {0}", descOptions);
-
-    /// Create info parser
-    VPUXDriverCompiler::BuildInfo buildInfo(pCompiler);
-    /// Parse user descriptions and store the input && output settings, compilation configs
-    if (auto ret = buildInfo.prepareBuildFlags(descOptions); ret != VCL_RESULT_SUCCESS) {
-        vclLogger->outputError(formatv("Failed to prepare io info and config! DescOptions: {0}", descOptions));
-        return ret;
-    }
-
-    /// Parse serialized model data and create the model container for compiler
-    if (auto ret = buildInfo.prepareModel(desc.modelIRData, desc.modelIRSize); ret != VCL_RESULT_SUCCESS) {
-        vclLogger->outputError("Failed to parse model info! Incorrect format!");
-        return ret;
-    }
+    auto& vclLogger = pCompiler->getLogger();
 
     try {
         // NetworkMetadata is part of the result, but unused in VCL
         // it'd just get destroyed at function call here
-        VCLBlobAllocator vcl_allocator{allocator};
-        auto result = pCompiler->importNetworkWSOneShot(buildInfo, vcl_allocator);
+        VCLBlobAllocator vclAllocator{allocator};
+        auto result = pCompiler->importNetworkWSOneShot(desc, vclAllocator);
         if (result.empty()) {
             vclLogger->warning("Compiler successfully returned but the blob list is empty!");
         }
+    } catch (const InvalidIrError& error) {
+        vclLogger->outputError(error.what());
+        return VCL_RESULT_ERROR_INVALID_IR;
     } catch (const std::exception& error) {
         vclLogger->outputError(formatv("Compiler returned msg:\n{0}", error.what()));
         return VCL_RESULT_ERROR_INVALID_ARGUMENT;
@@ -161,9 +142,43 @@ vcl_result_t allocatedExecutableCreateWSOneShot(vcl_compiler_handle_t compiler, 
     return VCL_RESULT_SUCCESS;
 }
 
-#ifdef __cplusplus
+std::optional<LogLevel> getLogLevel(vcl_log_level_t level) {
+    // Note OV does not have LOG_FATAL
+    switch (level) {
+    case VCL_LOG_NONE:
+        return LogLevel::None;
+    case VCL_LOG_ERROR:
+        return LogLevel::Error;
+    case VCL_LOG_WARNING:
+        return LogLevel::Warning;
+    case VCL_LOG_INFO:
+        return LogLevel::Info;
+    case VCL_LOG_DEBUG:
+        return LogLevel::Debug;
+    case VCL_LOG_TRACE:
+        return LogLevel::Trace;
+    default:
+        return std::nullopt;
+    }
+}
+
+std::optional<LogLevel> getLogLevelFromEnv(VPUXDriverCompiler::VCLLogger& log) {
+    const auto envVar = intel_npu::LOG_LEVEL::envVar();
+    assert(!envVar.empty());
+    if (const auto logLevelEnv = std::getenv(envVar.data())) {
+        try {
+            auto ovlogLevel = intel_npu::LOG_LEVEL::parse(logLevelEnv);
+            return vpux::getLogLevel(ovlogLevel);
+        } catch (const std::runtime_error&) {
+            log.warning("Failed to parse {0}", envVar);
+        }
+    }
+    return std::nullopt;
+}
+
+}  // namespace
+
 extern "C" {
-#endif
 
 #if defined(_WIN32)
 #define DLLEXPORT __declspec(dllexport)
@@ -186,47 +201,44 @@ DLLEXPORT vcl_result_t vclGetVersion(vcl_version_info_t* compilerVersion, vcl_ve
 
 DLLEXPORT vcl_result_t vclCompilerCreate(vcl_compiler_desc_t* compilerDesc, vcl_device_desc_t* deviceDesc,
                                          vcl_compiler_handle_t* compiler, vcl_log_handle_t* logHandle) {
-    VPUXDriverCompiler::VCLLogger* vclLogger = nullptr;
-    if (logHandle != nullptr) {
-        /// Create logger which saves latest error messages, output other messages to terminal
-        vclLogger = new VPUXDriverCompiler::VCLLogger("NPU_VCL", LogLevel::Error, true);
-    } else {
-        /// Create logger which output all message to terminal
-        vclLogger = new VPUXDriverCompiler::VCLLogger("NPU_VCL", LogLevel::Error, false);
-    }
+    /// Saves latest error messages, output other messages to terminal
+    const auto saveErrorLog = (logHandle != nullptr);
+    auto vclLogger = std::shared_ptr<VPUXDriverCompiler::VCLLogger>(
+            new VPUXDriverCompiler::VCLLogger("NPU_VCL", LogLevel::Error, saveErrorLog));
 
-    if (compiler == nullptr) {
+    if (compilerDesc == nullptr || compiler == nullptr) {
         vclLogger->outputError("Null argument to create compiler!");
-        delete vclLogger;
         return VCL_RESULT_ERROR_INVALID_ARGUMENT;
     }
 
-    /// Change the output level of logger
-    int debugLevel = static_cast<int>(compilerDesc->debugLevel);
-    if (debugLevel > 0) {
-        // OV does not have CONFIG_VALUE(LOG_FATAL), so does not use LogLevel::Fatal in VCL.
-        vclLogger->setLevel(static_cast<LogLevel>(debugLevel + 1));
+    if (const auto logLevel = getLogLevel(compilerDesc->debugLevel)) {
+        vclLogger->setLevel(logLevel.value());
+    } else {
+        vclLogger->outputError("Invalid debug level in compiler descriptor!");
+        return VCL_RESULT_ERROR_INVALID_ARGUMENT;
+    }
+    // OV_NPU_LOG_LEVEL takes precedence if present
+    if (const auto envLogLevel = getLogLevelFromEnv(*vclLogger)) {
+        vclLogger->setLevel(envLogLevel.value());
     }
 
     /// Create compiler
-    VPUXDriverCompiler::VPUXCompilerL0* pCompiler = nullptr;
     try {
-        pCompiler = new VPUXDriverCompiler::VPUXCompilerL0(compilerDesc, deviceDesc, vclLogger);
-        *compiler = reinterpret_cast<vcl_compiler_handle_t>(pCompiler);
+        auto pCompiler = std::make_unique<VPUXDriverCompiler::VPUXCompilerL0>(compilerDesc, deviceDesc, vclLogger);
+        vclLogger->info("Current compiler ID: {0}", pCompiler->getCompilerProp().id);
+        *compiler = reinterpret_cast<vcl_compiler_handle_t>(pCompiler.release());
+        /// Return logger to save error msg, pass the handle here
+        if (logHandle != nullptr) {
+            *logHandle = reinterpret_cast<vcl_log_handle_t>(vclLogger.get());
+        }
     } catch (const std::exception& error) {
         vclLogger->outputError(formatv("Failed to create compiler:\n{0}", error.what()));
-        delete vclLogger;
         return VCL_RESULT_ERROR_INVALID_ARGUMENT;
     } catch (...) {
         vclLogger->outputError("Internal exception during compiler creation!");
-        delete vclLogger;
         return VCL_RESULT_ERROR_UNKNOWN;
     }
 
-    /// Create logger to save error msg, pass the handle here
-    if (logHandle != nullptr) {
-        *logHandle = reinterpret_cast<vcl_log_handle_t>(vclLogger);
-    }
     return VCL_RESULT_SUCCESS;
 }
 
@@ -244,7 +256,7 @@ DLLEXPORT vcl_result_t VCL_APICALL vclQueryNetworkCreate(vcl_compiler_handle_t c
     /// Format of modelIRData is defined in L0 adaptor
     /// The modelIRData is parsed into model data and weights info
     VPUXDriverCompiler::VPUXCompilerL0* pCompiler = reinterpret_cast<VPUXDriverCompiler::VPUXCompilerL0*>(compiler);
-    VPUXDriverCompiler::VCLLogger* vclLogger = pCompiler->getLogger();
+    auto& vclLogger = pCompiler->getLogger();
 
     if (!desc.modelIRData) {
         vclLogger->outputError("Invalid IR buffer!");
@@ -254,32 +266,13 @@ DLLEXPORT vcl_result_t VCL_APICALL vclQueryNetworkCreate(vcl_compiler_handle_t c
         vclLogger->outputError("Invalid IR size!");
         return VCL_RESULT_ERROR_INVALID_ARGUMENT;
     }
-    /// To avoid access violation, need to convert to string
-    std::string descOptions(desc.options, desc.optionsSize);
-    vclLogger->info("config: {0}", descOptions);
-
-    VPUXDriverCompiler::BuildInfo buildInfo(pCompiler);
-
-    /// Parse and update the config
-    vcl_result_t ret = buildInfo.prepareConfig(descOptions);
-    if (ret != VCL_RESULT_SUCCESS) {
-        vclLogger->outputError("Failed to prepare config! Incorrect format!");
-        return ret;
-    }
-
-    /// Parse the seralized model data and create model container for compiler
-    ret = buildInfo.prepareModel(desc.modelIRData, desc.modelIRSize);
-    if (ret != VCL_RESULT_SUCCESS) {
-        vclLogger->outputError("Failed to prepare model! Incorrect format!");
-        return ret;
-    }
 
     /// Query which layers of the model are supported by current compiler
     VPUXDriverCompiler::VPUXQueryNetworkL0* pQueryNetwork = nullptr;
     pQueryNetwork = new VPUXDriverCompiler::VPUXQueryNetworkL0(vclLogger);
-    ret = pCompiler->queryNetwork(buildInfo, pQueryNetwork);
-    if (ret != VCL_RESULT_SUCCESS) {
+    if (auto ret = pCompiler->queryNetwork(desc, pQueryNetwork); ret != VCL_RESULT_SUCCESS) {
         vclLogger->outputError("Failed to query network!");
+        delete pQueryNetwork;
         return ret;
     }
 
@@ -316,39 +309,21 @@ DLLEXPORT vcl_result_t vclQueryNetworkDestroy(vcl_query_handle_t query) {
 DLLEXPORT vcl_result_t vclExecutableCreate(vcl_compiler_handle_t compiler, vcl_executable_desc_t desc,
                                            vcl_executable_handle_t* executable) {
     vcl_result_t ret = VCL_RESULT_SUCCESS;
-    bool enableProfiling = false;
 
     if (!compiler || !executable || !desc.modelIRData) {
         return VCL_RESULT_ERROR_INVALID_ARGUMENT;
     }
 
     VPUXDriverCompiler::VPUXCompilerL0* pCompiler = reinterpret_cast<VPUXDriverCompiler::VPUXCompilerL0*>(compiler);
-    VPUXDriverCompiler::VCLLogger* vclLogger = pCompiler->getLogger();
-
-    /// To avoid access violation, need to convert to string
-    std::string descOptions(desc.options, desc.optionsSize);
-    vclLogger->info("config: {0}", descOptions);
-
-    /// Create info parser
-    VPUXDriverCompiler::BuildInfo buildInfo(pCompiler);
-    /// Parse user dscriptions and store the input && output settings, compilation configs
-    ret = buildInfo.prepareBuildFlags(descOptions);
-    if (ret != VCL_RESULT_SUCCESS) {
-        vclLogger->outputError(formatv("Failed to prepare ioinfo and config! DescOptions: {0}", descOptions));
-        return ret;
-    }
-
-    /// Parse serialized model data and create the model container for compiler
-    ret = buildInfo.prepareModel(desc.modelIRData, desc.modelIRSize);
-    if (ret != VCL_RESULT_SUCCESS) {
-        vclLogger->outputError("Failed to parse model info! Incorrect format!");
-        return ret;
-    }
+    auto& vclLogger = pCompiler->getLogger();
 
     /// Use compiler to compile model and store the result blob
     std::pair<VPUXDriverCompiler::VPUXExecutableL0*, vcl_result_t> status;
     try {
-        status = pCompiler->importNetwork(buildInfo);
+        status = pCompiler->importNetwork(desc);
+    } catch (const InvalidIrError& error) {
+        vclLogger->outputError(error.what());
+        return VCL_RESULT_ERROR_INVALID_IR;
     } catch (const std::exception& error) {
         vclLogger->outputError(error.what());
         ret = VCL_RESULT_ERROR_INVALID_ARGUMENT;
@@ -365,23 +340,22 @@ DLLEXPORT vcl_result_t vclExecutableCreate(vcl_compiler_handle_t compiler, vcl_e
         *executable = nullptr;
         vclLogger->outputError("Failed to create executable");
         return status.second;
-    } else {
-        /// Get blob from compiled result and store in executable
-        VPUXDriverCompiler::VPUXExecutableL0* pExecutable = status.first;
-        if (pExecutable != nullptr) {
-            ret = pExecutable->serializeNetwork();
-            if (ret != VCL_RESULT_SUCCESS) {
-                delete pExecutable;
-                *executable = nullptr;
-                vclLogger->outputError("Failed to get compiled network");
-                return ret;
-            }
-            /// Return the executable which holds the blob
-            *executable = reinterpret_cast<vcl_executable_handle_t>(pExecutable);
-        } else {
-            vclLogger->outputError("Failed to get blob from compiled result");
-            ret = VCL_RESULT_ERROR_UNKNOWN;
+    }
+    /// Get blob from compiled result and store in executable
+    VPUXDriverCompiler::VPUXExecutableL0* pExecutable = status.first;
+    if (pExecutable != nullptr) {
+        ret = pExecutable->serializeNetwork();
+        if (ret != VCL_RESULT_SUCCESS) {
+            delete pExecutable;
+            *executable = nullptr;
+            vclLogger->outputError("Failed to get compiled network");
+            return ret;
         }
+        /// Return the executable which holds the blob
+        *executable = reinterpret_cast<vcl_executable_handle_t>(pExecutable);
+    } else {
+        vclLogger->outputError("Failed to get blob from compiled result");
+        ret = VCL_RESULT_ERROR_UNKNOWN;
     }
     return ret;
 }
@@ -392,6 +366,12 @@ DLLEXPORT vcl_result_t vclAllocatedExecutableCreate3(vcl_compiler_handle_t compi
                                                      uint64_t* compatibilityReqSize) {
     return allocatedExecutableCreate(compiler, desc, allocator, blobBuffer, blobSize, compatibilityReqBuffer,
                                      compatibilityReqSize);
+}
+
+DLLEXPORT vcl_result_t vclAllocatedExecutableCreate4(vcl_compiler_handle_t compiler, vcl_executable_desc_t desc,
+                                                     vcl_allocator2_t* allocator, uint8_t** blobBuffer,
+                                                     uint64_t* blobSize, vcl_executable_handle_t* executable) {
+    return allocatedExecutableCreate(compiler, desc, allocator, blobBuffer, blobSize, nullptr, nullptr, executable);
 }
 
 DLLEXPORT vcl_result_t vclAllocatedExecutableCreate2(vcl_compiler_handle_t compiler, vcl_executable_desc_t desc,
@@ -417,7 +397,7 @@ DLLEXPORT vcl_result_t vclExecutableGetSerializableBlob(vcl_executable_handle_t 
     }
     VPUXDriverCompiler::VPUXExecutableL0* pExecutable =
             reinterpret_cast<VPUXDriverCompiler::VPUXExecutableL0*>(executable);
-    VPUXDriverCompiler::VCLLogger* vclLogger = pExecutable->getLogger();
+    auto& vclLogger = pExecutable->getLogger();
 
     if (!blobBuffer) {
         /// When we call this function the first time, shall pass empty pointer to blob buffer and return the size of
@@ -434,6 +414,34 @@ DLLEXPORT vcl_result_t vclExecutableGetSerializableBlob(vcl_executable_handle_t 
     return ret;
 }
 
+DLLEXPORT vcl_result_t VCL_APICALL vclExecutableGetCompatibilityString(vcl_executable_handle_t executable,
+                                                                       char* compatibilityString,
+                                                                       uint64_t* compatibilityStringSize) {
+    if (!executable || !compatibilityStringSize) {
+        return VCL_RESULT_ERROR_INVALID_ARGUMENT;
+    }
+    VPUXDriverCompiler::VPUXExecutableL0* pExecutable =
+            reinterpret_cast<VPUXDriverCompiler::VPUXExecutableL0*>(executable);
+
+    const auto& compatString = pExecutable->getCompatibilityString();
+    if (compatString.empty()) {
+        *compatibilityStringSize = 0;
+        return VCL_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    }
+
+    auto size = compatString.size() + 1;  // +1 for null terminator
+    auto bufferSize = *compatibilityStringSize;
+    *compatibilityStringSize = size;
+    if (compatibilityString != nullptr) {
+        if (bufferSize < size) {
+            return VCL_RESULT_ERROR_OUT_OF_MEMORY;
+        }
+        const auto* cstr = compatString.c_str();
+        std::copy(cstr, cstr + size, compatibilityString);
+    }
+    return VCL_RESULT_SUCCESS;
+}
+
 DLLEXPORT vcl_result_t vclExecutableDestroy(vcl_executable_handle_t executable) {
     if (executable) {
         VPUXDriverCompiler::VPUXExecutableL0* pExecutable =
@@ -446,10 +454,6 @@ DLLEXPORT vcl_result_t vclExecutableDestroy(vcl_executable_handle_t executable) 
 DLLEXPORT vcl_result_t vclCompilerDestroy(vcl_compiler_handle_t compiler) {
     if (compiler) {
         VPUXDriverCompiler::VPUXCompilerL0* pCompiler = reinterpret_cast<VPUXDriverCompiler::VPUXCompilerL0*>(compiler);
-        /// Logger is released with compiler.
-        /// If we decide to save error log, user can not use the handle of logger to read error after this.
-        VPUXDriverCompiler::VCLLogger* vclLogger = pCompiler->getLogger();
-        delete vclLogger;
         delete pCompiler;
     }
     return VCL_RESULT_SUCCESS;
@@ -474,6 +478,7 @@ DLLEXPORT vcl_result_t VCL_APICALL vclProfilingCreate(p_vcl_profiling_input_t pr
             new (std::nothrow) VPUXDriverCompiler::VPUXProfilingL0(profilingInput, vclLogger);
     if (!profHandle) {
         vclLogger->outputError("Failed to create profiler");
+        delete profHandle;
         delete vclLogger;
         return VCL_RESULT_ERROR_OUT_OF_MEMORY;
     }
@@ -566,7 +571,7 @@ DLLEXPORT vcl_result_t VCL_APICALL vclGetCompilerIsOptionSupported(vcl_compiler_
     }
 
     VPUXDriverCompiler::VPUXCompilerL0* pCompiler = reinterpret_cast<VPUXDriverCompiler::VPUXCompilerL0*>(compiler);
-    VPUXDriverCompiler::VCLLogger* vclLogger = pCompiler->getLogger();
+    auto& vclLogger = pCompiler->getLogger();
 
     try {
         if (pCompiler->isOptionValueSupported(option, value)) {
@@ -579,7 +584,4 @@ DLLEXPORT vcl_result_t VCL_APICALL vclGetCompilerIsOptionSupported(vcl_compiler_
 
     return VCL_RESULT_ERROR_UNSUPPORTED_FEATURE;
 };
-
-#ifdef __cplusplus
 }
-#endif

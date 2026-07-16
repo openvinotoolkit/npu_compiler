@@ -619,8 +619,23 @@ bool doesNCEOpChannelSatisfyWorkload(mlir::Operation* nceOp, const TileInfo& out
     auto log = Logger::global().nest();
     log.trace("supportedChannels - {0}", supportedChannels);
     const auto minSupportedChannel = supportedChannels.back();
-    const auto tileChannel = outputTile.shape[Dims4D::Act::C];
-    if (tileChannel % minSupportedChannel != 0) {
+
+    // Tile channel counts are in post-ODU space; the HW workload divisibility constraint
+    // applies to pre-ODU channels.  Invert the C-dim scale to convert.
+    const auto oduScales = VPU::getODUScaling(nceOp);
+    auto toPreODUChannel = [&](int64_t ch) -> int64_t {
+        if (oduScales.empty()) {
+            return ch;
+        }
+        const auto& cScale = oduScales[Dims4D::Act::C.ind()];
+        if ((ch * cScale.divisor) % cScale.multiplier != 0) {
+            return 0;
+        }
+        return ch * cScale.divisor / cScale.multiplier;
+    };
+
+    const auto tileChannel = toPreODUChannel(outputTile.shape[Dims4D::Act::C]);
+    if (tileChannel == 0 || tileChannel % minSupportedChannel != 0) {
         log.trace("tileChannel {0} can not be divisible by minSupportedChannel {1}", tileChannel, minSupportedChannel);
         return false;
     }
@@ -681,7 +696,11 @@ bool doesNCEOpChannelSatisfyWorkload(mlir::Operation* nceOp, const TileInfo& out
         wlNumInTotal = wlNumInTotalTmp;
     } else {
         for (const auto& perClusterShape : perClusterShapes) {
-            const auto perClusterChannel = perClusterShape[vpux::Dims4D::Act::C];
+            const auto perClusterChannel = toPreODUChannel(perClusterShape[vpux::Dims4D::Act::C]);
+            if (perClusterChannel == 0) {
+                log.trace("perClusterChannel {0} is invalid after converting to pre-ODU channel", perClusterChannel);
+                return false;
+            }
             auto wlChannels = splitWorkloadChannel(perClusterChannel, supportedChannels);
             // There may be some invalid tileChannel passed into. For example, channel is 16 but supportedChannels
             // is [32]. We can't split it over C in that case.
@@ -700,9 +719,8 @@ bool doesNCEOpChannelSatisfyWorkload(mlir::Operation* nceOp, const TileInfo& out
     // divide max available slots equally for producers and consumers to a barrier
     // for a unified solution for all architectures
     // TODO: E#107973: more bigger / relaxing availableSlot to decrease tiling
-    const auto maxAvailableSlots = VPUIP::getBarrierMaxVariantCount(nceOp);
-    const auto maxSlotsSum = VPUIP::getBarrierMaxVariantSum(nceOp);
-    const auto availableSlot = std::min(maxAvailableSlots, maxSlotsSum) / 2;
+
+    const auto availableVariantsPerInvariant = vpux::VPUIP::getMaxNumberOfDpuVariantsPerInvariant(nceOp);
 
     // the variants count should be less than availableSlot on each cluster, otherwise there could be an illegal
     // scenario for the barrier
@@ -718,11 +736,11 @@ bool doesNCEOpChannelSatisfyWorkload(mlir::Operation* nceOp, const TileInfo& out
     });
     if (!isTiled) {
         // for non-tiled operations it may not be performant to introduce extra tiling
-        return wlMaxNumPerCluster <= availableSlot;
+        return wlMaxNumPerCluster <= (availableVariantsPerInvariant / 2);
     }
 
     // allow all clusters to execute in parallel - driven by a single barrier
-    return wlNumInTotal < maxSlotsSum;
+    return wlNumInTotal < availableVariantsPerInvariant;
 }
 
 std::optional<DimArr> getSEPConvTilingOrder(mlir::Operation* op) {
@@ -869,12 +887,11 @@ VPU::EnableShaveDDRAccessOptimization getShaveDDRAccessOptimizationMode(StringRe
 bool isMultiClusterTilingSupported(mlir::Operation* op) {
     return mlir::isa<VPU::ClusteredOpInterface>(op) &&
            (!IE::hasDynamicTensors(op) || mlir::isa<VPU::LSTMSequenceOp>(op) ||
-            mlir::isa<VPU::SwIoDmaOpInterface>(op) ||
-            config::getCompilationMode(op) == config::CompilationMode::HostCompile);
+            mlir::isa<VPU::SwIoDmaOpInterface>(op) || config::isHostCompileMode(op));
 }
 
 bool isTilingSupported(mlir::Operation* op) {
-    return !IE::hasDynamicTensors(op) || config::getCompilationMode(op) == config::CompilationMode::HostCompile;
+    return !IE::hasDynamicTensors(op) || config::isHostCompileMode(op);
 }
 
 }  // namespace VPU

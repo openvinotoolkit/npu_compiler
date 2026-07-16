@@ -6,7 +6,9 @@
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --dma-task-profiling-hw-ddr="dma-profiling=true" %s | FileCheck %s
 // REQUIRES: platform-NPU4000 || platform-NPU5010
 
-!dataType = memref<1x16x4x4xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!dataType = memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
 // CHECK-LABEL: @DMAGraph
 module @DMAGraph {
@@ -48,17 +50,17 @@ module @DMAGraph {
 
 // CHECK:        profilingOutputsInfo
 // CHECK-NEXT:   DataInfo "dmahw" : tensor<256xui8>
-// CHECK:        func.func @main([[ARG_0:%[^:]+]]: memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>,
-// CHECK-SAME:       [[ARG_1:%[^:]+]]: memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>,
+// CHECK:        func.func @main([[ARG_0:%[^:]+]]: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+// CHECK-SAME:       [[ARG_1:%[^:]+]]: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>,
 // CHECK-SAME:       [[ARG_2:%[^:]+]]: memref<256xui8>) ->
-// CHECK-SAME:       (memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>,
+// CHECK-SAME:       (memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>,
 // CHECK-SAME:       memref<256xui8>) {
 // CHECK:    [[BAR0:%.+]] = VPURT.DeclareVirtualBarrier
 // CHECK:    [[PROF_BAR:%.+]] = VPURT.DeclareVirtualBarrier
 // CHECK:    [[PROF_DATA_DDR:%.+]] = VPURT.DeclareBuffer <DDR> <64> -> memref<192xui8, @DDR>
 // CHECK:    [[PROF_DATA_OUT:%.+]] = VPURT.DeclareBuffer <ProfilingOutput> [0] <64> -> memref<192xui8>
-// CHECK:    [[BUF_DATA_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>
-// CHECK:    [[BUF_DATA_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <512> -> memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>
+// CHECK:    [[BUF_DATA_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+// CHECK:    [[BUF_DATA_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <512> -> memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
 // Profiled DMA task 1
 // CHECK:  VPURT.Task
@@ -102,15 +104,17 @@ module @DMAGraph {
 
 // Check network output
 // CHECK:   return [[ARG_1]], [[ARG_2]]
-// CHECK-SAME:    memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>,
+// CHECK-SAME:    memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>,
 // CHECK-SAME:    memref<256xui8>
 
 }
 
 // -----
 
-!dataTypeCMX = memref<1x16x4x4xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
-!dataTypeDDR = memref<1x16x4x4xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!dataTypeCMX = memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!dataTypeDDR = memref<1x16x4x4xf16, {order = #NHWC}, @DDR>
 
 // CHECK-LABEL: @DMAComplexGraph
 module @DMAComplexGraph {
@@ -160,10 +164,10 @@ module @DMAComplexGraph {
 
 // CHECK:        profilingOutputsInfo
 // CHECK-NEXT:   DataInfo "dmahw" : tensor<320xui8>
-// CHECK:        func.func @main([[ARG_0:%[^:]+]]: memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>,
-// CHECK-SAME:       [[ARG_1:%[^:]+]]: memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>,
+// CHECK:        func.func @main([[ARG_0:%[^:]+]]: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+// CHECK-SAME:       [[ARG_1:%[^:]+]]: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>,
 // CHECK-SAME:       [[ARG_2:%[^:]+]]: memref<320xui8>) ->
-// CHECK-SAME:       (memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>,
+// CHECK-SAME:       (memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>,
 // CHECK-SAME:       memref<320xui8>) {
 // CHECK:    [[BAR0:%.+]] = VPURT.DeclareVirtualBarrier
 // CHECK:    [[PROF_BAR:%.+]] = VPURT.DeclareVirtualBarrier
@@ -171,10 +175,10 @@ module @DMAComplexGraph {
 // CHECK:    [[PROF_DATA_OUT:%.+]] = VPURT.DeclareBuffer <ProfilingOutput> [0] <64> -> memref<256xui8>
 // CHECK:    [[BAR1:%.+]] = VPURT.DeclareVirtualBarrier
 // CHECK:    [[BAR2:%.+]] = VPURT.DeclareVirtualBarrier
-// CHECK:    [[CMX_BUF_DATA_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>
-// CHECK:    [[CMX_BUF_DATA_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <512> -> memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>
-// CHECK:    [[DDR_BUF_DATA_0:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<1x16x4x4xf16, #NHWC, @DDR>
-// CHECK:    [[DDR_BUF_DATA_1:%.+]] = VPURT.DeclareBuffer <DDR> <512> -> memref<1x16x4x4xf16, #NHWC, @DDR>
+// CHECK:    [[CMX_BUF_DATA_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+// CHECK:    [[CMX_BUF_DATA_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <512> -> memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+// CHECK:    [[DDR_BUF_DATA_0:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<1x16x4x4xf16, {order = #NHWC}, @DDR>
+// CHECK:    [[DDR_BUF_DATA_1:%.+]] = VPURT.DeclareBuffer <DDR> <512> -> memref<1x16x4x4xf16, {order = #NHWC}, @DDR>
 
 // Profiled DMA task 1
 // CHECK:  VPURT.Task
@@ -229,7 +233,7 @@ module @DMAComplexGraph {
 
 // Check network output
 // CHECK:   return [[ARG_1]], [[ARG_2]]
-// CHECK-SAME:    memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>,
+// CHECK-SAME:    memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>,
 // CHECK-SAME:    memref<320xui8>
 
 }

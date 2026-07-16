@@ -10,7 +10,7 @@
 
 using namespace vpux;
 
-SmallVector<int64_t> calculateMultiIndex(llvm::ArrayRef<int64_t> shape, int64_t linearIndex) {
+SmallVector<int64_t> vpux::Const::calculateMultiIndex(ArrayRef<int64_t> shape, int64_t linearIndex) {
     SmallVector<int64_t> indices(shape.size());
     for (int64_t i = static_cast<int64_t>(shape.size()) - 1; i >= 0; --i) {
         indices[i] = linearIndex % shape[i];
@@ -19,7 +19,7 @@ SmallVector<int64_t> calculateMultiIndex(llvm::ArrayRef<int64_t> shape, int64_t 
     return indices;
 }
 
-int64_t calculateLinearIndex(llvm::ArrayRef<int64_t> shape, llvm::ArrayRef<int64_t> indices) {
+int64_t vpux::Const::calculateLinearIndex(ArrayRef<int64_t> shape, ArrayRef<int64_t> indices) {
     int64_t linearIndex = 0;
     int64_t stride = 1;
     for (int64_t i = static_cast<int64_t>(shape.size()) - 1; i >= 0; --i) {
@@ -36,17 +36,17 @@ void gatherElementsImpl(MutableArrayRef<T> outputValues, ArrayRef<T> inputValues
     const auto indicesValues = indicesAttr.getValues<int64_t>();
 
     for (int64_t outIdx = 0; outIdx < static_cast<int64_t>(outputValues.size()); ++outIdx) {
-        auto outMulti = calculateMultiIndex(outputShape, outIdx);
+        auto outMulti = Const::calculateMultiIndex(outputShape, outIdx);
         auto inputMulti = outMulti;
 
-        const auto idxLinear = calculateLinearIndex(indicesShape, outMulti);
+        const auto idxLinear = Const::calculateLinearIndex(indicesShape, outMulti);
         int64_t gatherIdx = static_cast<int64_t>(indicesValues[idxLinear]);
         if (gatherIdx < 0) {
             gatherIdx += inputShape[axis];
         }
 
         inputMulti[axis] = gatherIdx;
-        const auto inputLinear = calculateLinearIndex(inputShape, inputMulti);
+        const auto inputLinear = Const::calculateLinearIndex(inputShape, inputMulti);
         outputValues[static_cast<size_t>(outIdx)] = inputValues[inputLinear];
     }
 }

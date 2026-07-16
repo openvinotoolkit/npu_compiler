@@ -15,6 +15,9 @@ namespace ov {
 
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(PriorBoxLayerTest);
+
 class PriorBoxLayerTestCommon : public PriorBoxLayerTest, virtual public VpuOv2LayerTest {
     // Cloned 'SetUp' from OpenVino, but with constant foldings enabled.
     void SetUp() override {

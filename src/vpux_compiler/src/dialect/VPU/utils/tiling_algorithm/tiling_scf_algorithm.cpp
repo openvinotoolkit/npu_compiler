@@ -15,6 +15,8 @@ mlir::LogicalResult TilingSCFAlgorithm::applyTiling(mlir::Operation* operation, 
 }
 
 SmallVector<mlir::Operation*> TilingSCFAlgorithm::applySCFTilingAndFusion(mlir::Operation* operation,
-                                                                          mlir::RewriterBase& builder, Logger log) {
-    return VPU::applySCFVerticalFusion(operation, builder, log);
+                                                                          mlir::RewriterBase& builder,
+                                                                          const MergeConfiguration& mergeConfig,
+                                                                          Logger log) {
+    return VPU::applySCFVerticalFusion(operation, builder, mergeConfig, log);
 }

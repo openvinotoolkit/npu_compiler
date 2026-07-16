@@ -13,33 +13,28 @@ namespace vpux {
 namespace VPU {
 
 //
-// PerBarrierVariantConstraint
+// PerBarrierSlotConstraint
 //
 
-struct PerBarrierVariantConstraint {
+struct PerBarrierSlotConstraint {
     template <typename T>
-    PerBarrierVariantConstraint(T t) noexcept: self{std::make_unique<Model<T>>(std::move(t))} {
+    PerBarrierSlotConstraint(T t) noexcept: self{std::make_unique<Model<T>>(std::move(t))} {
     }
 
-    size_t getPerBarrierMaxVariantSum() const;
-    size_t getPerBarrierMaxVariantCount() const;
+    size_t getPerBarrierMaxSlotCount() const;
 
 private:
     struct Concept {
         virtual ~Concept() = default;
-        virtual size_t getPerBarrierMaxVariantSum() const = 0;
-        virtual size_t getPerBarrierMaxVariantCount() const = 0;
+        virtual size_t getPerBarrierMaxSlotCount() const = 0;
     };
 
     template <typename T>
     struct Model : Concept {
         Model(T s) noexcept: self{std::move(s)} {
         }
-        virtual size_t getPerBarrierMaxVariantSum() const override {
-            return self.getPerBarrierMaxVariantSum();
-        }
-        virtual size_t getPerBarrierMaxVariantCount() const override {
-            return self.getPerBarrierMaxVariantCount();
+        virtual size_t getPerBarrierMaxSlotCount() const override {
+            return self.getPerBarrierMaxSlotCount();
         }
         T self;
     };

@@ -18,9 +18,13 @@ using ShapeMap = std::map<std::vector<ov::Shape>, std::vector<ov::Shape>>;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ActivationLayerTest);
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ActivationParamLayerTest);
+
 class ActivationLayerTestCommon : public ActivationLayerTest, virtual public VpuOv2LayerTest {
     void configure_model() override {
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp16";
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp";
     }
 };
 
@@ -37,6 +41,36 @@ class ShaveCodeGenActivationLayerTest : public ActivationLayerTestCommon {
 };
 
 class ShaveCodeGenActivationLayerTest_Profiling : public ShaveCodeGenActivationLayerTest {};
+
+class ActivationLayerTest_SCFTiling : public ActivationLayerTestCommon {
+    void configure_model() override {
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "scf-tiling=true";
+        // E#190336 for MC support
+        configuration["NPU_TILES"] = "1";
+    }
+
+    // Generate inputs in a numerically safe range:
+    //  * away from fp16 subnormals (|x| >= 2^-10 ~ 9.77e-4) so kernels with FTZ
+    //    (Sqrt, Mish, SoftPlus, ...) do not flush small magnitudes to zero
+    //    and produce mismatches against the CPU reference;
+    //  * bounded in [-2.0, 2.0] so Mish / SoftPlus / Swish stay outside the
+    //    near-zero noise floor where SHV-kernel rounding noise dominates.
+    void generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) override {
+        inputs.clear();
+        const auto& funcInputs = function->inputs();
+        for (size_t i = 0; i < funcInputs.size(); ++i) {
+            const auto& funcInput = funcInputs[i];
+            ov::test::utils::InputGenerateData inGenData;
+            inGenData.start_from = 1.0;
+            inGenData.range = 4;
+            inGenData.resolution = 256;  // step ~= range / resolution = 1/64 ~ 0.0156
+            inGenData.seed = 1;
+            auto tensor = ov::test::utils::create_and_fill_tensor(funcInput.get_element_type(),
+                                                                  targetInputStaticShapes[i], inGenData);
+            inputs.insert({funcInput.get_node_shared_ptr(), tensor});
+        }
+    }
+};
 
 #define DEFINE_ACT_TESTS(PLATFORM, DISABLE_SW, DISABLE_HW, EXTRA_SW, EXTRA_HW) \
     TEST_P(ActivationLayerTest_SW_FP, DISABLE_SW##PLATFORM) {                  \
@@ -60,6 +94,14 @@ class ShaveCodeGenActivationLayerTest_Profiling : public ShaveCodeGenActivationL
         run(Platform::PLATFORM);                                                                       \
     }                                                                                                  \
     TEST_P(DynamicActivationLayerTest_HW_FP16, DISABLE_DYN_HW##PLATFORM) {                             \
+        setSkipCompilationCallback([](std::stringstream& skip) {                                       \
+            if (Platform::PLATFORM == Platform::NPU5010) {                                             \
+                const auto actType = std::get<0>(GetParam());                                          \
+                if (actType.first == ActivationTypes::Log) {                                           \
+                    skip << "Log issue E#207309";                                                      \
+                }                                                                                      \
+            }                                                                                          \
+        });                                                                                            \
         abs_threshold = 0.0056;                                                                        \
         EXTRA_DYN_HW;                                                                                  \
         setDefaultHardwareMode();                                                                      \
@@ -94,12 +136,30 @@ DEFINE_ACT_TESTS(NPU5020, /*DISABLED_SW_*/, /*DISABLED_HW_*/, /*CONFIG_SW*/, /*C
 DEFINE_DYNAMIC_ACT_TESTS(NPU3720, /*DISABLED_DYN_SW_*/, /*DISABLED_DYN_HW_*/, /*CONFIG_DYN_SW*/, /*CONFIG_DYN_HW*/);
 DEFINE_DYNAMIC_ACT_TESTS(NPU4000, /*DISABLED_DYN_SW_*/, /*DISABLED_DYN_HW_*/, /*CONFIG_DYN_SW*/, /*CONFIG_DYN_HW*/);
 // Tracking number [E#207309]
-DEFINE_DYNAMIC_ACT_TESTS(NPU5010, DISABLED_DYN_SW_, DISABLED_DYN_HW_, /*CONFIG_DYN_SW*/, /*CONFIG_DYN_HW*/);
+DEFINE_DYNAMIC_ACT_TESTS(NPU5010, DISABLED_DYN_SW_, /*DISABLED_DYN_HW_*/, /*CONFIG_DYN_SW*/, /*CONFIG_DYN_HW*/);
 DEFINE_DYNAMIC_ACT_TESTS(NPU5020, /*DISABLED_DYN_SW_*/, /*DISABLED_DYN_HW_*/, /*CONFIG_DYN_SW*/, /*CONFIG_DYN_HW*/);
 
 DEFINE_SHAVE_CODE_GEN_TESTS(NPU4000, /*DISABLED_SW_*/, /*DISABLED_PROF_*/, /*CONFIG_SW*/, /*CONFIG_PROF*/);
 DEFINE_SHAVE_CODE_GEN_TESTS(NPU5010, /*DISABLED_SW_*/, /*DISABLED_PROF_*/, /*CONFIG_SW*/, /*CONFIG_PROF*/);
 DEFINE_SHAVE_CODE_GEN_TESTS(NPU5020, /*DISABLED_SW_*/, /*DISABLED_PROF_*/, /*CONFIG_SW*/, /*CONFIG_PROF*/);
+
+TEST_P(ActivationLayerTest_SCFTiling, NPU4000_SW) {
+    abs_threshold = 0.0056;
+    setReferenceSoftwareMode();
+    run(Platform::NPU4000);
+}
+
+TEST_P(ActivationLayerTest_SCFTiling, NPU5010_SW) {
+    abs_threshold = 0.0056;
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(ActivationLayerTest_SCFTiling, NPU5020_SW) {
+    abs_threshold = 0.0056;
+    setReferenceSoftwareMode();
+    run(Platform::NPU5020);
+}
 
 }  // namespace test
 }  // namespace ov
@@ -309,6 +369,30 @@ const auto basicFloorInteger = ::testing::Combine(
                 std::map<std::vector<ov::Shape>, std::vector<ov::Shape>>({{{{1, 16, 48, 1}}, {}}})))),
         ::testing::Values(test_utils::TARGET_DEVICE));
 
+const std::map<ActivationTypes, std::vector<std::vector<float>>> reluSignActivationTypes = {
+        {Relu, {{1.0f}}},
+        {Sign, {{1.0f}}},
+};
+const std::vector<ov::element::Type> reluSignIntegerElementTypes = {
+        ov::element::i8,
+        ov::element::i16,
+        ov::element::i32,
+        ov::element::i64,
+};
+const auto basicReluSignInteger = ::testing::Combine(
+        ::testing::ValuesIn(::combineParams(reluSignActivationTypes)), ::testing::ValuesIn(reluSignIntegerElementTypes),
+        ::testing::ValuesIn(staticShapesParamTransform(ov::test::utils::combineParams(
+                std::map<std::vector<ov::Shape>, std::vector<ov::Shape>>({{{{1, 16, 48, 1}}, {}}})))),
+        ::testing::Values(test_utils::TARGET_DEVICE));
+
+const std::map<ActivationTypes, std::vector<std::vector<float>>> absActivationTypes = {{Abs, {{1.0f}}}};
+const std::vector<ov::element::Type> absIntegerElementTypes = {ov::element::i8, ov::element::i16, ov::element::i32};
+const auto basicAbsInteger = ::testing::Combine(
+        ::testing::ValuesIn(::combineParams(absActivationTypes)), ::testing::ValuesIn(absIntegerElementTypes),
+        ::testing::ValuesIn(staticShapesParamTransform(ov::test::utils::combineParams(
+                std::map<std::vector<ov::Shape>, std::vector<ov::Shape>>({{{{1, 16, 48, 1}}, {}}})))),
+        ::testing::Values(test_utils::TARGET_DEVICE));
+
 // --------------------- 3720+ ---------------------
 // ------ NPU SW  ------
 INSTANTIATE_TEST_SUITE_P(precommit_Act_fp16, ActivationLayerTest_SW_FP, basicCasesSWFP16,
@@ -317,7 +401,7 @@ INSTANTIATE_TEST_SUITE_P(precommit_Act_fp32, ActivationLayerTest_SW_FP, basicCas
                          ActivationLayerTest::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(precommit_Act_PRelu, ActivationLayerTest_SW_FP, basicPReluBasicCases,
                          ActivationLayerTest::getTestCaseName);
-INSTANTIATE_TEST_SUITE_P(precommit_Act_PRelu_tiling, ActivationLayerTest_SW_FP, basicTilingPReluCases,
+INSTANTIATE_TEST_SUITE_P(smoke_Act_PRelu_tiling, ActivationLayerTest_SW_FP, basicTilingPReluCases,
                          ActivationLayerTest::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(precommit_Act_PRelu_Slope_param, ActivationLayerTest_SW_FP, basicPReluParamCases,
                          ActivationLayerTest::getTestCaseName);
@@ -326,6 +410,8 @@ INSTANTIATE_TEST_SUITE_P(precommit_Act_2D, ActivationLayerTest_SW_FP, basicCases
 INSTANTIATE_TEST_SUITE_P(smoke_Act_tiling_Sw, ActivationLayerTest_SW_FP, basicTilingCases,
                          ActivationLayerTest::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(precommit_Act_Floor_Integer, ActivationLayerTest_SW_FP, basicFloorInteger,
+                         ActivationLayerTest::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(precommit_Act_ReluSign_Integer, ActivationLayerTest_SW_FP, basicReluSignInteger,
                          ActivationLayerTest::getTestCaseName);
 
 // ------ NPU HW ------
@@ -341,6 +427,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Act_tiling_Hw, ActivationLayerTest_HW_FP, basicTi
 INSTANTIATE_TEST_SUITE_P(precommit_Cos0_Prof, ShaveCodeGenActivationLayerTest_Profiling, profilingCases,
                          ActivationLayerTest::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(precommit_Int, ShaveCodeGenActivationLayerTest, basicShaveCodeGenIntCases,
+                         ActivationLayerTest::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(precommit_Abs_Int, ShaveCodeGenActivationLayerTest, basicAbsInteger,
                          ActivationLayerTest::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(precommit_Basic, ShaveCodeGenActivationLayerTest, basicShaveCodeGenFpCases,
                          ActivationLayerTest::getTestCaseName);
@@ -424,6 +512,60 @@ const auto logSubnormalCases = ::testing::Combine(
         ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(precommit_Log_subnormal, LogSubnormalLayerTest, logSubnormalCases,
+                         ActivationLayerTest::getTestCaseName);
+
+//
+// SCF Tiling
+//
+
+const std::map<ActivationTypes, std::vector<std::vector<float>>> scfTilingActivationTypes = {
+        {Abs, {{1.0f}}},
+        {Sin, {{1.0f}}},
+        {Sqrt, {{1.0f}}},
+        {Tanh, {{1.0f}}},
+        {Mish, {{1.0f}}},
+        {Relu, {{1.0f}}},
+        {Sigmoid, {{1.0f}}},
+        {SoftPlus, {{1.0f}}},
+        {Swish, {{1.0f}}},
+        {Acos, {{1.0f}}},
+        {Acosh, {{1.0f}}},
+        {Asin, {{1.0f}}},
+        {Asinh, {{1.0f}}},
+        {Atan, {{1.0f}}},
+        {Atanh, {{1.0f}}},
+        {Ceiling, {{1.0f}}},
+        {Clamp, {{-1.0f, 1.0f}}},
+        {Cos, {{1.0f}}},
+        {Cosh, {{1.0f}}},
+        {Erf, {{1.0f}}},
+        {Exp, {{1.0f}}},
+        {Floor, {{1.0f}}},
+        {Log, {{1.0f}}},
+        {Negative, {{1.0f}}},
+        {RoundHalfToEven, {}},
+        {Sign, {{1.0f}}},
+        {Sinh, {{1.0f}}},
+        {Tan, {{1.0f}}},
+        {Elu, {{1.0f}}},
+        {HSwish, {{1.0f}}},
+        {HardSigmoid, {{0.2f, 0.5f}}},
+        {HSigmoid, {{1.0f}}},
+        {LeakyRelu, {{0.01f}}},
+        {Selu, {{1.6732f, 1.0507f}}},
+};
+
+const std::map<ActivationTypes, std::vector<std::vector<float>>> scfTilingPReluTypes = {
+        {PReLu, {{0.01f}}},
+};
+
+const auto scfTilingCases = genActLessParams(scfTilingActivationTypes, basic, ov::element::f16);
+const auto scfTilingPReluCases = genActLessParams(scfTilingPReluTypes, preluTiling, ov::element::f16);
+
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_Act_SCFTiling, ActivationLayerTest_SCFTiling, scfTilingCases,
+                         ActivationLayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_PReLu_SCFTiling, ActivationLayerTest_SCFTiling, scfTilingPReluCases,
                          ActivationLayerTest::getTestCaseName);
 
 }  // namespace

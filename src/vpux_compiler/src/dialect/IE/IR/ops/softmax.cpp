@@ -17,12 +17,12 @@ using namespace vpux;
 
 void vpux::IE::SoftMaxOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState, mlir::Value input,
                                 mlir::IntegerAttr axisInd, mlir::IntegerAttr padSize) {
-    build(odsBuilder, odsState, input, axisInd, padSize, nullptr);
+    build(odsBuilder, odsState, input, axisInd, padSize, nullptr, {});
 }
 
 void vpux::IE::SoftMaxOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState, mlir::Type output,
                                 mlir::Value input, mlir::IntegerAttr axisInd, mlir::IntegerAttr padSize) {
-    build(odsBuilder, odsState, output, input, axisInd, padSize, nullptr);
+    build(odsBuilder, odsState, output, input, axisInd, padSize, nullptr, {});
 }
 
 mlir::LogicalResult vpux::IE::SoftMaxOp::inferReturnTypeComponents(
@@ -70,9 +70,10 @@ mlir::OpFoldResult vpux::IE::SoftMaxOp::fold(FoldAdaptor) {
     }
 
     const auto valueType = mlir::RankedTensorType::get(inShape, mlir::Float32Type::get(getContext()));
-    return Const::ContentAttr::get(mlir::DenseElementsAttr::get(valueType, 1.0f),
-                                   Const::ContentSetup(valueType).castElemType(
-                                           mlir::cast<mlir::ShapedType>(getOutput().getType()).getElementType()));
+    auto attr = mlir::DenseElementsAttr::get(valueType, 1.0f);
+    return Const::ContentAttr::get(
+            attr, Const::ContentSetup(attr, valueType)
+                          .castElemType(mlir::cast<mlir::ShapedType>(getOutput().getType()).getElementType()));
 }
 
 mlir::LogicalResult vpux::IE::SoftMaxOp::reifyResultShapes(mlir::OpBuilder& builder,
@@ -106,7 +107,8 @@ mlir::LogicalResult LegalizeAxisInd::matchAndRewrite(IE::SoftMaxOp softmaxOp, ml
     int64_t legalizeAxis = vpux::getPositiveAxisInd(softmaxOp.getAxisIndAttr(), inputType.getRank());
     const auto legalizeAxisAttr = getIntAttr(rewriter.getContext(), legalizeAxis);
 
-    rewriter.replaceOpWithNewOp<IE::SoftMaxOp>(softmaxOp, softmaxOp.getInput(), legalizeAxisAttr, nullptr);
+    rewriter.replaceOpWithNewOp<IE::SoftMaxOp>(softmaxOp, softmaxOp.getInput(), legalizeAxisAttr, nullptr,
+                                               softmaxOp.getDstElemTypeAttr(), softmaxOp.getMaskAwareAttr());
     return mlir::success();
 }
 

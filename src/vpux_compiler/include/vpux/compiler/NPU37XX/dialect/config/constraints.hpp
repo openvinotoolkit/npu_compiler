@@ -16,6 +16,8 @@ constexpr uint32_t FREQ_BASE = 700;
 constexpr uint32_t FREQ_STEP = 150;
 // Default perf_clk value after dividing by the default frequency divider
 constexpr double PERF_CLK_DEFAULT_VALUE_MHZ = 38.4;
+// Maximum kernel size supported by the target DPU.
+constexpr uint32_t DPU_MAX_KERNEL_SIZE = 11;
 
 }  // namespace arch37xx
 }  // namespace vpux

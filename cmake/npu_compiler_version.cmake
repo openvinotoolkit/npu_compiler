@@ -5,46 +5,24 @@
 
 # Function to configure NPU Compiler version properties
 function(npu_compiler_configure_version TARGET_NAME)
+    find_package(Git REQUIRED)
     ov_commit_hash(PLUGIN_GIT_COMMIT_HASH ${CMAKE_CURRENT_SOURCE_DIR})
 
-    string(TIMESTAMP DATE_MAJOR "%m%d")
-    string(TIMESTAMP DATE_MINOR "%H%M%S")
-    string(TIMESTAMP CURRENT_YEAR "%Y")
-
-    if(BUILD_COMPILER_FOR_DRIVER)
-        # The first section is WDDM version, it aligns with operation system change
-        set(VERSION_WDDM 32)
-        # The second section is always 0 now
-        set(VERSION_UNUSED 0)
-        # The last two sections use date to identify build number
-        set(VERSION_BUILD_MAJOR ${DATE_MAJOR})
-        set(VERSION_BUILD_MINOR ${DATE_MINOR})
-
-        set(COPYRIGHT_STR "Copyright (C) ${CURRENT_YEAR} Intel Corporation")
-
-        set(PRODUCTNAME_BASE "NPU Compiler")
-        set(FILEDESCRIPTION_BASE "Intel NPU Compiler")
-
-        set(OV_VS_VER_FILEVERSION_QUAD "${VERSION_WDDM},${VERSION_UNUSED},${VERSION_BUILD_MAJOR},${VERSION_BUILD_MINOR}")
-        set(OV_VS_VER_PRODUCTVERSION_QUAD "${VERSION_WDDM},${VERSION_UNUSED},${VERSION_BUILD_MAJOR},${VERSION_BUILD_MINOR}")
-        set(OV_VS_VER_FILEVERSION_STR "${VERSION_WDDM}.${VERSION_UNUSED}.${VERSION_BUILD_MAJOR}.${VERSION_BUILD_MINOR}")
-        set(OV_VS_VER_PRODUCTVERSION_STR "${VERSION_WDDM}.${VERSION_UNUSED}.${VERSION_BUILD_MAJOR}.${VERSION_BUILD_MINOR}")
-    else()
-        # On master branch or HEAD, PLUGIN_GIT_BRANCH_POSTFIX is empty, otherwise it is "-branch_name"
-        ov_branch_name(PLUGIN_GIT_BRANCH ${CMAKE_CURRENT_SOURCE_DIR})
-        if(NOT PLUGIN_GIT_BRANCH MATCHES "^(master|HEAD)$")
-            set(PLUGIN_GIT_BRANCH_POSTFIX "-${PLUGIN_GIT_BRANCH}")
-        endif()
-
-        set(COPYRIGHT_STR "Copyright (C) 2023-${CURRENT_YEAR}, Intel Corporation")
-        set(PRODUCTNAME_BASE "OpenVINO toolkit")
-        set(FILEDESCRIPTION_BASE "OpenVINO NPU Compiler")
-
-        set(OV_VS_VER_FILEVERSION_QUAD "${OpenVINO_VERSION_MAJOR},${OpenVINO_VERSION_MINOR},${OpenVINO_VERSION_PATCH},${OpenVINO_VERSION_BUILD}")
-        set(OV_VS_VER_PRODUCTVERSION_QUAD "${OpenVINO_VERSION_MAJOR},${OpenVINO_VERSION_MINOR},${OpenVINO_VERSION_PATCH},${OpenVINO_VERSION_BUILD}")
-        set(OV_VS_VER_FILEVERSION_STR "${OpenVINO_VERSION_MAJOR}.${OpenVINO_VERSION_MINOR}.${OpenVINO_VERSION_PATCH}.${OpenVINO_VERSION_BUILD}")
-        set(OV_VS_VER_PRODUCTVERSION_STR "${CI_BUILD_NUMBER}-${PLUGIN_GIT_COMMIT_HASH}${PLUGIN_GIT_BRANCH_POSTFIX}")
+    # On master branch or develop branch or HEAD, VPUX_GIT_BRANCH_POSTFIX is empty, otherwise it is "-branch_name-dirty"
+    ov_branch_name(VPUX_GIT_BRANCH ${CMAKE_CURRENT_SOURCE_DIR})
+    if(NOT VPUX_GIT_BRANCH MATCHES "^(master|develop|HEAD)$")
+        set(VPUX_GIT_BRANCH_POSTFIX "-${VPUX_GIT_BRANCH}-dirty")
     endif()
+
+    string(TIMESTAMP CURRENT_YEAR "%Y")
+    set(COPYRIGHT_STR "Copyright (C) 2023-${CURRENT_YEAR}, Intel Corporation")
+    set(PRODUCTNAME_BASE "OpenVINO toolkit")
+    set(FILEDESCRIPTION_BASE "OpenVINO NPU Compiler")
+
+    set(OV_VS_VER_FILEVERSION_QUAD "${OpenVINO_VERSION_MAJOR},${OpenVINO_VERSION_MINOR},${OpenVINO_VERSION_PATCH},${OpenVINO_VERSION_BUILD}")
+    set(OV_VS_VER_PRODUCTVERSION_QUAD "${OpenVINO_VERSION_MAJOR},${OpenVINO_VERSION_MINOR},${OpenVINO_VERSION_PATCH},${OpenVINO_VERSION_BUILD}")
+    set(OV_VS_VER_FILEVERSION_STR "${OpenVINO_VERSION_MAJOR}.${OpenVINO_VERSION_MINOR}.${OpenVINO_VERSION_PATCH}.${OpenVINO_VERSION_BUILD}")
+    set(OV_VS_VER_PRODUCTVERSION_STR "${CI_BUILD_NUMBER}-${PLUGIN_GIT_COMMIT_HASH}${VPUX_GIT_BRANCH_POSTFIX}")
 
     if(NOT ENABLE_DEVELOPER_BUILD)
         set(OV_VS_VER_PRODUCTNAME_STR "${PRODUCTNAME_BASE}")

@@ -55,7 +55,7 @@ mlir::LogicalResult DynamicQuantToVPUNCE::matchAndRewrite(IE::ConvolutionOp orig
 
     const auto filterShape = getShape(dynamicDequant->getOperand(0));
     auto weightsValue = dynamicDequant->getOperand(0);
-    auto rawFilterShape = getIntArrayAttr(rewriter, filterShape);
+    const auto staticRawFilterShape = filterShape.raw();
 
     _log.trace("Align Conv Weights tensor for dynamic quantize case.");
     auto alignedFilter = VPU::alignConvWeightsTensor(rewriter, origOp->getLoc(), weightsValue);
@@ -71,12 +71,14 @@ mlir::LogicalResult DynamicQuantToVPUNCE::matchAndRewrite(IE::ConvolutionOp orig
     }
 
     rewriter.replaceOpWithNewOp<VPU::NCEConvolutionOp>(
-            origOp, origOp.getType(), origOp.getInput(), alignedFilter, weightsTable->getResult(0),
+            origOp, origOp.getType(), /*reduceXyMax*/ nullptr, /*reduceXyMin*/ nullptr,
+            /*reduceGlobalMinMax*/ nullptr, origOp.getInput(), alignedFilter, weightsTable->getResult(0),
             /*weight_table_data_ptr=*/nullptr,
             /*weight_table_sp_ptr=*/nullptr, /*weight_table_scale=*/nullptr, /*weight_table_bias=*/nullptr,
             /*weight_zero_points=*/nullptr, origOp.getStridesAttr(), padAttr, ppeAttr, mpeEngineModeAttr,
-            rawFilterShape,
-            /*multi_cluster_strategyAttr=*/nullptr, origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+            /*rawFilterShape=*/mlir::ValueRange{}, staticRawFilterShape,
+            /*multi_cluster_strategyAttr=*/nullptr, origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr(),
+            /*axes_value=*/nullptr);
 
     rewriter.eraseOp(dynamicDequant);
     return mlir::success();

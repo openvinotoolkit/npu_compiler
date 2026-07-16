@@ -700,14 +700,14 @@ func.func @NotStaticScaleShiftDequantizationOnInvalidOp(%input: tensor<1x4x28x28
 
 // -----
 
-// CHECK-LABEL: @DynamicScaleShiftDequantizationOnInvalidShiftType
+// CHECK-LABEL: @DynamicScaleShiftDequantizationOnMismatchedShiftType
 // CHECK-SAME:     [[INPUT:%.+]]: tensor<1x16x16x16xf16>,
 // CHECK-SAME:     [[WEIGHTS:%.+]]: tensor<16x16x1x1xsi4>,
 // CHECK-SAME:     [[SCALE:%.+]]: tensor<1x16x1x1xf16>,
-// CHECK-SAME:     [[SHIFT:%.+]]: tensor<1x16x1x1xsi4>
-func.func @DynamicScaleShiftDequantizationOnInvalidShiftType(%input: tensor<1x16x16x16xf16>, %weights: tensor<16x16x1x1xsi4>, %scale: tensor<1x16x1x1xf16>, %zp: tensor<1x16x1x1xsi4>) -> tensor<1x16x16x16xf16> {
+// CHECK-SAME:     [[SHIFT:%.+]]: tensor<1x16x1x1xui4>
+func.func @DynamicScaleShiftDequantizationOnMismatchedShiftType(%input: tensor<1x16x16x16xf16>, %weights: tensor<16x16x1x1xsi4>, %scale: tensor<1x16x1x1xf16>, %zp: tensor<1x16x1x1xui4>) -> tensor<1x16x16x16xf16> {
     %weights_f16 = IE.Convert(%weights) { dstElemType = f16 } : tensor<16x16x1x1xsi4> -> tensor<16x16x1x1xf16>
-    %zp_f16 = IE.Convert(%zp) { dstElemType = f16 } : tensor<1x16x1x1xsi4> -> tensor<1x16x1x1xf16>
+    %zp_f16 = IE.Convert(%zp) { dstElemType = f16 } : tensor<1x16x1x1xui4> -> tensor<1x16x1x1xf16>
     %subtract = IE.Subtract(%weights_f16, %zp_f16) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
       : tensor<16x16x1x1xf16>, tensor<1x16x1x1xf16> -> tensor<16x16x1x1xf16>
     %multiply = IE.Multiply(%subtract, %scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
@@ -723,6 +723,7 @@ func.func @DynamicScaleShiftDequantizationOnInvalidShiftType(%input: tensor<1x16
 
     return %conv : tensor<1x16x16x16xf16>
 
+    // The shift type (ui4) does not match the weights type (si4), so the rewrite must be skipped.
     // CHECK:  [[WEIGHTS_CONVERT:%.+]] = IE.Convert([[WEIGHTS]])
     // CHECK:  [[SHIFT_CONVERT:%.+]] = IE.Convert([[SHIFT]])
     // CHECK:  [[SUBTRACT:%.+]] = IE.Subtract([[WEIGHTS_CONVERT]], [[SHIFT_CONVERT]])
@@ -1298,6 +1299,25 @@ func.func @NotConvertToDequantizeForSignlessType(%arg0: tensor<4x4x3x3xi8>, %arg
 
 // -----
 
+// CHECK-LABEL: @NotConvertToDequantizeForSignlessI16Type
+// CHECK-SAME:      [[INPUT1:%.+]]: tensor<4x4x3x3xi16>, [[INPUT2:%.+]]: tensor<4x4x3x3xf32>
+
+func.func @NotConvertToDequantizeForSignlessI16Type(%arg0: tensor<4x4x3x3xi16>, %arg1: tensor<4x4x3x3xf32>) -> tensor<4x4x3x3xf32> {
+  %scale = const.Declare tensor<1x1x1x1xf32> = dense<0.5> : tensor<1x1x1x1xf32>
+  %convert = IE.Convert(%arg0) {dstElemType = f32} : tensor<4x4x3x3xi16> -> tensor<4x4x3x3xf32>
+  %multiply = IE.Multiply(%convert, %scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x4x3x3xf32>, tensor<1x1x1x1xf32> -> tensor<4x4x3x3xf32>
+
+  return %multiply : tensor<4x4x3x3xf32>
+
+  // CHECK-DAG:  [[CONST:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<5.000000e-01> : tensor<1x1x1x1xf32>
+  // CHECK:  [[CONVERT:%.+]] = IE.Convert
+  // CHECK:  [[MULTIPLY:%.+]] = IE.Multiply
+
+  // CHECK: return [[MULTIPLY]]
+}
+
+// -----
+
 // CHECK: !qElemType = !quant.uniform<u2:f16, 1.000000e+00>
 
 // CHECK-LABEL: @WaCStaticScaleShiftU2Dequantization
@@ -1435,7 +1455,7 @@ func.func @DynamicDequantantizeWithGather(%input: tensor<184320x2880x!qElemType>
 
 // -----
 
-// WD chain whose last op feeds a single GatherOp with i4 weights (isI4ConsumedByGather()).
+// WD chain whose last op feeds a single GatherOp with i4 weights (isQuantizedConsumedByGather()).
 // ConsolidateWeightsDequantization routes through dynamicMatchAndRewrite even though the scale is
 // static. This produces a unit-scale QuantizeCastOp and a DynamicDequantizeOp with the scale
 // passed as a value input, avoiding a per-axis quant type that encodes all vocab-size scales —
@@ -1490,4 +1510,217 @@ func.func @EmbeddingInt4ToDynamicDequantizeConstWeights(%indices: tensor<3xsi32>
   // CHECK-SAME: tensor<3x4xf32>, tensor<1x1xf32> -> tensor<3x4xf32>
 
   // CHECK: return [[MUL_OUT]]
+}
+
+// -----
+
+// CHECK: !qElemType = !quant.uniform<u8:f16, 1.000000e+00>
+
+// CHECK-LABEL: @DynamicScaleShiftDequantizationForUINT8Weights
+// CHECK-SAME:      [[WEIGHTS:%.+]]: tensor<128x128xui8>,
+// CHECK-SAME:      [[SHIFT:%.+]]: tensor<128x1xui8>,
+// CHECK-SAME:      [[SCALE:%.+]]: tensor<128x1xf16>,
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x128xf16>
+func.func @DynamicScaleShiftDequantizationForUINT8Weights(%weights: tensor<128x128xui8>, %shift: tensor<128x1xui8>, %scale: tensor<128x1xf16>, %input: tensor<1x128xf16>) -> tensor<1x128xf16> {
+  %weights_convert = IE.Convert(%weights) {dstElemType = f16} : tensor<128x128xui8> -> tensor<128x128xf16>
+  %shift_convert = IE.Convert(%shift) {dstElemType = f16} : tensor<128x1xui8> -> tensor<128x1xf16>
+  %subtract = IE.Subtract(%weights_convert, %shift_convert) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<128x128xf16>, tensor<128x1xf16> -> tensor<128x128xf16>
+  %multiply = IE.Multiply(%subtract, %scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<128x128xf16>, tensor<128x1xf16> -> tensor<128x128xf16>
+  %fc = IE.FullyConnected(%input, %multiply) : tensor<1x128xf16>, tensor<128x128xf16> -> tensor<1x128xf16>
+
+  return %fc : tensor<1x128xf16>
+
+  // CHECK:  [[QUANTCAST:%.+]] = IE.QuantizeCast([[WEIGHTS]]) {dstElemType = !qElemType} : tensor<128x128xui8> -> tensor<128x128x!qElemType>
+  // CHECK:  [[DEQUANT:%.+]] = IE.DynamicDequantize([[QUANTCAST]], [[SCALE]], [[SHIFT]]) {dstElemType = f16} : tensor<128x128x!qElemType>, tensor<128x1xf16>, tensor<128x1xui8> -> tensor<128x128xf16>
+  // CHECK:  [[FC:%.+]] = IE.FullyConnected([[INPUT]], [[DEQUANT]]) : tensor<1x128xf16>, tensor<128x128xf16> -> tensor<1x128xf16>
+  // CHECK:  return [[FC]]
+}
+
+// -----
+
+// CHECK: !qElemType = !quant.uniform<i8:f16, 1.000000e+00>
+
+// CHECK-LABEL: @DynamicScaleShiftDequantizationForINT8Weights
+// CHECK-SAME:      [[WEIGHTS:%.+]]: tensor<128x128xsi8>,
+// CHECK-SAME:      [[SHIFT:%.+]]: tensor<128x1xsi8>,
+// CHECK-SAME:      [[SCALE:%.+]]: tensor<128x1xf16>,
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x128xf16>
+func.func @DynamicScaleShiftDequantizationForINT8Weights(%weights: tensor<128x128xsi8>, %shift: tensor<128x1xsi8>, %scale: tensor<128x1xf16>, %input: tensor<1x128xf16>) -> tensor<1x128xf16> {
+  %weights_convert = IE.Convert(%weights) {dstElemType = f16} : tensor<128x128xsi8> -> tensor<128x128xf16>
+  %shift_convert = IE.Convert(%shift) {dstElemType = f16} : tensor<128x1xsi8> -> tensor<128x1xf16>
+  %subtract = IE.Subtract(%weights_convert, %shift_convert) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<128x128xf16>, tensor<128x1xf16> -> tensor<128x128xf16>
+  %multiply = IE.Multiply(%subtract, %scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<128x128xf16>, tensor<128x1xf16> -> tensor<128x128xf16>
+  %fc = IE.FullyConnected(%input, %multiply) : tensor<1x128xf16>, tensor<128x128xf16> -> tensor<1x128xf16>
+
+  return %fc : tensor<1x128xf16>
+
+  // CHECK:  [[QUANTCAST:%.+]] = IE.QuantizeCast([[WEIGHTS]]) {dstElemType = !qElemType} : tensor<128x128xsi8> -> tensor<128x128x!qElemType>
+  // CHECK:  [[DEQUANT:%.+]] = IE.DynamicDequantize([[QUANTCAST]], [[SCALE]], [[SHIFT]]) {dstElemType = f16} : tensor<128x128x!qElemType>, tensor<128x1xf16>, tensor<128x1xsi8> -> tensor<128x128xf16>
+  // CHECK:  [[FC:%.+]] = IE.FullyConnected([[INPUT]], [[DEQUANT]]) : tensor<1x128xf16>, tensor<128x128xf16> -> tensor<1x128xf16>
+  // CHECK:  return [[FC]]
+}
+
+// -----
+
+// CHECK: !qElemType = !quant.uniform<i8:f16, 1.000000e+00>
+
+// CHECK-LABEL: @EmbeddingInt8PerRowToDynamicDequantize
+// CHECK-SAME:      [[INDICES:%.+]]: tensor<256xsi32>
+// CHECK-SAME: -> tensor<256x512xf32>
+func.func @EmbeddingInt8PerRowToDynamicDequantize(%indices: tensor<256xsi32>) -> tensor<256x512xf32> {
+  %cst_wt = const.Declare tensor<65536x512xf16> = dense<1> : tensor<65536x512xsi8>, [#const.CastElemType<f16>]
+  // Per-row (65536x1) f16 scale: getQuantizedAxisCount() = 1 > 0, feedsGather = true.
+  %cst_scale = const.Declare tensor<65536x1xf16> = dense<3.9215686e-3> : tensor<65536x1xf16>
+
+  %mul = IE.Multiply(%cst_wt, %cst_scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+      : tensor<65536x512xf16>, tensor<65536x1xf16> -> tensor<65536x512xf16>
+  %convert = IE.Convert(%mul) {dstElemType = f32} : tensor<65536x512xf16> -> tensor<65536x512xf32>
+  %gather = IE.Gather(%convert, %indices) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64}
+      : tensor<65536x512xf32>, tensor<256xsi32> -> tensor<256x512xf32>
+  return %gather : tensor<256x512xf32>
+
+  // QuantizeCast is folded into the const chain; it must not appear as a standalone op.
+  // CHECK-NOT: IE.QuantizeCast
+
+  // CHECK-DAG: [[SCALE:%.+]]    = const.Declare tensor<65536x1xf16>
+  // CHECK-DAG: [[WT_QTYPE:%.+]] = const.Declare tensor<65536x512x!qElemType>
+
+  // CHECK: [[DYN_DEQUANT:%.+]] = IE.DynamicDequantize([[WT_QTYPE]], [[SCALE]]) {dstElemType = f16}
+  // CHECK-SAME: tensor<65536x512x!qElemType>, tensor<65536x1xf16> -> tensor<65536x512xf16>
+
+  // CHECK: [[CONVERT:%.+]] = IE.Convert([[DYN_DEQUANT]]) {dstElemType = f32}
+  // CHECK-SAME: tensor<65536x512xf16> -> tensor<65536x512xf32>
+
+  // CHECK: [[GATHER:%.+]] = IE.Gather([[CONVERT]], [[INDICES]])
+  // CHECK-SAME: {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64}
+  // CHECK-SAME: tensor<65536x512xf32>, tensor<256xsi32> -> tensor<256x512xf32>
+
+  // CHECK: return [[GATHER]]
+}
+
+// -----
+
+// CHECK: !qElemType = !quant.uniform<i8:f32, 1.000000e+00>
+
+// CHECK-LABEL: @EmbeddingInt8PerTensorWithGatherUsesDynamicDequantize
+// CHECK-SAME:      [[INDICES:%.+]]: tensor<256xsi32>
+// CHECK-SAME: -> tensor<256x512xf32>
+func.func @EmbeddingInt8PerTensorWithGatherUsesDynamicDequantize(%indices: tensor<256xsi32>) -> tensor<256x512xf32> {
+  %cst_wt = const.Declare tensor<65536x512xf32> = dense<1> : tensor<65536x512xsi8>, [#const.CastElemType<f32>]
+  // Per-tensor (1x1) scale: isQuantizedConsumedByGather() = true, feedsGather = true.
+  %cst_scale = const.Declare tensor<1x1xf32> = dense<3.9215686e-3> : tensor<1x1xf32>
+
+  %mul = IE.Multiply(%cst_wt, %cst_scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+      : tensor<65536x512xf32>, tensor<1x1xf32> -> tensor<65536x512xf32>
+  %gather = IE.Gather(%mul, %indices) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64}
+      : tensor<65536x512xf32>, tensor<256xsi32> -> tensor<256x512xf32>
+  return %gather : tensor<256x512xf32>
+
+  // QuantizeCast is folded into the const chain; it must not appear as a standalone op.
+  // CHECK-NOT: IE.QuantizeCast
+
+  // CHECK-DAG: [[SCALE:%.+]]    = const.Declare tensor<1x1xf32>
+  // CHECK-DAG: [[WT_QTYPE:%.+]] = const.Declare tensor<65536x512x!qElemType>
+
+  // CHECK: [[DYN_DEQUANT:%.+]] = IE.DynamicDequantize([[WT_QTYPE]], [[SCALE]]) {dstElemType = f32}
+  // CHECK-SAME: tensor<65536x512x!qElemType>, tensor<1x1xf32> -> tensor<65536x512xf32>
+
+  // CHECK: [[GATHER:%.+]] = IE.Gather([[DYN_DEQUANT]], [[INDICES]])
+  // CHECK-SAME: {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64}
+  // CHECK-SAME: tensor<65536x512xf32>, tensor<256xsi32> -> tensor<256x512xf32>
+
+  // CHECK: return [[GATHER]]
+}
+
+// -----
+
+// Regression test: IE.Convert with multiple Multiply consumers (fan-out).
+//
+// Before the fix, WeightsDequantizeRewriter bailed early on a multi-user
+// Convert (hasOneUse() == false) and left the weight as a raw IE.Convert
+// without per-consumer scale consolidation.  After the fix, the rewriter
+// iterates each compatible consumer of the shared Convert independently,
+// producing a separate IE.QuantizeCast with the correct per-consumer scale.
+
+// Verify both per-consumer quantized types are present in the module header.
+// These CHECK-DAGs precede CHECK-LABEL so they match the module-level type
+// alias section that vpux-opt emits before the function body.
+// CHECK-DAG: = !quant.uniform<u16:f32, 5.000000e-01>
+// CHECK-DAG: = !quant.uniform<u16:f32, 2.000000e+00>
+
+// CHECK-LABEL: @FanoutWeightConvertTwoConsumers
+// CHECK-SAME:      [[ACT:%.+]]: tensor<1x2048xf32>
+// CHECK-SAME:      [[W:%.+]]: tensor<2048xui16>
+func.func @FanoutWeightConvertTwoConsumers(%act: tensor<1x2048xf32>, %weight: tensor<2048xui16>)
+        -> (tensor<1x2048xf32>, tensor<1x2048xf32>) {
+  %scale1 = const.Declare tensor<1xf32> = dense<5.000000e-01> : tensor<1xf32>
+  %scale2 = const.Declare tensor<1xf32> = dense<2.000000e+00> : tensor<1xf32>
+
+  // Single IE.Convert fans out to two Multiply consumers with different scales.
+  %convert = IE.Convert(%weight) {dstElemType = f32} : tensor<2048xui16> -> tensor<2048xf32>
+  %mul1 = IE.Multiply(%convert, %scale1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+              : tensor<2048xf32>, tensor<1xf32> -> tensor<2048xf32>
+  %mul2 = IE.Multiply(%convert, %scale2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+              : tensor<2048xf32>, tensor<1xf32> -> tensor<2048xf32>
+
+  %out1 = IE.Multiply(%act, %mul1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+              : tensor<1x2048xf32>, tensor<2048xf32> -> tensor<1x2048xf32>
+  %out2 = IE.Multiply(%act, %mul2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+              : tensor<1x2048xf32>, tensor<2048xf32> -> tensor<1x2048xf32>
+
+  return %out1, %out2 : tensor<1x2048xf32>, tensor<1x2048xf32>
+
+  // Each consumer must get its own QuantizeCast with the correct scale.
+  // Without the fix the Convert is left as-is (hasOneUse() guard bails).
+
+  // CHECK-NOT: IE.Convert
+  // Two distinct QuantizeCast ops from the same weight, each with a quantized type alias.
+  // CHECK-DAG: [[QC1:%.+]] = IE.QuantizeCast([[W]]) {dstElemType = {{!qElemType[0-9]*}}}
+  // CHECK-DAG: [[QC2:%.+]] = IE.QuantizeCast([[W]]) {dstElemType = {{!qElemType[0-9]*}}}
+  // CHECK-DAG: [[DQ1:%.+]] = IE.Dequantize([[QC1]]) {dstElemType = f32}
+  // CHECK-DAG: [[DQ2:%.+]] = IE.Dequantize([[QC2]]) {dstElemType = f32}
+  // CHECK-DAG: [[OUT1:%.+]] = IE.Multiply([[ACT]], [[DQ1]])
+  // CHECK-DAG: [[OUT2:%.+]] = IE.Multiply([[ACT]], [[DQ2]])
+  // CHECK-NOT: IE.Convert
+  // CHECK: return [[OUT1]], [[OUT2]]
+}
+
+// -----
+
+// Regression test: Const::DeclareOp (constant weight) with two Multiply consumers (fan-out).
+// The rewriter must produce two separate quantized const.Declare+Dequantize chains,
+// one per consumer scale, eliminating the original scale-Multiply ops.
+
+// CHECK-DAG: = !quant.uniform<i8:f32, 5.000000e-01>
+// CHECK-DAG: = !quant.uniform<i8:f32, 2.000000e+00>
+
+// CHECK-LABEL: @FanoutConstDeclareWeightTwoConsumers
+// CHECK-SAME:      [[ACT:%.+]]: tensor<1x2048xf32>
+func.func @FanoutConstDeclareWeightTwoConsumers(%act: tensor<1x2048xf32>)
+        -> (tensor<1x2048xf32>, tensor<1x2048xf32>) {
+  %weights = const.Declare tensor<2048xf32> = dense<1> : tensor<2048xsi8>, [#const.CastElemType<f32>]
+  %scale1 = const.Declare tensor<1xf32> = dense<5.000000e-01> : tensor<1xf32>
+  %scale2 = const.Declare tensor<1xf32> = dense<2.000000e+00> : tensor<1xf32>
+
+  // Single const.Declare fans out to two Multiply consumers with different scales.
+  %mul1 = IE.Multiply(%weights, %scale1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+              : tensor<2048xf32>, tensor<1xf32> -> tensor<2048xf32>
+  %mul2 = IE.Multiply(%weights, %scale2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+              : tensor<2048xf32>, tensor<1xf32> -> tensor<2048xf32>
+
+  %out1 = IE.Multiply(%act, %mul1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+              : tensor<1x2048xf32>, tensor<2048xf32> -> tensor<1x2048xf32>
+  %out2 = IE.Multiply(%act, %mul2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+              : tensor<1x2048xf32>, tensor<2048xf32> -> tensor<1x2048xf32>
+
+  return %out1, %out2 : tensor<1x2048xf32>, tensor<1x2048xf32>
+
+  // Each consumer gets its own quantized const.Declare + Dequantize with the correct scale.
+
+  // CHECK-DAG: [[W1:%.+]] = const.Declare tensor<2048x{{!qElemType[0-9]*}}>
+  // CHECK-DAG: [[W2:%.+]] = const.Declare tensor<2048x{{!qElemType[0-9]*}}>
+  // CHECK-DAG: [[DQ1:%.+]] = IE.Dequantize([[W1]]) {dstElemType = f32}
+  // CHECK-DAG: [[DQ2:%.+]] = IE.Dequantize([[W2]]) {dstElemType = f32}
+  // CHECK-DAG: IE.Multiply([[ACT]], [[DQ1]])
+  // CHECK-DAG: IE.Multiply([[ACT]], [[DQ2]])
 }

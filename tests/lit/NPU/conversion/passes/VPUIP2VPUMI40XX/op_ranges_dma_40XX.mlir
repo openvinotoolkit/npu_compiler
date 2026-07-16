@@ -64,9 +64,9 @@ module @SingleDMATile0List1Range {
     DataInfo "output_0" : tensor<1x2x3x4xf16>
   }
   func.func @main(%arg0: memref<1x2x3x4xf16, @DDR>, %arg1: memref<1x2x3x4xf16, @DDR>) -> memref<1x2x3x4xf16, @DDR> {
-    %5 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
+    %5 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     VPURT.Task {
-      %0 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%5 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) outputs(%5 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) -> memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
+      %0 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%5 : memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%5 : memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
     return %arg1 : memref<1x2x3x4xf16, @DDR>
   }
@@ -88,15 +88,15 @@ module @ThreeDMATile0List1Range {
     DataInfo "output_0" : tensor<1x2x3x4xf16>
   }
   func.func @main(%arg0: memref<1x2x3x4xf16, @DDR>, %arg1: memref<1x2x3x4xf16, @DDR>) -> memref<1x2x3x4xf16, @DDR> {
-    %5 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
+    %5 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     VPURT.Task {
-      %0 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%5 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) outputs(%5 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) -> memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
+      %0 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%5 : memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%5 : memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
     VPURT.Task {
-      %0 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%5 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) outputs(%5 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) -> memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
+      %0 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%5 : memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%5 : memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
     VPURT.Task {
-      %0 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%5 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) outputs(%5 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) -> memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
+      %0 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%5 : memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%5 : memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
     return %arg1 : memref<1x2x3x4xf16, @DDR>
   }
@@ -168,9 +168,9 @@ module @SingleDMATile1List1Range {
     DataInfo "output_0" : tensor<1x2x3x4xf16>
   }
   func.func @main(%arg0: memref<1x2x3x4xf16, @DDR>, %arg1: memref<1x2x3x4xf16, @DDR>) -> memref<1x2x3x4xf16, @DDR> {
-    %5 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
+    %5 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     VPURT.Task {
-      %0 = VPUIP.NNDMA <{port = 1 : i64}> inputs(%5 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) outputs(%5 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) -> memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
+      %0 = VPUIP.NNDMA <{port = 1 : i64}> inputs(%5 : memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%5 : memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
     return %arg1 : memref<1x2x3x4xf16, @DDR>
   }
@@ -192,15 +192,15 @@ module @ThreeDMATile1List1Range {
     DataInfo "output_0" : tensor<1x2x3x4xf16>
   }
   func.func @main(%arg0: memref<1x2x3x4xf16, @DDR>, %arg1: memref<1x2x3x4xf16, @DDR>) -> memref<1x2x3x4xf16, @DDR> {
-    %5 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
+    %5 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     VPURT.Task {
-      %0 = VPUIP.NNDMA <{port = 1 : i64}> inputs(%5 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) outputs(%5 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) -> memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
+      %0 = VPUIP.NNDMA <{port = 1 : i64}> inputs(%5 : memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%5 : memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
     VPURT.Task {
-      %0 = VPUIP.NNDMA <{port = 1 : i64}> inputs(%5 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) outputs(%5 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) -> memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
+      %0 = VPUIP.NNDMA <{port = 1 : i64}> inputs(%5 : memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%5 : memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
     VPURT.Task {
-      %0 = VPUIP.NNDMA <{port = 1 : i64}> inputs(%5 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) outputs(%5 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) -> memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
+      %0 = VPUIP.NNDMA <{port = 1 : i64}> inputs(%5 : memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%5 : memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
     return %arg1 : memref<1x2x3x4xf16, @DDR>
   }

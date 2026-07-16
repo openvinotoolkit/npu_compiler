@@ -19,6 +19,6 @@ void registerAllPassesGlobally();
 
 //! @brief Registers all architecture specific interfaces, pipelines, etc. for a
 //! tool such as mlir-opt in the scope of NPU compiler.
-void registerAllHwSpecificComponents(mlir::DialectRegistry& registry, vpux::config::ArchKind archKind);
+void registerAllHwSpecificComponents(mlir::DialectRegistry& registry, vpux::config::Platform platform);
 
 }  // namespace vpux

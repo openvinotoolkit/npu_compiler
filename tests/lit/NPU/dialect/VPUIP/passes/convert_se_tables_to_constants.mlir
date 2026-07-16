@@ -9,15 +9,15 @@
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!Input_DDR = memref<1x32x3x3xf16, #NHWC>
-!InputSM_DDR = memref<1x32x3x3xi1, #NHWC>
-!InputSE_DDR = memref<1x1x6x6xi32, #NHWC>
+!Input_DDR = memref<1x32x3x3xf16, {order = #NHWC}>
+!InputSM_DDR = memref<1x32x3x3xi1, {order = #NHWC}>
+!InputSE_DDR = memref<1x1x6x6xi32, {order = #NHWC}>
 
-!Input_CMX = memref<1x32x3x3xf16, #NHWC, @CMX_NN>
-!InputSM_CMX = memref<1x32x3x3xi1, #NHWC, @CMX_NN>
-!InputSE_CMX = memref<1x1x6x6xi32, #NHWC, @CMX_NN>
-!Weights_CMX = memref<32x32x1x1xf16, #NHWC, @CMX_NN>
-!Output_CMX = memref<1x32x6x6xf16, #NHWC, @CMX_NN>
+!Input_CMX = memref<1x32x3x3xf16, {order = #NHWC}, @CMX_NN>
+!InputSM_CMX = memref<1x32x3x3xi1, {order = #NHWC}, @CMX_NN>
+!InputSE_CMX = memref<1x1x6x6xi32, {order = #NHWC}, @CMX_NN>
+!Weights_CMX = memref<32x32x1x1xf16, {order = #NHWC}, @CMX_NN>
+!Output_CMX = memref<1x32x6x6xf16, {order = #NHWC}, @CMX_NN>
 
 !SparseBufferDDR = !VPUIP.SparseBuffer<data=!Input_DDR, sparsity_map=!InputSM_DDR, storage_element_table=!InputSE_DDR,
     #VPU.SEInterpolate<mode = <NEAREST>, coordinate_transformation_mode = <ASYMMETRIC>, scale = [1.000000e+00, 1.000000e+00, 2.000000e+00, 2.000000e+00],
@@ -94,7 +94,7 @@ func.func @SETableInterpolateNearestSingleCluster(%input_data: !Input_DDR, %inpu
     //     12288 12288 14336 14336 16384 16384
 
     // CHECK-NOT:            VPUIP.StorageElementTable
-    // CHECK:                const.Declare memref<1x1x6x6xi32, #NHWC> = dense<
+    // CHECK:                const.Declare memref<1x1x6x6xi32, {order = #NHWC}> = dense<
     // CHECK-SAME{LITERAL}:    [[[[0, 0, 2048, 2048, 4096, 4096],
     // CHECK-SAME{LITERAL}:       [0, 0, 2048, 2048, 4096, 4096],
     // CHECK-SAME{LITERAL}:       [6144, 6144, 8192, 8192, 10240, 10240],
@@ -142,15 +142,15 @@ func.func @SETableInterpolateNearestSingleCluster(%input_data: !Input_DDR, %inpu
     num_clusters = 2
 }>
 
-!Input_DDR = memref<1x32x3x3xf16, #NHWC>
-!InputSM_DDR = memref<1x32x3x3xi1, #NHWC>
-!InputSE_DDR = memref<1x1x6x6xi32, #NHWC>
+!Input_DDR = memref<1x32x3x3xf16, {order = #NHWC}>
+!InputSM_DDR = memref<1x32x3x3xi1, {order = #NHWC}>
+!InputSE_DDR = memref<1x1x6x6xi32, {order = #NHWC}>
 
-!Input_CMX = memref<1x32x3x3xf16, #NHWC, @CMX_NN>
-!InputSM_CMX = memref<1x32x3x3xi1, #NHWC, @CMX_NN>
-!InputSE_CMX = memref<1x1x6x6xi32, #NHWC, @CMX_NN>
-!Weights_CMX = memref<32x32x1x1xf16, #NHWC, @CMX_NN>
-!Output_CMX = memref<1x32x6x6xf16, #NHWC, @CMX_NN>
+!Input_CMX = memref<1x32x3x3xf16, {order = #NHWC}, @CMX_NN>
+!InputSM_CMX = memref<1x32x3x3xi1, {order = #NHWC}, @CMX_NN>
+!InputSE_CMX = memref<1x1x6x6xi32, {order = #NHWC}, @CMX_NN>
+!Weights_CMX = memref<32x32x1x1xf16, {order = #NHWC}, @CMX_NN>
+!Output_CMX = memref<1x32x6x6xf16, {order = #NHWC}, @CMX_NN>
 
 !SparseBufferDDR = !VPUIP.SparseBuffer<data=!Input_DDR, sparsity_map=!InputSM_DDR, storage_element_table=!InputSE_DDR,
     #VPU.SEInterpolate<mode = <NEAREST>, coordinate_transformation_mode = <ASYMMETRIC>, scale = [1.000000e+00, 1.000000e+00, 2.000000e+00, 2.000000e+00],
@@ -245,7 +245,7 @@ func.func @SETableInterpolateNearest(%input_data: !Input_DDR, %input_sm: !InputS
     // Then, the base_ptrs values are added to the last 9 bits.
 
     // CHECK-NOT:            VPUIP.StorageElementTable
-    // CHECK:                const.Declare memref<1x1x6x6xi32, #NHWC> = dense<
+    // CHECK:                const.Declare memref<1x1x6x6xi32, {order = #NHWC}> = dense<
     // CHECK-SAME{LITERAL}:    [[[[0, 0, 2048, 2048, 4096, 4096],
     // CHECK-SAME{LITERAL}:       [0, 0, 2048, 2048, 4096, 4096],
     // CHECK-SAME{LITERAL}:       [6144, 6144, 8192, 8192, 10240, 10240],
@@ -293,15 +293,15 @@ func.func @SETableInterpolateNearest(%input_data: !Input_DDR, %input_sm: !InputS
     num_clusters = 2
 }>
 
-!Input_DDR = memref<1x32x3x3xf16, #NHWC>
-!InputSM_DDR = memref<1x32x7x7xi1, #NHWC>
-!InputSE_DDR = memref<1x1x7x7xi32, #NHWC>
+!Input_DDR = memref<1x32x3x3xf16, {order = #NHWC}>
+!InputSM_DDR = memref<1x32x7x7xi1, {order = #NHWC}>
+!InputSE_DDR = memref<1x1x7x7xi32, {order = #NHWC}>
 
-!Input_CMX = memref<1x32x3x3xf16, #NHWC, @CMX_NN>
-!InputSM_CMX = memref<1x32x7x7xi1, #NHWC, @CMX_NN>
-!InputSE_CMX = memref<1x1x7x7xi32, #NHWC, @CMX_NN>
-!Weights_CMX = memref<32x32x2x2xf16, #NHWC, @CMX_NN>
-!Output_CMX = memref<1x32x6x6xf16, #NHWC, @CMX_NN>
+!Input_CMX = memref<1x32x3x3xf16, {order = #NHWC}, @CMX_NN>
+!InputSM_CMX = memref<1x32x7x7xi1, {order = #NHWC}, @CMX_NN>
+!InputSE_CMX = memref<1x1x7x7xi32, {order = #NHWC}, @CMX_NN>
+!Weights_CMX = memref<32x32x2x2xf16, {order = #NHWC}, @CMX_NN>
+!Output_CMX = memref<1x32x6x6xf16, {order = #NHWC}, @CMX_NN>
 
 !SparseBufferDDR = !VPUIP.SparseBuffer<data=!Input_DDR, sparsity_map=!InputSM_DDR, storage_element_table=!InputSE_DDR,
     #VPU.SEInterpolate<mode = <BILINEAR>, coordinate_transformation_mode = <ASYMMETRIC>, scale = [1.000000e+00, 1.000000e+00, 2.000000e+00, 2.000000e+00],
@@ -402,7 +402,7 @@ func.func @SETableInterpolateBilinear(%input_data: !Input_DDR, %input_sm: !Input
 
 
     // CHECK-NOT:            VPUIP.StorageElementTable
-    // CHECK:                const.Declare memref<1x1x7x7xi32, #NHWC> = dense<
+    // CHECK:                const.Declare memref<1x1x7x7xi32, {order = #NHWC}> = dense<
     // CHECK-SAME{LITERAL}:    [[[[0, 0, 2048, 2048, 4096, 4096, 4096],
     // CHECK-SAME{LITERAL}:       [0, 0, 2048, 2048, 4096, 4096, 4096],
     // CHECK-SAME{LITERAL}:       [6144, 6144, 8192, 8192, 10240, 10240, 10240],
@@ -457,13 +457,13 @@ func.func @SETableInterpolateBilinear(%input_data: !Input_DDR, %input_sm: !Input
     num_clusters = 2
 }>
 
-!Input_DDR = memref<1x16x6x16xf16, #NHWC, @DDR>
-!Input_DDR_Tile = memref<1x16x4x6xf16, #NHWC, @DDR>
-!InputSM_DDR_Tile = memref<1x16x11x20xi1, #NHWC, @DDR>
-!InputSE_DDR_Tile = memref<1x1x11x20xi32, #NHWC, @DDR>
-!Weights_DDR = memref<16x16x3x3xf16, #NHWC, @DDR>
+!Input_DDR = memref<1x16x6x16xf16, {order = #NHWC}, @DDR>
+!Input_DDR_Tile = memref<1x16x4x6xf16, {order = #NHWC}, @DDR>
+!InputSM_DDR_Tile = memref<1x16x11x20xi1, {order = #NHWC}, @DDR>
+!InputSE_DDR_Tile = memref<1x1x11x20xi32, {order = #NHWC}, @DDR>
+!Weights_DDR = memref<16x16x3x3xf16, {order = #NHWC}, @DDR>
 !WeightsSM_DDR = memref<16x1x1x256xi1, @DDR>
-!Output_DDR = memref<1x16x18x18xf16, #NHWC, @DDR>
+!Output_DDR = memref<1x16x18x18xf16, {order = #NHWC}, @DDR>
 
 // CHECK-LABEL:  func.func @InterpolateTileAndMultiCluster
 func.func @InterpolateTileAndMultiCluster(%input_data: !Input_DDR, %input_sm_0: !InputSM_DDR_Tile, %input_sm_1: !InputSM_DDR_Tile) -> !Output_DDR {
@@ -503,10 +503,10 @@ func.func @InterpolateTileAndMultiCluster(%input_data: !Input_DDR, %input_sm_0: 
               } -> !InputSE_DDR_Tile
 
     %input_sub_1 = VPUIP.SubView %input_data [0, 0, 2, 0] [1, 16, 4, 6]
-                   : memref<1x16x6x16xf16, #NHWC, @DDR> to memref<1x16x4x6xf16, {order = #NHWC, strides = [1536, 1, 256, 16]}, @DDR>
-    %input_alloc_1 = memref.alloc() : memref<1x16x4x6xf16, #NHWC, @DDR>
+                   : memref<1x16x6x16xf16, {order = #NHWC}, @DDR> to memref<1x16x4x6xf16, {order = #NHWC, strides = [1536, 1, 256, 16]}, @DDR>
+    %input_alloc_1 = memref.alloc() : memref<1x16x4x6xf16, {order = #NHWC}, @DDR>
     %input_copy_1 = VPUIP.Copy inputs(%input_sub_1 : memref<1x16x4x6xf16, {order = #NHWC, strides = [1536, 1, 256, 16]}, @DDR>)
-                               outputs(%input_alloc_1 : memref<1x16x4x6xf16, #NHWC, @DDR>) -> memref<1x16x4x6xf16, #NHWC, @DDR>
+                               outputs(%input_alloc_1 : memref<1x16x4x6xf16, {order = #NHWC}, @DDR>) -> memref<1x16x4x6xf16, {order = #NHWC}, @DDR>
     %input_sparse_1 = VPUIP.GroupSparseBuffer (%input_copy_1, %input_sm_1, %input_se_1) <{
                    seAttr = #VPU.SEInterpolate<mode = <BILINEAR>, coordinate_transformation_mode = <PYTORCH_HALF_PIXEL>, scale = [1.000000e+00, 1.000000e+00, 3.000000e+00, 3.000000e+00],
                                 offsets = [0, 0, 3, 0], sizes = [1, 16, 11, 20], initial_input_shape = [1, 16, 6, 6], initial_output_shape = [1, 16, 18, 18]>
@@ -515,10 +515,10 @@ func.func @InterpolateTileAndMultiCluster(%input_data: !Input_DDR, %input_sm_0: 
                                 offsets = [0, 0, 3, 0], sizes = [1, 16, 11, 20], initial_input_shape = [1, 16, 6, 6], initial_output_shape = [1, 16, 18, 18]>>
 
     %input_sub_0 = VPUIP.SubView %input_data [0, 0, 0, 0] [1, 16, 4, 6]
-                   : memref<1x16x6x16xf16, #NHWC, @DDR> to memref<1x16x4x6xf16, {order = #NHWC, strides = [1536, 1, 256, 16]}, @DDR>
-    %input_alloc_0 = memref.alloc() : memref<1x16x4x6xf16, #NHWC, @DDR>
+                   : memref<1x16x6x16xf16, {order = #NHWC}, @DDR> to memref<1x16x4x6xf16, {order = #NHWC, strides = [1536, 1, 256, 16]}, @DDR>
+    %input_alloc_0 = memref.alloc() : memref<1x16x4x6xf16, {order = #NHWC}, @DDR>
     %input_copy_0 = VPUIP.Copy inputs(%input_sub_0 : memref<1x16x4x6xf16, {order = #NHWC, strides = [1536, 1, 256, 16]}, @DDR>)
-                               outputs(%input_alloc_0 : memref<1x16x4x6xf16, #NHWC, @DDR>) -> memref<1x16x4x6xf16, #NHWC, @DDR>
+                               outputs(%input_alloc_0 : memref<1x16x4x6xf16, {order = #NHWC}, @DDR>) -> memref<1x16x4x6xf16, {order = #NHWC}, @DDR>
     %input_sparse_0 = VPUIP.GroupSparseBuffer (%input_copy_0, %input_sm_0, %input_se_0) <{
                    seAttr = #VPU.SEInterpolate<mode = <BILINEAR>, coordinate_transformation_mode = <PYTORCH_HALF_PIXEL>, scale = [1.000000e+00, 1.000000e+00, 3.000000e+00, 3.000000e+00],
                                 offsets = [0, 0, 0, 0], sizes = [1, 16, 11, 20], initial_input_shape = [1, 16, 6, 6], initial_output_shape = [1, 16, 18, 18]>
@@ -685,7 +685,7 @@ func.func @InterpolateTileAndMultiCluster(%input_data: !Input_DDR, %input_sm_0: 
 
     // Step5: The base_ptrs values are added to the last 9 bits (Tile 0):
     // CHECK-NOT:   VPUIP.StorageElementTable
-    // CHECK:       const.Declare memref<1x1x11x20xi32, #NHWC, @DDR> = dense<
+    // CHECK:       const.Declare memref<1x1x11x20xi32, {order = #NHWC}, @DDR> = dense<
     // CHECK-SAME{LITERAL}:    [0, 0, 0, 0, 1024, 1024, 1024, 2048, 2048, 2048, 3072, 3072, 3072, 4096, 4096, 4096, 5120, 5120, 5120, 5120],
     // CHECK-SAME{LITERAL}:    [0, 0, 0, 0, 1024, 1024, 1024, 2048, 2048, 2048, 3072, 3072, 3072, 4096, 4096, 4096, 5120, 5120, 5120, 5120],
     // CHECK-SAME{LITERAL}:    [0, 0, 0, 0, 1024, 1024, 1024, 2048, 2048, 2048, 3072, 3072, 3072, 4096, 4096, 4096, 5120, 5120, 5120, 5120],
@@ -714,7 +714,7 @@ func.func @InterpolateTileAndMultiCluster(%input_data: !Input_DDR, %input_sm_0: 
 
     // Step5: The base_ptrs values are added to the last 9 bits (Tile 1):
     // CHECK-NOT:   VPUIP.StorageElementTable
-    // CHECK:       const.Declare memref<1x1x11x20xi32, #NHWC, @DDR> = dense<
+    // CHECK:       const.Declare memref<1x1x11x20xi32, {order = #NHWC}, @DDR> = dense<
     // CHECK-SAME{LITERAL}:    [0, 0, 0, 0, 1024, 1024, 1024, 2048, 2048, 2048, 3072, 3072, 3072, 4096, 4096, 4096, 5120, 5120, 5120, 5120],
     // CHECK-SAME{LITERAL}:    [6144, 6144, 6144, 6144, 7168, 7168, 7168, 8192, 8192, 8192, 9216, 9216, 9216, 10240, 10240, 10240, 11264, 11264, 11264, 11264],
     // CHECK-SAME{LITERAL}:    [6144, 6144, 6144, 6144, 7168, 7168, 7168, 8192, 8192, 8192, 9216, 9216, 9216, 10240, 10240, 10240, 11264, 11264, 11264, 11264],
@@ -734,9 +734,9 @@ func.func @InterpolateTileAndMultiCluster(%input_data: !Input_DDR, %input_sm_0: 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!Input_DDR = memref<1x128x4x4xf16, #NHWC, @DDR>
-!InputSE_DDR = memref<1x4x4x10xi32, #NHWC, @DDR>
-!InputSM_DDR = memref<1x128x4x10xi1, #NHWC, @DDR>
+!Input_DDR = memref<1x128x4x4xf16, {order = #NHWC}, @DDR>
+!InputSE_DDR = memref<1x4x4x10xi32, {order = #NHWC}, @DDR>
+!InputSM_DDR = memref<1x128x4x10xi1, {order = #NHWC}, @DDR>
 !InputSparseDDR = !VPUIP.SparseBuffer<
     data=!Input_DDR, sparsity_map=!InputSM_DDR, storage_element_table=!InputSE_DDR,
     #VPU.SEInterpolate<mode = <BILINEAR>, coordinate_transformation_mode = <PYTORCH_HALF_PIXEL>,
@@ -865,7 +865,7 @@ func.func @DWConvInterpSOKInput(
     return %3 : !OutputDistributed
 
     // CHECK-NOT:   VPUIP.StorageElementTable
-    // CHECK:       const.Declare memref<1x4x4x10xi32, #NHWC, @DDR> = dense<
+    // CHECK:       const.Declare memref<1x4x4x10xi32, {order = #NHWC}, @DDR> = dense<
     // CHECK-SAME{LITERAL}:    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     // CHECK-SAME{LITERAL}:    [0, 0, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048],
     // CHECK-SAME{LITERAL}:    [4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 6144, 6144],

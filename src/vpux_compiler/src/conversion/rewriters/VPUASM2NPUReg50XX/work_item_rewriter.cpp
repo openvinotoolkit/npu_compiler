@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 
+using namespace vpux;
 using namespace NPUReg50XX;
 using namespace NPUReg50XX::Descriptors;
 

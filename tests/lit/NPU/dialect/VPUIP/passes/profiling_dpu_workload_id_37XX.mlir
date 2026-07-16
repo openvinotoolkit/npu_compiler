@@ -8,12 +8,12 @@
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!Output_DDR = memref<1x48x60x60xf16, #NHWC, @DDR>
+!Output_DDR = memref<1x48x60x60xf16, {order = #NHWC}, @DDR>
 
-!Input_CMX = memref<1x16x62x62xf16, #NHWC, @CMX_NN>
-!Output_CMX = memref<1x48x60x60xf16, #NHWC, @CMX_NN>
-!Weights_CMX = memref<48x16x3x3xf16, #NHWC, @CMX_NN>
-!WeightsTable_CMX = memref<48x1x1x4xsi32, #NHWC, @CMX_NN>
+!Input_CMX = memref<1x16x62x62xf16, {order = #NHWC}, @CMX_NN>
+!Output_CMX = memref<1x48x60x60xf16, {order = #NHWC}, @CMX_NN>
+!Weights_CMX = memref<48x16x3x3xf16, {order = #NHWC}, @CMX_NN>
+!WeightsTable_CMX = memref<48x1x1x4xsi32, {order = #NHWC}, @CMX_NN>
 
 // CHECK-LABEL: @DpuProfiling
 module @DpuProfiling  {
@@ -72,12 +72,12 @@ module @DpuProfiling  {
     num_clusters = 4 : i64
 }>
 
-!Output_DDR = memref<1x48x60x60xf16, #NHWC, @DDR>
+!Output_DDR = memref<1x48x60x60xf16, {order = #NHWC}, @DDR>
 
-!Input_CMX = memref<1x16x62x62xf16, #NHWC, @CMX_NN>
-!Output_CMX = memref<1x48x60x60xf16, #NHWC, @CMX_NN>
-!Weights_CMX = memref<48x16x3x3xf16, #NHWC, @CMX_NN>
-!WeightsTable_CMX = memref<48x1x1x4xsi32, #NHWC, @CMX_NN>
+!Input_CMX = memref<1x16x62x62xf16, {order = #NHWC}, @CMX_NN>
+!Output_CMX = memref<1x48x60x60xf16, {order = #NHWC}, @CMX_NN>
+!Weights_CMX = memref<48x16x3x3xf16, {order = #NHWC}, @CMX_NN>
+!WeightsTable_CMX = memref<48x1x1x4xsi32, {order = #NHWC}, @CMX_NN>
 
 // CHECK-LABEL: @DpuProfilingWithMulticlustering
 module @DpuProfilingWithMulticlustering  {
@@ -138,15 +138,15 @@ module @DpuProfilingWithMulticlustering  {
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!Input0_CMX = memref<1x16x112x112xf16, #NHWC, [@CMX_NN, 0]>
-!Output0_CMX = memref<1x48x111x111xf16, #NHWC, [@CMX_NN, 0]>
-!Weights0_CMX = memref<48x16x3x3xf16, #NHWC, [@CMX_NN, 0]>
+!Input0_CMX = memref<1x16x112x112xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!Output0_CMX = memref<1x48x111x111xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!Weights0_CMX = memref<48x16x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>
 !WeightsTable0_CMX = memref<48x1x1x4xsi32, [@CMX_NN, 0]>
 
-!Weights1_CMX = memref<32x48x3x3xf16, #NHWC, [@CMX_NN, 0]>
+!Weights1_CMX = memref<32x48x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>
 !WeightsTable1_CMX = memref<32x1x1x4xsi32, [@CMX_NN, 0]>
-!Output1_CMX = memref<1x32x27x27xf16, #NHWC, [@CMX_NN, 0]>
-!Output2_CMX = memref<1x32x27x27xf16, #NHWC, @CMX_NN>
+!Output1_CMX = memref<1x32x27x27xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!Output2_CMX = memref<1x32x27x27xf16, {order = #NHWC}, @CMX_NN>
 
 !OutputDistributed = !VPUIP.DistributedBuffer<1x32x27x27xf16, #NHWC, @CMX_NN, {
     mode = "SEGMENTED",
@@ -154,7 +154,7 @@ module @DpuProfilingWithMulticlustering  {
     num_clusters = 3 : i64
 }>
 
-!Output_DDR = memref<1x32x27x27xf16, #NHWC>
+!Output_DDR = memref<1x32x27x27xf16, {order = #NHWC}>
 
 // CHECK-LABEL: @DpuProfilingMultipleOps
 module @DpuProfilingMultipleOps {
@@ -166,7 +166,7 @@ module @DpuProfilingMultipleOps {
   } profilingOutputsInfo : {
   }
 
-  func.func @main(%arg0: memref<1x3x112x112xf16, #NHWC>, %arg1: !Output_DDR) -> !Output_DDR {
+  func.func @main(%arg0: memref<1x3x112x112xf16, {order = #NHWC}>, %arg1: !Output_DDR) -> !Output_DDR {
     //CHECK:        func.func @main
 
     %0 = memref.alloc() : !Input0_CMX

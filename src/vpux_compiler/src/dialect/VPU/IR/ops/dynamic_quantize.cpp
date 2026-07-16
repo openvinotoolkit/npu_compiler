@@ -9,8 +9,55 @@
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/error.hpp"
 
 using namespace vpux;
+
+namespace {
+
+// Use NDTypeInterface so the helpers work uniformly for both mlir::RankedTensorType
+// and VPU::DistributedTensorType (multi-cluster IR), which mlir::ShapedType does not cover.
+
+bool hasSameShape(mlir::Type lhs, mlir::Type rhs) {
+    auto lhsND = mlir::dyn_cast<vpux::NDTypeInterface>(lhs);
+    auto rhsND = mlir::dyn_cast<vpux::NDTypeInterface>(rhs);
+    if (lhsND == nullptr || rhsND == nullptr) {
+        return false;
+    }
+    return lhsND.getShape() == rhsND.getShape();
+}
+
+bool isScalarLike(mlir::Type type) {
+    auto ndType = mlir::dyn_cast<vpux::NDTypeInterface>(type);
+    if (ndType == nullptr) {
+        return false;
+    }
+    const auto tensorShape = ndType.getShape();
+    return llvm::all_of(tensorShape, [](int64_t dim) {
+        return dim == 1;
+    });
+}
+
+bool isBroadcastCompatibleWith(mlir::Type tensorType, vpux::ShapeRef inputShape) {
+    auto ndType = mlir::dyn_cast<vpux::NDTypeInterface>(tensorType);
+    if (ndType == nullptr) {
+        return true;
+    }
+    const auto tensorShape = ndType.getShape();
+    if (tensorShape.size() > inputShape.size()) {
+        return false;
+    }
+    auto inputIt = inputShape.rbegin();
+    auto tensorIt = tensorShape.rbegin();
+    for (; tensorIt != tensorShape.rend(); ++tensorIt, ++inputIt) {
+        if (*tensorIt > 1 && *tensorIt != *inputIt) {
+            return false;
+        }
+    }
+    return true;
+}
+
+}  // namespace
 
 mlir::LogicalResult vpux::VPU::DynamicQuantizeOp::inferReturnTypes(
         mlir::MLIRContext* ctx, std::optional<mlir::Location> optLoc, mlir::ValueRange operands,
@@ -25,16 +72,16 @@ mlir::LogicalResult vpux::VPU::DynamicQuantizeOp::inferReturnTypes(
 
     const auto inType = mlir::cast<vpux::NDTypeInterface>(quantize.getInput().getType());
     const auto minType = mlir::cast<vpux::NDTypeInterface>(quantize.getMin().getType());
-    auto ui8Type = mlir::IntegerType::get(ctx, 8, mlir::IntegerType::SignednessSemantics::Unsigned);
-    inferredReturnTypes.emplace_back(inType.changeElemType(ui8Type));
+    const auto quantizedElemType = quantize.getDstElemType();
+    inferredReturnTypes.emplace_back(inType.changeElemType(quantizedElemType));
     inferredReturnTypes.emplace_back(minType.changeElemType(inType.getElementType()));
-    inferredReturnTypes.emplace_back(minType.changeElemType(ui8Type));
+    inferredReturnTypes.emplace_back(minType.changeElemType(quantizedElemType));
     return mlir::success();
 }
 
 void vpux::VPU::DynamicQuantizeOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
-                                         mlir::Value min, mlir::Value max) {
-    build(builder, state, input, min, max, nullptr);
+                                         mlir::Value min, mlir::Value max, mlir::TypeAttr dstElemType) {
+    build(builder, state, input, min, max, dstElemType, nullptr);
 }
 
 //
@@ -55,7 +102,50 @@ mlir::FailureOr<OutputTiling> vpux::VPU::DynamicQuantizeOp::getTilingStrategy(Ti
 
 OutputTiling vpux::VPU::DynamicQuantizeOp::getOutputTiling(const vpux::TileInfo& firstOutputTile,
                                                            vpux::Logger /*log*/) {
-    return VPU::DynamicQuantizeOutputTiling(firstOutputTile);
+    const auto scaleType = mlir::cast<vpux::NDTypeInterface>(getScale().getType());
+    const auto zpType = mlir::cast<vpux::NDTypeInterface>(getZeroPoint().getType());
+    return VPU::DynamicQuantizeOutputTiling(firstOutputTile, scaleType.getShape(), zpType.getShape());
+}
+
+mlir::LogicalResult vpux::VPU::DynamicQuantizeOp::verify() {
+    const auto inputShape = mlir::cast<vpux::NDTypeInterface>(getInput().getType()).getShape();
+
+    if (!isBroadcastCompatibleWith(getMin().getType(), inputShape)) {
+        return errorAt(*this, "Min tensor is not broadcast-compatible with input tensor.");
+    }
+
+    if (!isBroadcastCompatibleWith(getMax().getType(), inputShape)) {
+        return errorAt(*this, "Max tensor is not broadcast-compatible with input tensor.");
+    }
+
+    if (!hasSameShape(getMin().getType(), getMax().getType())) {
+        return errorAt(*this, "Min and max tensors must have the same shape.");
+    }
+
+    if (!hasSameShape(getScale().getType(), getZeroPoint().getType())) {
+        return errorAt(*this, "Scale and zero-point tensors must have the same shape.");
+    }
+
+    if (!hasSameShape(getMin().getType(), getScale().getType())) {
+        return errorAt(*this, "Scale tensor must have the same shape as min/max tensors.");
+    }
+
+    const auto dstElemType = getDstElemType();
+    if (!dstElemType.isInteger(8)) {
+        return errorAt(*this, "dstElemType must be an 8-bit integer type, got {0}.", dstElemType);
+    }
+
+    const auto outputElemType = mlir::cast<vpux::NDTypeInterface>(getOutput().getType()).getElementType();
+    if (outputElemType != dstElemType) {
+        return errorAt(*this, "Output element type {0} must match dstElemType {1}.", outputElemType, dstElemType);
+    }
+
+    const auto zpElemType = mlir::cast<vpux::NDTypeInterface>(getZeroPoint().getType()).getElementType();
+    if (zpElemType != dstElemType) {
+        return errorAt(*this, "Zero-point element type {0} must match dstElemType {1}.", zpElemType, dstElemType);
+    }
+
+    return mlir::success();
 }
 
 //
@@ -63,6 +153,10 @@ OutputTiling vpux::VPU::DynamicQuantizeOp::getOutputTiling(const vpux::TileInfo&
 //
 
 bool vpux::VPU::DynamicQuantizeOp::checkStrategyCompatibility(VPU::MultiClusterStrategy strategy, size_t) {
+    if (!isScalarLike(getScale().getType()) || !isScalarLike(getZeroPoint().getType())) {
+        return strategy == VPU::MultiClusterStrategy::Clustering;
+    }
+
     return strategy == VPU::MultiClusterStrategy::Clustering ||
            strategy == VPU::MultiClusterStrategy::SplitOverHeight ||
            strategy == VPU::MultiClusterStrategy::SplitOverKernel ||

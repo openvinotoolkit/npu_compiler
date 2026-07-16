@@ -17,6 +17,7 @@ constexpr int64_t INPUT_DDR_CONTIGUOUS_WIDTH_40XX = 512 * 8;
 
 MemDimArr getStridesMemDims(vpux::NDTypeInterface tensorType);
 bool isDDRCopyEfficient(vpux::NDTypeInterface tensorType, config::ArchKind arch);
+bool isEffectivelyStrided(vpux::NDTypeInterface type);
 
 }  // namespace VPUIP
 }  // namespace vpux

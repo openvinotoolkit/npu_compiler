@@ -14,6 +14,9 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(MaxMinLayerTest);
+
 class MaxMinLayerTestCommon : public MaxMinLayerTest, virtual public VpuOv2LayerTest {};
 class ShaveCodeGenMaxMinLayerTestCommon : public MaxMinLayerTest, virtual public VpuOv2LayerTest {
     void configure_model() override {
@@ -168,5 +171,19 @@ INSTANTIATE_TEST_SUITE_P(smoke_Min_Max_test_dynamic, MaxMinLayerTestDynamic, par
 // Avoid shapes that would require tiling for ShaveCodeGen for now.
 INSTANTIATE_TEST_SUITE_P(smoke_Min_Max_test4, ShaveCodeGenMaxMinLayerTestCommon, params2,
                          ShaveCodeGenMaxMinLayerTestCommon::getTestCaseName);
+
+const std::vector<std::vector<ov::Shape>> crossBroadcastInputShapes = {
+        {{1, 1, 4, 1}, {1, 1, 1, 1024}},   {{1, 1, 1, 1024}, {1, 1, 4, 1}}, {{1, 4, 8, 1}, {1, 4, 1, 256}},
+        {{1, 1, 16, 1}, {1, 1, 1, 3}},     {{2, 16, 16, 1}, {1, 1, 1, 64}}, {{2, 8, 8, 1}, {1, 1, 1, 80}},
+        {{1, 1, 1, 1025}, {1, 1, 128, 1}}, {{1, 1, 1, 1}, {2, 1, 128, 20}},
+};
+
+const auto paramsCrossBroadcastMax =
+        testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(crossBroadcastInputShapes)),
+                         ::testing::Values(MinMaxOpType::MAXIMUM), ::testing::ValuesIn(modelTypes),
+                         ::testing::ValuesIn(inputType), ::testing::Values(test_utils::TARGET_DEVICE));
+
+INSTANTIATE_TEST_SUITE_P(smoke_Max_cross_broadcast, MaxMinLayerTestCommon, paramsCrossBroadcastMax,
+                         MaxMinLayerTestCommon::getTestCaseName);
 
 }  // namespace

@@ -19,7 +19,7 @@ module @SingleRepeat {
     // CHECK-LABEL: @foo
     // CHECK-SAME: ({{%.+}}: memref<1x4x60x60xf16, @DDR>, [[OUT:%.+]]: memref<1x4x60x60xf16, @DDR>)
     // CHECK-SAME: -> memref<1x4x60x60xf16, @DDR>
-    func.func private @foo(%in: memref<1x4x60x60xf16, @DDR>, %out: memref<1x4x60x60xf16, @DDR>)
+    func.func nested @foo(%in: memref<1x4x60x60xf16, @DDR>, %out: memref<1x4x60x60xf16, @DDR>)
             -> memref<1x4x60x60xf16, @DDR> {
         // CHECK-NEXT: [[ALLOC:%.+]] = VPUIP.StaticAlloc<115200> -> memref<1x4x60x60xf16, @DDR>
         %alloc = memref.alloc() : memref<1x4x60x60xf16, @DDR>
@@ -54,7 +54,7 @@ module @SingleRepeat {
     }
 
     // CHECK-LABEL: @bar
-    func.func private @bar(%in: memref<1x4x60x60xf16, @DDR>, %out: memref<1x4x120x60xf16, @DDR>)
+    func.func nested @bar(%in: memref<1x4x60x60xf16, @DDR>, %out: memref<1x4x120x60xf16, @DDR>)
             -> memref<1x4x120x60xf16, @DDR> {
         // CHECK-NEXT: async.execute -> !async.value<memref<1x4x120x60xf16, @DDR>>
         %token, %bodyResults = async.execute -> !async.value<memref<1x4x120x60xf16, @DDR>>

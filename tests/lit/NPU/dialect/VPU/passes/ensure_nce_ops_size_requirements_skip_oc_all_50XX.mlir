@@ -13,10 +13,10 @@
 func.func @DontSplitConvOC(%arg0: tensor<1x16x1x1xf16, {order = #NHWC}>,
                              %arg1: tensor<16384x16x1x1xf16, {order = #NHWC}>,
                              %arg2: tensor<16384x1x1x4xsi32, {order = #NCHW}>) -> tensor<1x16384x1x1xf16, {order = #NHWC}> {
-    %0 = VPU.NCE.Convolution(%arg0, %arg1, %arg2) {
+    %0 = VPU.NCE.Convolution(%arg0, %arg1, %arg2) rawFilterShape [16384, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, prelu_alpha = [1.000000e-01], adder = 0.000000e+00 : f64>,
-        rawFilterShape = [16384, 16, 1, 1],
+        
         strides = [1, 1]
     } : tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<16384x16x1x1xf16, {order = #NHWC}>, tensor<16384x1x1x4xsi32, {order = #NCHW}> -> tensor<1x16384x1x1xf16, {order = #NHWC}>
 

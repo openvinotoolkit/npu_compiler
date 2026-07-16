@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/allocate_buffers.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/dynamic_memref_bounds.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
@@ -120,6 +121,11 @@ void updateReturnOps(mlir::func::FuncOp func, ArrayRef<mlir::BlockArgument> appe
     });
 }
 
+bool isUsedOnlyByMemrefCopy(mlir::Value value) {
+    auto users = value.getUsers();
+    return std::distance(users.begin(), users.end()) == 1 && mlir::isa<mlir::memref::CopyOp>(*users.begin());
+}
+
 // Updates call op
 void updateCallOp(const mlir::DenseSet<mlir::CallOpInterface>& callOps, vpux::Logger& log) {
     for (auto callOp : llvm::make_early_inc_range(callOps)) {
@@ -128,7 +134,15 @@ void updateCallOp(const mlir::DenseSet<mlir::CallOpInterface>& callOps, vpux::Lo
         SmallVector<mlir::Value> outParams;
         SmallVector<mlir::Value> currentResults;
         SmallVector<mlir::Type> resultTypes;
-        for (auto result : callOp->getResults()) {
+
+        // Only Core.NestedCall-style callees (@Module::@func) have a submodule-scoped NetworkInfo
+        // that can supply upper bounds for dynamic memref allocation. Flat calls (func.call @main,
+        // func.call @output_shape) must not go through the bounds-based allocation path
+        auto callableRef = callOp.getCallableForCallee();
+        auto symbRef = mlir::dyn_cast<mlir::SymbolRefAttr>(callableRef);
+        bool isOutlinedFunction = symbRef && !symbRef.getNestedReferences().empty();
+
+        for (auto [index, result] : llvm::enumerate(callOp->getResults())) {
             mlir::Type resType = result.getType();
             // E-140551: add support for VPUIP.SparseBuffer, allocateBuffersOfType has the allocation logic for
             // VPUIP.SparseBuffer. Need real use cases. Remove the following VPUX_THROW_WHEN to check if it works.
@@ -136,7 +150,33 @@ void updateCallOp(const mlir::DenseSet<mlir::CallOpInterface>& callOps, vpux::Lo
                     !mlir::isa<mlir::MemRefType>(resType) && !mlir::isa<vpux::VPUIP::DistributedBufferType>(resType),
                     "Only MemRefType and DistributedBufferType are supported for now, got {0}", result.getType());
 
-            auto outParam = VPUIP::allocateBuffersOfType(log, callOp.getLoc(), builder, resType).front();
+            mlir::Value outParam = nullptr;
+            if (isUsedOnlyByMemrefCopy(result)) {
+                auto funcOp = getCalledFunction(callOp);
+                auto funcType = funcOp.getFunctionType();
+                size_t numInputs = funcType.getNumInputs() - funcType.getNumResults();
+                auto memRefType = mlir::cast<mlir::MemRefType>(funcType.getInput(numInputs + index));
+                mlir::memref::CopyOp copyOp = mlir::cast<mlir::memref::CopyOp>(*result.getUsers().begin());
+                outParam = copyOp.getTarget();
+                builder.setInsertionPointAfter(copyOp);
+                if (memRefType != outParam.getType()) {
+                    auto castBufferOp = builder.create<mlir::memref::CastOp>(callOp.getLoc(), memRefType, outParam);
+                    outParam = castBufferOp.getResult();
+                }
+                copyOp.erase();
+            }
+            if (outParam == nullptr) {
+                // Dynamic memrefs in outlined kernel results must be allocated using upper bounds
+                // from the callee's NetworkInfo so the buffer is large enough for the worst-case
+                // runtime shape. Static memrefs and non-outlined calls use the standard path
+                if (auto memrefType = mlir::dyn_cast<mlir::MemRefType>(resType);
+                    memrefType && memrefType.getNumDynamicDims() > 0 && isOutlinedFunction) {
+                    outParam = VPUIP::allocateCallBoundaryMemref(callOp, index, /*isInput=*/false, memrefType, builder,
+                                                                 log, "add-buffers-for-net-results");
+                } else {
+                    outParam = VPUIP::allocateBuffersOfType(log, callOp.getLoc(), builder, resType).front();
+                }
+            }
             outParams.push_back(outParam);
 
             currentResults.push_back(result);

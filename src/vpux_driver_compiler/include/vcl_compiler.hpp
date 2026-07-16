@@ -10,8 +10,10 @@
 
 #pragma once
 
-#include "vcl_common.hpp"
 #include "vcl_compiler_loader.hpp"
+#include "vcl_logger.hpp"
+
+#include <memory>
 
 namespace VPUXDriverCompiler {
 
@@ -27,7 +29,8 @@ class VPUXQueryNetworkL0;
  */
 class VPUXCompilerL0 final {
 public:
-    VPUXCompilerL0(vcl_compiler_desc_t* compilerDesc, vcl_device_desc_t* deviceDesc, VCLLogger* vclLogger);
+    VPUXCompilerL0(vcl_compiler_desc_t* compilerDesc, vcl_device_desc_t* deviceDesc,
+                   std::shared_ptr<VCLLogger> vclLogger);
 
     /**
      * @brief Get the rough compiler capabilities
@@ -39,91 +42,54 @@ public:
     }
 
     /**
-     * @brief Get the info of default platform and debug level
-     *
-     * @return vcl_compiler_desc_t Include current platform value, default debug level
-     */
-    vcl_compiler_desc_t getCompilerDesc() const {
-        return _compilerDesc;
-    }
-
-    /**
-     * @brief Get the device info status
-     *
-     * @return bool Returns device info status
-     */
-    bool isDeviceDescEmpty() const {
-        return _isDeviceDescEmpty;
-    }
-
-    /**
-     * @brief Get the info of default device info
-     *
-     * @return vcl_device_desc_t Include device capabilities
-     */
-    vcl_device_desc_t getDeviceDesc() const {
-        return _deviceDesc;
-    }
-
-    /**
-     * @brief Get the default compilation configs
-     *
-     * @details The default common option, compiler option, runtime option,
-     *
-     * @return std::shared_ptr<const OptionsDesc> The options can be used to do compilation
-     */
-    std::shared_ptr<const intel_npu::OptionsDesc> getOptions() const {
-        return _options;
-    }
-
-    /**
      * @brief Get the logger of the compiler
      *
-     * @return VCLLogger*  The logger is created and destroied by compiler
+     * @return Logger reference
      */
-    VCLLogger* getLogger() const {
+    const std::shared_ptr<VCLLogger>& getLogger() const {
         return _logger;
     }
 
     /**
      * @brief Use VPUX MLIR compiler to create blob with user info
      *
-     * @param buildInfo Include the model data, ioInfo, compilation configs
-     * @return std::pair<VPUXExecutableL0*, vcl_result_t>  Include the final blob and status
+     * @param desc The description of the model and user configuration info
+     * @return std::pair<VPUXExecutableL0*, vcl_result_t> Include the final blob and status
      */
-    std::pair<VPUXExecutableL0*, vcl_result_t> importNetwork(BuildInfo& buildInfo);
+    std::pair<VPUXExecutableL0*, vcl_result_t> importNetwork(const vcl_executable_desc_t& desc);
 
     /**
      * @brief Use VPUX MLIR compiler to create blob with user info
      * @note Blob storage is allocated via given allocator
      *
-     * @param buildInfo Include the model data, ioInfo, compilation configs
+     * @param desc The description of the model and user configuration info
      * @param allocator Allocator for blob storage allocation
+     * @param allocateCompatibilityString Whether to return the compatibility string in NetworkDescriptionView
      * @return vpux::NetworkDescriptionView Include non-owning view into blob and metadata
      */
-    vpux::NetworkDescriptionView importNetwork(BuildInfo& buildInfo, vpux::BlobAllocator& allocator,
-                                               bool generateCompatibilityString = false);
+    vpux::NetworkDescriptionView importNetwork(const vcl_executable_desc_t& desc, vpux::BlobAllocator& allocator,
+                                               bool allocateCompatibilityString = false);
 
     /**
      * @brief Use VPUX MLIR compiler to create one shot weight-separated blob with user info
      * @note Blob storage is allocated via given allocator
      *
-     * @param buildInfo Include the model data, ioInfo, compilation configs
+     * @param desc The description of the model and user configuration info
      * @param allocator Allocator for blob storage allocation
-     * @return std::vector<std::shared_ptr<vpux::NetworkDescriptionView>> Include non-owning
-     * views into blobs and metadatas
+     * @return std::vector<std::shared_ptr<vpux::NetworkDescriptionView>> Non-owning views into
+     * the blobs and metadata
      */
-    std::vector<std::shared_ptr<vpux::NetworkDescriptionView>> importNetworkWSOneShot(BuildInfo& buildInfo,
+    std::vector<std::shared_ptr<vpux::NetworkDescriptionView>> importNetworkWSOneShot(const vcl_executable_desc_t& desc,
                                                                                       vpux::BlobAllocator& allocator);
 
     /**
      * @brief Check if a model can be supported by current compiler
      *
-     * @param buildInfo include the model data, default compilation config
-     * @param pQueryNetwork The supported layers by compiler
+     * @param desc The description of the model and user configuration info
+     * @param pQueryNetwork Output object to receive the supported layers result
      * @return vcl_result_t
      */
-    vcl_result_t queryNetwork(const BuildInfo& buildInfo, VPUXQueryNetworkL0* pQueryNetwork);
+    vcl_result_t queryNetwork(const vcl_query_desc_t& desc, VPUXQueryNetworkL0* pQueryNetwork);
 
     /**
      * @brief Return the size of the compiler supported options list (string) in the provided buffer
@@ -131,25 +97,25 @@ public:
      * @param stringSize where to store the size of the string
      * @return vcl_result_t
      */
-    vcl_result_t getSupportedOptionsSize(uint64_t* stringSize);
+    vcl_result_t getSupportedOptionsSize(uint64_t* stringSize) const;
 
     /**
-     * @brief Retreive a list of configurable options the compiler supports
+     * @brief Retrieve a list of configurable options the compiler supports
      *
      * @param buffer The buffer to store serialized string in.
      * @param size The size of buffer, need to be same with result of getSupportedOptionsSize().
      * @return vcl_result_t
      */
-    vcl_result_t getSupportedOptions(char* buffer, uint64_t size);
+    vcl_result_t getSupportedOptions(char* buffer, uint64_t size) const;
 
     /**
      * @brief Verify if a compiler configuration option (if value=nullptr) or option-value pair is supported
      *
      * @param option String containing the option's name
-     * @param vlaue String containing the option value to be checked. If null, we only check if the option is supported
+     * @param value String containing the option value to be checked. If null, we only check if the option is supported
      * @return bool true/false
      */
-    bool isOptionValueSupported(const char* option, const char* value);
+    bool isOptionValueSupported(const char* option, const char* value) const;
 
 private:
     std::shared_ptr<intel_npu::OptionsDesc> _options;  ///< The default compilation configs
@@ -158,7 +124,7 @@ private:
     vcl_compiler_desc_t _compilerDesc;                 ///< The info of platform and debug level
     vcl_device_desc_t _deviceDesc;                     ///< The info of device
     bool _isDeviceDescEmpty;                           ///< The info of deviceDesc status
-    VCLLogger* _logger;
+    std::shared_ptr<VCLLogger> _logger;
 };
 
 }  // namespace VPUXDriverCompiler

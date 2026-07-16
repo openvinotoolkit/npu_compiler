@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/core/scheduling/undefined_tiling.hpp"
+#include "vpux/compiler/dialect/VPU/utils/scheduling/undefined_tiling.hpp"
 #include "vpux/compiler/init/dialects_registry.hpp"
 
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
@@ -117,7 +117,7 @@ TEST_F(MLIR_UndefinedTiling, BasicTilingUniformSizes) {
     schedulingLoop->loopBodies = {std::move(iteration0), std::move(iteration1)};
 
     ComputeRegion region(std::move(schedulingLoop));
-    UndefinedTiling scenario;
+    vpux::VPU::UndefinedTiling scenario;
     const auto scheduleResult = scenario.getScheduleStrategy(region, /*memorySize=*/8192);
 
     const auto allocDealloc = collectComputeAllocationsByOp(scheduleResult.schedule);
@@ -181,7 +181,7 @@ TEST_F(MLIR_UndefinedTiling, TilingUnevenSizes) {
     schedulingLoop->loopBodies = {std::move(iteration0), std::move(iteration1), std::move(iteration2)};
 
     ComputeRegion region(std::move(schedulingLoop));
-    UndefinedTiling scenario;
+    vpux::VPU::UndefinedTiling scenario;
     const auto scheduleResult = scenario.getScheduleStrategy(region, /*memorySize=*/16384);
 
     const auto allocDealloc = collectComputeAllocationsByOp(scheduleResult.schedule);
@@ -248,7 +248,7 @@ TEST_F(MLIR_UndefinedTiling, TilingNoPrefetch) {
                                   std::move(iteration3)};
 
     ComputeRegion region(std::move(schedulingLoop));
-    UndefinedTiling scenario;
+    vpux::VPU::UndefinedTiling scenario;
     const auto scheduleResult = scenario.getScheduleStrategy(region, /*memorySize=*/2048);
 
     const auto allocDealloc = collectComputeAllocationsByOp(scheduleResult.schedule);
@@ -327,7 +327,7 @@ TEST_F(MLIR_UndefinedTiling, TilingSharedBufferWithPartialPrefetch) {
                                   std::move(iteration3)};
 
     ComputeRegion region(std::move(schedulingLoop));
-    UndefinedTiling scenario;
+    vpux::VPU::UndefinedTiling scenario;
     const auto scheduleResult = scenario.getScheduleStrategy(region, /*memorySize=*/7168);
 
     const auto allocDealloc = collectComputeAllocationsByOp(scheduleResult.schedule);
@@ -416,7 +416,7 @@ TEST_F(MLIR_UndefinedTiling, TilingFullPipelining) {
                                   std::move(iteration3)};
 
     ComputeRegion region(std::move(schedulingLoop));
-    UndefinedTiling scenario;
+    vpux::VPU::UndefinedTiling scenario;
     const auto scheduleResult = scenario.getScheduleStrategy(region, /*memorySize=*/16384);
 
     const auto allocDealloc = collectComputeAllocationsByOp(scheduleResult.schedule);
@@ -480,7 +480,7 @@ TEST_F(MLIR_UndefinedTiling, SharedDedupAcrossOperands) {
     schedulingLoop->loopBodies = {std::move(iteration0), std::move(iteration1)};
 
     ComputeRegion region(std::move(schedulingLoop));
-    UndefinedTiling scenario;
+    vpux::VPU::UndefinedTiling scenario;
     const auto scheduleResult = scenario.getScheduleStrategy(region, /*memorySize=*/2560);
 
     const auto allocDealloc = collectComputeAllocationsByOp(scheduleResult.schedule);
@@ -540,7 +540,7 @@ TEST_F(MLIR_UndefinedTiling, PerOperandGlobalMaxSlot) {
     schedulingLoop->loopBodies = {std::move(iteration0), std::move(iteration1)};
 
     ComputeRegion region(std::move(schedulingLoop));
-    UndefinedTiling scenario;
+    vpux::VPU::UndefinedTiling scenario;
     const auto scheduleResult = scenario.getScheduleStrategy(region, /*memorySize=*/12288);
 
     const auto allocDealloc = collectComputeAllocationsByOp(scheduleResult.schedule);
@@ -587,7 +587,7 @@ TEST_F(MLIR_UndefinedTiling, OOMThrowsFailFast) {
     schedulingLoop->loopBodies = {std::move(iteration0), std::move(iteration1)};
 
     ComputeRegion region(std::move(schedulingLoop));
-    UndefinedTiling scenario;
+    vpux::VPU::UndefinedTiling scenario;
 
     EXPECT_THROW(static_cast<void>(scenario.getScheduleStrategy(region, /*memorySize=*/1024)), vpux::Exception);
 }
@@ -645,7 +645,7 @@ TEST_F(MLIR_UndefinedTiling, FlashSDPALayoutFullPipelining) {
     schedulingLoop->loopBodies = std::move(loopBodies);
 
     ComputeRegion region(std::move(schedulingLoop));
-    UndefinedTiling scenario;
+    vpux::VPU::UndefinedTiling scenario;
     const auto scheduleResult = scenario.getScheduleStrategy(region, /*memorySize=*/16384);
 
     const auto allocDealloc = collectComputeAllocationsByOp(scheduleResult.schedule);
@@ -729,7 +729,7 @@ TEST_F(MLIR_UndefinedTiling, FlashSDPAPrefetching) {
     schedulingLoop->loopBodies = std::move(loopBodies);
 
     ComputeRegion region(std::move(schedulingLoop));
-    UndefinedTiling scenario;
+    vpux::VPU::UndefinedTiling scenario;
     const auto scheduleResult = scenario.getScheduleStrategy(region, /*memorySize=*/11008);
 
     const auto allocDealloc = collectComputeAllocationsByOp(scheduleResult.schedule);
@@ -839,7 +839,7 @@ TEST_F(MLIR_UndefinedTiling, 2D_Tiling_FullPipelining) {
     schedulingLoop->loopBodies = std::move(loopBodies);
 
     ComputeRegion region(std::move(schedulingLoop));
-    UndefinedTiling scenario;
+    vpux::VPU::UndefinedTiling scenario;
     const auto scheduleResult = scenario.getScheduleStrategy(region, /*memorySize=*/16384);
 
     const auto allocDealloc = collectComputeAllocationsByOp(scheduleResult.schedule);
@@ -995,7 +995,7 @@ TEST_F(MLIR_UndefinedTiling, 2D_Tiling_Prefetching) {
     schedulingLoop->loopBodies = std::move(loopBodies);
 
     ComputeRegion region(std::move(schedulingLoop));
-    UndefinedTiling scenario;
+    vpux::VPU::UndefinedTiling scenario;
     const auto scheduleResult = scenario.getScheduleStrategy(region, /*memorySize=*/6144);
 
     const auto allocDealloc = collectComputeAllocationsByOp(scheduleResult.schedule);
@@ -1134,7 +1134,7 @@ TEST_F(MLIR_UndefinedTiling, CollectComputeOpBuffers_IterationOrderPreserved) {
     schedulingLoop->loopBodies = {std::move(iteration0), std::move(iteration1), std::move(iteration2)};
 
     ComputeRegion region(std::move(schedulingLoop));
-    UndefinedTiling scenario;
+    vpux::VPU::UndefinedTiling scenario;
     const auto scheduleResult = scenario.getScheduleStrategy(region, /*memorySize=*/16384);
 
     const auto allocDealloc = collectComputeAllocationsByOp(scheduleResult.schedule);
@@ -1189,7 +1189,7 @@ TEST_F(MLIR_UndefinedTiling, CollectComputeOpBuffers_InputOutputDedup) {
     schedulingLoop->loopBodies = {std::move(iteration0), std::move(iteration1)};
 
     ComputeRegion region(std::move(schedulingLoop));
-    UndefinedTiling scenario;
+    vpux::VPU::UndefinedTiling scenario;
     const auto scheduleResult = scenario.getScheduleStrategy(region, /*memorySize=*/4096);
 
     // sharedBuf appears in every compute op (input + output deduped), so it is shared.
@@ -1242,7 +1242,7 @@ TEST_F(MLIR_UndefinedTiling, CollectComputeOpBuffers_ProducerConsumerChain) {
     schedulingLoop->loopBodies = {std::move(iteration0), std::move(iteration1)};
 
     ComputeRegion region(std::move(schedulingLoop));
-    UndefinedTiling scenario;
+    vpux::VPU::UndefinedTiling scenario;
     const auto scheduleResult = scenario.getScheduleStrategy(region, /*memorySize=*/16384);
 
     // All 4 compute ops should produce valid allocations.
@@ -1287,7 +1287,7 @@ TEST_F(MLIR_UndefinedTiling, CollectComputeOpBuffers_NoComputeOpsReturnsEmpty) {
     schedulingLoop->loopBodies = {std::move(iteration0)};
 
     ComputeRegion region(std::move(schedulingLoop));
-    UndefinedTiling scenario;
+    vpux::VPU::UndefinedTiling scenario;
     const auto scheduleResult = scenario.getScheduleStrategy(region, /*memorySize=*/8192);
 
     EXPECT_TRUE(scheduleResult.schedule.empty());
@@ -1337,7 +1337,7 @@ TEST_F(MLIR_UndefinedTiling, CollectComputeOpBuffers_FrequencyTableDrivesSharedD
     schedulingLoop->loopBodies = {std::move(iteration0), std::move(iteration1), std::move(iteration2)};
 
     ComputeRegion region(std::move(schedulingLoop));
-    UndefinedTiling scenario;
+    vpux::VPU::UndefinedTiling scenario;
     const auto scheduleResult = scenario.getScheduleStrategy(region, /*memorySize=*/16384);
 
     // Only weightA appears in all 3 compute ops -> shared.
@@ -1405,7 +1405,7 @@ TEST_F(MLIR_UndefinedTiling, PartialDoubleBufferingSuppressed) {
                                   std::move(iteration3)};
 
     ComputeRegion region(std::move(schedulingLoop));
-    UndefinedTiling scenario;
+    vpux::VPU::UndefinedTiling scenario;
     // memorySize=6144: enough for one full set (4096) but not two (8192).
     // Crucially, OUT alone could fit a 2nd slot (4096+1024=5120 <= 6144),
     // but the reachedMemoryLimit flag prevents this partial double-buffering.
@@ -1467,7 +1467,7 @@ TEST_F(MLIR_UndefinedTiling, InsufficientLocalMemoryReturnsEmptySchedule) {
     schedulingLoop->loopBodies = {std::move(iteration0), std::move(iteration1)};
 
     ComputeRegion region(std::move(schedulingLoop));
-    UndefinedTiling scenario;
+    vpux::VPU::UndefinedTiling scenario;
     const auto scheduleResult = scenario.getScheduleStrategy(region, /*memorySize=*/2560);
 
     // verifyOperandSlotRequirements should detect insufficient memory and bail out gracefully.

@@ -15,9 +15,6 @@
 
 #include <npu_40xx_nnrt.hpp>
 
-using namespace vpux::VPURegMapped;
-using namespace npu40xx;
-
 // Helper trait to detect if Type_Fields has Field_ppe_bf16_roundType member
 template <typename T, typename = void>
 struct has_Field_ppe_bf16_roundType : std::false_type {};
@@ -90,33 +87,33 @@ uint64_t getTensorMode(mlir::Type type) {
     if (std::is_same<REG_TYPE, NPUReg40XX::RegField_amodeType>::value ||
         std::is_same<REG_TYPE, NPUReg40XX::RegField_wmodeType>::value) {
         if (type.isF16()) {
-            return static_cast<uint64_t>(nn_public::VpuInputTensorDType::FP16);
+            return static_cast<uint64_t>(npu40xx::nn_public::VpuInputTensorDType::FP16);
         } else if (type.isUnsignedInteger(8)) {
-            return static_cast<uint64_t>(nn_public::VpuInputTensorDType::U8);
+            return static_cast<uint64_t>(npu40xx::nn_public::VpuInputTensorDType::U8);
         } else if (type.isInteger(8)) {
-            return static_cast<uint64_t>(nn_public::VpuInputTensorDType::I8);
+            return static_cast<uint64_t>(npu40xx::nn_public::VpuInputTensorDType::I8);
         } else if (type.isSignedInteger(4)) {
-            return static_cast<uint64_t>(nn_public::VpuInputTensorDType::I4);
+            return static_cast<uint64_t>(npu40xx::nn_public::VpuInputTensorDType::I4);
         } else if (type.isInteger(2)) {
-            return static_cast<uint64_t>(nn_public::VpuInputTensorDType::I2);
+            return static_cast<uint64_t>(npu40xx::nn_public::VpuInputTensorDType::I2);
         } else if (type.isBF16()) {
-            return static_cast<uint64_t>(nn_public::VpuInputTensorDType::BF16);
+            return static_cast<uint64_t>(npu40xx::nn_public::VpuInputTensorDType::BF16);
         } else if (type.isUnsignedInteger(4)) {
-            return static_cast<uint64_t>(nn_public::VpuInputTensorDType::U4);
+            return static_cast<uint64_t>(npu40xx::nn_public::VpuInputTensorDType::U4);
         } else if (type.isInteger(1)) {
-            return static_cast<uint64_t>(nn_public::VpuInputTensorDType::BIN);
+            return static_cast<uint64_t>(npu40xx::nn_public::VpuInputTensorDType::BIN);
         } else if (mlir::isa<mlir::Float8E5M2Type>(type)) {
-            return static_cast<uint64_t>(nn_public::VpuInputTensorDType::FP8);
+            return static_cast<uint64_t>(npu40xx::nn_public::VpuInputTensorDType::FP8);
         } else if (mlir::isa<mlir::Float8E4M3FNType>(type)) {
-            return static_cast<uint64_t>(nn_public::VpuInputTensorDType::HF8);
+            return static_cast<uint64_t>(npu40xx::nn_public::VpuInputTensorDType::HF8);
         }
         VPUX_THROW("Invalid tensor type for DPU configuration {0}", type);
     } else if (std::is_same<REG_TYPE, NPUReg40XX::RegField_dma_acc_info_compress_dtypeType>::value ||
                std::is_same<REG_TYPE, NPUReg40XX::RegField_dma_acc_info_decompress_dtypeType>::value) {
         if (type.isUnsignedInteger(8) || type.isInteger(8) || type.isUnsignedInteger(4) || type.isInteger(4)) {
-            return DMA_ACC_DTYPE_INT8_UINT8;
+            return npu40xx::DMA_ACC_DTYPE_INT8_UINT8;
         } else if (type.isBF16() || type.isF16()) {
-            return DMA_ACC_DTYPE_FP16_BF16;
+            return npu40xx::DMA_ACC_DTYPE_FP16_BF16;
         }
         VPUX_THROW("Invalid tensor type for DMA Acceleration configuration {0}", type);
     }
@@ -303,21 +300,21 @@ void lowerToRegIDUWeightsOp(VPUIPDPU::IDUWeightsOp op, DpuInvariantDescriptorTyp
         llvm::SmallVector<uint16_t, numPalletTableEntries> quantilesLutValues(numPalletTableEntries, 0);
 
         auto getPalletModeBitValue = [](const double value, const uint64_t wmode) -> uint16_t {
-            if (wmode == static_cast<uint64_t>(nn_public::VpuInputTensorDType::FP16)) {
+            if (wmode == static_cast<uint64_t>(npu40xx::nn_public::VpuInputTensorDType::FP16)) {
                 vpux::type::float16 f16(value);
                 return f16.to_bits();
-            } else if (wmode == static_cast<uint64_t>(nn_public::VpuInputTensorDType::U8)) {
+            } else if (wmode == static_cast<uint64_t>(npu40xx::nn_public::VpuInputTensorDType::U8)) {
                 int i8 = static_cast<int>(value);
                 return (i8 < 0 ? 0 : static_cast<uint16_t>(i8));
-            } else if (wmode == static_cast<uint64_t>(nn_public::VpuInputTensorDType::I8)) {
+            } else if (wmode == static_cast<uint64_t>(npu40xx::nn_public::VpuInputTensorDType::I8)) {
                 return static_cast<uint16_t>(static_cast<int>(value));
-            } else if (wmode == static_cast<uint64_t>(nn_public::VpuInputTensorDType::BF16)) {
+            } else if (wmode == static_cast<uint64_t>(npu40xx::nn_public::VpuInputTensorDType::BF16)) {
                 vpux::type::bfloat16 bf16(value);
                 return bf16.to_bits();
-            } else if (wmode == static_cast<uint64_t>(nn_public::VpuInputTensorDType::FP8)) {
+            } else if (wmode == static_cast<uint64_t>(npu40xx::nn_public::VpuInputTensorDType::FP8)) {
                 vpux::type::float8_e5m2 bf8(value);
                 return bf8.to_bits();
-            } else if (wmode == static_cast<uint64_t>(nn_public::VpuInputTensorDType::HF8)) {
+            } else if (wmode == static_cast<uint64_t>(npu40xx::nn_public::VpuInputTensorDType::HF8)) {
                 vpux::type::float8_e4m3 hf8(value);
                 return hf8.to_bits();
             } else {

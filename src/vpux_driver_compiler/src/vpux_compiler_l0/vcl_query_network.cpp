@@ -5,9 +5,11 @@
 
 #include "vcl_query_network.hpp"
 
+#include <memory>
+
 namespace VPUXDriverCompiler {
 
-VPUXQueryNetworkL0::VPUXQueryNetworkL0(VCLLogger* vclLogger): _logger(vclLogger) {
+VPUXQueryNetworkL0::VPUXQueryNetworkL0(std::shared_ptr<VCLLogger> vclLogger): _logger(std::move(vclLogger)) {
 }
 
 vcl_result_t VPUXQueryNetworkL0::setQueryResult(const std::map<std::string, std::string>& layerMap) {

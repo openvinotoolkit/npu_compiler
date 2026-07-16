@@ -7,8 +7,43 @@
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 using namespace vpux;
+
+mlir::LogicalResult vpux::VPU::SoftMaxOp::verify() {
+    const auto max = getMax();
+    if (!max) {
+        return mlir::success();
+    }
+
+    const auto inType = mlir::cast<vpux::NDTypeInterface>(getInput().getType());
+    const auto maxType = mlir::cast<vpux::NDTypeInterface>(max.getType());
+    const auto inShape = inType.getShape();
+    const auto maxShape = maxType.getShape();
+
+    if (inShape.size() != maxShape.size()) {
+        return errorAt(getLoc(), "SoftMaxOp 'max' rank {0} does not match input rank {1}", maxShape.size(),
+                       inShape.size());
+    }
+
+    const auto axis = getAxisInd();
+    for (size_t i = 0; i < inShape.size(); ++i) {
+        if (static_cast<int64_t>(i) == axis) {
+            if (maxShape[Dim(i)] != 1) {
+                return errorAt(getLoc(), "SoftMaxOp 'max' shape must be 1 on axis dim {0}, but got {1}", axis,
+                               maxShape[Dim(i)]);
+            }
+        } else {
+            if (maxShape[Dim(i)] != inShape[Dim(i)]) {
+                return errorAt(getLoc(), "SoftMaxOp 'max' shape mismatch at dim {0}: expected {1}, got {2}", i,
+                               inShape[Dim(i)], maxShape[Dim(i)]);
+            }
+        }
+    }
+
+    return mlir::success();
+}
 
 mlir::LogicalResult vpux::VPU::SoftMaxOp::inferReturnTypes(mlir::MLIRContext* ctx, std::optional<mlir::Location> optLoc,
                                                            mlir::ValueRange operands, mlir::DictionaryAttr attrs,
@@ -32,11 +67,24 @@ mlir::LogicalResult vpux::VPU::SoftMaxOp::inferReturnTypes(mlir::MLIRContext* ct
     return mlir::success();
 }
 
+mlir::LogicalResult vpux::VPU::SoftMaxOp::reifyResultShapes(mlir::OpBuilder& builder,
+                                                            mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    reifiedReturnShapes.emplace_back(reifyTrivialTensor(builder, getInput(), getLoc()));
+    return mlir::success();
+}
+
 //
 // TilingBuilderOpInterface
 //
 
 vpux::InputTiling vpux::VPU::SoftMaxOp::backInferTileInfo(const vpux::TileInfo& outputTile, vpux::Logger /*log*/) {
+    if (getMax()) {
+        // max has same shape as input except axis dim is 1 — tile the same way, axis dim stays 1
+        TileInfo maxTile(outputTile);
+        maxTile.shape[Dim(getAxisInd())] = 1;
+        maxTile.offsets[Dim(getAxisInd())] = 0;
+        return TilingInfo({outputTile, std::move(maxTile)});
+    }
     return TilingInfo(outputTile);
 }
 
@@ -96,13 +144,16 @@ vpux::VPU::DistributionInfo vpux::VPU::SoftMaxOp::getExplicitDistributionInfoAtt
 }
 
 void vpux::VPU::SoftMaxOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState, ::mlir::Value input,
-                                 ::mlir::IntegerAttr axisInd, ::mlir::IntegerAttr padSize,
-                                 ::mlir::TypeAttr dstElemType) {
-    build(odsBuilder, odsState, input, axisInd, padSize, dstElemType, {});
+                                 ::std::optional<::mlir::Value> max, ::mlir::IntegerAttr axisInd,
+                                 ::mlir::IntegerAttr padSize, ::mlir::TypeAttr dstElemType,
+                                 ::mlir::UnitAttr maskAware) {
+    build(odsBuilder, odsState, input, max.value_or(mlir::Value{}), axisInd, padSize, dstElemType, maskAware, {});
 }
 
 bool vpux::VPU::SoftMaxOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem) {
-    VPUX_THROW_UNLESS(buffers.size() == 2, "SoftMaxOp requires 1 input and 1 output, but the number of buffer is {0}",
+    const size_t expectedBuffers = getMax() ? 3 : 2;
+    VPUX_THROW_UNLESS(buffers.size() == expectedBuffers,
+                      "SoftMaxOp requires {0} buffers (input[, max], output), but got {1}", expectedBuffers,
                       buffers.size());
 
     SmallVector<Byte> buffersSize;

@@ -10,6 +10,10 @@
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ScatterElementsUpdateLayerTest);
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ScatterElementsUpdate12LayerTest);
+
 class ScatterElementsUpdateLayerTestCommon : public ScatterElementsUpdateLayerTest, virtual public VpuOv2LayerTest {};
 class ScatterElementsUpdate12LayerTestCommon :
         public ScatterElementsUpdate12LayerTest,

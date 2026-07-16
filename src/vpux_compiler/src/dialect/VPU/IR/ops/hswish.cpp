@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 using namespace vpux;
 
@@ -74,4 +75,14 @@ bool vpux::VPU::HSwishOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeInterface> buffe
 
 bool vpux::VPU::HSwishOp::supportCycleCostCalculation() {
     return false;
+}
+
+//
+// ReifyRankedShapedTypeOpInterface
+//
+
+mlir::LogicalResult vpux::VPU::HSwishOp::reifyResultShapes(mlir::OpBuilder& builder,
+                                                           mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    reifiedReturnShapes.emplace_back(reifyTrivialTensor(builder, getInput(), getLoc()));
+    return mlir::success();
 }

@@ -19,8 +19,10 @@ func.func @MemPermuteInBetweenShapeCast(%arg0: tensor<2x3x96x96xf16>) -> tensor<
 
   // CHECK: [[CST:%.+]] = const.Declare tensor<1x3x3x3xf16, {order = #NHWC}> = dense<0.000000e+00> : tensor<1x3x3x3xf16>, [#const.Reorder<#NHWC>]
   // CHECK: [[SHAPCAST:%.+]] = IE.ShapeCast {shape = [1, 2, 3, 9216]} inputs([[ARG]] : tensor<2x3x96x96xf16>) -> tensor<1x2x3x9216xf16>
-  // CHECK: [[MEMPERMUTE:%.+]] = IE.MemPermute([[SHAPCAST]]) {dst_order = #NHWC, mem_perm = #NCWH} : tensor<1x2x3x9216xf16> -> tensor<1x3x2x9216xf16, {order = #NHWC}>
-  // CHECK: [[SHAPECAST:%.+]] = IE.ShapeCast {shape = [2, 3, 96, 96]} inputs([[MEMPERMUTE]] : tensor<1x3x2x9216xf16, {order = #NHWC}>) -> tensor<2x3x96x96xf16, {order = #NHWC}>
+  // CHECK: [[PERMUTE_CAST_IN:%.+]] = IE.PermuteCast([[SHAPCAST]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x2x3x9216xf16> -> tensor<1x9216x2x3xf16, {order = #NHWC}>
+  // CHECK: [[MAXPOOL:%.+]] = IE.MaxPool([[PERMUTE_CAST_IN]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x9216x2x3xf16, {order = #NHWC}> -> tensor<1x9216x2x3xf16, {order = #NHCW}>
+  // CHECK: [[PERMUTE_CAST_OUT:%.+]] = IE.PermuteCast([[MAXPOOL]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x9216x2x3xf16, {order = #NHCW}> -> tensor<1x3x2x9216xf16, {order = #NHWC}>
+  // CHECK: [[SHAPECAST:%.+]] = IE.ShapeCast {shape = [2, 3, 96, 96]} inputs([[PERMUTE_CAST_OUT]] : tensor<1x3x2x9216xf16, {order = #NHWC}>) -> tensor<2x3x96x96xf16, {order = #NHWC}>
   // CHECK: [[CONV:%.+]] = IE.Convolution([[SHAPECAST]], [[CST]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<2x3x96x96xf16, {order = #NHWC}>, tensor<1x3x3x3xf16, {order = #NHWC}> -> tensor<2x1x94x94xf16, {order = #NHWC}>
   // CHECK: [[PERMUTECAST:%.+]] = IE.PermuteCast([[CONV]]) {dst_order = #NCHW, mem_perm = #NWCH} : tensor<2x1x94x94xf16, {order = #NHWC}> -> tensor<2x1x94x94xf16>
   // CHECK: return [[PERMUTECAST]] : tensor<2x1x94x94xf16>

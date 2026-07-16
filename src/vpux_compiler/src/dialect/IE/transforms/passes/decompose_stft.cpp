@@ -158,6 +158,7 @@ mlir::LogicalResult STFTOpConverter::matchAndRewrite(IE::STFTOp origOp, mlir::Pa
                                                      weightsConstOp,              // filter
                                                      /*bias=*/nullptr,            // bias
                                                      /*scale=*/nullptr,           // scale
+                                                     /*zero_points=*/nullptr,     // zero_points
                                                      stridesAttr,                 // strides
                                                      padsBeginAttr,               // pads_begin
                                                      padsEndAttr,                 // pads_end

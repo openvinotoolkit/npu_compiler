@@ -29,7 +29,7 @@ void PipelineRegistry37XX::registerPipelines() {
     mlir::PassPipelineRegistration<DefaultHWOptions37XX>(
             "reference-sw-mode", "Compile IE Network in Reference Software mode (SW only execution) for NPU37XX",
             [](mlir::OpPassManager& pm, const DefaultHWOptions37XX& options) {
-                VPU::InitCompilerOptions initCompilerOptions{config::ArchKind::NPU37XX,
+                VPU::InitCompilerOptions initCompilerOptions{config::Platform::NPU3720,
                                                              config::CompilationMode::ReferenceSW, options};
                 auto createPipelineStartegy = [&](config::CompilationMode) {
                     return createDialectPipelineStrategy37XXReferenceSW<DefaultHWOptions37XX>(&initCompilerOptions,
@@ -42,7 +42,7 @@ void PipelineRegistry37XX::registerPipelines() {
     mlir::PassPipelineRegistration<DefaultHWOptions37XX>(
             "default-hw-mode", "Compile IE Network in Default Hardware mode (HW and SW execution) for NPU37XX",
             [](mlir::OpPassManager& pm, const DefaultHWOptions37XX& options) {
-                VPU::InitCompilerOptions initCompilerOptions{config::ArchKind::NPU37XX,
+                VPU::InitCompilerOptions initCompilerOptions{config::Platform::NPU3720,
                                                              config::CompilationMode::DefaultHW, options};
                 auto createPipelineStartegy = [&](config::CompilationMode) {
                     return createDialectPipelineStrategy37XX<DefaultHWOptions37XX>(&initCompilerOptions, &options);

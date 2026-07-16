@@ -25,6 +25,9 @@ def SymbolRefArrayOfArraysAttr : TypedArrayAttrBase<SymbolRefArrayAttr, "array o
 def UI32ArrayAttr : TypedArrayAttrBase<UI32Attr,
                                       "Unsigned 32-bit integer array attribute">;
 
+def UI16ArrayAttr : TypedArrayAttrBase<UI16Attr,
+                                      "Unsigned 16-bit integer array attribute">;
+
 def UI8ArrayAttr : TypedArrayAttrBase<UI8Attr,
                                       "Unsigned 8-bit integer array attribute">;
 def IndexedSymbolAttr :

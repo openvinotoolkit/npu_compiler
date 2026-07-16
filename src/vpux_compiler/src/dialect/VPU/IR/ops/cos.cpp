@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022-2025 Intel Corporation
+// Copyright (C) 2022-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -7,9 +7,9 @@
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 using namespace vpux;
-
 mlir::LogicalResult vpux::VPU::CosOp::inferReturnTypes(mlir::MLIRContext* ctx, std::optional<mlir::Location> optLoc,
                                                        mlir::ValueRange operands, mlir::DictionaryAttr attrs,
                                                        mlir::OpaqueProperties prop, mlir::RegionRange /*regions*/,
@@ -83,4 +83,10 @@ bool vpux::VPU::CosOp::supportCycleCostCalculation() {
 
 void vpux::VPU::CosOp::build(::mlir::OpBuilder& builder, ::mlir::OperationState& state, ::mlir::Value input) {
     build(builder, state, input, {});
+}
+
+mlir::LogicalResult vpux::VPU::CosOp::reifyResultShapes(mlir::OpBuilder& builder,
+                                                        mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    reifiedReturnShapes.emplace_back(reifyTrivialTensor(builder, getInput(), getLoc()));
+    return mlir::success();
 }

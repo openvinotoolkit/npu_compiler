@@ -1,6 +1,9 @@
-{"device": "3720", "enabled": "true", "network": "Intel_DNS", "info": "", "path": "Intel_DNS/onnx/model/dense/FP32"}
+{"device": "3720", "enabled": "false", "network": "Intel_DNS", "info": "", "path": "Intel_DNS/onnx/model/dense/FP32"}
 {"device": "3720", "enabled": "true", "network": "mobilenet-v2", "info": "", "path": "mobilenet-v2/onnx/model/dense/FP16"}
 {"device": "3720", "enabled": "true", "network": "simple_function", "info": "", "path": ""}
-{"device": "4000", "enabled": "true", "network": "Intel_DNS", "info": "", "path": "Intel_DNS/onnx/model/dense/FP32"}
+{"device": "4000", "enabled": "false", "network": "Intel_DNS", "info": "", "path": "Intel_DNS/onnx/model/dense/FP32"}
 {"device": "4000", "enabled": "true", "network": "mobilenet-v2", "info": "", "path": "mobilenet-v2/onnx/model/dense/FP16"}
 {"device": "4000", "enabled": "true", "network": "simple_function", "info": "", "path": ""}
+{"device": "5010", "enabled": "true", "network": "Intel_DNS", "info": "", "path": "Intel_DNS/onnx/model/dense/FP32"}
+{"device": "5010", "enabled": "true", "network": "mobilenet-v2", "info": "", "path": "mobilenet-v2/onnx/model/dense/FP16"}
+{"device": "5010", "enabled": "true", "network": "simple_function", "info": "", "path": ""}

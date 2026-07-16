@@ -24,11 +24,11 @@ module @InMain {
     }
 
     // CHECK: func.func @main
-    // CHECK-SAME: ({{%.+}}: memref<1x512x7x7xf16, #NHWC, @DDR>, {{%.+}}: memref<2359296xi8, @DDR>, {{%.+}}: memref<256x512x3x3xf16, #NHWC, @DDR>)
-    // CHECK-SAME: -> memref<256x512x3x3xf16, #NHWC, @DDR>
+    // CHECK-SAME: ({{%.+}}: memref<1x512x7x7xf16, {order = #NHWC}, @DDR>, {{%.+}}: memref<2359296xi8, @DDR>, {{%.+}}: memref<256x512x3x3xf16, {order = #NHWC}, @DDR>)
+    // CHECK-SAME: -> memref<256x512x3x3xf16, {order = #NHWC}, @DDR>
 
-    // CHECK-DAG:   [[BLOB:%.+]] = VPURT.DeclareBuffer <NetworkInput> [1] <0> -> memref<{{.+}}x512x3x3xf16, #NHWC, @DDR>
-    // CHECK-DAG:   [[OUT:%.+]] = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<{{.+}}x512x3x3xf16, #NHWC, @DDR>
+    // CHECK-DAG:   [[BLOB:%.+]] = VPURT.DeclareBuffer <NetworkInput> [1] <0> -> memref<{{.+}}x512x3x3xf16, {order = #NHWC}, @DDR>
+    // CHECK-DAG:   [[OUT:%.+]] = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<{{.+}}x512x3x3xf16, {order = #NHWC}, @DDR>
 
     // CHECK:       VPUIP.NNDMA <{{.+}}> inputs([[BLOB]]
     // CHECK-SAME:      outputs([[OUT]]
@@ -55,11 +55,11 @@ module @InMainWithSlice {
     }
 
     // CHECK: func.func @main
-    // CHECK-SAME: ({{%.+}}: memref<1x512x7x7xf16, #NHWC, @DDR>, {{%.+}}: memref<51021312xi8, @DDR>, {{%.+}}: memref<256x512x3x3xf16, #NHWC, @DDR>)
-    // CHECK-SAME: -> memref<256x512x3x3xf16, #NHWC, @DDR>
+    // CHECK-SAME: ({{%.+}}: memref<1x512x7x7xf16, {order = #NHWC}, @DDR>, {{%.+}}: memref<51021312xi8, @DDR>, {{%.+}}: memref<256x512x3x3xf16, {order = #NHWC}, @DDR>)
+    // CHECK-SAME: -> memref<256x512x3x3xf16, {order = #NHWC}, @DDR>
 
-    // CHECK-DAG:   [[BLOB:%.+]] = VPURT.DeclareBuffer <NetworkInput> [1] <48662016> -> memref<{{.+}}x512x3x3xf16, #NHWC, @DDR>
-    // CHECK-DAG:   [[OUT:%.+]] = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<{{.+}}x512x3x3xf16, #NHWC, @DDR>
+    // CHECK-DAG:   [[BLOB:%.+]] = VPURT.DeclareBuffer <NetworkInput> [1] <48662016> -> memref<{{.+}}x512x3x3xf16, {order = #NHWC}, @DDR>
+    // CHECK-DAG:   [[OUT:%.+]] = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<{{.+}}x512x3x3xf16, {order = #NHWC}, @DDR>
 
     // CHECK:       VPUIP.NNDMA <{{.+}}> inputs([[BLOB]]
     // CHECK-SAME:      outputs([[OUT]]

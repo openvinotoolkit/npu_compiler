@@ -4,44 +4,12 @@
 //
 
 // RUN: vpux-opt --split-input-file --platform=%platform% --serialize-elf-to-binary %s | FileCheck %s
-// REQUIRES: dev-build && (platform-NPU4000 || platform-NPU5010)
+// REQUIRES: platform-NPU4000 || platform-NPU5010
 
 // CHECK-LABEL: @StaticEltwiseNHWC
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-module @StaticEltwiseNHWC attributes {config.revisionID = #config.revision_id<REVISION_NONE>, config.compilationMode = #config.compilation_mode<HostCompile>, config.elf_version = #config.version<1:0:0>} {
-  config.PipelineOptions @Options {
-    config.Option @config.EnableExtraStaticShapeOps : true
-    config.Option @config.EnableAdaptiveStripping : false
-    config.Option @config.EnableSEPtrsOperations : false
-    config.Option @config.EnableExperimentalSEPtrsOperations : false
-    config.Option @config.EnableVPUNNPreSplit : false
-    config.Option @config.FP16CompressedConv : false
-    config.Option @config.EnableDCIM : true
-    config.Option @config.ReduceSupported : false
-    config.Option @config.AutoPaddingODU : false
-    config.Option @config.AutoPaddingIDU : false
-    config.Option @config.SprLUTEnabled : false
-    config.Option @config.FragmentationAvoidRatioPipeliningLargeWeights : 4.500000e-01 : f32
-    config.Option @config.UseDedicatedFifoPerShaveEngine : false
-    config.Option @config.BarrierMaxVariantSum : 64 : ui64
-    config.Option @config.BarrierMaxVariantCount : 128 : ui64
-    config.Option @config.MetadataMaxVariantCount : 128 : ui64
-    config.Option @config.MetadataMaxInvariantCount : 64 : ui64
-    config.Option @config.MetadataMaxKernelInvocationCount : 64 : ui64
-    config.Option @config.MetadataMaxKernelRangeCount : 64 : ui64
-    config.Option @config.MetadataMaxMediaCount : 4 : ui64
-    config.Option @config.MaxKernelSize : 11 : si64
-  }
-  config.Resources 6 of @NCE at 1.850000e+03 MHz {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
-    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    config.ExecutorResource 2 of @SHAVE_ACT
-    config.ExecutorResource 1 of @DPU
-  }
-  config.ExecutorResource 1 of @M2I
-  config.ExecutorResource 2 of @DMA_NN
-  config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+module @StaticEltwiseNHWC {
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "input1" : tensor<1x16x720x1000xf16>
     DataInfo "input2" : tensor<1x16x720x1000xf16>
@@ -49,47 +17,13 @@ module @StaticEltwiseNHWC attributes {config.revisionID = #config.revision_id<RE
     DataInfo "output" : tensor<1x16x720x1000xf16>
   }
   module @OneDMAWithoutAttributes attributes {config.platform = #config.platform<NPU4000>, config.revisionID = #config.revision_id<REVISION_NONE>, config.compilationMode = #config.compilation_mode<DefaultHW>, config.elf_version = #config.version<1:0:0>} {
-  config.PipelineOptions @Options {
-    config.Option @config.EnableExtraStaticShapeOps : true
-    config.Option @config.EnableAdaptiveStripping : false
-    config.Option @config.EnableSEPtrsOperations : false
-    config.Option @config.EnableExperimentalSEPtrsOperations : false
-    config.Option @config.EnableVPUNNPreSplit : false
-    config.Option @config.FP16CompressedConv : false
-    config.Option @config.EnableDCIM : true
-    config.Option @config.ReduceSupported : false
-    config.Option @config.AutoPaddingODU : false
-    config.Option @config.AutoPaddingIDU : false
-    config.Option @config.SprLUTEnabled : false
-    config.Option @config.FragmentationAvoidRatioPipeliningLargeWeights : 4.500000e-01 : f32
-    config.Option @config.UseDedicatedFifoPerShaveEngine : false
-    config.Option @config.BarrierMaxVariantSum : 64 : ui64
-    config.Option @config.BarrierMaxVariantCount : 128 : ui64
-    config.Option @config.MetadataMaxVariantCount : 128 : ui64
-    config.Option @config.MetadataMaxInvariantCount : 64 : ui64
-    config.Option @config.MetadataMaxKernelInvocationCount : 64 : ui64
-    config.Option @config.MetadataMaxKernelRangeCount : 64 : ui64
-    config.Option @config.MetadataMaxMediaCount : 4 : ui64
-    config.Option @config.MaxKernelSize : 11 : si64
-  }
-  config.ExecutorResource 1 of @M2I
-  config.ExecutorResource 2 of @DMA_NN
-  config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main1 inputsInfo : {
     DataInfo "input_0" : tensor<1x90x1000x16xf16>
   } outputsInfo : {
     DataInfo "output_0" : tensor<1x90x1000x16xf16>
   }
   config.Resources 6 of @NCE at 1.700000e+03 MHz {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    config.ExecutorResource 2 of @SHAVE_ACT
-    config.ExecutorResource 1 of @DPU
-    builtin.module @ReservedMemory {
-      module @DmaProfilingReservedMemory {
-        config.MemoryResource 512 bytes of @CMX_NN offset 0
-      }
-    }
   }
   VPUASM.InputBindings inputDeclarations : {
     VPUASM.DeclareBuffer @input_0_buffDecl !VPUASM.Buffer< "NetworkInput"[0] <0> : memref<1x90x1000x16xf16> :  swizzling(0)>
@@ -563,7 +497,7 @@ module @StaticEltwiseNHWC attributes {config.revisionID = #config.revision_id<RE
   // CHECK:   HostExec.Binary @OneDMAWithoutAttributes {
   // CHECK:   HostExec.BinaryData @serialized_main
   // CHECK-SAME:   <object = "\7FELF\02\01\00\00\00\{{.+}}">
-  // CHECK:   func.func private @main1(memref<1x90x1000x16xf16>, memref<1x90x1000x16xf16>) -> memref<1x90x1000x16xf16>
+  // CHECK:   func.func nested @main1(memref<1x90x1000x16xf16>, memref<1x90x1000x16xf16>) -> memref<1x90x1000x16xf16>
   // CHECK:   }
   // CHECK:   func.func @main([[ARG_0:%[^:]+]]: memref<1x720x1000x16xf16>, [[ARG_1:%[^:]+]]: memref<1x720x1000x16xf16>) -> memref<1x720x1000x16xf16> {
   // CHECK:   [[IN0:%.+]] = builtin.unrealized_conversion_cast {{%[^:]+}}: memref<1x90x1000x16xf16, strided<[11520000, 16000, 16, 1], offset: ?>> to memref<1x90x1000x16xf16>

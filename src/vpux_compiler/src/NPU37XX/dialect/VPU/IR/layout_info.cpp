@@ -22,6 +22,8 @@
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/utils/permute_utils.hpp"
+#include "vpux/compiler/dialect/Shave/IR/dialect.hpp"
+#include "vpux/compiler/dialect/Shave/IR/ops/meta-ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/arithmetic.hpp"
@@ -596,8 +598,11 @@ void redirectLayoutOpInterfacesForVPU(mlir::DialectRegistry& registry) {
         VPU::SDPAOp::attachInterface<vpux::VPU::SameInOutDefaultDimsOrderOpModelForSW>(*ctx);
         VPU::AttentionOp::attachInterface<vpux::VPU::SameInOutDefaultDimsOrderOpModelForSW>(*ctx);
         VPU::FlashSDPAOp::attachInterface<vpux::VPU::FlashSDPADimsOrderOpModel>(*ctx);
-        VPU::ExternalKernelOp::attachInterface<vpux::VPU::SameInOutDimsOrderOpModel_NHWC>(*ctx);
         VPU::ReduceSquareOp::attachInterface<vpux::VPU::SameInOutDefaultDimsOrderOpModelForSW>(*ctx);
+    });
+
+    registry.addExtension(+[](mlir::MLIRContext* ctx, Shave::ShaveDialect*) {
+        Shave::ExternalKernelOp::attachInterface<vpux::VPU::SameInOutDimsOrderOpModel_NHWC>(*ctx);
     });
 }
 
@@ -780,7 +785,6 @@ void redirectLayoutOpInterfacesForIE(mlir::DialectRegistry& registry) {
         IE::ReduceSquareOp::attachInterface<vpux::VPU::SameInOutDefaultDimsOrderOpModelForSW>(*ctx);
 
         IE::GeluOp::attachInterface<vpux::VPU::SameInOutDimsOrderOpModel_NCHW_NHWC>(*ctx);
-        IE::ExternalKernelOp::attachInterface<vpux::VPU::SameInOutDimsOrderOpModel_NHWC>(*ctx);
 
         // clang-format off
         IE::ConvolutionOp::attachInterface<
@@ -840,6 +844,10 @@ void redirectLayoutOpInterfacesForIE(mlir::DialectRegistry& registry) {
                 /*FallbackSWImplOpType=*/vpux::VPU::SameInOutDefaultDimsOrderOpModelForSW,
                 /*FallbackHWImplOpType=*/vpux::VPU::RollDimsOrderOpModelForHW>>(*ctx);
         // clang-format on
+    });
+
+    registry.addExtension(+[](mlir::MLIRContext* ctx, Shave::ShaveDialect*) {
+        Shave::ExternalKernelOp::attachInterface<vpux::VPU::SameInOutDimsOrderOpModel_NHWC>(*ctx);
     });
 }
 

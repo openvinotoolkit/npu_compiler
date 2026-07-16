@@ -12,18 +12,18 @@
 // CHECK-SAME:     ([[INPUT:%.+]]: tensor<1x3x16x16x!qElemType>)
 func.func @DynamicDequantize(%input: tensor<1x3x16x16x!qElemType>) -> tensor<1x3x16x16xf16> {
     %scale = const.Declare tensor<1x1x1x1xf16> = dense<0.000000e+00> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
-    %zp = const.Declare tensor<1x1x1x1xi4> = dense<0.0> : tensor<1x1x1x1xf16>,
-            [#const.CastElemType<i4>]
+    %zp = const.Declare tensor<1x1x1x1xsi4> = dense<0.0> : tensor<1x1x1x1xf16>,
+            [#const.CastElemType<si4>]
 
     %dynamicDequant = IE.DynamicDequantize(%input, %scale, %zp) {dstElemType = f16} :
-        tensor<1x3x16x16x!qElemType>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xi4> -> tensor<1x3x16x16xf16>
+        tensor<1x3x16x16x!qElemType>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xsi4> -> tensor<1x3x16x16xf16>
 
     return %dynamicDequant : tensor<1x3x16x16xf16>
 
     // CHECK:       [[SCALE:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<0.000000e+00> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
-    // CHECK:       [[ZP:%.+]] = const.Declare tensor<1x1x1x1xi4> = dense<0.000000e+00> : tensor<1x1x1x1xf16>, [#const.CastElemType<i4>]
+    // CHECK:       [[ZP:%.+]] = const.Declare tensor<1x1x1x1xsi4> = dense<0.000000e+00> : tensor<1x1x1x1xf16>, [#const.CastElemType<si4>]
     // CHECK:       [[DYNAMIC_DEQUANT:%.+]] = IE.DynamicDequantize([[INPUT]], [[SCALE]], [[ZP]]) {dstElemType = f16}
-    // CHECK-SAME:      : tensor<1x3x16x16x!qElemType>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xi4> -> tensor<1x3x16x16xf16>
+    // CHECK-SAME:      : tensor<1x3x16x16x!qElemType>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xsi4> -> tensor<1x3x16x16xf16>
     // CHECK:       return [[DYNAMIC_DEQUANT]] : tensor<1x3x16x16xf16>
 }
 
@@ -35,16 +35,16 @@ func.func @DynamicDequantize(%input: tensor<1x3x16x16x!qElemType>) -> tensor<1x3
 // CHECK-SAME:     [[INPUT:%.+]]: tensor<1x3x16x16x!qElemType>,
 // CHECK-SAME:     [[SCALE:%.+]]: tensor<1x3x1x1xf16>
 func.func @DynamicDequantZPScaleArgs(%input: tensor<1x3x16x16x!qElemType>, %scale: tensor<1x3x1x1xf16>) -> tensor<1x3x16x16xf16> {
-    %zp = const.Declare tensor<1x3x16x16xi4> = dense<0.0> : tensor<1x3x16x16xf16>,
-            [#const.CastElemType<i4>]
+    %zp = const.Declare tensor<1x3x16x16xsi4> = dense<0.0> : tensor<1x3x16x16xf16>,
+            [#const.CastElemType<si4>]
 
     %0 = IE.DynamicDequantize(%input, %scale, %zp) {dstElemType = f16} :
-        tensor<1x3x16x16x!qElemType>, tensor<1x3x1x1xf16>, tensor<1x3x16x16xi4> -> tensor<1x3x16x16xf16>
+        tensor<1x3x16x16x!qElemType>, tensor<1x3x1x1xf16>, tensor<1x3x16x16xsi4> -> tensor<1x3x16x16xf16>
 
     return %0 : tensor<1x3x16x16xf16>
 
-    // CHECK:       [[ZP:%.+]] = const.Declare tensor<1x3x16x16xi4> = dense<0.000000e+00> : tensor<1x3x16x16xf16>, [#const.CastElemType<i4>]
+    // CHECK:       [[ZP:%.+]] = const.Declare tensor<1x3x16x16xsi4> = dense<0.000000e+00> : tensor<1x3x16x16xf16>, [#const.CastElemType<si4>]
     // CHECK:       [[DYNAMIC_DEQUANT:%.+]] = IE.DynamicDequantize([[INPUT]], [[SCALE]], [[ZP]]) {dstElemType = f16}
-    // CHECK-SAME:      : tensor<1x3x16x16x!qElemType>, tensor<1x3x1x1xf16>, tensor<1x3x16x16xi4> -> tensor<1x3x16x16xf16>
+    // CHECK-SAME:      : tensor<1x3x16x16x!qElemType>, tensor<1x3x1x1xf16>, tensor<1x3x16x16xsi4> -> tensor<1x3x16x16xf16>
     // CHECK:       return [[DYNAMIC_DEQUANT]] : tensor<1x3x16x16xf16>
 }

@@ -12,6 +12,9 @@
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(SelectLayerTest);
+
 class SelectLayerTestCommon : public SelectLayerTest, virtual public VpuOv2LayerTest {
     void SetUp() override {
         std::vector<InputShape> inputShapes(3);

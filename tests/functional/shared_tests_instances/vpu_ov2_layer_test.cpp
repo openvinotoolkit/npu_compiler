@@ -11,6 +11,7 @@
 
 #include <gtest/internal/gtest-internal.h>
 
+#include <common_test_utils/ov_plugin_cache.hpp>
 #include <common_test_utils/test_constants.hpp>
 #include <openvino/core/dimension.hpp>
 #include <openvino/runtime/core.hpp>
@@ -22,6 +23,7 @@
 #include <vpux/utils/core/range.hpp>
 #include <vpux/utils/ov/config.hpp>
 
+#include <optional>
 #include <sstream>
 
 namespace ov::test::utils {
@@ -402,8 +404,23 @@ void VpuOv2LayerTest::setDefaultHardwareMode() {
     configuration[ov::intel_npu::compilation_mode.name()] = "DefaultHW";
 }
 
-void VpuOv2LayerTest::setHostCompileMode() {
-    configuration[ov::intel_npu::compilation_mode.name()] = "HostCompile";
+void VpuOv2LayerTest::setHostCompileMode(std::string_view mode) {
+    // Each HostCompile mode binds a VM-runtime backend library into a process-global
+    // singleton (NPUVMRuntimeApi) on first use; the NPU plugin throws if a different
+    // library is requested within the same plugin load. A single functional-test process
+    // runs several HostCompile modes, so when the mode changes we force a fresh NPU plugin
+    // load before the next compile: dropping every reference to the cached ov::Core
+    // unloads the plugin shared library, which resets that singleton.
+    static std::optional<std::string> loadedMode;
+    if (loadedMode != mode) {
+        core.reset();
+        ov::test::utils::PluginCache::get().reset();
+        core = ov::test::utils::PluginCache::get().core();
+        OPENVINO_ASSERT(core != nullptr, "Failed to get OpenVINO Core from cache after plugin reset");
+        loadedMode = std::string(mode);
+    }
+
+    configuration[ov::intel_npu::compilation_mode.name()] = std::string(mode);
 }
 
 void VpuOv2LayerTest::setPluginCompilerType() {
@@ -439,6 +456,10 @@ void VpuOv2LayerTest::setPerformanceHintLatency() {
 
 void VpuOv2LayerTest::enableProfiling() {
     configuration[ov::enable_profiling.name()] = "YES";
+}
+
+void VpuOv2LayerTest::enableTurbo() {
+    configuration[ov::intel_npu::turbo.name()] = true;
 }
 
 std::vector<std::vector<ov::Shape>> cartesianProduct(const std::vector<std::vector<ov::Shape>>& inputs) {

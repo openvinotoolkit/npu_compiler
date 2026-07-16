@@ -22,8 +22,8 @@ module @Test attributes {config.compilationMode = #config.compilation_mode<Defau
   }
   VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
   module @VPU.SW {
-    func.func private @builtin_sigmoid(memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "activation_sigmoid.cpp", VPU.kernel_entry = "activation_sigmoid"}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_sigmoid(memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "activation_sigmoid.cpp", VPU.kernel_entry = "activation_sigmoid"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
   func.func @main(%arg0: memref<1x1x1x1000xf16>, %arg1: memref<1x1x1x1000xf16>) -> memref<1x1x1x1000xf16> {
     %0 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x1x1x1000xf16, [@CMX_NN, 1]>

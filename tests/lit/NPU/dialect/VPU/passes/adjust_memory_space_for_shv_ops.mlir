@@ -289,7 +289,6 @@ func.func @TopKWithAuxBuffer(%input: tensor<1x1x1x1001xf16>) -> (tensor<1x1x1x1x
 module {
 
 config.Resources 4 of @NCE at 1.850000e+03 MHz {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     config.ExecutorResource 2 of @SHAVE_ACT
 }

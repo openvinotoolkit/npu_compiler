@@ -445,9 +445,10 @@ def ELF_DDRMemoryAccessingOpInterface : OpInterface<"DDRMemoryAccessingOpInterfa
             }]
         >,
         InterfaceMethod<
-            "Get the memory accessing processor that this op implies in terms of SectionFlags",
+            "Get the memory accessing processor for a specific accessed section",
             "::vpux::ELF::SectionFlagsAttr",
-            "getMemoryAccessingProc", (ins)
+            "getMemoryAccessingProcForSection",
+            (ins "::mlir::StringAttr":$sectionName)
         >,
     ];
 }

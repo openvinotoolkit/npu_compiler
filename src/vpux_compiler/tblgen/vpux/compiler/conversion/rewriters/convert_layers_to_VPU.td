@@ -67,13 +67,13 @@ def RewriteConvert :
 
 def createSoftMaxOp :
         NativeCodeCall<[{
-            $_builder.create<vpux::VPU::SoftMaxOp>($_loc, $0, $1, $2, $3)
+            $_builder.create<vpux::VPU::SoftMaxOp>($_loc, $0, ::mlir::Value{}, $1, $2, $3, $4)
         }]>;
 
 def RewriteSoftMax :
         Pat<
-            (IE_SoftMaxOp $input, $axisInd, $padSize, $dstElemType),
-            (createSoftMaxOp $input, $axisInd, $padSize, $dstElemType)
+            (IE_SoftMaxOp $input, $axisInd, $padSize, $dstElemType, $maskAware),
+            (createSoftMaxOp $input, $axisInd, $padSize, $dstElemType, $maskAware)
         >;
 
 //
@@ -186,7 +186,7 @@ def RewriteAvgPool16 :
 def createLRNOp :
         NativeCodeCall<[{
             $_builder.create<vpux::VPU::LRNOp> (
-                $_loc, $0, $1, $2, $3, $4, $5)
+                $_loc, $0, $1, $2, $3, $4, $5, /*multiClusterStrategy=*/nullptr)
         }]>;
 
 def RewriteLRN :
@@ -367,8 +367,11 @@ def createMaxPoolOp :
 
 def RewriteMaxPool :
         Pat<
-            (IE_MaxPoolOp $input, $kernel_size, $strides, $pads_begin, $pads_end, $rounding_type, $post_op, $clamp, $output_padding, $input_padding),
-            (createMaxPoolOp $input, $kernel_size, $strides, $pads_begin, $pads_end, $rounding_type, $post_op, $clamp)
+            (IE_MaxPoolOp $input, $kernel_size, $strides, $pads_begin, $pads_end, $rounding_type, $post_op, $clamp, $static_scale, $output_padding, $input_padding),
+            (createMaxPoolOp $input, $kernel_size, $strides, $pads_begin, $pads_end, $rounding_type, $post_op, $clamp),
+            [
+                (ShouldBeNull<"static_scale must be null">:$static_scale)
+            ]
         >;
 
 //
@@ -385,11 +388,12 @@ def createConvolutionOp :
 class IsNullAttr<string desc> : Constraint<CPred<"!$_self">, desc>;
 def RewriteConvolution :
         Pat<
-            (IE_ConvolutionOp $input, $filter, $bias, $scale, $strides, $pads_begin, $pads_end, $dilations, $post_op, $clamp, $static_scale, $output_padding, $input_padding),
+            (IE_ConvolutionOp $input, $filter, $bias, $scale, $zero_points, $strides, $pads_begin, $pads_end, $dilations, $post_op, $clamp, $static_scale, $output_padding, $input_padding),
             (createConvolutionOp $input, $filter, $bias, $strides, $pads_begin, $pads_end, $dilations, $post_op, $clamp, $static_scale),
             [
                 (IsNullAttr<"static_scale must be null">:$static_scale),
-                (IsNullAttr<"scale must be null">:$scale)
+                (IsNullAttr<"scale must be null">:$scale),
+                (IsNullAttr<"zero_points must be null">:$zero_points)
             ]
         >;
 
@@ -1011,8 +1015,11 @@ def RewritePower :
 
 def RewriteSubtract :
         Pat<
-            (IE_SubtractOp $input1, $input2, $auto_broadcast, $post_op, $clamp, $output_padding, $input_padding),
-            (createEltwiseOpWithPostOp<"Subtract"> $input1, $input2, $auto_broadcast, $post_op)
+            (IE_SubtractOp $input1, $input2, $scale, $auto_broadcast, $post_op, $clamp, $output_padding, $input_padding),
+            (createEltwiseOpWithPostOp<"Subtract"> $input1, $input2, $auto_broadcast, $post_op),
+            [
+                (ShouldBeNull<"scale must be null">:$scale)
+            ]
         >;
 
 def RewriteDivide :
@@ -1077,8 +1084,11 @@ def RewriteLogicalXor :
 
 def RewriteMultiply :
         Pat<
-            (IE_MultiplyOp $input1, $input2, $auto_broadcast, $post_op, $clamp, $output_padding, $input_padding),
-            (createEltwiseOpWithPostOp<"Multiply"> $input1, $input2, $auto_broadcast, $post_op)
+            (IE_MultiplyOp $input1, $input2, $scale, $auto_broadcast, $post_op, $clamp, $output_padding, $input_padding),
+            (createEltwiseOpWithPostOp<"Multiply"> $input1, $input2, $auto_broadcast, $post_op),
+            [
+                (ShouldBeNull<"scale must be null">:$scale)
+            ]
         >;
 
 def RewriteAnd :
@@ -1704,14 +1714,14 @@ def RewriteYuvToRgb :
 def createOneHotOp :
         NativeCodeCall<[{
             $_builder.create<vpux::VPU::OneHotOp>(
-            $_loc, $0, $1, $2, $3, $4, $5, $6)
+            $_loc, $0, $1, $2, $3, $4, $5, $6, $7)
         }]>;
 
 def RewriteOneHot :
         Pat<
             (IE_OneHotOp $input, $depth, $on_value, $off_value, $depth_attr,
-             $on_value_attr, $off_value_attr, $axis_attr, $mode, $outputType),
-            (createOneHotOp $input, $depth_attr, $on_value_attr, $off_value_attr, $axis_attr, $mode, $outputType)
+             $on_value_attr, $off_value_attr, $axis_attr, $mode, $rank_expanded, $outputType),
+            (createOneHotOp $input, $depth_attr, $on_value_attr, $off_value_attr, $axis_attr, $mode, $rank_expanded, $outputType)
         >;
 
 //
@@ -1776,22 +1786,6 @@ def RewriteScatterNDUpdate :
         Pat<
             (IE_ScatterNDUpdateOp $input, $indices, $updates),
             (createScatterNDUpdateOp $input, $indices, $updates)
-        >;
-
-//
-// IE.ScatterUpdate -> VPU.ScatterUpdate
-//
-
-def createScatterUpdateOp :
-        NativeCodeCall<[{
-            $_builder.create<vpux::VPU::ScatterUpdateOp>(
-                $_loc, $0, $1, $2, $3)
-        }]>;
-
-def RewriteScatterUpdate :
-        Pat<
-            (IE_ScatterUpdateOp $input, $indices, $updates, $axis, $axis_value),
-            (createScatterUpdateOp $input, $indices, $updates, $axis_value)
         >;
 
 //
@@ -2226,13 +2220,13 @@ def RewriteReduceSquare :
 
 def createRMSOp :
         NativeCodeCall<[{
-            $_builder.create<vpux::VPU::RMSOp>($_loc, $0, $1, $2)
+            $_builder.create<vpux::VPU::RMSOp>($_loc, $0, $1, $2, $3)
         }]>;
 
 def RewriteRMS :
         Pat<
-            (IE_RMSOp $input, $gamma, $eps),
-            (createRMSOp $input, $gamma, $eps)
+            (IE_RMSOp $input, $gamma, $eps, $conditionalEps),
+            (createRMSOp $input, $gamma, $eps, $conditionalEps)
         >;
 
 //

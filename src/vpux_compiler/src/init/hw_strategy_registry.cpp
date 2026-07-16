@@ -27,23 +27,23 @@
 
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 
-#include <functional>
 #include <memory>
 
 using namespace vpux;
 
 namespace {
 
-std::unique_ptr<config::IConstraintsInitializer> createConstraintsInitializer(config::ArchKind arch) {
+std::unique_ptr<config::IConstraintsInitializer> createConstraintsInitializer(config::Platform platform) {
+    const auto arch = config::getArch(platform);
     switch (arch) {
     case config::ArchKind::NPU37XX:
         return std::make_unique<config::ConstraintsInitializer37XX>();
     case config::ArchKind::NPU40XX:
         return std::make_unique<config::ConstraintsInitializer40XX>();
     case config::ArchKind::NPU50XX:
-        return std::make_unique<config::ConstraintsInitializer50XX>();
+        return std::make_unique<config::ConstraintsInitializer50XX>(platform);
     default:
-        VPUX_THROW("Unsupported arch kind: {0}", arch);
+        VPUX_THROW("Unsupported arch: {0}", arch);
     }
 }
 
@@ -58,27 +58,30 @@ namespace config {
 // Extension class to register constraints for a specific architecture
 class ConstraintsExtension : public mlir::DialectExtension<ConstraintsExtension, ConfigDialect> {
 public:
-    explicit ConstraintsExtension(PlatformOrArch target): _target(target) {
+    explicit ConstraintsExtension(config::Platform target): _platform(target) {
     }
 
     void apply(mlir::MLIRContext* context, ConfigDialect* /*dialect*/) const override {
-        auto constraintsInitializer = createConstraintsInitializer(getArch(_target));
-        constraintsInitializer->initialize(context, _target);
+        auto constraintsInitializer = createConstraintsInitializer(_platform);
+        constraintsInitializer->initialize(context);
     }
 
 private:
-    PlatformOrArch _target;
+    config::Platform _platform;
 };
 
-void registerConstraints(mlir::DialectRegistry& registry, PlatformOrArch target) {
-    registry.addExtension(mlir::TypeID::get<ConstraintsExtension>(), std::make_unique<ConstraintsExtension>(target));
+void registerConstraints(mlir::DialectRegistry& registry, config::Platform platform) {
+    registry.addExtension(mlir::TypeID::get<ConstraintsExtension>(), std::make_unique<ConstraintsExtension>(platform));
 }
 
 }  // namespace config
 
 namespace IE {
 
-std::unique_ptr<IStrategiesInitializer> createStrategiesInitializer(config::ArchKind arch) {
+namespace {
+
+std::unique_ptr<IStrategiesInitializer> createStrategiesInitializer(config::Platform platform) {
+    const auto arch = config::getArch(platform);
     switch (arch) {
     case config::ArchKind::NPU37XX:
         return std::make_unique<IE::StrategiesInitializer37XX>();
@@ -87,33 +90,38 @@ std::unique_ptr<IStrategiesInitializer> createStrategiesInitializer(config::Arch
     case config::ArchKind::NPU50XX:
         return std::make_unique<IE::StrategiesInitializer50XX>();
     default:
-        VPUX_THROW("Unsupported arch kind: {0}", arch);
+        VPUX_THROW("Unsupported arch: {0}", arch);
     }
 }
 
+}  // namespace
+
 class StrategiesExtension : public mlir::DialectExtension<StrategiesExtension, IEDialect> {
 public:
-    explicit StrategiesExtension(config::ArchKind arch): _arch(arch) {
+    explicit StrategiesExtension(config::Platform platform): _platform(platform) {
     }
 
     void apply(mlir::MLIRContext* context, IEDialect*) const override {
-        auto strategiesInitializer = IE::createStrategiesInitializer(_arch);
+        auto strategiesInitializer = createStrategiesInitializer(_platform);
         strategiesInitializer->initialize(context);
     }
 
 private:
-    config::ArchKind _arch;
+    config::Platform _platform;
 };
 
-void registerStrategies(mlir::DialectRegistry& registry, config::ArchKind arch) {
-    registry.addExtension(mlir::TypeID::get<StrategiesExtension>(), std::make_unique<StrategiesExtension>(arch));
+void registerStrategies(mlir::DialectRegistry& registry, config::Platform platform) {
+    registry.addExtension(mlir::TypeID::get<StrategiesExtension>(), std::make_unique<StrategiesExtension>(platform));
 }
 
 }  // namespace IE
 
 namespace VPU {
 
-std::unique_ptr<IStrategiesInitializer> createStrategiesInitializer(config::ArchKind arch) {
+namespace {
+
+std::unique_ptr<IStrategiesInitializer> createStrategiesInitializer(config::Platform platform) {
+    const auto arch = config::getArch(platform);
     switch (arch) {
     case config::ArchKind::NPU37XX:
         return std::make_unique<VPU::StrategiesInitializer37XX>();
@@ -122,34 +130,39 @@ std::unique_ptr<IStrategiesInitializer> createStrategiesInitializer(config::Arch
     case config::ArchKind::NPU50XX:
         return std::make_unique<VPU::StrategiesInitializer50XX>();
     default:
-        VPUX_THROW("Unsupported arch kind: {0}", arch);
+        VPUX_THROW("Unsupported arch: {0}", arch);
     }
 }
 
+}  // namespace
+
 class StrategiesExtension : public mlir::DialectExtension<StrategiesExtension, VPUDialect> {
 public:
-    explicit StrategiesExtension(config::ArchKind arch): _arch(arch) {
+    explicit StrategiesExtension(config::Platform platform): _platform(platform) {
     }
 
     void apply(mlir::MLIRContext* context, VPUDialect*) const override {
-        auto strategiesInitializer = VPU::createStrategiesInitializer(_arch);
+        auto strategiesInitializer = VPU::createStrategiesInitializer(_platform);
         strategiesInitializer->initialize(context);
     }
 
 private:
-    config::ArchKind _arch;
+    config::Platform _platform;
 };
 
-void registerStrategies(mlir::DialectRegistry& registry, config::ArchKind arch) {
+void registerStrategies(mlir::DialectRegistry& registry, config::Platform platform) {
     registry.addExtension(mlir::TypeID::get<VPU::StrategiesExtension>(),
-                          std::make_unique<VPU::StrategiesExtension>(arch));
+                          std::make_unique<VPU::StrategiesExtension>(platform));
 }
 
 }  // namespace VPU
 
 namespace VPUIP {
 
-std::unique_ptr<IStrategiesInitializer> createStrategiesInitializer(config::ArchKind arch) {
+namespace {
+
+std::unique_ptr<IStrategiesInitializer> createStrategiesInitializer(config::Platform platform) {
+    const auto arch = config::getArch(platform);
     switch (arch) {
     case config::ArchKind::NPU37XX:
         return std::make_unique<VPUIP::StrategiesInitializer37XX>();
@@ -158,26 +171,28 @@ std::unique_ptr<IStrategiesInitializer> createStrategiesInitializer(config::Arch
     case config::ArchKind::NPU50XX:
         return std::make_unique<VPUIP::StrategiesInitializer50XX>();
     default:
-        VPUX_THROW("Unsupported arch kind: {0}", arch);
+        VPUX_THROW("Unsupported arch: {0}", arch);
     }
 }
 
+}  // namespace
+
 class StrategiesExtension : public mlir::DialectExtension<StrategiesExtension, VPUIPDialect> {
 public:
-    explicit StrategiesExtension(config::ArchKind arch): _arch(arch) {
+    explicit StrategiesExtension(config::Platform platform): _platform(platform) {
     }
 
     void apply(mlir::MLIRContext* context, VPUIPDialect*) const override {
-        auto strategiesInitializer = VPUIP::createStrategiesInitializer(_arch);
+        auto strategiesInitializer = VPUIP::createStrategiesInitializer(_platform);
         strategiesInitializer->initialize(context);
     }
 
 private:
-    config::ArchKind _arch;
+    config::Platform _platform;
 };
 
-void registerStrategies(mlir::DialectRegistry& registry, config::ArchKind arch) {
-    registry.addExtension(mlir::TypeID::get<StrategiesExtension>(), std::make_unique<StrategiesExtension>(arch));
+void registerStrategies(mlir::DialectRegistry& registry, config::Platform platform) {
+    registry.addExtension(mlir::TypeID::get<StrategiesExtension>(), std::make_unique<StrategiesExtension>(platform));
 }
 
 }  // namespace VPUIP

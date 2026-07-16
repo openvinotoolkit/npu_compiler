@@ -41,10 +41,7 @@ mlir::LogicalResult vpux::IE::SpaceToDepthOp::inferReturnTypeComponents(
         return errorAt(loc, "Invalid block size {0}, should be greater than zero", block_size);
     }
 
-    static const auto N = Dims4D::Act::N;
-    static const auto C = Dims4D::Act::C;
-    static const auto H = Dims4D::Act::H;
-    static const auto W = Dims4D::Act::W;
+    using namespace Dims4D::Act;
 
     if (inputShape[H.ind()] % block_size || inputShape[W.ind()] % block_size) {
         return errorAt(loc, "Invalid block_size {0} , height {1} and width {2} must be divisible by block_size",

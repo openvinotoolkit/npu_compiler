@@ -30,7 +30,7 @@ using namespace vpux;
 
 namespace {
 
-bool doesSliceAndPermutationModifySameAxis(DimsOrder perm, ArrayRef<uint64_t> sliceAxes, Logger log) {
+bool doesSliceAndPermutationModifySameAxis(const DimsOrder& perm, ArrayRef<uint64_t> sliceAxes, Logger log) {
     auto order = to_small_vector(irange(perm.numDims()) | transformed([&](uint64_t idx) {
                                      return checked_cast<uint64_t>(perm.dimAt(idx).ind());
                                  }));
@@ -480,8 +480,7 @@ bool MoveAffineReshapeBeforeSlice::isLegalTransformation(IE::SliceOp sliceOp, IE
 }
 
 bool MoveAffineReshapeBeforeSlice::doesSliceAndLayerOpModifySameAxis(IE::SliceOp sliceOp, ArrayRef<uint64_t> sliceAxes,
-                                                                     IE::AffineReshapeOp) const {
-    // only move AffineReshape when slice on the highest dimension
+                                                                     IE::AffineReshapeOp layerOp) const {
     if (sliceAxes.size() != 1) {
         return true;
     }
@@ -492,7 +491,48 @@ bool MoveAffineReshapeBeforeSlice::doesSliceAndLayerOpModifySameAxis(IE::SliceOp
     auto shape = inType.getShape();
 
     const auto highestDim = getHighestNonTrivialDim(shape, dimOrder).value_or(Dim(0));
-    return checked_cast<uint64_t>(highestDim.ind()) != sliceAxis;
+    if (checked_cast<uint64_t>(highestDim.ind()) == sliceAxis) {
+        return false;
+    }
+
+    // Allow moving AffineReshape before Slice when the reshape only splits the sliced
+    // dimension into sub-dimensions while all other dimensions have 1:1 mapping.
+    // E.g. Slice on dim 2 of [1,1024,6144]->[1,1024,2048], AffineReshape [1,1024,2048]->[1,1024,16,128]
+    // becomes: AffineReshape [1,1024,6144]->[1,1024,48,128], then Slice on dim 2
+    const auto dimMapping = parseIntArrayOfArrayAttr<int64_t>(layerOp.getDimMapping());
+    const auto& mappedSliceDims = dimMapping[sliceAxis];
+
+    if (mappedSliceDims.size() <= 1) {
+        return true;
+    }
+
+    for (size_t i = 0; i < dimMapping.size(); i++) {
+        if (i == static_cast<size_t>(sliceAxis)) {
+            continue;
+        }
+        if (dimMapping[i].size() != 1) {
+            return true;
+        }
+    }
+
+    const auto outShape = getShape(layerOp.getOutput());
+    int64_t subDimProduct = 1;
+    for (size_t i = 1; i < mappedSliceDims.size(); i++) {
+        subDimProduct *= outShape[Dim(mappedSliceDims[i])];
+    }
+
+    const auto sliceSize = parseIntArrayAttr<int64_t>(sliceOp.getStaticSizes());
+    if (sliceSize[sliceAxis] % subDimProduct != 0) {
+        return true;
+    }
+
+    // Slice offset must also be aligned to subDimProduct
+    const auto sliceOffset = parseIntArrayAttr<int64_t>(sliceOp.getStaticOffsets());
+    if (sliceOffset[sliceAxis] % subDimProduct != 0) {
+        return true;
+    }
+
+    return false;
 }
 
 bool MoveAffineReshapeBeforeSlice::doAffineInputAndOutputShapesMismatch(IE::SliceOp sliceOp,
@@ -521,57 +561,35 @@ SmallVector<int64_t> MoveAffineReshapeBeforeSlice::getNewSizes(IE::SliceOp, IE::
 
 SmallVector<int64_t> MoveAffineReshapeBeforeSlice::getNewOffsets(IE::SliceOp sliceOp, ArrayRef<uint64_t> sliceAxes,
                                                                  IE::AffineReshapeOp layerOp) const {
-    const auto sliceOffset = parseIntArrayAttr<int64_t>(sliceOp.getStaticOffsets());
-    const auto sliceSize = parseIntArrayAttr<int64_t>(sliceOp.getStaticSizes());
-
     VPUX_THROW_UNLESS(sliceAxes.size() == 1, "Unexpected slice axes for {0}", sliceOp);
     const auto sliceAxis = sliceAxes[0];
 
-    const auto outType = mlir::dyn_cast<vpux::NDTypeInterface>(layerOp.getOutput().getType());
-    const auto outShape = outType.getShape();
-    const auto dimMapping = parseIntArrayOfArrayAttr<int64_t>(layerOp.getDimMapping());
-    const auto mappedSliceDim = dimMapping[sliceAxis];
-    const auto sliceDim = Dim(mappedSliceDim[0]);
-
-    auto sliceSizeVal = 1;
-    if (mappedSliceDim.size() > 1) {
-        for (size_t index = 1; index < mappedSliceDim.size(); index++) {
-            sliceSizeVal = sliceSizeVal * outShape[Dim(mappedSliceDim[index])];
-        }
-    } else {
-        sliceSizeVal = sliceSize[sliceAxis];
-    }
-
+    const auto sliceOffset = parseIntArrayAttr<int64_t>(sliceOp.getStaticOffsets());
+    const auto sliceSize = parseIntArrayAttr<int64_t>(sliceOp.getStaticSizes());
     const auto sliceOffsetVal = sliceOffset[sliceAxis];
+    const auto sliceSizeVal = sliceSize[sliceAxis];
+
+    const auto dimMapping = parseIntArrayOfArrayAttr<int64_t>(layerOp.getDimMapping());
+    const auto sliceDim = Dim(dimMapping[sliceAxis][0]);
+
     const auto newSizes = getNewSizes(sliceOp, layerOp);
-    const auto sliceIdx = sliceOffsetVal / sliceSizeVal;
-    const auto newSize = mappedSliceDim.size() == 1 ? newSizes[sliceDim.ind()] : 1;
-    auto newSliceOffset = sliceIdx * newSize;
+    const auto newSizeForDim = newSizes[sliceDim.ind()];
 
-    // Handle overlapping slices case:
-    // When slices overlap (e.g., slice0: offset=[0,10,0,0] shape=[1,40,1,1],
-    //                            slice1: offset=[0,20,0,0] shape=[1,40,1,1])
-    // The above calculation (sliceIdx * newSize) doesn't preserve the original offset relationship.
-    //
-    // Check if AffineReshape is actually a trivial reshape (no dimension split/merge):
-    // - Same rank: input and output have same number of dimensions
-    // - Same axis size: the sliced axis size remains unchanged
-    // - Total size equals axis size: effectively a 1D reshape (all other dims are 1)
-    //
-    // We need to keep offset=10 and offset=20 respectively, not recalculate them.
-    const auto inputType = mlir::cast<vpux::NDTypeInterface>(layerOp.getInput().getType());
-    const auto inputSliceAxisSize = inputType.getShape()[Dim(sliceAxis)];
-    const auto outputSliceAxisSize = outShape[Dim(sliceDim)];
+    // Scale the input-space offset to the output coordinate of the hoisted AffineReshape.
+    // newSizeForDim / sliceSizeVal is the per-element stride of sliceAxis in the output:
+    // 1 for passthrough, sub-dim product for merge, 1/inner for split.
+    // Multiplying before dividing avoids truncation for overlapping (unaligned) slices.
+    // Division is exact in all cases (AffineReshape validity + alignment check in
+    // doesSliceAndLayerOpModifySameAxis).
+    VPUX_THROW_UNLESS(sliceSizeVal > 0, "Slice size cannot be zero for {0}", sliceOp);
+    VPUX_THROW_UNLESS((sliceOffsetVal * newSizeForDim) % sliceSizeVal == 0,
+                      "Non-exact offset mapping for {0}: offset={1}, newSize={2}, sliceSize={3}", sliceOp,
+                      sliceOffsetVal, newSizeForDim, sliceSizeVal);
 
-    if (inputType.getRank() == outType.getRank() && inputSliceAxisSize == outputSliceAxisSize &&
-        inputSliceAxisSize == outShape.totalSize()) {
-        // Trivial reshape detected - use original offset to preserve overlap
-        newSliceOffset = sliceOffsetVal;
-    }
+    const auto newSliceOffset = (sliceOffsetVal * newSizeForDim) / sliceSizeVal;
 
     SmallVector<int64_t> newOffsets(newSizes.size(), 0);
     newOffsets[sliceDim.ind()] = newSliceOffset;
-
     return newOffsets;
 }
 
@@ -890,6 +908,7 @@ void UniquifyBranches::safeRunOnFunc() {
     auto func = getOperation();
 
     mlir::RewritePatternSet patterns(&ctx);
+    IE::ReshapeOp::getCanonicalizationPatterns(patterns, &ctx);
     patterns.add<MoveExpandBeforeSlice>(&ctx, _log);
     patterns.add<MoveReorderBeforeSlice>(&ctx, _log);
     patterns.add<MoveTransposeBeforeSlice>(&ctx, _log);

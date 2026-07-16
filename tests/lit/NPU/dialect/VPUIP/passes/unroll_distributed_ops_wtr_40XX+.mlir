@@ -49,9 +49,9 @@
     memory_offsets = [[0, 0, 0, 0], [32, 0, 0, 0]]
 }>
 
-!Input_DDR = memref<1x128x4x1xf16, #NHWC, @DDR>
-!Output_DDR = memref<1x64x4x1xf16, #NHWC, @DDR>
-!Weights_DDR = memref<64x128x1x1xf16, #NHWC, @DDR>
+!Input_DDR = memref<1x128x4x1xf16, {order = #NHWC}, @DDR>
+!Output_DDR = memref<1x64x4x1xf16, {order = #NHWC}, @DDR>
+!Weights_DDR = memref<64x128x1x1xf16, {order = #NHWC}, @DDR>
 !WeightsTable_DDR = memref<64x1x1x4xsi32, @DDR>
 
 //CHECK-LABEL: @OptimizeWeightTableDMAsNCETask
@@ -152,10 +152,10 @@ func.func @OptimizeWeightTableDMAsNCETask(%input: !Input_DDR, %output: !Output_D
     //CHECK-SAME:           kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
     //CHECK-SAME:           out_channel_offset = 0 : i64,
     //CHECK-SAME:           task_type = #VPUIP.nce_task_type<CONV>}
-    //CHECK-SAME:   input({{[^:]+}} : memref<1x128x4x1xf16, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:   weights({{[^:]+}} : memref<32x128x1x1xf16, #NHWC, [@CMX_NN, 0]>)
+    //CHECK-SAME:   input({{[^:]+}} : memref<1x128x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:   weights({{[^:]+}} : memref<32x128x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
     //CHECK-SAME:   weight_table([[WT_CMX_0]] : memref<32x1x1x4xsi32, [@CMX_NN, 0]>)
-    //CHECK-SAME:   parent_input({{[^:]+}} : memref<1x128x4x1xf16, #NHWC, [@CMX_NN, 0]>)
+    //CHECK-SAME:   parent_input({{[^:]+}} : memref<1x128x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
     //CHECK-SAME:   parent_output({{[^:]+}} : !VPUIP.ITIBuffer<
     //CHECK:        1x64x4x1xf16, #NHWC, [@CMX_NN, 0],
     //CHECK:        ]>) output_ITI_buff({{[^:]+}} : !VPUIP.ITIBuffer<
@@ -174,10 +174,10 @@ func.func @OptimizeWeightTableDMAsNCETask(%input: !Input_DDR, %output: !Output_D
     //CHECK-SAME:           kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
     //CHECK-SAME:           out_channel_offset = 32 : i64,
     //CHECK-SAME:           task_type = #VPUIP.nce_task_type<CONV>}>
-    //CHECK-SAME:   input({{[^:]+}} : memref<1x128x4x1xf16, #NHWC, [@CMX_NN, 1]>)
-    //CHECK-SAME:   weights({{[^:]+}} : memref<32x128x1x1xf16, #NHWC, [@CMX_NN, 1]>)
+    //CHECK-SAME:   input({{[^:]+}} : memref<1x128x4x1xf16, {order = #NHWC}, [@CMX_NN, 1]>)
+    //CHECK-SAME:   weights({{[^:]+}} : memref<32x128x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>)
     //CHECK-SAME:   weight_table([[WT_CMX_1]] : memref<32x1x1x4xsi32, [@CMX_NN, 1]>)
-    //CHECK-SAME:   parent_input({{[^:]+}} : memref<1x128x4x1xf16, #NHWC, [@CMX_NN, 1]>)
+    //CHECK-SAME:   parent_input({{[^:]+}} : memref<1x128x4x1xf16, {order = #NHWC}, [@CMX_NN, 1]>)
     //CHECK-SAME:   parent_output({{[^:]+}} : !VPUIP.ITIBuffer<
     //CHECK:        1x64x4x1xf16, #NHWC, [@CMX_NN, 1],
     //CHECK:        ]>) output_ITI_buff({{[^:]+}} : !VPUIP.ITIBuffer<
@@ -237,9 +237,9 @@ func.func @OptimizeWeightTableDMAsNCETask(%input: !Input_DDR, %output: !Output_D
     memory_offsets = [[0, 0, 0, 0], [32, 0, 0, 0]]
 }>
 
-!Input_DDR = memref<1x128x4x1xf16, #NHWC, @DDR>
-!Output_DDR = memref<1x64x4x1xf16, #NHWC, @DDR>
-!Weights_DDR = memref<64x128x1x1xf16, #NHWC, @DDR>
+!Input_DDR = memref<1x128x4x1xf16, {order = #NHWC}, @DDR>
+!Output_DDR = memref<1x64x4x1xf16, {order = #NHWC}, @DDR>
+!Weights_DDR = memref<64x128x1x1xf16, {order = #NHWC}, @DDR>
 !WeightsTable_DDR = memref<64x1x1x4xsi32, @DDR>
 
 //CHECK-LABEL: @DoNotOptimizeDMAsForWTSpill
@@ -370,10 +370,10 @@ func.func @DoNotOptimizeDMAsForWTSpill(%input: !Input_DDR, %output: !Output_DDR)
     //CHECK-SAME:           kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
     //CHECK-SAME:           out_channel_offset = 0 : i64,
     //CHECK-SAME:           task_type = #VPUIP.nce_task_type<CONV>}>
-    //CHECK-SAME:   input({{[^:]+}} : memref<1x128x4x1xf16, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:   weights({{[^:]+}} : memref<32x128x1x1xf16, #NHWC, [@CMX_NN, 0]>)
+    //CHECK-SAME:   input({{[^:]+}} : memref<1x128x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:   weights({{[^:]+}} : memref<32x128x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
     //CHECK-SAME:   weight_table([[WT_CMX_0]] : memref<32x1x1x4xsi32, [@CMX_NN, 0]>)
-    //CHECK-SAME:   parent_input({{[^:]+}} : memref<1x128x4x1xf16, #NHWC, [@CMX_NN, 0]>)
+    //CHECK-SAME:   parent_input({{[^:]+}} : memref<1x128x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
     //CHECK-SAME:   parent_output({{[^:]+}} : !VPUIP.ITIBuffer<
     //CHECK:        1x64x4x1xf16, #NHWC, [@CMX_NN, 0],
     //CHECK:        ]>) output_ITI_buff({{[^:]+}} : !VPUIP.ITIBuffer<
@@ -392,10 +392,10 @@ func.func @DoNotOptimizeDMAsForWTSpill(%input: !Input_DDR, %output: !Output_DDR)
     //CHECK-SAME:           kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
     //CHECK-SAME:           out_channel_offset = 32 : i64,
     //CHECK-SAME:           task_type = #VPUIP.nce_task_type<CONV>}
-    //CHECK-SAME:   input({{[^:]+}} : memref<1x128x4x1xf16, #NHWC, [@CMX_NN, 1]>)
-    //CHECK-SAME:   weights({{[^:]+}} : memref<32x128x1x1xf16, #NHWC, [@CMX_NN, 1]>)
+    //CHECK-SAME:   input({{[^:]+}} : memref<1x128x4x1xf16, {order = #NHWC}, [@CMX_NN, 1]>)
+    //CHECK-SAME:   weights({{[^:]+}} : memref<32x128x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>)
     //CHECK-SAME:   weight_table([[WT_CMX_1]] : memref<32x1x1x4xsi32, [@CMX_NN, 1]>)
-    //CHECK-SAME:   parent_input({{[^:]+}} : memref<1x128x4x1xf16, #NHWC, [@CMX_NN, 1]>)
+    //CHECK-SAME:   parent_input({{[^:]+}} : memref<1x128x4x1xf16, {order = #NHWC}, [@CMX_NN, 1]>)
     //CHECK-SAME:   parent_output({{[^:]+}} : !VPUIP.ITIBuffer<
     //CHECK:        1x64x4x1xf16, #NHWC, [@CMX_NN, 1],
     //CHECK:        ]>) output_ITI_buff({{[^:]+}} : !VPUIP.ITIBuffer<
@@ -455,9 +455,9 @@ func.func @DoNotOptimizeDMAsForWTSpill(%input: !Input_DDR, %output: !Output_DDR)
     memory_offsets = [[0, 0, 0, 0, 0], [7, 0, 0, 0, 0], [14, 0, 0, 0, 0]]
 }>
 
-!Input_DDR =  memref<20x1x64x1x4xf16, #GNHWC, @DDR>
-!Output_DDR = memref<20x1x16x1x4xf16, #GNHWC, @DDR>
-!Weights_DDR = memref<20x16x64x1x1xf16, #GNHWC, @DDR>
+!Input_DDR =  memref<20x1x64x1x4xf16, {order = #GNHWC}, @DDR>
+!Output_DDR = memref<20x1x16x1x4xf16, {order = #GNHWC}, @DDR>
+!Weights_DDR = memref<20x16x64x1x1xf16, {order = #GNHWC}, @DDR>
 !WeightsTable_DDR = memref<20x16x1x1x4xsi32>
 
 //CHECK-LABEL: @DoNotOptimizeDMAsFor5DTensorUnevenSplitSizes
@@ -529,15 +529,15 @@ func.func @DoNotOptimizeDMAsFor5DTensorUnevenSplitSizes(%input: !Input_DDR, %out
     //CHECK:    [[WT2:%.+]] = const.Declare memref<6x16x1x1x4xsi32> = dense<1> : tensor<20x16x1x1x4xsi32>, [#const.SubView<[14, 0, 0, 0, 0], [6, 16, 1, 1, 4]>]
 
     //CHECK:    VPURT.Task
-    //CHECK:      VPUIP.NNDMA <{port = 0 : i64, split_candidate = false}> inputs([[WT0]] : memref<7x16x1x1x4xsi32>)
+    //CHECK:      VPUIP.NNDMA {unrollIdx = 0 : i64} <{port = 0 : i64}> inputs([[WT0]] : memref<7x16x1x1x4xsi32>)
     //CHECK-SAME:   outputs({{[^:]+}} : memref<7x16x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<7x16x1x1x4xsi32, [@CMX_NN, 0]>
     //CHECK:    }
     //CHECK:    VPURT.Task
-    //CHECK:      VPUIP.NNDMA <{port = 1 : i64, split_candidate = false}> inputs([[WT1]] : memref<7x16x1x1x4xsi32>)
+    //CHECK:      VPUIP.NNDMA {unrollIdx = 0 : i64} <{port = 1 : i64}> inputs([[WT1]] : memref<7x16x1x1x4xsi32>)
     //CHECK-SAME:   outputs({{[^:]+}} : memref<7x16x1x1x4xsi32, [@CMX_NN, 1]>) -> memref<7x16x1x1x4xsi32, [@CMX_NN, 1]>
     //CHECK:    }
     //CHECK:    VPURT.Task
-    //CHECK:      VPUIP.NNDMA <{port = 0 : i64, split_candidate = true}> inputs([[WT2]] : memref<6x16x1x1x4xsi32>)
+    //CHECK:      VPUIP.NNDMA {unrollIdx = 0 : i64} <{port = 0 : i64}> inputs([[WT2]] : memref<6x16x1x1x4xsi32>)
     //CHECK-SAME:   outputs({{[^:]+}} : memref<6x16x1x1x4xsi32, [@CMX_NN, 2]>) -> memref<6x16x1x1x4xsi32, [@CMX_NN, 2]>
     //CHECK:    }
 
@@ -545,12 +545,12 @@ func.func @DoNotOptimizeDMAsFor5DTensorUnevenSplitSizes(%input: !Input_DDR, %out
     //CHECK:      VPUIP.NCEClusterTask <{is_zero_offset_weights_table, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
     //CHECK-SAME:       kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
     //CHECK-SAME:       task_type = #VPUIP.nce_task_type<CONV>}>
-    //CHECK-SAME:   input({{[^:]+}} : memref<7x1x64x1x4xf16, #GNHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:   weights({{[^:]+}} : memref<7x16x64x1x1xf16, #GNHWC, [@CMX_NN, 0]>)
+    //CHECK-SAME:   input({{[^:]+}} : memref<7x1x64x1x4xf16, {order = #GNHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:   weights({{[^:]+}} : memref<7x16x64x1x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>)
     //CHECK-SAME:   weight_table({{[^:]+}} : memref<7x16x1x1x4xsi32, [@CMX_NN, 0]>)
-    //CHECK-SAME:   parent_input({{[^:]+}} : memref<7x1x64x1x4xf16, #GNHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:   parent_output({{[^:]+}} : memref<7x1x16x1x4xf16, #GNHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:   outputs({{[^:]+}} : memref<7x1x16x1x4xf16, #GNHWC, [@CMX_NN, 0]>) -> memref<7x1x16x1x4xf16, #GNHWC, [@CMX_NN, 0]> variants : {
+    //CHECK-SAME:   parent_input({{[^:]+}} : memref<7x1x64x1x4xf16, {order = #GNHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:   parent_output({{[^:]+}} : memref<7x1x16x1x4xf16, {order = #GNHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:   outputs({{[^:]+}} : memref<7x1x16x1x4xf16, {order = #GNHWC}, [@CMX_NN, 0]>) -> memref<7x1x16x1x4xf16, {order = #GNHWC}, [@CMX_NN, 0]> variants : {
     //CHECK:        DPUTask {cluster_id = 0 : i64, inEnd = [3, 0, 63], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>,
     //CHECK-SAME:       outEnd = [3, 0, 15], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     //CHECK:      } PPE : {
@@ -560,12 +560,12 @@ func.func @DoNotOptimizeDMAsFor5DTensorUnevenSplitSizes(%input: !Input_DDR, %out
     //CHECK:      VPUIP.NCEClusterTask <{is_zero_offset_weights_table, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
     //CHECK-SAME:       kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
     //CHECK-SAME:       task_type = #VPUIP.nce_task_type<CONV>}>
-    //CHECK-SAME:   input({{[^:]+}} : memref<7x1x64x1x4xf16, #GNHWC, [@CMX_NN, 1]>)
-    //CHECK-SAME:   weights({{[^:]+}} : memref<7x16x64x1x1xf16, #GNHWC, [@CMX_NN, 1]>)
+    //CHECK-SAME:   input({{[^:]+}} : memref<7x1x64x1x4xf16, {order = #GNHWC}, [@CMX_NN, 1]>)
+    //CHECK-SAME:   weights({{[^:]+}} : memref<7x16x64x1x1xf16, {order = #GNHWC}, [@CMX_NN, 1]>)
     //CHECK-SAME:   weight_table({{[^:]+}} : memref<7x16x1x1x4xsi32, [@CMX_NN, 1]>)
-    //CHECK-SAME:   parent_input({{[^:]+}} : memref<7x1x64x1x4xf16, #GNHWC, [@CMX_NN, 1]>)
-    //CHECK-SAME:   parent_output({{[^:]+}} : memref<7x1x16x1x4xf16, #GNHWC, [@CMX_NN, 1]>)
-    //CHECK-SAME:   outputs({{[^:]+}} : memref<7x1x16x1x4xf16, #GNHWC, [@CMX_NN, 1]>) -> memref<7x1x16x1x4xf16, #GNHWC, [@CMX_NN, 1]> variants : {
+    //CHECK-SAME:   parent_input({{[^:]+}} : memref<7x1x64x1x4xf16, {order = #GNHWC}, [@CMX_NN, 1]>)
+    //CHECK-SAME:   parent_output({{[^:]+}} : memref<7x1x16x1x4xf16, {order = #GNHWC}, [@CMX_NN, 1]>)
+    //CHECK-SAME:   outputs({{[^:]+}} : memref<7x1x16x1x4xf16, {order = #GNHWC}, [@CMX_NN, 1]>) -> memref<7x1x16x1x4xf16, {order = #GNHWC}, [@CMX_NN, 1]> variants : {
     //CHECK:        DPUTask {cluster_id = 1 : i64, inEnd = [3, 0, 63], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>,
     //CHECK-SAME:       outEnd = [3, 0, 15], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     //CHECK:      } PPE : {
@@ -575,12 +575,12 @@ func.func @DoNotOptimizeDMAsFor5DTensorUnevenSplitSizes(%input: !Input_DDR, %out
     //CHECK:      VPUIP.NCEClusterTask <{is_zero_offset_weights_table, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
     //CHECK-SAME:       kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
     //CHECK-SAME:       task_type = #VPUIP.nce_task_type<CONV>}>
-    //CHECK-SAME:   input({{[^:]+}} : memref<6x1x64x1x4xf16, #GNHWC, [@CMX_NN, 2]>)
-    //CHECK-SAME:   weights({{[^:]+}} : memref<6x16x64x1x1xf16, #GNHWC, [@CMX_NN, 2]>)
+    //CHECK-SAME:   input({{[^:]+}} : memref<6x1x64x1x4xf16, {order = #GNHWC}, [@CMX_NN, 2]>)
+    //CHECK-SAME:   weights({{[^:]+}} : memref<6x16x64x1x1xf16, {order = #GNHWC}, [@CMX_NN, 2]>)
     //CHECK-SAME:   weight_table({{[^:]+}} : memref<6x16x1x1x4xsi32, [@CMX_NN, 2]>)
-    //CHECK-SAME:   parent_input({{[^:]+}} : memref<6x1x64x1x4xf16, #GNHWC, [@CMX_NN, 2]>)
-    //CHECK-SAME:   parent_output({{[^:]+}} : memref<6x1x16x1x4xf16, #GNHWC, [@CMX_NN, 2]>)
-    //CHECK-SAME:   outputs({{[^:]+}} : memref<6x1x16x1x4xf16, #GNHWC, [@CMX_NN, 2]>) -> memref<6x1x16x1x4xf16, #GNHWC, [@CMX_NN, 2]> variants : {
+    //CHECK-SAME:   parent_input({{[^:]+}} : memref<6x1x64x1x4xf16, {order = #GNHWC}, [@CMX_NN, 2]>)
+    //CHECK-SAME:   parent_output({{[^:]+}} : memref<6x1x16x1x4xf16, {order = #GNHWC}, [@CMX_NN, 2]>)
+    //CHECK-SAME:   outputs({{[^:]+}} : memref<6x1x16x1x4xf16, {order = #GNHWC}, [@CMX_NN, 2]>) -> memref<6x1x16x1x4xf16, {order = #GNHWC}, [@CMX_NN, 2]> variants : {
     //CHECK:        DPUTask {cluster_id = 2 : i64, inEnd = [3, 0, 63], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>,
     //CHECK-SAME:       outEnd = [3, 0, 15], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     //CHECK:      } PPE : {
@@ -633,9 +633,9 @@ func.func @DoNotOptimizeDMAsFor5DTensorUnevenSplitSizes(%input: !Input_DDR, %out
     memory_offsets = [[0, 0, 0, 0], [32, 0, 0, 0]]
 }>
 
-!Input_DDR = memref<1x128x4x1xf16, #NHWC, @DDR>
-!Output_DDR = memref<1x64x4x1xf16, #NHWC, @DDR>
-!Weights_DDR = memref<64x128x1x1xf16, #NHWC, @DDR>
+!Input_DDR = memref<1x128x4x1xf16, {order = #NHWC}, @DDR>
+!Output_DDR = memref<1x64x4x1xf16, {order = #NHWC}, @DDR>
+!Weights_DDR = memref<64x128x1x1xf16, {order = #NHWC}, @DDR>
 !WeightsTable_DDR = memref<64x1x1x4xsi32, @DDR>
 
 //CHECK-LABEL: @DoNotOptimizeDMAsForDifferentValuesPerCluster
@@ -731,10 +731,10 @@ func.func @DoNotOptimizeDMAsForDifferentValuesPerCluster(%input: !Input_DDR, %ou
     //CHECK-SAME:           kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
     //CHECK-SAME:           out_channel_offset = 0 : i64,
     //CHECK-SAME:           task_type = #VPUIP.nce_task_type<CONV>}
-    //CHECK-SAME:   input({{[^:]+}} : memref<1x128x4x1xf16, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:   weights({{[^:]+}} : memref<32x128x1x1xf16, #NHWC, [@CMX_NN, 0]>)
+    //CHECK-SAME:   input({{[^:]+}} : memref<1x128x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:   weights({{[^:]+}} : memref<32x128x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
     //CHECK-SAME:   weight_table([[WT_BUFF_0_CMX_0]] : memref<32x1x1x4xsi32, [@CMX_NN, 0]>)
-    //CHECK-SAME:   parent_input({{[^:]+}} : memref<1x128x4x1xf16, #NHWC, [@CMX_NN, 0]>)
+    //CHECK-SAME:   parent_input({{[^:]+}} : memref<1x128x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
     //CHECK-SAME:   parent_output({{[^:]+}} : !VPUIP.ITIBuffer<
     //CHECK:        1x64x4x1xf16, #NHWC, [@CMX_NN, 0],
     //CHECK:        ]>) output_ITI_buff({{[^:]+}} : !VPUIP.ITIBuffer<
@@ -753,10 +753,10 @@ func.func @DoNotOptimizeDMAsForDifferentValuesPerCluster(%input: !Input_DDR, %ou
     //CHECK-SAME:           kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
     //CHECK-SAME:           out_channel_offset = 32 : i64,
     //CHECK-SAME:           task_type = #VPUIP.nce_task_type<CONV>}
-    //CHECK-SAME:   input({{[^:]+}} : memref<1x128x4x1xf16, #NHWC, [@CMX_NN, 1]>)
-    //CHECK-SAME:   weights({{[^:]+}} : memref<32x128x1x1xf16, #NHWC, [@CMX_NN, 1]>)
+    //CHECK-SAME:   input({{[^:]+}} : memref<1x128x4x1xf16, {order = #NHWC}, [@CMX_NN, 1]>)
+    //CHECK-SAME:   weights({{[^:]+}} : memref<32x128x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>)
     //CHECK-SAME:   weight_table([[WT_BUFF_0_CMX_1]] : memref<32x1x1x4xsi32, [@CMX_NN, 1]>)
-    //CHECK-SAME:   parent_input({{[^:]+}} : memref<1x128x4x1xf16, #NHWC, [@CMX_NN, 1]>)
+    //CHECK-SAME:   parent_input({{[^:]+}} : memref<1x128x4x1xf16, {order = #NHWC}, [@CMX_NN, 1]>)
     //CHECK-SAME:   parent_output({{[^:]+}} : !VPUIP.ITIBuffer<
     //CHECK:        1x64x4x1xf16, #NHWC, [@CMX_NN, 1],
     //CHECK:        ]>) output_ITI_buff({{[^:]+}} : !VPUIP.ITIBuffer<
@@ -816,9 +816,9 @@ func.func @DoNotOptimizeDMAsForDifferentValuesPerCluster(%input: !Input_DDR, %ou
     memory_offsets = [[0, 0, 0, 0, 0], [6, 0, 0, 0, 0], [12, 0, 0, 0, 0]]
 }>
 
-!Input_DDR =  memref<18x1x64x1x4xf16, #GNHWC, @DDR>
-!Output_DDR = memref<18x1x16x1x4xf16, #GNHWC, @DDR>
-!Weights_DDR = memref<18x16x64x1x1xf16, #GNHWC, @DDR>
+!Input_DDR =  memref<18x1x64x1x4xf16, {order = #GNHWC}, @DDR>
+!Output_DDR = memref<18x1x16x1x4xf16, {order = #GNHWC}, @DDR>
+!Weights_DDR = memref<18x16x64x1x1xf16, {order = #GNHWC}, @DDR>
 !WeightsTable_DDR = memref<18x16x1x1x4xsi32>
 
 //CHECK-LABEL: @OptimizeDMAsFor5DTensorEvenSplitSizes
@@ -907,12 +907,12 @@ func.func @OptimizeDMAsFor5DTensorEvenSplitSizes(%input: !Input_DDR, %output: !O
     //CHECK:      VPUIP.NCEClusterTask <{is_zero_offset_weights_table, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
     //CHECK-SAME:       kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
     //CHECK-SAME:       task_type = #VPUIP.nce_task_type<CONV>}>
-    //CHECK-SAME:   input({{[^:]+}} : memref<6x1x64x1x4xf16, #GNHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:   weights({{[^:]+}} : memref<6x16x64x1x1xf16, #GNHWC, [@CMX_NN, 0]>)
+    //CHECK-SAME:   input({{[^:]+}} : memref<6x1x64x1x4xf16, {order = #GNHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:   weights({{[^:]+}} : memref<6x16x64x1x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>)
     //CHECK-SAME:   weight_table({{[^:]+}} : memref<6x16x1x1x4xsi32, [@CMX_NN, 0]>)
-    //CHECK-SAME:   parent_input({{[^:]+}} : memref<6x1x64x1x4xf16, #GNHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:   parent_output({{[^:]+}} : memref<6x1x16x1x4xf16, #GNHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:   outputs({{[^:]+}} : memref<6x1x16x1x4xf16, #GNHWC, [@CMX_NN, 0]>) -> memref<6x1x16x1x4xf16, #GNHWC, [@CMX_NN, 0]> variants : {
+    //CHECK-SAME:   parent_input({{[^:]+}} : memref<6x1x64x1x4xf16, {order = #GNHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:   parent_output({{[^:]+}} : memref<6x1x16x1x4xf16, {order = #GNHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:   outputs({{[^:]+}} : memref<6x1x16x1x4xf16, {order = #GNHWC}, [@CMX_NN, 0]>) -> memref<6x1x16x1x4xf16, {order = #GNHWC}, [@CMX_NN, 0]> variants : {
     //CHECK:        DPUTask {cluster_id = 0 : i64, inEnd = [3, 0, 63], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>,
     //CHECK-SAME:       outEnd = [3, 0, 15], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     //CHECK:      } PPE : {
@@ -922,12 +922,12 @@ func.func @OptimizeDMAsFor5DTensorEvenSplitSizes(%input: !Input_DDR, %output: !O
     //CHECK:      VPUIP.NCEClusterTask <{is_zero_offset_weights_table, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
     //CHECK-SAME:       kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
     //CHECK-SAME:       task_type = #VPUIP.nce_task_type<CONV>}>
-    //CHECK-SAME:   input({{[^:]+}} : memref<6x1x64x1x4xf16, #GNHWC, [@CMX_NN, 1]>)
-    //CHECK-SAME:   weights({{[^:]+}} : memref<6x16x64x1x1xf16, #GNHWC, [@CMX_NN, 1]>)
+    //CHECK-SAME:   input({{[^:]+}} : memref<6x1x64x1x4xf16, {order = #GNHWC}, [@CMX_NN, 1]>)
+    //CHECK-SAME:   weights({{[^:]+}} : memref<6x16x64x1x1xf16, {order = #GNHWC}, [@CMX_NN, 1]>)
     //CHECK-SAME:   weight_table({{[^:]+}} : memref<6x16x1x1x4xsi32, [@CMX_NN, 1]>)
-    //CHECK-SAME:   parent_input({{[^:]+}} : memref<6x1x64x1x4xf16, #GNHWC, [@CMX_NN, 1]>)
-    //CHECK-SAME:   parent_output({{[^:]+}} : memref<6x1x16x1x4xf16, #GNHWC, [@CMX_NN, 1]>)
-    //CHECK-SAME:   outputs({{[^:]+}} : memref<6x1x16x1x4xf16, #GNHWC, [@CMX_NN, 1]>) -> memref<6x1x16x1x4xf16, #GNHWC, [@CMX_NN, 1]> variants : {
+    //CHECK-SAME:   parent_input({{[^:]+}} : memref<6x1x64x1x4xf16, {order = #GNHWC}, [@CMX_NN, 1]>)
+    //CHECK-SAME:   parent_output({{[^:]+}} : memref<6x1x16x1x4xf16, {order = #GNHWC}, [@CMX_NN, 1]>)
+    //CHECK-SAME:   outputs({{[^:]+}} : memref<6x1x16x1x4xf16, {order = #GNHWC}, [@CMX_NN, 1]>) -> memref<6x1x16x1x4xf16, {order = #GNHWC}, [@CMX_NN, 1]> variants : {
     //CHECK:        DPUTask {cluster_id = 1 : i64, inEnd = [3, 0, 63], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>,
     //CHECK-SAME:       outEnd = [3, 0, 15], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     //CHECK:      } PPE : {
@@ -937,12 +937,12 @@ func.func @OptimizeDMAsFor5DTensorEvenSplitSizes(%input: !Input_DDR, %output: !O
     //CHECK:      VPUIP.NCEClusterTask <{is_zero_offset_weights_table, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
     //CHECK-SAME:       kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
     //CHECK-SAME:       task_type = #VPUIP.nce_task_type<CONV>}
-    //CHECK-SAME:   input({{[^:]+}} : memref<6x1x64x1x4xf16, #GNHWC, [@CMX_NN, 2]>)
-    //CHECK-SAME:   weights({{[^:]+}} : memref<6x16x64x1x1xf16, #GNHWC, [@CMX_NN, 2]>)
+    //CHECK-SAME:   input({{[^:]+}} : memref<6x1x64x1x4xf16, {order = #GNHWC}, [@CMX_NN, 2]>)
+    //CHECK-SAME:   weights({{[^:]+}} : memref<6x16x64x1x1xf16, {order = #GNHWC}, [@CMX_NN, 2]>)
     //CHECK-SAME:   weight_table({{[^:]+}} : memref<6x16x1x1x4xsi32, [@CMX_NN, 2]>)
-    //CHECK-SAME:   parent_input({{[^:]+}} : memref<6x1x64x1x4xf16, #GNHWC, [@CMX_NN, 2]>)
-    //CHECK-SAME:   parent_output({{[^:]+}} : memref<6x1x16x1x4xf16, #GNHWC, [@CMX_NN, 2]>)
-    //CHECK-SAME:   outputs({{[^:]+}} : memref<6x1x16x1x4xf16, #GNHWC, [@CMX_NN, 2]>) -> memref<6x1x16x1x4xf16, #GNHWC, [@CMX_NN, 2]> variants : {
+    //CHECK-SAME:   parent_input({{[^:]+}} : memref<6x1x64x1x4xf16, {order = #GNHWC}, [@CMX_NN, 2]>)
+    //CHECK-SAME:   parent_output({{[^:]+}} : memref<6x1x16x1x4xf16, {order = #GNHWC}, [@CMX_NN, 2]>)
+    //CHECK-SAME:   outputs({{[^:]+}} : memref<6x1x16x1x4xf16, {order = #GNHWC}, [@CMX_NN, 2]>) -> memref<6x1x16x1x4xf16, {order = #GNHWC}, [@CMX_NN, 2]> variants : {
     //CHECK:        DPUTask {cluster_id = 2 : i64, inEnd = [3, 0, 63], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>,
     //CHECK-SAME:       outEnd = [3, 0, 15], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     //CHECK:      } PPE : {

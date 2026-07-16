@@ -11,8 +11,8 @@
 
 !Distributed0 = !VPUIP.DistributedBuffer<1x16x112x112xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
 !Distributed1 = !VPUIP.DistributedBuffer<1x1x1x4864xui8, {order = #NCHW, strides = [4864, 4864, 4864, 1]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
-!MemRef1 = memref<1x16x112x112xf16, #NHWC, @CMX_NN>
-!MemRef0 = memref<1x16x112x112xf16, #NHWC>
+!MemRef1 = memref<1x16x112x112xf16, {order = #NHWC}, @CMX_NN>
+!MemRef0 = memref<1x16x112x112xf16, {order = #NHWC}>
 
 // CHECK-LABEL: module @AddCycleCostForDistributedBuffers
 module @AddCycleCostForDistributedBuffers attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
@@ -20,7 +20,6 @@ module @AddCycleCostForDistributedBuffers attributes {config.compilationMode = #
       config.ExecutorResource 1 of @DPU
       config.ExecutorResource 2 of @SHAVE_ACT
       config.ExecutorResource 1 of @SHAVE_NN
-      config.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware
       config.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
   }
   config.ExecutorResource 2 of @DMA_NN
@@ -31,8 +30,8 @@ func.func @main(%arg0: memref<1x112x112x16xf16, @DDR>, %arg1: memref<1x112x112x1
     %1 = VPURT.AllocDistributed -> !Distributed0
     %2 = VPURT.AllocDistributed -> !Distributed1
     %token, %bodyResults = async.execute -> !async.value<!Distributed0> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 0 : i64} {
-        %3 = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NCHW} inputs(%arg0 : memref<1x112x112x16xf16, @DDR>) -> memref<1x16x112x112xf16, #NHWC, @DDR>
-        %4 = VPUIP.Copy inputs(%3 : memref<1x16x112x112xf16, #NHWC, @DDR>) outputs(%0 : !Distributed0) -> !Distributed0
+        %3 = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NCHW} inputs(%arg0 : memref<1x112x112x16xf16, @DDR>) -> memref<1x16x112x112xf16, {order = #NHWC}, @DDR>
+        %4 = VPUIP.Copy inputs(%3 : memref<1x16x112x112xf16, {order = #NHWC}, @DDR>) outputs(%0 : !Distributed0) -> !Distributed0
         async.yield %4 : !Distributed0
     }
     %token_0, %bodyResults_1 = async.execute -> !async.value<!Distributed1> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 1 : i64} {
@@ -53,10 +52,10 @@ func.func @main(%arg0: memref<1x112x112x16xf16, @DDR>, %arg1: memref<1x112x112x1
         }
         async.yield %7 : !Distributed0
     }
-    %token_4, %bodyResults_5 = async.execute [%token_2] (%bodyResults_3 as %arg2: !async.value<!Distributed0>) -> !async.value<memref<1x16x112x112xf16, #NHWC, @DDR>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 3 : i64} {
-        %3 = VPUIP.PermuteCast {dst_order = #NCHW, mem_perm = #NCHW} inputs(%arg1 : memref<1x112x112x16xf16, @DDR>) -> memref<1x16x112x112xf16, #NHWC, @DDR>
-        %4 = VPUIP.Copy inputs(%arg2 : !Distributed0) outputs(%3 : memref<1x16x112x112xf16, #NHWC, @DDR>) -> memref<1x16x112x112xf16, #NHWC, @DDR>
-        async.yield %4 : memref<1x16x112x112xf16, #NHWC, @DDR>
+    %token_4, %bodyResults_5 = async.execute [%token_2] (%bodyResults_3 as %arg2: !async.value<!Distributed0>) -> !async.value<memref<1x16x112x112xf16, {order = #NHWC}, @DDR>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 3 : i64} {
+        %3 = VPUIP.PermuteCast {dst_order = #NCHW, mem_perm = #NCHW} inputs(%arg1 : memref<1x112x112x16xf16, @DDR>) -> memref<1x16x112x112xf16, {order = #NHWC}, @DDR>
+        %4 = VPUIP.Copy inputs(%arg2 : !Distributed0) outputs(%3 : memref<1x16x112x112xf16, {order = #NHWC}, @DDR>) -> memref<1x16x112x112xf16, {order = #NHWC}, @DDR>
+        async.yield %4 : memref<1x16x112x112xf16, {order = #NHWC}, @DDR>
     }
 
     // CHECK: [[T1:%.+]], [[F1:%.+]] = async.execute -> !async.value

@@ -13,7 +13,6 @@
 
 module @executors {
     config.Resources 3 of @NCE at 1.700000e+03 MHz {
-        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
         config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
@@ -49,12 +48,12 @@ module @executors {
             tensor<11520x2880x1x1x!quantileUniType, {order = #NHWC}> to
             tensor<2880x2880x1x1x!quantileUniType, {order = #NHWC}>
 
-        %6 = VPU.NCE.Convolution(%arg0, %5, %cst) {
+        %6 = VPU.NCE.Convolution(%arg0, %5, %cst) rawFilterShape [2880, 2880, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
-            rawFilterShape = [2880, 2880, 1, 1],
+            
             strides = [1, 1]
         } : tensor<1x2880x1x1xf16, {order = #NHWC}>, tensor<2880x2880x1x1x!quantileUniType, {order = #NHWC}>, tensor<2880x1x1x4xsi32> -> tensor<1x2880x1x1xf16, {order = #NHWC}>
 
@@ -74,7 +73,6 @@ module @executors {
 
 module @executors {
     config.Resources 3 of @NCE at 1.700000e+03 MHz {
-        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
         config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
@@ -85,12 +83,12 @@ module @executors {
                 -> tensor<1x5760x1x1xf16, {order = #NHWC}> {
         %cst = const.Declare tensor<5760x1x1x4xsi32> = dense<1> : tensor<5760x1x1x4xsi32>
 
-        %0 = VPU.NCE.Convolution(%arg0, %arg1, %cst) {
+        %0 = VPU.NCE.Convolution(%arg0, %arg1, %cst) rawFilterShape [5760, 2880, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
-            rawFilterShape = [5760, 2880, 1, 1],
+            
             strides = [1, 1]
         } : tensor<1x2880x1x1xf16, {order = #NHWC}>, tensor<5760x2880x1x1x!quantileType, {order = #NHWC}>, tensor<5760x1x1x4xsi32> -> tensor<1x5760x1x1xf16, {order = #NHWC}>
 
@@ -132,7 +130,6 @@ func.func @RMSSOK_TileOverC(%arg0: tensor<1x192x192x512xf16>) -> tensor<1x192x19
 
 module @executors {
     config.Resources 3 of @NCE at 1.700000e+03 MHz {
-        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
         config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
@@ -156,7 +153,6 @@ module @executors {
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
-        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
         config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 

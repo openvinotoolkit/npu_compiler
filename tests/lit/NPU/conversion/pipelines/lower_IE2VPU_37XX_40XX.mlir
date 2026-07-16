@@ -77,10 +77,10 @@ func.func @ConvToNCE(%arg0: tensor<1x32x16x16xf16, {order = #NHWC}>) -> tensor<1
 
     // CHECK-DAG:   [[CST_WEIGHTS:%.+]] = const.Declare tensor<64x32x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<64x32x1x1xf16>, [#const.Reorder<#NHWC>]
     // CHECK-DAG:   [[CST_WEIGHTS_TABLE:%.+]] = const.Declare tensor<64x1x1x4xsi32>
-    // CHECK:       [[OUT:%.+]] = VPU.NCE.Convolution([[ARG0]], [[CST_WEIGHTS]], [[CST_WEIGHTS_TABLE]]) {
+    // CHECK:       [[OUT:%.+]] = VPU.NCE.Convolution([[ARG0]], [[CST_WEIGHTS]], [[CST_WEIGHTS_TABLE]]) rawFilterShape [64, 32, 1, 1] {
     // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
     // CHECK-SAME:      ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
-    // CHECK-SAME:      rawFilterShape = [64, 32, 1, 1], strides = [1, 1]}
+    // CHECK-SAME:      strides = [1, 1]}
     // CHECK-SAME:      -> tensor<1x64x16x16xf16, {order = #NHWC}>
     // CHECK:       return [[OUT]] : tensor<1x64x16x16xf16, {order = #NHWC}>
 }

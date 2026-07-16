@@ -94,6 +94,45 @@ Case 2:
     1x8x3x64        1x24x64x1024
         \                /
             MatMul
+
+Case 3:
+    Convert below 14 groups Matmul where the 5D Transpose precedes AffineReshape:
+
+                        RHS
+                    1x2x1x1152x64
+                        |
+                    Broadcast
+                        |
+                    1x2x7x1152x64
+                        |
+                    Transpose (5D, swaps last 2 dims)
+                        |
+                    1x2x7x64x1152
+                        |
+                    AffineReshape
+        LHS             |
+    1x14x1x1152     1x14x64x1152
+        \               /
+             MatMul
+
+    to a new 2 groups Matmul:
+
+                        RHS
+                    1x2x1x1152x64
+                        |
+                    Reshape
+                        |
+                    1x2x1152x64
+                        |
+                    Transpose (4D NCWH, swaps last 2 dims)
+        LHS             |
+    1x14x1x1152     1x2x64x1152
+        |               |
+    Reshape             |
+        |               |
+    1x2x7x1152          |
+        \               /
+            MatMul
 */
 
 class ShrinkMatmulGroups final : public mlir::OpRewritePattern<IE::MatMulOp> {
@@ -110,33 +149,17 @@ private:
 };
 
 mlir::LogicalResult ShrinkMatmulGroups::matchAndRewrite(IE::MatMulOp origOp, mlir::PatternRewriter& rewriter) const {
-    _log.trace("[{0}] Got MatMulOp at '{1}'", origOp->getName(), origOp->getLoc());
+    _log.trace("[{0}] Got '{1}'", getDebugName(), origOp->getLoc());
 
     auto lhs = origOp.getInput1();
-    auto rhs = origOp.getInput2();
 
-    if (!IE::checkMatMul(origOp)) {
+    const auto matched = IE::matchShrinkMatmulGroupsPattern(origOp);
+    if (!matched.has_value()) {
         return mlir::failure();
     }
-    IE::AffineReshapeOp reshapeOp = nullptr;
-    auto transposeOp = rhs.getDefiningOp<IE::TransposeOp>();
-    if (transposeOp == nullptr) {
-        reshapeOp = rhs.getDefiningOp<IE::AffineReshapeOp>();
-    } else {
-        if (!IE::checkTranspose(transposeOp)) {
-            return mlir::failure();
-        }
-        reshapeOp = transposeOp.getInput().getDefiningOp<IE::AffineReshapeOp>();
-    }
-
-    if (!IE::checkAffineReshape(reshapeOp)) {
-        return mlir::failure();
-    }
-
-    auto broadCastOp = reshapeOp.getInput().getDefiningOp<IE::BroadcastOp>();
-    if (!IE::checkBroadCast(broadCastOp)) {
-        return mlir::failure();
-    }
+    auto broadCastOp = matched->broadCastOp;
+    auto innerTransposeOp = matched->innerTransposeOp;
+    auto outerTransposeOp = matched->outerTransposeOp;
 
     auto ctx = rewriter.getContext();
     auto broadcastOutputShape = getShape(broadCastOp.getOutput());
@@ -153,17 +176,28 @@ mlir::LogicalResult ShrinkMatmulGroups::matchAndRewrite(IE::MatMulOp origOp, mli
     auto newLhs = rewriter.create<IE::ReshapeOp>(appendLoc(origOp->getLoc(), "lhs_reshape"), lhs, lhsTargetShapeAttr)
                           .getOutput();
 
-    // Create new RHS chain: reshape and transpose the original input of BroadCastOp
-    SmallVector<int64_t> targetShape = to_small_vector(getShape(reshapeOp.getOutput()));
-    targetShape[Dims4D::Act::C.ind()] = newGroupNum;
-    const auto targetShapeAttr = getIntArrayAttr(ctx, targetShape);
-    auto newRhs = rewriter.create<IE::ReshapeOp>(appendLoc(origOp->getLoc(), "rhs_reshape"), broadCastOp.getInput(),
-                                                 targetShapeAttr)
-                          .getOutput();
+    // Build new RHS: drop the unit d2 from the 5D broadcast input to get a 4D base shape,
+    // then re-apply any transposes present in the original chain in order.
+    const auto& broadcastInputShape = getShape(broadCastOp.getInput());
+    const SmallVector<int64_t> rhsBaseShape = {broadcastInputShape[Dims5D::Act::N], newGroupNum,
+                                               broadcastInputShape[Dims5D::Act::H],
+                                               broadcastInputShape[Dims5D::Act::W]};
+    mlir::Value newRhs = rewriter.create<IE::ReshapeOp>(appendLoc(origOp->getLoc(), "rhs_reshape"),
+                                                        broadCastOp.getInput(), getIntArrayAttr(ctx, rhsBaseShape))
+                                 .getOutput();
 
-    if (transposeOp != nullptr) {
+    if (innerTransposeOp != nullptr) {
+        // Re-apply the inner 5D last-2-dims swap as a 4D NCWH transpose.
+        const auto ncwhOrder =
+                mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(SmallVector<unsigned>{0, 1, 3, 2}, ctx));
+        newRhs = rewriter.create<IE::TransposeOp>(appendLoc(origOp->getLoc(), "rhs_inner_transpose"), newRhs, nullptr,
+                                                  ncwhOrder)
+                         .getOutput();
+    }
+
+    if (outerTransposeOp != nullptr) {
         newRhs = rewriter.create<IE::TransposeOp>(appendLoc(origOp->getLoc(), "rhs_transpose"), newRhs, nullptr,
-                                                  transposeOp.getOrderValueAttr())
+                                                  outerTransposeOp.getOrderValueAttr())
                          .getOutput();
     }
 

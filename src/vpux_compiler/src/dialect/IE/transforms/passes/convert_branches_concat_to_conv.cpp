@@ -9,12 +9,15 @@
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
+#include "vpux/compiler/dialect/IE/utils/precision_policy_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/dialect/net/utils/precision_info_utils.hpp"
 #include "vpux/compiler/utils/adjust_layout_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -22,6 +25,11 @@
 #include "vpux/utils/core/error.hpp"
 
 #include <mlir/Support/LogicalResult.h>
+
+#include <llvm/ADT/ArrayRef.h>
+#include <llvm/ADT/DenseMap.h>
+
+#include <memory>
 
 namespace vpux::IE {
 #define GEN_PASS_DECL_CONVERTBRANCHESCONCATTOCONV
@@ -32,6 +40,153 @@ namespace vpux::IE {
 using namespace vpux;
 
 namespace {
+
+mlir::Value peelPrecisionChangingCasts(mlir::Value value) {
+    auto current = value;
+    while (current) {
+        if (auto convertOp = current.getDefiningOp<IE::ConvertOp>()) {
+            current = convertOp.getInput();
+            continue;
+        }
+
+        if (auto quantizeCastOp = current.getDefiningOp<IE::QuantizeCastOp>()) {
+            current = quantizeCastOp.getInput();
+            continue;
+        }
+
+        break;
+    }
+
+    return current;
+}
+
+template <typename InputT, typename InputValueGetter, typename ProducerRootGetter>
+bool shouldSkipConcatRewriteByPrecision(IE::ConcatOp concatOp,
+                                        const std::shared_ptr<const net::PrecisionSensitiveOps>& rtPrecision,
+                                        const Logger& log, llvm::ArrayRef<InputT> inputs,
+                                        InputValueGetter&& getInputValue, ProducerRootGetter&& getProducerRoot,
+                                        const char* producerRootName) {
+    // Design note:
+    // - Gates 1/2 validate concat-level properties and therefore must read from concatOp.
+    // - Gates 3/4 validate selected rewrite paths and therefore must iterate the pattern-provided inputs range.
+    // Keeping this split prevents path checks from becoming too broad and op checks from becoming partial.
+    // Use llvm::ArrayRef for inputs to enforce a stable view over the selected pattern inputs.
+    llvm::DenseMap<mlir::Value, mlir::Value> peeledRootCache;
+    llvm::DenseMap<mlir::Value, bool> f32OrF64PrecisionCache;
+
+    const auto getPeeledRoot = [&](mlir::Value value) {
+        if (!value) {
+            return mlir::Value{};
+        }
+
+        const auto it = peeledRootCache.find(value);
+        if (it != peeledRootCache.end()) {
+            return it->second;
+        }
+
+        const auto peeled = peelPrecisionChangingCasts(value);
+        peeledRootCache.try_emplace(value, peeled);
+        return peeled;
+    };
+
+    const auto hasF32OrF64Precision = [&](mlir::Value value) {
+        if (!value) {
+            return false;
+        }
+
+        const auto it = f32OrF64PrecisionCache.find(value);
+        if (it != f32OrF64PrecisionCache.end()) {
+            return it->second;
+        }
+
+        const auto isF32OrF64 = IE::utils::hasF32OrF64Precision(value);
+        f32OrF64PrecisionCache.try_emplace(value, isF32OrF64);
+        return isF32OrF64;
+    };
+
+    const auto isPrecisionSensitiveProducer = [&](mlir::Value value) {
+        if (!value) {
+            return false;
+        }
+
+        auto* defOp = value.getDefiningOp();
+        return defOp != nullptr && rtPrecision->isPrecisionSensitiveOp(defOp);
+    };
+
+    if (!rtPrecision) {
+        log.trace("Skip concat rewrite at '{0}' because PrecisionSensitiveOps is unavailable", concatOp->getLoc());
+        return true;
+    }
+
+    // Precision gate 1 (concat-level): keep precision-sensitive concat ops untouched
+    // to preserve ACCURACY mode intent.
+    if (rtPrecision->isPrecisionSensitiveOp(concatOp.getOperation())) {
+        log.trace("Skip concat rewrite at '{0}' because op is precision-sensitive", concatOp->getLoc());
+        return true;
+    }
+
+    // Precision gate 2 (concat-level): mode-agnostic NCE-legality check for concat output precision.
+    if (hasF32OrF64Precision(concatOp.getOutput())) {
+        log.trace("Skip concat rewrite at '{0}' because F32/F64 activation precision is unsupported for NCE "
+                  "conversion (type: {1})",
+                  concatOp->getLoc(), concatOp.getOutput().getType());
+        return true;
+    }
+
+    // Precision gates 3/4 (path-level): evaluate only inputs selected by the current pattern.
+    // - Gate 3 validates concat-facing values from getInputValue.
+    // - Gate 4 validates producer roots from getProducerRoot, including cast-peeled roots.
+    for (const auto& inputInfo : inputs) {
+        const auto input = getInputValue(inputInfo);
+        if (isPrecisionSensitiveProducer(input)) {
+            log.trace("Skip concat rewrite at '{0}' because producer is precision-sensitive", concatOp->getLoc());
+            return true;
+        }
+
+        if (hasF32OrF64Precision(input)) {
+            log.trace("Skip concat rewrite at '{0}' because F32/F64 activation precision is unsupported for "
+                      "NCE conversion (type: {1})",
+                      concatOp->getLoc(), input.getType());
+            return true;
+        }
+
+        const auto producerRootBeforePeeling = getProducerRoot(inputInfo);
+        if (!producerRootBeforePeeling) {
+            continue;
+        }
+
+        if (isPrecisionSensitiveProducer(producerRootBeforePeeling)) {
+            log.trace("Skip concat rewrite at '{0}' because {1} root producer is precision-sensitive",
+                      concatOp->getLoc(), producerRootName);
+            return true;
+        }
+
+        if (hasF32OrF64Precision(producerRootBeforePeeling)) {
+            log.trace("Skip concat rewrite at '{0}' because {1} root has F32/F64 activation precision "
+                      "before cast peeling (type: {2})",
+                      concatOp->getLoc(), producerRootName, producerRootBeforePeeling.getType());
+            return true;
+        }
+
+        const auto producerRoot = getPeeledRoot(producerRootBeforePeeling);
+        if (producerRoot != producerRootBeforePeeling) {
+            if (isPrecisionSensitiveProducer(producerRoot)) {
+                log.trace("Skip concat rewrite at '{0}' because peeled {1} root producer is precision-sensitive",
+                          concatOp->getLoc(), producerRootName);
+                return true;
+            }
+
+            if (hasF32OrF64Precision(producerRoot)) {
+                log.trace("Skip concat rewrite at '{0}' because {1} root has F32/F64 activation precision after "
+                          "cast peeling (type: {2})",
+                          concatOp->getLoc(), producerRootName, producerRoot.getType());
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
 
 //
 // OptimizeGroupConvConcat
@@ -122,8 +277,9 @@ class OptimizeGroupConvConcat final : public mlir::OpRewritePattern<IE::ConcatOp
     };
 
 public:
-    OptimizeGroupConvConcat(mlir::MLIRContext* ctx, Logger log)
-            : mlir::OpRewritePattern<IE::ConcatOp>(ctx), _log(std::move(log)) {
+    OptimizeGroupConvConcat(mlir::MLIRContext* ctx, Logger log,
+                            std::shared_ptr<const net::PrecisionSensitiveOps> rtPrecision)
+            : mlir::OpRewritePattern<IE::ConcatOp>(ctx), _log(std::move(log)), _rtPrecision(std::move(rtPrecision)) {
         setDebugName("OptimizeGroupConvConcat");
     }
 
@@ -135,13 +291,15 @@ public:
     bool hasReLUPostOp(mlir::Operation* op) const;
     bool isSupportedParameters(const GroupConvParameters& parameters, mlir::Operation* rootOp) const;
 
-    mlir::Value convertGroupConvWeights(IE::GroupConvolutionOp groupConv, mlir::PatternRewriter& rewriter) const;
+    mlir::Value convertGroupConvWeights(IE::GroupConvolutionOp groupConv, mlir::PatternRewriter& rewriter,
+                                        size_t index) const;
 
     mlir::Value createWeights(mlir::Value activation, const GroupConvParameters& parameters,
-                              mlir::PatternRewriter& rewriter) const;
+                              mlir::PatternRewriter& rewriter, size_t index) const;
 
 private:
     Logger _log;
+    std::shared_ptr<const net::PrecisionSensitiveOps> _rtPrecision;
 };
 
 bool OptimizeGroupConvConcat::hasReLUPostOp(mlir::Operation* op) const {
@@ -306,7 +464,7 @@ mlir::FailureOr<SmallVector<OptimizeGroupConvConcat::InputPattern>> OptimizeGrou
 
 // Create weights to convert GroupConvolution to Convolution
 mlir::Value OptimizeGroupConvConcat::convertGroupConvWeights(IE::GroupConvolutionOp groupConv,
-                                                             mlir::PatternRewriter& rewriter) const {
+                                                             mlir::PatternRewriter& rewriter, size_t index) const {
     auto origFilter = groupConv.getFilter();
     auto origFilterOp = origFilter.getDefiningOp<Const::DeclareOp>();
     VPUX_THROW_WHEN(origFilterOp == nullptr, "Unable to find filter constant operation");
@@ -347,12 +505,13 @@ mlir::Value OptimizeGroupConvConcat::convertGroupConvWeights(IE::GroupConvolutio
     const auto weightsType = mlir::RankedTensorType::get(newFilterShape.raw(), origContentType.getElementType(),
                                                          getTensorAttr(rewriter.getContext(), weightsOrder, nullptr));
 
-    return Const::buildWeightsConst(rewriter, origFilter.getLoc(), weightsType, ArrayRef(weights));
+    return Const::buildWeightsConst(rewriter, appendLoc(origFilter.getLoc(), "filter_{0}", index), weightsType,
+                                    ArrayRef(weights));
 }
 
 // Create weights for Convolution that can generate the same result with input
 mlir::Value OptimizeGroupConvConcat::createWeights(mlir::Value activation, const GroupConvParameters& parameters,
-                                                   mlir::PatternRewriter& rewriter) const {
+                                                   mlir::PatternRewriter& rewriter, size_t index) const {
     const auto kx = parameters.kx;
     const auto ky = parameters.ky;
     const auto actShape = getShape(activation);
@@ -374,7 +533,8 @@ mlir::Value OptimizeGroupConvConcat::createWeights(mlir::Value activation, const
     const auto weightsType = mlir::RankedTensorType::get(
             weightsShape.raw(), mlir::cast<NDTypeInterface>(activation.getType()).getElementType(),
             getTensorAttr(rewriter.getContext(), weightsOrder, nullptr));
-    return Const::buildWeightsConst(rewriter, activation.getLoc(), weightsType, ArrayRef(weights));
+    return Const::buildWeightsConst(rewriter, appendLoc(activation.getLoc(), "weights_{0}", index), weightsType,
+                                    ArrayRef(weights));
 }
 
 mlir::LogicalResult OptimizeGroupConvConcat::matchAndRewrite(IE::ConcatOp origOp,
@@ -404,15 +564,32 @@ mlir::LogicalResult OptimizeGroupConvConcat::matchAndRewrite(IE::ConcatOp origOp
         return mlir::failure();
     }
 
+    auto concatInputs = getInputs.value();
+    if (shouldSkipConcatRewriteByPrecision(
+                origOp, _rtPrecision, _log, llvm::ArrayRef<InputPattern>(concatInputs),
+                [](const auto& input) -> mlir::Value {
+                    return input.groupConv != nullptr ? input.groupConv->getResult(0) : mlir::Value{};
+                },
+                [](const auto& input) -> mlir::Value {
+                    if (auto groupConv = input.groupConv; groupConv != nullptr) {
+                        return groupConv.getInput();
+                    }
+                    return mlir::Value{};
+                },
+                "GroupConv")) {
+        return mlir::failure();
+    }
+
     _log.trace("[{0}] Rewriting '{1}'", origOp->getName(), origOp->getLoc());
 
-    auto inputs = getInputs.value();
+    auto inputs = std::move(concatInputs);
     mlir::Value root = nullptr;
     IE::GroupConvolutionOp origGroupConv = nullptr;
     int64_t groupConvIndex = 0;
     // Create filter
     SmallVector<mlir::Value> newWeights;
-    for (const auto& input : inputs) {
+    for (auto inputIdx : irange(inputs.size())) {
+        const auto& input = inputs[inputIdx];
         auto groupConv = input.groupConv;
         if (groupConv != nullptr) {
             origGroupConv = groupConv;
@@ -420,7 +597,7 @@ mlir::LogicalResult OptimizeGroupConvConcat::matchAndRewrite(IE::ConcatOp origOp
             if (root == nullptr) {
                 root = groupConv.getInput();
             }
-            newWeights.push_back(convertGroupConvWeights(groupConv, rewriter));
+            newWeights.push_back(convertGroupConvWeights(groupConv, rewriter, inputIdx));
             groupConvIndex = input.index;
         } else {
             // Find root by concat's input
@@ -428,11 +605,12 @@ mlir::LogicalResult OptimizeGroupConvConcat::matchAndRewrite(IE::ConcatOp origOp
                 auto inputIndex = input.index;
                 root = origOp.getInputs()[inputIndex];
             }
-            newWeights.push_back(createWeights(root, parameters, rewriter));
+            newWeights.push_back(createWeights(root, parameters, rewriter, inputIdx));
         }
     }
     VPUX_THROW_WHEN(origGroupConv == nullptr, "Can't find GroupConv");
-    auto concatWeights = rewriter.createOrFold<IE::ConcatOp>(origOp.getLoc(), newWeights, Dims4D::Filter::OC);
+    auto concatWeights = rewriter.createOrFold<IE::ConcatOp>(takeOpLoc(origOp, "concat_weights_grpconv"), newWeights,
+                                                             Dims4D::Filter::OC);
     // update bias value
     mlir::Value newBiasValue = origGroupConv.getBias();
     auto biasConst = newBiasValue != nullptr ? newBiasValue.getDefiningOp<Const::DeclareOp>() : nullptr;
@@ -447,16 +625,17 @@ mlir::LogicalResult OptimizeGroupConvConcat::matchAndRewrite(IE::ConcatOp origOp
         }
         auto biasContentAttr =
                 biasConst.transformContentAttr().padWithZero({0, padBefore, 0, 0}, {0, padEnd, 0, 0}).get();
-        newBiasValue = rewriter.create<Const::DeclareOp>(origOp.getLoc(), biasContentAttr.getType(),
-                                                         std::move(biasContentAttr))
+        newBiasValue = rewriter.create<Const::DeclareOp>(takeOpLoc(origOp, "bias_const_grpconv"),
+                                                         biasContentAttr.getType(), std::move(biasContentAttr))
                                .getResult();
     }
 
     // GroupConv has no scale parameter, so it's nullptr when creating 'IE::ConvolutionOp'
     auto newConv = rewriter.create<IE::ConvolutionOp>(
-            origOp.getLoc(), root, concatWeights, newBiasValue, /*scale*/ nullptr, origGroupConv.getStrides(),
-            origGroupConv.getPadsBegin(), origGroupConv.getPadsEnd(), origGroupConv.getDilations(),
-            origGroupConv.getPostOpAttr(), origGroupConv.getClampAttr(), nullptr, origGroupConv.getOutputPaddingAttr(),
+            takeOpLoc(origOp, "as_conv_grpconv"), root, concatWeights, newBiasValue, /*scale*/ nullptr,
+            /*zero_points*/ nullptr, origGroupConv.getStrides(), origGroupConv.getPadsBegin(),
+            origGroupConv.getPadsEnd(), origGroupConv.getDilations(), origGroupConv.getPostOpAttr(),
+            origGroupConv.getClampAttr(), nullptr, origGroupConv.getOutputPaddingAttr(),
             origGroupConv.getInputPaddingAttr());
 
     rewriter.replaceOp(origOp, newConv.getOutput());
@@ -469,8 +648,9 @@ mlir::LogicalResult OptimizeGroupConvConcat::matchAndRewrite(IE::ConcatOp origOp
 
 class OptimizeConvConcat final : public mlir::OpRewritePattern<IE::ConcatOp> {
 public:
-    OptimizeConvConcat(mlir::MLIRContext* ctx, Logger log)
-            : mlir::OpRewritePattern<IE::ConcatOp>(ctx), _log(std::move(log)) {
+    OptimizeConvConcat(mlir::MLIRContext* ctx, Logger log,
+                       std::shared_ptr<const net::PrecisionSensitiveOps> rtPrecision)
+            : mlir::OpRewritePattern<IE::ConcatOp>(ctx), _log(std::move(log)), _rtPrecision(std::move(rtPrecision)) {
         setDebugName("OptimizeConvConcat");
     }
 
@@ -480,6 +660,7 @@ public:
 
 private:
     Logger _log;
+    std::shared_ptr<const net::PrecisionSensitiveOps> _rtPrecision;
 };
 
 mlir::FailureOr<SmallVector<mlir::Value>> OptimizeConvConcat::getValidConcatInputs(IE::ConcatOp concatOp) const {
@@ -565,9 +746,25 @@ mlir::LogicalResult OptimizeConvConcat::matchAndRewrite(IE::ConcatOp origOp, mli
         return mlir::failure();
     }
 
+    auto concatInputs = getInputs.value();
+    if (shouldSkipConcatRewriteByPrecision(
+                origOp, _rtPrecision, _log, llvm::ArrayRef<mlir::Value>(concatInputs),
+                [](const mlir::Value& input) -> mlir::Value {
+                    return input;
+                },
+                [](const mlir::Value& input) -> mlir::Value {
+                    if (auto convOp = input.getDefiningOp<IE::ConvolutionOp>(); convOp != nullptr) {
+                        return convOp.getInput();
+                    }
+                    return mlir::Value{};
+                },
+                "Convolution")) {
+        return mlir::failure();
+    }
+
     _log.trace("[{0}] Rewriting '{1}'", origOp->getName(), origOp->getLoc());
 
-    auto inputs = getInputs.value();
+    auto inputs = std::move(concatInputs);
     mlir::Value root = nullptr;
     IE::ConvolutionOp convOp = nullptr;
     // Create filter
@@ -586,13 +783,15 @@ mlir::LogicalResult OptimizeConvConcat::matchAndRewrite(IE::ConcatOp origOp, mli
             emptyBiasNum++;
         }
     }
-    auto concatWeights = rewriter.createOrFold<IE::ConcatOp>(origOp.getLoc(), newWeights, Dims4D::Filter::OC);
+    auto concatWeights = rewriter.createOrFold<IE::ConcatOp>(takeOpLoc(origOp, "concat_weights_conv"), newWeights,
+                                                             Dims4D::Filter::OC);
 
     // Create Bias
     SmallVector<mlir::Value> newBias;
     mlir::Value concatBias = nullptr;
     if (emptyBiasNum != inputs.size()) {
-        for (const auto& input : inputs) {
+        for (auto inputIdx : irange(inputs.size())) {
+            const auto& input = inputs[inputIdx];
             convOp = input.getDefiningOp<IE::ConvolutionOp>();
             if (auto bias = convOp.getBias()) {
                 newBias.push_back(bias);
@@ -607,14 +806,16 @@ mlir::LogicalResult OptimizeConvConcat::matchAndRewrite(IE::ConcatOp origOp, mli
                         biasShape.raw(), mlir::cast<vpux::NDTypeInterface>(input.getType()).getElementType(),
                         getTensorAttr(rewriter.getContext(), biasOrder, nullptr));
 
-                newBias.push_back(Const::buildWeightsConst(rewriter, convOp.getLoc(), biasType, ArrayRef(biasValue)));
+                newBias.push_back(Const::buildWeightsConst(rewriter, appendLoc(convOp.getLoc(), "bias_{0}", inputIdx),
+                                                           biasType, ArrayRef(biasValue)));
             }
         }
-        concatBias = rewriter.createOrFold<IE::ConcatOp>(origOp.getLoc(), newBias, Dims4D::Act::C);
+        concatBias =
+                rewriter.createOrFold<IE::ConcatOp>(takeOpLoc(origOp, "concat_bias_conv"), newBias, Dims4D::Act::C);
     }
 
-    auto newConvOp =
-            IE::cloneConvolutionOp(rewriter, convOp, outputType, root, concatWeights, concatBias, convOp.getScale());
+    auto newConvOp = IE::cloneConvolutionOp(rewriter, convOp, outputType, root, concatWeights, concatBias,
+                                            convOp.getScale(), convOp.getZeroPoints());
     rewriter.replaceOp(origOp, newConvOp.getOutput());
     return mlir::success();
 }
@@ -655,8 +856,9 @@ class OptimizeSliceMultiplyConcat final : public mlir::OpRewritePattern<IE::Conc
     };
 
 public:
-    OptimizeSliceMultiplyConcat(mlir::MLIRContext* ctx, Logger log)
-            : mlir::OpRewritePattern<IE::ConcatOp>(ctx), _log(std::move(log)) {
+    OptimizeSliceMultiplyConcat(mlir::MLIRContext* ctx, Logger log,
+                                std::shared_ptr<const net::PrecisionSensitiveOps> rtPrecision)
+            : mlir::OpRewritePattern<IE::ConcatOp>(ctx), _log(std::move(log)), _rtPrecision(std::move(rtPrecision)) {
         setDebugName("OptimizeSliceMultiplyConcat");
     }
 
@@ -669,6 +871,7 @@ public:
 
 private:
     Logger _log;
+    std::shared_ptr<const net::PrecisionSensitiveOps> _rtPrecision;
 };
 
 mlir::FailureOr<SmallVector<OptimizeSliceMultiplyConcat::InputPattern>>
@@ -811,9 +1014,25 @@ mlir::LogicalResult OptimizeSliceMultiplyConcat::matchAndRewrite(IE::ConcatOp or
         return mlir::failure();
     }
 
+    auto concatInputs = getInputs.value();
+    if (shouldSkipConcatRewriteByPrecision(
+                origOp, _rtPrecision, _log, llvm::ArrayRef<InputPattern>(concatInputs),
+                [](const auto& input) -> mlir::Value {
+                    return input.multiply != nullptr ? input.multiply->getResult(0) : input.slice->getResult(0);
+                },
+                [](const auto& input) -> mlir::Value {
+                    if (auto slice = input.slice; slice != nullptr) {
+                        return slice.getSource();
+                    }
+                    return mlir::Value{};
+                },
+                "slice")) {
+        return mlir::failure();
+    }
+
     _log.trace("[{0}] Rewriting '{1}'", origOp->getName(), origOp->getLoc());
 
-    auto inputs = getInputs.value();
+    auto inputs = std::move(concatInputs);
     mlir::Value root = inputs.front().slice.getSource();
     // Cast DimsOrder from NCHW to NHWC
     auto ctx = rewriter.getContext();
@@ -898,13 +1117,20 @@ private:
 
 void ConvertBranchesConcatToConvPass::safeRunOnFunc() {
     auto& ctx = getContext();
+    auto func = getOperation();
+    auto module = func->getParentOfType<mlir::ModuleOp>();
+    if (module == nullptr) {
+        _log.warning("Skip ConvertBranchesConcatToConvPass on '{0}' because parent ModuleOp is unavailable",
+                     func.getLoc());
+        return;
+    }
+    auto rtPrecision = std::make_shared<const net::PrecisionSensitiveOps>(module, _log);
 
     mlir::RewritePatternSet patterns(&ctx);
-    patterns.add<OptimizeGroupConvConcat>(&ctx, _log);
-    patterns.add<OptimizeConvConcat>(&ctx, _log);
-    patterns.add<OptimizeSliceMultiplyConcat>(&ctx, _log);
+    patterns.add<OptimizeGroupConvConcat>(&ctx, _log, rtPrecision);
+    patterns.add<OptimizeConvConcat>(&ctx, _log, rtPrecision);
+    patterns.add<OptimizeSliceMultiplyConcat>(&ctx, _log, rtPrecision);
 
-    auto func = getOperation();
     collectOpsAndApplyPatterns(func, std::move(patterns));
 }
 

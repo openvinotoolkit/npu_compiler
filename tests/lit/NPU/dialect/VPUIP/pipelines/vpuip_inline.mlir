@@ -17,8 +17,8 @@ module @TwoFunctions {
       DataInfo "output" : tensor<1x3x64x64xf16>
     }
 
-    // CHECK-NOT: func.func private @foo1
-    func.func private @foo1(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
+    // CHECK-NOT: func.func nested @foo1
+    func.func nested @foo1(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
         // original input
         %0 = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x64x64xf16, @DDR>
         // allocated by main
@@ -36,8 +36,8 @@ module @TwoFunctions {
         return %arg1 : memref<1x3x64x64xf16, @DDR>
     }
 
-    // CHECK-NOT: func.func private @foo2
-    func.func private @foo2(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
+    // CHECK-NOT: func.func nested @foo2
+    func.func nested @foo2(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
         // input from foo1 allocated by main
         %0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x3x64x64xf16, @DDR>
         // original output
@@ -108,8 +108,8 @@ module @ThreeFunctions {
       DataInfo "output" : tensor<1x3x64x64xf16>
     }
 
-    // CHECK-NOT: func.func private @foo1
-    func.func private @foo1(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
+    // CHECK-NOT: func.func nested @foo1
+    func.func nested @foo1(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
         // original input
         %0 = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x64x64xf16, @DDR>
         // allocated by main
@@ -127,8 +127,8 @@ module @ThreeFunctions {
         return %arg1 : memref<1x3x64x64xf16, @DDR>
     }
 
-    // CHECK-NOT: func.func private @foo2
-    func.func private @foo2(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
+    // CHECK-NOT: func.func nested @foo2
+    func.func nested @foo2(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
         // input from foo1 allocated by main
         %0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x3x64x64xf16, @DDR>
         // output allocated by main
@@ -140,8 +140,8 @@ module @ThreeFunctions {
         return %arg1 : memref<1x3x64x64xf16, @DDR>
     }
 
-    // CHECK-NOT: func.func private @foo3
-    func.func private @foo3(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
+    // CHECK-NOT: func.func nested @foo3
+    func.func nested @foo3(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
         // input from foo1 allocated by main
         %0 = VPURT.DeclareBuffer <DDR> <24576> -> memref<1x3x64x64xf16, @DDR>
         // original output
@@ -228,8 +228,8 @@ module @ThreeFunctions {
       DataInfo "output" : tensor<1x6x64x64xf16>
     }
 
-    // CHECK-NOT: func.func private @foo
-    func.func private @foo(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>, %arg2: memref<1x6x64x64xf16, @DDR>) -> memref<1x6x64x64xf16, @DDR> {
+    // CHECK-NOT: func.func nested @foo
+    func.func nested @foo(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>, %arg2: memref<1x6x64x64xf16, @DDR>) -> memref<1x6x64x64xf16, @DDR> {
         // 1st input allocated by main
         %0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x3x64x64xf16, @DDR>
         // 2nd input allocated by main
@@ -342,8 +342,8 @@ module @ThreeFunctions {
       DataInfo "output2" : tensor<1x3x64x64xf16>
     }
 
-    // CHECK-NOT: func.func private @foo1
-    func.func private @foo1(%arg0: memref<1x6x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>, %arg2: memref<1x3x64x64xf16, @DDR>)
+    // CHECK-NOT: func.func nested @foo1
+    func.func nested @foo1(%arg0: memref<1x6x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>, %arg2: memref<1x3x64x64xf16, @DDR>)
                                                                                         -> (memref<1x3x64x64xf16, @DDR>, memref<1x3x64x64xf16, @DDR>) {
         // original input
         %0 = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x6x64x64xf16, @DDR>
@@ -427,8 +427,8 @@ module @TwoFunctionsEachWithSingleExecutionQueue {
       DataInfo "output" : tensor<1x3x64x64xf16>
     }
 
-    // CHECK-NOT: func.func private @foo1
-    func.func private @foo1(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
+    // CHECK-NOT: func.func nested @foo1
+    func.func nested @foo1(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
         // original input
         %0 = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x64x64xf16, @DDR>
         // allocated by main
@@ -445,8 +445,8 @@ module @TwoFunctionsEachWithSingleExecutionQueue {
         return %arg1 : memref<1x3x64x64xf16, @DDR>
     }
 
-    // CHECK-NOT: func.func private @foo2
-    func.func private @foo2(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
+    // CHECK-NOT: func.func nested @foo2
+    func.func nested @foo2(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
         // input from foo1 allocated by main
         %0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x3x64x64xf16, @DDR>
         // original output
@@ -515,13 +515,13 @@ module @MultiShaveFunction {
     }
 
     module @VPU.SW {
-        func.func private @builtin_SoftMax(memref<*xf16>, memref<*xf16>, i64, i64)
+        func.func nested @builtin_SoftMax(memref<*xf16>, memref<*xf16>, i64, i64)
             attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.task_type = @COMPUTE}
-        func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+        func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
     }
 
-    // CHECK-NOT: func.func private @foo1
-    func.func private @foo(%arg0: memref<1x1x2x64xf16, @DDR>, %arg1: memref<1x1x2x64xf16, @DDR>) -> memref<1x1x2x64xf16, @DDR> {
+    // CHECK-NOT: func.func nested @foo1
+    func.func nested @foo(%arg0: memref<1x1x2x64xf16, @DDR>, %arg1: memref<1x1x2x64xf16, @DDR>) -> memref<1x1x2x64xf16, @DDR> {
         %0 = VPURT.DeclareBuffer <DDR> <4096> -> memref<1x1x1x64xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, strides = [128, 128, 64, 1]}, @DDR>
         %1 = VPURT.DeclareBuffer <DDR> <4352> -> memref<1x1x1x64xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, strides = [128, 128, 64, 1]}, @DDR>
         %2 = VPURT.DeclareBuffer <DDR> <4224> -> memref<1x1x1x64xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, strides = [128, 128, 64, 1]}, @DDR>

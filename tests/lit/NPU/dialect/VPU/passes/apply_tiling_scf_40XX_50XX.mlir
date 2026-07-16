@@ -17,11 +17,11 @@ func.func @ApplyConvCTiling(
             : tensor<512x256x3x3xf16>, [#const.Reorder<#NHWC>]
         %weights_table = const.Declare tensor<512x1x1x4xsi32, {order = #NCHW}> = dense<1> : tensor<512x1x1x4xsi32>
 
-        %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) {
+        %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) rawFilterShape [512, 256, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
-            rawFilterShape = [512, 256, 3, 3],
+            
             strides = [1, 1],
             tilingStrategy = [1, 2, 1, 1]
         } : tensor<1x256x14x14xf16, {order = #NHWC}>, tensor<512x256x3x3xf16, {order = #NHWC}>, tensor<512x1x1x4xsi32, {order = #NCHW}> -> tensor<1x512x14x14xf16, {order = #NHWC}>
@@ -64,10 +64,10 @@ func.func @ConvChannel2DTiling(%arg0: tensor<1x512x64x64xf16, {order = #NHWC}>) 
     %weights = const.Declare tensor<256x512x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<256x512x3x3xf16>, [#const.Reorder<#NHWC>]
     %weights_table = const.Declare tensor<256x1x1x4xsi32> = dense<1> : tensor<256x1x1x4xsi32>
 
-    %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) {
+    %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) rawFilterShape [256, 512, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         ppe = #VPU.PPEStub<>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-        rawFilterShape = [256, 512, 3, 3],
+        
         strides = [1, 1],
         tilingStrategy = [1, 2, 8, 1]
     } : tensor<1x512x64x64xf16, {order = #NHWC}>, tensor<256x512x3x3xf16, {order = #NHWC}>, tensor<256x1x1x4xsi32> -> tensor<1x256x64x64xf16, {order = #NHWC}>

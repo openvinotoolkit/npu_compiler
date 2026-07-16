@@ -29,6 +29,8 @@
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
+#include "vpux/compiler/dialect/Shave/IR/dialect.hpp"
+#include "vpux/compiler/dialect/Shave/IR/ops/meta-ops.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/sub_byte.hpp"
@@ -104,6 +106,7 @@
 #include <transformations/common_optimizations/shuffle_channels_fusion.hpp>
 #include <transformations/common_optimizations/space_to_batch_fusion.hpp>
 #include <transformations/common_optimizations/strides_optimization.hpp>
+#include <transformations/common_optimizations/transpose_sinking.hpp>
 #include <transformations/common_optimizations/transpose_to_reshape.hpp>
 #include <transformations/common_optimizations/weights_dequantize_to_fake_quantize.hpp>
 #include <transformations/control_flow/unroll_if.hpp>
@@ -165,6 +168,54 @@ inline std::string make_tensor_output_name(const ov::Output<const ov::Node>& out
 }  // namespace
 
 namespace {
+
+std::optional<std::pair<SmallVector<int64_t>, SmallVector<int64_t>>> tryConvertSameUpperToExplicitPads(
+        const ov::PartialShape& filterShape, ArrayRef<int64_t> strides, ArrayRef<int64_t> dilations,
+        size_t spatialStartIdx) {
+    // Temporary workaround for SAME_UPPER import in a limited scenario.
+    // Follow-up for full auto_pad handling is tracked in E#224338.
+    if (!filterShape.rank().is_static()) {
+        return std::nullopt;
+    }
+
+    const auto filterRank = checked_cast<size_t>(filterShape.rank().get_length());
+    if (filterRank <= spatialStartIdx) {
+        return std::nullopt;
+    }
+
+    const auto spatialRank = filterRank - spatialStartIdx;
+    if (strides.size() != spatialRank || dilations.size() != spatialRank) {
+        return std::nullopt;
+    }
+
+    if (!llvm::all_of(strides, [](int64_t stride) {
+            return stride == 1;
+        })) {
+        return std::nullopt;
+    }
+
+    SmallVector<int64_t> padsBegin;
+    SmallVector<int64_t> padsEnd;
+    padsBegin.reserve(spatialRank);
+    padsEnd.reserve(spatialRank);
+
+    for (size_t i = 0; i < spatialRank; ++i) {
+        const auto kernelDim = filterShape[spatialStartIdx + i];
+        if (kernelDim.is_dynamic()) {
+            return std::nullopt;
+        }
+
+        const auto kernel = kernelDim.get_length();
+        const auto effectiveKernel = (kernel - 1) * dilations[i] + 1;
+        const auto totalPad = effectiveKernel - 1;
+        const auto beginPad = totalPad / 2;
+
+        padsBegin.push_back(beginPad);
+        padsEnd.push_back(totalPad - beginPad);
+    }
+
+    return std::make_pair(std::move(padsBegin), std::move(padsEnd));
+}
 
 const std::string NGRAPH_ACT_SPARSITY_STATS_KEY = "activation_sparsity_statistic";
 const int64_t STATIC_RANK_MAX_DIMS = 5;
@@ -367,6 +418,7 @@ NGraphImporter::Callback NGraphImporter::getParser(const std::shared_ptr<ov::Nod
             MAP_ENTRY(ov::opset5::BatchNormInference),
             MAP_ENTRY(ov::opset6::GatherElements),
             MAP_ENTRY(ov::opset4::ScatterNDUpdate),
+            MAP_ENTRY(ov::opset15::ScatterNDUpdate),
             MAP_ENTRY(ov::opset3::ScatterUpdate),
             MAP_ENTRY(ov::opset3::ScatterElementsUpdate),
             MAP_ENTRY(ov::opset12::ScatterElementsUpdate),
@@ -418,6 +470,7 @@ NGraphImporter::Callback NGraphImporter::getParser(const std::shared_ptr<ov::Nod
             MAP_ENTRY(ov::opset5::Round),
             MAP_ENTRY(ov::opset4::Mish),
             MAP_ENTRY(ov::opset1::Erf),
+            MAP_ENTRY(ov::opset1::Broadcast),
             MAP_ENTRY(ov::opset3::Broadcast),
             MAP_ENTRY(ov::opset3::Bucketize),
             MAP_ENTRY(ov::opset1::Transpose),
@@ -1035,7 +1088,7 @@ mlir::RankedTensorType patchQuantileTypeForConstImport(mlir::RankedTensorType te
     if (auto quantile = mlir::dyn_cast<vpux::type::QuantileType>(tensorType.getElementType())) {
         VPUX_THROW_UNLESS(mlir::isa<mlir::IntegerType>(quantile.getStorageType()),
                           "Thus far only int storage type is supported in quantile-float");
-        return mlir::cast<RankedTensorType>(tensorType.cloneWith(std::nullopt, quantile.getStorageType()));
+        return mlir::cast<mlir::RankedTensorType>(tensorType.cloneWith(std::nullopt, quantile.getStorageType()));
     }
     return tensorType;
 }
@@ -1108,7 +1161,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
         return Const::createExternalConstContent(tensorType, rawBuffer, cstName, options);
     }();
 
-    Const::ContentSetup contentSetup(value.getType());
+    Const::ContentSetup contentSetup(value, value.getType());
 
     auto dataType = importPrecision(_ctx, origNode->get_output_element_type(0));
     if (vpux::Const::isSubByte(bitWidth) || mlir::isa<vpux::type::QuantileType>(dataType)) {
@@ -1291,10 +1344,29 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 2, "nGraph node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    const auto attrStride = getIntArrayAttr(_ctx, origNode->get_strides());
-    const auto attrPadsBegin = getIntArrayAttr(_ctx, origNode->get_pads_begin());
-    const auto attrPadsEnd = getIntArrayAttr(_ctx, origNode->get_pads_end());
-    const auto attrDilation = getIntArrayAttr(_ctx, origNode->get_dilations());
+    SmallVector<int64_t> strides(origNode->get_strides().begin(), origNode->get_strides().end());
+    SmallVector<int64_t> padsBegin(origNode->get_pads_begin().begin(), origNode->get_pads_begin().end());
+    SmallVector<int64_t> padsEnd(origNode->get_pads_end().begin(), origNode->get_pads_end().end());
+    SmallVector<int64_t> dilations(origNode->get_dilations().begin(), origNode->get_dilations().end());
+
+    // Workaround for E#223682: convert SAME_UPPER to explicit pads only for this limited case.
+    // Full solution is tracked separately in E#224338.
+    if (origNode->get_auto_pad() == ov::op::PadType::SAME_UPPER) {
+        const auto explicitPads =
+                tryConvertSameUpperToExplicitPads(origNode->get_input_partial_shape(1), strides, dilations,
+                                                  /*spatialStartIdx=*/2);
+        VPUX_THROW_UNLESS(explicitPads.has_value(),
+                          "Convolution '{0}' uses auto_pad=SAME_UPPER that cannot be converted to explicit pads in "
+                          "frontend. Supported limited case: static filter spatial shape and stride=1",
+                          origNode->get_friendly_name());
+        padsBegin = explicitPads->first;
+        padsEnd = explicitPads->second;
+    }
+
+    const auto attrStride = getIntArrayAttr(_ctx, strides);
+    const auto attrPadsBegin = getIntArrayAttr(_ctx, padsBegin);
+    const auto attrPadsEnd = getIntArrayAttr(_ctx, padsEnd);
+    const auto attrDilation = getIntArrayAttr(_ctx, dilations);
 
     auto op = builder.create<IE::ConvolutionOp>(createLocation(origNode), inputs[0], inputs[1], attrStride,
                                                 attrPadsBegin, attrPadsEnd, attrDilation);
@@ -1464,7 +1536,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     auto op = builder.create<IE::MaxPoolOp>(createLocation(origNode), inputs[0], attrKernelSize, attrStride,
                                             attrPadsBegin, attrPadsEnd, attrRoundingType, nullptr, nullptr, nullptr,
-                                            nullptr);
+                                            nullptr, nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -1789,7 +1861,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 3, "nGraph RandomUniform node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    const auto shapeConstant = ov::as_type<ov::opset7::Constant>(origNode->input_value(0).get_node());
+    const auto shapeConstant = dynamic_cast<ov::opset7::Constant*>(origNode->input_value(0).get_node());
     VPUX_THROW_UNLESS(shapeConstant != nullptr,
                       "nGraph RandomUniform node '{0}' must have Constant shape input in order to infer output shape.",
                       origNode->get_friendly_name());
@@ -1823,7 +1895,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     auto defaultOneHotMode = IE::OneHotModeAttr::get(_ctx, IE::OneHotMode::IGNORE_NEGATIVE);
     IE::OneHotOp op =
             builder.create<IE::OneHotOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3], nullptr,
-                                         nullptr, nullptr, axisAttr, defaultOneHotMode, outElemTypeAttr);
+                                         nullptr, nullptr, axisAttr, defaultOneHotMode, nullptr, outElemTypeAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -1842,7 +1914,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     IE::OneHotOp op = builder.create<IE::OneHotOp>(
             createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3], nullptr, nullptr, nullptr, axisAttr,
-            importOneHotMode(origNode->get_negative_indices_mode()), outElemTypeAttr);
+            importOneHotMode(origNode->get_negative_indices_mode()), nullptr, outElemTypeAttr);
 
     addOutputs(origNode, op);
     return op;
@@ -1892,6 +1964,25 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto inputs = getInputs(origNode);
     VPUX_THROW_UNLESS(inputs.size() == 3, "nGraph ScatterNDUpdate node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
+
+    auto op = builder.create<IE::ScatterNDUpdateOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2]);
+    addOutputs(origNode, op);
+    return op;
+}
+
+mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
+                                           const std::shared_ptr<ov::opset15::ScatterNDUpdate>& origNode) {
+    static_assert(std::is_same<std::decay<decltype(*origNode)>::type, ov::opset15::ScatterNDUpdate>::value,
+                  "opset operation mismatch");
+
+    const auto inputs = getInputs(origNode);
+    VPUX_THROW_UNLESS(inputs.size() == 3, "nGraph ScatterNDUpdate node '{0}' has unsupported number of inputs '{1}'",
+                      origNode->get_friendly_name(), inputs.size());
+
+    const auto reduction = origNode->get_reduction();
+    VPUX_THROW_UNLESS(reduction == ov::op::v15::ScatterNDUpdate::Reduction::NONE,
+                      "nGraph ScatterNDUpdate node '{0}' has unsupported reduction type '{1}'",
+                      origNode->get_friendly_name(), static_cast<int>(reduction));
 
     auto op = builder.create<IE::ScatterNDUpdateOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2]);
     addOutputs(origNode, op);
@@ -1966,10 +2057,40 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
         VPUX_THROW_WHEN(mlir::failed(parsedShape), "Failed to import IE.ReshapeOp with static shape");
         op = builder.create<IE::ReshapeOp>(loc, inputs[0], getIntArrayAttr(builder.getContext(), parsedShape.value()));
     } else {
-        const auto outputShape = importShape(origNode->output(0).get_partial_shape());
+        const auto outputPartialShape = origNode->output(0).get_partial_shape();
+
+        const auto outputShape = importShape(outputPartialShape);
         const auto outputShapeAttr = getIntArrayAttr(builder.getContext(), outputShape);
-        const auto outputBounds = origNode->output(0).get_partial_shape().get_max_shape();
+
+        auto outputBounds = outputPartialShape.get_max_shape();
+        // Infer missing output bound when OV partial shape inference produces int64_t max as a bound.
+        // Compute the missing dimension from the input/output bounds product ratio.
+        // Example: input bounds [2, 3, 4], output bounds [2, int64_max] -> output bounds [2, 12]
+        auto it = std::find(outputBounds.begin(), outputBounds.end(), std::numeric_limits<int64_t>::max());
+        if (it != outputBounds.end()) {
+            const auto& nodeName = origNode->get_friendly_name();
+            // Only a single dynamic output bound dimension is supported for inference.
+            const auto dynamicDimCount =
+                    std::count(outputBounds.begin(), outputBounds.end(), std::numeric_limits<int64_t>::max());
+            VPUX_THROW_WHEN(dynamicDimCount != 1,
+                            "Reshape node '{0}': expected exactly 1 dynamic output bound dimension, got {1}", nodeName,
+                            dynamicDimCount);
+
+            const auto& inputBounds = mlir::dyn_cast<Core::BoundedTensorType>(inputs[0].getType()).getBounds();
+            const int64_t inputBoundsProduct =
+                    std::accumulate(inputBounds.begin(), inputBounds.end(), int64_t{1}, std::multiplies<int64_t>());
+            const int64_t outputBoundsProduct =
+                    std::accumulate(outputBounds.begin(), outputBounds.end(), int64_t{1}, [](int64_t acc, int64_t val) {
+                        return val == std::numeric_limits<int64_t>::max() ? acc : acc * val;
+                    });
+
+            VPUX_THROW_WHEN(inputBoundsProduct <= 0 || outputBoundsProduct <= 0 ||
+                                    inputBoundsProduct % outputBoundsProduct != 0,
+                            "Reshape node '{0}': cannot compute output bounds dimension", nodeName);
+            *it = inputBoundsProduct / outputBoundsProduct;
+        }
         const auto outputBoundsAttr = getIntArrayAttr(builder.getContext(), outputBounds);
+
         op = builder.create<IE::DynamicReshapeOp>(createLocation(origNode), inputs[0], inputs[1], outputShapeAttr,
                                                   outputBoundsAttr);
     }
@@ -2114,6 +2235,61 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::
     return op;
 }
 
+mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
+                                           const std::shared_ptr<ov::opset1::Broadcast>& origNode) {
+    static_assert(std::is_same<std::decay<decltype(*origNode)>::type, ov::op::v1::Broadcast>::value,
+                  "opset operation mismatch");
+
+    const auto inputs = getInputs(origNode);
+    VPUX_THROW_UNLESS(inputs.size() == 2 || inputs.size() == 3,
+                      "nGraph Broadcast node '{0}' has unsupported number of inputs '{1}'",
+                      origNode->get_friendly_name(), inputs.size());
+
+    IE::BroadcastTypeAttr mode = nullptr;
+    switch (origNode->get_broadcast_spec().m_type) {
+    case ov::op::AutoBroadcastType::NONE:
+        mode = IE::BroadcastTypeAttr::get(_ctx, IE::BroadcastType::EXPLICIT);
+        break;
+    case ov::op::AutoBroadcastType::NUMPY:
+        mode = IE::BroadcastTypeAttr::get(_ctx, IE::BroadcastType::NUMPY);
+        break;
+    default:
+        VPUX_THROW("Unsupported AutoBroadcastType for Broadcast operation");
+    }
+
+    mlir::Value axesMapping = nullptr;
+    if (inputs.size() >= 3 && mode.getValue() == IE::BroadcastType::EXPLICIT) {
+        axesMapping = inputs[2];
+
+        auto ndType = mlir::dyn_cast<vpux::NDTypeInterface>(axesMapping.getType());
+        VPUX_THROW_UNLESS(ndType != nullptr, "Broadcast axes_mapping must be NDTypeInterface");
+        VPUX_THROW_UNLESS(ndType.getRank() == 1, "Broadcast axes_mapping must be 1D got rank {0}", ndType.getRank());
+
+        auto elemType = ndType.getElementType();
+        if (!elemType.isInteger(32) && !elemType.isInteger(64)) {
+            auto i64Type = mlir::IntegerType::get(builder.getContext(), 64);
+            auto castType = ndType.changeElemType(i64Type);
+            axesMapping = builder.create<IE::ConvertOp>(createLocation(origNode), castType, axesMapping).getOutput();
+        }
+    }
+
+    if (checkDynamicInputsOutputs(origNode)) {
+        const auto outputShape = importShape(origNode->output(0).get_partial_shape());
+        const auto outputShapeAttr = getIntArrayAttr(builder.getContext(), outputShape);
+        const auto outputBounds = origNode->output(0).get_partial_shape().get_max_shape();
+        const auto outputBoundsAttr = getIntArrayAttr(builder.getContext(), outputBounds);
+
+        IE::DynamicBroadcastOp op = builder.create<IE::DynamicBroadcastOp>(
+                createLocation(origNode), inputs[0], inputs[1], axesMapping, mode, outputShapeAttr, outputBoundsAttr);
+        addOutputs(origNode, op);
+        return op;
+    } else {
+        IE::BroadcastOp op =
+                builder.create<IE::BroadcastOp>(createLocation(origNode), inputs[0], inputs[1], axesMapping, mode);
+        addOutputs(origNode, op);
+        return op;
+    }
+}
 mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                                            const std::shared_ptr<ov::opset3::Broadcast>& origNode) {
     static_assert(std::is_same<std::decay<decltype(*origNode)>::type, ov::op::v3::Broadcast>::value,
@@ -3292,8 +3468,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto directionAttr = importRNNSequenceDirection(origNode->get_direction());
 
-    auto seqLenNodeConst = ov::as_type<ov::opset7::Constant>(origNode->input_value(3).get_node());
-    auto seqLenParam = ov::as_type<ov::opset7::Parameter>(origNode->input_value(3).get_node());
+    auto seqLenNodeConst = dynamic_cast<ov::opset7::Constant*>(origNode->input_value(3).get_node());
+    auto seqLenParam = dynamic_cast<ov::opset7::Parameter*>(origNode->input_value(3).get_node());
 
     IE::LSTMSequenceOp op;
 
@@ -4222,7 +4398,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                       "nGraph GRUSequence node '{0}' has unsupported activations '{1}'", origNode->get_friendly_name(),
                       origNode->get_activations());
 
-    const auto seqLenConstant = ov::as_type<ov::opset7::Constant>(origNode->input_value(2).get_node());
+    const auto seqLenConstant = dynamic_cast<ov::opset7::Constant*>(origNode->input_value(2).get_node());
     VPUX_THROW_UNLESS(seqLenConstant != nullptr,
                       "nGraph GRUSequence node '{0}' has unsupported sequenceLengths input. It must be a Constant node",
                       origNode->get_friendly_name());
@@ -4771,9 +4947,9 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::
         outputTypes.push_back(type);
     }
 
-    auto op =
-            builder.create<IE::ExternalKernelOp>(createLocation(origNode), mlir::TypeRange(outputTypes),
-                                                 mlir::ValueRange(inputs), dictAttr, opUniqueIdStrAttr, kernelPathAttr);
+    auto op = builder.create<Shave::ExternalKernelOp>(createLocation(origNode), mlir::TypeRange(outputTypes),
+                                                      mlir::ValueRange(inputs), dictAttr, opUniqueIdStrAttr,
+                                                      kernelPathAttr);
 
     addOutputs(origNode, op);
     return op;
@@ -5079,10 +5255,14 @@ IE::OneHotModeAttr NGraphImporter::importOneHotMode(const ov::op::v16::OneHot::N
 }
 
 IE::RoPEModeAttr NGraphImporter::importRoPEMode(const ov::op::internal::RoPE::Config& cfg) {
+    const bool isPairwise = cfg.cos_sin_ndims > 0 && cfg.rotary_ndims == 2 * cfg.cos_sin_ndims;
+
+    if (cfg.is_interleaved && isPairwise) {
+        return IE::RoPEModeAttr::get(_ctx, IE::RoPEMode::PAIRWISE_INTERLEAVED);
+    }
     if (cfg.is_interleaved) {
         return IE::RoPEModeAttr::get(_ctx, IE::RoPEMode::INTERLEAVED);
     }
-    const bool isPairwise = cfg.cos_sin_ndims > 0 && cfg.rotary_ndims == 2 * cfg.cos_sin_ndims;
     if (isPairwise) {
         return IE::RoPEModeAttr::get(_ctx, IE::RoPEMode::PAIRWISE);
     }
@@ -5477,9 +5657,29 @@ static bool skipMarkDequantization(const std::shared_ptr<const ov::Node>& node) 
 }
 
 static bool skipKeepConstAndDecompressionForNodeWS(const std::shared_ptr<const ov::Node>& node) {
+    assert(ov::is_type<ov::op::v0::Convert>(node) &&
+           "Unexpected node type: this method should be called only for Convert nodes within the "
+           "ov::pass::KeepConstAndDecompression pass.");
+    const auto& nodeTargetInputs = node->get_output_target_inputs(0);
+
+    if (nodeTargetInputs.empty()) {
+        return false;
+    }
+
     // We want to fold Convert->Range operations.
-    auto nextNode = node->get_output_target_inputs(0).begin()->get_node();
-    return ov::is_type<ov::op::v4::Range>(nextNode);
+    auto nextNode = nodeTargetInputs.begin()->get_node();
+    if (ov::is_type<ov::op::v4::Range>(nextNode)) {
+        return true;
+    }
+
+    // Unsqueeze does not support non-constant axes, so allow folding in this case as well:
+    // Const->Convert(f32->f16)->Unsqueeze
+    auto isUnsqueezeAxesInput = [](const ov::Input<ov::Node>& input) {
+        return ov::is_type<ov::opset1::Unsqueeze>(input.get_node()) && input.get_index() == 1;
+    };
+
+    // TODO: E#14544 allow constant folding for more patterns, such as where only a constant value is supported.
+    return std::any_of(nodeTargetInputs.begin(), nodeTargetInputs.end(), isUnsqueezeAxesInput);
 }
 
 static bool skipKeepConstAndDecompressionForNode(const std::shared_ptr<const ov::Node>& node) {
@@ -5623,6 +5823,11 @@ static bool skipKeepConstAndDecompressionForNode(const std::shared_ptr<const ov:
 }
 
 static void addCommonOptimizationsPasses(ov::pass::Manager& manager, const ImportNetworkConfig& importCfg) {
+    // Decompose GQA before MOCTransformations so that SharedOpOptimization (CSE),
+    // TransposeToReshape, and SubtractFusion can optimize the decomposed subgraph.
+    // Without this, each transformer layer retains its own copy of RoPE Gather
+    // and attention mask computation instead of sharing them.
+    manager.register_pass<ov::pass::GroupQueryAttentionDecomposition>();
     // MOCTransformations contain StridedSliceOptimization transformation,
     // so we must call SliceToStridedSlice before MOCTransformations call
     manager.register_pass<ov::pass::SliceToStridedSlice>(true);
@@ -5639,6 +5844,7 @@ static void addCommonOptimizationsPasses(ov::pass::Manager& manager, const Impor
     pass_config->disable<ov::pass::FakeQuantizeMulFusion>();
     pass_config->disable<ov::pass::MulFakeQuantizeFusion>();
     pass_config->disable<ov::pass::MultiplyConvolutionFusion>();
+    pass_config->disable<ov::pass::TransposeFQ>();
 
     // NMS conversion passes
     manager.register_pass<ov::pass::ConvertNMS1ToNMS9>();
@@ -5668,7 +5874,6 @@ static void addCommonOptimizationsPasses(ov::pass::Manager& manager, const Impor
     decomp->add_matcher<ov::pass::EinsumDecomposition>();
     decomp->add_matcher<ov::pass::DropoutWithRandomUniformReplacer>();
 
-    decomp->add_matcher<ov::pass::GroupQueryAttentionDecomposition>();
     if (importCfg.enableDecomposeSDPA) {
         decomp->add_matcher<ov::pass::ScaledDotProductAttentionDecomposition>();
     }
@@ -5872,7 +6077,7 @@ net::DataInfoOp createDataInfoOp(mlir::OpBuilder infoBuilder, mlir::MLIRContext*
 template <typename NodeT>
 bool isIoWithDynamicStrides(std::shared_ptr<const ov::Node> node, const std::set<std::string>& ioWithDynamicStrides) {
     std::vector<std::string> nodeNames{node->get_name(), node->get_friendly_name()};
-    auto typedNode = ov::as_type_ptr<NodeT>(node);
+    auto typedNode = std::dynamic_pointer_cast<NodeT>(node);
     VPUX_THROW_UNLESS(typedNode, "Couldn't cast node");
     auto tensorNames = typedNode->output(0).get_tensor().get_names();
 
@@ -5994,6 +6199,7 @@ mlir::OwningOpRef<mlir::ModuleOp> vpux::IE::importNetwork(
     // Therefore, we should also explicitly initialize QuantileDialect asap.
     ctx->loadDialect<vpux::type::QuantileDialect>();
     ctx->loadDialect<IE::IEDialect>();
+    ctx->loadDialect<Shave::ShaveDialect>();
 
     if (importCfg.dynamicShapeToStatic && model->is_dynamic()) {
         dynamicToStaticShape(model);

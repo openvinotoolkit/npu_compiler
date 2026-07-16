@@ -19,12 +19,12 @@
 
 #include <gtest/gtest.h>
 
-using vpux::config::ArchKind;
+using vpux::config::Platform;
 
-void testSparsitySupport(llvm::StringLiteral inputIR, ArchKind arch, bool supportInputSparsity,
+void testSparsitySupport(llvm::StringLiteral inputIR, Platform platform, bool supportInputSparsity,
                          bool supportOutputSparsity, bool supportWeightSparsity) {
     auto registry = vpux::createDialectRegistry();
-    auto interfacesRegistry = vpux::createInterfacesRegistry(arch);
+    auto interfacesRegistry = vpux::createInterfacesRegistry(platform);
     interfacesRegistry->registerInterfaces(registry);
 
     mlir::MLIRContext ctx(registry);
@@ -35,7 +35,7 @@ void testSparsitySupport(llvm::StringLiteral inputIR, ArchKind arch, bool suppor
     ASSERT_TRUE(func != nullptr);
 
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    auto initCompilerOptions = vpux::VPU::InitCompilerOptions(arch, vpux::config::CompilationMode::DefaultHW);
+    auto initCompilerOptions = vpux::VPU::InitCompilerOptions(platform, vpux::config::CompilationMode::DefaultHW);
 
     vpux::VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
 
@@ -57,10 +57,10 @@ TEST(MLIR_VPU_Sparsity, NCEZMajorConvSparsitySupport) {
         module @test {
             func.func @main(%arg0: tensor<1x16x16x16xf16, {order = #NHWC}>, %wt: tensor<16x1x1x4xsi32>) -> tensor<1x16x16x16xf16, {order = #NHWC}> {
                 %weights = const.Declare tensor<16x16x1x1xf16, {order = #NHWC}> = dense<1.> : tensor<16x16x1x1xf16>, [#const.Reorder<#NHWC>]
-                %1 = VPU.NCE.Convolution(%arg0, %weights, %wt) {
+                %1 = VPU.NCE.Convolution(%arg0, %weights, %wt) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                         ppe = #VPU.PPEStub<>,
                         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                        rawFilterShape = [16, 16, 1, 1],
+                        
                         strides = [1, 1]
                     } : tensor<1x16x16x16xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x16x16xf16, {order = #NHWC}>
 
@@ -68,7 +68,7 @@ TEST(MLIR_VPU_Sparsity, NCEZMajorConvSparsitySupport) {
             }
         }
     )";
-    testSparsitySupport(inputIR, ArchKind::NPU37XX, /*input=*/true, /*output=*/true, /*weights=*/true);
+    testSparsitySupport(inputIR, Platform::NPU3720, /*input=*/true, /*output=*/true, /*weights=*/true);
 }
 
 TEST(MLIR_VPU_Sparsity, NCEEltwiseSparsitySupport) {
@@ -82,7 +82,7 @@ TEST(MLIR_VPU_Sparsity, NCEEltwiseSparsitySupport) {
             }
         }
     )";
-    testSparsitySupport(inputIR, ArchKind::NPU37XX, /*input=*/false, /*output=*/true, /*weights=*/false);
+    testSparsitySupport(inputIR, Platform::NPU3720, /*input=*/false, /*output=*/true, /*weights=*/false);
 }
 
 TEST(MLIR_VPU_Sparsity, NCEDepthconvSparsitySupport) {
@@ -96,17 +96,17 @@ TEST(MLIR_VPU_Sparsity, NCEDepthconvSparsitySupport) {
                 %cst1 = const.Declare tensor<16x1x1x4xsi32> =
                     dense<1> : tensor<16x1x1x4xsi32>
 
-                %0 = VPU.NCE.DepthConvolution(%arg0, %cst0, %cst1) {
+                %0 = VPU.NCE.DepthConvolution(%arg0, %cst0, %cst1) rawFilterShape [16, 1, 4, 8] {
                         ppe = #VPU.PPEStub<>,
                         pad = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>,
-                        rawFilterShape = [16, 1, 4, 8],
+                        
                         strides = [1, 1]
                     } -> tensor<1x16x37x73xf16, {order = #NHWC}>
                 return %0 : tensor<1x16x37x73xf16, {order = #NHWC}>
             }
         }
     )";
-    testSparsitySupport(inputIR, ArchKind::NPU37XX, /*input=*/false, /*output=*/true, /*weights=*/false);
+    testSparsitySupport(inputIR, Platform::NPU3720, /*input=*/false, /*output=*/true, /*weights=*/false);
 }
 
 TEST(MLIR_VPU_Sparsity, NCEMaxpoolSparsitySupport) {
@@ -127,7 +127,7 @@ TEST(MLIR_VPU_Sparsity, NCEMaxpoolSparsitySupport) {
             }
         }
     )";
-    testSparsitySupport(inputIR, ArchKind::NPU37XX, /*input=*/false, /*output=*/true, /*weights=*/false);
+    testSparsitySupport(inputIR, Platform::NPU3720, /*input=*/false, /*output=*/true, /*weights=*/false);
 }
 
 TEST(MLIR_VPU_Sparsity, NCEAvgpoolSparsitySupport) {
@@ -147,5 +147,5 @@ TEST(MLIR_VPU_Sparsity, NCEAvgpoolSparsitySupport) {
             }
         }
     )";
-    testSparsitySupport(inputIR, ArchKind::NPU37XX, /*input=*/false, /*output=*/true, /*weights=*/false);
+    testSparsitySupport(inputIR, Platform::NPU3720, /*input=*/false, /*output=*/true, /*weights=*/false);
 }

@@ -10,8 +10,11 @@
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/interfaces/dma_descriptor_generator.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/strides_utils.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
@@ -155,6 +158,35 @@ bool vpux::VPUIP::satisfiesOptimizedMemPermute(config::ArchKind arch, NDTypeInte
         }
     }
     return false;
+}
+
+bool vpux::VPUIP::isBeneficialForFusingWeightsPermutation(config::ArchKind arch, mlir::Operation* op) {
+    auto isMemPermuteOp = [&] {
+        if (mlir::isa<VPU::MemPermuteOp>(op)) {
+            return true;
+        }
+
+        auto swKernelOp = mlir::dyn_cast_if_present<VPUIP::SwKernelOp>(op);
+        return swKernelOp != nullptr && VPUIP::isMemPermSwKernel(swKernelOp);
+    }();
+    if (!isMemPermuteOp) {
+        return false;
+    }
+
+    const auto hasDynamicDequantizeConsumer = [&] {
+        auto firstUser = *op->getUsers().begin();
+        while ((mlir::isa_and_nonnull<VPUIP::DistributedCastOp, VPUIP::SubViewOp, VPUIP::CopyOp>(firstUser))) {
+            firstUser = *firstUser->getUsers().begin();
+        }
+
+        if (mlir::isa_and_nonnull<VPU::DynamicDequantizeOp>(firstUser)) {
+            return true;
+        }
+
+        auto consumerSwKernel = mlir::dyn_cast_if_present<VPUIP::SwKernelOp>(firstUser);
+        return consumerSwKernel != nullptr && VPUIP::getSwKernelEntryName(consumerSwKernel) == "dynamic_dequantize";
+    }();
+    return arch > config::ArchKind::NPU40XX && hasDynamicDequantizeConsumer;
 }
 
 bool isDMASupportedMemPermuteDistribution(vpux::NDTypeInterface inputType, vpux::NDTypeInterface outputType) {
@@ -551,6 +583,7 @@ bool vpux::VPUIP::doesPermuteDMATileDimSupportWrapInCluster(vpux::NDTypeInterfac
                                                             mlir::AffineMap memPerm,
                                                             VPUIP::DistributedBufferType distributedOutputType,
                                                             vpux::Logger log) {
+    const auto elemSizeBits = inType.getElemTypeSize();
     auto mergedOutputShape = VPUIP::getPermuteDMAOutputShape(inType, outType, memPerm, log).value();
     auto mergedDims = VPUIP::getPermuteDMAOutputMergedDimList(outType, mergedOutputShape);
     VPUX_THROW_UNLESS(mergedDims.size() == 2 || mergedDims.size() == 3, "Invalid dims size, get {0}",
@@ -565,7 +598,35 @@ bool vpux::VPUIP::doesPermuteDMATileDimSupportWrapInCluster(vpux::NDTypeInterfac
     }
 
     if (mergedDims.size() == 3) {
-        return false;
+        auto mergedMemPerm = VPUIP::getPermuteDMAMergedMemPerm(inType, memPerm);
+        auto ctx = inType.getContext();
+        // Only support HWC -> WHC permute
+        if (mergedMemPerm != mlir::AffineMap::getPermutationMap(SmallVector<unsigned>{1, 0, 2}, ctx)) {
+            return false;
+        }
+
+        if (elemSizeBits.count() < CHAR_BIT) {
+            const auto isStrideByteAligned = [](vpux::NDTypeInterface type) {
+                const auto memStrides = type.getMemStrides().raw();
+                for (auto i : irange(memStrides.size() - 1)) {
+                    if (memStrides[i].count() % CHAR_BIT != 0) {
+                        return false;
+                    }
+                }
+
+                return true;
+            };
+            if (!isStrideByteAligned(inType) || !isStrideByteAligned(outType)) {
+                return false;
+            }
+
+            // Compound element (innermost merged dim × elemSize) must be byte-aligned.
+            const auto innerDim = mergedOutputShape.back();
+            auto mergedElemTypeSizeBits = innerDim * elemSizeBits.count();
+            if (mergedElemTypeSizeBits % CHAR_BIT != 0) {
+                return false;
+            }
+        }
     }
 
     auto tileDim = getTileDimForPermuteDMA(inType, outType, memPerm, distributedOutputType, log);
@@ -1234,7 +1295,7 @@ VPURT::DeclareBufferOp vpux::VPUIP::createNewDeclareBuffer(mlir::PatternRewriter
 }
 
 vpux::NDTypeInterface vpux::VPUIP::changeShapeWithMemShape(vpux::NDTypeInterface* type, vpux::ShapeRef newMemShape,
-                                                           DimsOrder order) {
+                                                           const DimsOrder& order) {
     auto newShape = order.toLogicalOrder(DimsOrder::NCHW.toMemoryOrder(newMemShape));
     return type->changeShape(ShapeRef(newShape));
 }

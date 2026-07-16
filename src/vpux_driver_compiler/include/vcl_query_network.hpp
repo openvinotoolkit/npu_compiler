@@ -10,7 +10,9 @@
 
 #pragma once
 
-#include "vcl_common.hpp"
+#include "vcl_logger.hpp"
+
+#include <memory>
 
 namespace VPUXDriverCompiler {
 
@@ -22,7 +24,7 @@ class VPUXExecutableL0;
  */
 class VPUXQueryNetworkL0 final {
 public:
-    explicit VPUXQueryNetworkL0(VCLLogger* vclLogger);
+    explicit VPUXQueryNetworkL0(std::shared_ptr<VCLLogger> vclLogger);
 
     /**
      * @brief Serialize supported layer to special format which can be passed to adapter.
@@ -54,7 +56,7 @@ public:
 private:
     std::vector<uint8_t> queryResultVec;  ///< The serialized query result
     uint64_t size = 0;
-    VCLLogger* _logger;
+    std::shared_ptr<VCLLogger> _logger;
 };
 
 }  // namespace VPUXDriverCompiler

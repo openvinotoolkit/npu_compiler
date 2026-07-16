@@ -9,6 +9,9 @@
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(RollLayerTest);
+
 class RollLayerTestCommon : public RollLayerTest, virtual public VpuOv2LayerTest {};
 
 TEST_P(RollLayerTestCommon, NPU3720) {

@@ -21,15 +21,24 @@
 using namespace vpux;
 
 //
+// PipelineRegistry50XX::PipelineRegistry50XX
+//
+
+PipelineRegistry50XX::PipelineRegistry50XX(config::Platform platform): _platform(platform) {
+    VPUX_THROW_UNLESS(getArch(platform) == config::ArchKind::NPU50XX,
+                      "Failed to initialize PipelineRegistry50XX with platform: {0}",
+                      config::stringifyPlatform(platform));
+}
+
+//
 // PipelineRegistry50XX::registerPipelines
 //
 
 void PipelineRegistry50XX::registerPipelines() {
     mlir::PassPipelineRegistration<DefaultHWOptions50XX>(
             "reference-sw-mode", "Compile IE Network in Reference Software mode (SW only execution) for NPU50XX",
-            [](mlir::OpPassManager& pm, const DefaultHWOptions50XX& options) {
-                VPU::InitCompilerOptions initCompilerOptions{config::ArchKind::NPU50XX,
-                                                             config::CompilationMode::ReferenceSW, options};
+            [platform = _platform](mlir::OpPassManager& pm, const DefaultHWOptions50XX& options) {
+                VPU::InitCompilerOptions initCompilerOptions{platform, config::CompilationMode::ReferenceSW, options};
                 auto createPipelineStartegy = [&](config::CompilationMode) {
                     return createDialectPipelineStrategy50XXReferenceSW<DefaultHWOptions50XX>(&initCompilerOptions,
                                                                                               &options);
@@ -40,9 +49,8 @@ void PipelineRegistry50XX::registerPipelines() {
 
     mlir::PassPipelineRegistration<DefaultHWOptions50XX>(
             "default-hw-mode", "Compile IE Network in Default Hardware mode (HW and SW execution) for NPU50XX",
-            [](mlir::OpPassManager& pm, const DefaultHWOptions50XX& options) {
-                VPU::InitCompilerOptions initCompilerOptions{config::ArchKind::NPU50XX,
-                                                             config::CompilationMode::DefaultHW, options};
+            [platform = _platform](mlir::OpPassManager& pm, const DefaultHWOptions50XX& options) {
+                VPU::InitCompilerOptions initCompilerOptions{platform, config::CompilationMode::DefaultHW, options};
                 auto createPipelineStartegy = [&](config::CompilationMode) {
                     return createDialectPipelineStrategy50XX<DefaultHWOptions50XX>(&initCompilerOptions, &options);
                 };
@@ -52,9 +60,8 @@ void PipelineRegistry50XX::registerPipelines() {
 
     mlir::PassPipelineRegistration<DefaultHWOptions50XX>(
             "host-compile", "Compile IE Network in Host mode (host and HW execution) for NPU50XX",
-            [](mlir::OpPassManager& pm, const DefaultHWOptions50XX& options) {
-                VPU::InitCompilerOptions initCompilerOptions{config::ArchKind::NPU50XX,
-                                                             config::CompilationMode::HostCompile, options};
+            [platform = _platform](mlir::OpPassManager& pm, const DefaultHWOptions50XX& options) {
+                VPU::InitCompilerOptions initCompilerOptions{platform, config::CompilationMode::HostCompile, options};
                 auto createPipelineStrategy = [&](config::CompilationMode compilationMode) {
                     return createDialectPipelineStrategy50XXHostCompile<DefaultHWOptions50XX>(
                             compilationMode, &initCompilerOptions, &options);

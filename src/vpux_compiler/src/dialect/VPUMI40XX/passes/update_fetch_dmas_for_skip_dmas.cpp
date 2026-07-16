@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2026 Intel Corporation.
+// Copyright (C) 2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -12,6 +12,7 @@
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/passes.hpp"
+#include "vpux/compiler/utils/types.hpp"
 
 namespace vpux::VPUMI40XX {
 #define GEN_PASS_DECL_UPDATEFETCHDMAFORSKIPDMAS
@@ -33,28 +34,29 @@ struct PlannedFetch {
     int64_t logical;
     int64_t list;
     int64_t memPriority;
+    int64_t port;
 };
 
 namespace {
 
 class UpdateFetchDMAForSkipDMAs : public VPUMI40XX::impl::UpdateFetchDMAForSkipDMAsBase<UpdateFetchDMAForSkipDMAs> {
 public:
-    explicit UpdateFetchDMAForSkipDMAs(Logger log): _dmaMetadataOffset(0), _dmaTaskBinarySize(0) {
+    explicit UpdateFetchDMAForSkipDMAs(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
     void collectFetchAndSkipDMAs(DMAMap& fetchMap, DMAMap& skipMap);
-    uint64_t getRegionOffset(VPURegMapped::TaskType target, config::ArchKind arch);
-    mlir::MemRefType createFetchOutputMemRefs(mlir::OpBuilder& builder, uint32_t tile);
+
+    uint64_t getRegionOffset(VPURegMapped::TaskType target, config::ArchKind arch, const uint64_t& shaveCountPerTile);
+    mlir::MemRefType createFetchOutputMemRefs(mlir::OpBuilder& builder, uint32_t tile, size_t dmaTaskBinarySize);
     VPUMI40XX::DeclareTaskBufferOp createTaskBuffer(mlir::OpBuilder& builder, PlannedFetch plannedFetch,
                                                     mlir::Operation* insertionPoint,
                                                     TileListToIndexMap& taskBufferIndex,
-                                                    TileListToOffsetMap& taskBufferOffset);
+                                                    TileListToOffsetMap& taskBufferOffset, size_t dmaTaskBinarySize,
+                                                    uint64_t dmaMetadataOffset);
 
 private:
     void safeRunOnFunc() final;
-    uint64_t _dmaMetadataOffset;
-    size_t _dmaTaskBinarySize;
 };
 
 // CMX Metadata Layout
@@ -66,40 +68,57 @@ private:
 // Layout (low -> high addresses):
 //
 //  +------------------------+
-//  | DPU Variant Descriptors|
-//  +------------------------+
 //  | DPU Invar Descriptors  |
+//  +------------------------+
+//  | DPU Variant Descriptors|
 //  +------------------------+
 //  | SHV Kernel Descriptors |
 //  +------------------------+
 //  | SAV Invo Descriptors   |
 //  +------------------------+
+//  |    M2I Descriptors     |
+//  +------------------------+
 //  | DMA Descriptors        |
 //  +------------------------+
 //
-// The DMA metadata region is placed after all previous sections.
-// Its starting offset is fixed and known at compile time.
+// The DMA metadata region is placed after all previous metadata sections.
+// Its starting offset is fixed at compile time and must account for both
+// SHAVE lists per tile.
+//
 //
 // Example (not to scale):
 //
 //  Address
 //    |
 //    v
-//    0x0000  +------------------------+
-//            | DPU Variant Descriptors|
-//    ...     +------------------------+
-//            | DPU Invar Descriptors  |
-//    ...     +------------------------+
-//            | SHV Kernel Descriptors |
-//    ...     +------------------------+
-//            | SAV Invo Descriptors   |
-//  0xD900    +------------------------+  <-- DMA metadata start (dmaMetadataOffset)
-//            | DMA Descriptor 0       |
-//            +------------------------+
-//            | DMA Descriptor 1       |
-//            +------------------------+
-//            | ...                    |
-//            +------------------------+
+//    0x0000  +-----------------------------+
+//            | DPU Invariant Descriptors   |
+//            | 64 * 352 = 22528 bytes      |
+//  0x5800    +-----------------------------+
+//            | DPU Variant Descriptors     |
+//            | 128 * 224 = 28672 bytes     |
+//  0xC800    +-----------------------------+
+//            | SHV Kernel Range, list 0    |
+//            | 32 * 40 = 1280 bytes        |
+//  0xCD00    +-----------------------------+
+//            | SHV Invocation, list 0      |
+//            | 32 * 96 = 3072 bytes        |
+//  0xD900    +-----------------------------+
+//            | SHV Kernel Range, list 1    |
+//            | 32 * 40 = 1280 bytes        |
+//  0xDE00    +-----------------------------+
+//            | SHV Invocation, list 1      |
+//            | 32 * 96 = 3072 bytes        |
+//  0xEA00    +-----------------------------+
+//            | M2I Descriptors             |
+//            | 4 * 240 = 960 bytes         |
+//  0xEDC0    +-----------------------------+  <-- DMA metadata start (dmaMetadataOffset)
+//            | DMA Descriptor 0            |
+//            +-----------------------------+
+//            | DMA Descriptor 1            |
+//            +-----------------------------+
+//            | ...                         |
+//            +-----------------------------+
 //
 // We use a constant `dmaMetadataOffset` to point to the beginning of the DMA
 // metadata section. All DMA task descriptors are allocated sequentially from
@@ -165,7 +184,8 @@ private:
 // lists do not introduce fragmentation within that block.
 //
 // Offset assignment in this pass strictly follows this layout.
-uint64_t UpdateFetchDMAForSkipDMAs::getRegionOffset(VPURegMapped::TaskType target, config::ArchKind arch) {
+uint64_t UpdateFetchDMAForSkipDMAs::getRegionOffset(VPURegMapped::TaskType target, config::ArchKind arch,
+                                                    const uint64_t& shaveCountPerTile) {
     struct Entry {
         VPURegMapped::TaskType type;
         size_t count;
@@ -181,29 +201,32 @@ uint64_t UpdateFetchDMAForSkipDMAs::getRegionOffset(VPURegMapped::TaskType targe
     Entry layout[] = {
             {VPURegMapped::TaskType::DPUInvariant, invCount},
             {VPURegMapped::TaskType::DPUVariant, varCount},
-            {VPURegMapped::TaskType::ActKernelRange, rangeCount},
-            {VPURegMapped::TaskType::ActKernelInvocation, invoCount},
-            {VPURegMapped::TaskType::DMA, dmaCount},
+            {VPURegMapped::TaskType::ActKernelRange, rangeCount * shaveCountPerTile},
+            {VPURegMapped::TaskType::ActKernelInvocation, invoCount * shaveCountPerTile},
             {VPURegMapped::TaskType::M2I, m2iCount},
+            {VPURegMapped::TaskType::DMA, dmaCount},
     };
 
     uint64_t offset = 0;
     for (const auto& entry : layout) {
         if (entry.type == target) {
-            break;
+            return offset;
         }
-        offset += entry.count * VPUMI40XX::getTaskBinarySize(entry.type, arch);
+
+        offset += checked_cast<uint64_t>(entry.count) *
+                  checked_cast<uint64_t>(VPUMI40XX::getTaskBinarySize(entry.type, arch));
     }
 
-    return offset;
+    VPUX_THROW("Task Type {0} not registered in metadata layout", target);
 }
 
-mlir::MemRefType UpdateFetchDMAForSkipDMAs::createFetchOutputMemRefs(mlir::OpBuilder& builder, uint32_t tile) {
+mlir::MemRefType UpdateFetchDMAForSkipDMAs::createFetchOutputMemRefs(mlir::OpBuilder& builder, uint32_t tile,
+                                                                     size_t dmaTaskBinarySize) {
     const auto memSpaceCMX =
             vpux::IndexedSymbolAttr::get(builder.getContext(), stringifyEnum(VPU::MemoryKind::CMX_NN), tile);
 
     auto memrefDDR =
-            mlir::MemRefType::get({1, static_cast<int64_t>(_dmaTaskBinarySize)}, builder.getIntegerType(8, false));
+            vpux::getMemRefType({1, static_cast<int64_t>(dmaTaskBinarySize)}, builder.getIntegerType(8, false));
     auto memrefCMX =
             mlir::cast<mlir::MemRefType>(mlir::cast<vpux::NDTypeInterface>(memrefDDR).changeMemSpace(memSpaceCMX));
     return memrefCMX;
@@ -213,9 +236,8 @@ mlir::Value createFetchBuffer(mlir::OpBuilder& builder, size_t dmaTaskBinarySize
     auto ctx = builder.getContext();
 
     const auto symbolAttr = vpux::IndexedSymbolAttr::get(ctx, stringifyEnum(VPU::MemoryKind::DDR));
-    const auto layout = DimsOrder::NC.toAffineMap(ctx);
-    const auto zeroBufferMemref = mlir::MemRefType::get({1, static_cast<int64_t>(dmaTaskBinarySize)},
-                                                        builder.getI8Type(), layout, symbolAttr);
+    const auto zeroBufferMemref = vpux::getMemRefType({1, static_cast<int64_t>(dmaTaskBinarySize)}, builder.getI8Type(),
+                                                      DimsOrder::NC, symbolAttr);
 
     const auto sectionAttr =
             VPURT::BufferSectionAttr::get(builder.getContext(), VPURT::getBufferSection(VPU::MemoryKind::DDR));
@@ -239,6 +261,7 @@ SmallVector<PlannedFetch> getOrderedFetchList(const DMAMap& fetchMap, const DMAM
         auto skipOp = skipIt->second;
         auto skipAttr = skipOp.getSkipDmaAttr();
 
+        const auto port = skipOp.getPort();
         const auto tile = skipAttr.getAssociatedTileIdx().getValue().getSExtValue();
         const auto logical = skipAttr.getAssociatedLogicalTaskIdx().getValue().getSExtValue();
         const auto list = skipAttr.getAssociatedListIdx().getValue().getSExtValue();
@@ -246,21 +269,21 @@ SmallVector<PlannedFetch> getOrderedFetchList(const DMAMap& fetchMap, const DMAM
         auto input = mlir::cast<VPURT::DeclareBufferOp>(skipOp.getInput().getDefiningOp());
         const auto memPriority = input.getSection() == VPURT::getBufferSection(VPU::MemoryKind::CMX_NN) ? 1 : 0;
 
-        orderedFetches.push_back(PlannedFetch{key, fetchOp, tile, logical, list, memPriority});
+        orderedFetches.push_back(PlannedFetch{key, fetchOp, tile, logical, list, memPriority, port});
     }
 
     log.trace("Sorting fetch DMAs based on associated skip DMAs to ensure deterministic processing order");
     llvm::sort(orderedFetches, [](const PlannedFetch& a, const PlannedFetch& b) {
-        return std::tie(a.tile, a.logical, a.list, a.memPriority) < std::tie(b.tile, b.logical, b.list, b.memPriority);
+        return std::tuple(a.tile, a.logical, a.list, a.port, a.memPriority) <
+               std::tuple(b.tile, b.logical, b.list, b.port, b.memPriority);
     });
     return orderedFetches;
 }
 
-VPUMI40XX::DeclareTaskBufferOp UpdateFetchDMAForSkipDMAs::createTaskBuffer(mlir::OpBuilder& builder,
-                                                                           PlannedFetch plannedFetch,
-                                                                           mlir::Operation* insertionPoint,
-                                                                           TileListToIndexMap& taskBufferIndex,
-                                                                           TileListToOffsetMap& taskBufferOffset) {
+VPUMI40XX::DeclareTaskBufferOp UpdateFetchDMAForSkipDMAs::createTaskBuffer(
+        mlir::OpBuilder& builder, PlannedFetch plannedFetch, mlir::Operation* insertionPoint,
+        TileListToIndexMap& taskBufferIndex, TileListToOffsetMap& taskBufferOffset, size_t dmaTaskBinarySize,
+        uint64_t dmaMetadataOffset) {
     mlir::OpBuilder::InsertionGuard guard(builder);
     if (insertionPoint != nullptr) {
         builder.setInsertionPoint(insertionPoint);
@@ -270,11 +293,11 @@ VPUMI40XX::DeclareTaskBufferOp UpdateFetchDMAForSkipDMAs::createTaskBuffer(mlir:
     auto& taskBufferIdx = itTaskIdx->second;
 
     auto [itTaskOffset, unusedOffset] =
-            taskBufferOffset.try_emplace({plannedFetch.tile, plannedFetch.logical}, _dmaMetadataOffset);
+            taskBufferOffset.try_emplace({plannedFetch.tile, plannedFetch.logical}, dmaMetadataOffset);
     auto& taskBufOffset = itTaskOffset->second;
 
     auto offsetAttr = mlir::IntegerAttr::get(getUInt64Type(builder.getContext()), taskBufOffset);
-    taskBufOffset += _dmaTaskBinarySize;
+    taskBufOffset += dmaTaskBinarySize;
     auto indexAttr =
             VPURegMapped::IndexType::get(builder.getContext(), plannedFetch.tile, plannedFetch.list, taskBufferIdx++);
 
@@ -323,8 +346,11 @@ void UpdateFetchDMAForSkipDMAs::safeRunOnFunc() {
         return;
     }
 
-    _dmaMetadataOffset = getRegionOffset(VPURegMapped::TaskType::DMA, config::getArch(getOperation()));
-    _dmaTaskBinarySize = VPUMI40XX::getTaskBinarySize(VPURegMapped::TaskType::DMA, config::getArch(getOperation()));
+    auto parentModule = netFunc->getParentOfType<mlir::ModuleOp>();
+    auto shavesCountPerTile = config::getAvailableExecutor(parentModule, config::ExecutorKind::SHAVE_ACT).getCount();
+    auto dmaMetadataOffset =
+            getRegionOffset(VPURegMapped::TaskType::DMA, config::getArch(getOperation()), shavesCountPerTile);
+    auto dmaTaskBinarySize = VPUMI40XX::getTaskBinarySize(VPURegMapped::TaskType::DMA, config::getArch(getOperation()));
 
     // (tile,list) -> running task buffer index
     TileListToIndexMap taskBufferIndex;
@@ -333,7 +359,7 @@ void UpdateFetchDMAForSkipDMAs::safeRunOnFunc() {
     auto orderedFetches = getOrderedFetchList(fetchMap, skipMap, _log);
 
     builder.setInsertionPoint(bufferInsertionPoint);
-    auto inputBuffer = createFetchBuffer(builder, _dmaTaskBinarySize);
+    auto inputBuffer = createFetchBuffer(builder, dmaTaskBinarySize);
     for (auto& planned : orderedFetches) {
         _log.trace("Processing Fetch DMA with descId {0} associated with Skip DMA for tile {1}, logical task {2}, list "
                    "{3}, channel {4}",
@@ -345,11 +371,11 @@ void UpdateFetchDMAForSkipDMAs::safeRunOnFunc() {
                           planned.descId);
 
         // Create Memrefs for FetchDMA
-        auto memrefCMX = createFetchOutputMemRefs(builder, planned.tile);
+        auto memrefCMX = createFetchOutputMemRefs(builder, planned.tile, dmaTaskBinarySize);
 
         // Create DeclareTaskBuffer with offset in CMX where SkipDMA descriptor will be stored
-        auto taskBuffer =
-                createTaskBuffer(builder, planned, declareBufferInsertionPoint, taskBufferIndex, taskBufferOffset);
+        auto taskBuffer = createTaskBuffer(builder, planned, declareBufferInsertionPoint, taskBufferIndex,
+                                           taskBufferOffset, dmaTaskBinarySize, dmaMetadataOffset);
 
         // Set task location for SkipDMA to point to task buffer with offset in CMX where the descriptor will be stored
         dmaToFetch.setTaskLocation(taskBuffer.getResult());
@@ -362,9 +388,11 @@ void UpdateFetchDMAForSkipDMAs::safeRunOnFunc() {
         auto fetchDma = builder.create<VPUMI40XX::NNDMAOp>(
                 placeholderDmaOp.getLoc(), placeholderDmaOp.getIndexType(), nullptr, inputBuffer,
                 mlir::ValueRange({taskLocationsView.getResult()}), placeholderDmaOp.getPreviousTask(),
-                placeholderDmaOp.getWaitBarriers(), placeholderDmaOp.getUpdateBarriers(), 0, 0, true, true, false, 0,
-                VPUIP::DMAAccMode::DISABLE, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 0, nullptr,
-                placeholderDmaOp.getEnqueueBarrier(), placeholderDmaOp.getWlmPageAttr());
+                placeholderDmaOp.getWaitBarriers(), placeholderDmaOp.getUpdateBarriers(), /*start_after*/ 0,
+                /*clean_after*/ 0, placeholderDmaOp.getIsOutOfOrder(), placeholderDmaOp.getIsCritical(),
+                placeholderDmaOp.getEnableMsc(), placeholderDmaOp.getPort(), VPUIP::DMAAccMode::DISABLE, nullptr,
+                nullptr, nullptr, nullptr, nullptr, nullptr, 0, nullptr, placeholderDmaOp.getEnqueueBarrier(),
+                placeholderDmaOp.getWlmPageAttr());
 
         fetchDma.setFetchDmaAttr(placeholderDmaOp.getFetchDmaAttr());
         placeholderDmaOp.getResult().replaceAllUsesWith(fetchDma.getResult());

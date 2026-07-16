@@ -10,36 +10,36 @@
 module @Test_1 {
     VPUASM.DeclareTaskBuffer @DeclareTaskBuffer_DPUInvariant_0 idx(!VPURegMapped.Index<0:0:0>) <DPUInvariant>
     VPUASM.DeclareTaskBuffer @DeclareTaskBuffer_DPUVariant_0 idx(!VPURegMapped.Index<0:0:0>) <DPUVariant>
-    VPUASM.DeclareBuffer @DeclareBuffer_WeightTable !VPUASM.Buffer< "CMX_NN"[0] <0> : memref<16x1x1x1xi64, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
-    VPUASM.DeclareBuffer @DeclareBuffer_ActOut !VPUASM.Buffer< "CMX_NN"[0] <128> : memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
-    VPUASM.DeclareBuffer @DeclareBuffer_ActIn !VPUASM.Buffer< "CMX_NN"[0] <196736> : memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
-    VPUASM.DeclareBuffer @DeclareBuffer_SEIn !VPUASM.Buffer< "CMX_NN"[0] <204928> : memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
-    VPUASM.DeclareBuffer @DeclareBuffer_SparseIn !VPUASM.Buffer< "CMX_NN"[0] <213120> : memref<1x16x16x16xi1, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
+    VPUASM.DeclareBuffer @DeclareBuffer_WeightTable !VPUASM.Buffer< "CMX_NN"[0] <0> : memref<16x1x1x1xi64, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
+    VPUASM.DeclareBuffer @DeclareBuffer_ActOut !VPUASM.Buffer< "CMX_NN"[0] <128> : memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
+    VPUASM.DeclareBuffer @DeclareBuffer_ActIn !VPUASM.Buffer< "CMX_NN"[0] <196736> : memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
+    VPUASM.DeclareBuffer @DeclareBuffer_SEIn !VPUASM.Buffer< "CMX_NN"[0] <204928> : memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
+    VPUASM.DeclareBuffer @DeclareBuffer_SparseIn !VPUASM.Buffer< "CMX_NN"[0] <213120> : memref<1x16x16x16xi1, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
 
     VPUIPDPU.DPUInvariant @DPUInvariant_0 <{task_index = !VPURegMapped.Index<0:0:0>, input = @DeclareBuffer_ActIn,
     input_sparsity_map = @DeclareBuffer_SparseIn, input_storage_element_table = @DeclareBuffer_SEIn, task_location = @DeclareTaskBuffer_DPUInvariant_0, weight_table = @DeclareBuffer_WeightTable,
     output = @DeclareBuffer_ActOut, nce_task_type = #VPUIP.nce_task_type<ELTWISE>}>
         DPUCfg : {
-            ^bb0(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                 %act_in_seg0: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                 %act_in_seg1: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                 %act_in_seg2: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                 %act_in_seg3: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                 %se_in_seg0: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                 %se_in_seg1: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                 %se_in_seg2: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                 %se_in_seg3: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                 %sparse_in_seg0: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                 %sparse_in_seg1: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                 %sparse_in_seg2: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                 %sparse_in_seg3: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                 %act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>):
+            ^bb0(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                 %act_in_seg0: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                 %act_in_seg1: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                 %act_in_seg2: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                 %act_in_seg3: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                 %se_in_seg0: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                 %se_in_seg1: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                 %se_in_seg2: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                 %se_in_seg3: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                 %sparse_in_seg0: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                 %sparse_in_seg1: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                 %sparse_in_seg2: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                 %sparse_in_seg3: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                 %act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>):
             VPUIPDPU.IDUCfg {
                 VPUIPDPU.IDUStorageElement se_size(32)
                 VPUIPDPU.IDUKernel kernel_x(1) kernel_y(2)
                 VPUIPDPU.IDUStride stride_x(0) stride_y(0)
                 VPUIPDPU.IDUInputLayerCfg sparsity_pattern(7) {input_compressed}
-                VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>)
+                VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>)
                 VPUIPDPU.IDUWorkloadCfg workload_type(CONV)
                 VPUIPDPU.IDUWeights wmode(f16) wt_plt_cfg(NO_PLT)
                 VPUIPDPU.IDUEltWiseMode eltwise_type(ADD)
@@ -49,7 +49,7 @@ module @Test_1 {
             }
             VPUIPDPU.ODUCfg {
                 VPUIPDPU.ODUOutTensorSize dim_x(64) dim_y(64) dim_z(16)
-                VPUIPDPU.ODUOutActivations out_activations(%act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>)
+                VPUIPDPU.ODUOutActivations out_activations(%act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>)
             }
         }
 
@@ -68,13 +68,13 @@ module @Test_1 {
 }
 
 // CHECK:    VPUIPDPU.DPUInvariant @DPUInvariant_0 <{input = @DeclareBuffer_ActIn, input_sparsity_map = @DeclareBuffer_SparseIn, input_storage_element_table = @DeclareBuffer_SEIn, nce_task_type = #VPUIP.nce_task_type<ELTWISE>, output = @DeclareBuffer_ActOut, task_index = !VPURegMapped.Index<0:0:0>, task_location = @DeclareTaskBuffer_DPUInvariant_0, weight_table = @DeclareBuffer_WeightTable}> DPUCfg : {
-// CHECK:    ^bb0([[ARG_0:%.+]]: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>, [[ARG_1:%.+]]: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>, [[ARG_2:%.+]]: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>, [[ARG_3:%.+]]: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>, [[ARG_4:%.+]]: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>, [[ARG_5:%.+]]: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>, [[ARG_6:%.+]]: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>, [[ARG_7:%.+]]: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>, [[ARG_8:%.+]]: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>, [[ARG_9:%.+]]: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>, [[ARG_10:%.+]]: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>, [[ARG_11:%.+]]: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>, [[ARG_12:%.+]]: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>, [[ARG_13:%.+]]: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>):
+// CHECK:    ^bb0([[ARG_0:%.+]]: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>, [[ARG_1:%.+]]: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>, [[ARG_2:%.+]]: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>, [[ARG_3:%.+]]: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>, [[ARG_4:%.+]]: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>, [[ARG_5:%.+]]: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>, [[ARG_6:%.+]]: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>, [[ARG_7:%.+]]: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>, [[ARG_8:%.+]]: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>, [[ARG_9:%.+]]: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>, [[ARG_10:%.+]]: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>, [[ARG_11:%.+]]: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>, [[ARG_12:%.+]]: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>, [[ARG_13:%.+]]: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>):
 // CHECK:      VPUIPDPU.IDUCfg {
 // CHECK:        VPUIPDPU.IDUStorageElement se_size(32)
 // CHECK:        VPUIPDPU.IDUKernel kernel_x(1) kernel_y(2)
 // CHECK:        VPUIPDPU.IDUStride stride_x(0) stride_y(0)
 // CHECK:        VPUIPDPU.IDUInputLayerCfg sparsity_pattern(7) {input_compressed}
-// CHECK:        VPUIPDPU.IDUInActivations in_activations([[ARG_0]] : memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>)
+// CHECK:        VPUIPDPU.IDUInActivations in_activations([[ARG_0]] : memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>)
 // CHECK:        VPUIPDPU.IDUWorkloadCfg workload_type(CONV)
 // CHECK:        VPUIPDPU.IDUWeights wmode(f16) wt_plt_cfg(NO_PLT)
 // CHECK:        VPUIPDPU.IDUEltWiseMode eltwise_type(ADD)

@@ -190,6 +190,23 @@ private:
 };
 
 //
+// ScatterUpdateRewrite
+//
+
+class ScatterUpdateRewrite final : public mlir::OpRewritePattern<IE::ScatterUpdateOp> {
+public:
+    ScatterUpdateRewrite(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::ScatterUpdateOp>(ctx), _log(log) {
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::ScatterUpdateOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+//
 // MaxPool8Rewrite
 //
 
@@ -472,23 +489,6 @@ public:
 
 public:
     mlir::LogicalResult matchAndRewrite(IE::AddOp origOp, mlir::PatternRewriter& rewriter) const final;
-
-private:
-    Logger _log;
-};
-
-//
-// ExternalKernelRewrite
-//
-
-class ExternalKernelRewrite final : public mlir::OpRewritePattern<IE::ExternalKernelOp> {
-public:
-    ExternalKernelRewrite(mlir::MLIRContext* ctx, Logger log)
-            : mlir::OpRewritePattern<IE::ExternalKernelOp>(ctx), _log(log) {
-    }
-
-public:
-    mlir::LogicalResult matchAndRewrite(IE::ExternalKernelOp origOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
     Logger _log;

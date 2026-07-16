@@ -28,15 +28,13 @@ void vpux::arch50xx::buildLowerVPUIP2ELFPipeline(mlir::OpPassManager& pm,
     log.info("BackendCompilationOptions:\n"
              "  workloadManagementEnable = {0}\n"
              "  workloadManagementMode = {1}\n"
-             "  workloadManagementBarrierCountThreshold = {2}\n"
-             "  workloadManagementBarrierProgrammingMode = {3}\n"
-             "  workloadManagementDmaFifoType = {4}\n"
-             "  enableMemorySideCache = {5}\n"
-             "  enableDMAProfiling = {6}\n"
-             "  enableShaveDDRAccessOptimization = {7}\n",
+             "  workloadManagementBarrierProgrammingMode = {2}\n"
+             "  workloadManagementDmaFifoType = {3}\n"
+             "  enableMemorySideCache = {4}\n"
+             "  enableDMAProfiling = {5}\n"
+             "  enableShaveDDRAccessOptimization = {6}\n",
              backendCompilationOptions.workloadManagementEnable,
              stringifyEnum(backendCompilationOptions.workloadManagementMode),
-             backendCompilationOptions.workloadManagementBarrierCountThreshold,
              stringifyEnum(backendCompilationOptions.workloadManagementBarrierProgrammingMode),
              stringifyEnum(backendCompilationOptions.workloadManagementDmaFifoType),
              backendCompilationOptions.enableMemorySideCache, backendCompilationOptions.enableDMAProfiling,
@@ -59,7 +57,8 @@ void vpux::arch50xx::buildLowerVPUIP2ELFPipeline(mlir::OpPassManager& pm,
                                       log);
 
     pm.addPass(VPUIPDPU::createExpandDPUConfigPass(log, backendCompilationOptions.npu5PPEBackwardsCompatibilityMode));
-    pm.addPass(ELF::createUpdateELFSectionFlagsPass(log, backendCompilationOptions.enableShaveDDRAccessOptimization));
+    pm.addPass(ELF::createUpdateELFSectionFlagsPass(
+            log, std::string(backendCompilationOptions.enableShaveDDRAccessOptimization) == "true"));
     pm.addPass(createConvertVPUASM2NPUReg50XXPass(log, backendCompilationOptions.modelIdentifier));
     pm.addPass(createConvertVPUIPDPU2NPUReg50XXPass(log, backendCompilationOptions.npu5PPEBackwardsCompatibilityMode));
 

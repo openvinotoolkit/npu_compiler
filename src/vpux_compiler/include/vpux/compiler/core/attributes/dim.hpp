@@ -15,7 +15,9 @@
 #include "vpux/utils/core/type_traits.hpp"
 
 #include <cassert>
+#include <cstdint>
 #include <functional>
+#include <type_traits>
 
 namespace vpux {
 
@@ -27,20 +29,38 @@ constexpr size_t MAX_NUM_DIMS = 15;
 
 namespace details {
 
-void validateDimAttrs(StringRef className, int32_t ind);
+[[noreturn]] void throwNegativeDim(StringRef className, int64_t ind);
+[[noreturn]] void throwDimOutOfRange(StringRef className, uint64_t ind);
+
+template <class ConcreteDim, typename IndexType>
+constexpr int32_t validateDimInd(IndexType ind) {
+    if constexpr (std::is_signed<IndexType>::value) {
+        if (ind < 0) {
+            throwNegativeDim(ConcreteDim::getClassName(), static_cast<int64_t>(ind));
+        }
+        if (static_cast<uint64_t>(ind) >= MAX_NUM_DIMS) {
+            throwDimOutOfRange(ConcreteDim::getClassName(), static_cast<uint64_t>(ind));
+        }
+    } else {
+        if (ind >= MAX_NUM_DIMS) {
+            throwDimOutOfRange(ConcreteDim::getClassName(), static_cast<uint64_t>(ind));
+        }
+    }
+
+    return static_cast<int32_t>(ind);
+}
 
 template <class ConcreteDim>
 class DimBase {
 public:
-    DimBase() = default;
+    constexpr DimBase() = default;
 
     template <typename IndexType, typename = require_t<std::is_integral<IndexType>>>
-    explicit DimBase(IndexType ind): _ind(checked_cast<int32_t>(ind)) {
-        validateDimAttrs(ConcreteDim::getClassName(), _ind);
+    constexpr explicit DimBase(IndexType ind): _ind(validateDimInd<ConcreteDim>(ind)) {
     }
 
 public:
-    int32_t ind() const {
+    constexpr int32_t ind() const {
         return _ind;
     }
 
@@ -54,16 +74,16 @@ private:
 };
 
 template <class ConcreteDim>
-bool operator==(const DimBase<ConcreteDim>& d1, const DimBase<ConcreteDim>& d2) {
+constexpr bool operator==(const DimBase<ConcreteDim>& d1, const DimBase<ConcreteDim>& d2) {
     return d1.ind() == d2.ind();
 }
 template <class ConcreteDim>
-bool operator!=(const DimBase<ConcreteDim>& d1, const DimBase<ConcreteDim>& d2) {
+constexpr bool operator!=(const DimBase<ConcreteDim>& d1, const DimBase<ConcreteDim>& d2) {
     return d1.ind() != d2.ind();
 }
 
 template <class ConcreteDim>
-bool operator<(const DimBase<ConcreteDim>& d1, const DimBase<ConcreteDim>& d2) {
+constexpr bool operator<(const DimBase<ConcreteDim>& d1, const DimBase<ConcreteDim>& d2) {
     return d1.ind() < d2.ind();
 }
 

@@ -307,8 +307,9 @@ mlir::LogicalResult reifyReduceTensors(mlir::Operation* op, mlir::OpBuilder& bui
  * @return                       The output shape info as ShapeInfo
  */
 
-ShapeInfo inferPermuteQuantizeOutputShapeInfo(mlir::Value input, DimsOrder inOrder, vpux::NDTypeInterface newType,
-                                              DimsOrder outOrder, mlir::AffineMap memPerm);
+ShapeInfo inferPermuteQuantizeOutputShapeInfo(mlir::Value input, const DimsOrder& inOrder,
+                                              vpux::NDTypeInterface newType, const DimsOrder& outOrder,
+                                              mlir::AffineMap memPerm);
 
 /**
  * @brief                        Infers the output shape for an Elementwise operation

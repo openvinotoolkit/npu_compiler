@@ -131,6 +131,18 @@ func.func @NotOptimizeConcatIfElementTypeNotSupported(%arg0: tensor<1x128x1x1xsi
 
 // -----
 
+// CHECK-LABEL: @NotOptimizeConcatIfElementTypeIsFP32
+// CHECK-SAME:     ([[INPUT0:%.+]]: tensor<1x128x1x1xf32>, [[INPUT1:%.+]]: tensor<1x128x1x1xf32>)
+func.func @NotOptimizeConcatIfElementTypeIsFP32(%arg0: tensor<1x128x1x1xf32>, %arg1: tensor<1x128x1x1xf32>) -> tensor<1x128x2x1xf32> {
+    %0 = IE.Concat(%arg0, %arg1) {static_offsets = [[0, 0, 0, 0], [0, 0, 1, 0]]} : tensor<1x128x1x1xf32>, tensor<1x128x1x1xf32> -> tensor<1x128x2x1xf32>
+    return %0 : tensor<1x128x2x1xf32>
+
+    // CHECK:   [[CONCAT:%.+]] = IE.Concat([[INPUT0]], [[INPUT1]])
+    // CHECK:   return [[CONCAT]]
+}
+
+// -----
+
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @OptimizeConcatWithConvAndAddIfAlreadyAligned

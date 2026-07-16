@@ -10,6 +10,19 @@
 namespace vpux {
 namespace VPUASM {
 
+// DMA from SHV
+//
+// Release mechanism is used on platforms <= NPU5 which has a maximum of
+// 2 DMA engines and 2 channels per engine.
+//
+// Since the maximum number of available DMA engines is 2, and each engine has
+// 2 channels, we can support up to 4 skip DMA chains. Each skip DMA chain has
+// its own release descriptor.
+//
+// Therefore, 4 is the upper bound on the number of release descriptors that may
+// need to be resolved and assigned.
+constexpr size_t maxNumReleaseDesc = 4;
+
 struct SparsityMap {
     uint32_t tileSelectMaskForBuffer;
     uint32_t size;
@@ -29,7 +42,8 @@ void setResourceRequirement(mlir::ModuleOp moduleOp, elf::NetworkMetadata& metad
 SmallVector<uint32_t> getCMXStackFrames(mlir::ModuleOp moduleOp);
 
 void insertBinaryDimsIntoVector(SmallVector<uint8_t>& dimsVector, vpux::NDTypeInterface ndType);
-void insertBinaryStridesIntoVector(SmallVector<uint8_t>& stridesVector, vpux::NDTypeInterface ndType);
+void insertBinaryStridesIntoVector(SmallVector<uint8_t>& stridesVector, vpux::NDTypeInterface ndType,
+                                   bool normalizeUnitDimStrides = true);
 
 }  // namespace VPUASM
 }  // namespace vpux

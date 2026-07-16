@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPUIP/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/core/IR/memref_attr.hpp"
 #include "vpux/compiler/dialect/core/IR/ops.hpp"
@@ -39,6 +40,7 @@ public:
 private:
     void updateFunction(mlir::func::FuncOp func, const AliasesInfo& aliasInfo) const;
     void updateAliases(AliasesInfo& aliasInfo, mlir::Value value) const;
+    void updateFunctionBoundaryAliases(mlir::func::FuncOp func, const AliasesInfo& aliasInfo) const;
     void safeRunOnModule() final;
 
 private:
@@ -134,6 +136,42 @@ void SetMemorySpacePass::updateAliases(AliasesInfo& aliasInfo, mlir::Value value
     }
 }
 
+void SetMemorySpacePass::updateFunctionBoundaryAliases(mlir::func::FuncOp func, const AliasesInfo& aliasInfo) const {
+    const auto hasBoundaryUse = [](mlir::Value value) {
+        return llvm::any_of(value.getUses(), [](mlir::OpOperand& use) {
+            return mlir::isa<mlir::func::CallOp, mlir::func::ReturnOp>(use.getOwner());
+        });
+    };
+
+    const auto isPureViewAlias = [](mlir::Value value) {
+        auto* definingOp = value.getDefiningOp();
+        return definingOp != nullptr && VPUIP::isPureViewOp(definingOp);
+    };
+
+    const auto updateValueType = [this](mlir::Value value) {
+        auto type = value.getType();
+        if (const auto asyncType = mlir::dyn_cast<mlir::async::ValueType>(type)) {
+            const auto newType = mlir::cast<vpux::NDTypeInterface>(asyncType.getValueType()).changeMemSpace(_memKind);
+            value.setType(mlir::async::ValueType::get(newType));
+            return;
+        }
+
+        value.setType(mlir::cast<vpux::NDTypeInterface>(type).changeMemSpace(_memKind));
+    };
+
+    for (auto arg : func.getArguments()) {
+        const auto& aliases = aliasInfo.getAllAliases(arg);
+        for (auto alias : aliases) {
+            if (alias == arg || hasBoundaryUse(alias) || !isPureViewAlias(alias)) {
+                continue;
+            }
+
+            _log.nest().trace("Updating function-boundary alias '{0}'", alias);
+            updateValueType(alias);
+        }
+    }
+}
+
 void SetMemorySpacePass::safeRunOnModule() {
     auto moduleOp = getOperation();
 
@@ -148,6 +186,8 @@ void SetMemorySpacePass::safeRunOnModule() {
         // memory space locations.
         if (_setMemorySpaceForFunctionBoundaries) {
             updateFunction(funcOp, aliasInfo);
+        } else {
+            updateFunctionBoundaryAliases(funcOp, aliasInfo);
         }
 
         const auto allocOpCallback = [&](mlir::memref::AllocOp allocOp) {
@@ -187,6 +227,23 @@ void SetMemorySpacePass::safeRunOnModule() {
                 }
 
                 _log.nest().trace("Updating memory space for operand '{0}'", operand.index());
+
+                // In HostCompile mode, block arguments must remain device-info-free so that the
+                // function_type attribute stays consistent with the call site (the caller passes
+                // buffers without an explicit memory space). Instead of mutating the block argument
+                // type, insert a Core.ReinterpretCast that adds the required memory space at this
+                // specific use inside the function body.
+                if (!_setMemorySpaceForFunctionBoundaries && mlir::isa<mlir::BlockArgument>(operand.value())) {
+                    const auto newType =
+                            mlir::cast<vpux::NDTypeInterface>(operand.value().getType()).changeMemSpace(_memKind);
+                    mlir::OpBuilder builder(groupOp);
+                    auto castOp = builder.create<Core::ReinterpretCastOp>(groupOp->getLoc(), newType, operand.value());
+                    _log.nest().trace("Inserted ReinterpretCast for device-info-free block arg: '{0}'",
+                                      castOp.getResult());
+                    groupOp->setOperand(operand.index(), castOp.getResult());
+                    continue;
+                }
+
                 updateAliases(aliasInfo, operand.value());
             }
         };

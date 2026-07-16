@@ -34,5 +34,8 @@ mlir::FailureOr<int64_t> getBaseContentNumElements(Const::DeclareOp constOp);
 //  - return: true
 bool isBaseContentSplat(Const::DeclareOp constOp);
 
+SmallVector<double> readConstAsDoubles(Const::DeclareOp constOp);
+SmallVector<int64_t> readConstAsInt64(Const::DeclareOp constOp);
+
 }  // namespace IE
 }  // namespace vpux

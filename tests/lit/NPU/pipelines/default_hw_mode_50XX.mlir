@@ -52,33 +52,33 @@ module @TestConvolution {
 
     // CHECK:       VPURT.Task waits([[barrier_1:%.+]] : !VPURT.Barrier) updates([[barrier_2:%.+]] : !VPURT.Barrier) wlmPage(0)
     // CHECK:       VPUIP.NCEClusterTask <{is_permute_quantize, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<ELTWISE>}>
-    // CHECK-SAME:          input([[input_0:%.+]] : memref<1x16x64x17xf16, #NHWC, [@CMX_NN, 0]>)
-    // CHECK-SAME:          outputs([[output_0:%.+]] : memref<1x16x64x17xf16, #NWCH, [@CMX_NN, 0]>) -> memref<1x16x64x17xf16, #NWCH, [@CMX_NN, 0]>
+    // CHECK-SAME:          input([[input_0:%.+]] : memref<1x16x64x17xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK-SAME:          outputs([[output_0:%.+]] : memref<1x16x64x17xf16, {order = #NWCH}, [@CMX_NN, 0]>) -> memref<1x16x64x17xf16, {order = #NWCH}, [@CMX_NN, 0]>
 
     // CHECK:       VPURT.Task waits([[barrier_1:%.+]] : !VPURT.Barrier) updates([[barrier_2:%.+]] : !VPURT.Barrier) wlmPage(0)
     // CHECK:       VPUIP.NCEClusterTask <{is_permute_quantize, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<ELTWISE>}>
-    // CHECK-SAME:          input([[input_1:%.+]] : memref<1x16x64x16xf16, #NHWC, [@CMX_NN, 1]>)
-    // CHECK-SAME:          outputs([[output_1:%.+]] : memref<1x16x64x16xf16, #NWCH, [@CMX_NN, 1]>) -> memref<1x16x64x16xf16, #NWCH, [@CMX_NN, 1]>
+    // CHECK-SAME:          input([[input_1:%.+]] : memref<1x16x64x16xf16, {order = #NHWC}, [@CMX_NN, 1]>)
+    // CHECK-SAME:          outputs([[output_1:%.+]] : memref<1x16x64x16xf16, {order = #NWCH}, [@CMX_NN, 1]>) -> memref<1x16x64x16xf16, {order = #NWCH}, [@CMX_NN, 1]>
 
     // CHECK:       VPURT.Task waits([[barrier_1:%.+]] : !VPURT.Barrier) updates([[barrier_2:%.+]] : !VPURT.Barrier) wlmPage(0)
     // CHECK:       VPUIP.NCEClusterTask <{is_permute_quantize, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<ELTWISE>}>
-    // CHECK-SAME:          input([[input_2:%.+]] : memref<1x16x64x16xf16, #NHWC, [@CMX_NN, 2]>)
-    // CHECK-SAME:          outputs([[output_2:%.+]] : memref<1x16x64x16xf16, #NWCH, [@CMX_NN, 2]>) -> memref<1x16x64x16xf16, #NWCH, [@CMX_NN, 2]>
+    // CHECK-SAME:          input([[input_2:%.+]] : memref<1x16x64x16xf16, {order = #NHWC}, [@CMX_NN, 2]>)
+    // CHECK-SAME:          outputs([[output_2:%.+]] : memref<1x16x64x16xf16, {order = #NWCH}, [@CMX_NN, 2]>) -> memref<1x16x64x16xf16, {order = #NWCH}, [@CMX_NN, 2]>
 
 
     // ReduceMean Op
 
     // CHECK:       VPURT.Task waits([[barrier_4:%.+]] : !VPURT.Barrier) updates([[barrier_5:%.+]] : !VPURT.Barrier) wlmPage(0)
     // CHECK:       VPUIP.NCEClusterTask <{is_superdense, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<REDUCEMEAN>}>
-    // CHECK-SAME:          -> memref<1x1x10x28xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK-SAME:          -> memref<1x1x10x28xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     // CHECK:       VPURT.Task waits([[barrier_4:%.+]] : !VPURT.Barrier) updates([[barrier_5:%.+]] : !VPURT.Barrier) wlmPage(0)
     // CHECK:       VPUIP.NCEClusterTask <{is_superdense, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<REDUCEMEAN>}>
-    // CHECK-SAME:          -> memref<1x1x9x28xf16, #NHWC, [@CMX_NN, 1]>
+    // CHECK-SAME:          -> memref<1x1x9x28xf16, {order = #NHWC}, [@CMX_NN, 1]>
 
     // CHECK:       VPURT.Task waits([[barrier_4:%.+]] : !VPURT.Barrier) updates([[barrier_5:%.+]] : !VPURT.Barrier) wlmPage(0)
     // CHECK:       VPUIP.NCEClusterTask <{is_superdense, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<REDUCEMEAN>}>
-    // CHECK-SAME:          -> memref<1x1x9x28xf16, #NHWC, [@CMX_NN, 2]>
+    // CHECK-SAME:          -> memref<1x1x9x28xf16, {order = #NHWC}, [@CMX_NN, 2]>
 
   }
 }
@@ -114,9 +114,9 @@ module @BatchedGroupConvWithBroadcast {
     // CHECK:   kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>
     // CHECK:   kernel_size = [3, 3], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>
     // CHECK-SAME: resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<DWCONV>}>
-    // CHECK:   input([[INPUT_0:%.+]] : memref<1x16x2x2xf16, #NHWC, [@CMX_NN, 0]>) weights([[WEIGHTS_0:%.+]] : memref<4x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK:   input([[INPUT_0:%.+]] : memref<1x16x2x2xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights([[WEIGHTS_0:%.+]] : memref<4x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
     // CHECK:   weight_table([[WT_0:%.+]] : memref<16x1x1x4xsi32, [@CMX_NN, 0]>)
-    // CHECK:   parent_input([[INPUT_0:%.+]] : memref<1x16x2x2xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK:   parent_input([[INPUT_0:%.+]] : memref<1x16x2x2xf16, {order = #NHWC}, [@CMX_NN, 0]>)
     // CHECK:   parent_output([[OUT_0:%.+]] : memref<1x4x2x2xf16, [@CMX_NN, 0]>) outputs([[OUT_0:%.+]] : memref<1x4x2x2xf16, [@CMX_NN, 0]>)
     // CHECK:   -> memref<1x4x2x2xf16, [@CMX_NN, 0]> variants : {
     // CHECK:     DPUTask {cluster_id = 0 : i64
@@ -127,9 +127,9 @@ module @BatchedGroupConvWithBroadcast {
     // CHECK:   kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>
     // CHECK:   kernel_size = [3, 3], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>
     // CHECK-SAME: resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<DWCONV>
-    // CHECK:   }> input([[INPUT_1:%.+]] : memref<1x16x2x2xf16, #NHWC, [@CMX_NN, 1]>) weights([[WEIGHTS_1:%.+]] : memref<4x16x1x1xf16, #NHWC, [@CMX_NN, 1]>)
+    // CHECK:   }> input([[INPUT_1:%.+]] : memref<1x16x2x2xf16, {order = #NHWC}, [@CMX_NN, 1]>) weights([[WEIGHTS_1:%.+]] : memref<4x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>)
     // CHECK:   weight_table([[WT_1:%.+]] : memref<16x1x1x4xsi32, [@CMX_NN, 1]>)
-    // CHECK:   parent_input([[INPUT_1:%.+]] : memref<1x16x2x2xf16, #NHWC, [@CMX_NN, 1]>)
+    // CHECK:   parent_input([[INPUT_1:%.+]] : memref<1x16x2x2xf16, {order = #NHWC}, [@CMX_NN, 1]>)
     // CHECK:   parent_output([[OUT_1:%.+]] : memref<1x4x2x2xf16, [@CMX_NN, 1]>) outputs([[OUT_1:%.+]] : memref<1x4x2x2xf16, [@CMX_NN, 1]>)
     // CHECK:   -> memref<1x4x2x2xf16, [@CMX_NN, 1]> variants : {
     // CHECK:     DPUTask {cluster_id = 1 : i64
@@ -140,9 +140,9 @@ module @BatchedGroupConvWithBroadcast {
     // CHECK:   kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>
     // CHECK:   kernel_size = [3, 3], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>
     // CHECK-SAME: resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<DWCONV>
-    // CHECK:   }> input([[INPUT_2:%.+]] : memref<1x16x2x2xf16, #NHWC, [@CMX_NN, 2]>) weights([[WEIGHTS_2:%.+]] : memref<4x16x1x1xf16, #NHWC, [@CMX_NN, 2]>)
+    // CHECK:   }> input([[INPUT_2:%.+]] : memref<1x16x2x2xf16, {order = #NHWC}, [@CMX_NN, 2]>) weights([[WEIGHTS_2:%.+]] : memref<4x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 2]>)
     // CHECK:   weight_table([[WT_2:%.+]] : memref<16x1x1x4xsi32, [@CMX_NN, 2]>)
-    // CHECK:   parent_input([[INPUT_2:%.+]] : memref<1x16x2x2xf16, #NHWC, [@CMX_NN, 2]>)
+    // CHECK:   parent_input([[INPUT_2:%.+]] : memref<1x16x2x2xf16, {order = #NHWC}, [@CMX_NN, 2]>)
     // CHECK:   parent_output([[OUT_2:%.+]] : memref<1x4x2x2xf16, [@CMX_NN, 2]>) outputs([[OUT_2:%.+]] : memref<1x4x2x2xf16, [@CMX_NN, 2]>)
     // CHECK:   -> memref<1x4x2x2xf16, [@CMX_NN, 2]> variants : {
     // CHECK:     DPUTask {cluster_id = 2 : i64

@@ -47,7 +47,6 @@
 #include <mlir/IR/Types.h>
 #include <mlir/IR/Value.h>
 #include <mlir/IR/Verifier.h>
-#include <mlir/Interfaces/CopyOpInterface.h>
 #include <mlir/Interfaces/InferTypeOpInterface.h>
 #include <mlir/Interfaces/SideEffectInterfaces.h>
 #include <mlir/Pass/Pass.h>

@@ -16,6 +16,7 @@
 #include "common/utils.hpp"
 
 #include <gtest/gtest.h>
+#include <algorithm>
 
 using namespace vpux;
 
@@ -40,18 +41,21 @@ TEST_F(MLIR_ControlEdgeGenerator, TestMemOverlapEdges) {
     // 1,2 -> 4
     // 3 -> 5
     // 4 -> 6
-    SmallVector<ControlEdge> expectedControlEdges = {{0, 1}, {0, 2}, {1, 3}, {2, 3}, {1, 4}, {2, 4}, {3, 5}, {4, 6}};
+    SmallVector<ControlEdge> expectedControlEdges = {{0, 1}, {0, 2}, {1, 3}, {1, 4}, {2, 3}, {2, 4}, {3, 5}, {4, 6}};
 
     ControlEdgeSet controlEdges;
     ControlEdgeGenerator controlEdgeGenerator;
     // Generate control edges for overlapping memory regions
     controlEdgeGenerator.generateControlEdges(scheduledOpsResources.begin(), scheduledOpsResources.end(), controlEdges);
 
-    ASSERT_EQ(controlEdges.size(), expectedControlEdges.size());
+    SmallVector<ControlEdge> sortedControlEdges(controlEdges.begin(), controlEdges.end());
+    std::sort(sortedControlEdges.begin(), sortedControlEdges.end());
 
-    for (size_t i = 0; i < controlEdges.size(); i++) {
-        EXPECT_EQ(controlEdges[i]._source, expectedControlEdges[i]._source);
-        EXPECT_EQ(controlEdges[i]._sink, expectedControlEdges[i]._sink);
+    ASSERT_EQ(sortedControlEdges.size(), expectedControlEdges.size());
+
+    for (size_t i = 0; i < sortedControlEdges.size(); i++) {
+        EXPECT_EQ(sortedControlEdges[i]._source, expectedControlEdges[i]._source);
+        EXPECT_EQ(sortedControlEdges[i]._sink, expectedControlEdges[i]._sink);
     }
 }
 
@@ -79,11 +83,14 @@ TEST_F(MLIR_ControlEdgeGenerator, TestMemOverlapEdgesWithSubViewTest1) {
     // Generate control edges for overlapping memory regions
     controlEdgeGenerator.generateControlEdges(scheduledOpsResources.begin(), scheduledOpsResources.end(), controlEdges);
 
-    ASSERT_EQ(controlEdges.size(), expectedControlEdges.size());
+    SmallVector<ControlEdge> sortedControlEdges(controlEdges.begin(), controlEdges.end());
+    std::sort(sortedControlEdges.begin(), sortedControlEdges.end());
 
-    for (size_t i = 0; i < controlEdges.size(); i++) {
-        EXPECT_EQ(controlEdges[i]._source, expectedControlEdges[i]._source);
-        EXPECT_EQ(controlEdges[i]._sink, expectedControlEdges[i]._sink);
+    ASSERT_EQ(sortedControlEdges.size(), expectedControlEdges.size());
+
+    for (size_t i = 0; i < sortedControlEdges.size(); i++) {
+        EXPECT_EQ(sortedControlEdges[i]._source, expectedControlEdges[i]._source);
+        EXPECT_EQ(sortedControlEdges[i]._sink, expectedControlEdges[i]._sink);
     }
 }
 
@@ -117,9 +124,12 @@ TEST_F(MLIR_ControlEdgeGenerator, TestMemOverlapEdgesWithSubViewTest2) {
 
     ASSERT_EQ(controlEdges.size(), expectedControlEdges.size());
 
-    for (size_t i = 0; i < controlEdges.size(); i++) {
-        EXPECT_EQ(controlEdges[i]._source, expectedControlEdges[i]._source);
-        EXPECT_EQ(controlEdges[i]._sink, expectedControlEdges[i]._sink);
+    SmallVector<ControlEdge> sortedControlEdges(controlEdges.begin(), controlEdges.end());
+    std::sort(sortedControlEdges.begin(), sortedControlEdges.end());
+
+    for (size_t i = 0; i < sortedControlEdges.size(); i++) {
+        EXPECT_EQ(sortedControlEdges[i]._source, expectedControlEdges[i]._source);
+        EXPECT_EQ(sortedControlEdges[i]._sink, expectedControlEdges[i]._sink);
     }
 }
 
@@ -147,11 +157,14 @@ TEST_F(MLIR_ControlEdgeGenerator, TestMemOverlapEdgesWithSubViewTest3) {
     // Generate control edges for overlapping memory regions
     controlEdgeGenerator.generateControlEdges(scheduledOpsResources.begin(), scheduledOpsResources.end(), controlEdges);
 
-    ASSERT_EQ(controlEdges.size(), expectedControlEdges.size());
+    SmallVector<ControlEdge> sortedControlEdges(controlEdges.begin(), controlEdges.end());
+    std::sort(sortedControlEdges.begin(), sortedControlEdges.end());
 
-    for (size_t i = 0; i < controlEdges.size(); i++) {
-        EXPECT_EQ(controlEdges[i]._source, expectedControlEdges[i]._source);
-        EXPECT_EQ(controlEdges[i]._sink, expectedControlEdges[i]._sink);
+    ASSERT_EQ(sortedControlEdges.size(), expectedControlEdges.size());
+
+    for (size_t i = 0; i < sortedControlEdges.size(); i++) {
+        EXPECT_EQ(sortedControlEdges[i]._source, expectedControlEdges[i]._source);
+        EXPECT_EQ(sortedControlEdges[i]._sink, expectedControlEdges[i]._sink);
     }
 }
 
@@ -175,30 +188,25 @@ TEST_F(MLIR_ControlEdgeGenerator, TestMemOverlapEdgesWithSubViewTest4) {
     // 0 -> 2
     // 1,2 -> 3
     // 1,2 -> 4
-    SmallVector<ControlEdge> expectedControlEdges = {{0, 2}, {2, 3}, {1, 3}, {1, 4}, {2, 4}};
+    SmallVector<ControlEdge> expectedControlEdges = {{0, 2}, {1, 3}, {1, 4}, {2, 3}, {2, 4}};
 
     ControlEdgeSet controlEdges;
     ControlEdgeGenerator controlEdgeGenerator;
     // Generate control edges for overlapping memory regions
     controlEdgeGenerator.generateControlEdges(scheduledOpsResources.begin(), scheduledOpsResources.end(), controlEdges);
 
-    ASSERT_EQ(controlEdges.size(), expectedControlEdges.size());
+    SmallVector<ControlEdge> sortedControlEdges(controlEdges.begin(), controlEdges.end());
+    std::sort(sortedControlEdges.begin(), sortedControlEdges.end());
 
-    for (size_t i = 0; i < controlEdges.size(); i++) {
-        EXPECT_EQ(controlEdges[i]._source, expectedControlEdges[i]._source);
-        EXPECT_EQ(controlEdges[i]._sink, expectedControlEdges[i]._sink);
+    ASSERT_EQ(sortedControlEdges.size(), expectedControlEdges.size());
+
+    for (size_t i = 0; i < sortedControlEdges.size(); i++) {
+        EXPECT_EQ(sortedControlEdges[i]._source, expectedControlEdges[i]._source);
+        EXPECT_EQ(sortedControlEdges[i]._sink, expectedControlEdges[i]._sink);
     }
 }
 
 TEST_F(MLIR_ControlEdgeGenerator, TestMemOverlapEdgesWithSubViewTest5) {
-    // auto registry = createDialectRegistry();
-    // mlir::MLIRContext ctx(registry);
-    // ctx.loadDialect<mlir::quant::QuantDialect>();
-    // ctx.loadDialect<Const::ConstDialect>();
-
-    // mlir::OpBuilder builder(&ctx);
-    // auto declareOp = builder.create<Const::DeclareOp>(mlir::UnknownLoc::get(&ctx), quantDataType, contentAttr);
-
     mlir::MLIRContext ctx(registry);
     ctx.loadDialect<VPUIP::VPUIPDialect>();
     ctx.loadDialect<VPURT::VPURTDialect>();

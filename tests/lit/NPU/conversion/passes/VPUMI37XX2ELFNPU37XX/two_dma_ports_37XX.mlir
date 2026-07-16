@@ -15,21 +15,21 @@ module @mainModule {
     DataInfo "output_1" : tensor<1x16x16x16xf16>
   }
 
-  // CHECK-LABEL: func.func private @race_condition_dma_f16_f16
-  // CHECK-SAME:    [[ARG_0:%[^:]+]]: memref<1x16x16x16xf16, #NHWC, @DDR>
-  // CHECK-SAME:    [[ARG_1:%[^:]+]]: memref<1x16x16x16xf16, #NHWC, @DDR>
-  // CHECK-SAME:    [[ARG_2:%[^:]+]]: memref<1x16x16x16xf16, #NHWC, @DDR>
-  func.func private @race_condition_dma_f16_f16(%arg0: memref<1x16x16x16xf16, #NHWC, @DDR>, %arg1: memref<1x16x16x16xf16, #NHWC, @DDR>, %arg2: memref<1x16x16x16xf16, #NHWC, @DDR>) -> (memref<1x16x16x16xf16, #NHWC, @DDR>, memref<1x16x16x16xf16, #NHWC, @DDR>) {
-    %0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>
-    %1 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 1]>
+  // CHECK-LABEL: func.func nested @race_condition_dma_f16_f16
+  // CHECK-SAME:    [[ARG_0:%[^:]+]]: memref<1x16x16x16xf16, {order = #NHWC}, @DDR>
+  // CHECK-SAME:    [[ARG_1:%[^:]+]]: memref<1x16x16x16xf16, {order = #NHWC}, @DDR>
+  // CHECK-SAME:    [[ARG_2:%[^:]+]]: memref<1x16x16x16xf16, {order = #NHWC}, @DDR>
+  func.func nested @race_condition_dma_f16_f16(%arg0: memref<1x16x16x16xf16, {order = #NHWC}, @DDR>, %arg1: memref<1x16x16x16xf16, {order = #NHWC}, @DDR>, %arg2: memref<1x16x16x16xf16, {order = #NHWC}, @DDR>) -> (memref<1x16x16x16xf16, {order = #NHWC}, @DDR>, memref<1x16x16x16xf16, {order = #NHWC}, @DDR>) {
+    %0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %1 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 1]>
     %2 = VPUMI37XX.ConfigureBarrier {consumer_count = 2 : ui8, producer_count = 2 : ui8}<0, -1> -> !VPURegMapped.Index<0:0:0>
     %5 = VPUMI37XX.ConfigureBarrier {consumer_count = 2 : ui8, producer_count = 2 : ui8}<1, -1> -> !VPURegMapped.Index<0:0:1>
-    %9 = VPUMI37XX.NNDMA <{port = 1 : i64}> inputs(%1 : memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 1]>) outputs(%arg2 : memref<1x16x16x16xf16, #NHWC, @DDR>) waits(%5 : !VPURegMapped.Index<0:0:1>) start_after(0) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:1:2>
-    %8 = VPUMI37XX.NNDMA <{port = 0 : i64}> inputs(%0 : memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>) outputs(%arg1 : memref<1x16x16x16xf16, #NHWC, @DDR>) waits(%5 : !VPURegMapped.Index<0:0:1>) start_after(0) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:0:2>
-    %7 = VPUMI37XX.NNDMA <{port = 1 : i64}> inputs(%arg0 : memref<1x16x16x16xf16, #NHWC, @DDR>) outputs(%1 : memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 1]>) nextDMAIdx(%9 : !VPURegMapped.Index<0:1:2>) waits(%2 : !VPURegMapped.Index<0:0:0>) updates(%5 : !VPURegMapped.Index<0:0:1>) start_after(0) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:1:1>
-    %6 = VPUMI37XX.NNDMA <{port = 0 : i64}> inputs(%arg0 : memref<1x16x16x16xf16, #NHWC, @DDR>) outputs(%0 : memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>) nextDMAIdx(%8 : !VPURegMapped.Index<0:0:2>) waits(%2 : !VPURegMapped.Index<0:0:0>) updates(%5 : !VPURegMapped.Index<0:0:1>) start_after(0) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:0:1>
-    %4 = VPUMI37XX.NNDMA <{port = 1 : i64}> inputs(%arg0 : memref<1x16x16x16xf16, #NHWC, @DDR>) outputs(%1 : memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 1]>) nextDMAIdx(%7 : !VPURegMapped.Index<0:1:1>) updates(%2 : !VPURegMapped.Index<0:0:0>) start_after(0) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:1:0>
-    %3 = VPUMI37XX.NNDMA <{port = 0 : i64}> inputs(%arg0 : memref<1x16x16x16xf16, #NHWC, @DDR>) outputs(%0 : memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>) nextDMAIdx(%6 : !VPURegMapped.Index<0:0:1>) updates(%2 : !VPURegMapped.Index<0:0:0>) start_after(0) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:0:0>
+    %9 = VPUMI37XX.NNDMA <{port = 1 : i64}> inputs(%1 : memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 1]>) outputs(%arg2 : memref<1x16x16x16xf16, {order = #NHWC}, @DDR>) waits(%5 : !VPURegMapped.Index<0:0:1>) start_after(0) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:1:2>
+    %8 = VPUMI37XX.NNDMA <{port = 0 : i64}> inputs(%0 : memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%arg1 : memref<1x16x16x16xf16, {order = #NHWC}, @DDR>) waits(%5 : !VPURegMapped.Index<0:0:1>) start_after(0) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:0:2>
+    %7 = VPUMI37XX.NNDMA <{port = 1 : i64}> inputs(%arg0 : memref<1x16x16x16xf16, {order = #NHWC}, @DDR>) outputs(%1 : memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 1]>) nextDMAIdx(%9 : !VPURegMapped.Index<0:1:2>) waits(%2 : !VPURegMapped.Index<0:0:0>) updates(%5 : !VPURegMapped.Index<0:0:1>) start_after(0) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:1:1>
+    %6 = VPUMI37XX.NNDMA <{port = 0 : i64}> inputs(%arg0 : memref<1x16x16x16xf16, {order = #NHWC}, @DDR>) outputs(%0 : memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>) nextDMAIdx(%8 : !VPURegMapped.Index<0:0:2>) waits(%2 : !VPURegMapped.Index<0:0:0>) updates(%5 : !VPURegMapped.Index<0:0:1>) start_after(0) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:0:1>
+    %4 = VPUMI37XX.NNDMA <{port = 1 : i64}> inputs(%arg0 : memref<1x16x16x16xf16, {order = #NHWC}, @DDR>) outputs(%1 : memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 1]>) nextDMAIdx(%7 : !VPURegMapped.Index<0:1:1>) updates(%2 : !VPURegMapped.Index<0:0:0>) start_after(0) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:1:0>
+    %3 = VPUMI37XX.NNDMA <{port = 0 : i64}> inputs(%arg0 : memref<1x16x16x16xf16, {order = #NHWC}, @DDR>) outputs(%0 : memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>) nextDMAIdx(%6 : !VPURegMapped.Index<0:0:1>) updates(%2 : !VPURegMapped.Index<0:0:0>) start_after(0) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:0:0>
     %10 = VPUMI37XX.MappedInference dmas(%3, %4 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>) barriers(%2 : !VPURegMapped.Index<0:0:0>) dmaCount([3, 3]) invariantCount(0) variantCount(0) actKernelRangesCount(0) actKernelInvocationsCount(0) barrierCount(2) -> !VPURegMapped.Index<0:0:0>
 
     // CHECK: [[BAR_0:%.+]] = VPUMI37XX.ConfigureBarrier {consumer_count = 2 : ui8, producer_count = 2 : ui8}<0, -1> -> !VPURegMapped.Index<0:0:0>
@@ -66,9 +66,9 @@ module @mainModule {
     // CHECK: [[symDmaSec1:%.+]] = ELFNPU37XX.Symbol [[dmaSec1]] name("sym_dmaSection1") : !ELFNPU37XX.Section
     // CHECK: [[symBarSec:%.+]] = ELFNPU37XX.Symbol [[barSec]] name("sym_barrierSection") : !ELFNPU37XX.Section
 
-    // CHECK: [[symIn0:%.+]] = ELFNPU37XX.Symbol [[ARG_0]] name("input_0") size(8192) : memref<1x16x16x16xf16, #NHWC, @DDR>
-    // CHECK: [[symOut0:%.+]] = ELFNPU37XX.Symbol [[ARG_1]] name("output_0") size(8192) : memref<1x16x16x16xf16, #NHWC, @DDR>
-    // CHECK: [[symOut1:%.+]] = ELFNPU37XX.Symbol [[ARG_2]] name("output_1") size(8192) : memref<1x16x16x16xf16, #NHWC, @DDR>
+    // CHECK: [[symIn0:%.+]] = ELFNPU37XX.Symbol [[ARG_0]] name("input_0") size(8192) : memref<1x16x16x16xf16, {order = #NHWC}, @DDR>
+    // CHECK: [[symOut0:%.+]] = ELFNPU37XX.Symbol [[ARG_1]] name("output_0") size(8192) : memref<1x16x16x16xf16, {order = #NHWC}, @DDR>
+    // CHECK: [[symOut1:%.+]] = ELFNPU37XX.Symbol [[ARG_2]] name("output_1") size(8192) : memref<1x16x16x16xf16, {order = #NHWC}, @DDR>
 
     // CHECK: [[symTabSecIn:%.+]] = ELFNPU37XX.CreateSymbolTableSection secName(".symtab.input") secFlags(VPU_SHF_USERINPUT) -> !ELFNPU37XX.Section {
       // CHECK: ELFNPU37XX.PutOpInSection [[symIn0]] : !ELFNPU37XX.Symbol
@@ -140,6 +140,6 @@ module @mainModule {
       // CHECK: ELFNPU37XX.Reloc baseOp([[MI]] : !VPURegMapped.Index<0:0:0>) offset(112) <R_VPU_64> [[symDmaSec1]] 0
       // CHECK: ELFNPU37XX.Reloc baseOp([[MI]] : !VPURegMapped.Index<0:0:0>) offset(312) <R_VPU_64> [[symBarSec]] 0
 
-    return %arg1, %arg2 : memref<1x16x16x16xf16, #NHWC, @DDR>, memref<1x16x16x16xf16, #NHWC, @DDR>
+    return %arg1, %arg2 : memref<1x16x16x16xf16, {order = #NHWC}, @DDR>, memref<1x16x16x16xf16, {order = #NHWC}, @DDR>
   }
 }

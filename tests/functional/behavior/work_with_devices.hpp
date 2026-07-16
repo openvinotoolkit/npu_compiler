@@ -74,6 +74,9 @@ TEST_P(TestCompiledModelNPU, samePlatformProduceTheSameBlob) {
     }
 }
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(TestCompileModelWithoutDeviceNPU);
+
 class TestCompileModelWithoutDeviceNPU : public TestCompiledModelNPU {
 protected:
     void SetUp() override {

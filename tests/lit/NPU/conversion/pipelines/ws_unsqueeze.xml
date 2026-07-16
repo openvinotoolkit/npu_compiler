@@ -1,0 +1,65 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<net name="torch-jit-export" version="11">
+  <layers>
+    <layer id="0" name="input" type="Parameter" version="opset1">
+      <data shape="16" element_type="f32"/>
+      <output>
+        <port id="0" precision="FP32" names="input">
+          <dim>16</dim>
+        </port>
+      </output>
+    </layer>
+    <layer id="1" name="axes_const" type="Const" version="opset1">
+      <data element_type="f16" offset="0" shape="1" size="2"/>
+      <input/>
+      <output>
+        <port id="0" precision="FP16">
+          <dim>1</dim>
+        </port>
+      </output>
+    </layer>
+    <layer id="2" name="axes_convert" type="Convert" version="opset1">
+      <data destination_type="i64"/>
+      <input>
+        <port id="0" precision="FP16">
+          <dim>1</dim>
+        </port>
+      </input>
+      <output>
+        <port id="1" precision="I64">
+          <dim>1</dim>
+        </port>
+      </output>
+    </layer>
+    <layer id="3" name="Unsqueeze" type="Unsqueeze" version="opset1">
+      <input>
+        <port id="0" precision="FP32">
+          <dim>16</dim>
+        </port>
+        <port id="1" precision="I64">
+          <dim>1</dim>
+        </port>
+      </input>
+      <output>
+        <port id="2" precision="FP32" names="Unsqueeze_out">
+          <dim>1</dim>
+          <dim>16</dim>
+        </port>
+      </output>
+    </layer>
+    <layer id="4" name="Unsqueeze_out" type="Result" version="opset1" output_names="Unsqueeze_out">
+      <input>
+        <port id="0" precision="FP32">
+          <dim>1</dim>
+          <dim>16</dim>
+        </port>
+      </input>
+    </layer>
+  </layers>
+  <edges>
+    <edge from-layer="1" to-layer="2" from-port="0" to-port="0"/>
+    <edge from-layer="0" to-layer="3" from-port="0" to-port="0"/>
+    <edge from-layer="2" to-layer="3" from-port="1" to-port="1"/>
+    <edge from-layer="3" to-layer="4" from-port="2" to-port="0"/>
+  </edges>
+</net>

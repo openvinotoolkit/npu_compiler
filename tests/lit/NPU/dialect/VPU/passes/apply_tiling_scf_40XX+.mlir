@@ -18,10 +18,9 @@
 // CHECK-SAME:          [[INPUT:%arg[0-9]]]: tensor<1x32x64x64xf16, {order = #NHWC}>
 func.func @ApplyTilingNCEConv(%arg0: tensor<1x32x64x64xf16, {order = #NHWC}>) -> tensor<1x256x64x64xf16, {order = #NHWC}> {
     %weights = const.Declare tensor<256x32x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<256x32x3x3xf16>, [#const.Reorder<#NHWC>]
-    %0 = VPU.NCE.Convolution(%arg0, %weights) {
+    %0 = VPU.NCE.Convolution(%arg0, %weights) rawFilterShape [256, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
-        rawFilterShape = [256, 32, 3, 3],
         strides = [1, 1],
         tilingStrategy = [1, 1, 2, 1]
     } : tensor<1x32x64x64xf16, {order = #NHWC}>, tensor<256x32x3x3xf16, {order = #NHWC}> -> tensor<1x256x64x64xf16, {order = #NHWC}>
@@ -49,7 +48,7 @@ func.func @ApplyTilingNCEConv(%arg0: tensor<1x32x64x64xf16, {order = #NHWC}>) ->
     //CHECK:                [[PAD:%.+]] = tensor.pad [[SLICE]] low[0, 0, [[PAD_LOW]], 1] high[0, 0, [[PAD_HIGH]], 1] {
     //CHECK:                   tensor.yield [[PAD_VALUE]] : f16
     //CHECK:                   tensor<1x32x33x64xf16, {order = #NHWC}> to tensor<1x32x?x66xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 66, 66]> : tensor<4xsi64>, order = #NHWC}>
-    //CHECK:                [[CONV:%.+]] = VPU.NCE.Convolution([[PAD]], [[WEIGHTS]])
+    //CHECK:                [[CONV:%.+]] = VPU.NCE.Convolution([[PAD]], [[WEIGHTS]]) rawFilterShape [256, 32, 3, 3] 
     //CHECK-SAME:           {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
     //CHECK-SAME:           -> tensor<1x256x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
 
@@ -68,10 +67,10 @@ func.func @ApplyTilingNCEConv(%arg0: tensor<1x32x64x64xf16, {order = #NHWC}>) ->
 
 // CHECK-LABEL:   @NoApplyTilingSparseNCEConv
 func.func @NoApplyTilingSparseNCEConv(%arg0: tensor<1x16x64x16xf16, {order = #NHWC}>, %arg1: !SparseType) -> tensor<1x1280x64x16xf16, {order = #NHWC}> {
-    %0 = VPU.NCE.Convolution(%arg0, %arg1) {
+    %0 = VPU.NCE.Convolution(%arg0, %arg1) rawFilterShape [1280, 16, 3, 3]  {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, prelu_alpha = [1.000000e+00],
-        adder = 0.000000e+00 : f64>, rawFilterShape = [1280, 16, 3, 3], strides = [1, 1],
+        adder = 0.000000e+00 : f64>,strides = [1, 1],
         tilingStrategy = [1, 8, 1, 1]} : tensor<1x16x64x16xf16, {order = #NHWC}>,
         !SparseType ->
         tensor<1x1280x64x16xf16, {order = #NHWC}>
@@ -134,10 +133,10 @@ func.func @ApplyChannelUnevenTiling(%arg0: tensor<1x640x32x32xf16, {order = #NHW
 %arg1: tensor<640x640x3x3xf16, {order = #NHWC}>)
         -> tensor<1x640x32x32xf16, {order = #NHWC}> {
 
-    %0 = VPU.NCE.Convolution(%arg0, %arg1) {
+    %0 = VPU.NCE.Convolution(%arg0, %arg1)  rawFilterShape [640, 640, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64,
-        prelu_alpha = [1.000000e+00], adder = 0.000000e+00 : f64>, rawFilterShape = [640, 640, 3, 3],
+        prelu_alpha = [1.000000e+00], adder = 0.000000e+00 : f64>,
         strides = [1, 1], tilingStrategy = [1, 7, 1, 7]
         }
         : tensor<1x640x32x32xf16, {order = #NHWC}>,
@@ -205,7 +204,7 @@ func.func @ApplyChannelUnevenTiling(%arg0: tensor<1x640x32x32xf16, {order = #NHW
 func.func @ApplyTilingMaxPool(%arg0: tensor<1x16x200x200xf16, {order = #NHWC}>) -> tensor<1x16x200x200xf16, {order = #NHWC}> {
     %weights_table = const.Declare tensor<16x1x1x4xsi32, {order = #NCHW}> = dense<10> : tensor<16x1x1x4xsi32>
 
-    %0 = VPU.NCE.MaxPool(%arg0, %weights_table) {
+    %0 = VPU.NCE.MaxPool(%arg0, %weights_table) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         kernel_size = [3, 3],
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
@@ -263,7 +262,7 @@ func.func @ApplyTilingMaxPool(%arg0: tensor<1x16x200x200xf16, {order = #NHWC}>) 
 func.func @ApplyTilingMaxPool4Tiles(%arg0: tensor<1x16x200x200xf16, {order = #NHWC}>) -> tensor<1x16x200x200xf16, {order = #NHWC}> {
     %weights_table = const.Declare tensor<16x1x1x4xsi32, {order = #NCHW}> = dense<10> : tensor<16x1x1x4xsi32>
 
-    %0 = VPU.NCE.MaxPool(%arg0, %weights_table) {
+    %0 = VPU.NCE.MaxPool(%arg0, %weights_table) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         kernel_size = [3, 3],
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
@@ -353,7 +352,7 @@ func.func @ApplyTilingAvgPool(%arg0: tensor<1x16x7x12960xf16, {order = #NHWC}>) 
          %arg0: tensor<1x32x200x200xf16, {order = #NHWC}>,
          %arg1: tensor<32x16x1x1xf16, {order = #NHWC}>
  ) -> tensor<1x32x200x200xf16, {order = #NHWC}> {
-     %1 = VPU.NCE.DepthConvolution(%arg0, %arg1) {
+     %1 = VPU.NCE.DepthConvolution(%arg0, %arg1) rawFilterShape [32, 1, 1, 1] {
          pad = #VPU.Padding<
              left = 0 : i64,
              right = 0 : i64,
@@ -368,7 +367,6 @@ func.func @ApplyTilingAvgPool(%arg0: tensor<1x16x7x12960xf16, {order = #NHWC}>) 
              lrelu_shift = 0 : i64,
              fp_prelu_alpha = 1.000000e+00 : f64
          >,
-         rawFilterShape = [32, 1, 1, 1],
          strides = [1, 1],
          tilingStrategy = [1, 1, 1, 4]
      } -> tensor<1x32x200x200xf16, {order = #NHWC}>
@@ -401,7 +399,7 @@ func.func @ApplyTilingAvgPool(%arg0: tensor<1x16x7x12960xf16, {order = #NHWC}>) 
  func.func @NotPaddedMaxPool(
          %arg0: tensor<1x16x256x480xf16, {order = #NHWC}>
  ) -> tensor<1x16x127x480xf16, {order = #NHWC}> {
-     %1 = VPU.NCE.MaxPool(%arg0) {
+     %1 = VPU.NCE.MaxPool(%arg0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
          kernel_size = [3, 1],
          multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
          pad = #VPU.Padding<
@@ -560,7 +558,7 @@ func.func @DynamicEltwiseTiling(
  func.func @NotPaddedUnevenMaxPool(
          %arg0: tensor<1x16x256x480xf16, {order = #NHWC}>
  ) -> tensor<1x16x127x480xf16, {order = #NHWC}> {
-     %1 = VPU.NCE.MaxPool(%arg0) {
+     %1 = VPU.NCE.MaxPool(%arg0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
          kernel_size = [3, 1],
          multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
          pad = #VPU.Padding<
@@ -634,7 +632,7 @@ func.func @DynamicEltwiseTiling(
  func.func @Tiling2DNotPaddedMaxPool(
          %arg0: tensor<1x16x512x480xf16, {order = #NHWC}>
  ) -> tensor<1x16x512x480xf16, {order = #NHWC}> {
-     %1 = VPU.NCE.MaxPool(%arg0) {
+     %1 = VPU.NCE.MaxPool(%arg0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
          kernel_size = [3, 3],
          multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
          pad = #VPU.Padding<
@@ -780,10 +778,9 @@ func.func @Dynamic2DEltwiseTiling(
 // CHECK-SAME:    [[INPUT:%arg[0-9]]]: tensor<1x32x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 1024, 64]> : tensor<4xsi64>, order = #NHWC}>
 func.func @ApplyTilingNCEConvDyn(%arg0: tensor<1x32x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 1024, 64]> : tensor<4xsi64>, order = #NHWC}>) -> tensor<1x256x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 1024, 64]> : tensor<4xsi64>, order = #NHWC}> {
     %weights = const.Declare tensor<256x32x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<256x32x3x3xf16>, [#const.Reorder<#NHWC>]
-    %0 = VPU.NCE.Convolution(%arg0, %weights) {
+    %0 = VPU.NCE.Convolution(%arg0, %weights) rawFilterShape [256, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
-        rawFilterShape = [256, 32, 3, 3],
         strides = [1, 1],
         tilingStrategy = [1, 1, 2, 1]
     } : tensor<1x32x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 1024, 64]> : tensor<4xsi64>, order = #NHWC}>, tensor<256x32x3x3xf16, {order = #NHWC}> -> tensor<1x256x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 1024, 64]> : tensor<4xsi64>, order = #NHWC}>
@@ -840,7 +837,7 @@ func.func @ApplyTilingNCEConvDyn(%arg0: tensor<1x32x?x64xf16, {bounds = #const.O
 func.func @ApplyTilingMaxPool4Tiles(%arg0: tensor<1x16x?x200xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 400, 200]> : tensor<4xsi64>, order = #NHWC}>) -> tensor<1x16x?x200xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 400, 200]> : tensor<4xsi64>, order = #NHWC}> {
     %weights_table = const.Declare tensor<16x1x1x4xsi32, {order = #NCHW}> = dense<10> : tensor<16x1x1x4xsi32>
 
-    %0 = VPU.NCE.MaxPool(%arg0, %weights_table) {
+    %0 = VPU.NCE.MaxPool(%arg0, %weights_table) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         kernel_size = [3, 3],
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
@@ -874,7 +871,8 @@ func.func @ApplyTilingMaxPool4Tiles(%arg0: tensor<1x16x?x200xf16, {bounds = #con
     //CHECK:                    tensor.yield [[PAD_VALUE]] : f16
     //CHECK:                } : tensor<1x16x?x200xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 100, 200]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x16x?x202xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 102, 202]> : tensor<4xsi64>, order = #NHWC}>
     //CHECK:                [[POOL_RESULT:%.+]] = VPU.NCE.MaxPool([[PAD]], [[WEIGHTS_TABLE]] ) {kernel_size = [3, 3],
-    //CHECK-SAME:                                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, strides = [1, 1], tiling_loop_index = 0 : i64}
+    //CHECK-SAME:                                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
+    // CHECK-SAME:          strides = [1, 1], tiling_loop_index = 0 : i64}
     //CHECK-SAME:                                 -> tensor<1x16x?x200xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 100, 200]> : tensor<4xsi64>, order = #NHWC}>
     //CHECK:                [[SLICE1:%.+]] = tensor.insert_slice [[POOL_RESULT]] into [[LOOP_OUT]][0, 0, [[LOOP_ITER]], 0] [1, 16, [[MIN_OFFSET]], 200] [1, 1, 1, 1] : tensor<1x16x?x200xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 100, 200]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x16x?x200xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 400, 200]> : tensor<4xsi64>, order = #NHWC}>
     //CHECK:                scf.yield [[SLICE1]] : tensor<1x16x?x200xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 400, 200]> : tensor<4xsi64>, order = #NHWC}>
@@ -994,7 +992,7 @@ func.func @NoPaddingDWCONV_W_DynamicInput(
          %arg0: !dynInputType,
          %arg1: tensor<32x16x1x1xf16, {order = #NHWC}>
  ) -> !dynOutputType {
-     %1 = VPU.NCE.DepthConvolution(%arg0, %arg1) {
+     %1 = VPU.NCE.DepthConvolution(%arg0, %arg1) rawFilterShape [32, 1, 1, 1] {
          pad = #VPU.Padding<
              left = 0 : i64,
              right = 0 : i64,
@@ -1009,7 +1007,6 @@ func.func @NoPaddingDWCONV_W_DynamicInput(
              lrelu_shift = 0 : i64,
              fp_prelu_alpha = 1.000000e+00 : f64
          >,
-         rawFilterShape = [32, 1, 1, 1],
          strides = [1, 1],
          tilingStrategy = [1, 1, 1, 117]
      } -> !dynOutputType
@@ -1028,9 +1025,10 @@ func.func @NoPaddingDWCONV_W_DynamicInput(
     //CHECK:                [[SIZE:%.+]] = affine.min #[[$MAP]]([[LOOP_ITER]])[[[LOOP_END]]]
     //CHECK:                [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, 0, [[LOOP_ITER]]] [1, 32, 800, [[SIZE]]] [1, 1, 1, 1]
     //CHECK-SAME:           : tensor<1x32x800x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 1280]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x32x800x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 11]> : tensor<4xsi64>, order = #NHWC}>
-    //CHECK:                [[DEPTH_CONV:%.+]] = VPU.NCE.DepthConvolution([[SLICE]], [[WEIGHTS]])
+    //CHECK:                [[DEPTH_CONV:%.+]] = VPU.NCE.DepthConvolution([[SLICE]], [[WEIGHTS]])  rawFilterShape [32, 1, 1, 1]
     //CHECK-SAME:           {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
-    //CHECK-SAME:           , ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>, rawFilterShape = [32, 1, 1, 1], strides = [1, 1], tiling_loop_index = 0 : i64} -> tensor<1x32x800x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 11]> : tensor<4xsi64>, order = #NHWC}>
+    //CHECK-SAME:           , ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+    // CHECK-SAME:          strides = [1, 1], tiling_loop_index = 0 : i64} -> tensor<1x32x800x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 11]> : tensor<4xsi64>, order = #NHWC}>
 
     //CHECK:                [[INSERT:%.+]] = tensor.insert_slice [[DEPTH_CONV]] into [[LOOP_OUT]][0, 0, 0, [[LOOP_ITER]]] [1, 32, 800, [[SIZE]]] [1, 1, 1, 1] : tensor<1x32x800x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 11]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x32x800x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 1280]> : tensor<4xsi64>, order = #NHWC}>
     //CHECK:                scf.yield [[INSERT]] : tensor<1x32x800x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 1280]> : tensor<4xsi64>, order = #NHWC}>
@@ -1057,7 +1055,7 @@ func.func @NoPaddingDWCONV_HW_DynamicInput(
          %arg0: !dynInputType,
          %arg1: tensor<32x16x1x1xf16, {order = #NHWC}>
  ) -> !dynOutputType {
-     %1 = VPU.NCE.DepthConvolution(%arg0, %arg1) {
+     %1 = VPU.NCE.DepthConvolution(%arg0, %arg1) rawFilterShape [32, 1, 1, 1] {
          pad = #VPU.Padding<
              left = 0 : i64,
              right = 0 : i64,
@@ -1072,7 +1070,6 @@ func.func @NoPaddingDWCONV_HW_DynamicInput(
              lrelu_shift = 0 : i64,
              fp_prelu_alpha = 1.000000e+00 : f64
          >,
-         rawFilterShape = [32, 1, 1, 1],
          strides = [1, 1],
          tilingStrategy = [1, 1, 2, 117]
      } -> !dynOutputType
@@ -1101,9 +1098,10 @@ func.func @NoPaddingDWCONV_HW_DynamicInput(
 
     //CHECK:                [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[LOOP_ITER_H]], [[LOOP_ITER_W]]] [1, 32, [[SIZE_H]], [[SIZE_W]]] [1, 1, 1, 1]
     //CHECK-SAME:           : tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 1280]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 400, 11]> : tensor<4xsi64>, order = #NHWC}>
-    //CHECK:                [[DEPTH_CONV:%.+]] = VPU.NCE.DepthConvolution([[SLICE]], [[WEIGHTS]])
+    //CHECK:                [[DEPTH_CONV:%.+]] = VPU.NCE.DepthConvolution([[SLICE]], [[WEIGHTS]])  rawFilterShape [32, 1, 1, 1]
     //CHECK-SAME:           {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
-    //CHECK-SAME:           , ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>, rawFilterShape = [32, 1, 1, 1], strides = [1, 1], tiling_loop_index = 0 : i64} -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 400, 11]> : tensor<4xsi64>, order = #NHWC}>
+    //CHECK-SAME:           , ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+    // CHECK-SAME:          strides = [1, 1], tiling_loop_index = 0 : i64} -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 400, 11]> : tensor<4xsi64>, order = #NHWC}>
 
     //CHECK:                [[INSERT:%.+]] = tensor.insert_slice [[DEPTH_CONV]] into [[LOOP_OUT]][0, 0, [[LOOP_ITER_H]], [[LOOP_ITER_W]]] [1, 32, [[SIZE_H]], [[SIZE_W]]] [1, 1, 1, 1] : tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 400, 11]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 1280]> : tensor<4xsi64>, order = #NHWC}>
     //CHECK:                scf.yield [[INSERT]] : tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 1280]> : tensor<4xsi64>, order = #NHWC}>
@@ -1126,10 +1124,9 @@ func.func @NoPaddingDWCONV_HW_DynamicInput(
 func.func @SCFTilingWithChannelPaddedWeights(%arg0: tensor<1x32x56x56xf16, {order = #NHWC}>) -> tensor<1x64x56x56xf16, {order = #NHWC}> {
     %weights = const.Declare tensor<64x32x5x5xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<48x32x5x5xf16>, [#const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [16, 0, 0, 0]>]
 
-    %0 = VPU.NCE.Convolution(%arg0, %weights) {
+    %0 = VPU.NCE.Convolution(%arg0, %weights) rawFilterShape [64, 32, 5, 5] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 2 : i64, right = 2 : i64, top = 2 : i64, bottom = 2 : i64>,
         ppe = #VPU.PPEStub<>,
-        rawFilterShape = [64, 32, 5, 5],
         strides = [1, 1],
         tilingStrategy = [1, 1, 2, 1]
     } : tensor<1x32x56x56xf16, {order = #NHWC}>, tensor<64x32x5x5xf16, {order = #NHWC}> -> tensor<1x64x56x56xf16, {order = #NHWC}>
@@ -1311,7 +1308,7 @@ func.func @NoPaddingCompressCONV_W_DynamicInput(
          %arg1: tensor<32x4x1x1xf16, {order = #NHWC}>,
          %arg2: tensor<32x1x1x4xsi32>
  ) -> !dynOutputType {
-     %1 = VPU.NCE.CompressConvolution(%arg0, %arg1, %arg2) {
+     %1 = VPU.NCE.CompressConvolution(%arg0, %arg1, %arg2) rawFilterShape [32, 4, 1, 1] {
          pad = #VPU.Padding<
              left = 0 : i64,
              right = 0 : i64,
@@ -1326,7 +1323,6 @@ func.func @NoPaddingCompressCONV_W_DynamicInput(
              lrelu_shift = 0 : i64,
              fp_prelu_alpha = 1.000000e+00 : f64
          >,
-         rawFilterShape = [32, 4, 1, 1],
          strides = [1, 1],
          tilingStrategy = [1, 1, 1, 117],
          cm_sp_pattern = 0
@@ -1345,9 +1341,10 @@ func.func @NoPaddingCompressCONV_W_DynamicInput(
     //CHECK:                [[SIZE:%.+]] = affine.min #[[$MAP]]([[LOOP_ITER]])[[[DIM_0]]]
     //CHECK:                [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, 0, [[LOOP_ITER]]] [1, 4, 800, [[SIZE]]] [1, 1, 1, 1]
     //CHECK-SAME:           : tensor<1x4x800x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 800, 1280]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x4x800x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 800, 11]> : tensor<4xsi64>, order = #NHWC}>
-    //CHECK:                [[COMPRESS_CONV:%.+]] = VPU.NCE.CompressConvolution([[SLICE]], [[WEIGHTS]], [[WEIGHTS_TABLE]])
+    //CHECK:                [[COMPRESS_CONV:%.+]] = VPU.NCE.CompressConvolution([[SLICE]], [[WEIGHTS]], [[WEIGHTS_TABLE]])  rawFilterShape [32, 4, 1, 1]
     //CHECK-SAME:           {cm_sp_pattern = 0 : i64, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
-    //CHECK-SAME:           , ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>, rawFilterShape = [32, 4, 1, 1], strides = [1, 1], tiling_loop_index = 0 : i64} -> tensor<1x32x800x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 11]> : tensor<4xsi64>, order = #NHWC}>
+    //CHECK-SAME:           , ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+    // CHECK-SAME:          strides = [1, 1], tiling_loop_index = 0 : i64} -> tensor<1x32x800x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 11]> : tensor<4xsi64>, order = #NHWC}>
 
     //CHECK:                [[INSERT:%.+]] = tensor.insert_slice [[COMPRESS_CONV]] into [[LOOP_OUT]][0, 0, 0, [[LOOP_ITER]]] [1, 32, 800, [[SIZE]]] [1, 1, 1, 1] : tensor<1x32x800x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 11]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x32x800x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 1280]> : tensor<4xsi64>, order = #NHWC}>
     //CHECK:                scf.yield [[INSERT]] : tensor<1x32x800x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 1280]> : tensor<4xsi64>, order = #NHWC}>
@@ -1376,7 +1373,7 @@ func.func @NoPaddingCompressCONV_HW_DynamicInput(
          %arg1: tensor<32x4x1x1xf16, {order = #NHWC}>,
          %arg2: tensor<32x1x1x4xsi32>
  ) -> !dynOutputType {
-     %1 = VPU.NCE.CompressConvolution(%arg0, %arg1, %arg2) {
+     %1 = VPU.NCE.CompressConvolution(%arg0, %arg1, %arg2) rawFilterShape [32, 4, 1, 1] {
          pad = #VPU.Padding<
              left = 0 : i64,
              right = 0 : i64,
@@ -1391,7 +1388,6 @@ func.func @NoPaddingCompressCONV_HW_DynamicInput(
              lrelu_shift = 0 : i64,
              fp_prelu_alpha = 1.000000e+00 : f64
          >,
-         rawFilterShape = [32, 4, 1, 1],
          strides = [1, 1],
          tilingStrategy = [1, 1, 2, 117],
          cm_sp_pattern = 0
@@ -1425,9 +1421,10 @@ func.func @NoPaddingCompressCONV_HW_DynamicInput(
 
     //CHECK:                [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[LOOP_ITER_H]], [[LOOP_ITER_W]]] [1, 4, [[SIZE_H]], [[SIZE_W]]] [1, 1, 1, 1]
     //CHECK-SAME:           : tensor<1x4x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 800, 1280]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x4x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 400, 11]> : tensor<4xsi64>, order = #NHWC}>
-    //CHECK:                [[COMPRESS_CONV:%.+]] = VPU.NCE.CompressConvolution([[SLICE]], [[WEIGHTS]], [[WEIGHTS_TABLE]])
+    //CHECK:                [[COMPRESS_CONV:%.+]] = VPU.NCE.CompressConvolution([[SLICE]], [[WEIGHTS]], [[WEIGHTS_TABLE]])  rawFilterShape [32, 4, 1, 1]
     //CHECK-SAME:           {cm_sp_pattern = 0 : i64, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
-    //CHECK-SAME:           , ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>, rawFilterShape = [32, 4, 1, 1], strides = [1, 1], tiling_loop_index = 0 : i64} -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 400, 11]> : tensor<4xsi64>, order = #NHWC}>
+    //CHECK-SAME:           , ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+    // CHECK-SAME:          strides = [1, 1], tiling_loop_index = 0 : i64} -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 400, 11]> : tensor<4xsi64>, order = #NHWC}>
 
     //CHECK:                [[INSERT:%.+]] = tensor.insert_slice [[COMPRESS_CONV]] into [[LOOP_OUT]][0, 0, [[LOOP_ITER_H]], [[LOOP_ITER_W]]] [1, 32, [[SIZE_H]], [[SIZE_W]]] [1, 1, 1, 1] : tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 400, 11]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 1280]> : tensor<4xsi64>, order = #NHWC}>
     //CHECK:                scf.yield [[INSERT]] : tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 1280]> : tensor<4xsi64>, order = #NHWC}>
@@ -2675,4 +2672,1045 @@ module @TopKDynamic {
 // CHECK:        return [[SCF]]#0, [[SCF]]#1 : tensor<1x1x?x4096xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 4096, 4096]> : tensor<4xsi64>}>, tensor<1x1x?x4096xsi32, {bounds = #const.OpaqueI64Elements<[1, 1, 4096, 4096]> : tensor<4xsi64>}>
 
   }
+}
+
+// -----
+
+// CHECK-LABEL: @GeluTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @GeluTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Gelu(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[GELU:%.+]] = VPU.Gelu([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[GELU]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @ApplyTilingSCFSoftMax
+// CHECK-SAME:      [[INPUT:%arg[0-9]]]: tensor<1x16x256x140xf16>)
+func.func @ApplyTilingSCFSoftMax(%arg0: tensor<1x16x256x140xf16>) -> tensor<1x16x256x140xf16> {
+    %0 = VPU.SoftMax(%arg0) {
+        axisInd = 3 : i64,
+        tilingStrategy = [1, 1, 2, 1]
+    } : tensor<1x16x256x140xf16> -> tensor<1x16x256x140xf16>
+
+    return %0 : tensor<1x16x256x140xf16>
+
+    // CHECK-DAG: [[LOOP_BEGIN:%.+]] = arith.constant 0 : index
+    // CHECK-DAG: [[LOOP_END:%.+]] = arith.constant 256 : index
+    // CHECK-DAG: [[LOOP_STEP:%.+]] = arith.constant 128 : index
+
+    // CHECK: [[LOOP_OUTPUT:%.+]] = tensor.empty() : tensor<1x16x256x140xf16>
+    // CHECK: [[LOOP:%.+]] = scf.for
+    // CHECK-SAME:           [[LOOP_ITER:%arg[0-9]]] = [[LOOP_BEGIN]] to [[LOOP_END]] step [[LOOP_STEP]]
+    // CHECK-SAME:           iter_args([[LOOP_OUT:%arg[0-9]]]  = [[LOOP_OUTPUT]]) -> (tensor<1x16x256x140xf16>) {
+
+    // CHECK:      [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[LOOP_ITER]], 0] [1, 16, 128, 140] [1, 1, 1, 1] : tensor<1x16x256x140xf16> to tensor<1x16x128x140xf16>
+    // CHECK:      [[SOFTMAX:%.+]] = VPU.SoftMax([[SLICE]]) {axisInd = 3 : i64, tiling_loop_index = 0 : i64} : tensor<1x16x128x140xf16> -> tensor<1x16x128x140xf16>
+
+    // CHECK:      [[INSERT:%.+]] = tensor.insert_slice [[SOFTMAX]] into [[LOOP_OUT]][0, 0, [[LOOP_ITER]], 0] [1, 16, 128, 140] [1, 1, 1, 1] : tensor<1x16x128x140xf16> into tensor<1x16x256x140xf16>
+    // CHECK:      scf.yield [[INSERT]] : tensor<1x16x256x140xf16>
+
+    // CHECK: return [[LOOP]] : tensor<1x16x256x140xf16>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 0.0039215686274509803>
+
+// CHECK-LABEL: @DequantizeTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256x!qElemType>
+func.func @DequantizeTileOverH(%arg0: tensor<1x16x128x256x!qElemType>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Dequantize(%arg0) {dstElemType = f16, tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256x!qElemType> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[DQ:%.+]] = VPU.Dequantize([[SLICE]]) {dstElemType = f16, tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[DQ]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @MVN1NormalizeTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+// CHECK-SAME:  [[MEANVAR:%.+]]: tensor<1x16x1x2xf16>
+func.func @MVN1NormalizeTileOverH(%arg0: tensor<1x16x128x256xf16>, %arg1: tensor<1x16x1x2xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.MVN1Normalize(%arg0, %arg1) {across_channels = false, normalize_variance = true, tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16>, tensor<1x16x1x2xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1] : tensor<1x16x128x256xf16> to tensor<1x16x64x256xf16>
+// CHECK:            [[MVN:%.+]] = VPU.MVN1Normalize([[SLICE]], [[MEANVAR]]) {across_channels = false, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x16x64x256xf16>, tensor<1x16x1x2xf16> -> tensor<1x16x64x256xf16>
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[MVN]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1] : tensor<1x16x64x256xf16> into tensor<1x16x128x256xf16>
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK: #[[$MAP_MIN_H:.+]] = affine_map<(d0)[s0] -> (-d0 + s0, 64)>
+// CHECK: #[[$MAP_MIN_W:.+]] = affine_map<(d0)[s0] -> (-d0 + s0, 128)>
+
+// CHECK-LABEL: @GeluTileDynHW
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 128, 256]> : tensor<4xsi64>}>
+func.func @GeluTileDynHW(%arg0: tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 128, 256]> : tensor<4xsi64>}>) -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 128, 256]> : tensor<4xsi64>}> {
+    %0 = VPU.Gelu(%arg0) {tilingStrategy = [1, 1, 2, 2]} : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 128, 256]> : tensor<4xsi64>}> -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 128, 256]> : tensor<4xsi64>}>
+    return %0 : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 128, 256]> : tensor<4xsi64>}>
+
+// CHECK-DAG:    [[CST_128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[CST_64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[CST_0:%.+]] = arith.constant 0 : index
+// CHECK-DAG:    [[CST_3:%.+]] = arith.constant 3 : index
+// CHECK-DAG:    [[CST_2:%.+]] = arith.constant 2 : index
+// CHECK:        [[DIM_H:%.+]] = tensor.dim [[INPUT]], [[CST_2]] : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 128, 256]> : tensor<4xsi64>}>
+// CHECK:        [[DIM_W:%.+]] = tensor.dim [[INPUT]], [[CST_3]] : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 128, 256]> : tensor<4xsi64>}>
+// CHECK:        [[EMPTY:%.+]] = tensor.empty([[DIM_H]], [[DIM_W]]) : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 128, 256]> : tensor<4xsi64>}>
+// CHECK:        [[SCF_H:%.+]] = scf.for [[IDX_H:%.+]] = [[CST_0]] to [[DIM_H]] step [[CST_64]] iter_args([[OUT_H:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 128, 256]> : tensor<4xsi64>}>)
+// CHECK:          [[SCF_W:%.+]] = scf.for [[IDX_W:%.+]] = [[CST_0]] to [[DIM_W]] step [[CST_128]] iter_args([[OUT_W:%.+]] = [[OUT_H]])
+// CHECK:            [[SIZE_H:%.+]] = affine.min #[[$MAP_MIN_H]]([[IDX_H]])[[[DIM_H]]]
+// CHECK:            [[SIZE_W:%.+]] = affine.min #[[$MAP_MIN_W]]([[IDX_W]])[[[DIM_W]]]
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX_H]], [[IDX_W]]] [1, 16, [[SIZE_H]], [[SIZE_W]]] [1, 1, 1, 1]
+// CHECK:            [[GELU:%.+]] = VPU.Gelu([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[GELU]] into [[OUT_W]][0, 0, [[IDX_H]], [[IDX_W]]] [1, 16, [[SIZE_H]], [[SIZE_W]]] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 128, 256]> : tensor<4xsi64>}>
+// CHECK:          scf.yield [[SCF_W]] : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 128, 256]> : tensor<4xsi64>}>
+// CHECK:        return [[SCF_H]] : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 128, 256]> : tensor<4xsi64>}>
+}
+
+// -----
+
+!qElemType_dyn = !quant.uniform<u8:f16, 0.0039215686274509803>
+
+// CHECK: #[[$MAP_MIN_H:.+]] = affine_map<(d0)[s0] -> (-d0 + s0, 64)>
+// CHECK: #[[$MAP_MIN_W:.+]] = affine_map<(d0)[s0] -> (-d0 + s0, 128)>
+// CHECK-LABEL: @DequantizeTileDynHW
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x?x?x!qElemType
+func.func @DequantizeTileDynHW(%arg0: tensor<1x16x?x?x!qElemType_dyn, {bounds = #const.OpaqueI64Elements<[1, 16, 128, 256]> : tensor<4xsi64>}>) -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 128, 256]> : tensor<4xsi64>}> {
+    %0 = VPU.Dequantize(%arg0) {dstElemType = f16, tilingStrategy = [1, 1, 2, 2]} : tensor<1x16x?x?x!qElemType_dyn, {bounds = #const.OpaqueI64Elements<[1, 16, 128, 256]> : tensor<4xsi64>}> -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 128, 256]> : tensor<4xsi64>}>
+    return %0 : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 128, 256]> : tensor<4xsi64>}>
+
+// CHECK-DAG:    [[CST_2:%.+]] = arith.constant 2 : index
+// CHECK-DAG:    [[CST_3:%.+]] = arith.constant 3 : index
+// CHECK:        [[DIM_H:%.+]] = tensor.dim [[INPUT]], [[CST_2]]
+// CHECK:        [[DIM_W:%.+]] = tensor.dim [[INPUT]], [[CST_3]]
+// CHECK:        [[EMPTY:%.+]] = tensor.empty([[DIM_H]], [[DIM_W]])
+// CHECK:        [[SCF_H:%.+]] = scf.for [[IDX_H:%.+]] = {{%.+}} to [[DIM_H]] step {{%.+}} iter_args([[ARG_H:%.+]] = [[EMPTY]])
+// CHECK:            [[SCF_W:%.+]] = scf.for [[IDX_W:%.+]] = {{%.+}} to [[DIM_W]] step {{%.+}} iter_args([[ARG_W:%.+]] = [[ARG_H]])
+// CHECK:                [[MIN_H:%.+]] = affine.min #[[$MAP_MIN_H]]([[IDX_H]])[[[DIM_H]]]
+// CHECK:                [[MIN_W:%.+]] = affine.min #[[$MAP_MIN_W]]([[IDX_W]])[[[DIM_W]]]
+// CHECK:                [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX_H]], [[IDX_W]]] [1, 16, [[MIN_H]], [[MIN_W]]]
+// CHECK:                [[DQ:%.+]] = VPU.Dequantize([[SLICE]]) {dstElemType = f16, tiling_loop_index = 0 : i64}
+// CHECK:                [[INSERT:%.+]] = tensor.insert_slice [[DQ]] into [[ARG_W]][0, 0, [[IDX_H]], [[IDX_W]]] [1, 16, [[MIN_H]], [[MIN_W]]]
+// CHECK:                scf.yield [[INSERT]]
+// CHECK:            scf.yield [[SCF_W]]
+// CHECK:        return [[SCF_H]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK: #[[$MAP_MIN_H:.+]] = affine_map<(d0)[s0] -> (-d0 + s0, 64)>
+// CHECK: #[[$MAP_MIN_W:.+]] = affine_map<(d0)[s0] -> (-d0 + s0, 128)>
+// CHECK-LABEL: @MVN1NormalizeTileDynHW
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 128, 256]> : tensor<4xsi64>}>
+// CHECK-SAME:  [[MEANVAR:%.+]]: tensor<1x16x1x2xf16>
+func.func @MVN1NormalizeTileDynHW(%arg0: tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 128, 256]> : tensor<4xsi64>}>, %arg1: tensor<1x16x1x2xf16>) -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 128, 256]> : tensor<4xsi64>}> {
+    %0 = VPU.MVN1Normalize(%arg0, %arg1) {across_channels = false, normalize_variance = true, tilingStrategy = [1, 1, 2, 2]} : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 128, 256]> : tensor<4xsi64>}>, tensor<1x16x1x2xf16> -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 128, 256]> : tensor<4xsi64>}>
+    return %0 : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 128, 256]> : tensor<4xsi64>}>
+
+// CHECK-DAG:    [[CST_2:%.+]] = arith.constant 2 : index
+// CHECK-DAG:    [[CST_3:%.+]] = arith.constant 3 : index
+// CHECK:        [[DIM_H:%.+]] = tensor.dim [[INPUT]], [[CST_2]]
+// CHECK:        [[DIM_W:%.+]] = tensor.dim [[INPUT]], [[CST_3]]
+// CHECK:        [[EMPTY:%.+]] = tensor.empty([[DIM_H]], [[DIM_W]])
+// CHECK:        [[SCF_H:%.+]] = scf.for [[IDX_H:%.+]] = {{%.+}} to [[DIM_H]] step {{%.+}} iter_args([[ARG_H:%.+]] = [[EMPTY]])
+// CHECK:            [[SCF_W:%.+]] = scf.for [[IDX_W:%.+]] = {{%.+}} to [[DIM_W]] step {{%.+}} iter_args([[ARG_W:%.+]] = [[ARG_H]])
+// CHECK:                [[MIN_H:%.+]] = affine.min #[[$MAP_MIN_H]]([[IDX_H]])[[[DIM_H]]]
+// CHECK:                [[MIN_W:%.+]] = affine.min #[[$MAP_MIN_W]]([[IDX_W]])[[[DIM_W]]]
+// CHECK:                [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX_H]], [[IDX_W]]] [1, 16, [[MIN_H]], [[MIN_W]]]
+// CHECK:                [[MVN:%.+]] = VPU.MVN1Normalize([[SLICE]], [[MEANVAR]]) {across_channels = false, normalize_variance = true, tiling_loop_index = 0 : i64}
+// CHECK:                [[INSERT:%.+]] = tensor.insert_slice [[MVN]] into [[ARG_W]][0, 0, [[IDX_H]], [[IDX_W]]] [1, 16, [[MIN_H]], [[MIN_W]]]
+// CHECK:                scf.yield [[INSERT]]
+// CHECK:            scf.yield [[SCF_W]]
+// CHECK:        return [[SCF_H]]
+}
+
+// -----
+
+// CHECK: #[[$MAP_MIN_H:.+]] = affine_map<(d0)[s0] -> (-d0 + s0, 128)>
+// CHECK: #[[$MAP_MIN_W:.+]] = affine_map<(d0)[s0] -> (-d0 + s0, 70)>
+
+// CHECK-LABEL: @SoftMaxTileDynHW
+// CHECK-SAME:      [[INPUT:%arg[0-9]]]: tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 140]> : tensor<4xsi64>}>)
+func.func @SoftMaxTileDynHW(%arg0: tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 140]> : tensor<4xsi64>}>) -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 140]> : tensor<4xsi64>}> {
+    %0 = VPU.SoftMax(%arg0) {
+        axisInd = 1 : i64,
+        tilingStrategy = [1, 1, 2, 2]
+    } : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 140]> : tensor<4xsi64>}> -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 140]> : tensor<4xsi64>}>
+    return %0 : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 140]> : tensor<4xsi64>}>
+
+    // CHECK-DAG: [[CST_70:%.+]] = arith.constant 70 : index
+    // CHECK-DAG: [[CST_128:%.+]] = arith.constant 128 : index
+    // CHECK-DAG: [[CST_0:%.+]] = arith.constant 0 : index
+    // CHECK-DAG: [[CST_3:%.+]] = arith.constant 3 : index
+    // CHECK-DAG: [[CST_2:%.+]] = arith.constant 2 : index
+
+    // CHECK: [[DIM_H:%.+]] = tensor.dim [[INPUT]], [[CST_2]] : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 140]> : tensor<4xsi64>}>
+    // CHECK: [[DIM_W:%.+]] = tensor.dim [[INPUT]], [[CST_3]] : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 140]> : tensor<4xsi64>}>
+    // CHECK: [[EMPTY:%.+]] = tensor.empty([[DIM_H]], [[DIM_W]]) : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 140]> : tensor<4xsi64>}>
+    // CHECK: [[SCF_H:%.+]] = scf.for [[IDX_H:%.+]] = [[CST_0]] to [[DIM_H]] step [[CST_128]] iter_args([[OUT_H:%.+]] = [[EMPTY]])
+    // CHECK-SAME:     -> (tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 140]> : tensor<4xsi64>}>)
+    // CHECK:   [[SCF_W:%.+]] = scf.for [[IDX_W:%.+]] = [[CST_0]] to [[DIM_W]] step [[CST_70]] iter_args([[OUT_W:%.+]] = [[OUT_H]])
+    // CHECK:     [[SIZE_H:%.+]] = affine.min #[[$MAP_MIN_H]]([[IDX_H]])[[[DIM_H]]]
+    // CHECK:     [[SIZE_W:%.+]] = affine.min #[[$MAP_MIN_W]]([[IDX_W]])[[[DIM_W]]]
+    // CHECK:     [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX_H]], [[IDX_W]]] [1, 16, [[SIZE_H]], [[SIZE_W]]] [1, 1, 1, 1]
+    // CHECK:     [[SOFTMAX:%.+]] = VPU.SoftMax([[SLICE]]) {axisInd = 1 : i64, tiling_loop_index = 0 : i64}
+    // CHECK:     [[INSERT:%.+]] = tensor.insert_slice [[SOFTMAX]] into [[OUT_W]][0, 0, [[IDX_H]], [[IDX_W]]] [1, 16, [[SIZE_H]], [[SIZE_W]]] [1, 1, 1, 1]
+    // CHECK:     scf.yield [[INSERT]] : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 140]> : tensor<4xsi64>}>
+    // CHECK:   scf.yield [[SCF_W]] : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 140]> : tensor<4xsi64>}>
+    // CHECK: return [[SCF_H]] : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 140]> : tensor<4xsi64>}>
+}
+
+// -----
+
+// CHECK-LABEL: @AbsTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @AbsTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Abs(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[ABS:%.+]] = VPU.Abs([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[ABS]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @SinTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @SinTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Sin(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[SIN:%.+]] = VPU.Sin([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[SIN]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @SqrtTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @SqrtTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Sqrt(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[SQRT:%.+]] = VPU.Sqrt([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[SQRT]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @TanhTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @TanhTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Tanh(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[TANH:%.+]] = VPU.Tanh([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[TANH]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @MishTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @MishTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Mish(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[MISH:%.+]] = VPU.Mish([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[MISH]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @ReLUTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @ReLUTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.ReLU(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[RELU:%.+]] = VPU.ReLU([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[RELU]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @SigmoidTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @SigmoidTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Sigmoid(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[SIG:%.+]] = VPU.Sigmoid([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[SIG]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @SoftPlusTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @SoftPlusTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.SoftPlus(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[SP:%.+]] = VPU.SoftPlus([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[SP]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @SwishTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @SwishTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Swish(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[SWISH:%.+]] = VPU.Swish([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[SWISH]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @AcosTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @AcosTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Acos(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[ACOS:%.+]] = VPU.Acos([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[ACOS]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @AcoshTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @AcoshTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Acosh(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[ACOSH:%.+]] = VPU.Acosh([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[ACOSH]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @AsinTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @AsinTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Asin(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[ASIN:%.+]] = VPU.Asin([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[ASIN]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @AsinhTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @AsinhTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Asinh(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[ASINH:%.+]] = VPU.Asinh([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[ASINH]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @AtanTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @AtanTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Atan(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[ATAN:%.+]] = VPU.Atan([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[ATAN]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @AtanhTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @AtanhTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Atanh(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[ATANH:%.+]] = VPU.Atanh([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[ATANH]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @CeilingTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @CeilingTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Ceiling(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[CEILING:%.+]] = VPU.Ceiling([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[CEILING]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @ClampTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @ClampTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Clamp(%arg0) {max = 1.000000e+00 : f64, min = -1.000000e+00 : f64, tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[CLAMP:%.+]] = VPU.Clamp([[SLICE]]) {max = 1.000000e+00 : f64, min = -1.000000e+00 : f64, tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[CLAMP]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @CosTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @CosTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Cos(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[COS:%.+]] = VPU.Cos([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[COS]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @CoshTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @CoshTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Cosh(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[COSH:%.+]] = VPU.Cosh([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[COSH]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @CumSumTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @CumSumTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.CumSum(%arg0) {axis_value = 1 : i64, tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[CUMSUM:%.+]] = VPU.CumSum([[SLICE]]) {axis_value = 1 : i64, tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[CUMSUM]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @ErfTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @ErfTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Erf(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[ERF:%.+]] = VPU.Erf([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[ERF]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @ExpTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @ExpTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Exp(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[EXP:%.+]] = VPU.Exp([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[EXP]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @FloorTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @FloorTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Floor(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[FLOOR:%.+]] = VPU.Floor([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[FLOOR]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @LogTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @LogTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Log(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[LOG:%.+]] = VPU.Log([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[LOG]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @NegativeTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @NegativeTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Negative(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[NEG:%.+]] = VPU.Negative([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[NEG]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @RoundTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @RoundTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Round(%arg0) {mode = #IE.round_mode<HALF_TO_EVEN>, tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[ROUND:%.+]] = VPU.Round([[SLICE]]) {mode = #IE.round_mode<HALF_TO_EVEN>, tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[ROUND]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @SignTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @SignTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Sign(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[SIGN:%.+]] = VPU.Sign([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[SIGN]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @SinhTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @SinhTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Sinh(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[SINH:%.+]] = VPU.Sinh([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[SINH]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @EluTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @EluTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Elu(%arg0) {tilingStrategy = [1, 1, 2, 1], x = 1.000000e+00 : f64} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[ELU:%.+]] = VPU.Elu([[SLICE]]) {tiling_loop_index = 0 : i64, x = 1.000000e+00 : f64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[ELU]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @HardSigmoidTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @HardSigmoidTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.HardSigmoid(%arg0) {alpha_value = 2.000000e-01 : f64, beta_value = 5.000000e-01 : f64, tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[HARDSIGMOID:%.+]] = VPU.HardSigmoid([[SLICE]]) {alpha_value = 2.000000e-01 : f64, beta_value = 5.000000e-01 : f64, tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[HARDSIGMOID]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @HSigmoidTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @HSigmoidTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.HSigmoid(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[HSIGMOID:%.+]] = VPU.HSigmoid([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[HSIGMOID]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @HSwishTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @HSwishTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.HSwish(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[HSWISH:%.+]] = VPU.HSwish([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[HSWISH]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @LeakyReluTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @LeakyReluTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.LeakyRelu(%arg0) {negative_slope = 1.000000e-02 : f64, tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[LEAKYRELU:%.+]] = VPU.LeakyRelu([[SLICE]]) {negative_slope = 1.000000e-02 : f64, tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[LEAKYRELU]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @PReluTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @PReluTileOverH(%arg0: tensor<1x16x128x256xf16>, %arg1: tensor<1x16x1x1xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.PRelu(%arg0, %arg1) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16>, tensor<1x16x1x1xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[PRELU:%.+]] = VPU.PRelu([[SLICE]], %arg1) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[PRELU]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @SeluTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @SeluTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Selu(%arg0) {alpha_value = 1.6732000000000001 : f64, lambda_value = 1.0507000000000001 : f64, tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[SELU:%.+]] = VPU.Selu([[SLICE]]) {alpha_value = {{.+}} : f64, lambda_value = {{.+}} : f64, tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[SELU]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @TanTileOverH
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf16>
+func.func @TanTileOverH(%arg0: tensor<1x16x128x256xf16>) -> tensor<1x16x128x256xf16> {
+    %0 = VPU.Tan(%arg0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
+    return %0 : tensor<1x16x128x256xf16>
+
+// CHECK-DAG:    [[C64:%.+]] = arith.constant 64 : index
+// CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
+// CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
+// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
+// CHECK:        [[SCF:%.+]] = scf.for [[IDX:%.+]] = [[C0]] to [[C128]] step [[C64]] iter_args([[OUT:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x16x128x256xf16>)
+// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            [[TAN:%.+]] = VPU.Tan([[SLICE]]) {tiling_loop_index = 0 : i64}
+// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[TAN]] into [[OUT]][0, 0, [[IDX]], 0] [1, 16, 64, 256] [1, 1, 1, 1]
+// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
+// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK: #[[$MAP_DYN:.+]] = affine_map<(d0)[s0] -> (-d0 + s0, 96)>
+// CHECK: #[[$MAP_DYN1:.+]] = affine_map<(d0) -> (-d0 + 32, 5)>
+// CHECK: #[[$MAP_DYN2:.+]] = affine_map<(d0) -> (0, d0 - 1)>
+// CHECK: #[[$MAP_DYN3:.+]] = affine_map<(d0) -> (-d0 + 1, 0)>
+// CHECK: #[[$MAP_DYN4:.+]] = affine_map<()[s0] -> (1, s0)>
+// CHECK: #[[$MAP_DYN5:.+]] = affine_map<(d0, d1) -> (0, d0 + d1 - 30)>
+// CHECK: #[[$MAP_DYN6:.+]] = affine_map<(d0, d1, d2) -> (d0 - d1 - d2 + 2)>
+
+// CHECK-LABEL:   @ApplyChannelUnevenTilingDynamicRawFilterShape
+// CHECK-SAME:      [[INPUT0:%arg[0-9]]]: tensor<1x640x32x32xf16, {order = #NHWC}>,
+// CHECK-SAME:      [[INPUT1:%arg[0-9]]]: tensor<?x640x3x3xf16, {bounds = #const.OpaqueI64Elements<[640, 640, 3, 3]> : tensor<4xsi64>, order = #NHWC}>)
+func.func @ApplyChannelUnevenTilingDynamicRawFilterShape(
+    %arg0: tensor<1x640x32x32xf16, {order = #NHWC}>,
+    %arg1: tensor<?x640x3x3xf16, {bounds = #const.OpaqueI64Elements<[640, 640, 3, 3]> : tensor<4xsi64>, order = #NHWC}>
+) -> tensor<1x?x32x32xf16, {bounds = #const.OpaqueI64Elements<[1, 640, 32, 32]> : tensor<4xsi64>, order = #NHWC}> {
+    %c0 = arith.constant 0 : index
+    %dyn_oc = tensor.dim %arg1, %c0 : tensor<?x640x3x3xf16, {bounds = #const.OpaqueI64Elements<[640, 640, 3, 3]> : tensor<4xsi64>, order = #NHWC}>
+
+
+    %0 = VPU.NCE.Convolution(%arg0, %arg1) rawFilterShape[%dyn_oc, 640, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+        ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, prelu_alpha = [1.000000e+00], adder = 0.000000e+00 : f64>,
+        strides = [1, 1],
+        tilingStrategy = [1, 7, 1, 7]
+    } : tensor<1x640x32x32xf16, {order = #NHWC}>, tensor<?x640x3x3xf16, {bounds = #const.OpaqueI64Elements<[640, 640, 3, 3]> : tensor<4xsi64>, order = #NHWC}>, index
+      -> tensor<1x?x32x32xf16, {bounds = #const.OpaqueI64Elements<[1, 640, 32, 32]> : tensor<4xsi64>, order = #NHWC}>
+
+    return %0 : tensor<1x?x32x32xf16, {bounds = #const.OpaqueI64Elements<[1, 640, 32, 32]> : tensor<4xsi64>, order = #NHWC}>
+
+    // CHECK-DAG: [[LOOP_BEGIN:%.+]] = arith.constant 0 : index
+    // CHECK-DAG: [[LOOP_END_W:%.+]] = arith.constant 32 : index
+    // CHECK-DAG: [[LOOP_STEP_C:%.+]] = arith.constant 96 : index
+    // CHECK-DAG: [[LOOP_STEP_W:%.+]] = arith.constant 5 : index
+    // CHECK-DAG: [[LOOP_END_C:%.+]] = tensor.dim [[INPUT1]], [[LOOP_BEGIN]]
+
+    // CHECK: [[LOOP_C:%.+]] = scf.for [[LOOP_ITER_C:%arg[0-9]+]] = [[LOOP_BEGIN]] to [[LOOP_END_C]] step [[LOOP_STEP_C]]
+    // CHECK: [[LOOP_W:%.+]] = scf.for [[LOOP_ITER_W:%arg[0-9]+]] = [[LOOP_BEGIN]] to [[LOOP_END_W]] step [[LOOP_STEP_W]]
+    // CHECK: [[SIZE_C:%.+]] = affine.min #[[$MAP_DYN]]([[LOOP_ITER_C]])[[[LOOP_END_C]]]
+
+    // CHECK: [[SIZE_W_MAIN:%.+]] = affine.min #[[$MAP_DYN1]]([[LOOP_ITER_W]])
+    // CHECK: [[OFF_W:%.+]] = affine.max #[[$MAP_DYN2]]([[LOOP_ITER_W]])
+    // CHECK: [[V1:%.+]] = affine.max #[[$MAP_DYN3]]([[LOOP_ITER_W]])
+    // CHECK: [[PAD_LOW:%.+]] = affine.min #[[$MAP_DYN4]]()[[[V1]]]
+    // CHECK: [[V2:%.+]] = affine.max #[[$MAP_DYN5]]([[SIZE_W_MAIN]], [[OFF_W]])
+    // CHECK: [[PAD_HIGH:%.+]] = affine.min #[[$MAP_DYN4]]()[[[V2]]]
+    // CHECK: [[SIZE_W:%.+]] = affine.apply #[[$MAP_DYN6]]([[SIZE_W_MAIN]], [[PAD_LOW]], [[PAD_HIGH]])
+
+    // CHECK: [[SLICE_INPUT:%.+]] = tensor.extract_slice [[INPUT0]][0, 0, 0, [[OFF_W]]] [1, 640, 32, [[SIZE_W]]] [1, 1, 1, 1]
+    // CHECK: [[SLICE_WEIGHTS:%.+]] = tensor.extract_slice [[INPUT1]][[[LOOP_ITER_C]], 0, 0, 0] [[[SIZE_C]], 640, 3, 3] [1, 1, 1, 1]
+    // CHECK: [[PAD:%.+]] = tensor.pad [[SLICE_INPUT]] low[0, 0, 1, [[PAD_LOW]]] high[0, 0, 1, [[PAD_HIGH]]]
+
+    // CHECK: [[INNER_CONV:%.+]] = VPU.NCE.Convolution([[PAD]], [[SLICE_WEIGHTS]]) rawFilterShape
+    // CHECK-SAME: [[SIZE_C]], 640, 3, 3
 }

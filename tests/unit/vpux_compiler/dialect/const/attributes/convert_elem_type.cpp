@@ -45,7 +45,7 @@ TEST_F(MLIR_SubByteTest, ConvertElemTypeI4ToI8_Splat) {
     const auto baseAttr =
             Const::createExternalConstContent(baseType, convertArrayRef(ArrayRef(inputVals)), "testConst");
 
-    auto contentSetup = Const::ContentSetup(baseType);
+    auto contentSetup = Const::ContentSetup(baseAttr, baseType);
     auto conversionType = getInt8Type(&ctx);
     contentSetup = contentSetup.convertElemType(conversionType);
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentSetup));
@@ -77,7 +77,7 @@ TEST_F(MLIR_SubByteTest, ConvertElemTypeI4ToI8) {
     const auto baseAttr =
             Const::createExternalConstContent(baseType, convertArrayRef(ArrayRef(inputVals)), "testConst");
 
-    auto contentSetup = Const::ContentSetup(baseType);
+    auto contentSetup = Const::ContentSetup(baseAttr, baseType);
     auto conversionType = getInt8Type(&ctx);
     contentSetup = contentSetup.convertElemType(conversionType);
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentSetup));
@@ -112,7 +112,7 @@ TEST_F(MLIR_SubByteTest, ConvertElemTypeU4ToU8_Splat) {
     const auto baseAttr =
             Const::createExternalConstContent(baseType, convertArrayRef(ArrayRef(inputVals)), "testConst");
 
-    auto contentSetup = Const::ContentSetup(baseType);
+    auto contentSetup = Const::ContentSetup(baseAttr, baseType);
     auto conversionType = getUInt8Type(&ctx);
     contentSetup = contentSetup.convertElemType(conversionType);
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentSetup));
@@ -144,7 +144,7 @@ TEST_F(MLIR_SubByteTest, ConvertElemTypeU4ToU8) {
     const auto baseAttr =
             Const::createExternalConstContent(baseType, convertArrayRef(ArrayRef(inputVals)), "testConst");
 
-    auto contentSetup = Const::ContentSetup(baseType);
+    auto contentSetup = Const::ContentSetup(baseAttr, baseType);
     auto conversionType = getUInt8Type(&ctx);
     contentSetup = contentSetup.convertElemType(conversionType);
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentSetup));
@@ -179,7 +179,7 @@ TEST_F(MLIR_SubByteTest, ConvertElemTypeSI4ToSI8_Splat) {
     const auto baseAttr =
             Const::createExternalConstContent(baseType, convertArrayRef(ArrayRef(inputVals)), "testConst");
 
-    auto contentSetup = Const::ContentSetup(baseType);
+    auto contentSetup = Const::ContentSetup(baseAttr, baseType);
     auto conversionType = getSInt8Type(&ctx);
     contentSetup = contentSetup.convertElemType(conversionType);
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentSetup));
@@ -211,7 +211,7 @@ TEST_F(MLIR_SubByteTest, ConvertElemTypeSI4ToSI8) {
     const auto baseAttr =
             Const::createExternalConstContent(baseType, convertArrayRef(ArrayRef(inputVals)), "testConst");
 
-    auto contentSetup = Const::ContentSetup(baseType);
+    auto contentSetup = Const::ContentSetup(baseAttr, baseType);
     auto conversionType = getSInt8Type(&ctx);
     contentSetup = contentSetup.convertElemType(conversionType);
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentSetup));
@@ -246,7 +246,7 @@ TEST_F(MLIR_SubByteTest, ConvertElemTypeI1ToSI8_Splat) {
     const auto baseAttr =
             Const::createExternalConstContent(baseType, convertArrayRef(ArrayRef(inputVals)), "testConst");
 
-    auto contentSetup = Const::ContentSetup(baseType);
+    auto contentSetup = Const::ContentSetup(baseAttr, baseType);
     auto conversionType = getSInt8Type(&ctx);
     contentSetup = contentSetup.convertElemType(conversionType);
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentSetup));
@@ -278,7 +278,7 @@ TEST_F(MLIR_SubByteTest, ConvertElemTypeI1ToSI8) {
     const auto baseAttr =
             Const::createExternalConstContent(baseType, convertArrayRef(ArrayRef(inputVals)), "testConst");
 
-    auto contentSetup = Const::ContentSetup(baseType);
+    auto contentSetup = Const::ContentSetup(baseAttr, baseType);
     auto conversionType = getSInt8Type(&ctx);
     contentSetup = contentSetup.convertElemType(conversionType);
     auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentSetup));

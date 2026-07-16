@@ -92,24 +92,30 @@ function(enable_warnings_as_errors TARGET_NAME)
         )
 
         if(WARNIGS_WIN_STRICT)
-            if(BUILD_COMPILER_FOR_DRIVER)
-                target_compile_options(${TARGET_NAME}
-                    PRIVATE
-                        /W3
-                )
-            else()
-                # Use W3 instead of Wall, since W4 introduces some hard-to-fix warnings
-                target_compile_options(${TARGET_NAME}
-                    PRIVATE
-                        /WX /W3 /wd4244 /wd4267
-                        # TODO(E#86977): check and fix warnings to avoid error c2220
-                )
-            endif()
+            # TODO(E#220632): check and fix warnings to avoid error c2220
+            target_compile_options(${TARGET_NAME}
+                PRIVATE
+                    /WX /W3 /wd4244 /wd4267
+            )
+
             # Disable 3rd-party components warnings
             target_compile_options(${TARGET_NAME}
                 PRIVATE
                     /experimental:external /external:anglebrackets /external:W0
             )
+
+            if(ENABLE_UNSUPPRESSED_WARNINGS_FOR_MSVC)
+                # Retrieve all compile options currently applied to the target
+                get_target_property(current_options ${TARGET_NAME} COMPILE_OPTIONS)
+                if(current_options)
+                    # Remove Warning-as-Error
+                    list(REMOVE_ITEM current_options "/WX")
+                    # Remove all warning suppression flags (/wdXXXX or -wdXXXX)
+                    list(FILTER current_options EXCLUDE REGEX "^[-/]wd")
+                    # Update target properties with the filtered list
+                    set_target_properties(${TARGET_NAME} PROPERTIES COMPILE_OPTIONS "${current_options}")
+                endif()
+            endif()
         endif()
     else()
         target_compile_options(${TARGET_NAME}

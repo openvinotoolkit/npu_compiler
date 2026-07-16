@@ -127,7 +127,7 @@ SmallVector<int64_t> getInterpAxesVal(mlir::Location loc, const mlir::Value axes
     return axesVal;
 }
 
-mlir::FailureOr<int64_t> getInnermostAxis(mlir::Location loc, DimsOrder dimsOrder, ArrayRef<int64_t> axes) {
+mlir::FailureOr<int64_t> getInnermostAxis(mlir::Location loc, const DimsOrder& dimsOrder, ArrayRef<int64_t> axes) {
     if (axes.empty()) {
         return errorAt(loc, "Got empty axes");
     }
@@ -177,8 +177,19 @@ SmallVector<int64_t> inferOutputShapeWithScalesMode(ShapeRef inputShape, ArrayRe
     auto outputShape = to_small_vector(inputShape);
     auto scalesIter = scalesVal.begin();
     for (const auto& axis : axesVal) {
-        outputShape[axis] = static_cast<int64_t>(
-                floor(static_cast<double>(static_cast<StorageType>(*scalesIter++) * inputShape[Dim(axis)])));
+        // Match OpenVINO's epsilon-tolerant shape inference from ov::util::dim::scale()
+        // (openvino/src/core/shape_inference/include/dimension_util.hpp:270-285).
+        // OpenVINO adds epsilon = 1e-6 to the scale before multiplying, then truncates to integer.
+        // This tolerates IEEE 754 precision loss in reduced-precision (e.g., float32) scale factors:
+        //   float32(5/3) = 1.6666666269... → 3 * 1.6666666269 = 4.99999988 (just below 5.0)
+        //   Without epsilon: floor(4.99999988) = 4 (WRONG)
+        //   With epsilon:    int(3 * (1.6666666269 + 1e-6)) = int(5.0000028) = 5 (CORRECT)
+        // The epsilon is small enough not to affect genuinely fractional products
+        // (e.g., 6 * (1.33333 + 1e-6) = 7.9999862, still truncates to 7).
+        static constexpr float epsilon = 1.0e-6f;
+        auto scaleCasted = static_cast<float>(static_cast<StorageType>(*scalesIter++));
+        auto adjustedScale = scaleCasted + epsilon;
+        outputShape[axis] = static_cast<int64_t>(adjustedScale * inputShape[Dim(axis)]);
         log.trace("Infer Scales mode at axis {0}: {1} -> {2}", axis, inputShape[Dim(axis)], outputShape[axis]);
     }
     return outputShape;

@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/utils/rewriter.hpp"
 
+#include "vpux/compiler/dialect/Shave/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
@@ -18,6 +19,7 @@
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
+#include "vpux/compiler/utils/func_dialect.hpp"
 #include "vpux/compiler/utils/locations.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/types.hpp"
@@ -530,8 +532,28 @@ mlir::bufferization::OneShotBufferizationOptions vpux::getOneShotBufferizationOp
                                             mlir::func::FuncOp funcOp,
                                             const mlir::bufferization::BufferizationOptions&) {
         auto topModuleOp = getTopParentOpOfType<mlir::ModuleOp>(funcOp);
-        if (config::getCompilationMode(topModuleOp) == config::CompilationMode::HostCompile &&
-            !config::isPureHostCompileFunc(funcOp)) {
+
+        bool hasPureHostCompileCaller = false;
+        // In the case when a pure host compile function is called inside another pure host compile function
+        // the first one requires strided attributes too
+        if (config::isPureHostCompileFunc(funcOp)) {
+            for (auto caller : topModuleOp.getOps<mlir::func::FuncOp>()) {
+                if (funcOp == caller) {
+                    continue;
+                }
+
+                auto callOps = getCallSites(funcOp, caller);
+                if (callOps.empty()) {
+                    continue;
+                }
+                if (config::isPureHostCompileFunc(caller)) {
+                    hasPureHostCompileCaller = true;
+                    break;
+                }
+            }
+        }
+        if (config::isHostCompileMode(topModuleOp) &&
+            (!config::isPureHostCompileFunc(funcOp) || hasPureHostCompileCaller)) {
             if (auto rankedType = mlir::dyn_cast<mlir::RankedTensorType>(tensorLike)) {
                 return mlir::cast<mlir::bufferization::BufferLikeType>(
                         mlir::bufferization::getMemRefTypeWithFullyDynamicLayout(rankedType, nullptr));
@@ -540,7 +562,7 @@ mlir::bufferization::OneShotBufferizationOptions vpux::getOneShotBufferizationOp
         return mlir::cast<mlir::bufferization::BufferLikeType>(vpux::getBufferType(tensorLike));
     };
     options.opFilter.allowDialect<mlir::bufferization::BufferizationDialect, mlir::memref::MemRefDialect,
-                                  mlir::func::FuncDialect, VPU::VPUDialect, Const::ConstDialect,
+                                  mlir::func::FuncDialect, VPU::VPUDialect, Const::ConstDialect, Shave::ShaveDialect,
                                   mlir::linalg::LinalgDialect, Core::CoreDialect, mlir::scf::SCFDialect,
                                   mlir::tensor::TensorDialect, mlir::arith::ArithDialect>();
 

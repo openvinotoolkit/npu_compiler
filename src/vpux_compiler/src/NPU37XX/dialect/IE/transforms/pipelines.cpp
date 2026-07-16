@@ -26,6 +26,10 @@ void vpux::IE::arch37xx::buildInitialLowPrecisionTransformationsPipeline(
     pm.addPass(IE::createFuseInputScaleShiftPass(log));
     pm.addPass(IE::createConvertMinMaxToClampPass(log));
     pm.addPass(IE::createFoldActivationBeforeFQPass(log));
+
+    pm.addPass(IE::createAdjustFakeQdqParamsPass(log));
+    pm.addPass(IE::createFuseQuantizationMultiplyPass(options.fuseFQAndMulWithNonConstInput, log));
+    pm.addPass(IE::createHandleU16FakeQuantizePass(log));
 }
 
 void vpux::IE::arch37xx::buildLowPrecisionPipeline(mlir::OpPassManager& pm, const LowPrecisionOptions& options,
@@ -116,9 +120,10 @@ void vpux::IE::arch37xx::buildLowPrecisionPipeline(mlir::OpPassManager& pm, cons
     pm.addPass(mlir::createCanonicalizerPass(grc));
 }
 
-void vpux::IE::arch37xx::buildOptimizeSliceOpPipeline(mlir::OpPassManager& pm, Logger log) {
+void vpux::IE::arch37xx::buildOptimizeSliceOpPipeline(mlir::OpPassManager& pm, bool disableSliceToConvMinHWThreshold,
+                                                      Logger log) {
     pm.addPass(IE::createOptimizeOpSlicePass(log));
-    pm.addPass(IE::createOptimizeSliceWithStridePass(log));
+    pm.addPass(IE::createOptimizeSliceWithStridePass(disableSliceToConvMinHWThreshold, log));
     // Note: createAdjustConvolutionShapePass is needed after slice optimizations
     // to fix convolution shapes if input slices were changed
     pm.addPass(IE::createAdjustConvolutionShapePass(log));
@@ -126,6 +131,7 @@ void vpux::IE::arch37xx::buildOptimizeSliceOpPipeline(mlir::OpPassManager& pm, L
 
 void vpux::IE::arch37xx::buildFinalTransformationPipeline(mlir::OpPassManager& pm,
                                                           const IE::arch37xx::DefaultHWOptions& options, Logger log) {
+    pm.addPass(IE::createFuseInefficientTileForAddPass(log));
     // Operation Conversions
     if (options.enableConvertExpandToConvPass) {
         pm.addPass(IE::createConvertExpandToConvPass(log));
@@ -156,10 +162,6 @@ void vpux::IE::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
         pm.addPass(IE::createLogOpOptimizationsPass());
     }
 
-    if (options.enableFlashSDPAConversion) {
-        pm.addPass(IE::createConvertSDPAToFlashSDPAPass(log));
-    }
-
     IE::buildDynamicShapeTransformationsPipeline(pm, IE::DynamicShapeTransformOptions(options), log);
     IE::arch37xx::buildInitialLowPrecisionTransformationsPipeline(pm, IE::LowPrecisionTransformOptions(options), log);
     IE::buildInitialTransformationsPipeline(pm, IE::TransformOptions(options), log);
@@ -179,7 +181,6 @@ void vpux::IE::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     IE::buildConvertToConvolutionPipeline(pm, log);
     IE::buildReorderFakeQuantizePipeline(pm, IE::ReorderFakeQuantizeOptions(options), log);
 
-    pm.addPass(locverif::createStopLocationVerifierPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
     IE::buildScaleShiftProcessingPipeline(pm, log);
 
@@ -201,13 +202,15 @@ void vpux::IE::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     IE::buildOptimizeMemPermuteAndActivationChannelsExpandPipeline(pm, IE::ExpandActivationChannelsOptions(options),
                                                                    log);
 
+    pm.addPass(locverif::createStopLocationVerifierPass(log));
+
     IE::buildOptimizeViewLikeOpsPipeline(pm, log);
 
-    IE::arch37xx::buildOptimizeSliceOpPipeline(pm, log);
+    IE::arch37xx::buildOptimizeSliceOpPipeline(pm, options.disableSliceToConvMinHWThreshold, log);
 
     IE::buildDimensionAlignmentPipeline(pm, log);
 
-    IE::arch37xx::buildOptimizeSliceOpPipeline(pm, log);
+    IE::arch37xx::buildOptimizeSliceOpPipeline(pm, options.disableSliceToConvMinHWThreshold, log);
 
     IE::arch37xx::buildFinalTransformationPipeline(pm, options, log);
 

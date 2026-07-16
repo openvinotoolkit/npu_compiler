@@ -86,8 +86,8 @@ private:
         StringRef funcName = elementType.isF16() ? f16Name : f32Name;
         mlir::FunctionType funcType = mlir::FunctionType::get(builder.getContext(), {elementType}, elementType);
         auto funcOp = builder.create<mlir::func::FuncOp>(swModule.getLoc(), funcName, funcType,
-                                                         mlir::StringAttr::get(builder.getContext(), "private"),
-                                                         nullptr, nullptr);
+                                                         mlir::StringAttr::get(builder.getContext(), "nested"), nullptr,
+                                                         nullptr);
         funcOp->setAttr(ShaveCodeGen::IntrinsicAttrName, mlir::UnitAttr::get(builder.getContext()));
         return funcOp;
     }
@@ -178,8 +178,8 @@ private:
         StringRef funcName = elementType.isF16() ? f16Name : f32Name;
         mlir::FunctionType funcType = mlir::FunctionType::get(builder.getContext(), {elementType}, elementType);
         auto funcOp = builder.create<mlir::func::FuncOp>(swModule.getLoc(), funcName, funcType,
-                                                         mlir::StringAttr::get(builder.getContext(), "private"),
-                                                         nullptr, nullptr);
+                                                         mlir::StringAttr::get(builder.getContext(), "nested"), nullptr,
+                                                         nullptr);
         funcOp->setAttr(ShaveCodeGen::IntrinsicAttrName, mlir::UnitAttr::get(builder.getContext()));
         return funcOp;
     }
@@ -240,8 +240,8 @@ private:
         StringRef funcName = f32Name;
         mlir::FunctionType funcType = mlir::FunctionType::get(builder.getContext(), {elementType}, elementType);
         auto funcOp = builder.create<mlir::func::FuncOp>(swModule.getLoc(), funcName, funcType,
-                                                         mlir::StringAttr::get(builder.getContext(), "private"),
-                                                         nullptr, nullptr);
+                                                         mlir::StringAttr::get(builder.getContext(), "nested"), nullptr,
+                                                         nullptr);
         funcOp->setAttr(ShaveCodeGen::IntrinsicAttrName, mlir::UnitAttr::get(builder.getContext()));
         return funcOp;
     }
@@ -294,8 +294,8 @@ private:
         StringRef funcName = f32Name;
         mlir::FunctionType funcType = mlir::FunctionType::get(builder.getContext(), {elementType}, elementType);
         auto funcOp = builder.create<mlir::func::FuncOp>(swModule.getLoc(), funcName, funcType,
-                                                         mlir::StringAttr::get(builder.getContext(), "private"),
-                                                         nullptr, nullptr);
+                                                         mlir::StringAttr::get(builder.getContext(), "nested"), nullptr,
+                                                         nullptr);
         funcOp->setAttr(ShaveCodeGen::IntrinsicAttrName, mlir::UnitAttr::get(builder.getContext()));
         return funcOp;
     }

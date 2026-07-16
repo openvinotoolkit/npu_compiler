@@ -155,9 +155,20 @@ Shape ViewLikeRewrite::calculateDimOffsets(mlir::Value val) const {
                 if (viewOffsets.empty()) {
                     return viewOffsets;
                 }
-                auto perm = permuteCastOp.getDstOrder();
-                auto dstOrder = DimsOrder::fromAffineMap(perm);
-                return dstOrder.toLogicalOrder(MemShape(to_small_vector(viewOffsets)));
+                auto inType = mlir::cast<NDTypeInterface>(permuteCastOp.getSource().getType());
+                auto outType = mlir::cast<NDTypeInterface>(permuteCastOp.getResult().getType());
+                // When the logical shape is unchanged, PermuteCast only alters the memory
+                // layout. The logical dimension offsets (NCHW order) are identical before
+                // and after, so pass them through unchanged.
+                if (inType.getShape() == outType.getShape()) {
+                    return viewOffsets;
+                }
+                // When the logical shape changes (e.g., NCHW 1x1x4x3 -> NHWC 1x3x1x4),
+                // NCHW dimension indices are remapped between input and output.
+                // Convert via memory positions: input logical -> memory -> output logical.
+                auto srcOrder = inType.getDimsOrder();
+                auto dstOrder = DimsOrder::fromAffineMap(permuteCastOp.getDstOrder());
+                return dstOrder.toLogicalOrder(srcOrder.toMemoryOrder(viewOffsets));
             })
             .Default([&](mlir::Operation*) {
                 return viewOffsets;

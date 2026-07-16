@@ -571,6 +571,7 @@ def VPU_RoPEOp :
                 DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMaxNumTiles"]>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
             ]
         > {
     let summary = "RoPE VPU layer";
@@ -592,6 +593,8 @@ def VPU_RoPEOp :
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
 
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+
+        DimArr restrictedFusionAxes();
     }] # baseExtraClassDeclaration;
 
     let builders = [
@@ -619,6 +622,8 @@ def VPU_NonMaxSuppressionOp :
     let arguments = (ins
         3DTensorOf<[F16, F32]>:$in_box_coords,
         3DTensorOf<[F16, F32]>:$in_box_scores,
+        1DTensorOf<[F16, F32]>:$iou_threshold,
+        1DTensorOf<[F16, F32]>:$score_threshold,
         AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>:$dataBuffer,
 
         IE_BoxEncodingTypeAttr:$box_encoding,
@@ -640,6 +645,8 @@ def VPU_NonMaxSuppressionOp :
         OpBuilder<(ins
             "mlir::Value":$inBoxCoords,
             "mlir::Value":$inBoxScores,
+            "mlir::Value":$iouThreshold,
+            "mlir::Value":$scoreThreshold,
             "IE::BoxEncodingTypeAttr":$boxEncoding,
             "mlir::UnitAttr":$sortResultDescending,
             "mlir::IntegerAttr":$maxOutputBoxesPerClassValue,
@@ -690,6 +697,7 @@ def VPU_OneHotOp :
         F64Attr:$off_value,
         IntAttr:$axis,
         IE_OneHotModeAttr:$mode,
+        OptionalAttr<BoolAttr>:$rank_expanded,
 
         TypeAttr:$outputType
     );
@@ -904,6 +912,8 @@ def VPU_SelectOp :
         )>
     ];
 
+    let hasVerifier = 1;
+
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 }
 
@@ -939,7 +949,7 @@ def VPU_TopKOp :
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
                 DeclareOpInterfaceMethods<VPU_AuxiliaryBufferOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "TopK VPU layer";
@@ -998,7 +1008,7 @@ def VPU_PermuteCastOp :
                 VPU_ViewLikeOpInterface,
                 DeclareOpInterfaceMethods<VPU_DistributedCastOpInterface>,
                 DeclareOpInterfaceMethods<VPU_TilingViewLikeOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "PermuteCast VPU layer";
@@ -1121,8 +1131,6 @@ def VPU_FlashSDPAOp :
         BoolAttr:$is_head,
         BoolAttr:$is_tail,
 
-        OptionalAttr<IntAttr>:$kv_num_blocks,
-
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
@@ -1151,7 +1159,6 @@ def VPU_FlashSDPAOp :
             "::mlir::IntegerAttr":$source_seq_len_pad_size,
             "::mlir::BoolAttr":$is_head,
             "::mlir::BoolAttr":$is_tail,
-            "::mlir::IntegerAttr":$kv_num_blocks,
             "vpux::VPU::MultiClusterStrategyAttr":$multi_cluster_strategy
         )>
     ];

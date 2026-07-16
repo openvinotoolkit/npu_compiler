@@ -9,7 +9,6 @@
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -49,7 +48,6 @@ func.func @SplitSwConvOverOC(
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -87,7 +85,6 @@ func.func @SplitSwMaxPoolOverH(
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -115,7 +112,6 @@ func.func @SplitSwAddOverC(
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -141,7 +137,6 @@ func.func @SplitAddSameInputOverC(
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -175,7 +170,6 @@ func.func @InterpSplitOverC(
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -210,7 +204,6 @@ func.func @InterpSplitOverCNoCommonFactor(
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -260,7 +253,6 @@ func.func @InterpSplitOverHW(
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -269,10 +261,10 @@ config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, con
 func.func @NoTilingClusterNCEConv(%arg0: !DistributedTensor0) -> !DistributedTensor1 {
     %weights = const.Declare tensor<128x32x3x3xf16, {mem_space = @CMX_NN, order = #NHWC}> = dense<1.000000e+00> : tensor<128x32x3x3xf16, {mem_space = @CMX_NN}>, [#const.Reorder<#NHWC>]
 
-    %0 = VPU.NCE.Convolution(%arg0, %weights) {
+    %0 = VPU.NCE.Convolution(%arg0, %weights) rawFilterShape [128, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-                rawFilterShape = [128, 32, 3, 3],
+                
                 strides = [1, 1]
             } : !VPU.DistributedTensor<1x32x100x100xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>, tensor<128x32x3x3xf16, {mem_space = @CMX_NN, order = #NHWC}> -> !VPU.DistributedTensor<1x128x100x100xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
 
@@ -296,7 +288,6 @@ func.func @NoTilingClusterNCEConv(%arg0: !DistributedTensor0) -> !DistributedTen
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -321,7 +312,6 @@ func.func @GatherSplit(%arg0: tensor<4004x320xf16>) -> tensor<4004x1xf16> {
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -346,7 +336,6 @@ func.func @GatherSplitWithBatchDims(%arg0: tensor<2x4004x320xf16>) -> tensor<2x1
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -371,7 +360,6 @@ func.func @GatherSplitOptimize(%arg0: tensor<387072x3xf16>) -> tensor<1x387072x3
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -398,7 +386,6 @@ func.func @Yuv2RGBSplit(%arg0: tensor<1x993x736x1xf16>) -> tensor<1x662x736x3xf1
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -425,7 +412,6 @@ func.func @GatherNDSplit(%arg0: tensor<3x5x512x512xf16>) -> tensor<3x1x100x512xf
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -452,7 +438,6 @@ func.func @GatherNDSplitIndices(%arg0: tensor<64x2xf16>) -> tensor<300000x2xf16>
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -477,7 +462,6 @@ func.func @NotSplitGatherForLargeSizeOnGatherAxis(%arg0: tensor<1548288x3xf16>) 
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -502,7 +486,6 @@ func.func @NotSplitGatherForLargeIORatio(%arg0: tensor<51865x512xf16>) -> tensor
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -529,7 +512,6 @@ func.func @Gather4DSplit(%arg0: tensor<1x4004x320x1xf16>) -> tensor<1x4004x1x1xf
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -556,7 +538,6 @@ func.func @Gather4DSplitWithBatchDims(%arg0: tensor<2x1x4004x320xf16>) -> tensor
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -583,7 +564,6 @@ func.func @Gather4DSplitOptimize(%arg0: tensor<1x1x387072x3xf16>) -> tensor<1x1x
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -610,7 +590,6 @@ func.func @NotSplitGather4DForLargeSizeOnGatherAxis(%arg0: tensor<1x1x1548288x3x
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -639,7 +618,6 @@ func.func @NotSplitGather4DForLargeIORatioUseDDRAccess(%arg0: tensor<1x1x51865x5
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -667,7 +645,6 @@ func.func @DepthToSpaceBlocksFirstSplit(%arg0: tensor<1x384x10x120xf32, {order =
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -693,7 +670,6 @@ func.func @DepthToSpaceDepthFirstSplit(%arg0: tensor<1x384x10x120xf32, {order = 
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -714,7 +690,6 @@ func.func @SpaceToDepthBlockFirstSplit(%arg0: tensor<1x48x160x80xf16>) -> tensor
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -742,7 +717,6 @@ func.func @SpaceToDepthDepthFirstSplit(%arg0: tensor<1x48x160x80xf32>) -> tensor
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -751,10 +725,10 @@ config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, con
 func.func @SplitNCEConvOverOH(%arg0: tensor<1x32x64x48xf16, {order = #NHWC}>) -> tensor<1x256x64x48xf16, {order = #NHWC}> {
     %weights = const.Declare tensor<256x32x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<256x32x3x3xf16>, [#const.Reorder<#NHWC>]
 
-    %0 = VPU.NCE.Convolution(%arg0, %weights) {
+    %0 = VPU.NCE.Convolution(%arg0, %weights) rawFilterShape [256, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         ppe = #VPU.PPEStub<>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-        rawFilterShape = [256, 32, 3, 3],
+        
         strides = [1, 1]
     } : tensor<1x32x64x48xf16, {order = #NHWC}>, tensor<256x32x3x3xf16, {order = #NHWC}> -> tensor<1x256x64x48xf16, {order = #NHWC}>
 
@@ -764,9 +738,9 @@ func.func @SplitNCEConvOverOH(%arg0: tensor<1x32x64x48xf16, {order = #NHWC}>) ->
     // CHECK-SAME:      : tensor<256x32x3x3xf16>, [#const.Reorder<#NHWC>]
 
 
-    // CHECK:        [[CONV:%.+]] = VPU.NCE.Convolution([[INPUT]], [[FILTER]])
+    // CHECK:        [[CONV:%.+]] = VPU.NCE.Convolution([[INPUT]], [[FILTER]]) rawFilterShape [256, 32, 3, 3] {
     // CHECK-SAME:          pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-    // CHECK-SAME:          rawFilterShape = [256, 32, 3, 3], strides = [1, 1], tilingStrategy = [1, 1, 2, 1]
+    // CHECK-SAME:          strides = [1, 1], tilingStrategy = [1, 1, 2, 1]
     // CHECK-SAME:          -> tensor<1x256x64x48xf16, {order = #NHWC}>
 
     // CHECK:        return [[CONV]] : tensor<1x256x64x48xf16, {order = #NHWC}>
@@ -786,7 +760,6 @@ func.func @SplitNCEConvOverOH(%arg0: tensor<1x32x64x48xf16, {order = #NHWC}>) ->
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -795,10 +768,10 @@ config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, con
 func.func @SplitQuantNCEConvOverOC(%arg0: tensor<1x32x64x64x!qElemType, {order = #NHWC}>) -> tensor<1x512x64x64x!qElemType1, {order = #NHWC}> {
     %weights = const.Declare tensor<512x32x3x3x!qElemType2, {order = #NHWC}> = dense<1.000000e+00> : tensor<512x32x3x3xf16>, [#const.CastElemType<ui8>, #const.CastElemType<!qElemType2>, #const.Reorder<#NHWC>]
 
-    %0 = VPU.NCE.Convolution(%arg0, %weights) {
+    %0 = VPU.NCE.Convolution(%arg0, %weights) rawFilterShape [512, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         ppe = #VPU.PPEStub<>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-        rawFilterShape = [512, 32, 3, 3],
+        
         strides = [1, 1]
     } : tensor<1x32x64x64x!qElemType, {order = #NHWC}>, tensor<512x32x3x3x!qElemType2, {order = #NHWC}> -> tensor<1x512x64x64x!qElemType1, {order = #NHWC}>
 
@@ -808,9 +781,9 @@ func.func @SplitQuantNCEConvOverOC(%arg0: tensor<1x32x64x64x!qElemType, {order =
     // CHECK-SAME:      : tensor<512x32x3x3xf16>, [#const.CastElemType<ui8>, #const.CastElemType<!qElemType2>, #const.Reorder<#NHWC>]
 
 
-    // CHECK:        [[CONV:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS]])
+    // CHECK:        [[CONV:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS]]) rawFilterShape [512, 32, 3, 3] {
     // CHECK-SAME:          pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-    // CHECK-SAME:          rawFilterShape = [512, 32, 3, 3], strides = [1, 1], tilingStrategy = [1, 1, 2, 1]
+    // CHECK-SAME:          strides = [1, 1], tilingStrategy = [1, 1, 2, 1]
     // CHECK-SAME:          -> tensor<1x512x64x64x!qElemType1, {order = #NHWC}>
 
     // CHECK:        return [[CONV]] : tensor<1x512x64x64x!qElemType1, {order = #NHWC}>
@@ -826,14 +799,13 @@ func.func @SplitQuantNCEConvOverOC(%arg0: tensor<1x32x64x64x!qElemType, {order =
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
 // CHECK-LABEL: @SplitNCEMaxPoolOverH
 // CHECK-SAME:      [[INPUT:%arg[0-9]]]: tensor<1x16x200x200xf16, {order = #NHWC}>)
 func.func @SplitNCEMaxPoolOverH(%arg0: tensor<1x16x200x200xf16, {order = #NHWC}>) -> tensor<1x16x200x200xf16, {order = #NHWC}> {
-    %0 = VPU.NCE.MaxPool(%arg0) {
+    %0 = VPU.NCE.MaxPool(%arg0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         ppe = #VPU.PPEStub<>,
         kernel_size = [3, 3],
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
@@ -859,7 +831,6 @@ func.func @SplitNCEMaxPoolOverH(%arg0: tensor<1x16x200x200xf16, {order = #NHWC}>
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -894,7 +865,6 @@ func.func @SplitNCEEltwiseAddOverC(
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -925,7 +895,6 @@ func.func @SplitNCEEltwiseAddSameInput(%arg0: tensor<1x2048x14x14xf16, {order = 
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -950,7 +919,6 @@ func.func @ConvertU8F32SplitOverW(%arg0: tensor<1x2x80x3000xui8, {order = #NHWC}
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -974,7 +942,6 @@ func.func @SigmoidSplitOverW(%arg0: tensor<1x8x80x960xf16>) -> tensor<1x8x80x960
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -998,7 +965,6 @@ func.func @TanhSplitOverW(%arg0: tensor<1x8x80x960xf16>) -> tensor<1x8x80x960xf1
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1022,7 +988,6 @@ func.func @ExpSplitOverW(%arg0: tensor<1x8x80x960xf16>) -> tensor<1x8x80x960xf16
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1045,7 +1010,6 @@ func.func @SqrtSplitOverW(%arg0: tensor<1x8x80x960xf16>) -> tensor<1x8x80x960xf1
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1068,7 +1032,6 @@ func.func @EluSplitOverW(%arg0: tensor<1x8x80x960xf16>) -> tensor<1x8x80x960xf16
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1091,7 +1054,6 @@ func.func @ClampSplitOverW(%arg0: tensor<1x8x80x960xf16>) -> tensor<1x8x80x960xf
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1114,7 +1076,6 @@ func.func @ReLUSplitOverW(%arg0: tensor<1x8x80x960xf16>) -> tensor<1x8x80x960xf1
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1137,7 +1098,6 @@ func.func @HSwishSplitOverW(%arg0: tensor<1x16x80x960xf16>) -> tensor<1x16x80x96
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1163,7 +1123,6 @@ func.func @SplitDivideEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tensor<1
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1187,7 +1146,6 @@ func.func @MemPermuteSplitNCHWToNHWC2Part(%arg0: tensor<1x546x30x40xf16>) -> ten
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1198,7 +1156,8 @@ func.func @AvgPoolSwSplit2Part(%arg0: tensor<1x24x1800x16xf16>) -> tensor<1x24x1
     return %0 : tensor<1x24x1789x16xf16>
 
     // CHECK:       [[OUTPUT:%.+]] = VPU.AvgPool([[INPUT]]) {
-    // CHECK-SAME:  exclude_pads, kernel_size = [12, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1], tilingStrategy = [1, 1, 2, 1]
+    // CHECK-SAME:  exclude_pads, kernel_size = [12, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>,
+    // CHECK-SAME:  strides = [1, 1], tilingStrategy = [1, 1, 2, 1]
     // CHECK-SAME:  } : tensor<1x24x1800x16xf16> -> tensor<1x24x1789x16xf16>
 
     // CHECK:       return [[OUTPUT]] : tensor<1x24x1789x16xf16>
@@ -1214,7 +1173,6 @@ func.func @AvgPoolSwSplit2Part(%arg0: tensor<1x24x1800x16xf16>) -> tensor<1x24x1
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1226,10 +1184,10 @@ func.func @SplitSparseNCEConvOverOH(%arg0: tensor<1x32x80x60xf16, {order = #NHWC
     %weights_sparse = VPU.GroupSparseTensor(%weights, %weights_sm) {is_weights}
         -> !VPU.SparseTensor<data=tensor<160x32x3x3xf16, {order = #NHWC}>, sparsity_map=tensor<160x1x1x384xi1>, is_weights>
 
-    %0 = VPU.NCE.Convolution(%arg0, %weights_sparse) {
+    %0 = VPU.NCE.Convolution(%arg0, %weights_sparse) rawFilterShape [160, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         ppe = #VPU.PPEStub<>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-        rawFilterShape = [160, 32, 3, 3],
+        
         strides = [1, 1]
     } : tensor<1x32x80x60xf16, {order = #NHWC}>, !VPU.SparseTensor<data=tensor<160x32x3x3xf16, {order = #NHWC}>, sparsity_map=tensor<160x1x1x384xi1>, is_weights> -> tensor<1x160x80x60xf16, {order = #NHWC}>
 
@@ -1245,9 +1203,8 @@ func.func @SplitSparseNCEConvOverOH(%arg0: tensor<1x32x80x60xf16, {order = #NHWC
     // CHECK-SAME:       data=tensor<160x32x3x3xf16, {order = #NHWC}>,
     // CHECK-SAME:       sparsity_map=tensor<160x1x1x384xi1>, is_weights
 
-    // CHECK:        [[OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS_SPARSE]])
+    // CHECK:        [[OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS_SPARSE]]) rawFilterShape [160, 32, 3, 3] {
     // CHECK-SAME:          pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-    // CHECK-SAME:          rawFilterShape = [160, 32, 3, 3],
     // CHECK-SAME:          strides = [1, 1], tilingStrategy = [1, 1, 2, 1]
     // CHECK-SAME:          -> tensor<1x160x80x60xf16, {order = #NHWC}>
 
@@ -1268,7 +1225,6 @@ func.func @SplitSparseNCEConvOverOH(%arg0: tensor<1x32x80x60xf16, {order = #NHWC
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1280,10 +1236,10 @@ func.func @SplitSparseQuantNCEConvOverOH(%arg0: tensor<1x32x80x80x!qElemType, {o
     %weights_sparse = VPU.GroupSparseTensor(%weights, %weights_sm) {is_weights}
         -> !VPU.SparseTensor<data=tensor<320x32x3x3x!qElemType2, {order = #NHWC}>, sparsity_map=tensor<320x1x1x384xi1>, is_weights>
 
-    %0 = VPU.NCE.Convolution(%arg0, %weights_sparse) {
+    %0 = VPU.NCE.Convolution(%arg0, %weights_sparse) rawFilterShape [320, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         ppe = #VPU.PPEStub<>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-        rawFilterShape = [320, 32, 3, 3],
+        
         strides = [1, 1]
     } : tensor<1x32x80x80x!qElemType, {order = #NHWC}>, !VPU.SparseTensor<data=tensor<320x32x3x3x!qElemType2, {order = #NHWC}>, sparsity_map=tensor<320x1x1x384xi1>, is_weights> -> tensor<1x320x80x80x!qElemType1, {order = #NHWC}>
 
@@ -1299,9 +1255,9 @@ func.func @SplitSparseQuantNCEConvOverOH(%arg0: tensor<1x32x80x80x!qElemType, {o
     // CHECK-SAME:       data=tensor<320x32x3x3x!qElemType2, {order = #NHWC}>,
     // CHECK-SAME:       sparsity_map=tensor<320x1x1x384xi1>, is_weights
 
-    // CHECK:        [[OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS_SPARSE]])
+    // CHECK:        [[OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS_SPARSE]]) rawFilterShape [320, 32, 3, 3] {
     // CHECK-SAME:          pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-    // CHECK-SAME:          rawFilterShape = [320, 32, 3, 3], strides = [1, 1], tilingStrategy = [1, 1, 2, 1]
+    // CHECK-SAME:          strides = [1, 1], tilingStrategy = [1, 1, 2, 1]
     // CHECK-SAME:          -> tensor<1x320x80x80x!qElemType1, {order = #NHWC}>
 
     // CHECK:        return [[OUTPUT]] : tensor<1x320x80x80x!qElemType1, {order = #NHWC}>
@@ -1316,7 +1272,6 @@ func.func @SplitSparseQuantNCEConvOverOH(%arg0: tensor<1x32x80x80x!qElemType, {o
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1340,7 +1295,6 @@ func.func @SplitNCEAveragePoolOverW(%arg0: tensor<1x16x7x12960xf16, {order = #NH
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1367,7 +1321,6 @@ func.func @SplitAveragePoolOverW(%arg0: tensor<1x1x7x184320xf16>) -> tensor<1x1x
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1393,7 +1346,6 @@ func.func @MVN1NormalizeSplit(%arg0: tensor<1x1x1x520001xf16>, %arg1: tensor<1x1
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1417,7 +1369,6 @@ func.func @MVN1NormalizeSplitOverH(%arg0: tensor<1x512x256x256xf16, {order = #NH
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1450,7 +1401,6 @@ func.func @MVN1MeanVarSplitTileAtC(%arg0: tensor<1x256x8x512xf32, {order = #NHWC
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1480,7 +1430,6 @@ func.func @MVN1MeanVarSplitTileAtN(%arg0: tensor<256x1x8x512xf32, {order = #NHWC
 
 module @executors {
     config.Resources 4 of @NCE at 1.700000e+03 MHz {
-        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
         config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
@@ -1522,7 +1471,6 @@ module @ClampTilingNumForAlignment {
 
 module @executors {
     config.Resources 1 of @NCE at 1.700000e+03 MHz {
-        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
         config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
     // CHECK-LABEL:   @MultiplyNotAlign
@@ -1546,7 +1494,6 @@ module @executors {
 module @Test {
 
 config.Resources 6 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1569,7 +1516,6 @@ func.func @DepthToSpaceDepthFirstSplitWithMultiCluster(%arg0: tensor<1x320x576x6
 module @Test {
 
 config.Resources 1 of @NCE {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1592,7 +1538,6 @@ func.func @AcoshOpSplitOverC(%arg0: tensor<1x1024x16x128xf16>) -> tensor<1x1024x
 module @Test {
 
 config.Resources 1 of @NCE {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1615,7 +1560,6 @@ func.func @AcosOpSplitOverC(%arg0: tensor<1x1024x16x128xf16>) -> tensor<1x1024x1
 module @Test {
 
 config.Resources 1 of @NCE {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1638,7 +1582,6 @@ func.func @AsinhOpSplitOverC(%arg0: tensor<1x1024x16x128xf16>) -> tensor<1x1024x
 module @Test {
 
 config.Resources 1 of @NCE {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1661,7 +1604,6 @@ func.func @AsinOpSplitOverC(%arg0: tensor<1x1024x16x128xf16>) -> tensor<1x1024x1
 module @Test {
 
 config.Resources 1 of @NCE {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1684,7 +1626,6 @@ func.func @AtanhOpSplitOverC(%arg0: tensor<1x1024x16x128xf16>) -> tensor<1x1024x
 module @Test {
 
 config.Resources 1 of @NCE {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1707,7 +1648,6 @@ func.func @AtanOpSplitOverC(%arg0: tensor<1x1024x16x128xf16>) -> tensor<1x1024x1
 module @Test {
 
 config.Resources 1 of @NCE {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1731,7 +1671,6 @@ func.func @SeluOpSplitOverC(%arg0: tensor<1x1024x16x128xf16>) -> tensor<1x1024x1
 module @Test {
 
 config.Resources 1 of @NCE {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1754,7 +1693,6 @@ func.func @CosOpSplitOverC(%arg0: tensor<1x1024x16x128xf16>) -> tensor<1x1024x16
 module @Test {
 
 config.Resources 1 of @NCE {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1791,7 +1729,6 @@ func.func @AssignTilingStrategyAvgPool5D(%arg0: tensor<1x24x8x56x56xf16>) -> ten
 
 module @MultiplyWithSOK {
     config.Resources 4 of @NCE at 1.700000e+03 MHz {
-        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
         config.MemoryResource 1473536 bytes of @CMX_NN {VPU.bandwidth = 64 : i64, VPU.derateFactor = 1.000000e+00 : f64}
     }
     // CHECK-LABEL:   func.func @MultiplyWithSOK
@@ -1814,7 +1751,6 @@ module @MultiplyWithSOK {
 
 module @Test {
     config.Resources 4 of @NCE at 1.700000e+03 MHz {
-        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
         config.MemoryResource 1473536 bytes of @CMX_NN {VPU.bandwidth = 64 : i64, VPU.derateFactor = 1.000000e+00 : f64}
     }
 
@@ -1823,6 +1759,7 @@ module @Test {
         %arg0: tensor<1x2x2x6xf32>, %arg1: tensor<1x1x1x1xf32>, %arg2: tensor<1x1x1x1xf32>
             ) -> (tensor<1x2x2x6xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>) {
         %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {
+                dstElemType = ui8,
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>
             } : tensor<1x2x2x6xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>
             -> tensor<1x2x2x6xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
@@ -1837,10 +1774,8 @@ module @Test {
 // -----
 
 module @Test {
-
-config.Resources 3 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
-config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 3 of @NCE {
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
 // CHECK-LABEL: @GridSampleSplitOverBatchTilingOnNC
@@ -1859,8 +1794,7 @@ func.func @GridSampleSplitOverBatchTilingOnNC(%arg0: tensor<5x64x68x120xf16>, %a
     // CHECK-SAME:     multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverBatch>
     // CHECK-SAME:     tilingStrategy = [2, 16, 1, 1]
     // CHECK:      return [[GRID_SAMPLE]]
-}
-
+    }
 }
 
 // -----
@@ -1868,7 +1802,6 @@ func.func @GridSampleSplitOverBatchTilingOnNC(%arg0: tensor<5x64x68x120xf16>, %a
 module @Test {
 
 config.Resources 3 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -1897,7 +1830,6 @@ func.func @GridSampleSplitOverWidthTilingOnW(%arg0: tensor<1x64x68x120xf16>, %ar
 module @Test {
 
 config.Resources 3 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 

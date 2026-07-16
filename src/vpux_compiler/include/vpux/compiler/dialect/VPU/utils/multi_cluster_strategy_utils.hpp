@@ -17,14 +17,19 @@ class VPULayerCostModel;
 struct VPULayerStrategy;
 }  // namespace VPUNN
 
-namespace vpux {
-namespace VPU {
+namespace vpux::VPU {
 
 enum class SpillingType { SPILL_WRITE, SPILL_READ };
-
 struct HwLayerTilingStrategyCosts {
     double costWithoutPrefetching = 0;
     double costWithPrefetching = 0;
+};
+
+struct ComputeAndDMATimeCost {
+    SmallVector<uint32_t> actCosts;
+    SmallVector<uint32_t> weightsCosts;
+    SmallVector<uint32_t> computeCosts;
+    SmallVector<uint32_t> outputCosts;
 };
 
 //
@@ -49,7 +54,7 @@ public:
     // Bucket 1     - valid VPUNN cost, no fits cmx - lowest cost
     // Bucket 2     - fits cmx, uses all tiles      - prefer activation or channel split based on tensor sizes
     // Bucket 3     - compatible                    - prefer activation or channel split based on tensor sizes
-    enum PriorityBucket {
+    enum class PriorityBucket {
         COST_BASED_FITS_CMX,
         COST_BASED_NOT_FITS_CMX,
         HEURISTIC_FITS_CMX_FULL_TILES,
@@ -60,6 +65,9 @@ public:
     explicit LayerCostModel(mlir::func::FuncOp func, bool enablePrefetchTiling, Logger log,
                             SiblingOpsAnalysis& siblingsOpsAnalysis);
     explicit LayerCostModel(mlir::func::FuncOp func, bool enablePrefetchTiling, SiblingOpsAnalysis& siblingsOpsAnalysis,
+                            std::shared_ptr<VPUNN::VPULayerCostModel> layerCostModelPtr, Logger log);
+    explicit LayerCostModel(mlir::func::FuncOp func, bool enablePrefetchTiling, bool enableTilingFullSearchSpace,
+                            SiblingOpsAnalysis& siblingsOpsAnalysis,
                             std::shared_ptr<VPUNN::VPULayerCostModel> layerCostModelPtr, Logger log);
     ~LayerCostModel() = default;
 
@@ -75,6 +83,11 @@ public:
     HwLayerTilingStrategyCosts getDPUandDMATimeCostWithCustomTiling(VPU::NCEOpInterface nceOp,
                                                                     VPU::MultiClusterStrategy strategy,
                                                                     const OutputTiling& outTiles) const;
+    ComputeAndDMATimeCost getComputeAndDataCosts(mlir::Operation* op, std::optional<VPU::MultiClusterStrategy> strategy,
+                                                 const OutputTiling& outTiles) const;
+
+    std::vector<std::pair<NDTypeInterface, TensorDistributionMap>> getTiledOpOperands(
+            mlir::Operation* op, const TileInfo& outTile, std::optional<VPU::MultiClusterStrategy> customStrategy);
 
     SpillingCost calculateSpillingCost(VPU::ClusteredOpInterface parentOp, VPU::ClusteredOpInterface userOp,
                                        VPU::MultiClusterStrategy parentStrategy,
@@ -115,8 +128,8 @@ public:
 private:
     /* Cost calculation - time based or efficiency based */
     double getNCELayerCost(VPU::NCEOpInterface nceOp, VPU::MultiClusterStrategy strategy, bool useTimeBasedCost = true);
-    double getSWLayerCost(VPU::SWOpInterface swOp, VPU::MultiClusterStrategy strategy) const;
-    double getDPUandDMATimeCost(VPU::NCEOpInterface nceOp, VPU::MultiClusterStrategy strategy) const;
+    double getSWLayerCost(VPU::SWOpInterface swOp, VPU::MultiClusterStrategy strategy);
+    double getDPUandDMATimeCost(VPU::NCEOpInterface nceOp, VPU::MultiClusterStrategy strategy);
     double getEfficiencyCost(VPU::NCEOpInterface nceOp, VPU::MultiClusterStrategy strategy) const;
 
     /* DMA cost calculation and helpers */
@@ -132,11 +145,6 @@ private:
 
     bool hasSpilling(VPU::ClusteredOpInterface origOp, vpux::NDTypeInterface srcTensorType,
                      vpux::NDTypeInterface dstTensorType) const;
-    bool hasSpilling(VPU::ClusteredOpInterface origOp, VPU::ClusteredOpInterface userOp) const;
-    bool hasSpilling(VPU::ClusteredOpInterface origOp, VPU::MultiClusterStrategy origOpStrategy,
-                     VPU::ClusteredOpInterface userOp) const;
-    bool hasSpilling(VPU::ClusteredOpInterface origOp, VPU::ClusteredOpInterface userOp,
-                     VPU::MultiClusterStrategy userOpStrategy) const;
 
     std::pair<vpux::NDTypeInterface, vpux::NDTypeInterface> getDistributionTypesWithStrategy(
             VPU::ClusteredOpInterface parentOp, VPU::MultiClusterStrategy parentStrategy,
@@ -144,16 +152,6 @@ private:
     std::pair<std::pair<mlir::Type, TensorDistributionMap>, std::pair<mlir::Type, TensorDistributionMap>>
     getDistributionsWithStrategy(VPU::ClusteredOpInterface parentOp, VPU::MultiClusterStrategy parentStrategy,
                                  VPU::ClusteredOpInterface userOp, VPU::MultiClusterStrategy userStrategy) const;
-
-    VPU::DistributedTypeInterface getDistributedInputType(VPU::ClusteredOpInterface origOp, mlir::Operation* parentOp,
-                                                          VPU::MultiClusterStrategy specifiedStrategy) const;
-    vpux::NDTypeInterface getNormalInputType(VPU::ClusteredOpInterface origOp, mlir::Operation* parentOp) const;
-    vpux::NDTypeInterface getNormalOutputType(VPU::ClusteredOpInterface origOp) const;
-    VPU::DistributedTypeInterface getDistributedInputType(VPU::ClusteredOpInterface origOp, mlir::Operation* parentOp,
-                                                          VPU::MultiClusterStrategy specifiedStrategy,
-                                                          mlir::ArrayAttr customAlignment) const;
-    VPU::DistributedTypeInterface getDistributedOutputType(VPU::ClusteredOpInterface origOp,
-                                                           VPU::MultiClusterStrategy specifiedStrategy) const;
 
     double getDMACostOfType(vpux::NDTypeInterface srcTensorType, SpillingType spillingType) const;
     double getSpillingDMACost(vpux::NDTypeInterface srcTensorType, SpillingType spillingType) const;
@@ -192,6 +190,7 @@ private:
     Logger _log;
     SiblingOpsAnalysis& _siblingsOpsAnalysis;
     bool _underSubgraphOpt = false;
+    bool _enableTilingFullSearchSpace = false;
 };
 vpux::VPU::StrategyCost correctSwOpCost(VPU::SWOpInterface swOp, ArrayRef<vpux::NDTypeInterface> tiledInputTypes,
                                         vpux::VPU::StrategyCost cost);
@@ -220,6 +219,12 @@ SmallVector<uint32_t> getDPUCostForNCEOpPreSplit(VPU::NCEOpInterface nceOp, cons
                                                  int64_t numDPU, Logger log);
 
 SmallVector<uint32_t> getSHAVECostForSwOpPreSplit(VPU::SWOpInterface swOp, const OutputTiling& outTiles,
+                                                  const VPUIP::ShaveWorkloadCostParams& costParams,
+                                                  const std::shared_ptr<VPUNN::VPULayerCostModel>& vpunnCostModel,
+                                                  int64_t numSHV, Logger log);
+SmallVector<uint32_t> getSHAVECostForSwOpPreSplit(VPU::SWOpInterface swOp,
+                                                  std::optional<VPU::MultiClusterStrategy> strategy,
+                                                  const OutputTiling& outTiles,
                                                   const VPUIP::ShaveWorkloadCostParams& costParams,
                                                   const std::shared_ptr<VPUNN::VPULayerCostModel>& vpunnCostModel,
                                                   int64_t numSHV, Logger log);
@@ -261,8 +266,7 @@ bool setSOKForRuntimeDequantConvolution(VPU::NCEOpInterface nceOp, LayerCostMode
 
 bool alignStrategyWithParentRuntimeDequant(VPU::ClusteredOpInterface clusteredOp, LayerCostModel& costModel);
 
-double getStrideDMACorrectionThresholdByArch([[maybe_unused]] config::ArchKind arch);
+bool isNCEOpUsedAsConvScale(mlir::Operation* op);
 
 std::optional<VPU::MultiClusterStrategy> getMultiClusterStrategyFromOp(mlir::Operation* op);
-}  // namespace VPU
-}  // namespace vpux
+}  // namespace vpux::VPU

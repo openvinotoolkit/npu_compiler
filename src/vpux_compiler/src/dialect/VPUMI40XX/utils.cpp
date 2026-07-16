@@ -31,6 +31,7 @@ uint64_t computeMaskLo(mlir::ArrayAttr barriers) {
     auto barriersVector = parseIntArrayAttr<uint8_t>(barriers);
     uint64_t mask = 0;
     for (auto barrier : barriersVector) {
+        VPUX_THROW_WHEN(barrier >= bits128, "Barrier physical ID out of range: got {0}", barrier);
         if (barrier < bits64) {
             mask |= static_cast<uint64_t>(1) << barrier;
         }
@@ -215,6 +216,7 @@ const std::unordered_map<VPURegMapped::TaskType, size_t> taskBinarySize40XX = {
         {VPURegMapped::TaskType::DPUVariant, sizeof(npu40xx::nn_public::VpuDPUVariant)},
         {VPURegMapped::TaskType::ActKernelRange, sizeof(npu40xx::nn_public::VpuActKernelRange)},
         {VPURegMapped::TaskType::ActKernelInvocation, sizeof(npu40xx::nn_public::VpuActKernelInvocation)},
+        {VPURegMapped::TaskType::M2I, sizeof(npu40xx::nn_public::VpuMediaTask)},
         {VPURegMapped::TaskType::DMA, sizeof(npu40xx::nn_public::VpuDMATask)}};
 }  // namespace
 

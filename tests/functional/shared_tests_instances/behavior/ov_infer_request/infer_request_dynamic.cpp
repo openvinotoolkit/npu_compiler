@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022-2025 Intel Corporation
+// Copyright (C) 2022-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -35,6 +35,9 @@ std::shared_ptr<ov::Model> getFunction() {
 }
 
 }  // namespace
+
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(OVInferRequestDynamicTests);
 
 class NPUInferRequestDynamicTests : public OVInferRequestDynamicTests {
 protected:

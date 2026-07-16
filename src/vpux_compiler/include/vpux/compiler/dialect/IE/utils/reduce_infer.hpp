@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/utils/core/small_vector.hpp"
+#include "vpux/utils/logger/logger.hpp"
 
 namespace vpux {
 
@@ -22,6 +23,15 @@ mlir::LogicalResult inferReduceReturnTypeComponents(mlir::Location loc, mlir::Va
                                                     mlir::ArrayAttr inputPadding = nullptr,
                                                     mlir::ArrayAttr outputPadding = nullptr);
 DimsOrder calculateReducedOutputLayout(const DimsOrder& inputDimOrder, const SmallVector<int64_t>& axes);
+
+// Checks that axes represent a single channel-axis reduction and the parent op's
+// activation input and output have the same layout (no ODU permute active).
+// Used as a sub-check in both IE and VPU reduce optimization passes.
+bool isChannelAxisReductionWithMatchingLayout(vpux::NDTypeInterface parentInputType,
+                                              vpux::NDTypeInterface parentOutputType, ArrayRef<int64_t> axes,
+                                              Logger log);
+
+bool isChannelAxisReductionWithDPUParent(mlir::Operation* op, ArrayRef<int64_t> axes, Logger log);
 
 template <typename ReduceOp>
 SmallVector<int64_t> extractAxes(mlir::Location loc, ReduceOp reduceOp) {

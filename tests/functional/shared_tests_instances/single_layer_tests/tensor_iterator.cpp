@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2024-2025 Intel Corporation
+// Copyright (C) 2024-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -10,6 +10,9 @@ using namespace ov;
 using namespace element;
 
 namespace ov::test {
+
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(TensorIteratorTest);
 
 class TensorIteratorLayerTestCommon : public TensorIteratorTest, virtual public VpuOv2LayerTest {};
 

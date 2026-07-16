@@ -3,25 +3,26 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "Decoder.hpp"
 #include <cassert>
 #include <stdexcept>
+
+#include "Decoder.hpp"
 #include "commons.hpp"
 
 using namespace vpux::bitc;
 
 class Decoder::Impl {
 public:
-    Impl(const std::vector<uint8_t>& bits, BitCompactorConfig config);
-    Impl(const std::vector<uint8_t>&& bits, BitCompactorConfig config);
-    void decode(std::vector<uint8_t>& out);
-    void decode(std::vector<uint8_t>& out, std::vector<uint8_t>& bitmap, unsigned sparse_block_size);
+    Impl(std::vector<uint8_t>&& bits, BitCompactorConfig&& config);
+    bool decode(std::vector<uint8_t>& out);
 
 private:
     typedef void (Decoder::Impl::*AlgorithmDecoder)();
     void verify_config();
+    void decode_btc(std::vector<uint8_t>& out);
     void unpack_sparse_data(std::vector<uint8_t>& src, std::vector<uint8_t>& dst, std::vector<uint8_t>& bitmap,
                             unsigned sparse_block_size);
+
     void fp16deprdct(unsigned char* dst);
     void decode_noprdct();
     void decode_signshftproc();
@@ -52,30 +53,19 @@ private:
     bool prev_block_{false};
 };
 
-Decoder::Decoder(const std::vector<uint8_t>& bits, BitCompactorConfig config) {
-    impl_ = std::make_unique<Impl>(bits, config);
+Decoder::Decoder(std::vector<uint8_t>&& bits, BitCompactorConfig&& config) {
+    impl_ = std::make_unique<Impl>(std::move(bits), std::move(config));
 }
 
-Decoder::Decoder(const std::vector<uint8_t>&& bits, BitCompactorConfig config) {
-    impl_ = std::make_unique<Impl>(bits, config);
-}
-
-void Decoder::decode(std::vector<uint8_t>& out) {
-    impl_->decode(out);
-}
-
-void Decoder::decode(std::vector<uint8_t>& out, std::vector<uint8_t>& bitmap, unsigned sparse_block_size) {
-    impl_->decode(out, bitmap, sparse_block_size);
+bool Decoder::decode(std::vector<uint8_t>& out) {
+    return impl_->decode(out);
 }
 
 Decoder::~Decoder() {
 }
 
-Decoder::Impl::Impl(const std::vector<uint8_t>& bits, BitCompactorConfig config): bit_stream_{bits}, config_{config} {
-    init();
-}
-
-Decoder::Impl::Impl(const std::vector<uint8_t>&& bits, BitCompactorConfig config): bit_stream_{bits}, config_{config} {
+Decoder::Impl::Impl(std::vector<uint8_t>&& bits, BitCompactorConfig&& config)
+        : bit_stream_{std::move(bits)}, config_{std::move(config)} {
     init();
 }
 
@@ -343,14 +333,18 @@ void Decoder::Impl::unpack_sparse_data(std::vector<uint8_t>& src, std::vector<ui
     }
 }
 
-void Decoder::Impl::decode(std::vector<uint8_t>& out, std::vector<uint8_t>& bitmap, unsigned sparse_block_size) {
-    decode(out);
-    std::vector<uint8_t> unpacked(2 * out.size());
-    unpack_sparse_data(out, unpacked, bitmap, sparse_block_size);
-    out = unpacked;
+bool Decoder::Impl::decode(std::vector<uint8_t>& out) {
+    decode_btc(out);
+    if (config_.sparse_mode_enable) {
+        std::vector<uint8_t> unpacked(2 * out.size());
+        unpack_sparse_data(out, unpacked, config_.bitmap, config_.sparse_block_size);
+        out = std::move(unpacked);
+    }
+
+    return true;
 }
 
-void Decoder::Impl::decode(std::vector<uint8_t>& out) {
+void Decoder::Impl::decode_btc(std::vector<uint8_t>& out) {
     if (config_.bypass_compression) {
         out.resize(bit_stream_.source_stream_length());
         memcpy(out.data(), bit_stream_.get_byte_pointer(0), bit_stream_.source_stream_length());

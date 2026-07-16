@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include <mlir/IR/Value.h>
+#include <mlir/Support/LLVM.h>
 #include "vpux/compiler/core/attributes/dims_order.hpp"
 #include "vpux/compiler/core/types/quantile_float/types.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
@@ -41,9 +43,9 @@ namespace {
 // pure view ops, for the given operation. This procedure assumes IR in question
 // is a chain of single-use operations.
 template <typename Op>
-Op findOriginOp(const Logger& log, mlir::Operation* current, bool checkPostOp = true) {
+Op findOriginOp(const Logger& log, mlir::Operation* current, bool checkPostOp = true, bool skipTranspose = false) {
     // skip "pure view ops"
-    while (current && IE::isPureViewOp(current)) {
+    while (current && (IE::isPureViewOp(current) || (skipTranspose && mlir::isa<IE::TransposeOp>(current)))) {
         // Note: for the sake of this pass, only single-use op chains are
         // considered
         auto operands = current->getOperands();
@@ -74,10 +76,11 @@ Op findOriginOp(const Logger& log, mlir::Operation* current, bool checkPostOp = 
 
 // Returns defining op of the specified type for some operand of the op ignoring IE.FakeQuantize ops
 template <typename Op>
-Op findDefiningOp(mlir::Operation* op) {
+Op findDefiningOp(mlir::Operation* op, const bool ignoreReshapeOp = false) {
     for (const auto& operand : op->getOperands()) {
         auto parent = operand.getDefiningOp();
-        while (mlir::isa_and_nonnull<IE::FakeQuantizeOp>(parent)) {
+        while (mlir::isa_and_nonnull<IE::FakeQuantizeOp>(parent) ||
+               (ignoreReshapeOp && mlir::isa_and_nonnull<IE::AffineReshapeOp, IE::TransposeOp>(parent))) {
             parent = parent->getOperand(0).getDefiningOp();
         }
         if (mlir::isa_and_nonnull<Op>(parent)) {
@@ -542,10 +545,6 @@ bool isOpEligibleForFusion(SupportedOp origOp, const Logger& log) {
         if (uniformQuantizedType.getScale() != 1.0f) {
             return false;
         }
-    } else if (auto quantileQuantizedType = mlir::dyn_cast<mlir::quant::QuantileQuantizedType>(filterElemType)) {
-        if (quantileQuantizedType.getScale() != 1.0f) {
-            return false;
-        }
     } else if (!mlir::isa<vpux::type::QuantileType>(filterElemType)) {
         return false;
     }
@@ -555,7 +554,8 @@ bool isOpEligibleForFusion(SupportedOp origOp, const Logger& log) {
     if ((!inElemType.isF16() && !inElemType.isF32())) {
         return false;
     }
-    auto inFakeQuantOp = findOriginOp<IE::FakeQuantizeOp>(log, origOp.getInput().getDefiningOp(), false);
+    auto inFakeQuantOp = findOriginOp<IE::FakeQuantizeOp>(log, origOp.getInput().getDefiningOp(), /*checkPostOp*/ false,
+                                                          /*skipTranspose*/ true);
 
     return !inFakeQuantOp;
 }
@@ -766,7 +766,7 @@ mlir::LogicalResult FuseChannelWiseScales<SupportedOp>::matchAndRewrite(IE::Mult
     mlir::Operation* newNceOp;
     if (auto convOp = mlir::dyn_cast<IE::ConvolutionOp>(nceOp.getOperation())) {
         newNceOp = IE::cloneConvolutionOp(rewriter, convOp, outType, convOp.getInput(), convOp.getFilter(),
-                                          convOp.getBias(), scales);
+                                          convOp.getBias(), scales, convOp.getZeroPoints());
     } else {
         VPUX_THROW("FuseChannelWiseScales: We don't support other op type now '{0}'", nceOp->getName());
     }

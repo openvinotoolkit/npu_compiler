@@ -69,6 +69,19 @@ mlir::LogicalResult SetTargetIndependentPassOptionsPass::initialize(mlir::MLIRCo
     // It will be done as a part of E-149049, so this will be removed from common part
     _optionSet.push_back({config::SPRLUT_ENABLED, getAttributeFromOption(context, enableSprLUT)});
 
+    _optionSet.push_back({config::SOFTMAX_MASK_AWARE, getAttributeFromOption(context, enableSoftmaxMaskAware)});
+    // Convert f64 to f32 for SOFTMAX_MASK_AWARE_THRESHOLD to satisfy config.Option verifier constraint
+    auto softmaxThresholdAttr = getAttributeFromOption(context, softmaxMaskAwareThreshold);
+    if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(softmaxThresholdAttr)) {
+        if (floatAttr.getType().isF64()) {
+            // Cast double value to float explicitly for f32 attribute
+            double doubleValue = floatAttr.getValue().convertToDouble();
+            float floatValue = static_cast<float>(doubleValue);
+            softmaxThresholdAttr = mlir::FloatAttr::get(mlir::Float32Type::get(context), llvm::APFloat(floatValue));
+        }
+    }
+    _optionSet.push_back({config::SOFTMAX_MASK_AWARE_THRESHOLD, softmaxThresholdAttr});
+
     if (allowCustomValues.hasValue()) {
         _allowCustomValues = allowCustomValues.getValue();
     }

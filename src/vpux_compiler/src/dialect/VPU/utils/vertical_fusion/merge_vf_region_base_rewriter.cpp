@@ -183,8 +183,8 @@ bool MergeVFRegionBaseRewriter<VFCaseType>::isLegalFusion(VPU::VerticalFusionOp 
     };
 
     // Check if previous output op has MC strategy
-    const auto prevOutDistType =
-            mlir::dyn_cast_if_present<VPU::DistributedTensorType>(getDistributedOutputType(prevOp));
+    const auto prevOutDistType = mlir::dyn_cast_if_present<VPU::DistributedTensorType>(
+            getDistributedOutputType(prevOp, currentOp.getOperand(currInputArg.getArgNumber())));
     const auto isPrevOutOpWithMCStrategy = prevOutDistType != nullptr;
 
     const auto hasTrueOverlappedParams = [](VPU::DistributedTensorType tensor) {
@@ -243,57 +243,6 @@ bool MergeVFRegionBaseRewriter<VFCaseType>::isLegalFusion(VPU::VerticalFusionOp 
 }
 
 /*
- Function checks if two blocks suit to be merged in one on following criterias:
- 1. Number of operations doesn't exceed the limit
- 2. In case there is only one operation in the block, it might be merged as first op in the block
- 3. All multicluster strategies are same for both blocks if there are any
- 4. Required CMX memory by constant weights shouldn't exceed the size of the whole memory
-*/
-
-template <typename VFCaseType>
-bool MergeVFRegionBaseRewriter<VFCaseType>::checkVFCostFunction(VPU::VerticalFusionOp prevOp,
-                                                                VPU::VerticalFusionOp currentOp,
-                                                                VFCaseType& mergedCase) const {
-    VPUX_THROW_WHEN(!mergedCase.isInitialized(), "Incorrect tiling strategy for VF");
-    if (canMergeVFOpsWithoutCostCheck(mergedCase)) {
-        return true;
-    }
-
-    // compare the cost between merged VF Subgraph and 2 subgraphs with the spill
-    VFConfigType prevOpConfig(prevOp, _enableVerticalFusionPipelining);
-    VFConfigType currentOpConfig(currentOp, _enableVerticalFusionPipelining);
-
-    const auto prevCost = extractVFCost(prevOpConfig);
-    const auto currentCost = extractVFCost(currentOpConfig);
-
-    // simply decide if there is tiling for parents
-    const auto prevTilingStrategy = parseIntArrayAttr<int64_t>(prevOp.getTilingStrategy());
-    const auto currentTilingStrategy = parseIntArrayAttr<int64_t>(currentOp.getTilingStrategy());
-
-    StrategyCost mergedVFCost = 0;
-    {
-        // change the IR so that merged VF substitutes current operation and previous op to
-        // calculate correct cost
-        // the IR will change back when the setter is destroyed
-        VPU::VFSubgraphUserSetter setter(currentOp, mergedCase.getConfig().getSubgraph());
-        mergedVFCost = mergedCase.getCost(_vpunnCostFunction, _log);
-    }
-
-    if (mergedVFCost > VPUNN::Cycles::cost_adder(prevCost, currentCost)) {
-        _log.trace("Failed to merge VerticalFusionOp due to higher cost: mergedVFCost ({0}) > prevCost ({1}) + "
-                   "currentCost ({2})",
-                   mergedVFCost, prevCost, currentCost);
-        return false;
-    }
-    _log.trace("Try to merge VerticalFusionOp for lower cost: mergedVFCost ({0}) <= prevCost ({1}) + "
-               "currentCost ({2})",
-               mergedVFCost, prevCost, currentCost);
-
-    mergedCase.approveScheduling();
-    return true;
-}
-
-/*
  As soon as we don't have logic right now for excluding operations or break subgraph
  check in advance that all users or previous block will be merged to current one
 */
@@ -328,25 +277,6 @@ template <typename VFCaseType>
 void MergeVFRegionBaseRewriter<VFCaseType>::fuseBlocks(mlir::PatternRewriter& rewriter, VPU::VerticalFusionOp currentOp,
                                                        VPU::VerticalFusionOp mergedOp) const {
     rewriter.replaceOp(currentOp, mergedOp.getResult(0));
-}
-
-template <typename VFCaseType>
-VPUNNCostParameters MergeVFRegionBaseRewriter<VFCaseType>::fillInCostParam(mlir::Operation* operation,
-                                                                           const OutputTiling& tiling,
-                                                                           const SmallVector<TileInfo>& inputTiles,
-                                                                           const bool enablePrefetching) const {
-    auto mcStrategy = VPU::MultiClusterStrategy::Clustering;
-    if (auto mcOperation = mlir::dyn_cast<VPU::ClusteredOpInterface>(operation)) {
-        mcStrategy = mcOperation.getMultiClusterStrategy().value_or(mcStrategy);
-    }
-
-    auto mode = enablePrefetching ? TilingMode::PREFETCHING : TilingMode::ISOLATED;
-
-    SmallVector<OutputTiling> inputAllTiles;
-    if (!inputTiles.empty()) {
-        inputAllTiles.push_back(inputTiles);
-    }
-    return VPUNNCostParameters(mcStrategy, tiling, mode, inputAllTiles);
 }
 
 template class MergeVFRegionBaseRewriter<VPU::VF::v1::VFCase>;

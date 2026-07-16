@@ -132,8 +132,10 @@ void setGatherMode(VPUASM::NNDMAOp origOp, ELF::SymbolReferenceMap& symRefMap, c
     // output 1024x768xf32 so dma will copy 1024 blocks of 768xsizeof(f32) blocks so elementsize here would be 3072
     // We dont need axis info here as gather cant be done here if indices are pointing so leftmost dimension who has
     // size bigger than 1. There condition will be enforced on upper level dialects.
-    const auto dma_element_size =
-            (outputType.getNumElements() / indicesType.getNumElements()) * elemOutSize.to<Byte>().count();
+    const auto numOutputElements = outputType.getNumElements();
+    const auto numIndicesElements = indicesType.getNumElements();
+    const auto elementSizeInBits = numOutputElements / numIndicesElements * elemOutSize.count();
+    const auto dmaElementSize = Bit(elementSizeInBits).to<Byte>().count();
 
     auto addressingMode = origOp.getAddressingMode().has_value() ? origOp.getAddressingMode().value()
                                                                  : VPUIP::GatherAddressingMode::INDEXED;
@@ -148,8 +150,8 @@ void setGatherMode(VPUASM::NNDMAOp origOp, ELF::SymbolReferenceMap& symRefMap, c
     }
     initValues.write<Fields::dma_cfg_fields_dst_list_cfg>(0);
     initValues.write<Fields::dma_list_size_src>(indicesType.getNumElements());
-    initValues.write<Fields::dma_stride_dst_1>(dma_element_size);
-    initValues.write<Fields::dma_width_src>(dma_element_size);
+    initValues.write<Fields::dma_stride_dst_1>(dmaElementSize);
+    initValues.write<Fields::dma_width_src>(dmaElementSize);
     initValues.write<Fields::dma_dim_size_dst_1>(0);
     initValues.write<Fields::dma_dim_size_src_2>(indiceTileMask);
 }

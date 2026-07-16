@@ -41,7 +41,15 @@ func.func @OneHotConvert(%arg0: tensor<1x100xsi64>) -> tensor<1x30x100xsi64> {
   %1 = IE.OneHot(%arg0) {axis_attr = 1 : i64, depth_attr = 30 : i64, mode = #IE.one_hot_mode<IGNORE_NEGATIVE>, off_value_attr = 0.000000e+00 : f64, on_value_attr = 1.000000e+00 : f64, operandSegmentSizes = array<i32: 1, 0, 0, 0>, outputType = si64} : tensor<1x100xsi64> -> tensor<1x30x100xsi64>
   return %1 : tensor<1x30x100xsi64>
 
-  //CHECK: [[VAL0:%.+]] = IE.OneHot([[ARG_0]]) {axis_attr = 1 : i64, depth_attr = 30 : i64, mode = #IE.one_hot_mode<IGNORE_NEGATIVE>, off_value_attr = 0.000000e+00 : f64, on_value_attr = 1.000000e+00 : f64, operandSegmentSizes = array<i32: 1, 0, 0, 0>, outputType = si32} : tensor<1x100xsi32> -> tensor<1x30x100xsi32>
+  //CHECK: [[RESHAPE:%.+]] = IE.AffineReshape([[ARG_0]])
+  //CHECK-SAME: shape_value = [1, 1, 100]
+  //CHECK-SAME: tensor<1x100xsi32> -> tensor<1x1x100xsi32>
+  //CHECK: [[VAL0:%.+]] = IE.OneHot([[RESHAPE]])
+  //CHECK-SAME: axis_attr = 1 : i64
+  //CHECK-SAME: depth_attr = 30 : i64
+  //CHECK-SAME: outputType = si32
+  //CHECK-SAME: rank_expanded = true
+  //CHECK-SAME: tensor<1x1x100xsi32> -> tensor<1x30x100xsi32>
   //CHECK: return [[VAL0]]
 }
 

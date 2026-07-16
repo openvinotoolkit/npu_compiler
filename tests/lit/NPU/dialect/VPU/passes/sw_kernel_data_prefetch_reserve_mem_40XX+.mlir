@@ -12,8 +12,8 @@ module @SimpleGraph {
   }
 
   module @VPU.SW {
-    func.func private @builtin_Gelu(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i1, i1, f64) attributes {VPU.kernel_code = "activation_gelu.cpp", VPU.kernel_entry = "activation_gelu"}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_Gelu(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i1, i1, f64) attributes {VPU.kernel_code = "activation_gelu.cpp", VPU.kernel_entry = "activation_gelu"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 
   net.NetworkInfo entryPoint : @main inputsInfo : {

@@ -36,11 +36,13 @@ def Config_CompilationMode  :
             "CompilationMode",
             "Compilation Mode",
             [
-                I64EnumAttrCase<"ReferenceSW",  0>,
-                I64EnumAttrCase<"DefaultHW",    1>,
-                I64EnumAttrCase<"HostCompile",  2>,
-                I64EnumAttrCase<"WSInit",       3>,
-                I64EnumAttrCase<"WSMain",       4>,
+                I64EnumAttrCase<"ReferenceSW",           0>,
+                I64EnumAttrCase<"DefaultHW",             1>,
+                I64EnumAttrCase<"HostCompile",           2>,
+                I64EnumAttrCase<"WSInit",                3>,
+                I64EnumAttrCase<"WSMain",                4>,
+                I64EnumAttrCase<"HostCompile_JIT",        5>,
+                I64EnumAttrCase<"HostCompile_Interpreter", 6>,
             ]
         > {
 }
@@ -58,7 +60,6 @@ def Config_Platform :
             [
                 I64EnumAttrCase<"NPU3720", 3720>,
                 I64EnumAttrCase<"NPU4000", 4000>,
-                I64EnumAttrCase<"NPU5000", 5000>,
                 I64EnumAttrCase<"NPU5010", 5010>,
                 I64EnumAttrCase<"NPU5020", 5020>,
             ]
@@ -157,20 +158,3 @@ def Config_ExecutorKind :
 def Config_ExecutorKindAttr : Config_EnumAttr<Config_ExecutorKind, "executor_kind">;
 
 #endif
-
-//
-// HostBackendMode
-//
-
-def Config_HostBackendMode :
-        Config_I64EnumAttr<
-            "HostBackendMode",
-            "Host backend execution mode",
-            [
-                I64EnumAttrCase<"JIT",         0>,
-                I64EnumAttrCase<"Interpreter",  1>,
-            ]
-        > {
-}
-
-def Config_HostBackendModeAttr : Config_EnumAttr<Config_HostBackendMode, "host_backend_mode">;

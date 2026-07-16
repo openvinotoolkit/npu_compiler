@@ -42,14 +42,14 @@
 }>
 
 // CHECK: @OptimizeSubviewCopyConvPattern
-// CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, #NHWC, @DDR>
+// CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
 func.func @OptimizeSubviewCopyConvPattern(
-        %input: memref<1x3072x1x1xf16, #NHWC, @DDR>,
+        %input: memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>,
         %weights: !WeightsDistributed)
          -> (!OutputDistributed){
 
     %subview = VPUIP.SubView %input [0, 1536, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
     %alloc = VPURT.AllocDistributed -> !InputDistributed
 
     %nceTilingCopy = VPUIP.Copy inputs(%subview : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
@@ -79,7 +79,7 @@ func.func @OptimizeSubviewCopyConvPattern(
     // CHECK-SAME:      -> !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64
 
     // CHECK:       [[TILING_COPY:%.+]] = VPUIP.Copy
-    // CHECK-SAME:      inputs([[ARG0]] : memref<1x3072x1x1xf16, #NHWC, @DDR>)
+    // CHECK-SAME:      inputs([[ARG0]] : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>)
     // CHECK-SAME:      outputs([[NEW_BUFFER]] : !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64
     // CHECK-SAME:  -> !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64
 
@@ -148,14 +148,14 @@ func.func @OptimizeSubviewCopyConvPattern(
 }>
 
 // CHECK: @OptimizeSubviewCopy2ConvPattern
-// CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, #NHWC, @DDR>
+// CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
 func.func @OptimizeSubviewCopy2ConvPattern(
-        %input: memref<1x3072x1x1xf16, #NHWC, @DDR>,
+        %input: memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>,
         %weights: !WeightsDistributed)
          -> (!OutputDistributed0, !OutputDistributed1){
 
     %subview = VPUIP.SubView %input [0, 1536, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
     %alloc = VPURT.AllocDistributed -> !InputDistributed
     %nceTilingCopy = VPUIP.Copy inputs(%subview : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
                     outputs(%alloc : !InputDistributed)
@@ -201,7 +201,7 @@ func.func @OptimizeSubviewCopy2ConvPattern(
     // CHECK-SAME:      -> !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64
 
     // CHECK:        [[TILING_COPY:%.+]] = VPUIP.Copy
-    // CHECK-SAME:      inputs([[ARG0]] : memref<1x3072x1x1xf16, #NHWC, @DDR>)
+    // CHECK-SAME:      inputs([[ARG0]] : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>)
     // CHECK-SAME:      outputs([[NEW_BUFFER]] : !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64
     // CHECK-SAME:  -> !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64
 
@@ -279,21 +279,21 @@ func.func @OptimizeSubviewCopy2ConvPattern(
 }>
 
 // CHECK: @Optimize2SubviewCopyConvPattern
-// CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, #NHWC, @DDR>
+// CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
 func.func @Optimize2SubviewCopyConvPattern(
-        %input: memref<1x3072x1x1xf16, #NHWC, @DDR>,
+        %input: memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>,
         %weights: !WeightsDistributed)
          -> (!OutputDistributed0, !OutputDistributed1){
 
     %subview0 = VPUIP.SubView %input [0, 0, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
     %alloc0 = VPURT.AllocDistributed -> !InputDistributed
     %nceTilingCopy0 = VPUIP.Copy inputs(%subview0 : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
                     outputs(%alloc0 : !InputDistributed)
         -> !InputDistributed
 
     %subview1 = VPUIP.SubView %input [0, 1536, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
     %alloc1 = VPURT.AllocDistributed -> !InputDistributed
     %nceTilingCopy1 = VPUIP.Copy inputs(%subview1 : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
                     outputs(%alloc1 : !InputDistributed)
@@ -339,7 +339,7 @@ func.func @Optimize2SubviewCopyConvPattern(
     // CHECK-SAME:      -> !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64
 
     // CHECK:        [[TILING_COPY:%.+]] = VPUIP.Copy
-    // CHECK-SAME:      inputs([[ARG0]] : memref<1x3072x1x1xf16, #NHWC, @DDR>)
+    // CHECK-SAME:      inputs([[ARG0]] : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>)
     // CHECK-SAME:      outputs([[NEW_BUFFER]] : !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64
     // CHECK-SAME:  -> !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64
 
@@ -444,20 +444,20 @@ func.func @Optimize2SubviewCopyConvPatternWithOptimizableCopyIn(
         %weights: !WeightsDistributed)
          -> (!OutputDistributed0, !OutputDistributed1){
 
-    %ddrAlloc = memref.alloc() : memref<1x3072x1x1xf16, #NHWC, @DDR>
+    %ddrAlloc = memref.alloc() : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
     %spillCopy = VPUIP.Copy inputs(%input : !RootInputDistributed)
-                    outputs(%ddrAlloc : memref<1x3072x1x1xf16, #NHWC, @DDR>)
-        -> memref<1x3072x1x1xf16, #NHWC, @DDR>
+                    outputs(%ddrAlloc : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>)
+        -> memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
 
     %subview0 = VPUIP.SubView %spillCopy [0, 0, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
     %alloc0 = VPURT.AllocDistributed -> !InputDistributed
     %nceTilingCopy0 = VPUIP.Copy inputs(%subview0 : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
                     outputs(%alloc0 : !InputDistributed)
         -> !InputDistributed
 
     %subview1 = VPUIP.SubView %spillCopy [0, 1536, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
     %alloc1 = VPURT.AllocDistributed -> !InputDistributed
     %nceTilingCopy1 = VPUIP.Copy inputs(%subview1 : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
                     outputs(%alloc1 : !InputDistributed)
@@ -602,22 +602,22 @@ func.func @Optimize2SubviewCopyConvPatternWithOptimizableCopyIn(
 func.func @Optimize2SubviewCopyConvPatternKeepCopyInWithOtherUsers(
         %input: !RootInputDistributed,
         %weights: !WeightsDistributed)
-         -> (!OutputDistributed0, !OutputDistributed1, memref<1x3072x1x1xf16, #NHWC, @DDR>){
+         -> (!OutputDistributed0, !OutputDistributed1, memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>){
 
-    %ddrAlloc = memref.alloc() : memref<1x3072x1x1xf16, #NHWC, @DDR>
+    %ddrAlloc = memref.alloc() : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
     %spillCopy = VPUIP.Copy inputs(%input : !RootInputDistributed)
-                    outputs(%ddrAlloc : memref<1x3072x1x1xf16, #NHWC, @DDR>)
-        -> memref<1x3072x1x1xf16, #NHWC, @DDR>
+                    outputs(%ddrAlloc : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>)
+        -> memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
 
     %subview0 = VPUIP.SubView %spillCopy [0, 0, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
     %alloc0 = VPURT.AllocDistributed -> !InputDistributed
     %nceTilingCopy0 = VPUIP.Copy inputs(%subview0 : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
                     outputs(%alloc0 : !InputDistributed)
         -> !InputDistributed
 
     %subview1 = VPUIP.SubView %spillCopy [0, 1536, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
     %alloc1 = VPURT.AllocDistributed -> !InputDistributed
     %nceTilingCopy1 = VPUIP.Copy inputs(%subview1 : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
                     outputs(%alloc1 : !InputDistributed)
@@ -657,15 +657,15 @@ func.func @Optimize2SubviewCopyConvPatternKeepCopyInWithOtherUsers(
         PPETask {ppe = #VPU.PPEStub<>}
     }
 
-    return %conv0, %conv1, %spillCopy: !OutputDistributed0, !OutputDistributed1, memref<1x3072x1x1xf16, #NHWC, @DDR>
+    return %conv0, %conv1, %spillCopy: !OutputDistributed0, !OutputDistributed1, memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
 
     // CHECK:        [[SPILL_COPY:%.+]] = VPUIP.Copy
     // CHECK-SAME:      inputs([[ARG0]] : !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED|SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64
-    // CHECK-SAME:      outputs({{.+}} : memref<1x3072x1x1xf16, #NHWC, @DDR>)
-    // CHECK-SAME:  -> memref<1x3072x1x1xf16, #NHWC, @DDR>
+    // CHECK-SAME:      outputs({{.+}} : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>)
+    // CHECK-SAME:  -> memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
 
     // CHECK:        [[TILING_COPY:%.+]] = VPUIP.Copy
-    // CHECK-SAME:      inputs([[SPILL_COPY]] : memref<1x3072x1x1xf16, #NHWC, @DDR>)
+    // CHECK-SAME:      inputs([[SPILL_COPY]] : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>)
     // CHECK-SAME:      outputs({{.+}} : !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64
     // CHECK-SAME:  -> !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64
 
@@ -758,20 +758,20 @@ func.func @Optimize2SubviewCopyConvPatternKeepCopyInNotCMX2DDR(
         %weights: !WeightsDistributed)
          -> (!OutputDistributed0, !OutputDistributed1){
 
-    %ddrAlloc = memref.alloc() : memref<1x3072x1x1xf16, #NHWC, @DDR>
+    %ddrAlloc = memref.alloc() : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
     %spillCopy = VPUIP.Copy inputs(%input : memref<1x3072x1x1xf16,  {order = #NHWC, strides = [6144, 1, 6144, 6144]}, @DDR>)
-                    outputs(%ddrAlloc : memref<1x3072x1x1xf16, #NHWC, @DDR>)
-        -> memref<1x3072x1x1xf16, #NHWC, @DDR>
+                    outputs(%ddrAlloc : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>)
+        -> memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
 
     %subview0 = VPUIP.SubView %spillCopy [0, 0, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
     %alloc0 = VPURT.AllocDistributed -> !InputDistributed
     %nceTilingCopy0 = VPUIP.Copy inputs(%subview0 : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
                     outputs(%alloc0 : !InputDistributed)
         -> !InputDistributed
 
     %subview1 = VPUIP.SubView %spillCopy [0, 1536, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
     %alloc1 = VPURT.AllocDistributed -> !InputDistributed
     %nceTilingCopy1 = VPUIP.Copy inputs(%subview1 : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
                     outputs(%alloc1 : !InputDistributed)
@@ -815,11 +815,11 @@ func.func @Optimize2SubviewCopyConvPatternKeepCopyInNotCMX2DDR(
 
     // CHECK:        [[DDR2DDR:%.+]] = VPUIP.Copy
     // CHECK-SAME:      inputs([[ARG0]] : memref<1x3072x1x1xf16,  {order = #NHWC, strides = [6144, 1, 6144, 6144]}, @DDR>)
-    // CHECK-SAME:      outputs({{.+}} : memref<1x3072x1x1xf16, #NHWC, @DDR>)
-    // CHECK-SAME:  -> memref<1x3072x1x1xf16, #NHWC, @DDR>
+    // CHECK-SAME:      outputs({{.+}} : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>)
+    // CHECK-SAME:  -> memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
 
     // CHECK:        [[TILING_COPY:%.+]] = VPUIP.Copy
-    // CHECK-SAME:      inputs([[DDR2DDR]] : memref<1x3072x1x1xf16, #NHWC, @DDR>)
+    // CHECK-SAME:      inputs([[DDR2DDR]] : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>)
     // CHECK-SAME:      outputs({{.+}} : !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64
     // CHECK-SAME:  -> !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64
 
@@ -910,20 +910,20 @@ func.func @Optimize2SubviewCopyConvPatternKeepCopyInNotDuplicatedLike(
         %weights: !WeightsDistributed)
          -> (!OutputDistributed0, !OutputDistributed1){
 
-    %ddrAlloc = memref.alloc() : memref<1x3072x1x1xf16, #NHWC, @DDR>
+    %ddrAlloc = memref.alloc() : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
     %spillCopy = VPUIP.Copy inputs(%input : !RootInputDistributed)
-                    outputs(%ddrAlloc : memref<1x3072x1x1xf16, #NHWC, @DDR>)
-        -> memref<1x3072x1x1xf16, #NHWC, @DDR>
+                    outputs(%ddrAlloc : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>)
+        -> memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
 
     %subview0 = VPUIP.SubView %spillCopy [0, 0, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
     %alloc0 = VPURT.AllocDistributed -> !InputDistributed
     %nceTilingCopy0 = VPUIP.Copy inputs(%subview0 : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
                     outputs(%alloc0 : !InputDistributed)
         -> !InputDistributed
 
     %subview1 = VPUIP.SubView %spillCopy [0, 1536, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
     %alloc1 = VPURT.AllocDistributed -> !InputDistributed
     %nceTilingCopy1 = VPUIP.Copy inputs(%subview1 : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
                     outputs(%alloc1 : !InputDistributed)
@@ -967,11 +967,11 @@ func.func @Optimize2SubviewCopyConvPatternKeepCopyInNotDuplicatedLike(
 
     // CHECK:        [[SEGMENTED_COPY:%.+]] = VPUIP.Copy
     // CHECK-SAME:      inputs([[ARG0]] : !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1]
-    // CHECK-SAME:      outputs({{.+}} : memref<1x3072x1x1xf16, #NHWC, @DDR>)
-    // CHECK-SAME:  -> memref<1x3072x1x1xf16, #NHWC, @DDR>
+    // CHECK-SAME:      outputs({{.+}} : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>)
+    // CHECK-SAME:  -> memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
 
     // CHECK:        [[TILING_COPY:%.+]] = VPUIP.Copy
-    // CHECK-SAME:      inputs([[SEGMENTED_COPY]] : memref<1x3072x1x1xf16, #NHWC, @DDR>)
+    // CHECK-SAME:      inputs([[SEGMENTED_COPY]] : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>)
     // CHECK-SAME:      outputs({{.+}} : !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64
     // CHECK-SAME:  -> !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64
 
@@ -1056,20 +1056,20 @@ func.func @Optimize2SubviewCopyConvPatternWithKeepCopyInNotFitInCMX(
         %weights: !WeightsDistributed)
          -> (!OutputDistributed0, !OutputDistributed1){
 
-    %ddrAlloc = memref.alloc() : memref<1x3072x1x1xf16, #NHWC, @DDR>
+    %ddrAlloc = memref.alloc() : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
     %spillCopy = VPUIP.Copy inputs(%input : !RootInputDistributed)
-                    outputs(%ddrAlloc : memref<1x3072x1x1xf16, #NHWC, @DDR>)
-        -> memref<1x3072x1x1xf16, #NHWC, @DDR>
+                    outputs(%ddrAlloc : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>)
+        -> memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
 
     %subview0 = VPUIP.SubView %spillCopy [0, 0, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
     %alloc0 = VPURT.AllocDistributed -> !InputDistributed
     %nceTilingCopy0 = VPUIP.Copy inputs(%subview0 : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
                     outputs(%alloc0 : !InputDistributed)
         -> !InputDistributed
 
     %subview1 = VPUIP.SubView %spillCopy [0, 1536, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
     %alloc1 = VPURT.AllocDistributed -> !InputDistributed
     %nceTilingCopy1 = VPUIP.Copy inputs(%subview1 : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
                     outputs(%alloc1 : !InputDistributed)
@@ -1115,11 +1115,11 @@ func.func @Optimize2SubviewCopyConvPatternWithKeepCopyInNotFitInCMX(
     // CHECK-SAME:      inputs([[ARG0]] : !VPUIP.DistributedBuffer<1x3072x1x1xf16,
     // CHECK-SAME:                             {order = #NHWC, strides = [50000000, 1, 50000000, 50000000]}, @CMX_NN,
     // CHECK-SAME:                                  mode = "DUPLICATED"
-    // CHECK-SAME:      outputs({{.+}} : memref<1x3072x1x1xf16, #NHWC, @DDR>)
-    // CHECK-SAME:  -> memref<1x3072x1x1xf16, #NHWC, @DDR>
+    // CHECK-SAME:      outputs({{.+}} : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>)
+    // CHECK-SAME:  -> memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
 
     // CHECK:        [[TILING_COPY:%.+]] = VPUIP.Copy
-    // CHECK-SAME:      inputs([[TO_DDR_COPY]] : memref<1x3072x1x1xf16, #NHWC, @DDR>)
+    // CHECK-SAME:      inputs([[TO_DDR_COPY]] : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>)
     // CHECK-SAME:      outputs({{.+}} : !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64
     // CHECK-SAME:  -> !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64
 
@@ -1204,20 +1204,20 @@ func.func @Optimize2SubviewCopyConvPatternWithOptimizeCopyInWithStrides(
         %weights: !WeightsDistributed)
          -> (!OutputDistributed0, !OutputDistributed1){
 
-    %ddrAlloc = memref.alloc() : memref<1x3072x1x1xf16, #NHWC, @DDR>
+    %ddrAlloc = memref.alloc() : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
     %spillCopy = VPUIP.Copy inputs(%input : !RootInputDistributed)
-                    outputs(%ddrAlloc : memref<1x3072x1x1xf16, #NHWC, @DDR>)
-        -> memref<1x3072x1x1xf16, #NHWC, @DDR>
+                    outputs(%ddrAlloc : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>)
+        -> memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
 
     %subview0 = VPUIP.SubView %spillCopy [0, 0, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
     %alloc0 = VPURT.AllocDistributed -> !InputDistributed
     %nceTilingCopy0 = VPUIP.Copy inputs(%subview0 : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
                     outputs(%alloc0 : !InputDistributed)
         -> !InputDistributed
 
     %subview1 = VPUIP.SubView %spillCopy [0, 1536, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
     %alloc1 = VPURT.AllocDistributed -> !InputDistributed
     %nceTilingCopy1 = VPUIP.Copy inputs(%subview1 : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
                     outputs(%alloc1 : !InputDistributed)
@@ -1313,14 +1313,14 @@ func.func @Optimize2SubviewCopyConvPatternWithOptimizeCopyInWithStrides(
 }>
 
 // CHECK: @OptimizeSubview2CopyConvPattern
-// CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, #NHWC, @DDR>
+// CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
 func.func @OptimizeSubview2CopyConvPattern(
-        %input: memref<1x3072x1x1xf16, #NHWC, @DDR>,
+        %input: memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>,
         %weights: !WeightsDistributed)
          -> (!OutputDistributed0, !OutputDistributed1){
 
     %subview = VPUIP.SubView %input [0, 1536, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
     %alloc0 = VPURT.AllocDistributed -> !InputDistributed
     %nceTilingCopy0 = VPUIP.Copy inputs(%subview : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
                                  outputs(%alloc0 : !InputDistributed)
@@ -1371,7 +1371,7 @@ func.func @OptimizeSubview2CopyConvPattern(
     // CHECK-SAME:      -> !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64
 
     // CHECK:       [[TILING_COPY:%.+]] = VPUIP.Copy
-    // CHECK-SAME:      inputs([[ARG0]] : memref<1x3072x1x1xf16, #NHWC, @DDR>)
+    // CHECK-SAME:      inputs([[ARG0]] : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>)
     // CHECK-SAME:      outputs([[NEW_BUFFER]] : !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64
     // CHECK-SAME:  -> !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64
 
@@ -1401,21 +1401,21 @@ func.func @OptimizeSubview2CopyConvPattern(
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-!InputCMXType = memref<1x1536x1x1xf16, #NHWC, @CMX_NN>
-!WeightsCMXType = memref<256x1536x1x1xf16, #NHWC, @CMX_NN>
-!OutputCMXType = memref<1x256x1x1xf16, #NHWC, @CMX_NN>
+!InputCMXType = memref<1x1536x1x1xf16, {order = #NHWC}, @CMX_NN>
+!WeightsCMXType = memref<256x1536x1x1xf16, {order = #NHWC}, @CMX_NN>
+!OutputCMXType = memref<1x256x1x1xf16, {order = #NHWC}, @CMX_NN>
 
 // CHECK: @NonDistributedOptimizeSubviewCopyConvPattern
-// CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, #NHWC, @DDR>
+// CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
 func.func @NonDistributedOptimizeSubviewCopyConvPattern(
-        %input: memref<1x3072x1x1xf16, #NHWC, @DDR>,
+        %input: memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>,
         %weights: !WeightsCMXType)
          -> (!OutputCMXType, !OutputCMXType){
     %subview0 = VPUIP.SubView %input [0, 0, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
 
     %subview1 = VPUIP.SubView %input [0, 1536, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
 
     %alloc0 = memref.alloc(): !InputCMXType
     %copy0 = VPUIP.Copy inputs(%subview0 : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
@@ -1464,16 +1464,16 @@ func.func @NonDistributedOptimizeSubviewCopyConvPattern(
     return %conv0, %conv1: !OutputCMXType, !OutputCMXType
 
     // CHECK:       [[COPY:%.+]] = VPUIP.Copy
-    // CHECK-SAME:      inputs([[ARG0]] : memref<1x3072x1x1xf16, #NHWC, @DDR>)
-    // CHECK-SAME:      outputs({{.+}} : memref<1x3072x1x1xf16, #NHWC, @CMX_NN>)
-    // CHECK-SAME:  -> memref<1x3072x1x1xf16, #NHWC, @CMX_NN>
+    // CHECK-SAME:      inputs([[ARG0]] : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>)
+    // CHECK-SAME:      outputs({{.+}} : memref<1x3072x1x1xf16, {order = #NHWC}, @CMX_NN>)
+    // CHECK-SAME:  -> memref<1x3072x1x1xf16, {order = #NHWC}, @CMX_NN>
 
     // CHECK:       [[SUBVIEW0:%.+]] = VPUIP.SubView [[COPY]] [0, 0, 0, 0] [1, 1536, 1, 1]
-    // CHECK-SAME:       : memref<1x3072x1x1xf16, #NHWC, @CMX_NN>
+    // CHECK-SAME:       : memref<1x3072x1x1xf16, {order = #NHWC}, @CMX_NN>
     // CHECK-SAME:       to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @CMX_NN>
 
     // CHECK:       [[SUBVIEW1:%.+]] = VPUIP.SubView [[COPY]] [0, 1536, 0, 0] [1, 1536, 1, 1]
-    // CHECK-SAME:       : memref<1x3072x1x1xf16, #NHWC, @CMX_NN>
+    // CHECK-SAME:       : memref<1x3072x1x1xf16, {order = #NHWC}, @CMX_NN>
     // CHECK-SAME:       to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @CMX_NN>
 
     // CHECK:       VPUIP.NCEClusterTask
@@ -1492,9 +1492,9 @@ func.func @NonDistributedOptimizeSubviewCopyConvPattern(
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 !RootInputCMXType = memref<1x3072x1x1xf16, {order = #NHWC, strides = [6144, 1, 6144, 6144]}, @CMX_NN>
-!InputCMXType = memref<1x1536x1x1xf16, #NHWC, @CMX_NN>
-!WeightsCMXType = memref<256x1536x1x1xf16, #NHWC, @CMX_NN>
-!OutputCMXType = memref<1x256x1x1xf16, #NHWC, @CMX_NN>
+!InputCMXType = memref<1x1536x1x1xf16, {order = #NHWC}, @CMX_NN>
+!WeightsCMXType = memref<256x1536x1x1xf16, {order = #NHWC}, @CMX_NN>
+!OutputCMXType = memref<1x256x1x1xf16, {order = #NHWC}, @CMX_NN>
 
 // CHECK: @NonDistributedOptimizeSubviewCopyConvPatternWithOptimizedCopyIn
 // CHECK-SAME: ([[ARG0:%.+]]:  memref<1x3072x1x1xf16, {order = #NHWC, strides = [6144, 1, 6144, 6144]}, @CMX_NN>
@@ -1503,16 +1503,16 @@ func.func @NonDistributedOptimizeSubviewCopyConvPatternWithOptimizedCopyIn(
         %weights: !WeightsCMXType)
          -> (!OutputCMXType, !OutputCMXType){
 
-    %alloc_ddr = memref.alloc(): memref<1x3072x1x1xf16, #NHWC, @DDR>
+    %alloc_ddr = memref.alloc(): memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
     %spill_copy = VPUIP.Copy inputs(%input : !RootInputCMXType)
-                       outputs(%alloc_ddr : memref<1x3072x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x3072x1x1xf16, #NHWC, @DDR>
+                       outputs(%alloc_ddr : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
 
     %subview0 = VPUIP.SubView %spill_copy [0, 0, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
 
     %subview1 = VPUIP.SubView %spill_copy [0, 1536, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
 
     %alloc0 = memref.alloc(): !InputCMXType
     %copy0 = VPUIP.Copy inputs(%subview0 : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
@@ -1606,14 +1606,14 @@ func.func @NonDistributedOptimizeSubviewCopyConvPatternWithOptimizedCopyIn(
 }>
 
 // CHECK: @NotOptimizeSubviewCopyCDimTooBig
-// CHECK-SAME: ([[ARG0:%.+]]: memref<1x8208x1x1xf16, #NHWC, @DDR>
+// CHECK-SAME: ([[ARG0:%.+]]: memref<1x8208x1x1xf16, {order = #NHWC}, @DDR>
 func.func @NotOptimizeSubviewCopyCDimTooBig(
-        %input: memref<1x8208x1x1xf16, #NHWC, @DDR>,
+        %input: memref<1x8208x1x1xf16, {order = #NHWC}, @DDR>,
         %weights: !WeightsDistributed)
          -> (!OutputDistributed){
 
     %subview = VPUIP.SubView %input [0, 0, 0, 0] [1, 1536, 1, 1]
-        : memref<1x8208x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [8208, 1, 8208, 8208]}, @DDR>
+        : memref<1x8208x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [8208, 1, 8208, 8208]}, @DDR>
     %alloc = VPURT.AllocDistributed -> !InputDistributed
     %nceTilingCopy = VPUIP.Copy inputs(%subview : memref<1x1536x1x1xf16, {order = #NHWC, strides = [8208, 1, 8208, 8208]}, @DDR>)
                     outputs(%alloc : !InputDistributed)
@@ -1640,7 +1640,7 @@ func.func @NotOptimizeSubviewCopyCDimTooBig(
     // CHECK-NOT:   VPUIP.SubView [[ARG0]] [0, 0, 0, 0] [1, 1536, 1, 1] : !VPUIP.DistributedBuffer<1x8208x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED"
 
     // CHECK:       [[SUBVIEW:%.+]] = VPUIP.SubView [[ARG0]] [0, 0, 0, 0] [1, 1536, 1, 1]
-    // CHECK-SAME:       : memref<1x8208x1x1xf16, #NHWC, @DDR>
+    // CHECK-SAME:       : memref<1x8208x1x1xf16, {order = #NHWC}, @DDR>
     // CHECK-SAME:       to memref<1x1536x1x1xf16, {order = #NHWC, strides = [8208, 1, 8208, 8208]}, @DDR>
 
     // CHECK:       VPUIP.Copy
@@ -1676,14 +1676,14 @@ func.func @NotOptimizeSubviewCopyCDimTooBig(
 }>
 
 // CHECK: @NotOptimizeSubviewWithNonCopyConsumer
-// CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, #NHWC, @DDR>
+// CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
 func.func @NotOptimizeSubviewWithNonCopyConsumer(
-        %input: memref<1x3072x1x1xf16, #NHWC, @DDR>,
+        %input: memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>,
         %weights: !WeightsDistributed)
          -> (!OutputDistributed, memref<1x1530x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>){
 
     %subview = VPUIP.SubView %input [0, 0, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
 
     %subview1 = VPUIP.SubView %subview [0, 6, 0, 0] [1, 1530, 1, 1]
     : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
@@ -1715,7 +1715,7 @@ func.func @NotOptimizeSubviewWithNonCopyConsumer(
     // CHECK-NOT:   VPUIP.SubView [[ARG0]] [0, 0, 0, 0] [1, 1536, 1, 1] : !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED"
 
     // CHECK:       [[SUBVIEW:%.+]] = VPUIP.SubView [[ARG0]] [0, 0, 0, 0] [1, 1536, 1, 1]
-    // CHECK-SAME:       : memref<1x3072x1x1xf16, #NHWC, @DDR>
+    // CHECK-SAME:       : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
     // CHECK-SAME:       to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
 
     // CHECK:        VPUIP.Copy
@@ -1751,19 +1751,19 @@ func.func @NotOptimizeSubviewWithNonCopyConsumer(
 }>
 
 // CHECK: @NotOptimizeSubviewWithCopyConsumerNotToCMX
-// CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, #NHWC, @DDR>
+// CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
 func.func @NotOptimizeSubviewWithCopyConsumerNotToCMX(
-        %input: memref<1x3072x1x1xf16, #NHWC, @DDR>,
+        %input: memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>,
         %weights: !WeightsDistributed)
-         -> (!OutputDistributed, memref<1x1536x1x1xf16, #NHWC, @DDR>){
+         -> (!OutputDistributed, memref<1x1536x1x1xf16, {order = #NHWC}, @DDR>){
 
     %subview = VPUIP.SubView %input [0, 0, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
 
-    %ddrAlloc = memref.alloc() :  memref<1x1536x1x1xf16, #NHWC, @DDR>
+    %ddrAlloc = memref.alloc() :  memref<1x1536x1x1xf16, {order = #NHWC}, @DDR>
     %copy = VPUIP.Copy inputs(%subview : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
-                       outputs(%ddrAlloc : memref<1x1536x1x1xf16, #NHWC, @DDR>)
-    -> memref<1x1536x1x1xf16, #NHWC, @DDR>
+                       outputs(%ddrAlloc : memref<1x1536x1x1xf16, {order = #NHWC}, @DDR>)
+    -> memref<1x1536x1x1xf16, {order = #NHWC}, @DDR>
 
     %alloc = VPURT.AllocDistributed -> !InputDistributed
     %nceTilingCopy = VPUIP.Copy inputs(%subview : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
@@ -1786,17 +1786,17 @@ func.func @NotOptimizeSubviewWithCopyConsumerNotToCMX(
     } PPE : {
         PPETask {ppe = #VPU.PPEStub<>}
     }
-    return %conv, %copy: !OutputDistributed, memref<1x1536x1x1xf16, #NHWC, @DDR>
+    return %conv, %copy: !OutputDistributed, memref<1x1536x1x1xf16, {order = #NHWC}, @DDR>
 
     // CHECK-NOT:   VPUIP.SubView [[ARG0]] [0, 0, 0, 0] [1, 1536, 1, 1] : !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED"
 
     // CHECK:       [[SUBVIEW:%.+]] = VPUIP.SubView [[ARG0]] [0, 0, 0, 0] [1, 1536, 1, 1]
-    // CHECK-SAME:       : memref<1x3072x1x1xf16, #NHWC, @DDR>
+    // CHECK-SAME:       : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
     // CHECK-SAME:       to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
 
     // CHECK:        VPUIP.Copy
     // CHECK-SAME:      inputs([[SUBVIEW]] : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
-    // CHECK-SAME:  -> memref<1x1536x1x1xf16, #NHWC, @DDR>
+    // CHECK-SAME:  -> memref<1x1536x1x1xf16, {order = #NHWC}, @DDR>
 
     // CHECK:        VPUIP.Copy
     // CHECK-SAME:      inputs([[SUBVIEW]] : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
@@ -1831,19 +1831,19 @@ func.func @NotOptimizeSubviewWithCopyConsumerNotToCMX(
 }>
 
 // CHECK: @NotOptimizeSubviewWithDistributedAndNonDistributedCopies
-// CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, #NHWC, @DDR>
+// CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
 func.func @NotOptimizeSubviewWithDistributedAndNonDistributedCopies(
-        %input: memref<1x3072x1x1xf16, #NHWC, @DDR>,
+        %input: memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>,
         %weights: !WeightsDistributed)
-         -> (!OutputDistributed, memref<1x1536x1x1xf16, #NHWC, [@CMX_NN, 0]>){
+         -> (!OutputDistributed, memref<1x1536x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>){
 
     %subview = VPUIP.SubView %input [0, 0, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
 
-    %cmxAlloc = memref.alloc() :  memref<1x1536x1x1xf16, #NHWC, [@CMX_NN, 0]>
+    %cmxAlloc = memref.alloc() :  memref<1x1536x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %copy = VPUIP.Copy inputs(%subview : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
-                       outputs(%cmxAlloc : memref<1x1536x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-    -> memref<1x1536x1x1xf16, #NHWC, [@CMX_NN, 0]>
+                       outputs(%cmxAlloc : memref<1x1536x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    -> memref<1x1536x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     %alloc = VPURT.AllocDistributed -> !InputDistributed
     %nceTilingCopy = VPUIP.Copy inputs(%subview : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
@@ -1866,17 +1866,17 @@ func.func @NotOptimizeSubviewWithDistributedAndNonDistributedCopies(
     } PPE : {
         PPETask {ppe = #VPU.PPEStub<>}
     }
-    return %conv, %copy: !OutputDistributed, memref<1x1536x1x1xf16, #NHWC, [@CMX_NN, 0]>
+    return %conv, %copy: !OutputDistributed, memref<1x1536x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     // CHECK-NOT:   VPUIP.SubView [[ARG0]] [0, 0, 0, 0] [1, 1536, 1, 1] : !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED"
 
     // CHECK:       [[SUBVIEW:%.+]] = VPUIP.SubView [[ARG0]] [0, 0, 0, 0] [1, 1536, 1, 1]
-    // CHECK-SAME:       : memref<1x3072x1x1xf16, #NHWC, @DDR>
+    // CHECK-SAME:       : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
     // CHECK-SAME:       to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
 
     // CHECK:        VPUIP.Copy
     // CHECK-SAME:      inputs([[SUBVIEW]] : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
-    // CHECK-SAME:  -> memref<1x1536x1x1xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK-SAME:  -> memref<1x1536x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     // CHECK:        VPUIP.Copy
     // CHECK-SAME:      inputs([[SUBVIEW]] : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
@@ -1911,14 +1911,14 @@ func.func @NotOptimizeSubviewWithDistributedAndNonDistributedCopies(
 }>
 
 // CHECK: @NotOptimizeSubviewWithNon1x1SpatialSize
-// CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x2x1xf16, #NHWC, @DDR>
+// CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x2x1xf16, {order = #NHWC}, @DDR>
 func.func @NotOptimizeSubviewWithNon1x1SpatialSize(
-        %input: memref<1x3072x2x1xf16, #NHWC, @DDR>,
+        %input: memref<1x3072x2x1xf16, {order = #NHWC}, @DDR>,
         %weights: !WeightsDistributed)
          -> (!OutputDistributed){
 
     %subview = VPUIP.SubView %input [0, 0, 0, 0] [1, 1536, 2, 1]
-        : memref<1x3072x2x1xf16, #NHWC, @DDR> to memref<1x1536x2x1xf16, {order = #NHWC, strides = [6144, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x2x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x2x1xf16, {order = #NHWC, strides = [6144, 1, 3072, 3072]}, @DDR>
 
     %alloc = VPURT.AllocDistributed -> !InputDistributed
     %nceTilingCopy = VPUIP.Copy inputs(%subview : memref<1x1536x2x1xf16, {order = #NHWC, strides = [6144, 1, 3072, 3072]}, @DDR>)
@@ -1947,7 +1947,7 @@ func.func @NotOptimizeSubviewWithNon1x1SpatialSize(
     // CHECK-NOT:   VPUIP.SubView [[ARG0]] [0, 0, 0, 0] [1, 1536, 2, 1] : !VPUIP.DistributedBuffer<1x3072x2x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED"
 
     // CHECK:       [[SUBVIEW:%.+]] = VPUIP.SubView [[ARG0]] [0, 0, 0, 0] [1, 1536, 2, 1]
-    // CHECK-SAME:       : memref<1x3072x2x1xf16, #NHWC, @DDR>
+    // CHECK-SAME:       : memref<1x3072x2x1xf16, {order = #NHWC}, @DDR>
     // CHECK-SAME:       to memref<1x1536x2x1xf16, {order = #NHWC, strides = [6144, 1, 3072, 3072]}, @DDR>
 
     // CHECK:        VPUIP.Copy
@@ -1999,15 +1999,15 @@ func.func @NotOptimizeSubviewWithNon1x1SpatialSize(
 }>
 
 // CHECK: @NotOptimizeSubviewWithNonConvEndConsumer
-// CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, #NHWC, @DDR>
+// CHECK-SAME: ([[ARG0:%.+]]: memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
 func.func @NotOptimizeSubviewWithNonConvEndConsumer(
-        %input: memref<1x3072x1x1xf16, #NHWC, @DDR>,
+        %input: memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>,
         %weights: !WeightsDistributed,
         %wtablePool: !PoolWTableDistributed)
          -> (!OutputDistributed, !PoolOutputDistributed){
 
     %subview = VPUIP.SubView %input [0, 0, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
 
     %alloc = VPURT.AllocDistributed -> !InputDistributed
     %nceTilingCopy = VPUIP.Copy inputs(%subview : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
@@ -2053,7 +2053,7 @@ func.func @NotOptimizeSubviewWithNonConvEndConsumer(
     // CHECK-NOT:   VPUIP.SubView [[ARG0]] [0, 0, 0, 0] [1, 1536, 1, 1] : !VPUIP.DistributedBuffer<1x3072x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED"
 
     // CHECK:       [[SUBVIEW:%.+]] = VPUIP.SubView [[ARG0]] [0, 0, 0, 0] [1, 1536, 1, 1]
-    // CHECK-SAME:       : memref<1x3072x1x1xf16, #NHWC, @DDR>
+    // CHECK-SAME:       : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
     // CHECK-SAME:       to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
 
     // CHECK:        VPUIP.Copy
@@ -2106,12 +2106,12 @@ func.func @NotOptimizeSubviewWithRMS(
       VPUIP.SW.Kernel.run {attrs = [9.9999999747524271E-7]}(%arg2, %arg3, %arg4) : memref<1x1x3072xf16, [@CMX_NN, 0]>, memref<3072xf16, [@CMX_NN, 0]>, memref<1x1x3072xf16, [@CMX_NN, 0]>
     }
     %GenericReshape = VPUIP.GenericReshape inputs(%RMSResult : memref<1x1x3072xf16, [@CMX_NN, 0]>) -> memref<1x3072x1x1xf16, [@CMX_NN, 0]>
-    %PermuteCast = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC} inputs(%GenericReshape : memref<1x3072x1x1xf16, [@CMX_NN, 0]>) -> memref<1x3072x1x1xf16, #NHWC, [@CMX_NN, 0]>
-    %allocRMSOutputDDR = memref.alloc() : memref<1x3072x1x1xf16, #NHWC, @DDR>
-    %RMSResultInDDR = VPUIP.Copy inputs(%PermuteCast : memref<1x3072x1x1xf16, #NHWC, [@CMX_NN, 0]>) outputs(%allocRMSOutputDDR : memref<1x3072x1x1xf16, #NHWC, @DDR>) -> memref<1x3072x1x1xf16, #NHWC, @DDR>
+    %PermuteCast = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC} inputs(%GenericReshape : memref<1x3072x1x1xf16, [@CMX_NN, 0]>) -> memref<1x3072x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %allocRMSOutputDDR = memref.alloc() : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
+    %RMSResultInDDR = VPUIP.Copy inputs(%PermuteCast : memref<1x3072x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%allocRMSOutputDDR : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>) -> memref<1x3072x1x1xf16, {order = #NHWC}, @DDR>
 
     %subview = VPUIP.SubView %RMSResultInDDR [0, 0, 0, 0] [1, 1536, 1, 1]
-        : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+        : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
 
     %alloc = VPURT.AllocDistributed -> !InputDistributed
     %nceTilingCopy = VPUIP.Copy inputs(%subview : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
@@ -2145,8 +2145,8 @@ func.func @NotOptimizeSubviewWithRMS(
 
     // CHECK:        [[GENERIC_RESHAPE:%.+]] = VPUIP.GenericReshape inputs([[RMS_RESULT]] : memref<1x1x3072xf16, [@CMX_NN, 0]>)
     // CHECK:        [[PERMUTE_CAST:%.+]] = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC} inputs([[GENERIC_RESHAPE]] : memref<1x3072x1x1xf16, [@CMX_NN, 0]>)
-    // CHECK:        [[COPY1:%.+]] = VPUIP.Copy inputs([[PERMUTE_CAST]] : memref<1x3072x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-    // CHECK:        [[SUBVIEW:%.+]] = VPUIP.SubView [[COPY1]] [0, 0, 0, 0] [1, 1536, 1, 1] : memref<1x3072x1x1xf16, #NHWC, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
+    // CHECK:        [[COPY1:%.+]] = VPUIP.Copy inputs([[PERMUTE_CAST]] : memref<1x3072x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK:        [[SUBVIEW:%.+]] = VPUIP.SubView [[COPY1]] [0, 0, 0, 0] [1, 1536, 1, 1] : memref<1x3072x1x1xf16, {order = #NHWC}, @DDR> to memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>
     // CHECK:        [[COPY2:%.+]] = VPUIP.Copy inputs([[SUBVIEW]] : memref<1x1536x1x1xf16, {order = #NHWC, strides = [3072, 1, 3072, 3072]}, @DDR>)
 
 }

@@ -394,8 +394,8 @@ def VPU_SubtractOp :
     let summary = "Subtract VPU layer";
 
     let arguments = (ins
-        AnyTypeOf<[RankedTensorOf<[F16, F32, SI32, UI8, UI16, UI32]>, VPU_DistributedTensor]>:$input1,
-        AnyTypeOf<[RankedTensorOf<[F16, F32, SI32, UI8, UI16, UI32]>, VPU_DistributedTensor]>:$input2,
+        AnyTypeOf<[RankedTensorOf<[F16, F32, SI8, SI32, UI8, UI16, UI32]>, VPU_DistributedTensor]>:$input1,
+        AnyTypeOf<[RankedTensorOf<[F16, F32, SI8, SI32, UI8, UI16, UI32]>, VPU_DistributedTensor]>:$input2,
 
         IE_AutoBroadcastTypeAttr:$auto_broadcast,
         OptionalAttr<IE_PostOpAttrInterface>:$post_op,
@@ -403,7 +403,7 @@ def VPU_SubtractOp :
     );
 
     let results = (outs
-        AnyTypeOf<[RankedTensorOf<[F16, F32, SI32, UI8, UI16, UI32]>, VPU_DistributedTensor]>:$output
+        AnyTypeOf<[RankedTensorOf<[F16, F32, SI8, SI32, UI8, UI16, UI32]>, VPU_DistributedTensor]>:$output
     );
 
     let builders = [

@@ -8,30 +8,30 @@
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-func.func @ParsePrintClusterTask(%arg0: memref<1x32x16x16xf16, #NHWC, @CMX_NN>) -> memref<1x64x14x14xf16, #NHWC, @CMX_NN> {
-    %weights = const.Declare memref<64x32x3x3xf16, #NHWC, @CMX_NN>
+func.func @ParsePrintClusterTask(%arg0: memref<1x32x16x16xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x64x14x14xf16, {order = #NHWC}, @CMX_NN> {
+    %weights = const.Declare memref<64x32x3x3xf16, {order = #NHWC}, @CMX_NN>
                 = dense<1.000000e+00> : tensor<64x32x3x3xf16>, [#const.Reorder<#NHWC>]
 
-    %out_buff_cmx = memref.alloc() : memref<1x64x14x14xf16, #NHWC, @CMX_NN>
+    %out_buff_cmx = memref.alloc() : memref<1x64x14x14xf16, {order = #NHWC}, @CMX_NN>
     %weight_table = const.Declare memref<64x1x1x4xsi32> = dense<10> : tensor<64x1x1x4xsi32>
     %weight_table_buff_cmx = memref.alloc() : memref<64x1x1x4xsi32, @CMX_NN>
     %weight_table_cmx = VPUIP.Copy inputs(%weight_table : memref<64x1x1x4xsi32>) outputs(%weight_table_buff_cmx : memref<64x1x1x4xsi32, @CMX_NN>) -> memref<64x1x1x4xsi32, @CMX_NN>
 
     %t1, %r1 = async.execute
-                -> !async.value<memref<1x64x14x14xf16, #NHWC, @CMX_NN>>
+                -> !async.value<memref<1x64x14x14xf16, {order = #NHWC}, @CMX_NN>>
                     attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64, "async-deps-index" = 0 : i64} {
         %0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1],
                 task_type = #VPUIP.nce_task_type<CONV>
-            }>  input(%arg0 : memref<1x32x16x16xf16, #NHWC, @CMX_NN>)
-                weights(%weights : memref<64x32x3x3xf16, #NHWC, @CMX_NN>)
+            }>  input(%arg0 : memref<1x32x16x16xf16, {order = #NHWC}, @CMX_NN>)
+                weights(%weights : memref<64x32x3x3xf16, {order = #NHWC}, @CMX_NN>)
                 weight_table(%weight_table_cmx : memref<64x1x1x4xsi32, @CMX_NN>)
-                parent_input(%arg0 : memref<1x32x16x16xf16, #NHWC, @CMX_NN>)
-                parent_output(%out_buff_cmx : memref<1x64x14x14xf16, #NHWC, @CMX_NN>)
-                outputs(%out_buff_cmx : memref<1x64x14x14xf16, #NHWC, @CMX_NN>)
-                    -> memref<1x64x14x14xf16, #NHWC, @CMX_NN> variants :  {
+                parent_input(%arg0 : memref<1x32x16x16xf16, {order = #NHWC}, @CMX_NN>)
+                parent_output(%out_buff_cmx : memref<1x64x14x14xf16, {order = #NHWC}, @CMX_NN>)
+                outputs(%out_buff_cmx : memref<1x64x14x14xf16, {order = #NHWC}, @CMX_NN>)
+                    -> memref<1x64x14x14xf16, {order = #NHWC}, @CMX_NN> variants :  {
                 DPUTask {
                     outStart = [0, 0, 0], outEnd = [31, 15, 15],
                     mpe_mode = #VPU.mpe_mode<VECTOR_FP16>,
@@ -39,33 +39,33 @@ func.func @ParsePrintClusterTask(%arg0: memref<1x32x16x16xf16, #NHWC, @CMX_NN>) 
                 }
                 } PPE :  {
                 }
-        async.yield %0 : memref<1x64x14x14xf16, #NHWC, @CMX_NN>
+        async.yield %0 : memref<1x64x14x14xf16, {order = #NHWC}, @CMX_NN>
     }
 
 
-    %0 = async.await %r1 : !async.value<memref<1x64x14x14xf16, #NHWC, @CMX_NN>>
-    return %0 : memref<1x64x14x14xf16, #NHWC, @CMX_NN>
+    %0 = async.await %r1 : !async.value<memref<1x64x14x14xf16, {order = #NHWC}, @CMX_NN>>
+    return %0 : memref<1x64x14x14xf16, {order = #NHWC}, @CMX_NN>
 
-    // CHECK:        [[WEIGHTS:%.+]] = const.Declare memref<64x32x3x3xf16, #NHWC, @CMX_NN>
+    // CHECK:        [[WEIGHTS:%.+]] = const.Declare memref<64x32x3x3xf16, {order = #NHWC}, @CMX_NN>
 
-    // CHECK:        [[OUT_BUFF_CMX:%.+]] = memref.alloc() : memref<1x64x14x14xf16, #NHWC, @CMX_NN>
+    // CHECK:        [[OUT_BUFF_CMX:%.+]] = memref.alloc() : memref<1x64x14x14xf16, {order = #NHWC}, @CMX_NN>
     // CHECK:        [[WEIGHT_TABLE:%.+]] = const.Declare memref<64x1x1x4xsi32>
 
     // CHECK:        [[WEIGHT_TABLE_BUFF_CMX:%.+]] = memref.alloc() : memref<64x1x1x4xsi32, @CMX_NN>
     // CHECK:        [[WEIGHT_TABLE_CMX:%.+]] = VPUIP.Copy
 
-    // CHECK:        [[TOKEN:%.+]], [[RESULTS:%.+]] = async.execute -> !async.value<memref<1x64x14x14xf16, #NHWC, @CMX_NN>> attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64, "async-deps-index" = 0 : i64} {
+    // CHECK:        [[TOKEN:%.+]], [[RESULTS:%.+]] = async.execute -> !async.value<memref<1x64x14x14xf16, {order = #NHWC}, @CMX_NN>> attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64, "async-deps-index" = 0 : i64} {
     // CHECK:        [[NCE_TASK:%.+]] = VPUIP.NCEClusterTask
-    // CHECK-SAME:           input({{[^:]+}} : memref<1x32x16x16xf16, #NHWC, @CMX_NN>)
-    // CHECK-SAME:           weights([[WEIGHTS]] : memref<64x32x3x3xf16, #NHWC, @CMX_NN>)
+    // CHECK-SAME:           input({{[^:]+}} : memref<1x32x16x16xf16, {order = #NHWC}, @CMX_NN>)
+    // CHECK-SAME:           weights([[WEIGHTS]] : memref<64x32x3x3xf16, {order = #NHWC}, @CMX_NN>)
     // CHECK-SAME:           weight_table([[WEIGHT_TABLE_CMX]] : memref<64x1x1x4xsi32, @CMX_NN>)
-    // CHECK-SAME:           parent_input({{[^:]+}} : memref<1x32x16x16xf16, #NHWC, @CMX_NN>)
-    // CHECK-SAME:           parent_output([[OUT_BUFF_CMX]] : memref<1x64x14x14xf16, #NHWC, @CMX_NN>)
-    // CHECK-SAME:           outputs([[OUT_BUFF_CMX]] : memref<1x64x14x14xf16, #NHWC, @CMX_NN>) -> memref<1x64x14x14xf16, #NHWC, @CMX_NN>
-    // CHECK:            async.yield [[NCE_TASK]] : memref<1x64x14x14xf16, #NHWC, @CMX_NN>
+    // CHECK-SAME:           parent_input({{[^:]+}} : memref<1x32x16x16xf16, {order = #NHWC}, @CMX_NN>)
+    // CHECK-SAME:           parent_output([[OUT_BUFF_CMX]] : memref<1x64x14x14xf16, {order = #NHWC}, @CMX_NN>)
+    // CHECK-SAME:           outputs([[OUT_BUFF_CMX]] : memref<1x64x14x14xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x64x14x14xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK:            async.yield [[NCE_TASK]] : memref<1x64x14x14xf16, {order = #NHWC}, @CMX_NN>
     // CHECK:        }
-    // CHECK:        [[WAIT_RESULTS:%.+]] = async.await [[RESULTS]] : !async.value<memref<1x64x14x14xf16, #NHWC, @CMX_NN>>
-    // CHECK:        return [[WAIT_RESULTS]] : memref<1x64x14x14xf16, #NHWC, @CMX_NN>
+    // CHECK:        [[WAIT_RESULTS:%.+]] = async.await [[RESULTS]] : !async.value<memref<1x64x14x14xf16, {order = #NHWC}, @CMX_NN>>
+    // CHECK:        return [[WAIT_RESULTS]] : memref<1x64x14x14xf16, {order = #NHWC}, @CMX_NN>
 }
 
 // -----
@@ -102,14 +102,14 @@ func.func @ParsePrintClusterTask(%arg0: memref<1x32x16x16xf16, #NHWC, @CMX_NN>) 
     num_clusters = 4
 }>
 
-!Input_DDR = memref<1x32x16x16xf16, #NHWC, @DDR>
-!Weights_DDR = memref<64x32x3x3xf16, #NHWC, @DDR>
-!Output_DDR = memref<1x64x16x16xf16, #NHWC, @DDR>
+!Input_DDR = memref<1x32x16x16xf16, {order = #NHWC}, @DDR>
+!Weights_DDR = memref<64x32x3x3xf16, {order = #NHWC}, @DDR>
+!Output_DDR = memref<1x64x16x16xf16, {order = #NHWC}, @DDR>
 
 !WeightsTableStub = memref<64x1x1x4xsi32>
 
 func.func @ParsePrintDistributedBuffer(%input: !Input_DDR) -> !Output_DDR {
-    %weights = const.Declare memref<64x32x3x3xf16, #NHWC, @DDR> = dense<1.000000e+00> : tensor<64x32x3x3xf16>, [#const.Reorder<#NHWC>]
+    %weights = const.Declare memref<64x32x3x3xf16, {order = #NHWC}, @DDR> = dense<1.000000e+00> : tensor<64x32x3x3xf16>, [#const.Reorder<#NHWC>]
 
     %input_cmx = VPURT.AllocDistributed -> !InputDistributed
     %t0 = async.execute
@@ -172,19 +172,19 @@ func.func @ParsePrintDistributedBuffer(%input: !Input_DDR) -> !Output_DDR {
 
     return %output: !Output_DDR
 
-    // CHECK:        [[CST:%.+]] = const.Declare memref<64x32x3x3xf16, #NHWC, @DDR>
+    // CHECK:        [[CST:%.+]] = const.Declare memref<64x32x3x3xf16, {order = #NHWC}, @DDR>
     // CHECK:        [[INPUT_CMX:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x32x16x16xf16, #NHWC, @CMX_NN,
     // CHECK-SAME:                           {mode = "OVERLAPPED", num_tiles = [1, 1, 4, 1], kernel = [3, 3],
     // CHECK-SAME:                           pads = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, strides = [1, 1], num_clusters = 4 : i64}>
     // CHECK:        [[TOKEN:%.+]] = async.execute attributes {VPUIP.executor = @DMA_NN, VPUIP.num_units = 1 : i64, "async-deps-index" = 0 : i64} {
-    // CHECK:              VPUIP.NNDMA inputs({{[^:]+}} : memref<1x32x16x16xf16, #NHWC, @DDR>
+    // CHECK:              VPUIP.NNDMA inputs({{[^:]+}} : memref<1x32x16x16xf16, {order = #NHWC}, @DDR>
     // CHECK-SAME:                          outputs([[INPUT_CMX]] : !VPUIP.DistributedBuffer
     // CHECK:              async.yield
     // CHECK:        }
 
     // CHECK:        [[WEIGHTS_CMX:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<64x32x3x3xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 4 : i64}>
     // CHECK:        [[TOKEN_0:%.+]] = async.execute attributes {VPUIP.executor = @DMA_NN, VPUIP.num_units = 1 : i64, "async-deps-index" = 0 : i64} {
-    // CHECK:              VPUIP.NNDMA inputs([[CST]] : memref<64x32x3x3xf16, #NHWC, @DDR>
+    // CHECK:              VPUIP.NNDMA inputs([[CST]] : memref<64x32x3x3xf16, {order = #NHWC}, @DDR>
     // CHECK-SAME:                          outputs([[WEIGHTS_CMX]] : !VPUIP.DistributedBuffer
     // CHECK:              async.yield
     // CHECK:        }
@@ -214,11 +214,49 @@ func.func @ParsePrintDistributedBuffer(%input: !Input_DDR) -> !Output_DDR {
     // CHECK:              async.yield
     // CHECK:        }
 
-    // CHECK:        [[OUTPUT:%.+]] = memref.alloc() : memref<1x64x16x16xf16, #NHWC, @DDR>
+    // CHECK:        [[OUTPUT:%.+]] = memref.alloc() : memref<1x64x16x16xf16, {order = #NHWC}, @DDR>
     // CHECK:        {{[^:]+}} = async.execute attributes {VPUIP.executor = @DMA_NN, VPUIP.num_units = 1 : i64, "async-deps-index" = 0 : i64} {
     // CHECK:              VPUIP.NNDMA inputs([[OUTPUT_BUFF_CMX]] : !VPUIP.DistributedBuffer
-    // CHECK-SAME:                          outputs([[OUTPUT]] : memref<1x64x16x16xf16, #NHWC, @DDR>
+    // CHECK-SAME:                          outputs([[OUTPUT]] : memref<1x64x16x16xf16, {order = #NHWC}, @DDR>
     // CHECK:              async.yield
     // CHECK:        }
-    // CHECK:        return [[OUTPUT]] : memref<1x64x16x16xf16, #NHWC, @DDR>
+    // CHECK:        return [[OUTPUT]] : memref<1x64x16x16xf16, {order = #NHWC}, @DDR>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @EltwiseSameInputTwoDeclareBuffersSameLocation
+func.func @EltwiseSameInputTwoDeclareBuffersSameLocation() -> memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]> {
+    %input   = VPURT.DeclareBuffer <CMX_NN> [0] <0>      -> memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>
+    %weights = VPURT.DeclareBuffer <CMX_NN> [0] <0>      -> memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>
+    %output  = VPURT.DeclareBuffer <CMX_NN> [0] <716800> -> memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>
+
+    %out = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>}
+            <{task_type = #VPUIP.nce_task_type<ELTWISE>}>
+        input(%input : memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>)
+        weights(%weights : memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>)
+        parent_input(%input : memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>)
+        parent_output(%output : memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>)
+        outputs(%output : memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>)
+        -> memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>
+        variants : {
+            DPUTask {
+                outStart = [0, 0, 0], outEnd = [99, 223, 15],
+                mpe_mode = #VPU.mpe_mode<VECTOR_FP16>,
+                pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
+            }
+        } PPE : {
+        }
+
+    return %out : memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>
+
+    // CHECK:        [[INPUT:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:        [[WEIGHTS:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:        [[OUTPUT:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <716800> -> memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:        [[NCE_TASK:%.+]] = VPUIP.NCEClusterTask
+    // CHECK-SAME:           input([[INPUT]] : memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK-SAME:           weights([[WEIGHTS]] : memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK:        return [[NCE_TASK]] : memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>
 }

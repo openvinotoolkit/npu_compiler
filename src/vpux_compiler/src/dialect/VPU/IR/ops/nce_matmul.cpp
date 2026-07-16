@@ -16,6 +16,7 @@
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_matmul_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sprlut_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
@@ -56,7 +57,10 @@ mlir::LogicalResult vpux::VPU::NCEMatMulOp::inferReturnTypes(mlir::MLIRContext* 
             mlir::RankedTensorType::get(outputShape, inputType.getElementType(), createTensorAttrFromType(inputType));
 
     inferredReturnTypes.push_back(outputType);
-    return mlir::success();
+    // Infer the extra NCE outputs types if any
+    auto resultSegmentSizes = op.getProperties().getResultSegmentSizes();
+
+    return inferReduceExtraNCETypes(loc, outputType, op.getAxesValue(), resultSegmentSizes, inferredReturnTypes);
 }
 
 //
@@ -113,9 +117,16 @@ bool doesNCEMatMulFitIntoCMX(vpux::NDTypeInterface inputType, vpux::NDTypeInterf
         addSprLutBufferIfPresent(ppeAttr, buffers);
     }
 
-    if (mlir::failed(VPU::NCEInvariant::getWeightTableBuffers(
-                op, buffers, outputType.getShape()[DimsGroups5D::Act::C] * largestGroupsNumPerCluster))) {
+    // Legacy weights table is laid out per-group (shape includes G), so the size scales with OC*G.
+    // New-format tables are created with G=1 and shared across groups (see BatchMatMulToMatMul).
+    const auto OC = outputType.getShape()[DimsGroups5D::Act::C];
+    const auto weightTableOC =
+            nceOpInterface.getWeightsTableOperand() == nullptr ? OC : OC * largestGroupsNumPerCluster;
+    if (mlir::failed(VPU::NCEInvariant::getWeightTableBuffers(op, buffers, weightTableOC))) {
         VPUX_THROW("getWeightTableBuffers function failed");
+    }
+    if (mlir::failed(vpux::VPU::getReduceOutputBuffers(op, buffers, outputType))) {
+        VPUX_THROW("getReduceOutputBuffers function failed");
     }
 
     const auto totalAvailableCMXSize = reservedMem.count() == 0
@@ -137,6 +148,24 @@ bool vpux::VPU::NCEMatMulOp::fitIntoCMX(vpux::NDTypeInterface inputType, vpux::N
     return fitIntoCMX(inputType, filterType, outputType, Byte(0));
 }
 
+/*
+ * Return the mixed raw filter shape by combining the static and dynamic raw filter shape values into a single
+ * SmallVector of OpFoldResults.
+ */
+SmallVector<mlir::OpFoldResult> vpux::VPU::NCEMatMulOp::getMixedRawFilterShape() {
+    mlir::Builder builder(getContext());
+    return mlir::getMixedValues(getStaticRawFilterShape(), getRawFilterShape(), builder);
+}
+
+/*
+ * Return the constant raw filter shape by extracting the constant values from the mixed raw filter shape.
+ */
+SmallVector<int64_t> vpux::VPU::NCEMatMulOp::getConstRawFilterShape() {
+    auto vals = mlir::getConstantIntValues(getMixedRawFilterShape());
+    VPUX_THROW_WHEN(!vals.has_value(), "Cannot get constant raw filter shape from NCEMatMulOp '{0}'", getLoc());
+    return vals.value();
+}
+
 //
 // isSupported
 //
@@ -151,6 +180,13 @@ bool VPU::NCEMatMulOp::isSupported(IE::MatMulOp op, vpux::LogCb logCb, bool chec
     const auto inputShape = inputType.getShape();
     const auto filterShape = filterType.getShape();
     const auto outputShape = outputType.getShape();
+
+    // NCEMatMulOp requires equal G dimensions across all inputs (no broadcast across groups).
+    if (inputShape[Dims4D::Act::C] != filterShape[Dims4D::Act::C]) {
+        logCb(llvm::formatv("NCEMatMulOp does not support broadcast MatMul (input1 G={0} != input2 G={1})",
+                            inputShape[Dims4D::Act::C], filterShape[Dims4D::Act::C]));
+        return false;
+    }
 
     bool isSupported = isNCEMatMulSupported(
             inputType.changeShape(ShapeRef({inputShape[Dims4D::Act::C] * inputShape[Dims4D::Act::N], 1,
@@ -186,6 +222,7 @@ enum class WeightTableType : uint64_t {
     LEGACY = 1,
     SCALE = 2,
     BIAS = 3,
+    ZERO_POINTS = 4,
 };
 }
 
@@ -199,7 +236,8 @@ TileInfo getWeightsTableTile5D(VPU::NCEMatMulOp origOp, const vpux::TileInfo& ou
     const auto isLegacyWeightTableType = weightTableType == WeightTableType::LEGACY;
     const auto origWeightsTable = isLegacyWeightTableType                     ? origOp.getWeightsTable()
                                   : weightTableType == WeightTableType::SCALE ? origOp.getWeightTableScale()
-                                                                              : origOp.getWeightTableBias();
+                                  : weightTableType == WeightTableType::BIAS  ? origOp.getWeightTableBias()
+                                                                              : origOp.getWeightZeroPoints();
     VPUX_THROW_UNLESS(origWeightsTable != nullptr, "The operation {0} doesn't have the required type of weight table",
                       *origOp);
 
@@ -207,28 +245,36 @@ TileInfo getWeightsTableTile5D(VPU::NCEMatMulOp origOp, const vpux::TileInfo& ou
     const auto expectedKX = isLegacyWeightTableType ? VPU::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC
                                                     : VPU::NCEInvariant::NEW_WEIGHT_TABLE_NUM_ELEMENTS_PER_OC;
 
-    VPUX_THROW_UNLESS(
-            origWeightsTableShape[DimsGroups5D::Filter::G] == getShape(origOp.getOutput())[DimsGroups5D::Act::G] &&
-                    origWeightsTableShape[DimsGroups5D::Filter::OC] ==
-                            getShape(origOp.getOutput())[DimsGroups5D::Act::C] &&
-                    origWeightsTableShape[DimsGroups5D::Filter::IC] == 1 &&
-                    origWeightsTableShape[DimsGroups5D::Filter::KY] == 1 &&
-                    origWeightsTableShape[DimsGroups5D::Filter::KX] == expectedKX,
-            "Unexpected WeightsTable shape notation or order: {0} with output shape of {1}"
-            "\nProbably, we need to update this logic",
-            origWeightsTableShape, getShape(origOp.getOutput()));
+    // Scale/bias/zero-point tables are always created with G=1 and shared across all groups (see BatchMatMulToMatMul).
+    const auto expectedG = isLegacyWeightTableType ? getShape(origOp.getOutput())[DimsGroups5D::Act::G] : 1;
+    VPUX_THROW_UNLESS(origWeightsTableShape[DimsGroups5D::Filter::G] == expectedG &&
+                              origWeightsTableShape[DimsGroups5D::Filter::OC] ==
+                                      getShape(origOp.getOutput())[DimsGroups5D::Act::C] &&
+                              origWeightsTableShape[DimsGroups5D::Filter::IC] == 1 &&
+                              origWeightsTableShape[DimsGroups5D::Filter::KY] == 1 &&
+                              origWeightsTableShape[DimsGroups5D::Filter::KX] == expectedKX,
+                      "Unexpected WeightsTable shape notation or order: {0} with output shape of {1}"
+                      "\nProbably, we need to update this logic",
+                      origWeightsTableShape, getShape(origOp.getOutput()));
 
     TileInfo weightsTableTile(origWeightsTableShape);
     weightsTableTile.offsets[DimsGroups5D::Filter::OC] = outputTile.offsets[DimsGroups5D::Act::C];
     weightsTableTile.shape[DimsGroups5D::Filter::OC] = outputTile.shape[DimsGroups5D::Act::C];
-    weightsTableTile.offsets[DimsGroups5D::Filter::G] = outputTile.offsets[DimsGroups5D::Act::G];
-    weightsTableTile.shape[DimsGroups5D::Filter::G] = outputTile.shape[DimsGroups5D::Act::G];
+    if (isLegacyWeightTableType) {
+        weightsTableTile.offsets[DimsGroups5D::Filter::G] = outputTile.offsets[DimsGroups5D::Act::G];
+        weightsTableTile.shape[DimsGroups5D::Filter::G] = outputTile.shape[DimsGroups5D::Act::G];
+    } else {
+        // Scale/bias/zero-point tables are always created with G=1 and are shared across all groups
+        // (see BatchMatMulToMatMul pass). Keep the table tile at G=1 regardless of how the output is tiled over G.
+        weightsTableTile.offsets[DimsGroups5D::Filter::G] = 0;
+        weightsTableTile.shape[DimsGroups5D::Filter::G] = 1;
+    }
     return weightsTableTile;
 }
 
 TilingInfo vpux::VPU::NCEMatMulOp::backInferTileInfo(const vpux::TileInfo& outputTile, vpux::Logger log) {
     const auto origInputShape = getShape(getInput());
-    const auto origFilterShape = Shape(parseIntArrayAttr<int64_t>(getRawFilterShape()));
+    const auto origFilterShape = Shape(getConstRawFilterShape());
     const auto origPadding = toPadInfo(getPad());
 
     auto inputTiling =
@@ -246,16 +292,28 @@ TilingInfo vpux::VPU::NCEMatMulOp::backInferTileInfo(const vpux::TileInfo& outpu
     if (this->getWeightTableBias()) {
         inputTiling.tiles.push_back(getWeightsTableTile5D(*this, outputTile, WeightTableType::BIAS));
     }
+    if (this->getWeightZeroPoints()) {
+        inputTiling.tiles.push_back(getWeightsTableTile5D(*this, outputTile, WeightTableType::ZERO_POINTS));
+    }
 
     return inputTiling;
 }
 
 void vpux::VPU::NCEMatMulOp::adjustAttrs(const vpux::TilingInfo& inputTiling, const vpux::TileInfo& outputTile) {
     VPU::adjustPaddings(this, inputTiling);
-    auto newRawFilterShape = Shape(parseIntArrayAttr<int64_t>(getRawFilterShape()));
-    newRawFilterShape[DimsGroups5D::Filter::OC] = outputTile.shape[DimsGroups5D::Act::C];
-    newRawFilterShape[DimsGroups5D::Filter::G] = outputTile.shape[DimsGroups5D::Act::G];
-    setRawFilterShapeAttr(getIntArrayAttr(getContext(), newRawFilterShape));
+    // Use the mixed representation so that any dynamic operands are kept consistent
+    auto mixedRawFilterShape = getMixedRawFilterShape();
+    mixedRawFilterShape[DimsGroups5D::Filter::OC.ind()] =
+            mlir::getAsIndexOpFoldResult(getContext(), outputTile.shape[DimsGroups5D::Act::C]);
+    mixedRawFilterShape[DimsGroups5D::Filter::G.ind()] =
+            mlir::getAsIndexOpFoldResult(getContext(), outputTile.shape[DimsGroups5D::Act::G]);
+
+    SmallVector<int64_t> staticValues;
+    SmallVector<mlir::Value> dynamicValues;
+    mlir::dispatchIndexOpFoldResults(mixedRawFilterShape, dynamicValues, staticValues);
+
+    setStaticRawFilterShape(staticValues);
+    getRawFilterShapeMutable().assign(dynamicValues);
 }
 
 mlir::FailureOr<OutputTiling> vpux::VPU::NCEMatMulOp::getTilingStrategy(TilingMode tilingMode, Logger log) {
@@ -311,6 +369,9 @@ bool VPU::NCEMatMulOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy strategy, S
         largestGroupsNumPerCluster = distType.getLargestCompactShape()[DimsGroups5D::Act::G];
     }
 
+    const auto outputDistributionMap = std::make_pair(
+            outputType, getOutputDistributionAttrFromOp(nceOp, outputType, numClusters, strategy, siblingsAnalysis));
+
     SmallVector<Byte> buffers = {
             VPU::getTotalAllocSizeWithDistribution(
                     getInput().getType(), getActivationDistributionAttrFromOp(nceOp, getInput(), getInput().getType(),
@@ -318,16 +379,21 @@ bool VPU::NCEMatMulOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy strategy, S
             VPU::getTotalAllocSizeWithDistribution(
                     getWeights().getType(),
                     getFilterDistributionAttrFromOp(nceOpInterface, getWeights().getType(), numClusters, strategy)),
-            VPU::getTotalAllocSizeWithDistribution(
-                    getOutput().getType(), getOutputDistributionAttrFromOp(nceOp, getOutput().getType(), numClusters,
-                                                                           strategy, siblingsAnalysis))};
+            VPU::getTotalAllocSizeWithDistribution(outputDistributionMap.first, outputDistributionMap.second)};
 
     auto ppeAttr = getPpe();
     addSprLutBufferIfPresent(ppeAttr, buffers);
 
-    if (mlir::failed(NCEInvariant::getWeightTableBuffers(
-                getOperation(), buffers, outputType.getShape()[DimsGroups5D::Act::C] * largestGroupsNumPerCluster))) {
+    // Legacy weights table is laid out per-group (shape includes G), so the size scales with OC*G.
+    // New-format tables are created with G=1 and shared across groups (see BatchMatMulToMatMul).
+    const auto OC = outputType.getShape()[DimsGroups5D::Act::C];
+    const auto weightTableOC =
+            nceOpInterface.getWeightsTableOperand() == nullptr ? OC : OC * largestGroupsNumPerCluster;
+    if (mlir::failed(NCEInvariant::getWeightTableBuffers(getOperation(), buffers, weightTableOC))) {
         VPUX_THROW("getWeightTableBuffers function failed");
+    }
+    if (mlir::failed(vpux::VPU::getReduceOutputBuffers(getOperation(), buffers, outputDistributionMap))) {
+        VPUX_THROW("getReduceOutputBuffers function failed");
     }
 
     const auto totalAvailableCMXSize = reservedMem.count() == 0
@@ -365,8 +431,17 @@ vpux::NDTypeInterface vpux::VPU::NCEMatMulOp::getDistributedTypeForOpOperand(mli
     } else if (operand.get() == origOp.getWeights()) {
         return VPU::getDistributedWeightsTypeForOpOperand(clusteredOp, origOp.getWeights(), strategy,
                                                           hasExplicitDistributedAttr, siblingsAnalysis);
-    } else if (operand.get() == origOp.getWeightsTable() || operand.get() == origOp.getWeightTableScale() ||
-               operand.get() == origOp.getWeightTableBias()) {
+    } else if (operand.get() == origOp.getWeightTableScale() || operand.get() == origOp.getWeightTableBias() ||
+               operand.get() == origOp.getWeightZeroPoints()) {
+        // Scale/bias/zero-point tables are created with G=1 (see BatchMatMulToMatMul pass). Use SEGMENTED mode only
+        // when tiling over OC (SplitOverKernel); otherwise the mode is DUPLICATED.
+        if (strategy == VPU::MultiClusterStrategy::SplitOverKernel) {
+            return VPU::getDistributedWeightsTypeForOpOperand(clusteredOp, operand.get(), strategy,
+                                                              hasExplicitDistributedAttr, siblingsAnalysis);
+        }
+        return getDistributedTypeFromInput(clusteredOp, operand.get(), VPU::DistributionMode::DUPLICATED, {}, {},
+                                           strategy, hasExplicitDistributedAttr, siblingsAnalysis);
+    } else if (operand.get() == origOp.getWeightsTable()) {
         return VPU::getDistributedWeightsTypeForOpOperand(clusteredOp, operand.get(), strategy,
                                                           hasExplicitDistributedAttr, siblingsAnalysis);
     }

@@ -68,6 +68,7 @@ private:
     mlir::LogicalResult generateResetFunc(mlir::ModuleOp module, LLVMArgumentTypes& argumentTypes);
     mlir::LogicalResult generateDestroyFunc(mlir::ModuleOp module, LLVMArgumentTypes& argumentTypes);
     mlir::LogicalResult generateUpdateMutableCommandListFunc(mlir::ModuleOp module, LLVMArgumentTypes& argumentTypes);
+    mlir::LogicalResult generateExecuteMutableCommandListFunc(mlir::ModuleOp module, LLVMArgumentTypes& argumentTypes);
 };
 
 // Helper to create an LLVM function and call a wrapper
@@ -135,12 +136,29 @@ mlir::LogicalResult GenerateExecutionContextFuncsPass::generateUpdateMutableComm
             llvmTypes.voidType);
 }
 
+mlir::LogicalResult GenerateExecutionContextFuncsPass::generateExecuteMutableCommandListFunc(
+        mlir::ModuleOp module, LLVMArgumentTypes& llvmTypes) {
+    return generateFuncWithCall(
+            module, "_mlir_ciface_execute_mutable_command_list", mlir::LLVM::Linkage::Internal, llvmTypes.voidType,
+            {llvmTypes.voidPtrType, llvmTypes.voidPtrType, llvmTypes.int64Type, llvmTypes.voidPtrType,
+             llvmTypes.int64Type, llvmTypes.voidPtrType, llvmTypes.int64Type, llvmTypes.voidPtrType,
+             llvmTypes.voidPtrType},
+            "npu_level_zero_execute_mutable_command_list",
+            [](mlir::LLVM::LLVMFuncOp& funcOp) {
+                return ValueList{funcOp.getArgument(0), funcOp.getArgument(1), funcOp.getArgument(2),
+                                 funcOp.getArgument(3), funcOp.getArgument(4), funcOp.getArgument(5),
+                                 funcOp.getArgument(6), funcOp.getArgument(7), funcOp.getArgument(8)};
+            },
+            llvmTypes.voidType);
+}
+
 void GenerateExecutionContextFuncsPass::safeRunOnModule() {
     auto moduleOp = getOperation();
     LLVMArgumentTypes llvmTypes(moduleOp);
     if (mlir::failed(generateCreateFunc(moduleOp, llvmTypes)) || mlir::failed(generateResetFunc(moduleOp, llvmTypes)) ||
         mlir::failed(generateDestroyFunc(moduleOp, llvmTypes)) ||
-        mlir::failed(generateUpdateMutableCommandListFunc(moduleOp, llvmTypes))) {
+        mlir::failed(generateUpdateMutableCommandListFunc(moduleOp, llvmTypes)) ||
+        mlir::failed(generateExecuteMutableCommandListFunc(moduleOp, llvmTypes))) {
         signalPassFailure();
     }
 }

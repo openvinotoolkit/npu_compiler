@@ -12,6 +12,7 @@
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
+#include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/error.hpp"
@@ -40,6 +41,8 @@ void adaptFuncInputArgs(mlir::func::FuncOp funcOp, net::NetworkInfoOp netInfo, L
     auto& entryBlock = funcOp.front();
     auto builder = mlir::OpBuilder::atBlockBegin(&entryBlock);
 
+    auto mainFuncOp = net::getMainFunc(funcOp);
+
     log.trace("Old block inputs: {0}", entryBlock.getArgumentTypes());
 
     log = log.nest(2);
@@ -57,7 +60,7 @@ void adaptFuncInputArgs(mlir::func::FuncOp funcOp, net::NetworkInfoOp netInfo, L
         log.trace("Found dynamic input {0}", inArgType);
         const auto& [boundedMemRef, dynamicShapeMemRef] = VPUIP::unpackBoundedBufferType(boundedType);
 
-        if (!funcOp.isPrivate()) {
+        if (funcOp == mainFuncOp) {
             VPUIP::addShapeTensorDataInfo(funcOp, dynamicShapeMemRef, netInfo.getInputsInfo().front(),
                                           netInfo.getInputsDataInfo()[index].getName(),
                                           /*current dataBufferCount*/ netInfo.getInputsDataInfo().size());
@@ -89,6 +92,8 @@ void adaptFuncOutputArgs(mlir::func::FuncOp funcOp, net::NetworkInfoOp netInfo, 
     auto& entryBlock = funcOp.front();
     auto builder = mlir::OpBuilder::atBlockBegin(&entryBlock);
 
+    auto mainFuncOp = net::getMainFunc(funcOp);
+
     auto returnOps = funcOp.getOps<mlir::func::ReturnOp>();
     if (const auto returnOpsCount = std::distance(returnOps.begin(), returnOps.end()); returnOpsCount != 1) {
         VPUX_THROW("Expected to find one ReturnOp, but got {0}", returnOpsCount);
@@ -109,7 +114,7 @@ void adaptFuncOutputArgs(mlir::func::FuncOp funcOp, net::NetworkInfoOp netInfo, 
         log.trace("Found dynamic output {0}", output);
         const auto boundedBufferTypes = VPUIP::unpackBoundedBufferType(boundedType);
 
-        if (!funcOp.isPrivate()) {
+        if (funcOp == mainFuncOp) {
             VPUIP::addShapeTensorDataInfo(funcOp, boundedBufferTypes.dynamicShapeType, netInfo.getOutputsInfo().front(),
                                           netInfo.getOutputsDataInfo()[index].getName(),
                                           /*current dataBufferCount*/ netInfo.getOutputsDataInfo().size());

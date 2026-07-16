@@ -8,7 +8,9 @@
 #include "vpux/compiler/core/attributes/dims_order.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/attr_interfaces.hpp"
+#include "vpux/compiler/dialect/const/utils/constant_tracing.hpp"
 #include "vpux/compiler/dialect/const/utils/content.hpp"
+#include "vpux/utils/core/developer_build_utils.hpp"
 #include "vpux/utils/core/func_ref.hpp"
 
 #include <mlir/Dialect/Quant/IR/QuantTypes.h>
@@ -19,10 +21,37 @@
 
 namespace vpux::Const {
 
+SmallVector<int64_t> calculateMultiIndex(ArrayRef<int64_t> shape, int64_t linearIndex);
+int64_t calculateLinearIndex(ArrayRef<int64_t> shape, ArrayRef<int64_t> indices);
+
 namespace detail {
+
+struct ContentSetupTracingBaseEmpty {
+    template <typename... Args>
+    ContentSetupTracingBaseEmpty(Args...) {
+    }
+    void updateConstantCallStack(mlir::MLIRContext*, ArrayRef<TransformAttrInterface>) const {
+    }
+};
+
+struct ContentSetupTracingBase {
+public:
+    vpux::Const::TraceId id;
+
+    ContentSetupTracingBase() = default;
+    ContentSetupTracingBase(vpux::Const::TraceId traceId): id(traceId) {
+    }
+
+    void updateConstantCallStack(mlir::MLIRContext* ctx, ArrayRef<TransformAttrInterface> transformations) const;
+};
+
+using TracingBase = std::conditional_t<isDeveloperBuild(), ContentSetupTracingBase, ContentSetupTracingBaseEmpty>;
+
 /// Base class for constant data transformations setup. Provides basic API. Not
 /// intended for direct use.
-class ContentSetupBase {
+class ContentSetupBase : public TracingBase {
+    using Base = TracingBase;
+
     NDTypeInterface _baseType;
     SmallVector<TransformAttrInterface> _transformations;
 
@@ -35,7 +64,7 @@ public:
     ContentSetupBase& operator=(ContentSetupBase&& other);
 
     // This constructor throws an exception when base type is undefined.
-    ContentSetupBase(mlir::Type baseType, ArrayRef<TransformAttrInterface> transformations);
+    ContentSetupBase(vpux::Const::TraceId id, mlir::Type baseType, ArrayRef<TransformAttrInterface> transformations);
 
     // getters
     mlir::MLIRContext* getContext() const;
@@ -92,9 +121,9 @@ class SpecializedContentSetup final : public detail::ContentSetupBase {
     SpecializedContentSetup& operator=(const SpecializedContentSetup&) = default;
 
 public:
-    SpecializedContentSetup(mlir::Type baseType, ArrayRef<TransformAttrInterface> transformations = {},
-                            Get&& get = detail::NoopGet{})
-            : ContentSetupBase(baseType, transformations), _get(std::move(get)) {
+    SpecializedContentSetup(vpux::Const::TraceId id, mlir::Type baseType,
+                            ArrayRef<TransformAttrInterface> transformations = {}, Get&& get = detail::NoopGet{})
+            : ContentSetupBase(id, baseType, transformations), _get(std::move(get)) {
     }
 
     SpecializedContentSetup(SpecializedContentSetup&&) = default;
@@ -121,12 +150,12 @@ public:
     [[nodiscard]] SpecializedContentSetup add(double bias);
     [[nodiscard]] SpecializedContentSetup reshape(vpux::ShapeRef newShape);
     [[nodiscard]] SpecializedContentSetup reverse(Dim axis);
-    [[nodiscard]] SpecializedContentSetup reorder(vpux::DimsOrder newOrder);
+    [[nodiscard]] SpecializedContentSetup reorder(const vpux::DimsOrder& newOrder);
     [[nodiscard]] SpecializedContentSetup padWithZero(vpux::ShapeRef padBefore, vpux::ShapeRef padAfter);
     [[nodiscard]] SpecializedContentSetup subview(vpux::ShapeRef offset, vpux::ShapeRef shape);
-    [[nodiscard]] SpecializedContentSetup transpose(vpux::DimsOrder newOrder);
-    [[nodiscard]] SpecializedContentSetup memPermute(vpux::DimsOrder dstOrder, vpux::DimsOrder memPerm);
-    [[nodiscard]] SpecializedContentSetup layoutCast(vpux::DimsOrder dstOrder);
+    [[nodiscard]] SpecializedContentSetup transpose(const vpux::DimsOrder& newOrder);
+    [[nodiscard]] SpecializedContentSetup memPermute(const vpux::DimsOrder& dstOrder, const vpux::DimsOrder& memPerm);
+    [[nodiscard]] SpecializedContentSetup layoutCast(const vpux::DimsOrder& dstOrder);
     [[nodiscard]] SpecializedContentSetup expandDilated(vpux::ShapeRef dilations);
     [[nodiscard]] SpecializedContentSetup getSparsityMap();
     [[nodiscard]] SpecializedContentSetup sparsify(bool compressOutputType,
@@ -147,6 +176,9 @@ public:
                                                       mlir::FloatAttr cubeCoeff);
     [[nodiscard]] SpecializedContentSetup gatherElements(mlir::IntegerAttr axisAttr,
                                                          mlir::DenseElementsAttr indicesAttr);
+    [[nodiscard]] SpecializedContentSetup cumSum(mlir::IntegerAttr axis, mlir::BoolAttr exclusive,
+                                                 mlir::BoolAttr reverse);
+    [[nodiscard]] SpecializedContentSetup logicalNot();
 
     // Note: this method only exists when there's an explicit "Get" method
     // provided by the user.
@@ -160,12 +192,14 @@ public:
 };
 // ctad's explicit deduction guide for "Get" method
 template <typename Callable>
-SpecializedContentSetup(mlir::Type, ArrayRef<TransformAttrInterface>, Callable&&) -> SpecializedContentSetup<Callable>;
+SpecializedContentSetup(Const::TraceId, mlir::Type, ArrayRef<TransformAttrInterface>,
+                        Callable&&) -> SpecializedContentSetup<Callable>;
 
 /// Default version of the content setup object. Users are highly recommended to
 /// use this instead of the "specialized" version: prefer explicit content
 /// construction (from setup's transformations) to implicit `.get()`.
 using ContentSetup = SpecializedContentSetup<detail::NoopGet>;
+
 }  // namespace vpux::Const
 
 //
@@ -260,5 +294,17 @@ mlir::DenseElementsAttr createConstContent(mlir::ShapedType type, ArrayRef<T> va
     buffer.
  */
 mlir::DenseElementsAttr createConstContent(mlir::ShapedType type, ArrayRef<char> values);
+
+// Returns a special zero-sized base content used by transformations that operate on an array of
+// constants (e.g. ConcatAttr). Must not be used as real data — accessing its memory is undefined.
+mlir::ElementsAttr getDummyBaseContent(mlir::MLIRContext* ctx);
+
+// Returns true if the given base content is the dummy created by getDummyBaseContent().
+bool isDummyBaseContent(mlir::ElementsAttr baseContent);
+
+// Creates a ContentAttr with a ConcatAttr transformation and a dummy base content.
+// The output type is inferred from axis and the constants' shapes.
+ContentAttr createConcatContentAttr(mlir::MLIRContext* ctx, mlir::ArrayAttr staticOffsets, int64_t axis,
+                                    mlir::ArrayRef<ContentAttr> inputContents);
 
 }  // namespace vpux::Const

@@ -107,7 +107,7 @@ func.func @main(%arg0: tensor<16xf32>) -> tensor<16xf32> {
 }
 
 // expected-error@+1 {{Unsupported TensorType encoding '{qqq = "foo"}'}}
-func.func private @extra(%arg0: tensor<16xf32, {qqq = "foo"}>)
+func.func nested @extra(%arg0: tensor<16xf32, {qqq = "foo"}>)
 
 }
 
@@ -130,7 +130,7 @@ func.func @main(%arg0: tensor<16xf32>) -> tensor<16xf32> {
 }
 
 // expected-error@+1 {{TensorType order '(d0, d1) -> (d0 * 10 + d1)' is not a permutation}}
-func.func private @extra(%arg0: tensor<16xf32, {order = affine_map<(d0, d1) -> (d0 * 10 + d1)>}>)
+func.func nested @extra(%arg0: tensor<16xf32, {order = affine_map<(d0, d1) -> (d0 * 10 + d1)>}>)
 
 }
 
@@ -153,7 +153,7 @@ func.func @main(%arg0: tensor<16xf32>) -> tensor<16xf32> {
 }
 
 // expected-error@+1 {{TensorType order '(d0, d1) -> (d1, d0)' doesn't match to shape '[16]'}}
-func.func private @extra(%arg0: tensor<16xf32, {order = affine_map<(d0, d1) -> (d1, d0)>}>)
+func.func nested @extra(%arg0: tensor<16xf32, {order = affine_map<(d0, d1) -> (d1, d0)>}>)
 
 }
 

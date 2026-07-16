@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
@@ -14,6 +16,9 @@
 #include "vpux/compiler/dialect/const/utils/sub_byte.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+#include <llvm/ADT/SetVector.h>
+#include <mlir/Interfaces/ViewLikeInterface.h>
+
 namespace vpux::VPUIP {
 #define GEN_PASS_DECL_OPTIMIZEPARALLELCOPIES
 #define GEN_PASS_DEF_OPTIMIZEPARALLELCOPIES
@@ -23,7 +28,8 @@ namespace vpux::VPUIP {
 using namespace vpux;
 namespace {
 
-// E130855: Fuse copy only its ComputeOp is less than 3 steps to previous ComputeOp
+// E130855: Fuse copy only when its ComputeOp is within 3 steps of the previous ComputeOp.
+// The compute-distance heuristic is applied when at least one sibling compute op is in-place ELTWISE.
 /*
     1% = NCE (buffer producer)      1% = NCE (buffer producer)
 
@@ -79,6 +85,7 @@ private:
     DenseMap<mlir::Operation*, uint32_t> _computeOpPosition;
     DenseMap<uint32_t, std::optional<uint32_t>> _tiledOpNearestDistances;
     mutable mlir::DenseSet<VPUIP::CopyOp> _twoAxisTilingCache;
+    mutable DenseMap<mlir::Value, bool> _fullBufferReloadCopyCache;
 };
 
 // Get compute operation user position of copy operation, currently only check in-place NCEEltwise & NCEConv.
@@ -103,6 +110,143 @@ std::optional<uint32_t> ParallelCopiesRewriter::getComputeOpPosition(mlir::Opera
         return mininumPos;
     }
     return std::nullopt;
+}
+
+// Detect local repeated Subview -> Copy groups that represent a full input buffer.
+// If the first repeated group already needs at least the available CMX size, reloading the buffer for the second group
+// is beneficial to avoid spilling.
+// e.g. for 2 repeated groups, we have:
+//                 Input buffer
+//     |        |               |        |
+//  SubViewA SubViewB       SubViewA' SubViewB'
+//     |        |               |        |
+//   CopyA    CopyB          CopyA'    CopyB'
+// If CopyA and CopyB together need a large CMX size, CopyA' and CopyB' are required to reload the buffers.
+bool isBeneficialToKeepCopy(ArrayRef<mlir::Operation*> parentOpUsers, VPUIP::CopyOp originCopyOp) {
+    if (parentOpUsers.empty()) {
+        return false;
+    }
+
+    auto sortedParentOpUsers = to_small_vector(parentOpUsers);
+    llvm::sort(sortedParentOpUsers, [](mlir::Operation* lhs, mlir::Operation* rhs) {
+        return lhs->isBeforeInBlock(rhs);
+    });
+
+    const auto isSameSubViewRange = [](VPUIP::SubViewOp lhs, VPUIP::SubViewOp rhs) {
+        return (lhs.getStaticOffsets() == rhs.getStaticOffsets()) && (lhs.getStaticSizes() == rhs.getStaticSizes()) &&
+               (lhs.getStaticStrides() == rhs.getStaticStrides());
+    };
+
+    const auto getCopyUser = [](VPUIP::SubViewOp subViewOp) -> VPUIP::CopyOp {
+        for (auto* user : subViewOp.getResult().getUsers()) {
+            if (auto copyOp = mlir::dyn_cast<VPUIP::CopyOp>(user)) {
+                return copyOp;
+            }
+        }
+        return nullptr;
+    };
+
+    // Keep only SubView -> Copy entries before detecting full-buffer reload cycles.
+    SmallVector<std::pair<VPUIP::SubViewOp, VPUIP::CopyOp>> subViewCopies;
+    for (auto* parentUser : sortedParentOpUsers) {
+        auto subViewOp = mlir::dyn_cast<VPUIP::SubViewOp>(parentUser);
+        // Reject if the SubView has multiple uses since it's beneficial to share one buffer.
+        //    SubViewA       SubViewB       SubViewA  SubViewB
+        //    |      |       |      |  =>      |        |
+        //   Copy   Copy   Copy   Copy       Copy      Copy
+        if (subViewOp == nullptr || !parentUser->hasOneUse()) {
+            return false;
+        }
+
+        auto copyOp = getCopyUser(subViewOp);
+        if (copyOp == nullptr) {
+            continue;
+        }
+
+        subViewCopies.push_back({subViewOp, copyOp});
+    }
+    if (subViewCopies.size() < 2) {
+        return false;
+    }
+
+    const auto arch = config::getArch(originCopyOp);
+    const auto availableCMXPerCluster = VPU::getTotalCMXSize(originCopyOp);
+
+    const auto repeatedRangeExceedsCmx =
+            [&](ArrayRef<std::pair<VPUIP::SubViewOp, VPUIP::CopyOp>> repeatedRange) -> bool {
+        SmallVector<Byte> firstCycleBufferSizes;
+        for (auto subViewCopy : repeatedRange) {
+            auto copyOp = subViewCopy.second;
+
+            const auto copyOutputType = mlir::cast<vpux::NDTypeInterface>(copyOp.getOutput().getType());
+            if (copyOutputType.getMemoryKind() != VPU::MemoryKind::CMX_NN) {
+                return false;
+            }
+
+            firstCycleBufferSizes.push_back(copyOutputType.getTotalAllocSize());
+        }
+
+        const auto requiredCMX = VPU::calculateAlignedBuffersMemoryRequirement(arch, firstCycleBufferSizes);
+        return requiredCMX >= availableCMXPerCluster;
+    };
+
+    // Adjacent duplicate ranges such as A A B B is expected to fuse Copy.
+    for (size_t index = 1; index < subViewCopies.size(); ++index) {
+        if (isSameSubViewRange(subViewCopies[index - 1].first, subViewCopies[index].first)) {
+            return false;
+        }
+    }
+
+    const auto subViewCopyCount = subViewCopies.size();
+    SmallVector<SmallVector<size_t>> commonRangeLengths(subViewCopyCount + 1);
+    for (auto& row : commonRangeLengths) {
+        row.resize(subViewCopyCount + 1, 0);
+    }
+
+    for (size_t lhsPos = subViewCopyCount; lhsPos > 0; --lhsPos) {
+        const auto lhsIndex = lhsPos - 1;
+        for (size_t rhsPos = subViewCopyCount; rhsPos > 0; --rhsPos) {
+            const auto rhsIndex = rhsPos - 1;
+            if (isSameSubViewRange(subViewCopies[lhsIndex].first, subViewCopies[rhsIndex].first)) {
+                commonRangeLengths[lhsIndex][rhsIndex] = commonRangeLengths[lhsIndex + 1][rhsIndex + 1] + 1;
+            }
+        }
+    }
+
+    const auto isSameRangeAt = [&](size_t lhsIndex, size_t rhsIndex, size_t rangeSize) -> bool {
+        return commonRangeLengths[lhsIndex][rhsIndex] >= rangeSize;
+    };
+
+    // Detect repeated cycles and check the first cycle:
+    // A B A B: cycle is A B.
+    // A B A B C D C D: cycles are A B and C D.
+    for (size_t startIndex = 0; startIndex < subViewCopyCount;) {
+        std::optional<size_t> repeatedCycleSize = std::nullopt;
+        const auto remainingSize = subViewCopyCount - startIndex;
+        for (size_t cycleSize = 1; cycleSize <= remainingSize / 2; ++cycleSize) {
+            if (isSameRangeAt(startIndex, startIndex + cycleSize, cycleSize)) {
+                repeatedCycleSize = cycleSize;
+                break;
+            }
+        }
+
+        if (!repeatedCycleSize.has_value()) {
+            ++startIndex;
+            continue;
+        }
+
+        const auto cycleSize = repeatedCycleSize.value();
+        const auto cycleStart = startIndex;
+        if (repeatedRangeExceedsCmx(ArrayRef(subViewCopies).slice(cycleStart, cycleSize))) {
+            return true;
+        }
+        startIndex += 2 * cycleSize;
+        while (startIndex + cycleSize <= subViewCopyCount && isSameRangeAt(cycleStart, startIndex, cycleSize)) {
+            startIndex += cycleSize;
+        }
+    }
+
+    return false;
 }
 
 bool hasSiblingCopyFusable(VPUIP::SubViewOp subViewOp, VPUIP::CopyOp copyOp, mlir::Value buffer, Logger log) {
@@ -252,10 +396,24 @@ bool ParallelCopiesRewriter::isCopyFusable(VPUIP::CopyOp copyOp, Logger& log) co
 
     auto subViewFusable = false;
     if (auto subViewOp = mlir::dyn_cast_or_null<VPUIP::SubViewOp>(copyOp.getInput().getDefiningOp())) {
-        subViewFusable = hasSiblingCopyFusable(subViewOp, copyOp, subViewOp.getSource(), log);
+        auto subViewSource = subViewOp.getSource();
+        // Check pattern SubViewOp 1..n SubViewOp.
+        subViewFusable = hasSiblingCopyFusable(subViewOp, copyOp, subViewSource, log);
+
+        if (subViewFusable) {
+            auto keepCopyIt = _fullBufferReloadCopyCache.find(subViewSource);
+            if (keepCopyIt == _fullBufferReloadCopyCache.end()) {
+                auto parentOpusers = to_small_vector(subViewSource.getUsers());
+                keepCopyIt = _fullBufferReloadCopyCache
+                                     .try_emplace(subViewSource, isBeneficialToKeepCopy(parentOpusers, copyOp))
+                                     .first;
+            }
+            if (keepCopyIt->second) {
+                return false;
+            }
+        }
     }
-    // We have 2 calls here, one to check if we have SubViewOp 1..n SubviewOp
-    // Other for TilingCopy 1..n TilingCopy
+    // Check pattern CopyOp 1..n CopyOp. This also covers multiple CopyOps from the same SubView result.
     if (!subViewFusable && !hasSiblingCopyFusable(nullptr, copyOp, copyOp.getInput(), log)) {
         log.trace("Is not fusable because doesn't have fusable sibling");
         return false;
@@ -346,6 +504,8 @@ mlir::LogicalResult ParallelCopiesRewriter::matchAndRewrite(VPUIP::CopyOp origin
     uint32_t prevComputePostion = invalidPostion;
     uint32_t prevComputePostion4TwoAxis = invalidPostion;
 
+    auto arch = config::getArch(originCopyOp);
+
     auto getSiblingEltwise = [&](mlir::Operation* rootCopyOp) -> bool {
         if (!getComputeOpPosition(rootCopyOp).has_value()) {
             return false;
@@ -361,32 +521,30 @@ mlir::LogicalResult ParallelCopiesRewriter::matchAndRewrite(VPUIP::CopyOp origin
         }
 
         auto parentOpUsers = to_small_vector(curParentOp->getResult(0).getUsers());
+        llvm::SmallSetVector<mlir::Operation*, 8> allSiblingComputeOps;
         for (auto* user : llvm::make_early_inc_range(parentOpUsers | reversed)) {
-            SmallVector<mlir::Operation*> siblingComputeOps;
             if (mlir::isa<VPUIP::SubViewOp>(user)) {
                 for (auto siblingCopy : user->getUsers()) {
                     for (auto item : siblingCopy->getUsers()) {
-                        siblingComputeOps.push_back(item);
+                        allSiblingComputeOps.insert(item);
                     }
                 }
             } else {
                 for (auto item : user->getUsers()) {
-                    siblingComputeOps.push_back(item);
+                    allSiblingComputeOps.insert(item);
                 }
             }
+        }
 
-            for (const auto& mayComputeOp : siblingComputeOps) {
-                if (auto nceOp = mlir::dyn_cast<VPUIP::NCEClusterTaskOp>(mayComputeOp)) {
-                    if (nceOp.getTaskType() == VPUIP::NCETaskType::ELTWISE && nceOp.getIsInplace().value_or(false)) {
-                        return true;
-                    }
+        for (const auto& mayComputeOp : allSiblingComputeOps) {
+            if (auto nceOp = mlir::dyn_cast<VPUIP::NCEClusterTaskOp>(mayComputeOp)) {
+                if (nceOp.getTaskType() == VPUIP::NCETaskType::ELTWISE && nceOp.getIsInplace().value_or(false)) {
+                    return true;
                 }
             }
         }
         return false;
     };
-
-    auto arch = config::getArch(originCopyOp);
     auto arePositionsConsecutive = [&](const std::set<uint32_t>& positions) -> bool {
         if (positions.size() < 2) {
             return false;
@@ -874,10 +1032,18 @@ DenseMap<uint32_t, std::optional<uint32_t>> OptimizeParallelCopiesPass::getNeare
         return nearestDistance;
     };
 
+    // Sort by IR position before iterating to ensure deterministic results.
+    // DenseMap<mlir::Operation*, uint32_t> iterates in pointer-hash order, which varies across runs
+    // due to ASLR/heap layout differences. When sibling sets overlap (op A claims op C as sibling and
+    // op B also claims op C), the final nearestDistance for C depends on which op is processed last.
+    // Sorting by IR position (the map's value) makes this deterministic.
+    SmallVector<std::pair<mlir::Operation*, uint32_t>> sortedOps(computeOpPosition.begin(), computeOpPosition.end());
+    llvm::sort(sortedOps, [](const auto& a, const auto& b) {
+        return a.second < b.second;
+    });
+
     llvm::DenseSet<uint32_t> processedOps;
-    for (auto& item : computeOpPosition) {
-        auto& op = item.first;
-        auto& pos = item.second;
+    for (auto& [op, pos] : sortedOps) {
         if (processedOps.contains(pos)) {
             continue;
         }

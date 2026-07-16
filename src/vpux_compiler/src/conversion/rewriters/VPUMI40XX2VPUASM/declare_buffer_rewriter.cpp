@@ -7,10 +7,7 @@
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 
 #include <vpux_elf/types/vpu_extensions.hpp>
-#include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/ops_interfaces.hpp"
-#include "vpux/compiler/dialect/ELF/IR/attributes.hpp"
 #include "vpux/compiler/dialect/core/IR/strided_dmas_utils.hpp"
-#include "vpux/compiler/utils/error.hpp"
 
 namespace vpux {
 namespace vpumi40xx2vpuasm {
@@ -55,15 +52,6 @@ mlir::FailureOr<SymbolizationResult> DeclareBufferRewriter::symbolize(VPURT::Dec
     }
 
     return SymbolizationResult(operation);
-}
-
-llvm::SmallVector<mlir::FlatSymbolRefAttr> DeclareBufferRewriter::getSymbolicNames(VPURT::DeclareBufferOp op,
-                                                                                   size_t counter) {
-    if (op.getSection() == VPURT::BufferSection::MAC_Accumulators) {
-        return {mlir::FlatSymbolRefAttr()};
-    }
-
-    return createSymbolicName(op, /* taskTypeString */ std::nullopt, counter);
 }
 
 }  // namespace vpumi40xx2vpuasm

@@ -483,8 +483,8 @@ mlir::LogicalResult AdjustForSoftmax::matchAndRewrite(IE::SoftMaxOp origOp, mlir
         vpux::inferReturnTypes(eltwiseOp, vpux::InferShapedTypeMode::ALL);
     }
     rewriter.setInsertionPointAfter(eltwiseOp);
-    auto newSoftMaxOp =
-            rewriter.create<IE::SoftMaxOp>(origOp->getLoc(), eltwiseOp->getResult(0), optimalAxisAttr, nullptr);
+    auto newSoftMaxOp = rewriter.create<IE::SoftMaxOp>(origOp->getLoc(), eltwiseOp->getResult(0), optimalAxisAttr,
+                                                       nullptr, origOp.getDstElemTypeAttr(), origOp.getMaskAwareAttr());
     auto newPermuteCastOp =
             rewriter.create<IE::PermuteCastOp>(permuteCastOp->getLoc(), newSoftMaxOp.getOutput(),
                                                permuteCastOp.getDstOrderAttr(), permuteCastOp.getMemPermAttr());
@@ -825,6 +825,49 @@ mlir::LogicalResult AdjustForDynamicDequantize::matchAndRewrite(IE::DynamicDequa
             inputDynDequantShape[Dims4D::Act::W] == 1 || inputDynDequantShape[Dims4D::Act::W] % elementsInOneByte == 0;
     if (!isNAlign || !isCAlign || !isHAlign || !isWAlign) {
         _log.trace("Not beneficial moving MemPermute up due to non-aligned shape");
+        return mlir::failure();
+    }
+
+    // For sub-byte types, only HWC->WHC permutations (mergedMemPerm == {1,0,2}) are supported
+    // by the DMA hardware. Other permutations on sub-byte PermuteDMAOps cannot be unrolled by
+    // UnrollPermuteDMAPass and will cause a crash in ConvertVPUIP2VPUMI40XX.
+    const auto isSubBytePermuteSupported = [](vpux::NDTypeInterface inType, mlir::AffineMap memPerm) -> bool {
+        const auto inputMemShape = inType.getMemShape();
+        // Source-dim indices for each non-unit output position, in output order.
+        SmallVector<int64_t> nonUnitPerm;
+        for (unsigned outIdx = 0; outIdx < memPerm.getNumResults(); ++outIdx) {
+            const auto srcDim = static_cast<int64_t>(memPerm.getDimPosition(outIdx));
+            if (inputMemShape[MemDim(srcDim)] != 1) {
+                nonUnitPerm.push_back(srcDim);
+            }
+        }
+        if (nonUnitPerm.size() <= 1) {
+            return true;
+        }
+        // Argsort nonUnitPerm: output positions listed in source-dim order.
+        const auto n = static_cast<int64_t>(nonUnitPerm.size());
+        SmallVector<int64_t> outPosBySrcDim(n);
+        std::iota(outPosBySrcDim.begin(), outPosBySrcDim.end(), 0);
+        llvm::sort(outPosBySrcDim, [&nonUnitPerm](int64_t a, int64_t b) {
+            return nonUnitPerm[a] < nonUnitPerm[b];
+        });
+        // Group runs of consecutive output-positions (in source-dim order).
+        // Each run is a "super-dim"; record the starting output-position of each group.
+        SmallVector<int64_t> groupStartOutPos;
+        for (int64_t i = 0; i < n; ++i) {
+            if (i == 0 || outPosBySrcDim[i - 1] + 1 != outPosBySrcDim[i]) {
+                groupStartOutPos.push_back(outPosBySrcDim[i]);
+            }
+        }
+        // Only the HxWxC (3-group) shape maps to the supported {1,0,2} permutation.
+        if (groupStartOutPos.size() != 3) {
+            return false;
+        }
+        // {1,0,2} means group-1 < group-0 < group-2 in output-position order.
+        return groupStartOutPos[1] < groupStartOutPos[0] && groupStartOutPos[0] < groupStartOutPos[2];
+    };
+    if (!isSubBytePermuteSupported(dynamicDequantizeInType, outputPermuteOp.getMemPerm())) {
+        _log.trace("Sub-byte permutation would produce an unsupported DMA pattern, skipping transformation");
         return mlir::failure();
     }
 

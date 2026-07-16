@@ -14,6 +14,10 @@
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(NmsLayerTest);
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(Nms9LayerTest);
+
 class NmsLayerTestCommon : public NmsLayerTest, virtual public VpuOv2LayerTest {
 public:
 protected:

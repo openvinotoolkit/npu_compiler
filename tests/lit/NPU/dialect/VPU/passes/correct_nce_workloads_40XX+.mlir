@@ -14,10 +14,10 @@ func.func @ConvLargeSparseOutput(%input_ddr: tensor<1x64x40x40xf16, {order = #NH
     %cst_weights = const.Declare tensor<384x64x4x4xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<384x64x4x4xf16>, [#const.Reorder<#NHWC>]
     %input = VPU.Copy(%input_ddr) {out_mem_space = @CMX_NN} : tensor<1x64x40x40xf16, {order = #NHWC}> -> tensor<1x64x40x40xf16, {mem_space = @CMX_NN, order = #NHWC}>
     %weights = VPU.Copy(%cst_weights) {out_mem_space = @CMX_NN} : tensor<384x64x4x4xf16, {order = #NHWC}> -> tensor<384x64x4x4xf16, {mem_space = @CMX_NN, order = #NHWC}>
-    %conv_out = VPU.NCE.Convolution(%input, %weights) {
+    %conv_out = VPU.NCE.Convolution(%input, %weights) rawFilterShape [384, 64, 4, 4] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            rawFilterShape = [384, 64, 4, 4],
+            
             strides = [1, 1]
         } : tensor<1x64x40x40xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<384x64x4x4xf16, {mem_space = @CMX_NN, order = #NHWC}> -> !VPU.SparseTensor<data=tensor<1x384x37x37xf16, {mem_space = @CMX_NN, order = #NHWC}>, sparsity_map=tensor<1x384x37x37xi1, {mem_space = @CMX_NN, order = #NHWC}>> {
                 VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 384, 40, 80] pad [0, 0, 0, 0] #VPU.mpe_mode<CUBOID_4x16>
@@ -33,7 +33,7 @@ func.func @ConvLargeSparseOutput(%input_ddr: tensor<1x64x40x40xf16, {order = #NH
     // CHECK-SAME:      -> tensor<1x64x40x40xf16, {mem_space = @CMX_NN, order = #NHWC}>
     // CHECK:       [[WEIGHTS:%.+]] = VPU.Copy([[CST_WEIGHTS]]) {out_mem_space = @CMX_NN}
     // CHECK-SAME:      -> tensor<384x64x4x4xf16, {mem_space = @CMX_NN, order = #NHWC}>
-    // CHECK:       [[CONV_OUT:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS]]) {
+    // CHECK:       [[CONV_OUT:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS]]) rawFilterShape [384, 64, 4, 4] {
     // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
     // CHECK-SAME:      ppe = #VPU.PPEStub<>,
     // CHECK-SAME:      strides = [1, 1]}
@@ -203,7 +203,7 @@ func.func @DepthConvSparseInputWithoutL1aOpt(
     %FILT: tensor<64x16x1x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
 ) -> tensor<1x64x16x16xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}> {
     // CHECK:   [[ACT:%.+]]: !VPU.SparseTensor{{.+}}, [[FILT:%.+]]: tensor<64x16x1x1xf16{{.+}}>
-    %DWCONV = VPU.NCE.DepthConvolution(%ACT, %FILT) {
+    %DWCONV = VPU.NCE.DepthConvolution(%ACT, %FILT) rawFilterShape [64, 1, 3, 3] {
         minimumHardwareExecutionCost = 790 : i64,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEInt<
@@ -214,7 +214,7 @@ func.func @DepthConvSparseInputWithoutL1aOpt(
             lrelu_shift = 0 : i64,
             fp_prelu_alpha = 1.000000e+00 : f64
         >,
-        rawFilterShape = [64, 1, 3, 3],
+        
         strides = [1, 1]
     } -> tensor<1x64x16x16xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}> {
         VPU.DPU.Workload
@@ -312,11 +312,11 @@ func.func @DepthConvSparseInputWithoutL1aOpt(
 
 // CHECK-LABEL: @SOKConvSparseOutput
 func.func @SOKConvSparseOutput(%arg0: !Input_CMX, %arg1: !Weights_CMX) -> !Output_CMX {
-    %2 = VPU.NCE.Convolution(%arg0, %arg1) {
+    %2 = VPU.NCE.Convolution(%arg0, %arg1) rawFilterShape [256, 512, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
             pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = 0.000000e+00 : f64, clamp_high = 2.550000e+02 : f64, prelu_alpha = [1.000000e+00], adder = 0.000000e+00 : f64>,
-            rawFilterShape = [256, 512, 3, 3], strides = [2, 2]} : !Input_CMX, !Weights_CMX -> !Output_CMX {
+             strides = [2, 2]} : !Input_CMX, !Weights_CMX -> !Output_CMX {
                 VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 96, 7, 7] pad [1, 0, 1, 0] <CUBOID_4x16> attributes {cluster_id = 0 : i64}
                 VPU.DPU.Workload outOffsets [0, 96, 0, 0] outSizes [1, 96, 7, 7] pad [1, 0, 1, 0] <CUBOID_4x16> attributes {cluster_id = 1 : i64}
                 VPU.DPU.Workload outOffsets [0, 192, 0, 0] outSizes [1, 64, 7, 7] pad [1, 0, 1, 0] <CUBOID_8x16> attributes {cluster_id = 2 : i64}

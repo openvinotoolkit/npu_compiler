@@ -16,11 +16,9 @@ endif()
 
 add_subdirectory(profiling_parser)
 
-add_subdirectory(vpux-binutils)
-
 add_subdirectory(npureg-tblgen)
 
-if(ENABLE_BYTECODE_INTERPRETER)
+if(ENABLE_NPU_EXECUTION_ENGINE)
     add_subdirectory(bytecode_interpreter)
 endif()
 

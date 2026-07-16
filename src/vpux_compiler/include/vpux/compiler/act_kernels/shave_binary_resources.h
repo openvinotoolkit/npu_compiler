@@ -18,6 +18,7 @@
 extern std::unordered_map<std::string, const std::pair<const uint8_t*, size_t>> shaveBinaryResourcesMap;
 extern std::unordered_map<std::string, const std::pair<const uint8_t*, size_t>> shaveBitcodeResourcesMap;
 extern std::unordered_map<std::string, const std::pair<const uint8_t*, size_t>> shaveAsmArchiveResourcesMap;
+extern std::unordered_map<std::string, const std::pair<const uint8_t*, size_t>> rtKernelBinaryResourcesMap;
 
 namespace vpux {
 
@@ -26,6 +27,12 @@ class ShaveBinaryResourcesCache;
 class ShaveBinaryResources {
 private:
     ShaveBinaryResources(): _shaveBinaryResourcesMap(shaveBinaryResourcesMap) {
+        for (const auto& [key, value] : rtKernelBinaryResourcesMap) {
+            VPUX_THROW_UNLESS(_shaveBinaryResourcesMap.find(key) == _shaveBinaryResourcesMap.end(),
+                              "Key collision between shaveBinaryResourcesMap and rtKernelBinaryResourcesMap: '{0}'",
+                              key);
+            _shaveBinaryResourcesMap.emplace(key, value);
+        }
     }
 
 public:

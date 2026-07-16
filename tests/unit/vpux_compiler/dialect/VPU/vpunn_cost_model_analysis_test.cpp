@@ -96,14 +96,14 @@ using MLIR_CostModelAnalysisTest = MLIR_UnitBase;
 
 const static llvm::StringLiteral inputIR = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-    module @test attributes {config.arch = #config.arch_kind<NPU40XX>} {
+    module @test attributes {config.platform = #config.platform<NPU4000>} {
         func.func @main(%arg0: tensor<1x128x32x32xf16, {order = #NHWC}>) -> tensor<1x64x32x32xf16, {order = #NHWC}> {
             %cst = const.Declare tensor<64x1x1x4xsi32> = dense<10> : tensor<64x1x1x4xsi32>
             %cst_0 = const.Declare tensor<64x128x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<64x128x1x1xf16>, [#const.Reorder<#NHWC>]
-            %0 = VPU.NCE.Convolution(%arg0, %cst_0, %cst) {
+            %0 = VPU.NCE.Convolution(%arg0, %cst_0, %cst) rawFilterShape [64, 128, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                rawFilterShape = [64, 128, 1, 1], strides = [1, 1]} : tensor<1x128x32x32xf16, {order = #NHWC}>, tensor<64x128x1x1xf16, {order = #NHWC}>, tensor<64x1x1x4xsi32>
+                 strides = [1, 1]} : tensor<1x128x32x32xf16, {order = #NHWC}>, tensor<64x128x1x1xf16, {order = #NHWC}>, tensor<64x1x1x4xsi32>
                 -> tensor<1x64x32x32xf16, {order = #NHWC}>
             return %0 : tensor<1x64x32x32xf16, {order = #NHWC}>
         }
@@ -111,10 +111,10 @@ const static llvm::StringLiteral inputIR = R"(
 
 TEST_F(MLIR_CostModelAnalysisTest, CostModelAnalysisBehavior) {
     auto registry = vpux::createDialectRegistry();
-    const auto arch = config::ArchKind::NPU40XX;
-    auto interfacesRegistry = vpux::createInterfacesRegistry(arch);
+    const auto platform = config::Platform::NPU4000;
+    auto interfacesRegistry = vpux::createInterfacesRegistry(platform);
     interfacesRegistry->registerInterfaces(registry);
-    VPU::initializeSingletons(registry, VPU::DeviceVersion{std::nullopt, config::ArchKind::NPU40XX});
+    VPU::initializeSingletons(registry, platform);
 
     mlir::MLIRContext ctx(registry);
     auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
@@ -132,14 +132,14 @@ TEST_F(MLIR_CostModelAnalysisTest, CostModelAnalysisBehavior) {
 
 const static llvm::StringLiteral inputIR50XX = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-    module @test attributes {config.arch = #config.arch_kind<NPU50XX>} {
+    module @test attributes {config.platform = #config.platform<NPU5010>} {
         func.func @main(%arg0: tensor<1x128x32x32xf16, {order = #NHWC}>) -> tensor<1x64x32x32xf16, {order = #NHWC}> {
             %cst = const.Declare tensor<64x1x1x4xsi32> = dense<10> : tensor<64x1x1x4xsi32>
             %cst_0 = const.Declare tensor<64x128x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<64x128x1x1xf16>, [#const.Reorder<#NHWC>]
-            %0 = VPU.NCE.Convolution(%arg0, %cst_0, %cst) {
+            %0 = VPU.NCE.Convolution(%arg0, %cst_0, %cst) rawFilterShape [64, 128, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                rawFilterShape = [64, 128, 1, 1], strides = [1, 1]} : tensor<1x128x32x32xf16, {order = #NHWC}>, tensor<64x128x1x1xf16, {order = #NHWC}>, tensor<64x1x1x4xsi32>
+                 strides = [1, 1]} : tensor<1x128x32x32xf16, {order = #NHWC}>, tensor<64x128x1x1xf16, {order = #NHWC}>, tensor<64x1x1x4xsi32>
                 -> tensor<1x64x32x32xf16, {order = #NHWC}>
             return %0 : tensor<1x64x32x32xf16, {order = #NHWC}>
         }
@@ -147,9 +147,10 @@ const static llvm::StringLiteral inputIR50XX = R"(
 
 TEST_F(MLIR_CostModelAnalysisTest, CostModelCachedSharedInstance_NPU50XX) {
     auto registry = vpux::createDialectRegistry();
-    auto interfacesRegistry = vpux::createInterfacesRegistry(config::ArchKind::NPU50XX);
+    const auto platform = config::Platform::NPU5010;
+    auto interfacesRegistry = vpux::createInterfacesRegistry(platform);
     interfacesRegistry->registerInterfaces(registry);
-    VPU::initializeSingletons(registry, VPU::DeviceVersion{std::nullopt, config::ArchKind::NPU50XX});
+    VPU::initializeSingletons(registry, platform);
 
     mlir::MLIRContext ctx(registry);
     auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR50XX, &ctx);

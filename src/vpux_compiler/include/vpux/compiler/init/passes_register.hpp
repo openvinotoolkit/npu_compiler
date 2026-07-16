@@ -9,7 +9,7 @@
 #include <memory>
 
 namespace vpux::config {
-enum class ArchKind : uint64_t;
+enum class Platform : uint64_t;
 }
 
 namespace vpux {
@@ -34,6 +34,6 @@ public:
 // createPassesRegistry
 //
 
-std::unique_ptr<IPassesRegistry> createPassesRegistry(config::ArchKind archKind);
+std::unique_ptr<IPassesRegistry> createPassesRegistry(config::Platform platform);
 
 }  // namespace vpux

@@ -42,8 +42,13 @@ mlir::LogicalResult insertCmxCopies(mlir::Operation* origOp, mlir::PatternRewrit
     DenseMap<mlir::Value, mlir::Value> copiedInputs;
     for (auto& inputOperand : origOp->getOpOperands()) {
         auto origInputValue = inputOperand.get();
+        const auto ndInputType = mlir::dyn_cast<vpux::NDTypeInterface>(origInputValue.getType());
+        // Non-tensor operands (e.g. index types) have no memory space and do not need a CMX copy
+        if (!ndInputType) {
+            continue;
+        }
         // No need to copy the data if due to some reason it's in CMX already
-        const auto inputMemSpace = mlir::cast<vpux::NDTypeInterface>(origInputValue.getType()).getMemSpace();
+        const auto inputMemSpace = ndInputType.getMemSpace();
         if (inputMemSpace == memSpaceCMX) {
             continue;
         }
@@ -65,19 +70,29 @@ mlir::LogicalResult insertCmxCopies(mlir::Operation* origOp, mlir::PatternRewrit
         inputOperand.set(copiedInputs[origInputValue]);
     }
 
-    auto origOutput = origOp->getResult(0);
-    const auto origOutType = mlir::cast<vpux::NDTypeInterface>(origOutput.getType());
-    const auto origOutMemSpace = origOutType.getMemSpace();
-    if (origOutMemSpace != memSpaceCMX) {
-        // Leave the original operation but change it in-place and add a Copy after it
+    // Check whether any NDType result is outside CMX; ops with multiple results (e.g. ConvolutionOp with a
+    // reduceMax output) require all tensor results to be moved to CMX
+    const auto anyOutputNeedsMove = llvm::any_of(origOp->getResults(), [&](mlir::Value result) {
+        const auto ndType = mlir::dyn_cast<vpux::NDTypeInterface>(result.getType());
+        return ndType && ndType.getMemSpace() != memSpaceCMX;
+    });
+    if (anyOutputNeedsMove) {
+        // Leave the original operation but change it in-place and add a Copy after it for each result
         mlir::OpBuilder::InsertionGuard guard(rewriter);
         rewriter.setInsertionPointAfter(origOp);
-        const auto newOutType = origOutType.changeMemSpace(memSpaceCMX);
         rewriter.modifyOpInPlace(origOp, [&]() {
-            origOutput.setType(newOutType);
-            const auto copiedOutput =
-                    copyIntoMemSpace(rewriter, appendLoc(origOp->getLoc(), "output-DDR"), origOutput, origOutMemSpace);
-            origOutput.replaceAllUsesExcept(copiedOutput, copiedOutput.getDefiningOp());
+            for (auto origOutput : origOp->getResults()) {
+                const auto ndOutType = mlir::dyn_cast<vpux::NDTypeInterface>(origOutput.getType());
+                // Non-tensor results (e.g. index types) have no memory space
+                if (!ndOutType || ndOutType.getMemSpace() == memSpaceCMX) {
+                    continue;
+                }
+                const auto origOutMemSpace = ndOutType.getMemSpace();
+                origOutput.setType(ndOutType.changeMemSpace(memSpaceCMX));
+                const auto copiedOutput = copyIntoMemSpace(rewriter, appendLoc(origOp->getLoc(), "output-DDR"),
+                                                           origOutput, origOutMemSpace);
+                origOutput.replaceAllUsesExcept(copiedOutput, copiedOutput.getDefiningOp());
+            }
         });
     }
 
@@ -128,7 +143,15 @@ void AdjustMemorySpacePass::safeRunOnFunc() {
     const auto isLegalOp = [](mlir::Operation* op) {
         if (mlir::isa<VPU::NCEOpInterface>(op)) {
             const auto verifyLocationInCmx = [](mlir::Value operand) {
-                return mlir::cast<vpux::NDTypeInterface>(operand.getType()).getMemoryKind() == MemoryKind::CMX_NN;
+                if (operand == nullptr) {
+                    return true;
+                }
+                const auto ndType = mlir::dyn_cast<vpux::NDTypeInterface>(operand.getType());
+                // Non-tensor types (e.g. index results from reduceMinMax) do not reside in any memory space
+                if (!ndType) {
+                    return true;
+                }
+                return ndType.getMemoryKind() == MemoryKind::CMX_NN;
             };
             return llvm::all_of(op->getOperands(), verifyLocationInCmx) &&
                    llvm::all_of(op->getResults(), verifyLocationInCmx);

@@ -8,11 +8,11 @@
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!Output_DDR = memref<1x48x60x60xf16, #NHWC, @DDR>
+!Output_DDR = memref<1x48x60x60xf16, {order = #NHWC}, @DDR>
 
-!Input_CMX = memref<1x16x62x62xf16, #NHWC, @CMX_NN>
-!Output_CMX = memref<1x48x60x60xf16, #NHWC, @CMX_NN>
-!Weights_CMX = memref<48x16x3x3xf16, #NHWC, @CMX_NN>
+!Input_CMX = memref<1x16x62x62xf16, {order = #NHWC}, @CMX_NN>
+!Output_CMX = memref<1x48x60x60xf16, {order = #NHWC}, @CMX_NN>
+!Weights_CMX = memref<48x16x3x3xf16, {order = #NHWC}, @CMX_NN>
 
 // CHECK-LABEL: @DpuProfiling
 module @DpuProfiling  {
@@ -55,9 +55,9 @@ module @DpuProfiling  {
 
     //CHECK:        profilingOutputsInfo
     //CHECK-NEXT:   DataInfo "dpu" : tensor<[[PROFDATA_INFO_TENSOR_SIZE:.+]]x[[PROFDATA_INFO_TENSOR_TYPE:.+]]>
-    //CHECK:        func.func @main([[ARG0:%.+]]: memref<1x16x62x62xf16, #NHWC, @CMX_NN>, [[ARG1:%.+]]: memref<48x16x3x3xf16, #NHWC, @CMX_NN>, [[ARG2:%.+]]: memref<1x48x60x60xf16, #NHWC, @DDR>, [[ARG3:%.+]]: memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>) -> (memref<1x48x60x60xf16, #NHWC, @DDR>, memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
+    //CHECK:        func.func @main([[ARG0:%.+]]: memref<1x16x62x62xf16, {order = #NHWC}, @CMX_NN>, [[ARG1:%.+]]: memref<48x16x3x3xf16, {order = #NHWC}, @CMX_NN>, [[ARG2:%.+]]: memref<1x48x60x60xf16, {order = #NHWC}, @DDR>, [[ARG3:%.+]]: memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>) -> (memref<1x48x60x60xf16, {order = #NHWC}, @DDR>, memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
 
-    //CHECK:        [[OUTPUT_BUF_CMX:%.+]] = memref.alloc() : memref<1x48x60x60xf16, #NHWC, @CMX_NN>
+    //CHECK:        [[OUTPUT_BUF_CMX:%.+]] = memref.alloc() : memref<1x48x60x60xf16, {order = #NHWC}, @CMX_NN>
     //CHECK:        [[PROF_BUF_CMX:%.+]] = memref.alloc()
     //CHECK-SAME:   {alignment = [[PROF_BUF_CMX_ALIGN_ATTR:.+]]} : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]], [@CMX_NN, 0]>
     //CHECK:        [[PROF_VIEW:%.+]] = VPUIP.SubView [[PROF_BUF_CMX]] [0] [[[PROFDATA_INFO_TENSOR_SIZE]]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]], [@CMX_NN, 0]> to memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]], [@CMX_NN, 0]>
@@ -70,13 +70,13 @@ module @DpuProfiling  {
     //CHECK:        [[PROF_CONCAT:%.+]] = VPUIP.ConcatView inputs([[NCE_RES]]#1 : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]], [@CMX_NN, 0]>) outputs([[PROF_BUF_CMX]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]], [@CMX_NN, 0]>) -> memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]], [@CMX_NN, 0]>
     //CHECK:        [[COPY_PROF_TO_DDR:%.+]] = VPUIP.NNDMA <{profiling_buffer_mgmt}> inputs([[PROF_CONCAT]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]], [@CMX_NN, 0]>) outputs([[PROF_OUTPUT_VIEW]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
 
-    //CHECK:        [[OUTPUT_BUF_DDR:%.+]] = memref.alloc() : memref<1x48x60x60xf16, #NHWC, @DDR>
-    //CHECK:        [[COPY_OUTPUT_TO_DDR:%.+]] = VPUIP.NNDMA inputs([[NCE_RES]]#0 : memref<1x48x60x60xf16, #NHWC, @CMX_NN>) outputs([[OUTPUT_BUF_DDR]] : memref<1x48x60x60xf16, #NHWC, @DDR>)
-    //CHECK:        [[COPY_OUTPUT_TO_RESULT:%.+]] = VPUIP.NNDMA inputs([[COPY_OUTPUT_TO_DDR]] : memref<1x48x60x60xf16, #NHWC, @DDR>) outputs([[ARG2]] : memref<1x48x60x60xf16, #NHWC, @DDR>)
+    //CHECK:        [[OUTPUT_BUF_DDR:%.+]] = memref.alloc() : memref<1x48x60x60xf16, {order = #NHWC}, @DDR>
+    //CHECK:        [[COPY_OUTPUT_TO_DDR:%.+]] = VPUIP.NNDMA inputs([[NCE_RES]]#0 : memref<1x48x60x60xf16, {order = #NHWC}, @CMX_NN>) outputs([[OUTPUT_BUF_DDR]] : memref<1x48x60x60xf16, {order = #NHWC}, @DDR>)
+    //CHECK:        [[COPY_OUTPUT_TO_RESULT:%.+]] = VPUIP.NNDMA inputs([[COPY_OUTPUT_TO_DDR]] : memref<1x48x60x60xf16, {order = #NHWC}, @DDR>) outputs([[ARG2]] : memref<1x48x60x60xf16, {order = #NHWC}, @DDR>)
 
     //CHECK:        [[PROF_RES:%.+]] = VPUIP.ConcatView inputs([[COPY_PROF_TO_DDR]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>) outputs([[ARG3]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
 
-    //CHECK:        return [[COPY_OUTPUT_TO_RESULT]], [[PROF_RES]] : memref<1x48x60x60xf16, #NHWC, @DDR>, memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>
+    //CHECK:        return [[COPY_OUTPUT_TO_RESULT]], [[PROF_RES]] : memref<1x48x60x60xf16, {order = #NHWC}, @DDR>, memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>
 }
 
 // -----
@@ -90,11 +90,11 @@ module @DpuProfiling  {
     num_clusters = 4 : i64
 }>
 
-!Output_DDR = memref<1x48x60x60xf16, #NHWC, @DDR>
+!Output_DDR = memref<1x48x60x60xf16, {order = #NHWC}, @DDR>
 
-!Input_CMX = memref<1x16x62x62xf16, #NHWC, @CMX_NN>
-!Output_CMX = memref<1x48x60x60xf16, #NHWC, @CMX_NN>
-!Weights_CMX = memref<48x16x3x3xf16, #NHWC, @CMX_NN>
+!Input_CMX = memref<1x16x62x62xf16, {order = #NHWC}, @CMX_NN>
+!Output_CMX = memref<1x48x60x60xf16, {order = #NHWC}, @CMX_NN>
+!Weights_CMX = memref<48x16x3x3xf16, {order = #NHWC}, @CMX_NN>
 
 // CHECK-LABEL: @DpuProfilingWithMulticlustering
 module @DpuProfilingWithMulticlustering  {
@@ -134,7 +134,7 @@ module @DpuProfilingWithMulticlustering  {
 
     //CHECK:        profilingOutputsInfo
     //CHECK-NEXT:   DataInfo "dpu" : tensor<[[PROFDATA_INFO_TENSOR_SIZE:.+]]x[[PROFDATA_INFO_TENSOR_TYPE:.+]]>
-    //CHECK:        func.func @main([[ARG0:%.+]]: memref<1x16x62x62xf16, #NHWC, @CMX_NN>, [[ARG1:%.+]]: memref<48x16x3x3xf16, #NHWC, @CMX_NN>, [[ARG3:%.+]]: memref<1x48x60x60xf16, #NHWC, @DDR>, [[ARG4:%.+]]: memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>) -> (memref<1x48x60x60xf16, #NHWC, @DDR>, memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
+    //CHECK:        func.func @main([[ARG0:%.+]]: memref<1x16x62x62xf16, {order = #NHWC}, @CMX_NN>, [[ARG1:%.+]]: memref<48x16x3x3xf16, {order = #NHWC}, @CMX_NN>, [[ARG3:%.+]]: memref<1x48x60x60xf16, {order = #NHWC}, @DDR>, [[ARG4:%.+]]: memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>) -> (memref<1x48x60x60xf16, {order = #NHWC}, @DDR>, memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
 
     //CHECK:        [[OUTPUT_BUF_CMX:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x48x60x60xf16, #NHWC, @CMX_NN
     //CHECK:        [[PROF_BUF_CMX:%.+]] =   VPURT.AllocDistributed {alignment = [[PROF_BUF_CMX_ALIGN_ATTR:.+]]} -> !VPUIP.DistributedBuffer<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]], #C, @CMX_NN, {mode = "SEGMENTED", num_tiles = [4], num_clusters = 4 : i64, uniform_distributed_segments}>
@@ -142,8 +142,8 @@ module @DpuProfilingWithMulticlustering  {
 
     //CHECK:        [[NCE_RES:%[0-9]+]]:2 = VPUIP.NCEClusterTask
     //CHECK-SAME:   profilingMetadata = #VPUIP.DpuProfilingMetadataAttr<bufferId = 0 : i64, taskId = 1 : i64, maxVariants = 1 : i64>
-    //CHECK-SAME:   input([[ARG0]] : memref<1x16x62x62xf16, #NHWC, @CMX_NN>)
-    //CHECK-SAME:   weights([[ARG1]] : memref<48x16x3x3xf16, #NHWC, @CMX_NN>)
+    //CHECK-SAME:   input([[ARG0]] : memref<1x16x62x62xf16, {order = #NHWC}, @CMX_NN>)
+    //CHECK-SAME:   weights([[ARG1]] : memref<48x16x3x3xf16, {order = #NHWC}, @CMX_NN>)
     //CHECK-SAME:   outputs([[OUTPUT_BUF_CMX]] : !VPUIP.DistributedBuffer<1x48x60x60xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 4, 1], num_clusters = 4 : i64}>)
     //CHECK-SAME:   profiling_data([[PROF_BUF_VIEW_CMX]] : !VPUIP.DistributedBuffer<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]], #C, @CMX_NN
 
@@ -155,16 +155,16 @@ module @DpuProfilingWithMulticlustering  {
     //CHECK-SAME:       inputs([[PROF_VIEW_CMX_CONCAT]] : !VPUIP.DistributedBuffer<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]], #C, @CMX_NN
     //CHECK-SAME:       outputs([[PROF_OUTPUT_VIEW]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
 
-    //CHECK:        [[OUTPUT_BUF_DDR:%.+]] = memref.alloc() : memref<1x48x60x60xf16, #NHWC, @DDR>
+    //CHECK:        [[OUTPUT_BUF_DDR:%.+]] = memref.alloc() : memref<1x48x60x60xf16, {order = #NHWC}, @DDR>
 
     //CHECK:        [[COPY_OUTPUT_TO_DDR:%.+]] = VPUIP.NNDMA
     //CHECK-SAME:       inputs([[NCE_RES]]#0 : !VPUIP.DistributedBuffer<1x48x60x60xf16, #NHWC, @CMX_NN
-    //CHECK-SAME:       outputs([[OUTPUT_BUF_DDR]] : memref<1x48x60x60xf16, #NHWC, @DDR>)
+    //CHECK-SAME:       outputs([[OUTPUT_BUF_DDR]] : memref<1x48x60x60xf16, {order = #NHWC}, @DDR>)
 
-    //CHECK:        [[COPY_OUTPUT_TO_RESULT:%.+]] = VPUIP.NNDMA inputs([[COPY_OUTPUT_TO_DDR]] : memref<1x48x60x60xf16, #NHWC, @DDR>) outputs([[ARG3]] : memref<1x48x60x60xf16, #NHWC, @DDR>)
+    //CHECK:        [[COPY_OUTPUT_TO_RESULT:%.+]] = VPUIP.NNDMA inputs([[COPY_OUTPUT_TO_DDR]] : memref<1x48x60x60xf16, {order = #NHWC}, @DDR>) outputs([[ARG3]] : memref<1x48x60x60xf16, {order = #NHWC}, @DDR>)
     //CHECK:        [[PROF_RES:%.+]] = VPUIP.ConcatView inputs([[COPY_PROF_TO_DDR]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>) outputs([[ARG4]] : memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
 
-    //CHECK:        return [[COPY_OUTPUT_TO_RESULT]], [[PROF_RES]] : memref<1x48x60x60xf16, #NHWC, @DDR>, memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>
+    //CHECK:        return [[COPY_OUTPUT_TO_RESULT]], [[PROF_RES]] : memref<1x48x60x60xf16, {order = #NHWC}, @DDR>, memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>
 }
 
 
@@ -173,13 +173,13 @@ module @DpuProfilingWithMulticlustering  {
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!Input0_CMX = memref<1x16x224x224xf16, #NHWC, [@CMX_NN, 0]>
-!Output0_CMX = memref<1x48x222x222xf16, #NHWC, [@CMX_NN, 0]>
-!Weights0_CMX = memref<48x16x3x3xf16, #NHWC, [@CMX_NN, 0]>
+!Input0_CMX = memref<1x16x224x224xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!Output0_CMX = memref<1x48x222x222xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!Weights0_CMX = memref<48x16x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
-!Weights1_CMX = memref<32x48x3x3xf16, #NHWC, [@CMX_NN, 0]>
-!Output1_CMX = memref<1x32x55x55xf16, #NHWC, [@CMX_NN, 0]>
-!Output2_CMX = memref<1x32x55x55xf16, #NHWC, @CMX_NN>
+!Weights1_CMX = memref<32x48x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!Output1_CMX = memref<1x32x55x55xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!Output2_CMX = memref<1x32x55x55xf16, {order = #NHWC}, @CMX_NN>
 
 !OutputDistributed = !VPUIP.DistributedBuffer<1x32x55x55xf16, #NHWC, @CMX_NN, {
     mode = "SEGMENTED",
@@ -187,7 +187,7 @@ module @DpuProfilingWithMulticlustering  {
     num_clusters = 3 : i64
 }>
 
-!Output_DDR = memref<1x32x55x55xf16, #NHWC>
+!Output_DDR = memref<1x32x55x55xf16, {order = #NHWC}>
 
 // CHECK-LABEL: @DpuProfilingMultipleOps
 module @DpuProfilingMultipleOps  {
@@ -202,10 +202,10 @@ module @DpuProfilingMultipleOps  {
   } profilingOutputsInfo :  {
   }
 
-  func.func @main(%arg0: memref<1x3x224x224xf16, #NHWC>, %arg1: !Output_DDR) -> !Output_DDR {
+  func.func @main(%arg0: memref<1x3x224x224xf16, {order = #NHWC}>, %arg1: !Output_DDR) -> !Output_DDR {
     //CHECK:        profilingOutputsInfo
     //CHECK-NEXT:   DataInfo "dpu" : tensor<[[PROFDATA_INFO_TENSOR_SIZE:.+]]x[[PROFDATA_INFO_TENSOR_TYPE:.+]]>
-    //CHECK:        func.func @main([[ARG_0:%[^:]+]]: memref<1x3x224x224xf16, #NHWC>, [[ARG_1:%[^:]+]]: memref<1x32x55x55xf16, #NHWC>, [[ARG_2:%[^:]+]]: memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>) -> (memref<1x32x55x55xf16, #NHWC>, memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
+    //CHECK:        func.func @main([[ARG_0:%[^:]+]]: memref<1x3x224x224xf16, {order = #NHWC}>, [[ARG_1:%[^:]+]]: memref<1x32x55x55xf16, {order = #NHWC}>, [[ARG_2:%[^:]+]]: memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>) -> (memref<1x32x55x55xf16, {order = #NHWC}>, memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>)
     //CHECK:        [[BUFFER_D:%.+]] = VPURT.AllocDistributed {alignment = [[PROF_BUF_CMX_ALIGN_ATTR:.+]]} -> !VPUIP.DistributedBuffer<[[PROFDATA_INFO_TENSOR_SPLIT_0:.+]]x[[PROFDATA_INFO_TENSOR_TYPE]], #C, @CMX_NN, {mode = "SEGMENTED", num_tiles = [3], num_clusters = 3 : i64, uniform_distributed_segments}>
     //CHECK:        [[BUFFER_0:%.+]] = memref.alloc() {alignment = [[PROF_BUF_CMX_ALIGN_ATTR]]} : memref<[[PROFDATA_INFO_TENSOR_SPLIT_1:.+]]x[[PROFDATA_INFO_TENSOR_TYPE]], [@CMX_NN, 0]>
 

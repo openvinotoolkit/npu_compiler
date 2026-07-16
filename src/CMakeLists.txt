@@ -33,6 +33,19 @@ if(ENABLE_DEP_CHECK)
     depcheck_setup()
 endif()
 
+set(CID_COMPONENT "CiD")
+ov_cpack_add_component(${CID_COMPONENT})
+set(CIP_COMPONENT "CiP")
+ov_cpack_add_component(${CIP_COMPONENT})
+
+if(BUILD_COMPILER_FOR_DRIVER)
+    set(INSTALL_COMPONENT ${CID_COMPONENT})
+    set(INSTALL_DESTINATION cid)
+else()
+    set(INSTALL_COMPONENT ${CIP_COMPONENT})
+    set(INSTALL_DESTINATION cip)
+endif()
+
 add_subdirectory(vpux_driver_compiler)
 
 
@@ -43,7 +56,11 @@ add_subdirectory(vpux_compiler)
 if(BUILD_SHARED_LIBS)
 endif()
 
-if(BUILD_SHARED_LIBS AND ENABLE_NPU_EXECUTION_ENGINE)
-    add_subdirectory(mlir_runtime)
+if(ENABLE_NPU_EXECUTION_ENGINE)
+    if(BUILD_SHARED_LIBS)
+        add_subdirectory(mlir_runtime)
+    endif()
     add_subdirectory(npu_interpreter_runtime)
 endif()
+
+add_subdirectory(npu_bytecode_utils)

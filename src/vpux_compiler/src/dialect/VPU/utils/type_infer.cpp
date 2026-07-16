@@ -83,6 +83,54 @@ mlir::LogicalResult inferReduceReturnTypes(mlir::Location loc, mlir::Value input
     return mlir::success();
 }
 
+mlir::LogicalResult inferReduceExtraNCETypes(mlir::Location loc, mlir::Type opOutput,
+                                             ::std::optional<::mlir::ArrayAttr> axes,
+                                             ::llvm::ArrayRef<int32_t> resultSegmentSizes,
+                                             mlir::SmallVectorImpl<mlir::Type>& inferredReturnTypes) {
+    // Skip the first element since we already inferred the main output type
+    auto reduceSegmentSizes = resultSegmentSizes.drop_front(1);
+    if (!axes.has_value() || !axes.value()) {
+        if (llvm::is_contained(reduceSegmentSizes, 1)) {
+            return errorAt(loc, "NCE op with reduce outputs but no axes specified");
+        }
+        // No axes means no extra outputs
+        return mlir::success();
+    }
+    auto axesValue = SmallVector<int64_t>(parseIntArrayAttr<int64_t>(axes.value()));
+    const auto origType = mlir::cast<vpux::NDTypeInterface>(opOutput);
+    auto outShape = SmallVector<int64_t>(origType.getShape().raw());
+
+    if (axesValue.size() != 1 && (axesValue.size() != outShape.size())) {
+        return errorAt(loc,
+                       "For ReduceMax/ReduceMin ExtraNCE operations, axes size should either 1 or equal to the input "
+                       "rank, but got {0} and input rank {1}",
+                       axesValue.size(), outShape.size());
+    }
+
+    auto inferReducedTypes = [&]() {
+        // Reduce to 1 the axes in axes set
+        for (auto axis : axesValue) {
+            outShape[axis] = 1;
+        }
+
+        const auto newOutputType = TypeComponents().setDimsOrder(origType.getDimsOrder()).setShape(ShapeRef(outShape));
+        // Preserve the concrete NDTypeInterface wrapper (e.g. Distributed/Sparse) while updating the shape.
+        auto outputType = origType.changeTypeComponents(newOutputType);
+
+        return outputType;
+    };
+
+    auto reduceMinMaxType = inferReducedTypes();
+    for (size_t i = 0; i < reduceSegmentSizes.size(); i++) {
+        if (reduceSegmentSizes[i]) {
+            // Add the inferred reduced outputs
+            inferredReturnTypes.push_back(reduceMinMaxType);
+        }
+    }
+
+    return mlir::success();
+}
+
 void inferPermuteReturnTypes(mlir::Value input, mlir::AffineMap memPerm, mlir::AffineMap dstOrder,
                              SmallVectorImpl<mlir::Type>& inferredReturnTypes) {
     const auto inOrder = DimsOrder::fromValue(input);

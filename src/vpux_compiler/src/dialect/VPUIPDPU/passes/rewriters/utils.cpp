@@ -6,7 +6,6 @@
 #include "vpux/compiler/dialect/VPUIPDPU/rewriters/utils.hpp"
 #include "vpux/compiler/core/types/quantile_float/types.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
-#include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIPDPU/attributes.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 

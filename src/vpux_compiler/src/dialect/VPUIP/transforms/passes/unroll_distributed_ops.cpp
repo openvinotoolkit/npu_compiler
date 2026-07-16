@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/VPUIP/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/compression_utils.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/dma_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/memref_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/swizzling_utils.hpp"
@@ -41,6 +42,7 @@ namespace {
 // to select which cluster to read from. The base pointer part of the SE pointers would do this.
 // Starting with NPU4, the base pointers no longer need to be configured differently for each cluster
 // as the DPU is only able to read from the local cluster, so they can be reset.
+
 bool resetBasePtrs(const vpux::config::ArchKind arch) {
     return arch >= config::ArchKind::NPU40XX;
 }
@@ -245,7 +247,7 @@ SmallVector<mlir::IntegerAttr> VPUIP::ClusterNCEBaseRewriter::getOutChannelOffse
 
     const auto numClusters = inDistribution.getNumClusters().getInt();
 
-    const auto hasWeightsTable = nceTask.getWeightTable() != nullptr;
+    const auto hasWeightsTable = nceTask.getWeightTable() != nullptr || nceTask.getWeightTableDataPtr() != nullptr;
     const auto isSOKMode =
             (inDistributionMode == VPU::DistributionMode::SEGMENTED ||
              inDistributionMode == VPU::DistributionMode::DUPLICATED) &&
@@ -299,13 +301,8 @@ void VPUIP::ClusterNCEBaseRewriter::matchAndRewrite(VPUIP::NCEClusterTaskOp nceT
 
     VPUX_THROW_UNLESS(!nceTask.getInputs().empty(), "Wrong inputs size: {0}", nceTask.getInputs().size());
 
-    const auto hasOnlyDefaultOutput =
-            (nceTask.getOutputs().size() == 1 || nceTask.getOutputs().size() == 2) && !nceTask.getProfilingData();
-    const auto hasOutputWithProfiling =
-            (nceTask.getOutputs().size() == 2 || nceTask.getOutputs().size() == 3) && nceTask.getProfilingData();
-
-    VPUX_THROW_UNLESS(hasOnlyDefaultOutput || hasOutputWithProfiling, "Wrong outputs size: {0}",
-                      nceTask.getOutputs().size());
+    auto nceResultSegmentSizes = nceTask.getProperties().getResultSegmentSizes();
+    VPUX_THROW_UNLESS(nceResultSegmentSizes[0] == 1, "NCE task doesn't have default output as the first output");
 
     auto parentInput = *nceTask.getInputs().begin();
     auto parentOutput = *nceTask.getOutputs().begin();
@@ -350,6 +347,7 @@ void VPUIP::ClusterNCEBaseRewriter::matchAndRewrite(VPUIP::NCEClusterTaskOp nceT
     auto sparsityPtrTable = SmallVector<mlir::Value>(numClusters, nullptr);
     auto scaleTable = SmallVector<mlir::Value>(numClusters, nullptr);
     auto biasTable = SmallVector<mlir::Value>(numClusters, nullptr);
+    auto alphaTable = SmallVector<mlir::Value>(numClusters, nullptr);
     auto zeroPointTable = SmallVector<mlir::Value>(numClusters, nullptr);
 
     if (nceTask.getWeightTable() != nullptr) {
@@ -367,6 +365,9 @@ void VPUIP::ClusterNCEBaseRewriter::matchAndRewrite(VPUIP::NCEClusterTaskOp nceT
     if (nceTask.getWeightTableBias() != nullptr) {
         biasTable = getWeightTableBuffs(loc, "weightTable", nceTask.getWeightTableBias(), numClusters, builder);
     }
+    if (nceTask.getWeightTableAlpha() != nullptr) {
+        alphaTable = getWeightTableBuffs(loc, "weightTable", nceTask.getWeightTableAlpha(), numClusters, builder);
+    }
     if (nceTask.getWeightZeroPoints() != nullptr) {
         zeroPointTable = getWeightTableBuffs(loc, "weightTable", nceTask.getWeightZeroPoints(), numClusters, builder);
     }
@@ -380,10 +381,12 @@ void VPUIP::ClusterNCEBaseRewriter::matchAndRewrite(VPUIP::NCEClusterTaskOp nceT
     SmallVector<mlir::Value> outputSparsityMapBuffs = {};
     SmallVector<mlir::Value> parentOutputSparsityMap = {};
     SmallVector<SmallVector<mlir::Value>> outputItiBuffs(numClusters);
+    SmallVector<mlir::Value> maxPerXyBuffs = {};
+    SmallVector<mlir::Value> minPerXyBuffs = {};
+    SmallVector<SmallVector<mlir::Value>> minMaxPerTensorBuffs(numClusters);
 
     getOutputBuffers(parentOutputBuffs, outputBuffs, parentOutputSparsityMap, outputSparsityMapBuffs, outputItiBuffs,
-                     loc, nceTask, numClusters, builder);
-
+                     maxPerXyBuffs, minPerXyBuffs, minMaxPerTensorBuffs, loc, nceTask, numClusters, builder);
     auto profilingBuffs = VPUIP::getPerClusterMemoryBuffers(_ctx, loc, "profilingBuff", nceTask.getProfilingData(),
                                                             numClusters, builder);
 
@@ -449,13 +452,15 @@ void VPUIP::ClusterNCEBaseRewriter::matchAndRewrite(VPUIP::NCEClusterTaskOp nceT
                 builder, vpurtTask.getWaitBarriers(), vpurtTask.getUpdateBarriers(), newLoc, inputBuffs[clusterId],
                 inputSparsityMapBuffs[clusterId], inputSETableBuffs[clusterId], weightsBuffs[clusterId],
                 weightsSparsityMapBuffs[clusterId], weightTable[clusterId], dataPtrTable[clusterId],
-                sparsityPtrTable[clusterId], scaleTable[clusterId], biasTable[clusterId], zeroPointTable[clusterId],
-                sprLookupTableBuffs[clusterId], palletLookupTableBuffs[clusterId], parentInputBuffs[clusterId],
-                parentInputSparsityMap[clusterId], parentInputSETable[clusterId], parentOutputBuffs[clusterId],
-                parentOutputSparsityMap[clusterId], mlir::ValueRange(outputItiBuffs[clusterId]), outputBuffs[clusterId],
-                outputSparsityMap, profilingData,
-                /*dynamic_sequence_length=*/nullptr, /*max_per_xy_buff=*/nullptr,
-                /*min_per_xy_buff=*/nullptr, /*min_max_per_tensor_buff=*/mlir::ValueRange(), nceTask.getTaskType(),
+                sparsityPtrTable[clusterId], scaleTable[clusterId], biasTable[clusterId], alphaTable[clusterId],
+                zeroPointTable[clusterId], sprLookupTableBuffs[clusterId], palletLookupTableBuffs[clusterId],
+                parentInputBuffs[clusterId], parentInputSparsityMap[clusterId], parentInputSETable[clusterId],
+                parentOutputBuffs[clusterId], parentOutputSparsityMap[clusterId],
+                mlir::ValueRange(outputItiBuffs[clusterId]), outputBuffs[clusterId], outputSparsityMap, profilingData,
+                /*dynamic_sequence_length=*/nullptr,
+                /*max_per_xy_buff=*/nceTask.getMaxPerXyBuff() ? maxPerXyBuffs[clusterId] : nullptr,
+                /*min_per_xy_buff=*/nceTask.getMinPerXyBuff() ? minPerXyBuffs[clusterId] : nullptr,
+                /*min_max_per_tensor_buff=*/mlir::ValueRange(minMaxPerTensorBuffs[clusterId]), nceTask.getTaskType(),
                 nceTask.getKernelSizeAttr(), nceTask.getKernelStridesAttr(), padAttrForCluster[clusterId],
                 nceTask.getIsContinued(), nceTask.getCmSpPatternAttr(), isSegmentedNCETask(parentInputType),
                 outChannelOffsets[clusterId], nceTask.getInputChannelsCompression(),
@@ -463,7 +468,7 @@ void VPUIP::ClusterNCEBaseRewriter::matchAndRewrite(VPUIP::NCEClusterTaskOp nceT
                 nceTask.getInputSeSizeAttr(), nceTask.getOutputSeSizeAttr(), nceTask.getIsPermuteQuantize(),
                 nceTask.getIsSmallKernelOptimized(), nceTask.getMpeEngineAttr(), nceTask.getEltwiseTypeAttr(),
                 nceTask.getSparsityConfigAttr(),
-                /*dynamic_scale_config=*/nullptr, localRegion);
+                /*dynamic_scale_config=*/nullptr, localRegion, nceTask.getS2dd2sConfigAttr());
 
         {
             mlir::OpBuilder::InsertionGuard guard(builder);
@@ -616,7 +621,7 @@ bool compareSubVectorsInPlace(const std::vector<char>& original, const SmallVect
 //
 
 void VPUIP::ClusterPerElementDMABaseRewriter::matchAndRewrite(VPUIP::DMATypeOpInterface dmaOp, mlir::OpBuilder& builder,
-                                                              bool isDataOverlapped) const {
+                                                              uint64_t unrollIdx, bool isDataOverlapped) const {
     if (!isTargetOp(dmaOp)) {
         return;
     }
@@ -783,7 +788,8 @@ void VPUIP::ClusterPerElementDMABaseRewriter::matchAndRewrite(VPUIP::DMATypeOpIn
                 _log.nest().trace("Input buffer offset for cluster {0}: {1}", i, inputBufferOffsets[i]);
             }
         }
-        unrollSegmentedOrOverlapped(loc, vpurtTask, builder, isDataOverlapped, std::move(inputBufferOffsets));
+        unrollSegmentedOrOverlapped(loc, vpurtTask, builder, unrollIdx, isDataOverlapped,
+                                    std::move(inputBufferOffsets));
     } else if (unrollingType == UnrollingType::DUPLICATED) {
         _log.nest().trace("Unrolling with DUPLICATED mode");
         unrollDuplicated(loc, vpurtTask, builder);
@@ -976,7 +982,7 @@ mlir::Value VPUIP::patchSETableValue(mlir::Location loc, Const::DeclareOp constO
 //
 
 void VPUIP::ClusterPerElementDMABaseRewriter::unrollSegmentedOrOverlapped(mlir::Location loc, VPURT::TaskOp vpurtTask,
-                                                                          mlir::OpBuilder& builder,
+                                                                          mlir::OpBuilder& builder, uint64_t unrollIdx,
                                                                           bool isDataOverlapped,
                                                                           SmallVector<Byte> inputBufferOffsets) const {
     auto dmaOp = vpurtTask.getInnerTaskOpOfType<VPUIP::DMATypeOpInterface>();
@@ -1071,12 +1077,6 @@ void VPUIP::ClusterPerElementDMABaseRewriter::unrollSegmentedOrOverlapped(mlir::
         useParentTensorStridesForOutput = true;
     }
 
-    // ODU permutations enabled, and tested only for SOH and NCHW order
-    // also middle network permutations are disabled for now [Track number: S#67423]
-    const bool tileNCHWOutOverH = numTiles.size() == 4 && numTiles[Dims4D::Act::N.ind()] == 1 &&
-                                  numTiles[Dims4D::Act::C.ind()] == 1 && numTiles[Dims4D::Act::H.ind()] > 1 &&
-                                  numTiles[Dims4D::Act::W.ind()] == 1 && inputType.getDimsOrder() == DimsOrder::NCHW &&
-                                  outputType.getDimsOrder() == DimsOrder::NCHW;
     // Reference distributed type
     const auto refDistType = inputDistType != nullptr ? inputDistType : outputDistType;
 
@@ -1154,18 +1154,6 @@ void VPUIP::ClusterPerElementDMABaseRewriter::unrollSegmentedOrOverlapped(mlir::
                     vpux::IndexedSymbolAttr::get(_ctx, {_cmxNameAttr, vpux::getIntAttr(_ctx, clusterId)});
             newType = VPUIP::updateSwizzlingSchemeBasedOnDistributedType(origDistType, newType);
             auto newCMXType = newType.changeMemSpace(symbolAttr);
-            if (tileNCHWOutOverH) {
-                const auto shape = newCMXType.getShape();
-                const auto strides = newCMXType.getStrides();
-                const int64_t dimC = shape[Dims4D::Act::C];
-                const int64_t dimH = shape[Dims4D::Act::H];
-                const Bit strideW = strides[Dims4D::Act::W];
-                const Bit strideH = strides[Dims4D::Act::H];
-                const Bit strideC = strideH * dimH;
-                const Bit strideN = strideC * dimC;
-                const auto newStrides = SmallVector<Bit>{strideN, strideC, strideH, strideW};
-                newCMXType = newCMXType.changeStrides(StridesRef(newStrides));
-            }
 
             Byte newBuffOffset{declBuff.getByteOffset()};
             if (!inputBufferOffsets.empty() && isInputBuffer) {
@@ -1278,9 +1266,6 @@ void VPUIP::ClusterPerElementDMABaseRewriter::unrollSegmentedOrOverlapped(mlir::
             }
         }
 
-        const auto distType =
-                mlir::cast<vpux::VPUIP::DistributedBufferType>(refDistType.changeElemType(newType.getElementType()));
-
         auto section = declBuff.getSection();
         auto sectionIndex = declBuff.getSectionIndex();
 
@@ -1296,21 +1281,6 @@ void VPUIP::ClusterPerElementDMABaseRewriter::unrollSegmentedOrOverlapped(mlir::
             symbolAttr = vpux::IndexedSymbolAttr::get(_ctx, stringifyEnum(VPURT::getMemoryKind(section)));
         }
         newType = newType.changeMemSpace(symbolAttr);
-        if (tileNCHWOutOverH) {
-            const auto shape = newType.getShape();
-            const auto strides = newType.getStrides();
-            const int64_t dimC = shape[Dims4D::Act::C];
-            const int64_t parentDimH = distType.getShape()[Dims4D::Act::H];
-            const Bit strideW = strides[Dims4D::Act::W];
-            const Bit strideH = strides[Dims4D::Act::H];
-            const Bit strideC = strideH * parentDimH;
-            const Bit strideN = strideC * dimC;
-            const auto newStrides = SmallVector<Bit>{strideN, strideC, strideH, strideW};
-            const auto strideReqs = StrideReqs::compact(newType.getRank());
-            if (strideReqs.checkStrides(newType)) {
-                newType = newType.changeStrides(StridesRef(newStrides));
-            }
-        }
 
         if (sectionIndex.has_value()) {
             auto declareOp = VPURT::createOp<VPURT::DeclareBufferOp>(builder, insertionPoint, loc, newType, section,
@@ -1330,18 +1300,9 @@ void VPUIP::ClusterPerElementDMABaseRewriter::unrollSegmentedOrOverlapped(mlir::
 
     // This is the requirement for DMA load balancing pass. Technically it can works with any number of ports, but
     // now only 2 is supported
-    auto maxDMAPorts = VPUX40XX_MAX_DMA_PORTS;
+    auto maxDMAPorts = MAX_DMA_PORTS_2;
 
     VPUX_THROW_WHEN(_dmaPortCount > maxDMAPorts, "Too many DMA ports");
-    // Split one of DMAs to load balance on DMA ports if needed
-    bool isDmaSplitRequired = numClusters % _dmaPortCount != 0;
-
-    // Current DMA split algorithm requires a flat DMA which would make it incompatible
-    // with dynamic strides which requiers DMA to have as many dimensions as the IO tensor. After DMA split algorithm
-    // is updated to handle split for non-flat DMAs this check can be removed #E194757
-    if (isDynamicStridesDma) {
-        isDmaSplitRequired = false;
-    }
 
     auto origDMAOp = vpurtTask.getInnerTaskOpOfType<VPUIP::DMATypeOpInterface>();
     VPUX_THROW_WHEN(origDMAOp == nullptr, "Inner task is not DMA op");
@@ -1386,39 +1347,18 @@ void VPUIP::ClusterPerElementDMABaseRewriter::unrollSegmentedOrOverlapped(mlir::
             newDMAOp->setAttr(vpux::stridedOutputAttrName, mlir::UnitAttr::get(origDMAOp.getContext()));
         }
 
-        if (maybeNNDMAOp != nullptr && maybeNNDMAOp.getProfilingBufferMgmt()) {
-            if (auto newNNDMAOp = mlir::dyn_cast<VPUIP::NNDMAOp>(newDMAOp.getOperation())) {
+        if (auto newNNDMAOp = mlir::dyn_cast<VPUIP::NNDMAOp>(newDMAOp.getOperation())) {
+            if (maybeNNDMAOp != nullptr && maybeNNDMAOp.getProfilingBufferMgmt()) {
                 newNNDMAOp.setProfilingBufferMgmt(true);
             }
-        }
-        if (auto newNNDMAOp = mlir::dyn_cast<VPUIP::NNDMAOp>(newDMAOp.getOperation())) {
-            canBeMergedWithNextInfo.push_back({newNNDMAOp, isInterClusterFusionCandidate});
-        }
-
-        // Consider 3 DMA on ports, first 2 are largest, last DMA is a remainder
-        // Port 0: |---------- CMX 0 ----------| |---- CMX 2 ----|
-        // Port 1: |---------- CMX 1 ----------|
-        // Split of 0 or 1 tile won't bring so much benefit, as split of last one
-        // Port 0: |----- CMX 0 -----| |---- CMX 2 ----|
-        // Port 1: |----- CMX 0 -----| |---------- CMX 1 ----------|
-        // While split of last one will
-        // Port 0: |---------- CMX 0 ----------| |-- CMX 2 -|
-        // Port 1: |---------- CMX 1 ----------| |-- CMX 2 -|
-        if (isDmaSplitRequired) {
-            if (auto nndma = mlir::dyn_cast<VPUIP::NNDMAOp>(newDMAOp.getOperation())) {
-                auto canBeSplit = false;
-                if (clusterId == (numClusters - 1)) {
-                    const auto transferSize = vpux::getTotalSize(inputBuffer);
-                    // DMAs smaller than 128B can't fully utilize bandwidth
-                    const int64_t PER_CLUSTER_BANDWIDTH_40XX = 128;
-                    if (transferSize.count() < PER_CLUSTER_BANDWIDTH_40XX) {
-                        continue;
-                    }
-                    canBeSplit = true;
-                }
-                // avoid further splitting balanced DMAs
-                nndma.setSplitCandidate(canBeSplit);
+            // Only set unroll index for configurations that can't evenly distribute whole
+            // tasks across DMA ports. This allows DetectDMASplitCandidates pass to run
+            // on DMAs that are a result of unrolling on those configurations. Should be
+            // removed once DetectDMASplitCandidates is moved after splitting unroll groups.
+            if (numClusters % _dmaPortCount != 0) {
+                newDMAOp->setAttr(VPUIP::UNROLL_IDX, getIntAttr(builder, unrollIdx));
             }
+            canBeMergedWithNextInfo.push_back({newNNDMAOp, isInterClusterFusionCandidate});
         }
         _log.trace("Insert new DMA op: '{0}'", newDMAOp);
     }
@@ -1659,13 +1599,13 @@ void VPUIP::ClusterNCERewriter::getInputBuffers(
     parentInputSETable = inputSETableBuffs;
 }
 
-void VPUIP::ClusterNCERewriter::getOutputBuffers(SmallVector<mlir::Value>& parentOutputBuffs,
-                                                 SmallVector<mlir::Value>& outputBuffs,
-                                                 SmallVector<mlir::Value>& parentOutputSparsityMap,
-                                                 SmallVector<mlir::Value>& outputSparsityMapBuffs,
-                                                 SmallVector<SmallVector<mlir::Value>>& outputItiBuffs,
-                                                 mlir::Location loc, VPUIP::NCEClusterTaskOp nceTask,
-                                                 const int64_t numClusters, mlir::OpBuilder& builder) const {
+void VPUIP::ClusterNCERewriter::getOutputBuffers(
+        SmallVector<mlir::Value>& parentOutputBuffs, SmallVector<mlir::Value>& outputBuffs,
+        SmallVector<mlir::Value>& parentOutputSparsityMap, SmallVector<mlir::Value>& outputSparsityMapBuffs,
+        SmallVector<SmallVector<mlir::Value>>& outputItiBuffs, SmallVector<mlir::Value>& maxPerXyBuffs,
+        SmallVector<mlir::Value>& minPerXyBuffs, SmallVector<SmallVector<mlir::Value>>& minMaxPerTensorBuffs,
+        mlir::Location loc, VPUIP::NCEClusterTaskOp nceTask, const int64_t numClusters,
+        mlir::OpBuilder& builder) const {
     const auto hasHalo = [&]() -> bool {
         auto operandType = nceTask.getOutputBuff().getType();
         auto distributedType = mlir::dyn_cast<vpux::VPUIP::DistributedBufferType>(operandType);
@@ -1691,6 +1631,23 @@ void VPUIP::ClusterNCERewriter::getOutputBuffers(SmallVector<mlir::Value>& paren
         parentOutputBuffs = outputBuffs;
         parentOutputSparsityMap = outputSparsityMapBuffs;
 
+        // Reduce-XY fused outputs (max/min per XY, min-max per tensor) are produced by the DPU together with the
+        // main output. They are not halo-shared between clusters - each cluster owns its own per-XY reduce buffer
+        // segment matching the per-cluster compute view of the main output. Re-use the same per-cluster compute
+        // buffer extraction as the non-halo branch so the unrolled NCE tasks keep these operands.
+        maxPerXyBuffs = VPUIP::getPerClusterComputeBuffers(_ctx, loc, "maxPerXyBuff", nceTask.getMaxPerXyBuff(),
+                                                           numClusters, builder, true);
+        minPerXyBuffs = VPUIP::getPerClusterComputeBuffers(_ctx, loc, "minPerXyBuff", nceTask.getMinPerXyBuff(),
+                                                           numClusters, builder, true);
+
+        for (auto minMaxBuff : nceTask.getMinMaxPerTensorBuff()) {
+            auto perClusterBuffs = VPUIP::getPerClusterComputeBuffers(_ctx, loc, "minMaxPerTensorBuff", minMaxBuff,
+                                                                      numClusters, builder, true);
+            for (int64_t clusterId = 0; clusterId < numClusters; ++clusterId) {
+                minMaxPerTensorBuffs[clusterId].push_back(perClusterBuffs[clusterId]);
+            }
+        }
+
         return;
     }
 
@@ -1698,6 +1655,19 @@ void VPUIP::ClusterNCERewriter::getOutputBuffers(SmallVector<mlir::Value>& paren
                                                      builder, true);
     outputSparsityMapBuffs = VPUIP::getPerClusterComputeBuffers(
             _ctx, loc, "outputSparsityMapBuff", nceTask.getOutputSparsityMapBuff(), numClusters, builder, true);
+
+    maxPerXyBuffs = VPUIP::getPerClusterComputeBuffers(_ctx, loc, "maxPerXyBuff", nceTask.getMaxPerXyBuff(),
+                                                       numClusters, builder, true);
+    minPerXyBuffs = VPUIP::getPerClusterComputeBuffers(_ctx, loc, "minPerXyBuff", nceTask.getMinPerXyBuff(),
+                                                       numClusters, builder, true);
+
+    for (auto minMaxBuff : nceTask.getMinMaxPerTensorBuff()) {
+        auto perClusterBuffs = VPUIP::getPerClusterComputeBuffers(_ctx, loc, "minMaxPerTensorBuff", minMaxBuff,
+                                                                  numClusters, builder, true);
+        for (int64_t clusterId = 0; clusterId < numClusters; ++clusterId) {
+            minMaxPerTensorBuffs[clusterId].push_back(perClusterBuffs[clusterId]);
+        }
+    }
 
     parentOutputBuffs = outputBuffs;
     parentOutputSparsityMap = outputSparsityMapBuffs;
@@ -1756,6 +1726,7 @@ void VPUIP::unrollDistributedOpsCommon40XXPlus(mlir::func::FuncOp func,
     const VPUIP::ClusterNCERewriter nceRewriter(ctx, log);
     const VPUIP::ClusterConvertDMARewriter convertDMARewriter(ctx, dmaPortCount, log);
 
+    uint64_t unrollIdx = 0;
     func.walk<mlir::WalkOrder::PostOrder>([&](VPURT::TaskOp vpurtTask) {
         auto op = vpurtTask.getInnerTaskOp();
         if (op == nullptr) {
@@ -1764,7 +1735,8 @@ void VPUIP::unrollDistributedOpsCommon40XXPlus(mlir::func::FuncOp func,
 
         mlir::OpBuilder builder(op);
         if (auto nndmaOp = mlir::dyn_cast<VPUIP::NNDMAOp>(op)) {
-            dmaRewriter.matchAndRewrite(nndmaOp, builder, /*isDataOverlapped*/ true);
+            dmaRewriter.matchAndRewrite(nndmaOp, builder, unrollIdx, /*isDataOverlapped*/ true);
+            unrollIdx++;
         } else if (auto taskOp = mlir::dyn_cast<VPUIP::NCEClusterTaskOp>(op)) {
             nceRewriter.matchAndRewrite(taskOp, builder);
         } else if (auto dmaOp = mlir::dyn_cast<VPUIP::DMATypeOpInterface>(op)) {

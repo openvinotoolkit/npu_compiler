@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 using namespace vpux;
 
@@ -83,4 +84,10 @@ bool vpux::VPU::SinOp::supportCycleCostCalculation() {
 
 void vpux::VPU::SinOp::build(::mlir::OpBuilder& builder, ::mlir::OperationState& state, ::mlir::Value input) {
     build(builder, state, input, {});
+}
+
+mlir::LogicalResult vpux::VPU::SinOp::reifyResultShapes(mlir::OpBuilder& builder,
+                                                        mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    reifiedReturnShapes.emplace_back(reifyTrivialTensor(builder, getInput(), getLoc()));
+    return mlir::success();
 }

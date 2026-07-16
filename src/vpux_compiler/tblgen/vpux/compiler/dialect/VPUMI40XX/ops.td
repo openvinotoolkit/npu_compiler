@@ -57,6 +57,7 @@ def VPUMI40XX_ConfigureBarrierOp :
             [
                 DeclareOpInterfaceMethods<DotInterface, ["getNodeColor", "printAttributes", "getEdgeDirection"]>,
                 VPUMI40XX_SingleOutputAsIndexOp,
+                VPUMI40XX_SymbolicNameOpInterface,
                 AttrSizedOperandSegments
             ]
         > {
@@ -132,6 +133,7 @@ def VPUMI40XX_MappedInferenceOp :
         VPUMI40XX_Op<"MappedInference",
             [
                 DeclareOpInterfaceMethods<DotInterface, ["getNodeColor", "printAttributes", "getEdgeDirection"]>,
+                DeclareOpInterfaceMethods<VPUMI40XX_SymbolicNameOpInterface, ["buildSymbolicName"]>,
                 VPUMI40XX_SingleOutputAsIndexOp,
                 AttrSizedOperandSegments
             ]
@@ -186,6 +188,12 @@ def VPUMI40XX_MappedInferenceOp :
         size_t getMaxTaskTile(vpux::VPURegMapped::TaskType taskType);
     }];
 
+    let extraClassDefinition = [{
+        mlir::FlatSymbolRefAttr vpux::VPUMI40XX::MappedInferenceOp::buildSymbolicName(mlir::MLIRContext* ctx) {
+            return mlir::FlatSymbolRefAttr::get(ctx, "MappedInference");
+        }
+    }];
+
     let assemblyFormat = [{
     attr-dict
         (`dmas` `(` $dmaTasks^ `:` type($dmaTasks) `)`)?
@@ -230,6 +238,7 @@ def VPUMI40XX_NNDMAOp :
             [
                 DeclareOpInterfaceMethods<VPUMI40XX_ExecutableTaskOpInterface>,
                 VPURegMapped_DMATypeOpInterface,
+                VPUMI40XX_SymbolicNameOpInterface,
                 AttrSizedOperandSegments
             ]
         > {
@@ -249,6 +258,7 @@ def VPUMI40XX_NNDMAOp :
         UnitProp:$enable_msc,
         IntAttr:$port,
         VPUIP_DMAAccModeAttr:$acceleration_mode,
+        OptionalAttr<VPUIP_DMAEncodingAlgoAttr>:$dma_encoding_algo,
         Optional<AnyMemRef>:$act_compression_size_entry,
         Optional<AnyMemRef>:$act_compression_sparsity_map,
         OptionalAttr<VPUMI40XX_DMATransactionAttrInterface>:$dma_transaction,
@@ -308,6 +318,34 @@ def VPUMI40XX_NNDMAOp :
                     "mlir::Value":$enqueueBarrier,
                     "mlir::IntegerAttr":$wlmPage
                     )
+        >,
+        OpBuilder<
+            (ins "mlir::Type":$index,
+                    "mlir::Value":$taskLocation,
+                    "mlir::Value":$input,
+                    "mlir::ValueRange":$output_buff,
+                    "mlir::Value":$previousDma,
+                    "mlir::ValueRange":$waitBarriers,
+                    "mlir::ValueRange":$updateBarriers,
+                    "uint64_t":$start_after,
+                    "uint64_t":$clean_after,
+                    "bool":$is_out_of_order,
+                    "bool":$is_critical,
+                    "bool":$enable_msc,
+                    "int64_t":$port,
+                    "VPUIP::DMAAccMode":$acceleration_mode,
+                    "VPUIP::DMAEncodingAlgoAttr":$dma_encoding_algo,
+                    "mlir::Value":$act_compression_size_entry,
+                    "mlir::Value":$act_compression_sparsity_map,
+                    "VPUMI40XX::DMATransactionAttr":$dma_transaction,
+                    "VPUIP::DMADescriptorAttr":$dma_descriptor,
+                    "mlir::IntegerAttr":$dma_hwp_id,
+                    "VPUIP::DmaProfilingMetadataAttr":$profilingMetadata,
+                    "bool":$allow_different_in_out_shapes,
+                    "mlir::Value":$indices,
+                    "mlir::Value":$enqueueBarrier,
+                    "mlir::IntegerAttr":$wlmPage
+                    )
         >
     ];
 
@@ -356,6 +394,7 @@ def VPUMI40XX_ActShaveRtOp :
         VPUMI40XX_Op<"ActShaveRt",
             [
                 VPUMI40XX_SingleOutputAsIndexOp,
+                DeclareOpInterfaceMethods<VPUMI40XX_SymbolicNameOpInterface, ["buildSymbolicName"]>,
                 DeclarationOp
             ]
         > {
@@ -373,6 +412,12 @@ def VPUMI40XX_ActShaveRtOp :
         attr-dict `kernel` `(` $kernel_path `)` `->` type(results)
     }];
 
+    let extraClassDefinition = [{
+        mlir::FlatSymbolRefAttr vpux::VPUMI40XX::ActShaveRtOp::buildSymbolicName(mlir::MLIRContext* ctx) {
+            return mlir::FlatSymbolRefAttr::get(ctx, "ActShaveRt");
+        }
+    }];
+
 }
 
 //
@@ -383,6 +428,7 @@ def VPUMI40XX_ShaveStackFrameBuffOp :
         VPUMI40XX_Op<"ActShaveRtStack",
             [
                 VPUMI40XX_SingleOutputAsIndexOp,
+                VPUMI40XX_SymbolicNameOpInterface,
                 DeclarationOp
             ]
         > {
@@ -410,6 +456,7 @@ def VPUMI40XX_DeclareKernelTextOp :
         VPUMI40XX_Op<"DeclareKernelText",
             [
                 VPUMI40XX_SingleOutputAsIndexOp,
+                VPUMI40XX_SymbolicNameOpInterface,
                 DeclarationOp
             ]
         > {
@@ -437,6 +484,7 @@ def VPUMI40XX_DeclareKernelArgsOp :
         VPUMI40XX_Op<"DeclareKernelArgs",
             [
                 VPUMI40XX_SingleOutputAsIndexOp,
+                VPUMI40XX_SymbolicNameOpInterface,
                 DeclarationOp
             ]
         > {
@@ -463,6 +511,7 @@ def VPUMI40XX_DeclareKernelEntryOp :
         VPUMI40XX_Op<"DeclareKernelEntry",
             [
                 VPUMI40XX_SingleOutputAsIndexOp,
+                VPUMI40XX_SymbolicNameOpInterface,
                 DeclarationOp
             ]
         > {
@@ -490,6 +539,7 @@ def VPUMI40XX_KernelParamsOp :
         VPUMI40XX_Op<"KernelParams",
             [
                 VPUMI40XX_SingleOutputAsIndexOp,
+                VPUMI40XX_SymbolicNameOpInterface,
                 AttrSizedOperandSegments
             ]
         > {
@@ -529,6 +579,7 @@ def VPUMI40XX_KernelParamsOp :
         ArrayAttr:$kernel_params,
         UnitProp:$is_output_broadcasted,
         UnitProp:$isJitCompiled,
+        UnitProp:$uses_dma,
         OptionalAttr<ArrayAttr>:$skipDescIds
     );
 
@@ -555,6 +606,7 @@ def VPUMI40XX_KernelParamsOp :
 
 def VPUMI40XX_ActKernelRangeOp : VPUMI40XX_ExecutableTaskOp<"ActKernelRange",
         [
+            VPUMI40XX_SymbolicNameOpInterface,
             AttrSizedOperandSegments
         ]> {
     let summary = "Activation Kernel Range";
@@ -599,6 +651,7 @@ def VPUMI40XX_ActKernelInvocationOp :
         VPUMI40XX_ExecutableTaskOp<"ActKernelInvocation",
             [
                 DeclareOpInterfaceMethods<VPUMI40XX_ExecutableTaskOpInterface>,
+                VPUMI40XX_SymbolicNameOpInterface,
                 AttrSizedOperandSegments
             ]
         > {
@@ -656,6 +709,7 @@ def VPUMI40XX_ActKernelInvocationOp :
 def VPUMI40XX_DPUVariantOp :
         VPUMI40XX_ExecutableTaskOp<"DPUVariant",
             [
+                VPUMI40XX_SymbolicNameOpInterface,
                 AttrSizedOperandSegments
             ]
         > {
@@ -677,6 +731,7 @@ def VPUMI40XX_DPUVariantOp :
         Optional<MemRefOf<[SI32]>>:$weight_table_sp_ptr,
         Optional<MemRefOf<[F32, F8E5M2, F8E4M3FN, F8E8M0FNU]>>:$weight_table_scale,
         Optional<MemRefOf<[F32]>>:$weight_table_bias,
+        Optional<MemRefOf<[F32]>>:$weight_table_alpha,
         Optional<MemRefOf<[I8, I4]>>:$weight_zero_points,
 
         VPUIP_NCETaskTypeAttr:$nce_task_type,
@@ -713,6 +768,7 @@ def VPUMI40XX_DPUVariantOp :
         (`weight_table_sp_ptr` `(` $weight_table_sp_ptr^ `:` type($weight_table_sp_ptr) `)`)?
         (`weight_table_scale` `(` $weight_table_scale^ `:` type($weight_table_scale) `)`)?
         (`weight_table_bias` `(` $weight_table_bias^ `:` type($weight_table_bias) `)`)?
+        (`weight_table_alpha` `(` $weight_table_alpha^ `:` type($weight_table_alpha) `)`)?
         (`weight_zero_points` `(` $weight_zero_points^ `:` type($weight_zero_points) `)`)?
         attr-dict
         prop-dict
@@ -734,6 +790,7 @@ def VPUMI40XX_DPUInvariantOp :
         VPUMI40XX_ExecutableTaskOp<"DPUInvariant",
             [
                 DeclareOpInterfaceMethods<VPUMI40XX_ExecutableTaskOpInterface>,
+                VPUMI40XX_SymbolicNameOpInterface,
                 AttrSizedOperandSegments
             ]
             # GraphRegionNoTerminator.traits
@@ -755,6 +812,7 @@ def VPUMI40XX_DPUInvariantOp :
         Optional<MemRefOf<[SI32]>>:$weight_table_sp_ptr,
         Optional<MemRefOf<[F32, F8E5M2, F8E4M3FN, F8E8M0FNU]>>:$weight_table_scale,
         Optional<MemRefOf<[F32]>>:$weight_table_bias,
+        Optional<MemRefOf<[F32]>>:$weight_table_alpha,
         Optional<MemRefOf<[I8, I4]>>:$weight_zero_points,
 
         Optional<MemRefOf<[UI16]>>:$spr_lookup_table,
@@ -839,6 +897,7 @@ def VPUMI40XX_DPUInvariantOp :
         (`weight_table_sp_ptr` `(` $weight_table_sp_ptr^ `:` type($weight_table_sp_ptr) `)`)?
         (`weight_table_scale` `(` $weight_table_scale^ `:` type($weight_table_scale) `)`)?
         (`weight_table_bias` `(` $weight_table_bias^ `:` type($weight_table_bias) `)`)?
+        (`weight_table_alpha` `(` $weight_table_alpha^ `:` type($weight_table_alpha) `)`)?
         (`weight_zero_points` `(` $weight_zero_points^ `:` type($weight_zero_points) `)`)?
         (`spr_lookup_table` `(` $spr_lookup_table^ `:` type($spr_lookup_table) `)`)?
         (`pallet_lookup_table` `(` $pallet_lookup_table^ `:` type($pallet_lookup_table) `)`)?
@@ -880,7 +939,10 @@ def VPUMI40XX_NetworkMetadataOp :
 //
 
 def VPUMI40XX_ProfilingMetadataOp :
-        VPUMI40XX_Op<"ProfilingMetadata", []> {
+        VPUMI40XX_Op<"ProfilingMetadata",
+        [
+            DeclareOpInterfaceMethods<VPUMI40XX_SymbolicNameOpInterface, ["buildSymbolicName"]>
+        ]> {
     let summary = "Profiling Metadata Op (with metadata included as attribute intended to store it in binary form)";
 
     let arguments = (ins
@@ -894,6 +956,12 @@ def VPUMI40XX_ProfilingMetadataOp :
     let assemblyFormat = [{
         attr-dict `->` type(results)
     }];
+
+    let extraClassDefinition = [{
+        mlir::FlatSymbolRefAttr vpux::VPUMI40XX::ProfilingMetadataOp::buildSymbolicName(mlir::MLIRContext* ctx) {
+            return mlir::FlatSymbolRefAttr::get(ctx, "ProfilingMetadata");
+        }
+    }];
 }
 
 //
@@ -904,6 +972,7 @@ def VPUMI40XX_BootstrapOp :
         VPUMI40XX_Op<"Bootstrap",
             [
                 VPUMI40XX_SingleOutputAsIndexOp,
+                VPUMI40XX_SymbolicNameOpInterface,
                 DeclarationOp
             ]
         > {
@@ -988,7 +1057,7 @@ def OpRanges : VPUMI40XX_Op<"OpRanges", [
 //
 
 def VPUMI40XX_PlatformInfoOp :
-        VPUMI40XX_Op<"PlatformInfo", []> {
+        VPUMI40XX_Op<"PlatformInfo", [VPUMI40XX_SymbolicNameOpInterface]> {
     let summary = "Represents an op describing various platform information, such as arch, revision, etc.";
 
     let description = [{
@@ -1013,7 +1082,7 @@ def VPUMI40XX_PlatformInfoOp :
 //
 
 def VPUMI40XX_MappedInferenceVersionOp :
-        VPUMI40XX_Op<"MappedInferenceVersion", []> {
+        VPUMI40XX_Op<"MappedInferenceVersion", [VPUMI40XX_SymbolicNameOpInterface]> {
 
     let summary = "Represents a versioning mechanism for Mapped Inference";
 

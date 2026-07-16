@@ -537,33 +537,25 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::ZeroPointTableOp 
     auto zeroPointsDataAttr = origOp.getZeroPointTableDataAttr();
     VPUX_THROW_UNLESS(zeroPointsDataAttr, "ZeroPointTableOp at '{0}' has no zeroPointTableData", origOp->getLoc());
 
-    auto zeroPointsData = parseIntArrayAttr<int32_t>(zeroPointsDataAttr);
-
-    auto weightsQuantPerAxisType = mlir::cast<mlir::quant::UniformQuantizedPerAxisType>(origOp.getWeightsElemType());
-    auto isSigned = weightsQuantPerAxisType.isSigned();
-
+    const auto zeroPointsData = parseIntArrayAttr<int32_t>(zeroPointsDataAttr);
+    const auto zeroPointsType = mlir::cast<vpux::NDTypeInterface>(origOp.getZeroPoints().getType()).getElementType();
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
-    const auto outputShape = outputType.getShape();
 
     // Create constant with the zero-point table data
     // Note: Template parameter (int8_t or uint8_t) controls how data is converted from int32_t,
     // but the constant type is always i8 regardless of signedness. Unsigned values like uint8_t(255)
     // are stored as int8_t(-1) with the same bit pattern (0xFF).
-    mlir::Value constOp;
-    if (isSigned) {
-        auto zeroPointsDataI8 = to_small_vector(llvm::map_range(zeroPointsData, [](int32_t val) {
-            return static_cast<int8_t>(val);
+    auto createTensor = [&](auto storageType) {
+        using StorageT = decltype(storageType);
+        auto zeroPointsTyped = to_small_vector(llvm::map_range(zeroPointsData, [](int32_t val) {
+            return static_cast<StorageT>(val);
         }));
-        constOp = VPU::createNewWeightsTableTensor<int8_t>(rewriter, origOp->getLoc(), zeroPointsDataI8, outputShape,
-                                                           rewriter.getI8Type());
-    } else {
-        auto zeroPointsDataU8 = to_small_vector(llvm::map_range(zeroPointsData, [](int32_t val) {
-            return static_cast<uint8_t>(val);
-        }));
-        constOp = VPU::createNewWeightsTableTensor<uint8_t>(rewriter, origOp->getLoc(), zeroPointsDataU8, outputShape,
-                                                            rewriter.getI8Type());
-    }
 
+        return VPU::createTensorFromTableData<StorageT>(rewriter, origOp->getLoc(), zeroPointsTyped,
+                                                        outputType.getShape(), rewriter.getI8Type());
+    };
+
+    mlir::Value constOp = zeroPointsType.isSignedInteger() ? createTensor(int8_t{}) : createTensor(uint8_t{});
     VPUX_THROW_WHEN(constOp == nullptr, "Failed to create constant for ZeroPointTableOp at '{0}'", origOp->getLoc());
 
     rewriter.replaceOp(origOp, constOp);
@@ -589,8 +581,8 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::DataPointerTableO
     const auto outputShape = outputType.getShape();
 
     // Create constant with the data-pointer table data
-    mlir::Value constOp = VPU::createNewWeightsTableTensor<int32_t>(rewriter, origOp->getLoc(), dataPointerTableData,
-                                                                    outputShape, getSInt32Type(rewriter.getContext()));
+    mlir::Value constOp = VPU::createTensorFromTableData<int32_t>(rewriter, origOp->getLoc(), dataPointerTableData,
+                                                                  outputShape, getSInt32Type(rewriter.getContext()));
 
     rewriter.replaceOp(origOp, constOp);
     return mlir::success();
@@ -719,7 +711,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::ShapeOfOp origOp,
 
     auto op = origOp.getOperation();
     auto module = getModuleOp(op);
-    VPUIP::createRuntimeKernelDefinition(module, log.nest(), config::getArch(op));
+    VPUIP::createRuntimeKernelDefinition(module, log.nest());
 
     auto layerOp = mlir::cast<VPU::LayerOpInterface>(op);
     auto swLayerOp = mlir::cast<VPUIP::SoftwareLayerOpInterface>(op);

@@ -22,8 +22,8 @@
 module @SoftMax attributes {config.platform = #config.platform<NPU4000>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
     VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096]
     module @VPU.SW {
-        func.func private @builtin_SoftMax(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i64, i64) attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.task_type = @COMPUTE}
-        func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+        func.func nested @builtin_SoftMax(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i64, i64) attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.task_type = @COMPUTE}
+        func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
     }
 
     net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -172,8 +172,8 @@ module @TwoFunctions attributes {config.platform = #config.platform<NPU4000>, co
 
     VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
     module @VPU.SW {
-        func.func private @builtin_SoftMax(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i64, i64) attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.task_type = @COMPUTE}
-        func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+        func.func nested @builtin_SoftMax(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i64, i64) attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.task_type = @COMPUTE}
+        func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
     }
 
     net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -182,9 +182,9 @@ module @TwoFunctions attributes {config.platform = #config.platform<NPU4000>, co
       DataInfo "output" : tensor<1x32x4x4xf16>
     }
 
-    // CHECK-NOT: func.func private @foo1
-    func.func private @foo1(%arg0: memref<1x16x6x6xf16>, %arg1: memref<1x32x4x4xf16>) -> memref<1x32x4x4xf16> {
-        %cst = const.Declare memref<32x16x3x3xf16, #NHWC>
+    // CHECK-NOT: func.func nested @foo1
+    func.func nested @foo1(%arg0: memref<1x16x6x6xf16>, %arg1: memref<1x32x4x4xf16>) -> memref<1x32x4x4xf16> {
+        %cst = const.Declare memref<32x16x3x3xf16, {order = #NHWC}>
                 = dense<1.000000e+00> : tensor<32x16x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
         %cst_0 = const.Declare memref<32x1x1x4xsi32> = dense<1> : tensor<32x1x1x4xsi32>
 
@@ -241,7 +241,7 @@ module @TwoFunctions attributes {config.platform = #config.platform<NPU4000>, co
                                         compute_offsets = [[0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 2, 0], [0, 0, 3, 0], [0, 0, 4, 0], [0, 0, 5, 0]],
                                         memory_shapes = [[1, 16, 1, 16], [1, 16, 1, 16], [1, 16, 1, 16], [1, 16, 1, 16], [1, 16, 1, 16], [1, 16, 1, 16]],
                                         memory_offsets = [[0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 2, 0], [0, 0, 3, 0], [0, 0, 4, 0], [0, 0, 5, 0]]}>
-        %alloc_1 = memref.alloc() : memref<1x16x6x16xf16, #NHWC>
+        %alloc_1 = memref.alloc() : memref<1x16x6x16xf16, {order = #NHWC}>
         %7 = VPUIP.Copy
                 inputs(%6 : !VPUIP.DistributedBuffer<1x16x6x16xf16, #NHWC, @CMX_NN,
                                         {mode = "OVERLAPPED", num_tiles = [1, 1, 6, 1], num_clusters = 6 : i64, uniform_distributed_segments,
@@ -249,14 +249,14 @@ module @TwoFunctions attributes {config.platform = #config.platform<NPU4000>, co
                                         compute_offsets = [[0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 2, 0], [0, 0, 3, 0], [0, 0, 4, 0], [0, 0, 5, 0]],
                                         memory_shapes = [[1, 16, 1, 16], [1, 16, 1, 16], [1, 16, 1, 16], [1, 16, 1, 16], [1, 16, 1, 16], [1, 16, 1, 16]],
                                         memory_offsets = [[0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 2, 0], [0, 0, 3, 0], [0, 0, 4, 0], [0, 0, 5, 0]]}>)
-                outputs(%alloc_1 : memref<1x16x6x16xf16, #NHWC>)
-                -> memref<1x16x6x16xf16, #NHWC>
-        %8 = VPUIP.SubView %7 [0, 0, 0, 0] [1, 16, 6, 6] : memref<1x16x6x16xf16, #NHWC>
+                outputs(%alloc_1 : memref<1x16x6x16xf16, {order = #NHWC}>)
+                -> memref<1x16x6x16xf16, {order = #NHWC}>
+        %8 = VPUIP.SubView %7 [0, 0, 0, 0] [1, 16, 6, 6] : memref<1x16x6x16xf16, {order = #NHWC}>
                     to memref<1x16x6x6xf16, {order = #NHWC, strides = [1536, 1, 256, 16]}>
-        %alloc_2 = memref.alloc() : memref<1x16x6x6xf16, #NHWC>
+        %alloc_2 = memref.alloc() : memref<1x16x6x6xf16, {order = #NHWC}>
         %9 = VPUIP.Copy inputs(%8 : memref<1x16x6x6xf16, {order = #NHWC, strides = [1536, 1, 256, 16]}>)
-                        outputs(%alloc_2 : memref<1x16x6x6xf16, #NHWC>)
-                            -> memref<1x16x6x6xf16, #NHWC>
+                        outputs(%alloc_2 : memref<1x16x6x6xf16, {order = #NHWC}>)
+                            -> memref<1x16x6x6xf16, {order = #NHWC}>
         %10 = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x16x6x6xf16, #NHWC, @CMX_NN,
                                             {mode = "DUPLICATED", num_clusters = 6 : i64, alignment = [1, 16, 1, 1], uniform_distributed_segments,
                                             compute_shapes = [[1, 16, 6, 6], [1, 16, 6, 6], [1, 16, 6, 6], [1, 16, 6, 6], [1, 16, 6, 6], [1, 16, 6, 6]],
@@ -264,7 +264,7 @@ module @TwoFunctions attributes {config.platform = #config.platform<NPU4000>, co
                                             memory_shapes = [[1, 16, 6, 6], [1, 16, 6, 6], [1, 16, 6, 6], [1, 16, 6, 6], [1, 16, 6, 6], [1, 16, 6, 6]],
                                             memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
         %11 = VPUIP.Copy
-                inputs(%9 : memref<1x16x6x6xf16, #NHWC>)
+                inputs(%9 : memref<1x16x6x6xf16, {order = #NHWC}>)
                 outputs(%10 : !VPUIP.DistributedBuffer<1x16x6x6xf16, #NHWC, @CMX_NN,
                                 {mode = "DUPLICATED", num_clusters = 6 : i64, alignment = [1, 16, 1, 1], uniform_distributed_segments,
                                 compute_shapes = [[1, 16, 6, 6], [1, 16, 6, 6], [1, 16, 6, 6], [1, 16, 6, 6], [1, 16, 6, 6], [1, 16, 6, 6]],
@@ -284,7 +284,7 @@ module @TwoFunctions attributes {config.platform = #config.platform<NPU4000>, co
                                             memory_shapes = [[32, 16, 3, 3], [32, 16, 3, 3], [32, 16, 3, 3], [32, 16, 3, 3], [32, 16, 3, 3], [32, 16, 3, 3]],
                                             memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
         %13 = VPUIP.Copy
-                inputs(%cst : memref<32x16x3x3xf16, #NHWC>)
+                inputs(%cst : memref<32x16x3x3xf16, {order = #NHWC}>)
                 outputs(%12 : !VPUIP.DistributedBuffer<32x16x3x3xf16, #NHWC, @CMX_NN,
                     {mode = "DUPLICATED", num_clusters = 6 : i64, alignment = [16, 1, 1, 1], uniform_distributed_segments,
                     compute_shapes = [[32, 16, 3, 3], [32, 16, 3, 3], [32, 16, 3, 3], [32, 16, 3, 3], [32, 16, 3, 3], [32, 16, 3, 3]],
@@ -399,8 +399,8 @@ module @TwoFunctions attributes {config.platform = #config.platform<NPU4000>, co
         return %19 : memref<1x32x4x4xf16>
     }
 
-    // CHECK-NOT: func.func private @foo2
-    func.func private @foo2(%arg0: memref<1x32x4x4xf16>, %arg1: memref<1x32x4x4xf16>) -> memref<1x32x4x4xf16> {
+    // CHECK-NOT: func.func nested @foo2
+    func.func nested @foo2(%arg0: memref<1x32x4x4xf16>, %arg1: memref<1x32x4x4xf16>) -> memref<1x32x4x4xf16> {
         %0 = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x32x4x4xf16, #NCHW, @CMX_NN,
                                         {mode = "SEGMENTED", num_tiles = [1, 6, 1, 1], num_clusters = 6 : i64, uniform_distributed_segments,
                                         compute_shapes = [[1, 6, 4, 4], [1, 6, 4, 4], [1, 5, 4, 4], [1, 5, 4, 4], [1, 5, 4, 4], [1, 5, 4, 4]],

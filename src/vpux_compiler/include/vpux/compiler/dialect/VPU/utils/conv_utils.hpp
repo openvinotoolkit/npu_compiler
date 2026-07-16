@@ -39,6 +39,8 @@ mlir::LogicalResult verifyConvUtil(mlir::Location loc, mlir::Operation* op, Shap
 
 PadInfo shrinkPadsForDilatedConvolution(const PadInfo& pads, const ArrayRef<int64_t> dilations);
 
+bool hasReduceOutputs(VPU::NCEConvolutionOp op);
+
 mlir::Value splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, mlir::Value weightInput,
                                       SmallVector<VPU::NCEConvolutionOp>& convOps,
                                       SmallVector<VPU::NCEEltwiseOp>& addOps,
@@ -90,5 +92,13 @@ bool isDilatedGroupConv(GroupConvOpType groupConvOp) {
 
     return isDilated;
 }
+
+/// Resolve rawFilterShape by constant-folding dynamic dimensions.
+/// For each position in staticRawFilterShape: static values are kept as-is;
+/// dynamic sentinels (kDynamic) are replaced with the integer value of the
+/// corresponding SSA operand from dynamicRawFilterShapeValues when it
+/// constant-folds, or kept as kDynamic otherwise.
+SmallVector<int64_t> resolveRawFilterShape(ArrayRef<int64_t> staticRawFilterShape,
+                                           mlir::ValueRange dynamicRawFilterShapeValues);
 
 }  // namespace vpux::VPU

@@ -26,10 +26,9 @@ func.func @ConvertCompressConvolutionWithDynamicShapes(
 
     // CHECK-DAG: [[CST_WEIGHTS:%.+]] = const.Declare tensor<32x1x1x48xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<32x4x3x3xf16>, [#const.Reorder<#NHWC>, #const.Reshape<[32, 1, 1, 36]>, #const.PadWithZero<[0, 0, 0, 0], [0, 0, 0, 12]>]
     // CHECK-DAG: [[CST_WEIGHTS_TABLE:%.+]] = const.Declare tensor<32x1x1x4xsi32> = dense<"{{.+}}"> : tensor<32x1x1x4xsi32>
-    // CHECK: [[COMPRESS_CONV:%.+]] = VPU.NCE.CompressConvolution([[ARG0]], [[CST_WEIGHTS]], [[CST_WEIGHTS_TABLE]])
+    // CHECK: [[COMPRESS_CONV:%.+]] = VPU.NCE.CompressConvolution([[ARG0]], [[CST_WEIGHTS]], [[CST_WEIGHTS_TABLE]]) rawFilterShape [32, 4, 3, 3] {
     // CHECK-SAME: cm_sp_pattern = 15 : i64
     // CHECK-SAME: pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>
-    // CHECK-SAME: rawFilterShape = [32, 4, 3, 3]
     // CHECK-SAME: strides = [2, 2]
     // CHECK-SAME: -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 270, 480]> : tensor<4xsi64>, order = #NHWC}>
 
@@ -60,10 +59,9 @@ func.func @ConvertCompressConvolutionWithSmallDynamicBounds(
 
     // CHECK-DAG: [[CST_WEIGHTS:%.+]] = const.Declare tensor<32x1x1x48xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<32x4x3x3xf16>, [#const.Reorder<#NHWC>, #const.Reshape<[32, 1, 1, 36]>, #const.PadWithZero<[0, 0, 0, 0], [0, 0, 0, 12]>]
     // CHECK-DAG: [[CST_WEIGHTS_TABLE:%.+]] = const.Declare tensor<32x1x1x4xsi32> = dense<"{{.+}}"> : tensor<32x1x1x4xsi32>
-    // CHECK: [[COMPRESS_CONV:%.+]] = VPU.NCE.CompressConvolution([[ARG0]], [[CST_WEIGHTS]], [[CST_WEIGHTS_TABLE]])
+    // CHECK: [[COMPRESS_CONV:%.+]] = VPU.NCE.CompressConvolution([[ARG0]], [[CST_WEIGHTS]], [[CST_WEIGHTS_TABLE]]) rawFilterShape [32, 4, 3, 3] {
     // CHECK-SAME: cm_sp_pattern = 15 : i64
     // CHECK-SAME: pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>
-    // CHECK-SAME: rawFilterShape = [32, 4, 3, 3]
     // CHECK-SAME: strides = [2, 2]
     // CHECK-SAME: -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 5, 5]> : tensor<4xsi64>, order = #NHWC}>
 
@@ -94,10 +92,9 @@ func.func @ConvertCompressConvolutionWithStaticShapes(
 
     // CHECK-DAG: [[CST_WEIGHTS:%.+]] = const.Declare tensor<32x1x1x48xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<32x4x3x3xf16>, [#const.Reorder<#NHWC>, #const.Reshape<[32, 1, 1, 36]>, #const.PadWithZero<[0, 0, 0, 0], [0, 0, 0, 12]>]
     // CHECK-DAG: [[CST_WEIGHTS_TABLE:%.+]] = const.Declare tensor<32x1x1x4xsi32> = dense<"{{.+}}"> : tensor<32x1x1x4xsi32>
-    // CHECK: [[COMPRESS_CONV:%.+]] = VPU.NCE.CompressConvolution([[ARG0]], [[CST_WEIGHTS]], [[CST_WEIGHTS_TABLE]])
+    // CHECK: [[COMPRESS_CONV:%.+]] = VPU.NCE.CompressConvolution([[ARG0]], [[CST_WEIGHTS]], [[CST_WEIGHTS_TABLE]]) rawFilterShape [32, 4, 3, 3] {
     // CHECK-SAME: cm_sp_pattern = 15 : i64
     // CHECK-SAME: pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>
-    // CHECK-SAME: rawFilterShape = [32, 4, 3, 3]
     // CHECK-SAME: strides = [2, 2]
     // CHECK-SAME: -> tensor<1x32x270x480xf16, {order = #NHWC}>
 

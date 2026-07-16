@@ -30,7 +30,7 @@ mlir::FailureOr<std::tuple<double, double>> getMinMax(IE::FakeConvertOp origOp, 
         log.error("Unsupported FP data type");
         return mlir::failure();
     }
-    return getLowFpRange(destinationType);
+    return getRepresentableRange(destinationType);
 }
 
 Const::ContentAttr getScale(IE::FakeConvertOp origOp) {

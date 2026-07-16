@@ -97,7 +97,7 @@ void vpux::VPU::FlashSDPAOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationS
                                    mlir::IntegerAttr sourceSeqLenPadSize, mlir::BoolAttr isHead,
                                    mlir::BoolAttr isTail) {
     build(odsBuilder, odsState, query, key, value, inputRunningOutput, inputRunningMax, inputRunningSum, attentionMask,
-          sourceSeqLenPadSize, isHead, isTail, /*kvNumBlocks*/ nullptr,
+          sourceSeqLenPadSize, isHead, isTail,
           /*multiClusterStrategy*/ nullptr);
 }
 
@@ -105,7 +105,7 @@ void vpux::VPU::FlashSDPAOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationS
                                    mlir::Value key, mlir::Value value, mlir::Value inputRunningOutput,
                                    mlir::Value inputRunningMax, mlir::Value inputRunningSum, mlir::Value attentionMask,
                                    mlir::IntegerAttr sourceSeqLenPadSize, mlir::BoolAttr isHead, mlir::BoolAttr isTail,
-                                   mlir::IntegerAttr kvNumBlocks, VPU::MultiClusterStrategyAttr multiClusterStrategy) {
+                                   VPU::MultiClusterStrategyAttr multiClusterStrategy) {
     auto loc = odsState.location;
     auto module = getModuleOp(odsBuilder);
 
@@ -133,7 +133,7 @@ void vpux::VPU::FlashSDPAOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationS
 
     build(odsBuilder, odsState, query, key, value, auxBuffer, dpuDescriptorBuffer, dpuWeightsTable0, dpuWeightsTable1,
           inputRunningOutput, inputRunningMax, inputRunningSum, attentionMask, sourceSeqLenPadSize, isHead, isTail,
-          kvNumBlocks, multiClusterStrategy);
+          multiClusterStrategy);
 }
 
 mlir::LogicalResult vpux::VPU::FlashSDPAOp::inferReturnTypes(mlir::MLIRContext* ctx,
@@ -216,14 +216,7 @@ bool vpux::VPU::FlashSDPAOp::fitIntoCMXAfterKeyValueTiling(::llvm::ArrayRef<vpux
 //
 
 bool vpux::VPU::FlashSDPAOp::fitIntoCMX(ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem) {
-    const auto kvNumBlocks = [&]() -> int64_t {
-        if (auto kvNumBlocksAttr = getKvNumBlocksAttr()) {
-            return parseIntAttr<int64_t>(kvNumBlocksAttr);
-        }
-        return 0;
-    }();
-
-    return fitIntoCMXAfterKeyValueTiling(buffers, reservedMem, kvNumBlocks);
+    return fitIntoCMXAfterKeyValueTiling(buffers, reservedMem, /*kvNumBlocks*/ 1);
 }
 
 bool vpux::VPU::FlashSDPAOp::fitIntoCMX(ArrayRef<NDTypeInterface> buffers) {
@@ -257,8 +250,10 @@ InputTiling vpux::VPU::FlashSDPAOp::backInferTileInfo(const vpux::TileInfo& outp
     auto weightsTable0Shape = getShape(getDpuWeightsTable0());
     auto weightsTable1Shape = getShape(getDpuWeightsTable1());
 
-    return FlashSDPAOpInputTiling(outputTile, keyShape, attentionMaskShape, auxBufferShape, dpuDescriptorBufferShape,
-                                  weightsTable0Shape, weightsTable1Shape);
+    const auto qHeads = getShape(getQuery())[Dims4D::Act::C];
+
+    return FlashSDPAOpInputTiling(outputTile, qHeads, keyShape, attentionMaskShape, auxBufferShape,
+                                  dpuDescriptorBufferShape, weightsTable0Shape, weightsTable1Shape);
 }
 
 OutputTiling vpux::VPU::FlashSDPAOp::getOutputTiling(const vpux::TileInfo& firstOutputTile, vpux::Logger /*log*/) {
@@ -288,6 +283,12 @@ bool vpux::VPU::FlashSDPAOp::checkStrategyCompatibility(VPU::MultiClusterStrateg
     if (targetSeqLen >= numTiles) {
         return strategy == VPU::MultiClusterStrategy::SplitOverHeight;
     } else if (numHeads >= numTiles) {
+        // SplitOverKernel segments K/V on C across clusters; the kernel requires
+        // exactly 1 KV head per cluster invocation. flash-sdpa-tiling honors that
+        // contract by sizing head tiles to numTiles KV heads each. A residual tail
+        // tile carries fewer KV heads and is dispatched to fewer clusters: the
+        // FlashSDPA-specific cap in getOptimalNumClusters reduces num_clusters to
+        // kvHeadsTile so the kernel still sees one KV head per cluster.
         return strategy == VPU::MultiClusterStrategy::SplitOverKernel;
     }
 

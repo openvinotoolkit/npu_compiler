@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/move_view_ops_rewriter.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
@@ -28,8 +29,8 @@ mlir::LogicalResult MoveViewOpsRewriter::matchAndRewrite(VPU::VerticalFusionOp v
         auto parentOp = vfOperand.value().getDefiningOp<VPU::TilingViewLikeOpInterface>();
 
         // E-163016 remove is VFSupported flag when scf and current algorithm is aligned
-        if (parentOp == nullptr || !VPU::isPureViewOp(parentOp) || VPU::onlySupportPartialTilingDims(parentOp) ||
-            !parentOp.isVFSupported()) {
+        if (parentOp == nullptr || (!VPU::isPureViewOp(parentOp) || mlir::isa<VPU::PermuteCastOp>(parentOp)) ||
+            VPU::onlySupportPartialTilingDims(parentOp) || !parentOp.isVFSupported()) {
             continue;
         }
 
@@ -61,6 +62,13 @@ mlir::LogicalResult MoveViewOpsRewriter::matchAndRewrite(VPU::VerticalFusionOp v
                                  inType.getElemTypeSize() == outType.getElemTypeSize() &&
                                  inType.getDimsOrder() == outType.getDimsOrder();
         if (isSizeChangedOnly) {
+            // Not supported for v1
+            continue;
+        }
+
+        auto inOrder = inType.getDimsOrder();
+        auto outOrder = outType.getDimsOrder();
+        if (inOrder != outOrder) {
             // Not supported for v1
             continue;
         }

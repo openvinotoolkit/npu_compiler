@@ -21,10 +21,5 @@ mlir::FailureOr<SymbolizationResult> DeclareTaskBufferRewriter::symbolize(
     return SymbolizationResult(newOp);
 }
 
-llvm::SmallVector<mlir::FlatSymbolRefAttr> DeclareTaskBufferRewriter::getSymbolicNames(
-        VPUMI40XX::DeclareTaskBufferOp op, size_t) {
-    return createSymbolicName(op, VPURegMapped::stringifyTaskType(op.getTaskType()).str(), /* counter */ std::nullopt);
-}
-
 }  // namespace vpumi40xx2vpuasm
 }  // namespace vpux

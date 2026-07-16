@@ -28,7 +28,15 @@ using namespace vpux;
 
 namespace {
 
-mlir::Operation* getInputPermuteLikeOp(mlir::Value addInput) {
+// Searches upstream from addInput for a MemPermute or PermuteQuantize op.
+// Traverses through ShapeCast, PermuteCast, and QuantizeCast transparently —
+// these ops do not change memory permutation so the upstream PermuteLike op
+// still dominates the layout. PermuteCast/QuantizeCast traversal enables
+// recognition of FakeQuantize lowering patterns (MemPermute -> QuantizeCast ->
+// PermuteCast -> eltwise). Use isPermuteLikeDirectlyReachable() to distinguish
+// direct (ShapeCast-only) from indirect paths when the caller needs to know
+// whether QuantizeCast/PermuteCast sit in between.
+mlir::Operation* getSourcePermuteLikeOp(mlir::Value addInput) {
     auto parentOp = addInput.getDefiningOp();
     while (parentOp) {
         if (mlir::isa<IE::MemPermuteOp, IE::PermuteQuantizeOp>(parentOp)) {
@@ -176,16 +184,31 @@ bool canBeFusedIntoPermuteCast(IE::PermuteQuantizeOp permuteQuantizeOp, mlir::Af
     return isTrivialPermute(inMemShape, composedMemPerm);
 }
 
+// Classifies a branch input relative to its upstream PermuteLike op.
+// directlyReachable == true  → PermuteLike is reached through ShapeCast only;
+//                              callers may use inPermutationOp->getResult(0) directly.
+// directlyReachable == false → PermuteCast or QuantizeCast sits in between;
+//                              callers must use processNonPermuteBranch().
+struct BranchInfo {
+    mlir::Operation* inPermutationOp = nullptr;
+    bool directlyReachable = false;
+};
+
+BranchInfo classifyBranch(mlir::Value branchInput) {
+    auto* op = getSourcePermuteLikeOp(branchInput);
+    return {op, op != nullptr && isPermuteLikeDirectlyReachable(branchInput, op)};
+}
+
 bool isSupportedMemPermute(mlir::AffineMap memPerm, mlir::Type permuteOutType, mlir::Operation* eltwiseOp, Logger log) {
     const SmallVector<mlir::Value> branches = eltwiseOp->getOperands();
     int64_t countInPermutationOp = 0;
     for (const auto& addInput : branches) {
-        const auto inPermutationOp = getInputPermuteLikeOp(addInput);
+        const auto [inPermutationOp, isDirectlyReachable] = classifyBranch(addInput);
         if (inPermutationOp != nullptr) {
             // PermuteQuantize fold/fuse check only applies when the op is directly reachable
             // (through ShapeCast only). Indirect paths (via PermuteCast/QuantizeCast) use
             // processNonPermuteBranch which does not fold with the upstream PermuteQuantize.
-            if (isPermuteLikeDirectlyReachable(addInput, inPermutationOp)) {
+            if (isDirectlyReachable) {
                 auto inPermuteQuantizeOp = mlir::dyn_cast<IE::PermuteQuantizeOp>(inPermutationOp);
                 if (inPermuteQuantizeOp != nullptr && !canBeFolded(inPermuteQuantizeOp, memPerm, permuteOutType) &&
                     !canBeFusedIntoPermuteCast(inPermuteQuantizeOp, memPerm)) {
@@ -301,25 +324,36 @@ mlir::Value processNonPermuteBranch(mlir::PatternRewriter& rewriter, IE::MemPerm
     return newShapeCastOp.getResult();
 }
 
-// Returns true if the upstream PermuteLike op is an indirect IE::MemPermuteOp
-// (connected through PermuteCast/QuantizeCast), has multiple users, and at least one user is not an IE::MemPermuteOp.
-// This matches the restriction in IE::fusePermutations(): multi-use MemPermute producers are only blocked if they have
-// mixed users (not all MemPermute). For other PermuteLike ops, multi-use is allowed.
-// Callers pass pre-computed inPermutationOp and isDirectlyReachable to avoid redundant IR walks.
-bool hasMultiUseIndirectPermuteLike(mlir::Operation* inPermutationOp, bool isDirectlyReachable) {
-    if (inPermutationOp == nullptr || isDirectlyReachable) {
-        return false;
+// Returns true when it is safe to insert a new MemPermute on a branch whose upstream
+// PermuteLike op already has multiple users. For IE::MemPermuteOp, canonicalization
+// (fusePermutations()) only folds two consecutive MemPermutes when ALL users of the
+// upstream are also IE::MemPermuteOp (pure permute fan-out); if any non-MemPermute user
+// exists the fold is rejected, so the extra MemPermute remains in the graph and may
+// regress performance. For all other PermuteLike op types (e.g. PermuteQuantize),
+// multi-use is allowed.
+bool canFuseAfterInsertion(mlir::Operation* upstreamOp) {
+    auto memPerm = mlir::dyn_cast<IE::MemPermuteOp>(upstreamOp);
+    if (!memPerm || memPerm->hasOneUse()) {
+        return true;
     }
-    // Only restrict multi-use IE::MemPermuteOp with at least one non-MemPermute user
-    if (auto memPerm = mlir::dyn_cast<IE::MemPermuteOp>(inPermutationOp)) {
-        if (!memPerm->hasOneUse()) {
-            return llvm::any_of(memPerm->getUsers(), [](mlir::Operation* user) {
-                return !mlir::isa<IE::MemPermuteOp>(user);
-            });
+    return llvm::none_of(memPerm->getUsers(), [](mlir::Operation* user) {
+        return !mlir::isa<IE::MemPermuteOp>(user);
+    });
+}
+
+// Pre-validates all branches before any IR mutation: checks that no upstream MemPermute
+// (direct or indirect) would leave an unfusable pair in the graph after insertion.
+// Call this once before the branch transformation loop; the loop can then omit the check.
+mlir::LogicalResult validateBranchFusion(ArrayRef<BranchInfo> branchInfos, IE::MemPermuteOp memPermuteOp,
+                                         mlir::PatternRewriter& rewriter, Logger log) {
+    for (const auto& info : branchInfos) {
+        if (info.inPermutationOp != nullptr && !canFuseAfterInsertion(info.inPermutationOp)) {
+            return matchFailed(log, rewriter, memPermuteOp,
+                               "Upstream MemPermute has multiple users, including a non-MemPermute user; cannot fuse "
+                               "after insertion");
         }
     }
-    // For other PermuteLike ops, allow multi-use
-    return false;
+    return mlir::success();
 }
 
 //
@@ -383,17 +417,30 @@ mlir::LogicalResult OptimizeEltwise::matchAndRewrite(IE::MemPermuteOp memPermute
 
     SmallVector<mlir::Value> newAddInputs;
 
+    // Precompute branch classifications once; reused for validation and the transform loop.
+    SmallVector<BranchInfo> branchInfos;
+    branchInfos.reserve(branches.size());
+    for (auto branchInput : branches) {
+        branchInfos.push_back(classifyBranch(branchInput));
+    }
+
+    // Pre-validate all indirect branches before mutating the IR.
+    if (mlir::failed(validateBranchFusion(branchInfos, memPermuteOp, rewriter, _log))) {
+        return mlir::failure();
+    }
+
+    // Branch routing table:
+    //   inPermutationOp == nullptr        → no upstream PermuteLike → processNonPermuteBranch
+    //   directlyReachable == true         → ShapeCast-only path
+    //                                       → create MemPermute on inPermutationOp->getResult(0)
+    //   directlyReachable == false        → indirect path (QuantizeCast/PermuteCast between
+    //                                       upstream MemPermute and eltwise input)
+    //                                       → processNonPermuteBranch
     for (size_t inputIdx = 0; inputIdx < branches.size(); inputIdx++) {
         auto branchInput = branches[inputIdx];
 
-        const auto inPermutationOp = getInputPermuteLikeOp(branchInput);
-        const auto isDirectlyReachable =
-                inPermutationOp != nullptr && isPermuteLikeDirectlyReachable(branchInput, inPermutationOp);
-        if (inPermutationOp == nullptr || !isDirectlyReachable) {
-            if (hasMultiUseIndirectPermuteLike(inPermutationOp, isDirectlyReachable)) {
-                return matchFailed(_log, rewriter, memPermuteOp,
-                                   "Upstream PermuteLike op has multiple uses on indirect path");
-            }
+        const auto [inPermutationOp, isDirectlyReachable] = branchInfos[inputIdx];
+        if (!isDirectlyReachable) {
             const auto newOutput = processNonPermuteBranch(rewriter, memPermuteOp, branchInput, inputIdx, std::nullopt);
             newAddInputs.push_back(newOutput);
             continue;
@@ -512,6 +559,18 @@ mlir::LogicalResult OptimizeShapeCastedEltwise::matchAndRewrite(IE::MemPermuteOp
 
     const SmallVector<mlir::Value> branches = eltwiseOp->getOperands();
 
+    // Precompute branch classifications once; reused for validation and the transform loop.
+    SmallVector<BranchInfo> branchInfos;
+    branchInfos.reserve(branches.size());
+    for (auto branchInput : branches) {
+        branchInfos.push_back(classifyBranch(branchInput));
+    }
+
+    // Pre-validate all indirect branches before mutating the IR.
+    if (mlir::failed(validateBranchFusion(branchInfos, memPermuteOp, rewriter, _log))) {
+        return mlir::failure();
+    }
+
     auto newAlignedShapeValue = getNewAlignedShapeForPermuteCast(eltwiseOp, memPermuteOp);
     if (!newAlignedShapeValue.has_value()) {
         return matchFailed(_log, rewriter, memPermuteOp, "The shape is not channel aligned");
@@ -568,18 +627,13 @@ mlir::LogicalResult OptimizeShapeCastedEltwise::matchAndRewrite(IE::MemPermuteOp
     }
 
     SmallVector<mlir::Value> newAddInputs;
+    // See OptimizeEltwise for branch routing table.
     for (size_t inputIdx = 0; inputIdx < branches.size(); inputIdx++) {
         auto branchInput = branches[inputIdx];
 
         mlir::Value newInput;
-        const auto inPermutationOp = getInputPermuteLikeOp(branchInput);
-        const auto isDirectlyReachable =
-                inPermutationOp != nullptr && isPermuteLikeDirectlyReachable(branchInput, inPermutationOp);
-        if (inPermutationOp == nullptr || !isDirectlyReachable) {
-            if (hasMultiUseIndirectPermuteLike(inPermutationOp, isDirectlyReachable)) {
-                return matchFailed(_log, rewriter, memPermuteOp,
-                                   "Upstream PermuteLike op has multiple uses on indirect path");
-            }
+        const auto [inPermutationOp, isDirectlyReachable] = branchInfos[inputIdx];
+        if (!isDirectlyReachable) {
             newInput = processNonPermuteBranch(rewriter, memPermuteOp, branchInput, inputIdx, newAlignedShape);
         } else {
             const auto newMemPermuteLoc = appendLoc(memPermuteOp.getLoc(), "mem_permute_{0}", inputIdx);
@@ -697,9 +751,9 @@ mlir::LogicalResult SwapMemPermuteWithSoftmax::matchAndRewrite(IE::MemPermuteOp 
 
     auto newMemPermute = rewriter.create<IE::MemPermuteOp>(
             memPermuteOp.getLoc(), softmaxOp.getInput(), memPermuteOp.getDstOrderAttr(), memPermuteOp.getMemPermAttr());
-    auto newSoftmaxOp = rewriter.create<IE::SoftMaxOp>(softmaxOp.getLoc(), newMemPermute.getOutput(),
-                                                       getIntAttr(getContext(), newSoftmaxAxisDim.ind()),
-                                                       softmaxOp.getPadSizeAttr());
+    auto newSoftmaxOp = rewriter.create<IE::SoftMaxOp>(
+            softmaxOp.getLoc(), newMemPermute.getOutput(), getIntAttr(getContext(), newSoftmaxAxisDim.ind()),
+            softmaxOp.getPadSizeAttr(), softmaxOp.getDstElemTypeAttr(), softmaxOp.getMaskAwareAttr());
 
     rewriter.replaceOp(memPermuteOp, newSoftmaxOp.getOutput());
 
@@ -776,7 +830,7 @@ mlir::LogicalResult ExtractODUPermuteFromAdd::matchAndRewrite(IE::AddOp addOp, m
         return matchFailed(_log, rewriter, addOp, "Can not fuse MemPermute by OptimizeShapeCastedEltwise");
     }
 
-    auto newType = mlir::cast<vpux::NDTypeInterface>(outType).changeDimsOrder(inDimOrder);
+    auto newType = mlir::cast<vpux::NDTypeInterface>(outType).changeDimsOrder(std::move(inDimOrder));
     addOp->getResult(0).setType(newType);
 
     rewriter.setInsertionPointAfter(addOp);
@@ -853,7 +907,13 @@ mlir::LogicalResult OptimizeIdentityPool<ConcreteOp>::matchAndRewrite(ConcreteOp
     };
 
     auto poolInput = origOp->getOperands()[0];
-    const auto inPermutationOp = getInputPermuteLikeOp(poolInput);
+    const auto [inPermutationOp, isDirectlyReachable] = classifyBranch(poolInput);
+    // Only handle direct paths (ShapeCast-only). For indirect paths (QuantizeCast/PermuteCast
+    // between MemPermute and pool input), inPermutationOp->getResult(0) would skip the cast op
+    // and produce a tensor with a different element type.
+    if (inPermutationOp == nullptr || !isDirectlyReachable) {
+        return matchFailed(_log, rewriter, origOp, "Pool input PermuteLike is not directly reachable");
+    }
 
     // Create Subgraph:
     // IE.MemPermute/PermuteQuantize -> IE.MemPermute ->
@@ -993,7 +1053,7 @@ mlir::LogicalResult OptimizeEltwiseSequence::matchAndRewrite(IE::MemPermuteOp me
         return matchFailed(_log, rewriter, memPermuteOp, "EltwiseOp has per axis quant type");
     }
 
-    const auto createPermuteCast = [&](DimsOrder order, mlir::Value newInOut, mlir::Location loc) {
+    const auto createPermuteCast = [&](const DimsOrder& order, mlir::Value newInOut, mlir::Location loc) {
         auto ctx = rewriter.getContext();
         const auto affineMap = order.toAffineMap(ctx);
         const auto memPerm = mlir::AffineMap::getMultiDimIdentityMap(affineMap.getNumDims(), ctx);

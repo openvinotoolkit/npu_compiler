@@ -24,6 +24,12 @@ using namespace vpux;
 
 namespace {
 
+static bool isPerTensorShape(ShapeRef shape) {
+    return llvm::all_of(shape, [](int64_t d) {
+        return d == 1;
+    });
+}
+
 //
 // MoveTwoInputsEltwiseOpAfterGather
 //
@@ -82,17 +88,18 @@ std::optional<ConcreteOp> MoveTwoInputsEltwiseOpAfterGather<ConcreteOp>::getSupp
     }
 
     auto outputShape = getShape(op->getResult(0));
-    auto isGatherAxisBroadcasted = [outputShape, this](mlir::Value operand) {
-        auto inputShape = getShape(operand);
-        auto broadCastAxes = IE::getDiffInOutSizeDims(inputShape, outputShape);
-        for (auto axis : broadCastAxes) {
-            if (axis == SUPPORTED_GATHER_AXIS) {
-                return true;
-            }
+    // Per-tensor operands (all dimensions equal to 1) are invariant to which rows are selected
+    // and can be reused directly without gathering. All other operands must have a gather-axis
+    // size that matches the output; otherwise the transformation is invalid.
+    auto outputGatherAxisSize = outputShape[SUPPORTED_GATHER_AXIS];
+    auto hasIncompatibleGatherAxis = [this, outputGatherAxisSize](mlir::Value operand) {
+        auto shape = getShape(operand);
+        if (isPerTensorShape(shape)) {
+            return false;
         }
-        return false;
+        return shape[SUPPORTED_GATHER_AXIS] != outputGatherAxisSize;
     };
-    if (llvm::any_of(op->getOperands(), isGatherAxisBroadcasted)) {
+    if (llvm::any_of(op->getOperands(), hasIncompatibleGatherAxis)) {
         return std::nullopt;
     }
 
@@ -133,14 +140,21 @@ mlir::LogicalResult MoveTwoInputsEltwiseOpAfterGather<ConcreteOp>::matchAndRewri
     auto op = getOp.value();
 
     auto gatherLoc = gatherOp->getLoc();
-    auto newLoc = appendLoc(gatherLoc, "new_lhs");
-    auto newGather1 = createGatherOp(rewriter, newLoc, op->getOperand(0), gatherOp);
-    newLoc = appendLoc(gatherLoc, "new_rhs");
-    auto newGather2 = createGatherOp(rewriter, gatherLoc, op->getOperand(1), gatherOp);
+    // Per-tensor operands (all dimensions equal to 1) are row-selection-invariant and reused
+    // directly; all other operands are gathered along the gather axis.
+    auto maybeGatherOperand = [&](mlir::Value operand, mlir::StringRef suffix) -> mlir::Value {
+        auto shape = getShape(operand);
+        if (isPerTensorShape(shape)) {
+            return operand;
+        }
+        return createGatherOp(rewriter, appendLoc(gatherLoc, suffix), operand, gatherOp);
+    };
+    auto newOperand0 = maybeGatherOperand(op->getOperand(0), "new_lhs");
+    auto newOperand1 = maybeGatherOperand(op->getOperand(1), "new_rhs");
 
     mlir::IRMapping opMapper;
-    opMapper.map(op->getOperand(0), newGather1);
-    opMapper.map(op->getOperand(1), newGather2);
+    opMapper.map(op->getOperand(0), newOperand0);
+    opMapper.map(op->getOperand(1), newOperand1);
     auto newOp = rewriter.clone(*op, opMapper);
 
     vpux::inferReturnTypes(newOp, vpux::InferShapedTypeMode::ALL);

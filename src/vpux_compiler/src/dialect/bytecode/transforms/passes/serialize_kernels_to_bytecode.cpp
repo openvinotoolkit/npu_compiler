@@ -46,10 +46,11 @@ void SerializeKernelsToBytecodePass::safeRunOnModule() {
     // Create kernel section at the beginning of the parent module body
     auto* ctx = parentModule.getContext();
     mlir::OpBuilder builder(parentModule.getBody(), parentModule.getBody()->begin());
-    auto kernelSection = builder.create<bytecode::KernelSectionOp>(parentModule.getLoc(), "kernel_section");
-    kernelSection.getContent().emplaceBlock();
 
-    mlir::Operation* lastInserted = kernelSection;
+    auto kernelSection = bytecode::getOrCreateSection<bytecode::KernelSectionOp>(parentModule, builder, ctx,
+                                                                                 bytecode::KERNEL_SECTION_NAME);
+    auto& kernelsBlock = bytecode::getOrCreateContentBlock(kernelSection);
+    auto kernelsBuilder = mlir::OpBuilder::atBlockEnd(&kernelsBlock);
 
     for (auto binaryOp : binaryOps) {
         // Find BinaryDataOp and func.func inside the BinaryOp
@@ -64,22 +65,16 @@ void SerializeKernelsToBytecodePass::safeRunOnModule() {
         auto moduleLoc = binaryOp.getLoc();
 
         // Create kernel in the kernel section
-        mlir::OpBuilder kernelBuilder(ctx);
-        kernelBuilder.setInsertionPointToEnd(&kernelSection.getContent().front());
-        kernelBuilder.create<bytecode::KernelOp>(moduleLoc, funcName, binaryData);
+        kernelsBuilder.create<bytecode::KernelOp>(moduleLoc, funcName, binaryData);
 
         // Erase the BinaryOp
         binaryOp.erase();
 
         // Create stub module to preserve Core::NestedCallOp symbol resolution
-        mlir::OpBuilder containerBuilder(ctx);
-        containerBuilder.setInsertionPointAfter(lastInserted);
-        auto containerModule = containerBuilder.create<mlir::ModuleOp>(moduleLoc, moduleName);
+        auto containerModule = builder.create<mlir::ModuleOp>(moduleLoc, moduleName);
         auto bodyBuilder = mlir::OpBuilder::atBlockEnd(containerModule.getBody());
         auto funcDecl = bodyBuilder.create<mlir::func::FuncOp>(moduleLoc, funcName, funcType);
-        funcDecl.setPrivate();
-
-        lastInserted = containerModule;
+        funcDecl.setNested();
     }
 }
 

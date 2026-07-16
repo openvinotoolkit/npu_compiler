@@ -131,15 +131,15 @@ func.func @PermuteCastDistributedWithOnlyOrderChanged(%arg0: !InputDistributed) 
 
 #CN = affine_map<(d0, d1) -> (d1, d0)>
 
-func.func @PermuteCastMemPermute() -> memref<1x2xf32, #CN> {
+func.func @PermuteCastMemPermute() -> memref<1x2xf32, {order = #CN}> {
     %cst = const.Declare memref<1x2xf32> = dense<[[1.0, 2.0]]> : memref<1x2xf32>
-    %permute_cast = VPUIP.PermuteCast {dst_order = #CN, mem_perm = #CN} inputs(%cst : memref<1x2xf32>) -> memref<1x2xf32, #CN>
-    return %permute_cast : memref<1x2xf32, #CN>
+    %permute_cast = VPUIP.PermuteCast {dst_order = #CN, mem_perm = #CN} inputs(%cst : memref<1x2xf32>) -> memref<1x2xf32, {order = #CN}>
+    return %permute_cast : memref<1x2xf32, {order = #CN}>
 }
 
-// CHECK: func.func @PermuteCastMemPermute() -> memref<1x2xf32, #CN> {
-// CHECK:    [[CST:%.+]] = const.Declare memref<1x2xf32, #CN> = dense<{{\[\[}}1.000000e+00, 2.000000e+00]]> : memref<1x2xf32>, [#const.MemPermute<#CN, #CN>]
-// CHECK:    return [[CST]] : memref<1x2xf32, #CN>
+// CHECK: func.func @PermuteCastMemPermute() -> memref<1x2xf32, {order = #CN}> {
+// CHECK:    [[CST:%.+]] = const.Declare memref<1x2xf32, {order = #CN}> = dense<{{\[\[}}1.000000e+00, 2.000000e+00]]> : memref<1x2xf32>, [#const.MemPermute<#CN, #CN>]
+// CHECK:    return [[CST]] : memref<1x2xf32, {order = #CN}>
 // CHECK: }
 
 // -----
@@ -163,7 +163,7 @@ func.func @PermuteCastNoOp() -> memref<1x2xf32> {
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 // expected-error@+2 {{Non-strides input memref<1x3x16x16xf32> and strides output memref<1x3x16x16xf32, {order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, strides = [1536, 512, 16, 1]}> are inconsistent}}
-func.func @PermuteCastStridesMismatch(%arg0: memref<1x3x16x16xf32, #NCHW>) -> memref<1x3x16x16xf32, {order = #NCHW, strides = [1536, 512, 16, 1]}> {
-    %0 = VPUIP.PermuteCast {dst_order = #NCHW, mem_perm = #NCHW} inputs(%arg0 : memref<1x3x16x16xf32, #NCHW>) -> memref<1x3x16x16xf32, {order = #NCHW, strides = [1536, 512, 16, 1]}>
+func.func @PermuteCastStridesMismatch(%arg0: memref<1x3x16x16xf32>) -> memref<1x3x16x16xf32, {order = #NCHW, strides = [1536, 512, 16, 1]}> {
+    %0 = VPUIP.PermuteCast {dst_order = #NCHW, mem_perm = #NCHW} inputs(%arg0 : memref<1x3x16x16xf32>) -> memref<1x3x16x16xf32, {order = #NCHW, strides = [1536, 512, 16, 1]}>
     return %0 : memref<1x3x16x16xf32, {order = #NCHW, strides = [1536, 512, 16, 1]}>
 }

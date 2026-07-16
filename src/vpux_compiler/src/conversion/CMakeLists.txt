@@ -26,6 +26,7 @@ add_npu_library(npu_compiler_conversion
         npu_compiler_dialect_npureg50xx
         npu_compiler_dialect_vpurt
         npu_compiler_utils
+        npu_compiler_dialect_shave
       PRIVATE
         npu_compiler_core
         npu_elf
@@ -35,18 +36,19 @@ add_npu_library(npu_compiler_conversion
         npu_compiler_dialect_elfnpu37xx
         npu_compiler_dialect_elf_utils
         MLIRMathTransforms
+        npu_compiler_dialect_bytecode_utils
         npu_compiler_dialect_elf
         npu_compiler_dialect_ie_utils
         npu_compiler_dialect_net
+        npu_compiler_dialect_vpu_interfaces
         npu_compiler_dialect_vpu_transforms
         npu_compiler_dialect_vpuip_transforms
         npu_compiler_dialect_vpuip_utils
         npu_compiler_dialect_vpumi37xx
-        npu_compiler_npu37xx
         npu_compiler_npu40xx
-        npu_compiler_npu50xx
         npu_compiler_shave_code_gen
         npu_compiler_act_kernels
         npu_core_utils
         npu_compiler_dialect_bytecode
+        npu_compiler_dialect_vpuipdpu
 )

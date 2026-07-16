@@ -35,14 +35,14 @@ VPURT.SW.Runtime
 module @VPU.SW {
     // The declaration should match C++ params structure in decomposed form.
     // `memref` will be translated to `MemRefData`, while raw scalars will be translated as is.
-    func.func private @builtin_sigmoid(%input : memref<*xf16>, %output : memref<*xf16>)
+    func.func nested @builtin_sigmoid(%input : memref<*xf16>, %output : memref<*xf16>)
         attributes {
             VPU.kernel_code = "activation_sigmoid.cpp",
             VPU.kernel_entry = "activation_sigmoid"
         }
 
     // management kernel definition
-    func.func private @runtime()
+    func.func nested @runtime()
         attributes {
             VPU.kernel_code = "nnActEntry"
         }
@@ -107,9 +107,9 @@ func.func @main(%1: memref<1x1x1x1000xf16>, %2: memref<1x1x1x1000xf16>, %3: memr
 //CHECK-DAG: [[VAL9:%.+]] = VPUMI40XX.DeclareKernelEntry kernel_path([[VAL7]]) -> !VPURegMapped.Index<1:0:0>
 //CHECK-DAG: [[VAL10:%.+]] = VPUMI40XX.DeclareKernelArgs kernel_path([[VAL7]]) -> !VPURegMapped.Index<1:0:0>
 //CHECK-NEXT: [[VAL11:%.+]] = VPUMI40XX.ActKernelRange kernel_text_index([[VAL8]] : !VPURegMapped.Index<1:0:0>) kernel_args_index([[VAL10]] : !VPURegMapped.Index<1:0:0>) kernel_entry_index([[VAL9]] : !VPURegMapped.Index<1:0:0>) kernelTaskType(@COMPUTE) -> !VPURegMapped.Index<1:0:0>
-//CHECK-NEXT: [[VAL12:%.+]] VPURT.DeclareBuffer <CMX_NN> [0] <2000> -> memref<1x1x1x1000xf16, #NHWC, [@CMX_NN, 0]>
-//CHECK-NEXT: [[VAL13:%.+]] VPURT.DeclareBuffer <CMX_NN> [1] <2000> -> memref<1x1x1x1000xf16, #NHWC, [@CMX_NN, 1]>
-//CHECK-NEXT: [[VAL14:%.+]] = VPUMI40XX.KernelParams <{dynamicInputShapesSize = array<i32>, dynamicOutputShapesSize = array<i32>, is_output_broadcasted}> inputs([[VAL0]] : memref<1x1x1x1000xf16, [@CMX_NN, 1]>) outputs([[VAL12:%.+]], [[VAL13:%.+]] :  memref<1x1x1x1000xf16, #NHWC, [@CMX_NN, 0]>, memref<1x1x1x1000xf16, #NHWC, [@CMX_NN, 1]>) kernel_type([[VAL7]]) kernel_params({{.+}}) -> !VPURegMapped.Index<1:0:0>
+//CHECK-NEXT: [[VAL12:%.+]] VPURT.DeclareBuffer <CMX_NN> [0] <2000> -> memref<1x1x1x1000xf16, {order = #NHWC}, [@CMX_NN, 0]>
+//CHECK-NEXT: [[VAL13:%.+]] VPURT.DeclareBuffer <CMX_NN> [1] <2000> -> memref<1x1x1x1000xf16, {order = #NHWC}, [@CMX_NN, 1]>
+//CHECK-NEXT: [[VAL14:%.+]] = VPUMI40XX.KernelParams <{dynamicInputShapesSize = array<i32>, dynamicOutputShapesSize = array<i32>, is_output_broadcasted}> inputs([[VAL0]] : memref<1x1x1x1000xf16, [@CMX_NN, 1]>) outputs([[VAL12:%.+]], [[VAL13:%.+]] :  memref<1x1x1x1000xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x1x1x1000xf16, {order = #NHWC}, [@CMX_NN, 1]>) kernel_type([[VAL7]]) kernel_params({{.+}}) -> !VPURegMapped.Index<1:0:0>
 //CHECK-NEXT: [[VAL15:%.+]] = VPUMI40XX.ActKernelInvocation range_index([[VAL11]] : <1:0:0>) kernel_params([[VAL14]] : <1:0:0>) waits([[VAL4]] : !VPURegMapped.Index<0:0:0>) updates([[VAL5]] : !VPURegMapped.Index<0:0:1>) tile(1) start_after(0) clean_after(0) -> !VPURegMapped.Index<1:0:0>
 //CHECK-NOT: VPURT.Task
 //CHECK-NEXT: [[VAL16:%.+]] = VPUMI40XX.NNDMA <{port = 0 : i64}> inputs([[VAL2]] : memref<1x1x1x1000xf16, [@CMX_NN, 0]>) outputs([[VAL18:%.+]] : memref<1x1x1x1000xf16>) waits([[VAL5]] : !VPURegMapped.Index<0:0:1>) start_after(0) clean_after(0) acceleration_mode(<DISABLE>){{.+}}-> !VPURegMapped.Index<0:1:0>

@@ -278,20 +278,6 @@ void UnrollSwKernelPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
 
-    // Add `logical_task` attribute to SWKernel ops that submit DMAs.
-    //
-    // This attribute is used to group Fetch and Skip DMAs belonging to the same
-    // SHV task when multiple SHVs run in parallel. It allows identifying and
-    // linking the corresponding Skip DMAs into a loop for each logical task,
-    // which is required to allow SHV to take inference control and submit number of DMAs on the fly.
-    func->walk([logicalTaskIndex = 0ll, &ctx](VPUIP::SwKernelOp swOp) mutable {
-        if (isSwKernelUsingDma(swOp)) {
-            auto logicalTaskAttr = mlir::IntegerAttr::get(mlir::IntegerType::get(&ctx, 64), logicalTaskIndex);
-            swOp->setAttr(VPUIP::LOGICAL_TASK_INDEX_ATTR_NAME, logicalTaskAttr);
-            ++logicalTaskIndex;
-        }
-    });
-
     bool swKernelFifoPerShaveEngine = enableSwKernelFifoPerShaveEngine.hasValue()
                                               ? enableSwKernelFifoPerShaveEngine.getValue()
                                               : config::isFifoPerShaveEngineEnabled(func);

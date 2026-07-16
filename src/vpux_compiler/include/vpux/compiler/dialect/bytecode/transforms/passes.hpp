@@ -21,7 +21,9 @@ namespace bytecode {
 //
 
 std::unique_ptr<mlir::Pass> createConvertIntermediateBytecodeOpsPass(const Logger& log = Logger::global());
+std::unique_ptr<mlir::Pass> createAllocateBytecodeRegistersPass(const Logger& log = Logger::global());
 std::unique_ptr<mlir::Pass> createSerializeKernelsToBytecodePass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createInjectBytecodeMetadataPass(Logger log = Logger::global());
 
 void registerPasses();
 

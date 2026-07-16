@@ -58,5 +58,8 @@ bool allowsChannelsReshape(mlir::Operation* origOp);
 */
 vpux::DimsOrder returnBestDimOrder(const vpux::DimsOrder& initialDimOrder, SmallVector<Dim>& nonBatchOneDims,
                                    bool is32Bit);
+
+std::optional<SmallVector<int64_t>> computeShapeValueFromAffineReshape(IE::AffineReshapeOp affineReshape,
+                                                                       ArrayRef<int64_t> newInputShape);
 }  // namespace IE
 }  // namespace vpux

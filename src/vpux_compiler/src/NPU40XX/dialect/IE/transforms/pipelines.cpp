@@ -7,6 +7,7 @@
 #include "vpux/compiler/NPU40XX/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/Shave/transforms/passes.hpp"
 #include "vpux/compiler/dialect/core/transforms/passes.hpp"
 #include "vpux/compiler/locverif/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -116,6 +117,7 @@ void vpux::IE::arch40xx::buildLowPrecisionPipeline(mlir::OpPassManager& pm, cons
 void vpux::IE::arch40xx::buildFinalTransformationPipeline(mlir::OpPassManager& pm,
                                                           const IE::arch40xx::DefaultHWOptions& options, Logger log) {
     pm.addPass(IE::createAdaptODUPermutePass(log));
+    pm.addPass(IE::createFuseInefficientTileForAddPass(log));
     // Operation Conversions
     if (options.enableConvertExpandToConvPass) {
         pm.addPass(IE::createConvertExpandToConvPass(log));
@@ -131,6 +133,31 @@ void vpux::IE::arch40xx::buildFinalTransformationPipeline(mlir::OpPassManager& p
     pm.addPass(IE::createPropagateShapeCastPass(log));
     pm.addPass(IE::createPropagatePermuteCastPass(log));
     pm.addPass(IE::createMoveDynamicDequantizeToUserPass(log));
+}
+
+//
+// AttentionProcessingPipeline
+//
+
+void vpux::IE::arch40xx::buildAttentionProcessingPipeline(mlir::OpPassManager& pm,
+                                                          const IE::AttentionProcessingOptions& options, Logger log) {
+    const auto grc = getDefaultGreedyRewriteConfig();
+
+    if (options.enableFlashSDPAConversion) {
+        pm.addPass(IE::createConvertSDPAToFlashSDPAPass(log));
+    }
+    pm.addPass(IE::createResolveStridedSlicePass(log));
+    if (options.enableConvertToAttention) {
+        pm.addPass(IE::createFuseAttentionPass(log));
+        pm.addPass(mlir::createCanonicalizerPass(grc));
+    }
+    if (options.enableFuseSoftwareSDPA) {
+        pm.addPass(IE::createFuseSDPAPass(log));
+    }
+    if (options.enableDecomposeAttention) {
+        pm.addPass(IE::createDecomposeAttentionPass(log));
+    }
+    pm.addPass(IE::createReshapeMatMulInputsPass(options.enableGroupedMatMul, log));
 }
 
 //
@@ -161,14 +188,11 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
         pm.addPass(IE::createLogOpOptimizationsPass());
     }
 
-    if (options.enableFlashSDPAConversion) {
-        pm.addPass(IE::createConvertSDPAToFlashSDPAPass(log));
-    }
-
     if (options.enableDynamicShapeTransformationsPipeline) {
         IE::buildDynamicShapeTransformationsPipeline(pm, IE::DynamicShapeTransformOptions(options), log);
     }
     IE::arch37xx::buildInitialLowPrecisionTransformationsPipeline(pm, IE::LowPrecisionTransformOptions(options), log);
+    IE::arch40xx::buildAttentionProcessingPipeline(pm, IE::AttentionProcessingOptions(options), log);
     IE::buildInitialTransformationsPipeline(pm, IE::TransformOptions(options), log);
 
     if (options.enableAdjustPrecisionPipeline) {
@@ -191,7 +215,6 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     IE::buildConvertToConvolutionPipeline(pm, log);
     IE::buildReorderFakeQuantizePipeline(pm, IE::ReorderFakeQuantizeOptions(options), log);
 
-    pm.addPass(locverif::createStopLocationVerifierPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
     IE::buildScaleShiftProcessingPipeline(pm, log);
 
@@ -211,16 +234,18 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     IE::buildOptimizeMemPermuteAndActivationChannelsExpandPipeline(pm, IE::ExpandActivationChannelsOptions(options),
                                                                    log);
 
+    pm.addPass(locverif::createStopLocationVerifierPass(log));
+
     IE::buildOptimizeViewLikeOpsPipeline(pm, log);
 
-    IE::buildOptimizeSliceOpPipeline(pm, log);
+    IE::buildOptimizeSliceOpPipeline(pm, options.disableSliceToConvMinHWThreshold, log);
 
     IE::buildDimensionAlignmentPipeline(pm, log);
 
     IE::arch40xx::buildFinalTransformationPipeline(pm, options, log);
 
     // Shave related optimization
-    pm.addPass(IE::createLoadExternalKernelResourcesPass(log));
+    pm.addPass(Shave::createLoadExternalKernelResourcesPass(log));
     if (options.enableShaveCodeGen) {
         ShaveCodeGen::buildShaveCodeGenPipelineIE(pm, log);
     }
@@ -243,6 +268,7 @@ void vpux::IE::arch40xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     // Level 3 : Topology
 
     IE::arch37xx::buildInitialLowPrecisionTransformationsPipeline(pm, IE::LowPrecisionTransformOptions(options), log);
+    IE::arch40xx::buildAttentionProcessingPipeline(pm, IE::AttentionProcessingOptions(options), log);
     IE::buildInitialTransformationsPipeline(pm, IE::TransformOptions(options), log);
     IE::buildAdjustPrecisionPipeline(pm, IE::AdjustPrecisionOptions(options), log);
 
@@ -255,7 +281,7 @@ void vpux::IE::arch40xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     pm.addPass(IE::createMergeParallelFullyConnectedPass(log));
     pm.addPass(IE::createUnrollGroupQuantizePass(log));
     pm.addPass(IE::createUnrollFullyConnectedPass(log));
-    pm.addPass(IE::createMergeFullyConnectedPass(log));
+    pm.addPass(IE::createMergeFullyConnectedPass(isOptionEnabled(options.mergeUnrolledMatmulForLargeOC), log));
     pm.addPass(IE::createConvertMatMulToConvPass(log));
     if (options.enableConvertFCToConv) {
         pm.addPass(IE::createConvertFCToConvPass(log));
@@ -304,6 +330,14 @@ void vpux::IE::arch40xx::registerIEPipelines() {
             "equivalent operations supported by the lower compilation levels",
             [](mlir::OpPassManager& pm, const IE::LowPrecisionTransformOptions& options) {
                 IE::arch37xx::buildInitialLowPrecisionTransformationsPipeline(pm, options);
+            });
+
+    mlir::PassPipelineRegistration<IE::AttentionProcessingOptions>(
+            "attention-processing",
+            "[OPTIMIZATION] Attention processing transformations: fuse patterns into AttentionOp and apply "
+            "attention decomposition strategies",
+            [](mlir::OpPassManager& pm, const IE::AttentionProcessingOptions& options) {
+                IE::arch40xx::buildAttentionProcessingPipeline(pm, options);
             });
 
     mlir::PassPipelineRegistration<LowPrecisionOptions>(

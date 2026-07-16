@@ -22,19 +22,19 @@ func.func @EraseTiledInfo() -> memref<8xf32> {
 // -----
 
 // CHECK-LABEL: @EraseTiledInfoCopy
-// CHECK-SAME: ([[ARG_0:%.+]]: memref<8xf32, {order = #C}>) -> memref<8xf32, {order = #C}>
+// CHECK-SAME: ([[ARG_0:%.+]]: memref<8xf32>) -> memref<8xf32>
 #C = affine_map<(d0) -> (d0)>
 
-func.func @EraseTiledInfoCopy(%arg0: memref<8xf32, {order = #C}>) -> memref<8xf32, {order = #C}> {
+func.func @EraseTiledInfoCopy(%arg0: memref<8xf32>) -> memref<8xf32> {
     %0 = const.Declare memref<8xf32, {order = #C, strides = [1]}> = dense<1.000000e+00> : tensor<8xf32>, [#const.Reorder<#C>]
     %1 = VPUIP.Copy
         inputs(%0 : memref<8xf32, {order = #C, strides = [1]}>)
-        outputs(%arg0: memref<8xf32, {order = #C}>)
-        -> memref<8xf32, {order = #C}>
-    return %1 : memref<8xf32, {order = #C}>
+        outputs(%arg0: memref<8xf32>)
+        -> memref<8xf32>
+    return %1 : memref<8xf32>
     // CHECK: [[CST:%.+]] = const.Declare memref<8xf32> = dense<1.000000e+00> : tensor<8xf32>, [#const.Reorder<#C>]
-    // CHECK: [[VAR1:%.+]] = VPUIP.Copy inputs([[CST]] : memref<8xf32>) outputs([[ARG_0]] : memref<8xf32, {order = #C}>) -> memref<8xf32, {order = #C}>
-    // CHECK: return [[VAR1]] : memref<8xf32, {order = #C}>
+    // CHECK: [[VAR1:%.+]] = VPUIP.Copy inputs([[CST]] : memref<8xf32>) outputs([[ARG_0]] : memref<8xf32>) -> memref<8xf32>
+    // CHECK: return [[VAR1]] : memref<8xf32>
 }
 
 // -----

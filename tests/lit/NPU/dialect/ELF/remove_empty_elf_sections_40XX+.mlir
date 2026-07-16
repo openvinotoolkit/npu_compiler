@@ -9,7 +9,7 @@
 func.func @oneDma() {
   ELF.Main {
     ELF.CreateLogicalSection @buffer.CMX_NN aligned(64) secType(SHT_PROGBITS) secFlags("SHF_NONE") secLocation(<DDR>) {
-      VPUASM.DeclareBuffer @DeclareBuffer !VPUASM.Buffer< "CMX_NN"[0] <0> : memref<1x10x2x3xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]> :  swizzling(0)>
+      VPUASM.DeclareBuffer @DeclareBuffer !VPUASM.Buffer< "CMX_NN"[0] <0> : memref<1x10x2x3xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]> :  swizzling(0)>
     }
     ELF.CreateLogicalSection @program.metadata.cmx aligned(64) secType(VPU_SHT_CMX_METADATA) secFlags("SHF_NONE") secLocation(<DDR>) {
       VPUASM.DeclareTaskBuffer @DeclareTaskBuffer idx(!VPURegMapped.Index<0:0:0>) <ActKernelInvocation> {elfMemOffsetAttrKey = 53760 : ui64}

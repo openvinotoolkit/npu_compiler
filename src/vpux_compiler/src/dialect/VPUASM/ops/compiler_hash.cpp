@@ -26,9 +26,10 @@ size_t vpux::VPUASM::CompilerHashOp::getAlignmentRequirements(config::ArchKind) 
     return alignof(elf::CompilerHashInfo);
 }
 
-std::optional<ELF::SectionSignature> vpux::VPUASM::CompilerHashOp::getSectionSignature() {
-    return ELF::SectionSignature(vpux::ELF::generateSignature("info", "compiler", "hash"),
-                                 ELF::SectionFlagsAttr::SHF_NONE, ELF::SectionTypeAttr::VPU_SHT_COMPILER_HASH);
+std::optional<vpux::ELF::SectionSignature> vpux::VPUASM::CompilerHashOp::getSectionSignature() {
+    return vpux::ELF::SectionSignature(vpux::ELF::generateSignature("info", "compiler", "hash"),
+                                       vpux::ELF::SectionFlagsAttr::SHF_NONE,
+                                       vpux::ELF::SectionTypeAttr::VPU_SHT_COMPILER_HASH);
 }
 
 bool vpux::VPUASM::CompilerHashOp::hasMemoryFootprint() {

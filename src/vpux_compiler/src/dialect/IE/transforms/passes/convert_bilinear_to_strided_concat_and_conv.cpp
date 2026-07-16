@@ -126,7 +126,7 @@ mlir::Value createMaxPool(mlir::Value input, mlir::Location loc, mlir::PatternRe
             .create<IE::MaxPoolOp>(loc, input, getIntArrayAttr(rewriter, maxPoolKernels),
                                    getIntArrayAttr(rewriter, maxPoolStrides), padsAttr, padsAttr,
                                    vpux::IE::RoundingTypeAttr::get(ctx, vpux::IE::RoundingType::FLOOR), nullptr,
-                                   nullptr, nullptr, nullptr)
+                                   nullptr, nullptr, nullptr, nullptr)
             .getOutput();
 }
 

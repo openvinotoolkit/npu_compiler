@@ -4525,7 +4525,7 @@ TEST_F(BarrierPagesSplitTests, CheckEnqueueMergeOfDpu) {
  *            |  \
  * ------     t4  t5
  *            |  /
- *            b4  <- enqueue DPU (t7) after this barrier after SHVwithDPU (t7)
+ *            b4  <- enqueue DPU (t7) after this barrier after SHVwithDPU (t5)
  *            |
  *  Page2     t6
  *            |
@@ -5197,6 +5197,353 @@ TEST_F(BarrierPagesSplitTests, CheckEnqueueOfDpuDelayedForAvoidCreatingExtraBarr
     EXPECT_EQ(enqueueDataVec[2].startTaskIdx, 0);
     EXPECT_EQ(enqueueDataVec[2].endTaskIdx, 0);
     EXPECT_EQ(enqueueDataVec[2].insertBefore, 1);
+
+    auto testResult = barrierPagesSplitHandlerTest.getBarrierMaps();
+
+    EXPECT_EQ(expectedBarrierMapsConfig.taskUpdateBarriers, testResult.taskUpdateBarriers);
+    EXPECT_EQ(expectedBarrierMapsConfig.taskWaitBarriers, testResult.taskWaitBarriers);
+    EXPECT_EQ(expectedBarrierMapsConfig.barrierProducerMap, testResult.barrierProducerMap);
+    EXPECT_EQ(expectedBarrierMapsConfig.barrierConsumerMap, testResult.barrierConsumerMap);
+}
+
+/**
+ * HW FIFO (DMA0): t0 t2 t4 t6 t8
+ * HW FIFO (DMA1): t1 t3 t7
+ * HW FIFO (SHV(withDPU)): t5
+ * HW FIFO (DPU): t9 t10
+ *
+ * ------     t0
+ *            |
+ *            b0
+ *            |
+ *  Page0     t1
+ *            |
+ *            b1
+ *            |
+ *            t2
+ *            |
+ *            b2
+ *            |
+ *            t3
+ *            |
+ *            b3
+ *          /   \
+ *         t4   t5    <- t5 is SHV(DPU) task, t9 enqueue can be happened before, because we do not have dependency
+ *         |     |       between t5 and t9.
+ *         |     b4      t10 enqueue must be delayed after t5, proposed enqueue position was insertBefore t6 and wBar
+ *         |     |       b4, but this insertion create unexpected dependency between t5 and t9 which was already
+ *         |     |       processed. To avoid this case, we change insertion position - insertBefore t9
+ * -----   t6    t7      with wBar b6.
+ *         |     |
+ *         b5    b6
+ *         |     |
+ *  Page1  t8    |
+ *         |     |
+ *         b7    |
+ *         |     |
+ *         t9    t10
+ *           \  /
+ *            b8
+ *
+ */
+// Create a tuple with BarrierInfoMaps, pageSize, barrierToPidVec, shvTasksWithDpu and expectedBarrierMapsConfig
+std::tuple<BarrierInfoMaps, size_t, SmallVector<size_t>, SmallVector<size_t>, BarrierInfoMaps>
+graphToCheckEnqueueOfDpuDelayedToNextPage() {
+    BarrierInfoMaps barrierMapsConfig;
+
+    barrierMapsConfig.taskUpdateBarriers = {
+            {0},  // task 0
+            {1},  // task 1
+            {2},  // task 2
+            {3},  // task 3
+            {},   // task 4
+            {4},  // task 5
+            {5},  // task 6
+            {6},  // task 7
+            {7},  // task 8
+            {8},  // task 9
+            {8}   // task 10
+    };
+
+    barrierMapsConfig.taskWaitBarriers = {
+            {},   // task 0
+            {0},  // task 1
+            {1},  // task 2
+            {2},  // task 3
+            {3},  // task 4
+            {3},  // task 5
+            {},   // task 6
+            {4},  // task 7
+            {5},  // task 8
+            {7},  // task 9
+            {6}   // task 10
+    };
+
+    fillProducersAndConsumers(barrierMapsConfig);
+
+    const VPURT::TaskQueueType dmaType0{config::ExecutorKind::DMA_NN, 0};
+    const VPURT::TaskQueueType dmaType1{config::ExecutorKind::DMA_NN, 1};
+    const VPURT::TaskQueueType dpuType{config::ExecutorKind::DPU, 0};
+    const VPURT::TaskQueueType shvType{config::ExecutorKind::SHAVE_ACT, 1};  // SHV tile 0 list 1
+
+    barrierMapsConfig.taskQueueTypeMap[dmaType0] = {0, 2, 4, 6, 8};
+    barrierMapsConfig.taskQueueTypeMap[dmaType1] = {1, 3, 7};
+    barrierMapsConfig.taskQueueTypeMap[dpuType] = {9, 10};
+    barrierMapsConfig.taskQueueTypeMap[shvType] = {5};
+
+    size_t pageSize = 5;
+
+    SmallVector<size_t> barrierToPidVec = {0, 1, 2, 3, 4, 5, 0, 1, 2};
+
+    SmallVector<size_t> shvTasksWithDpu = {5};
+
+    BarrierInfoMaps expectedBarrierMapsConfig;
+
+    expectedBarrierMapsConfig.taskUpdateBarriers = {
+            {0},  // task 0
+            {1},  // task 1
+            {2},  // task 2
+            {3},  // task 3
+            {},   // task 4
+            {4},  // task 5
+            {5},  // task 6
+            {6},  // task 7
+            {7},  // task 8
+            {8},  // task 9
+            {8}   // task 10
+    };
+
+    expectedBarrierMapsConfig.taskWaitBarriers = {
+            {},   // task 0
+            {0},  // task 1
+            {1},  // task 2
+            {2},  // task 3
+            {3},  // task 4
+            {3},  // task 5
+            {},   // task 6
+            {4},  // task 7
+            {5},  // task 8
+            {7},  // task 9
+            {6}   // task 10
+    };
+    fillProducersAndConsumers(expectedBarrierMapsConfig);
+
+    return std::make_tuple(barrierMapsConfig, pageSize, barrierToPidVec, shvTasksWithDpu, expectedBarrierMapsConfig);
+}
+
+TEST_F(BarrierPagesSplitTests, CheckEnqueueOfDpuDelayedToNextPage) {
+    auto [barrierMapsConfig, pageSize, barrierToPidVec, shvTasksWithDpu, expectedBarrierMapsConfig] =
+            graphToCheckEnqueueOfDpuDelayedToNextPage();
+
+    BarrierInfoTest barrierInfoTest(barrierMapsConfig);
+    VPURT::BarrierPagesSplitHandler barrierPagesSplitHandlerTest(barrierInfoTest, barrierMapsConfig.taskQueueTypeMap,
+                                                                 pageSize, /*_barrierFifoDepth = */ 1,
+                                                                 /* numClusters */ 1, shvTasksWithDpu);
+
+    barrierPagesSplitHandlerTest.initPrevPhysBarrierData(barrierToPidVec);
+    ExecutionGroupAnalysisTest execGroupAnalysis(barrierMapsConfig.taskQueueTypeMap, /*maxVariantCount*/ 4,
+                                                 /*maxInvariantCount*/ 2,
+                                                 /*maxKernelInvocationCount*/ 2, /*maxKernelRangeCount*/ 2,
+                                                 /*tilesCount*/ 1);
+
+    EXPECT_NO_THROW(barrierPagesSplitHandlerTest.verifyTaskBarrierPagesAreValid());
+    EXPECT_NO_THROW(barrierPagesSplitHandlerTest.verifyNoCyclicDeps());
+
+    EXPECT_TRUE(barrierPagesSplitHandlerTest.areBoundaryTasksFromNeighborPagesDependent());
+
+    mlir::DenseSet<vpux::config::ExecutorKind> executorEnqAtBootstrap{vpux::config::ExecutorKind::DMA_NN};
+    auto enqueueDataVec = barrierPagesSplitHandlerTest.getEnqueueDmaData(execGroupAnalysis, executorEnqAtBootstrap);
+
+    // DMA tasks enqueued at bootstrap without enqueue DMA
+    // SHV tasks enqueued after start barrier
+    // DPU task enqueue delayed after SHV task
+    ASSERT_EQ(enqueueDataVec.size(), 3);
+
+    EXPECT_EQ(enqueueDataVec[0].pageInd, 0);
+    EXPECT_EQ(enqueueDataVec[0].queueType.type, config::ExecutorKind::DPU);
+    ASSERT_EQ(enqueueDataVec[0].waitBars.size(), 1);
+    EXPECT_EQ(enqueueDataVec[0].waitBars[0], 0);
+    EXPECT_EQ(enqueueDataVec[0].startTaskIdx, 0);
+    EXPECT_EQ(enqueueDataVec[0].endTaskIdx, 0);
+    EXPECT_EQ(enqueueDataVec[0].insertBefore, 1);
+
+    EXPECT_EQ(enqueueDataVec[1].pageInd, 1);
+    EXPECT_EQ(enqueueDataVec[1].queueType.type, config::ExecutorKind::DPU);
+    ASSERT_EQ(enqueueDataVec[1].waitBars.size(), 1);
+    EXPECT_EQ(enqueueDataVec[1].waitBars[0], 6);
+    EXPECT_EQ(enqueueDataVec[1].startTaskIdx, 1);
+    EXPECT_EQ(enqueueDataVec[1].endTaskIdx, 1);
+    EXPECT_EQ(enqueueDataVec[1].insertBefore, 9);
+
+    EXPECT_EQ(enqueueDataVec[2].pageInd, 0);
+    EXPECT_EQ(enqueueDataVec[2].queueType.type, config::ExecutorKind::SHAVE_ACT);
+    ASSERT_EQ(enqueueDataVec[2].waitBars.size(), 1);
+    EXPECT_EQ(enqueueDataVec[2].waitBars[0], 0);
+    EXPECT_EQ(enqueueDataVec[2].startTaskIdx, 0);
+    EXPECT_EQ(enqueueDataVec[2].endTaskIdx, 0);
+    EXPECT_EQ(enqueueDataVec[2].insertBefore, 1);
+
+    auto testResult = barrierPagesSplitHandlerTest.getBarrierMaps();
+
+    EXPECT_EQ(expectedBarrierMapsConfig.taskUpdateBarriers, testResult.taskUpdateBarriers);
+    EXPECT_EQ(expectedBarrierMapsConfig.taskWaitBarriers, testResult.taskWaitBarriers);
+    EXPECT_EQ(expectedBarrierMapsConfig.barrierProducerMap, testResult.barrierProducerMap);
+    EXPECT_EQ(expectedBarrierMapsConfig.barrierConsumerMap, testResult.barrierConsumerMap);
+}
+
+/**
+ * HW FIFO (DMA0): t0 t1 t5 t7
+ * HW FIFO (DMA1): t2 t3
+ * HW FIFO (SHV(withDPU)): t4
+ * HW FIFO (DPU): t6
+ *
+ * ------   t0
+ *          |
+ *          b0
+ *          |
+ *  Page0   t1
+ *          |
+ *          b1
+ *          |
+ *          t2
+ *          |
+ *          b2
+ *          |
+ * ------   t3
+ *          |
+ *          b3
+ *          |  \
+ *  Page1   |   t4 (SHVwithDPUandDMA)
+ *          t5  |
+ *          |   |
+ *          b4  b5
+ *          |   |
+ * ------   t6  t7  - DPU (t6) depends on DMA (t5) which is going to be blocked
+ *  Page2   |  /      by SkipDMA descriptor that will be later added and which will be
+ *          b6        under SHVwithDPUandDMA (t4) task. t6 enqueue must be delayed after b5
+ * ------
+ */
+// Create a tuple with BarrierInfoMaps, pageSize, barrierToPidVec, shvTasksWithDpu, shvTasksWithDma and
+// expectedBarrierMapsConfig
+std::tuple<BarrierInfoMaps, size_t, SmallVector<size_t>, SmallVector<size_t>, SmallVector<size_t>, BarrierInfoMaps>
+graphToCheckEnqueueOfDpuDelayedDueToShvWithDpuAndDma() {
+    BarrierInfoMaps barrierMapsConfig;
+
+    barrierMapsConfig.taskUpdateBarriers = {
+            {0},  // task 0
+            {1},  // task 1
+            {2},  // task 2
+            {3},  // task 3
+            {5},  // task 4
+            {4},  // task 5
+            {6},  // task 6
+            {6}   // task 7
+    };
+
+    barrierMapsConfig.taskWaitBarriers = {
+            {},   // task 0
+            {0},  // task 1
+            {1},  // task 2
+            {2},  // task 3
+            {3},  // task 4
+            {3},  // task 5
+            {4},  // task 6
+            {5}   // task 7
+    };
+
+    fillProducersAndConsumers(barrierMapsConfig);
+
+    const VPURT::TaskQueueType dmaType0{config::ExecutorKind::DMA_NN,
+                                        getDMAQueueIdEncoding(/*port*/ 0, VPUIP::DmaChannelType::DDR)};
+    const VPURT::TaskQueueType dmaType1{config::ExecutorKind::DMA_NN,
+                                        getDMAQueueIdEncoding(/*port*/ 1, VPUIP::DmaChannelType::DDR)};
+    const VPURT::TaskQueueType dpuType{config::ExecutorKind::DPU, 0};
+    const VPURT::TaskQueueType shvType{config::ExecutorKind::SHAVE_ACT, 1};  // SHV tile 0 list 1
+
+    barrierMapsConfig.taskQueueTypeMap[dmaType0] = {0, 1, 5, 7};
+    barrierMapsConfig.taskQueueTypeMap[dmaType1] = {2, 3};
+    barrierMapsConfig.taskQueueTypeMap[dpuType] = {6};
+    barrierMapsConfig.taskQueueTypeMap[shvType] = {4};
+
+    size_t pageSize = 3;
+
+    SmallVector<size_t> barrierToPidVec = {0, 1, 2, 3, 4, 5, 0};
+
+    SmallVector<size_t> shvTasksWithDpu = {4};
+    SmallVector<size_t> shvTasksWithDma = {4};
+
+    BarrierInfoMaps expectedBarrierMapsConfig;
+
+    expectedBarrierMapsConfig.taskUpdateBarriers = {
+            {0},  // task 0
+            {1},  // task 1
+            {2},  // task 2
+            {3},  // task 3
+            {5},  // task 4
+            {4},  // task 5
+            {6},  // task 6
+            {6}   // task 7
+    };
+
+    expectedBarrierMapsConfig.taskWaitBarriers = {
+            {},   // task 0
+            {0},  // task 1
+            {1},  // task 2
+            {2},  // task 3
+            {3},  // task 4
+            {3},  // task 5
+            {4},  // task 6
+            {5}   // task 7
+    };
+    fillProducersAndConsumers(expectedBarrierMapsConfig);
+
+    return std::make_tuple(barrierMapsConfig, pageSize, barrierToPidVec, shvTasksWithDpu, shvTasksWithDma,
+                           expectedBarrierMapsConfig);
+}
+
+TEST_F(BarrierPagesSplitTests, CheckEnqueueOfDpuDelayedDueToShvWithDpuAndDma) {
+    auto [barrierMapsConfig, pageSize, barrierToPidVec, shvTasksWithDpu, shvTasksWithDma, expectedBarrierMapsConfig] =
+            graphToCheckEnqueueOfDpuDelayedDueToShvWithDpuAndDma();
+
+    BarrierInfoTest barrierInfoTest(barrierMapsConfig);
+    VPURT::BarrierPagesSplitHandler barrierPagesSplitHandlerTest(barrierInfoTest, barrierMapsConfig.taskQueueTypeMap,
+                                                                 pageSize, /*_barrierFifoDepth = */ 1,
+                                                                 /* numClusters */ 1, shvTasksWithDpu, shvTasksWithDma);
+
+    barrierPagesSplitHandlerTest.initPrevPhysBarrierData(barrierToPidVec);
+    ExecutionGroupAnalysisTest execGroupAnalysis(barrierMapsConfig.taskQueueTypeMap, /*maxVariantCount*/ 4,
+                                                 /*maxInvariantCount*/ 2,
+                                                 /*maxKernelInvocationCount*/ 2, /*maxKernelRangeCount*/ 2,
+                                                 /*tilesCount*/ 1);
+
+    EXPECT_NO_THROW(barrierPagesSplitHandlerTest.verifyTaskBarrierPagesAreValid());
+    EXPECT_NO_THROW(barrierPagesSplitHandlerTest.verifyNoCyclicDeps());
+
+    EXPECT_TRUE(barrierPagesSplitHandlerTest.areBoundaryTasksFromNeighborPagesDependent());
+
+    mlir::DenseSet<vpux::config::ExecutorKind> executorEnqAtBootstrap{vpux::config::ExecutorKind::DMA_NN};
+    auto enqueueDataVec = barrierPagesSplitHandlerTest.getEnqueueDmaData(execGroupAnalysis, executorEnqAtBootstrap);
+
+    // DMA tasks enqueued at bootstrap without enqueue DMA
+    // SHV tasks enqueued after start barrier
+    // DPU task enqueue delayed after SHV task
+    ASSERT_EQ(enqueueDataVec.size(), 2);
+
+    EXPECT_EQ(enqueueDataVec[0].pageInd, 1);
+    EXPECT_EQ(enqueueDataVec[0].queueType.type, config::ExecutorKind::DPU);
+    ASSERT_EQ(enqueueDataVec[0].waitBars.size(), 1);
+    EXPECT_EQ(enqueueDataVec[0].waitBars[0], 5);
+    EXPECT_EQ(enqueueDataVec[0].startTaskIdx, 0);
+    EXPECT_EQ(enqueueDataVec[0].endTaskIdx, 0);
+    EXPECT_EQ(enqueueDataVec[0].insertBefore, 5);
+
+    EXPECT_EQ(enqueueDataVec[1].pageInd, 0);
+    EXPECT_EQ(enqueueDataVec[1].queueType.type, config::ExecutorKind::SHAVE_ACT);
+    ASSERT_EQ(enqueueDataVec[1].waitBars.size(), 1);
+    EXPECT_EQ(enqueueDataVec[1].waitBars[0], 0);
+    EXPECT_EQ(enqueueDataVec[1].startTaskIdx, 0);
+    EXPECT_EQ(enqueueDataVec[1].endTaskIdx, 0);
+    EXPECT_EQ(enqueueDataVec[1].insertBefore, 1);
 
     auto testResult = barrierPagesSplitHandlerTest.getBarrierMaps();
 

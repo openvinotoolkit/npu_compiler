@@ -18,7 +18,7 @@ public:
     mlir::LogicalResult applyTiling(mlir::Operation* operation, mlir::RewriterBase& builder, Logger log) override;
 
     SmallVector<mlir::Operation*> applySCFTilingAndFusion(mlir::Operation* operation, mlir::RewriterBase& builder,
-                                                          Logger log) override;
+                                                          const MergeConfiguration& mergeConfig, Logger log) override;
 };
 }  // namespace VPU
 }  // namespace vpux

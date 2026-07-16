@@ -107,6 +107,7 @@ VPU::OverlapDistributionParams VPU::getExplicitOverlapParamsForSWOpInput(VPU::SW
     };
 
     SmallVector<InputTiling> inputTiles;
+    inputTiles.reserve(outTiles.size());
     for (const auto& outTile : outTiles) {
         auto outTileInFullTensor = getOutTileInFullOutput(outTile);
         auto inputTiling = tilingBuilder.backInferTileInfo(outTileInFullTensor, Logger::global());
@@ -120,6 +121,8 @@ VPU::OverlapDistributionParams VPU::getExplicitOverlapParamsForSWOpInput(VPU::SW
 
     SmallVector<SmallVector<int64_t>> inputPerClusterShape;
     SmallVector<SmallVector<int64_t>> inputPerClusterOffset;
+    inputPerClusterShape.reserve(outTiles.size());
+    inputPerClusterOffset.reserve(outTiles.size());
     for (auto i : irange(outTiles.size())) {
         inputPerClusterShape.push_back(to_small_vector(inputTiles[i].tiles[overlappedInputIdx.value()].shape));
         inputPerClusterOffset.push_back(to_small_vector(inputTiles[i].tiles[overlappedInputIdx.value()].offsets));
@@ -208,7 +211,7 @@ VPU::DistributionInfo VPU::getNCEExplicitDistributionInfo(VPU::NCEOpInterface nc
 
     VPUX_THROW_UNLESS(optionalClusterMemoryShapes.has_value(),
                       "Cannot get per cluster memory shapes. Unsupported distribution: {0}", distributedTensor);
-    auto perClusterMemoryShapes = optionalClusterMemoryShapes.value();
+    const auto& perClusterMemoryShapes = optionalClusterMemoryShapes.value();
     auto perClusterMemoryOffsets = VPU::getPerClusterMemoryShapeOffsets(shape, distributedTensor, elementType);
 
     distributedTensor.setComputeShapes(arrayOfArrayFromShape(perClusterComputeShapes));
@@ -254,7 +257,7 @@ VPU::DistributionInfo VPU::getConcatExplicitDistributedNative(ShapeRef shape, VP
     auto optionalClusterMemoryShapes = VPU::getPerClusterMemoryShapes(shape, distributedTensor, elementType);
     VPUX_THROW_UNLESS(optionalClusterMemoryShapes.has_value(),
                       "Cannot get per cluster memory shapes. Unsupported distribution: {0}", distributedTensor);
-    auto perClusterMemoryShapes = optionalClusterMemoryShapes.value();
+    const auto& perClusterMemoryShapes = optionalClusterMemoryShapes.value();
     auto perClusterMemoryOffsets = VPU::getPerClusterMemoryShapeOffsets(shape, distributedTensor, elementType);
 
     distributedTensor.setMemoryShapes(arrayOfArrayFromShape(perClusterMemoryShapes));
@@ -286,6 +289,7 @@ VPU::DistributionInfo VPU::getConcatExplicitDistributedNativeForNewShape(
     const auto numTiles = originDistribution.getNumTiles();
     auto memoryShapes = originDistribution.getMemoryShapes();
     auto newMemoryShapes = SmallVector<SmallVector<int64_t>>{};
+    newMemoryShapes.reserve(memoryShapes.size());
 
     // For overlapped mode, on the clustering dim, the shapes are taken from the initial distribution, while the rest of
     // the dims will take values from the new shape; this works as long as the concat axis != clustering axis, which is
@@ -301,8 +305,7 @@ VPU::DistributionInfo VPU::getConcatExplicitDistributedNativeForNewShape(
 
     auto newDistribution = originDistribution;
     newDistribution.setMemoryShapes(newMemoryShapes);
-    newDistribution.setMemoryShapes(newMemoryShapes);
-    newDistribution.setComputeShapes(newMemoryShapes);
+    newDistribution.setComputeShapes(std::move(newMemoryShapes));
     newDistribution.setComputeOffsets(originDistribution.getMemoryOffsets());
 
     return newDistribution;
@@ -351,6 +354,7 @@ VPU::DistributionInfo VPU::getExplicitDistrNativeForSliceLikeOps(
     if (mode == VPU::DistributionMode::OVERLAPPED) {
         auto memoryShapes = distributionWithProperAlignment.getMemoryShapes();
         auto newMemoryShapes = SmallVector<SmallVector<int64_t>>{};
+        newMemoryShapes.reserve(memoryShapes.size());
 
         for (size_t cluster = 0; cluster < memoryShapes.size(); cluster++) {
             newMemoryShapes.push_back(memoryShapes[cluster]);
@@ -438,6 +442,7 @@ VPU::DistributionInfo vpux::VPU::getSegmentedExplicitDistrNativeForSliceLikeOps(
 
     SmallVector<SmallVector<int64_t>> offsets;
     int64_t offsetVal = 0;
+    offsets.reserve(explicitShapes.size());
     for (auto& shape : explicitShapes) {
         SmallVector<int64_t> offset(sliceOutputShape.size(), 0);
         offset[sliceDim] = offsetVal;
@@ -451,7 +456,7 @@ VPU::DistributionInfo vpux::VPU::getSegmentedExplicitDistrNativeForSliceLikeOps(
     newDistribution.setMemoryShapes(explicitShapes);
     newDistribution.setComputeShapes(explicitShapes);
     newDistribution.setMemoryOffsets(offsets);
-    newDistribution.setComputeOffsets(offsets);
+    newDistribution.setComputeOffsets(std::move(offsets));
     newDistribution.setAlignment(SmallVector<int64_t>{});
 
     return newDistribution;

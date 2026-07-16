@@ -13,6 +13,7 @@
 #include <mlir/Target/LLVMIR/ModuleTranslation.h>
 
 #include <llvm/ADT/SetVector.h>
+#include <llvm/IR/Instructions.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/Program.h>
 
@@ -208,17 +209,20 @@ void vpux::lowerLLVMToBinary(mlir::ModuleOp moduleOp, std::unique_ptr<llvm::Modu
     // hence use concatenation result (via .str()) immediately
     const auto mcpu = (vpux::SmallString("-mcpu=") + archArgument).str();
 
-    llvm::SmallVector<llvm::StringRef> runArgsMC = {prgMC,         // Movicompile tool
-                                                    mcpu,          // CPU
-                                                    "-S",          // Only run preprocess and compilation steps
-                                                    "-o",          // Write output to:
-                                                    "sw_layer.s",  // file sw_layer.s
-                                                    "-x",          // Treat subsequent input files as having:
-                                                    "ir",          // type ir
-                                                    "-O3",         // optimize code
-                                                    "-mllvm",      // Next option is for llvm
-                                                    "-enable-loop-flatten",  // Enable the loop flatten optimization
-                                                    "sw_layer.ll"};          // Input file
+    llvm::SmallVector<llvm::StringRef> runArgsMC = {
+            prgMC,                   // Movicompile tool
+            mcpu,                    // CPU
+            "-S",                    // Only run preprocess and compilation steps
+            "-o",                    // Write output to:
+            "sw_layer.s",            // file sw_layer.s
+            "-x",                    // Treat subsequent input files as having:
+            "ir",                    // type ir
+            "-O3",                   // optimize code
+            "-mllvm",                // Next option is for llvm
+            "-enable-loop-flatten",  // Enable the loop flatten optimization
+            // Preemption flags
+            "-mshave-preemption-checks=restore", "-mshave-low-impact-preemption", "-mshave-preemption-max-loop-depth=1",
+            "sw_layer.ll"};  // Input file
 
     const auto procErrMC = llvm::sys::ExecuteAndWait(prgMC, runArgsMC, /*Env=*/std::nullopt, redirects,
                                                      /*SecondsToWait*/ 100, /*MemoryLimit=*/0, &errMsg);

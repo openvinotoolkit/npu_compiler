@@ -81,7 +81,7 @@
     memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0]]
 }>
 
-!Output_DDR = memref<1x96x4x4xf16, #NHWC, @DDR>
+!Output_DDR = memref<1x96x4x4xf16, {order = #NHWC}, @DDR>
 
 //CHECK-LABEL: @UnrollNceSoKSEPDilatedConv
 func.func @UnrollNceSoKSEPDilatedConv() -> !Output_DDR {
@@ -89,7 +89,7 @@ func.func @UnrollNceSoKSEPDilatedConv() -> !Output_DDR {
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %bar1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    %seTable_cst = const.Declare memref<1x2x4x4xi32, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>
+    %seTable_cst = const.Declare memref<1x2x4x4xi32, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, @DDR>
             = dense<[[[[36864, 18432, 45056, 22528],
                        [53248, 26624, 61440, 30720],
                        [102400, 51200, 110592, 55296],
@@ -100,7 +100,7 @@ func.func @UnrollNceSoKSEPDilatedConv() -> !Output_DDR {
                        [249856, 124928, 258048, 129024]]]]> : tensor<1x2x4x4xi32, {order = #NHWC}>
     %seTable_CMX = VPURT.DeclareBuffer <CMX_NN> <4160> -> !InputSETableDistributed
     VPURT.Task updates(%bar0: !VPURT.Barrier) {
-        VPUIP.NNDMA <{port = 1 : i64}> inputs(%seTable_cst : memref<1x2x4x4xi32, #NHWC, @DDR>) outputs(%seTable_CMX : !InputSETableDistributed) -> !InputSETableDistributed
+        VPUIP.NNDMA <{port = 1 : i64}> inputs(%seTable_cst : memref<1x2x4x4xi32, {order = #NHWC}, @DDR>) outputs(%seTable_CMX : !InputSETableDistributed) -> !InputSETableDistributed
     }
 
     %parent_out = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> !Output_DDR
@@ -156,14 +156,14 @@ func.func @UnrollNceSoKSEPDilatedConv() -> !Output_DDR {
 
     return %parent_out: !Output_DDR
 
-    // CHECK:      [[CST_CL_0:%.+]] = const.Declare memref<1x1x4x4xi32, #NHWC, @DDR> = dense<
+    // CHECK:      [[CST_CL_0:%.+]] = const.Declare memref<1x1x4x4xi32, {order = #NHWC}, @DDR> = dense<
     // CHECK-SAME{LITERAL}:       [36864, 45056, 53248, 61440]
     // CHECK-SAME{LITERAL}:       [102400, 110592, 118784, 126976]
     // CHECK-SAME{LITERAL}:       [167936, 176128, 184320, 192512]
     // CHECK-SAME{LITERAL}:       [233472, 241664, 249856, 258048]
     // CHECK-SAME{LITERAL}:  ]> : tensor<1x1x4x4xi32, {order = #NHWC}>
 
-    // CHECK:      [[CST_CL_1:%.+]] = const.Declare memref<1x1x4x4xi32, #NHWC, @DDR> = dense<
+    // CHECK:      [[CST_CL_1:%.+]] = const.Declare memref<1x1x4x4xi32, {order = #NHWC}, @DDR> = dense<
     // CHECK-SAME{LITERAL}:     [18432, 22528, 26624, 30720]
     // CHECK-SAME{LITERAL}:     [51200, 55296, 59392, 63488]
     // CHECK-SAME{LITERAL}:     [83968, 88064, 92160, 96256]

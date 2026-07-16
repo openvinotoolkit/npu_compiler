@@ -12,8 +12,10 @@
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPU/utils/clustered_op_interface_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/VPU/utils/odu_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 #include <mlir/IR/OpDefinition.h>
 #include <mlir/IR/Operation.h>

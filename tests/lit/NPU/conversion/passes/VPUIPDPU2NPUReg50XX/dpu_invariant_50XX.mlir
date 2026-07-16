@@ -26,8 +26,8 @@ module @Test {
             VPUASM.DeclareTaskBuffer @DeclareTaskBuffer_DPUInvariant_6 idx(!VPURegMapped.Index<0:0:4>) <DPUInvariant>
         }
         ELF.CreateLogicalSection @buffer.CMX_NN.0 aligned(1) secType(VPU_SHT_CMX_WORKSPACE) secFlags("SHF_NONE") secLocation(<CMX_NN>) {
-            VPUASM.DeclareBuffer @DeclareBuffer_ActOut !VPUASM.Buffer< "CMX_NN"[0] <128> : memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
-            VPUASM.DeclareBuffer @DeclareBuffer_ActIn !VPUASM.Buffer< "CMX_NN"[0] <131200> : memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
+            VPUASM.DeclareBuffer @DeclareBuffer_ActOut !VPUASM.Buffer< "CMX_NN"[0] <128> : memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
+            VPUASM.DeclareBuffer @DeclareBuffer_ActIn !VPUASM.Buffer< "CMX_NN"[0] <131200> : memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
         }
         ELF.CreateSection @task.dpu.invariant.0.0 aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
             // Use case #1a: u8 DPU in, u8 DPU out - with activation scaling
@@ -39,15 +39,15 @@ module @Test {
                     input = @DeclareBuffer_ActIn, output = @DeclareBuffer_ActOut,
                     nce_task_type = #VPUIP.nce_task_type<MAXPOOL>}>
                 DPUCfg : {
-                ^bb0(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                    %se_in_seg0: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                    %se_in_seg1: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                    %se_in_seg2: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                    %se_in_seg3: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                    %weight_table: memref<16x1x1x1xi64, #NHWC, [@CMX_NN, 0]>,
-                    %act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>):
+                ^bb0(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %se_in_seg0: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %se_in_seg1: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %se_in_seg2: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %se_in_seg3: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %weight_table: memref<16x1x1x1xi64, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>):
                 VPUIPDPU.IDUCfg {
-                    VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>)
+                    VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>)
                     VPUIPDPU.IDUStorageElement se_size(32) num_ses_in_z_dir(2)
                     VPUIPDPU.IDUKernel kernel_x(1) kernel_y(2)
                     VPUIPDPU.IDUStride stride_x(1) stride_y(2)
@@ -86,7 +86,7 @@ module @Test {
                     VPUIPDPU.ODUPermuteData permute_mode(PERMUTE_ZYX)
                     VPUIPDPU.ODUSwizzleData swizzle_key(SWIZZLE_KEY_1)
                     VPUIPDPU.ODUSparsity compression_enabled(true) sparse_value(6)
-                    VPUIPDPU.ODUOutActivations out_activations(%act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>) data_width(ODU_DTYPE_16BIT)
+                    VPUIPDPU.ODUOutActivations out_activations(%act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>) data_width(ODU_DTYPE_16BIT)
                     VPUIPDPU.ODUWriteCombineBuffer activations_mode(WCB_COMBINE_BY_ADDRESS)
                     VPUIPDPU.ODUMemoryMode mem_mode(MODE_DENSE)
                     VPUIPDPU.ODUCmxPorts cmx_ports(CMX_PORTS_ALL)
@@ -109,8 +109,8 @@ module @Test {
                 //CHECK: UINT te_dim_x = 0x40
 
                 VPUIPDPU.PPECfg {
-                    VPUIPDPU.PPEFpBiasAdd  %weight_table:memref<16x1x1x1xi64, #NHWC, [@CMX_NN, 0]>
-                    VPUIPDPU.PPEFpScaleMult  %weight_table:memref<16x1x1x1xi64, #NHWC, [@CMX_NN, 0]>
+                    VPUIPDPU.PPEFpBiasAdd  %weight_table:memref<16x1x1x1xi64, {order = #NHWC}, [@CMX_NN, 0]>
+                    VPUIPDPU.PPEFpScaleMult  %weight_table:memref<16x1x1x1xi64, {order = #NHWC}, [@CMX_NN, 0]>
                     VPUIPDPU.PPEFpSprLUTMode sprlut_mode(OFF)
                     VPUIPDPU.PPEFpClamp clamp_low(0.0) clamp_high(255.0)
                     VPUIPDPU.PPEFpConvert convert_mode(I32)
@@ -125,7 +125,7 @@ module @Test {
                 //CHECK: UINT ppe_mode = 1
                 //CHECK: UINT ppe_fp_convert = 4
 
-                VPUIPDPU.BarrierCfg waits([3 : ui8, 5 : ui8]) updates([1 : ui8, 7 : ui8, 8 : ui8]) start_after(0) clean_after(0)
+                VPUIPDPU.BarrierCfg waits([3 : ui16, 5 : ui16]) updates([1 : ui16, 7 : ui16, 8 : ui16]) start_after(0) clean_after(0)
                 //CHECK: UINT barriers_wait_mask_hi_ = 0
                 //CHECK: barriers_wait_mask_lo_ = UINT 0x28
                 //CHECK: UINT barriers_post_mask_hi_ = 0
@@ -144,12 +144,12 @@ module @Test {
                     input = @DeclareBuffer_ActIn, output = @DeclareBuffer_ActOut,
                     nce_task_type = #VPUIP.nce_task_type<MAXPOOL>}>
                 DPUCfg : {
-                ^bb0(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                    %weight_table: memref<16x1x1x1xi64, #NHWC, [@CMX_NN, 0]>,
-                    %act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>,
-                    %out_activations: memref<1x16x1x1xi8, #NHWC, [@CMX_NN, 0]>):
+                ^bb0(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %weight_table: memref<16x1x1x1xi64, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %out_activations: memref<1x16x1x1xi8, {order = #NHWC}, [@CMX_NN, 0]>):
                 VPUIPDPU.IDUCfg {
-                    VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>)
+                    VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>)
                     VPUIPDPU.IDUStorageElement se_size(32)
                     VPUIPDPU.IDUKernel kernel_x(11) kernel_y(11)
                     VPUIPDPU.IDUStride stride_x(8) stride_y(8)
@@ -180,7 +180,7 @@ module @Test {
                     VPUIPDPU.ODUPermuteData permute_mode(PERMUTE_YXZ)
                     VPUIPDPU.ODUSwizzleData swizzle_key(SWIZZLE_KEY_5)
                     VPUIPDPU.ODUSparsity compression_enabled(true) sparse_value(6)
-                    VPUIPDPU.ODUOutActivations out_activations(%out_activations: memref<1x16x1x1xi8, #NHWC, [@CMX_NN, 0]>)
+                    VPUIPDPU.ODUOutActivations out_activations(%out_activations: memref<1x16x1x1xi8, {order = #NHWC}, [@CMX_NN, 0]>)
                     VPUIPDPU.ODUMemoryMode mem_mode(MODE_DENSE)
                     VPUIPDPU.ODUCmxPorts cmx_ports(CMX_PORTS_ALL)
                 }
@@ -216,7 +216,7 @@ module @Test {
                 //CHECK: UINT ppe_mode = 1
                 //CHECK: UINT ppe_fp_convert = 4
 
-                VPUIPDPU.BarrierCfg waits([0 : ui8]) updates([]) start_after(0) clean_after(0)
+                VPUIPDPU.BarrierCfg waits([0 : ui16]) updates([]) start_after(0) clean_after(0)
                 //CHECK: UINT barriers_wait_mask_hi_ = 0
                 //CHECK: barriers_wait_mask_lo_ = UINT 1
                 //CHECK: UINT barriers_post_mask_hi_ = 0
@@ -235,12 +235,12 @@ module @Test {
                     input = @DeclareBuffer_ActIn, output = @DeclareBuffer_ActOut,
                     nce_task_type = #VPUIP.nce_task_type<MAXPOOL>}>
                 DPUCfg : {
-                ^bb0(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                    %weight_table: memref<16x1x1x1xi64, #NHWC, [@CMX_NN, 0]>,
-                    %act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>,
-                    %out_activations: memref<1x16x64x64xi32, #NHWC, [@CMX_NN, 0]>):
+                ^bb0(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %weight_table: memref<16x1x1x1xi64, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %out_activations: memref<1x16x64x64xi32, {order = #NHWC}, [@CMX_NN, 0]>):
                 VPUIPDPU.IDUCfg {
-                    VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>)
+                    VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>)
                 }
 
                 VPUIPDPU.ODUCfg {
@@ -248,8 +248,8 @@ module @Test {
                     VPUIPDPU.ODUDataReuse activation_reuse(NTHW_8)
                     VPUIPDPU.ODUPermuteData permute_mode(PERMUTE_ZYX)
                     VPUIPDPU.ODUSwizzleData swizzle_key(SWIZZLE_KEY_1)
-                    VPUIPDPU.ODUSparsity %act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]> compression_enabled(true) sparse_value(6)
-                    VPUIPDPU.ODUOutActivations out_activations(%out_activations: memref<1x16x64x64xi32, #NHWC, [@CMX_NN, 0]>)
+                    VPUIPDPU.ODUSparsity %act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]> compression_enabled(true) sparse_value(6)
+                    VPUIPDPU.ODUOutActivations out_activations(%out_activations: memref<1x16x64x64xi32, {order = #NHWC}, [@CMX_NN, 0]>)
                     VPUIPDPU.ODUWriteCombineBuffer activations_mode(WCB_COMBINE_BY_ADDRESS) sparsity_mode(WCB_COMBINE_BY_ADDRESS)
                     VPUIPDPU.ODUMemoryMode mem_mode(MODE_DENSE)
                     VPUIPDPU.ODUCmxPorts cmx_ports(CMX_PORTS_ALL)
@@ -277,8 +277,8 @@ module @Test {
                 //CHECK: UINT mpe_daz = 1
 
                 VPUIPDPU.PPECfg {
-                    VPUIPDPU.PPEFpBiasAdd  %weight_table:memref<16x1x1x1xi64, #NHWC, [@CMX_NN, 0]>
-                    VPUIPDPU.PPEFpScaleMult  %weight_table:memref<16x1x1x1xi64, #NHWC, [@CMX_NN, 0]>
+                    VPUIPDPU.PPEFpBiasAdd  %weight_table:memref<16x1x1x1xi64, {order = #NHWC}, [@CMX_NN, 0]>
+                    VPUIPDPU.PPEFpScaleMult  %weight_table:memref<16x1x1x1xi64, {order = #NHWC}, [@CMX_NN, 0]>
                     VPUIPDPU.PPEFpSprLUTMode sprlut_mode(OFF)
                     VPUIPDPU.PPEFpClamp clamp_low(-3.4028234e+38) clamp_high(70.0) // 70 corresponds to RELU6
                     VPUIPDPU.PPEFpConvert convert_mode(FP16)
@@ -303,12 +303,12 @@ module @Test {
                     input = @DeclareBuffer_ActIn, output = @DeclareBuffer_ActOut,
                     nce_task_type = #VPUIP.nce_task_type<MAXPOOL>}>
                 DPUCfg : {
-                ^bb0(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                    %weight_table: memref<16x1x1x1xi64, #NHWC, [@CMX_NN, 0]>,
-                    %act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>,
-                    %out_activations: memref<1x16x64x64xi8, #NHWC, [@CMX_NN, 0]>):
+                ^bb0(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %weight_table: memref<16x1x1x1xi64, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %out_activations: memref<1x16x64x64xi8, {order = #NHWC}, [@CMX_NN, 0]>):
                 VPUIPDPU.IDUCfg {
-                    VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>)
+                    VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>)
                 }
 
                 VPUIPDPU.ODUCfg {
@@ -316,8 +316,8 @@ module @Test {
                     VPUIPDPU.ODUDataReuse activation_reuse(NTHW_8)
                     VPUIPDPU.ODUPermuteData permute_mode(PERMUTE_ZYX)
                     VPUIPDPU.ODUSwizzleData swizzle_key(SWIZZLE_KEY_1)
-                    VPUIPDPU.ODUSparsity %act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]> compression_enabled(true) sparse_value(6)
-                    VPUIPDPU.ODUOutActivations out_activations(%out_activations: memref<1x16x64x64xi8, #NHWC, [@CMX_NN, 0]>)
+                    VPUIPDPU.ODUSparsity %act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]> compression_enabled(true) sparse_value(6)
+                    VPUIPDPU.ODUOutActivations out_activations(%out_activations: memref<1x16x64x64xi8, {order = #NHWC}, [@CMX_NN, 0]>)
                     VPUIPDPU.ODUWriteCombineBuffer activations_mode(WCB_COMBINE_BY_ADDRESS) sparsity_mode(WCB_COMBINE_BY_CONTEXT)
                     VPUIPDPU.ODUMemoryMode mem_mode(MODE_DENSE)
                     VPUIPDPU.ODUCmxPorts cmx_ports(CMX_PORTS_ALL)
@@ -346,8 +346,8 @@ module @Test {
                 //CHECK: UINT mpe_daz = 0
 
                 VPUIPDPU.PPECfg {
-                    VPUIPDPU.PPEFpBiasAdd  %weight_table:memref<16x1x1x1xi64, #NHWC, [@CMX_NN, 0]>
-                    VPUIPDPU.PPEFpScaleMult  %weight_table:memref<16x1x1x1xi64, #NHWC, [@CMX_NN, 0]>
+                    VPUIPDPU.PPEFpBiasAdd  %weight_table:memref<16x1x1x1xi64, {order = #NHWC}, [@CMX_NN, 0]>
+                    VPUIPDPU.PPEFpScaleMult  %weight_table:memref<16x1x1x1xi64, {order = #NHWC}, [@CMX_NN, 0]>
                     VPUIPDPU.PPEFpPreluMult prelu_alpha(0.1)
                     VPUIPDPU.PPEFpSprLUTMode sprlut_mode(OFF)
                     VPUIPDPU.PPEFpClamp clamp_low(-3.4028234e+38) clamp_high(3.4028234e+38) // (MIN_FP32, MAX_FP32)
@@ -376,11 +376,11 @@ module @Test {
                     input = @DeclareBuffer_ActIn, output = @DeclareBuffer_ActOut,
                     nce_task_type = #VPUIP.nce_task_type<MAXPOOL>}>
                 DPUCfg : {
-                ^bb0(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                    %weight_table: memref<16x1x1x1xi64, #NHWC, [@CMX_NN, 0]>,
-                    %act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>):
+                ^bb0(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %weight_table: memref<16x1x1x1xi64, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>):
                 VPUIPDPU.IDUCfg {
-                    VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>)
+                    VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>)
                 }
 
                 VPUIPDPU.ODUCfg {
@@ -388,7 +388,7 @@ module @Test {
                     VPUIPDPU.ODUDataReuse activation_reuse(NTHW_4)
                     VPUIPDPU.ODUPermuteData permute_mode(PERMUTE_ZYX)
                     VPUIPDPU.ODUSwizzleData swizzle_key(SWIZZLE_KEY_1)
-                    VPUIPDPU.ODUOutActivations out_activations(%act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>) data_width(ODU_DTYPE_32BIT)
+                    VPUIPDPU.ODUOutActivations out_activations(%act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>) data_width(ODU_DTYPE_32BIT)
                     VPUIPDPU.ODUMemoryMode mem_mode(MODE_DENSE)
                     VPUIPDPU.ODUCmxPorts cmx_ports(CMX_PORTS_ALL)
                 }
@@ -416,8 +416,8 @@ module @Test {
                 //CHECK: UINT mpe_daz = 0
 
                 VPUIPDPU.PPECfg {
-                    VPUIPDPU.PPEFpBiasAdd  %weight_table:memref<16x1x1x1xi64, #NHWC, [@CMX_NN, 0]>
-                    VPUIPDPU.PPEFpScaleMult  %weight_table:memref<16x1x1x1xi64, #NHWC, [@CMX_NN, 0]>
+                    VPUIPDPU.PPEFpBiasAdd  %weight_table:memref<16x1x1x1xi64, {order = #NHWC}, [@CMX_NN, 0]>
+                    VPUIPDPU.PPEFpScaleMult  %weight_table:memref<16x1x1x1xi64, {order = #NHWC}, [@CMX_NN, 0]>
                     VPUIPDPU.PPEFpPreluMult prelu_alpha(0.1)
                     VPUIPDPU.PPEFpSprLUTMode sprlut_mode(OFF)
                     VPUIPDPU.PPEFpClamp clamp_low(0.0) clamp_high(255.0)
@@ -446,15 +446,15 @@ module @Test {
                     input = @DeclareBuffer_ActIn, output = @DeclareBuffer_ActOut,
                     nce_task_type = #VPUIP.nce_task_type<MAXPOOL>}>
                 DPUCfg : {
-                ^bb0(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                    %weight_table: memref<16x1x1x1xi64, #NHWC, [@CMX_NN, 0]>,
-                    %act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>):
+                ^bb0(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %weight_table: memref<16x1x1x1xi64, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>):
                 VPUIPDPU.IDUCfg {
-                    VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>)
+                    VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>)
                 }
                 VPUIPDPU.ODUCfg {
                     VPUIPDPU.ODUOutTensorSize dim_x(65) dim_y(65) dim_z(17)
-                    VPUIPDPU.ODUOutActivations out_activations(%act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>) data_width(ODU_DTYPE_32BIT)
+                    VPUIPDPU.ODUOutActivations out_activations(%act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>) data_width(ODU_DTYPE_32BIT)
                 }
                 VPUIPDPU.PPECfg {
                     VPUIPDPU.PPEFpSprLUTMode sprlut_mode(OFF)
@@ -488,15 +488,15 @@ module @Test {
                     input = @DeclareBuffer_ActIn, output = @DeclareBuffer_ActOut,
                     nce_task_type = #VPUIP.nce_task_type<MAXPOOL>}>
                 DPUCfg : {
-                ^bb0(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                    %weight_table: memref<16x1x1x1xi64, #NHWC, [@CMX_NN, 0]>,
-                    %act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>):
+                ^bb0(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %weight_table: memref<16x1x1x1xi64, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>):
                 VPUIPDPU.IDUCfg {
-                    VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>)
+                    VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>)
                 }
                 VPUIPDPU.ODUCfg {
                     VPUIPDPU.ODUOutTensorSize dim_x(65) dim_y(65) dim_z(17)
-                    VPUIPDPU.ODUOutActivations out_activations(%act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>) data_width(ODU_DTYPE_32BIT)
+                    VPUIPDPU.ODUOutActivations out_activations(%act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>) data_width(ODU_DTYPE_32BIT)
                 }
                 VPUIPDPU.PPECfg {
                     VPUIPDPU.PPEFpSprLUTMode sprlut_mode(ON)
@@ -523,11 +523,11 @@ module @Test {
                     input = @DeclareBuffer_ActIn, output = @DeclareBuffer_ActOut,
                     nce_task_type = #VPUIP.nce_task_type<REDUCEMEAN>}>
                 DPUCfg  : {
-                ^bb0(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                    %act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>,
-                    %out_activations: memref<1x16x64x64xi8, #NHWC, [@CMX_NN, 0]>):
+                ^bb0(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %out_activations: memref<1x16x64x64xi8, {order = #NHWC}, [@CMX_NN, 0]>):
                 VPUIPDPU.IDUCfg {
-                    VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>)
+                    VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>)
                     VPUIPDPU.IDUWorkloadCfg workload_type(REDUCEMEAN)
                     VPUIPDPU.IDUWeights wmode(f16) wt_plt_cfg(NO_PLT) pool_wt_data(0x3c00)
                 }
@@ -542,8 +542,8 @@ module @Test {
                     VPUIPDPU.ODUDataReuse activation_reuse(NTHW_8)
                     VPUIPDPU.ODUPermuteData permute_mode(PERMUTE_ZYX)
                     VPUIPDPU.ODUSwizzleData swizzle_key(SWIZZLE_KEY_1)
-                    VPUIPDPU.ODUSparsity %act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]> compression_enabled(true) sparse_value(6)
-                    VPUIPDPU.ODUOutActivations out_activations(%out_activations: memref<1x16x64x64xi8, #NHWC, [@CMX_NN, 0]>)
+                    VPUIPDPU.ODUSparsity %act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]> compression_enabled(true) sparse_value(6)
+                    VPUIPDPU.ODUOutActivations out_activations(%out_activations: memref<1x16x64x64xi8, {order = #NHWC}, [@CMX_NN, 0]>)
                     VPUIPDPU.ODUWriteCombineBuffer activations_mode(WCB_COMBINE_BY_ADDRESS) sparsity_mode(WCB_COMBINE_BY_CONTEXT)
                     VPUIPDPU.ODUMemoryMode mem_mode(MODE_DENSE)
                     VPUIPDPU.ODUCmxPorts cmx_ports(CMX_PORTS_ALL)
@@ -600,11 +600,11 @@ module @Test {
                     input = @DeclareBuffer_ActIn, output = @DeclareBuffer_ActOut,
                     nce_task_type = #VPUIP.nce_task_type<REDUCESUMSQUARE>}>
                 DPUCfg  : {
-                ^bb0(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                    %act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>,
-                    %out_activations: memref<1x16x64x64xi8, #NHWC, [@CMX_NN, 0]>):
+                ^bb0(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %out_activations: memref<1x16x64x64xi8, {order = #NHWC}, [@CMX_NN, 0]>):
                 VPUIPDPU.IDUCfg {
-                    VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>)
+                    VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>)
                     VPUIPDPU.IDUWorkloadCfg workload_type(REDUCESUMSQUARE)
                     VPUIPDPU.IDUWeights wmode(f16) wt_plt_cfg(NO_PLT) pool_wt_data(0x3c00)
                 }
@@ -619,8 +619,8 @@ module @Test {
                     VPUIPDPU.ODUDataReuse activation_reuse(NTHW_8)
                     VPUIPDPU.ODUPermuteData permute_mode(PERMUTE_ZYX)
                     VPUIPDPU.ODUSwizzleData swizzle_key(SWIZZLE_KEY_1)
-                    VPUIPDPU.ODUSparsity %act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]> compression_enabled(true) sparse_value(6)
-                    VPUIPDPU.ODUOutActivations out_activations(%out_activations: memref<1x16x64x64xi8, #NHWC, [@CMX_NN, 0]>)
+                    VPUIPDPU.ODUSparsity %act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]> compression_enabled(true) sparse_value(6)
+                    VPUIPDPU.ODUOutActivations out_activations(%out_activations: memref<1x16x64x64xi8, {order = #NHWC}, [@CMX_NN, 0]>)
                     VPUIPDPU.ODUWriteCombineBuffer activations_mode(WCB_COMBINE_BY_ADDRESS) sparsity_mode(WCB_COMBINE_BY_CONTEXT)
                     VPUIPDPU.ODUMemoryMode mem_mode(MODE_DENSE)
                     VPUIPDPU.ODUCmxPorts cmx_ports(CMX_PORTS_ALL)
@@ -677,11 +677,11 @@ module @Test {
                     input = @DeclareBuffer_ActIn, output = @DeclareBuffer_ActOut,
                     nce_task_type = #VPUIP.nce_task_type<REDUCESUM>}>
                 DPUCfg  : {
-                ^bb0(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>,
-                    %act_out: memref<1x16x64x64xf16, #NHWC, [@CMX_NN, 0]>,
-                    %out_activations: memref<1x16x64x64xi8, #NHWC, [@CMX_NN, 0]>):
+                ^bb0(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                    %out_activations: memref<1x16x64x64xi8, {order = #NHWC}, [@CMX_NN, 0]>):
                 VPUIPDPU.IDUCfg {
-                    VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>)
+                    VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>)
                     VPUIPDPU.IDUWorkloadCfg workload_type(REDUCESUM)
                     VPUIPDPU.IDUWeights wmode(f16) wt_plt_cfg(NO_PLT) pool_wt_data(0x3c00)
                 }
@@ -696,8 +696,8 @@ module @Test {
                     VPUIPDPU.ODUDataReuse activation_reuse(NTHW_8)
                     VPUIPDPU.ODUPermuteData permute_mode(PERMUTE_ZYX)
                     VPUIPDPU.ODUSwizzleData swizzle_key(SWIZZLE_KEY_1)
-                    VPUIPDPU.ODUSparsity %act_in: memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]> compression_enabled(true) sparse_value(6)
-                    VPUIPDPU.ODUOutActivations out_activations(%out_activations: memref<1x16x64x64xi8, #NHWC, [@CMX_NN, 0]>)
+                    VPUIPDPU.ODUSparsity %act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]> compression_enabled(true) sparse_value(6)
+                    VPUIPDPU.ODUOutActivations out_activations(%out_activations: memref<1x16x64x64xi8, {order = #NHWC}, [@CMX_NN, 0]>)
                     VPUIPDPU.ODUWriteCombineBuffer activations_mode(WCB_COMBINE_BY_ADDRESS) sparsity_mode(WCB_COMBINE_BY_CONTEXT)
                     VPUIPDPU.ODUMemoryMode mem_mode(MODE_DENSE)
                     VPUIPDPU.ODUCmxPorts cmx_ports(CMX_PORTS_ALL)

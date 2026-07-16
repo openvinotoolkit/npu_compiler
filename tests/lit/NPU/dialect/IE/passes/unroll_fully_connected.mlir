@@ -1125,3 +1125,52 @@ func.func @UnrollMatMulForI4DynamicDequantize(
 
     // CHECK:   return [[RESHAPE_OUT]] : tensor<1x1024xf16>
 }
+
+// -----
+
+// Verify that U2 weights (levels=4 FakeQuantize) are always unrolled regardless of the
+// cost-model threshold that would prevent unrolling for small shapes with i4 weights.
+// This mirrors @DontUnrollMatMulNoPerfBenefit but with levels=4 instead of levels=16.
+
+// CHECK-LABEL: @UnrollMatMulU2AlwaysBeneficial
+// CHECK-SAME:   [[ARG0:%.+]]: tensor<1x1x64xf16>
+func.func @UnrollMatMulU2AlwaysBeneficial(%arg0: tensor<1x1x64xf16>) -> tensor<1x1x64xf16> {
+  %cst   = const.Declare tensor<1x1x1xf16> = dense<0.000000e+00> : tensor<1x1x1xf16>, [#const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
+  %cst_0 = const.Declare tensor<1x1x1xf16> = dense<3.000000e+00> : tensor<1x1x1xf16>, [#const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
+  %cst_1 = const.Declare tensor<1x16x64xf16> = dense<1> : tensor<64x4x16xui2>, [#const.SubView<[0, 0, 0], [64, 1, 16]>, #const.ConvertElemType<ui8>, #const.CastElemType<f16>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
+  %cst_2 = const.Declare tensor<1x16x64xf16> = dense<1> : tensor<64x4x16xui2>, [#const.SubView<[0, 1, 0], [64, 1, 16]>, #const.ConvertElemType<ui8>, #const.CastElemType<f16>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
+  %cst_3 = const.Declare tensor<1x16x64xf16> = dense<1> : tensor<64x4x16xui2>, [#const.SubView<[0, 2, 0], [64, 1, 16]>, #const.ConvertElemType<ui8>, #const.CastElemType<f16>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
+  %cst_4 = const.Declare tensor<1x16x64xf16> = dense<1> : tensor<64x4x16xui2>, [#const.SubView<[0, 3, 0], [64, 1, 16]>, #const.ConvertElemType<ui8>, #const.CastElemType<f16>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
+  %cst_5  = const.Declare tensor<1x1x64xf16> = dense<1.0> : tensor<64x4x1xf16>, [#const.SubView<[0, 0, 0], [64, 1, 1]>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
+  %cst_6  = const.Declare tensor<1x1x64xf16> = dense<1.0> : tensor<64x4x1xf16>, [#const.SubView<[0, 1, 0], [64, 1, 1]>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
+  %cst_7  = const.Declare tensor<1x1x64xf16> = dense<1.0> : tensor<64x4x1xf16>, [#const.SubView<[0, 2, 0], [64, 1, 1]>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
+  %cst_8  = const.Declare tensor<1x1x64xf16> = dense<1.0> : tensor<64x4x1xf16>, [#const.SubView<[0, 3, 0], [64, 1, 1]>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
+  %cst_9  = const.Declare tensor<1x1x64xf16> = dense<1.0> : tensor<64x4x1xf16>, [#const.SubView<[0, 0, 0], [64, 1, 1]>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
+  %cst_10 = const.Declare tensor<1x1x64xf16> = dense<1.0> : tensor<64x4x1xf16>, [#const.SubView<[0, 1, 0], [64, 1, 1]>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
+  %cst_11 = const.Declare tensor<1x1x64xf16> = dense<1.0> : tensor<64x4x1xf16>, [#const.SubView<[0, 2, 0], [64, 1, 1]>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
+  %cst_12 = const.Declare tensor<1x1x64xf16> = dense<1.0> : tensor<64x4x1xf16>, [#const.SubView<[0, 3, 0], [64, 1, 1]>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
+
+  %0 = IE.FakeQuantize(%cst_1, %cst, %cst_0, %cst_5,  %cst_9)  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 4 : i64} : tensor<1x16x64xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x64xf16>, tensor<1x1x64xf16> -> tensor<1x16x64xf16>
+  %1 = IE.FakeQuantize(%cst_2, %cst, %cst_0, %cst_6,  %cst_10) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 4 : i64} : tensor<1x16x64xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x64xf16>, tensor<1x1x64xf16> -> tensor<1x16x64xf16>
+  %2 = IE.FakeQuantize(%cst_3, %cst, %cst_0, %cst_7,  %cst_11) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 4 : i64} : tensor<1x16x64xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x64xf16>, tensor<1x1x64xf16> -> tensor<1x16x64xf16>
+  %3 = IE.FakeQuantize(%cst_4, %cst, %cst_0, %cst_8,  %cst_12) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 4 : i64} : tensor<1x16x64xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x64xf16>, tensor<1x1x64xf16> -> tensor<1x16x64xf16>
+
+  %4 = IE.Concat(%0, %1, %2, %3) {per_axis = #IE.Concat<axis = 0 : i64>} : tensor<1x16x64xf16>, tensor<1x16x64xf16>, tensor<1x16x64xf16>, tensor<1x16x64xf16> -> tensor<4x16x64xf16>
+  %5 = IE.Transpose(%4) {order_value = affine_map<(d0, d1, d2) -> (d2, d0, d1)>} : tensor<4x16x64xf16> -> tensor<64x4x16xf16>
+  %6 = IE.AffineReshape(%5) {dim_mapping = [[0], [1], [1]], shape_value = [64, 64]} : tensor<64x4x16xf16> -> tensor<64x64xf16>
+  %7 = IE.AffineReshape(%arg0) {dim_mapping = [[0], [0], [1]], shape_value = [1, 64]} : tensor<1x1x64xf16> -> tensor<1x64xf16>
+  %8 = IE.FullyConnected(%7, %6) : tensor<1x64xf16>, tensor<64x64xf16> -> tensor<1x64xf16>
+  %9 = IE.AffineReshape(%8) {dim_mapping = [[0, 1], [2]], shape_value = [1, 1, 64]} : tensor<1x64xf16> -> tensor<1x1x64xf16>
+  return %9 : tensor<1x1x64xf16>
+
+
+  // CHECK:   IE.FakeQuantize
+  // CHECK:   IE.FakeQuantize
+  // CHECK:   IE.FakeQuantize
+  // CHECK:   IE.FakeQuantize
+  // CHECK:   IE.FullyConnected
+  // CHECK:   IE.FullyConnected
+  // CHECK:   IE.FullyConnected
+  // CHECK:   IE.FullyConnected
+  // CHECK:   IE.ReduceSum
+}

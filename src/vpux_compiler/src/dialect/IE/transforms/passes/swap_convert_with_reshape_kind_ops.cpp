@@ -35,6 +35,7 @@ public:
 public:
     class OpSwapConverter;
     class PropagateConvertToFuseConverter;
+    class EliminateConvertRoundTripThroughReshapeAndSlice;
 
 private:
     void safeRunOnFunc() final;
@@ -339,6 +340,121 @@ mlir::LogicalResult SwapConvertWithReshapeKindOps::PropagateConvertToFuseConvert
     return mlir::success();
 }
 
+//
+// EliminateConvertRoundTripThroughReshapeAndSlice
+//
+// Pattern:
+//   Convert(A->B) -> ReshapeKindOp -> [Slice, Slice, ...] -> [Convert(B->A), Convert(B->A), ...]
+//
+// Optimization: eliminate the leading Convert and all trailing Converts by updating intermediate
+// op types from B back to A -- the round-trip conversion is a no-op.
+//
+// Requirements:
+//   - The leading Convert has exactly one user (the reshape-kind op).
+//   - ALL users of the reshape-kind op are IE::SliceOps.
+//   - Each SliceOp has exactly one user, which is a Convert back to the original type A.
+//
+
+class SwapConvertWithReshapeKindOps::EliminateConvertRoundTripThroughReshapeAndSlice final :
+        public mlir::OpRewritePattern<IE::ConvertOp> {
+public:
+    EliminateConvertRoundTripThroughReshapeAndSlice(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::ConvertOp>(ctx, /*benefit=*/2), _log(log) {
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::ConvertOp leadConvert, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult SwapConvertWithReshapeKindOps::EliminateConvertRoundTripThroughReshapeAndSlice::matchAndRewrite(
+        IE::ConvertOp leadConvert, mlir::PatternRewriter& rewriter) const {
+    _log.trace("EliminateConvertRoundTrip: checking Convert '{0}' at '{1}'", leadConvert->getName(),
+               leadConvert->getLoc());
+
+    // Leading Convert must have exactly one user.
+    if (!leadConvert.getOutput().hasOneUse()) {
+        return mlir::failure();
+    }
+
+    auto* reshapeOp = *leadConvert.getOutput().getUsers().begin();
+    if (!isReshapeKindOp(reshapeOp)) {
+        return mlir::failure();
+    }
+
+    // All users of the reshape-kind op must be SliceOps.
+    SmallVector<IE::SliceOp> sliceOps;
+    for (auto* user : reshapeOp->getResult(0).getUsers()) {
+        auto sliceOp = mlir::dyn_cast<IE::SliceOp>(user);
+        if (!sliceOp) {
+            return mlir::failure();
+        }
+        sliceOps.push_back(sliceOp);
+    }
+    if (sliceOps.empty()) {
+        return mlir::failure();
+    }
+
+    // Each Slice must have exactly one user: a Convert back to the original type.
+    const auto originalElemType = mlir::cast<vpux::NDTypeInterface>(leadConvert.getInput().getType()).getElementType();
+    const auto middleElemType = mlir::cast<vpux::NDTypeInterface>(leadConvert.getOutput().getType()).getElementType();
+
+    SmallVector<IE::ConvertOp> trailingConverts;
+    for (auto sliceOp : sliceOps) {
+        if (!sliceOp.getResult().hasOneUse()) {
+            return mlir::failure();
+        }
+        auto* sliceUser = *sliceOp.getResult().getUsers().begin();
+        auto tailConvert = mlir::dyn_cast<IE::ConvertOp>(sliceUser);
+        if (!tailConvert) {
+            return mlir::failure();
+        }
+        // Must convert back to the original type.
+        if (tailConvert.getDstElemType() != originalElemType) {
+            return mlir::failure();
+        }
+        // Sanity: input to tail convert should be middleElemType.
+        const auto tailInputElemType =
+                mlir::cast<vpux::NDTypeInterface>(tailConvert.getInput().getType()).getElementType();
+        if (tailInputElemType != middleElemType) {
+            return mlir::failure();
+        }
+        trailingConverts.push_back(tailConvert);
+    }
+
+    _log.trace("EliminateConvertRoundTrip: matched -- eliminating round-trip Convert '{0}' at '{1}' through reshape "
+               "'{2}' at '{3}' + {4} slices",
+               leadConvert->getName(), leadConvert->getLoc(), reshapeOp->getName(), reshapeOp->getLoc(),
+               sliceOps.size());
+
+    // Step 1 & 2: bypass the leading Convert -- wire original input into the reshape-kind op
+    // and update its result type to originalElemType.
+    auto reshapeOutType = mlir::cast<vpux::NDTypeInterface>(reshapeOp->getResult(0).getType());
+    rewriter.startOpModification(reshapeOp);
+    reshapeOp->setOperand(0, leadConvert.getInput());
+    reshapeOp->getResult(0).setType(mlir::cast<mlir::Type>(reshapeOutType.changeElemType(originalElemType)));
+    rewriter.finalizeOpModification(reshapeOp);
+
+    // Step 3 & 4: update each Slice result type and replace the trailing Convert with the Slice.
+    for (size_t i = 0; i < sliceOps.size(); ++i) {
+        auto sliceOp = sliceOps[i];
+        auto sliceOutType = mlir::cast<vpux::NDTypeInterface>(sliceOp.getResult().getType());
+        rewriter.startOpModification(sliceOp);
+        sliceOp.getResult().setType(mlir::cast<mlir::RankedTensorType>(
+                mlir::cast<mlir::Type>(sliceOutType.changeElemType(originalElemType))));
+        rewriter.finalizeOpModification(sliceOp);
+
+        rewriter.replaceOp(trailingConverts[i], sliceOp.getResult());
+    }
+
+    // Step 5: erase the now-unused leading Convert.
+    rewriter.eraseOp(leadConvert);
+
+    return mlir::success();
+}
+
 void SwapConvertWithReshapeKindOps::safeRunOnFunc() {
     auto func = getOperation();
 
@@ -347,6 +463,7 @@ void SwapConvertWithReshapeKindOps::safeRunOnFunc() {
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<SwapConvertWithReshapeKindOps::OpSwapConverter>(&ctx, _log);
     patterns.add<SwapConvertWithReshapeKindOps::PropagateConvertToFuseConverter>(&ctx, _log);
+    patterns.add<SwapConvertWithReshapeKindOps::EliminateConvertRoundTripThroughReshapeAndSlice>(&ctx, _log);
 
     if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();

@@ -26,7 +26,7 @@ namespace {
 
 bool isNceTileMemory(mlir::SymbolRefAttr memSpace) {
     auto memSpaceStr = memSpace.getRootReference().getValue();
-    return memSpaceStr == stringifyEnum(VPU::MemoryKind::CMX_NN) || memSpaceStr == VPU::CMX_NN_FragmentationAware;
+    return memSpaceStr == stringifyEnum(VPU::MemoryKind::CMX_NN);
 }
 
 config::ResourcesOp getResources(mlir::ModuleOp mainModule, mlir::SymbolRefAttr memSpace) {

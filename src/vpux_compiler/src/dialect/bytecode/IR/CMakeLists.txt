@@ -9,9 +9,9 @@ add_npu_library(npu_compiler_dialect_bytecode
     DIALECT_LIB
     LINK_LIBS
         PRIVATE
-            npu_core_utils
             npu_compiler_dialect_core
         PUBLIC
-            npu_bytecode_utils
             npu_compiler_dialect_bytecode_utils
+            npu_core_utils
+            npu_bytecode_utils
     )

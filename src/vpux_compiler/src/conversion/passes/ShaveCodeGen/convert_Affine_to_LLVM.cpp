@@ -81,11 +81,23 @@ private:
     // Produces a vector containing all argument indices for which we can add llvm.noalias for
     // the function signature of funcOp converted to the LLVM dialect.
     void getLLVMArgNoAliasMask(mlir::func::FuncOp funcOp, ArgIndices& noaliasIndices,
-                               mlir::LLVMTypeConverter& typeConverter, SwKernelUses& funcUses);
+                               mlir::TypeConverter::SignatureConversion& sigConv, SwKernelUses& funcUses);
 
     // Given some argument indices for funcOp, add llvm.noalias attributes for the
     // arguments that correspond to those indices.
     void addNoAliasLLVMAttributes(mlir::LLVM::LLVMFuncOp funcOp, ArgIndices& noAliasArgIdx);
+
+    // For each memref argument whose descriptor fields (offset, sizes, strides) are
+    // statically known from the pre-conversion memref type, replace uses of those
+    // LLVM block arguments with integer constants at the function entry point. This
+    // recovers static information about the layout that would otherwise be lost when
+    // a memref argument is expanded into the descriptor form.
+    void replaceStaticMemRefDescriptorArgs(mlir::LLVM::LLVMFuncOp newFuncOp, llvm::ArrayRef<mlir::Type> origArgTypes,
+                                           mlir::TypeConverter::SignatureConversion& sigConv);
+
+    // Rewrite function index arguments to i64 and insert entry-block casts back to
+    // index, then RAUW argument uses with the cast results.
+    void convertIndexArgsToI64(mlir::func::FuncOp funcOp);
 };
 
 void ConvertAffine2LLVMPass::getArgMemRefNoAliasMask(mlir::func::FuncOp funcOp, llvm::SmallBitVector& allUseMask,
@@ -138,12 +150,11 @@ void ConvertAffine2LLVMPass::getArgMemRefNoAliasMask(mlir::func::FuncOp funcOp, 
 }
 
 void ConvertAffine2LLVMPass::getLLVMArgNoAliasMask(mlir::func::FuncOp funcOp, ArgIndices& noaliasIndices,
-                                                   mlir::LLVMTypeConverter& typeConverter, SwKernelUses& funcUses) {
+                                                   mlir::TypeConverter::SignatureConversion& sigConv,
+                                                   SwKernelUses& funcUses) {
     llvm::SmallBitVector allUseMask;
     getArgMemRefNoAliasMask(funcOp, allUseMask, funcUses);
 
-    mlir::TypeConverter::SignatureConversion result(funcOp.getNumArguments());
-    typeConverter.convertFunctionSignature(funcOp.getFunctionType(), false, false, result);
     uint64_t memrefArgCount = 0;
     for (unsigned i = 0, e = funcOp.getNumArguments(); i < e; ++i) {
         if (!mlir::isa<mlir::MemRefType>(funcOp.getArgument(i).getType())) {
@@ -153,7 +164,7 @@ void ConvertAffine2LLVMPass::getLLVMArgNoAliasMask(mlir::func::FuncOp funcOp, Ar
         if (!allUseMask[memrefArgCount++]) {
             continue;
         }
-        if (auto argConvRes = result.getInputMapping(i)) {
+        if (auto argConvRes = sigConv.getInputMapping(i)) {
             // First argument from the converted memref is the unaligned
             // pointer which won't be used and we can skip it. The second
             // argument is what gets used and should get the noalias
@@ -168,6 +179,110 @@ void ConvertAffine2LLVMPass::addNoAliasLLVMAttributes(mlir::LLVM::LLVMFuncOp fun
     for (auto index : noAliasArgIdx) {
         funcOp.setArgAttr(static_cast<unsigned>(index), mlir::LLVM::LLVMDialect::getNoAliasAttrName(),
                           builder.getUnitAttr());
+    }
+}
+
+void ConvertAffine2LLVMPass::replaceStaticMemRefDescriptorArgs(mlir::LLVM::LLVMFuncOp newFuncOp,
+                                                               llvm::ArrayRef<mlir::Type> origArgTypes,
+                                                               mlir::TypeConverter::SignatureConversion& sigConv) {
+    auto& entryBlock = newFuncOp.getFunctionBody().front();
+    mlir::OpBuilder builder(&entryBlock, entryBlock.begin());
+    auto* ctx = newFuncOp.getContext();
+    auto i32Ty = mlir::IntegerType::get(ctx, 32);
+    auto loc = newFuncOp.getLoc();
+
+    auto makeConst = [&](int64_t val) -> mlir::Value {
+        return builder.create<mlir::LLVM::ConstantOp>(loc, i32Ty, mlir::IntegerAttr::get(i32Ty, val));
+    };
+
+    for (unsigned i = 0, e = origArgTypes.size(); i < e; ++i) {
+        auto memrefType = mlir::dyn_cast<mlir::MemRefType>(origArgTypes[i]);
+        if (!memrefType) {
+            continue;
+        }
+
+        auto mapping = sigConv.getInputMapping(i);
+        VPUX_THROW_WHEN(!mapping, "Expected valid LLVM mapping for memref arg {0}", i);
+
+        // The MLIR memref descriptor layout for a rank-N memref, starting at inputNo:
+        //   +0  allocated ptr
+        //   +1  aligned ptr
+        //   +2  offset  (i32)
+        //   +3 .. +3+N-1         sizes[0..N-1]  (i32)
+        //   +3+N .. +3+2N-1      strides[0..N-1] (i32)
+        const unsigned base = mapping->inputNo;
+        const int64_t rank = memrefType.getRank();
+        VPUX_THROW_WHEN(mapping->size != static_cast<size_t>(2 * rank + 3),
+                        "Unexpected memref descriptor mapping for arg {0}: expected {1} arguments, got {2}", i,
+                        static_cast<size_t>(2 * rank + 3), mapping->size);
+
+        // Offsets within the descriptor relative to `base` (see layout comment above).
+        constexpr unsigned OFFSET_INDEX = 2;
+        constexpr unsigned SIZES_INDEX = 3;
+
+        auto offsetArgIdx = [base]() {
+            return base + OFFSET_INDEX;
+        };
+        auto sizeArgIdx = [base](int64_t dim) {
+            return base + SIZES_INDEX + static_cast<unsigned>(dim);
+        };
+        auto strideArgIdx = [base, rank](int64_t dim) {
+            return base + SIZES_INDEX + static_cast<unsigned>(rank + dim);
+        };
+
+        auto [staticStrides, staticOffset] = memrefType.getStridesAndOffset();
+
+        if (staticOffset != mlir::ShapedType::kDynamic) {
+            newFuncOp.getArgument(offsetArgIdx()).replaceAllUsesWith(makeConst(staticOffset));
+        }
+
+        auto shape = memrefType.getShape();
+        for (int64_t dim = 0; dim < rank; ++dim) {
+            if (shape[dim] != mlir::ShapedType::kDynamic) {
+                newFuncOp.getArgument(sizeArgIdx(dim)).replaceAllUsesWith(makeConst(shape[dim]));
+            }
+            if (staticStrides[dim] != mlir::ShapedType::kDynamic) {
+                newFuncOp.getArgument(strideArgIdx(dim)).replaceAllUsesWith(makeConst(staticStrides[dim]));
+            }
+        }
+    }
+}
+
+void ConvertAffine2LLVMPass::convertIndexArgsToI64(mlir::func::FuncOp funcOp) {
+    VPUX_THROW_WHEN(funcOp.isExternal(), "Expected non-external function '{0}'", funcOp.getName());
+
+    auto oldFuncType = funcOp.getFunctionType();
+    auto* ctx = funcOp.getContext();
+    auto i64Ty = mlir::IntegerType::get(ctx, 64);
+    auto loc = funcOp.getLoc();
+
+    llvm::SmallVector<unsigned> indexArgPositions;
+    indexArgPositions.reserve(oldFuncType.getNumInputs());
+    for (unsigned i = 0, e = oldFuncType.getNumInputs(); i < e; ++i) {
+        if (mlir::isa<mlir::IndexType>(oldFuncType.getInput(i))) {
+            indexArgPositions.push_back(i);
+        }
+    }
+
+    if (indexArgPositions.empty()) {
+        return;
+    }
+
+    llvm::SmallVector<mlir::Type> newInputTypes(oldFuncType.getInputs().begin(), oldFuncType.getInputs().end());
+    for (auto indexArgPos : indexArgPositions) {
+        newInputTypes[indexArgPos] = i64Ty;
+    }
+
+    auto newFuncType = mlir::FunctionType::get(ctx, newInputTypes, oldFuncType.getResults());
+    funcOp.setType(newFuncType);
+
+    auto& entryBlock = funcOp.getBody().front();
+    mlir::OpBuilder builder(&entryBlock, entryBlock.begin());
+    for (auto indexArgPos : indexArgPositions) {
+        auto arg = entryBlock.getArgument(indexArgPos);
+        arg.setType(i64Ty);
+        auto cast = builder.create<mlir::index::CastSOp>(loc, builder.getIndexType(), arg);
+        arg.replaceAllUsesExcept(cast.getResult(), cast.getOperation());
     }
 }
 
@@ -221,9 +336,14 @@ void ConvertAffine2LLVMPass::safeRunOnModule() {
             continue;
         }
 
+        mlir::TypeConverter::SignatureConversion sigConv(funcOp.getNumArguments());
+        llvm::SmallVector<mlir::Type> origArgTypes;
         ArgIndices noaliasIndices;
         if (!funcOp.isExternal()) {
-            getLLVMArgNoAliasMask(funcOp, noaliasIndices, typeConverter, funcUseMap[funcOp]);
+            convertIndexArgsToI64(funcOp);
+            typeConverter.convertFunctionSignature(funcOp.getFunctionType(), false, false, sigConv);
+            origArgTypes.assign(funcOp.getArgumentTypes().begin(), funcOp.getArgumentTypes().end());
+            getLLVMArgNoAliasMask(funcOp, noaliasIndices, sigConv, funcUseMap[funcOp]);
         }
         auto funcName = funcOp.getSymName().str();
 
@@ -252,13 +372,19 @@ void ConvertAffine2LLVMPass::safeRunOnModule() {
             return;
         }
 
-        // Set noalias attributes on memrefs. This informs code generation
-        // that there are no dependencies between loads and stores to
-        // different memrefs. This at the moment enables vectorization without
-        // loop versioning/runtime checks. It should also enable other
-        // optimizations as well.
         if (!newFuncOp.isExternal()) {
+            // Set noalias attributes on memrefs. This informs code generation
+            // that there are no dependencies between loads and stores to
+            // different memrefs. This at the moment enables vectorization without
+            // loop versioning/runtime checks. It should also enable other
+            // optimizations as well.
             addNoAliasLLVMAttributes(newFuncOp, noaliasIndices);
+
+            // Replace LLVM descriptor arguments whose values are statically known from
+            // the original memref types with integer constants. This exposes offset=0
+            // and contiguous strides to the optimizer for no-layout memrefs, recovering
+            // information that is otherwise lost during the conversion.
+            replaceStaticMemRefDescriptorArgs(newFuncOp, origArgTypes, sigConv);
         }
     }
 }

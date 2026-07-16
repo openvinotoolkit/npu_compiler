@@ -140,7 +140,7 @@ func.func @DoNotLowerInterpolateBilinearFloatScales(%arg0: tensor<1x16x3x3xf16, 
                                    pads_end = [0, 0, 0, 0],
                                    shape_calc_mode = <SCALES>>,
             axes_attr = [2, 3],
-            scales_attr = [2.999999e+00, 2.999999e+00],
+            scales_attr = [2.999998e+00, 2.999998e+00],
             sizes_attr = [8, 8],
             operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
         } : tensor<1x16x3x3xf16, {order = #NHWC}> -> tensor<1x16x8x8xf16, {order = #NHWC}>

@@ -30,10 +30,5 @@ mlir::FailureOr<SymbolizationResult> KernelRangeRewriter::symbolize(VPUMI40XX::A
     return SymbolizationResult(newOp);
 }
 
-llvm::SmallVector<mlir::FlatSymbolRefAttr> KernelRangeRewriter::getSymbolicNames(VPUMI40XX::ActKernelRangeOp op,
-                                                                                 size_t) {
-    return createSymbolicName(op);
-}
-
 }  // namespace vpumi40xx2vpuasm
 }  // namespace vpux

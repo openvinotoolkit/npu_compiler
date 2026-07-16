@@ -35,6 +35,9 @@ private:
                                                               Byte elemTypeSize) const;
 
     VPUIP::DMADescriptorAttr generateWithSwapFront(ShapeRef mergedInputShape, Byte elemTypeSize) const;
+    SmallVector<VPUIP::DMADescriptorAttr> generateWithSwapFront(ShapeRef mergedInputShape,
+                                                                ArrayRef<Shape> mergedSubOutputShapes, Dim tileDim,
+                                                                Byte elemTypeSize) const;
     VPUIP::DMADescriptorAttr generateWithSwapBack(ShapeRef mergedInputShape, Byte elemTypeSize) const;
 
     mlir::MLIRContext* _ctx;

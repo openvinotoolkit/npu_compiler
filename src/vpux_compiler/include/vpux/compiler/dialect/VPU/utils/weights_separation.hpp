@@ -5,8 +5,8 @@
 
 #pragma once
 
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
-#include "vpux/compiler/utils/abstract_tree.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -48,6 +48,7 @@ struct IoBoundaryAdapter {
               restoring storage type from quantized type is possible, the inverse is
               impossible as zero-points and scales are lost.
      */
+
     struct TypeInfo {
         mlir::Type quantizedType = nullptr;
         mlir::Type storageType = nullptr;
@@ -78,27 +79,6 @@ struct IoBoundaryAdapter {
 /** @brief Defines the schedule kind.
  */
 enum class WeightsSeparationSchedule { Init, Main };
-
-using CallChainData = std::pair<mlir::func::CallOp, mlir::func::FuncOp>;
-using CallChainTree = utils::AbstractTree<CallChainData>;
-
-/** @brief Returns a "call chain" tree constructed from the starting function.
-
-    Returns a weights-separation-specific tree that represents the outlining
-    structure. An example of such a tree is:
-    ```
-    |- {nullptr, main}
-       |- {"call foo1", foo1}
-          |- {"call foo2", foo2}
-       |- {"call foo3", foo3}
-    ```
-    where "call fooX" is a CallOp operation inside the respective function and
-    fooX is a standalone function produced by the outlining.
-
-    @note This tree is the basic data structure used by weights separation to
-    construct init and main schedules.
-*/
-CallChainTree getOutliningRepresentation(mlir::func::FuncOp startFunc);
 
 /** @brief Splits constant transformations into Init and Main schedule parts.
 
@@ -134,6 +114,9 @@ public:
     mlir::Location getLoc() const;
     //! @brief Returns content attribute associated with this split.
     Const::ContentAttr getContentAttr() const;
+    ArrayRef<Const::TransformAttrInterface> getInitTransformations() const;
+    ArrayRef<Const::TransformAttrInterface> getPostInitTransformations() const;
+    IoBoundaryAdapter::TypeInfo getIoTypeInfo() const;
 
     /** @brief A schedule-independent "slice" of the transformation split.
 
@@ -171,6 +154,12 @@ bool isTrivialForWeightsSeparation(Const::DeclareOp constOp, bool skipViewLikeOn
 //!
 //! @note Used internally in collectMoveWorthyConstants().
 bool isSuitableForWeightlessCompilation(Const::DeclareOp constOp, bool skipViewLikeOnly);
+
+//! @brief Specifies whether a given constant is "move-worthy" within the scope
+//! of host pipeline compilation.
+//!
+//! @note Used internally in collectMoveWorthyConstants().
+bool isSuitableForHostPipelineCompilation(Const::DeclareOp constOp, mlir::DenseSet<Const::ContentAttr>& seenConsts);
 
 //! @brief A predicate thet tells whether a constant can be collected.
 using IsWorthyToCollect = std::function<bool(Const::DeclareOp)>;
@@ -270,19 +259,7 @@ public:
                                 WeightsSeparationSchedule scheduleKind);
 };
 
-/** @brief A callable that tells whether a particular FuncOp was already
-           visited.
-*/
-class FuncOpVisitor {
-    mlir::DenseSet<mlir::func::FuncOp> _cache;
-
-public:
-    // Returns whether the function was already seen.
-    bool operator()(mlir::func::FuncOp op) {
-        const bool firstOccurrence = _cache.insert(op).second;
-        return !firstOccurrence;
-    }
-};
+enum class WeightsSeparationMode { Unspecified, GenerateMain, GenerateInit };
 
 /** @brief An analysis object that holds meta information.
  */
@@ -292,8 +269,10 @@ struct WeightsSeparationInfo {
 
     //! @brief A collection of settings to control the analysis behavior.
     struct Options {
+        enum WeightsAnalysisMode { HostCompile, WeightlessCompile };
         bool weightlessSkipViewLikeOnly = true;  //!< [weightless compilation] selects the policy of dealing with
                                                  //!< weights that have only view-like transformations
+        WeightsAnalysisMode weightsAnalysisMode = WeightsAnalysisMode::WeightlessCompile;
     };
 
     // The below three functions manage the options of the weights separation
@@ -347,7 +326,15 @@ using CreateSliceOpFunc = FuncRef<mlir::Operation*(mlir::OpBuilder& builder, mli
     Relies on Core::ReinterpretCast operation for type de-obfuscation.
  */
 void obfuscateInputs(const Logger& log, mlir::Location loc, mlir::func::FuncOp funcOp, ArrayRef<size_t> indices,
-                     CreateSliceOpFunc createSlice);
+                     CreateSliceOpFunc createSlice, bool obfuscateSingleInput = false);
+
+/** @brief Converts specific groups of inputs into obfuscated "blobs".
+
+    This is an extension on top of obfuscateInputs() algorithm that converts N
+    groups of function inputs into N "blobs".
+ */
+void obfuscateInputGroups(const Logger& log, mlir::Location loc, mlir::func::FuncOp funcOp,
+                          const std::vector<std::vector<size_t>>& indexGroups, CreateSliceOpFunc createSlice);
 
 using CreateConcatOpFunc = FuncRef<mlir::Operation*(mlir::OpBuilder& builder, mlir::Location l,
                                                     ArrayRef<mlir::Value> inputs, int64_t axis)>;
@@ -383,4 +370,5 @@ struct format_provider<vpux::VPU::ConstArg> {
         stream << ">";
     }
 };
+
 }  // namespace llvm

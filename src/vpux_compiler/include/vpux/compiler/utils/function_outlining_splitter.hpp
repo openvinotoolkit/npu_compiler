@@ -63,7 +63,7 @@ struct FuncInfo {
 class OutlinerBase {
 public:
     virtual ~OutlinerBase() = default;
-    virtual void outline(mlir::ModuleOp moduleOp, StringRef functionSuffix);
+    virtual bool outline(mlir::ModuleOp moduleOp, StringRef functionSuffix);
 
 protected:
     OutlinerBase(std::unique_ptr<IFunctionOutliner> splitter, const Logger& log)

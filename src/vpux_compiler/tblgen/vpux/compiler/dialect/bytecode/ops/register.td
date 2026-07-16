@@ -106,7 +106,7 @@ def Bytecode_VirtualParameterRegisterOp : Bytecode_Op<"virtual_parameter_registe
     }];
 }
 
-def Bytecode_SetOp : Bytecode_TwoOperandsInstructionBase<"set", [], "1.0.0", "vpux::bytecode::OpCode::SET"> {
+def Bytecode_SetOp : Bytecode_TwoOperandsInstructionBase<"set", [], "1.0.0", "intel_npu::vm::OpCode::SET"> {
     let summary = "Set operation";
 
     let opDescription = [{
@@ -119,7 +119,7 @@ def Bytecode_SetOp : Bytecode_TwoOperandsInstructionBase<"set", [], "1.0.0", "vp
     }];
 }
 
-def Bytecode_SetImmOp : Bytecode_InstructionOp<"set_imm", [], "1.0.0", "vpux::bytecode::OpCode::SET_IMM"> {
+def Bytecode_SetImmOp : Bytecode_InstructionOp<"set_imm", [], "1.0.0", "intel_npu::vm::OpCode::SET_IMM"> {
     let summary = "Set immediate operation";
 
     let description = [{

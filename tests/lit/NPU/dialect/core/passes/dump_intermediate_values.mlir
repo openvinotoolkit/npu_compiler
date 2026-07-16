@@ -190,8 +190,8 @@ module @DumpVPUOps {
     // CHECK-VPU: func.func @main({{%.+}}: tensor<1x16x8x8xf16, {order = #NHWC}>) -> (tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<1x16x8x8xf16, {order = #NHWC}>) {
     func.func @main(%input: tensor<1x16x8x8xf16, {order = #NHWC}>) -> tensor<1x16x8x8xf16, {order = #NHWC}> {
         %weights = const.Declare tensor<16x16x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<16x16x1x1xf16>, [#const.Reorder<#NHWC>]
-        %conv = VPU.NCE.Convolution(%input, %weights) {
-            pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [16, 16, 1, 1], strides = [1, 1]
+        %conv = VPU.NCE.Convolution(%input, %weights) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+            pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,  strides = [1, 1]
         } : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}> -> tensor<1x16x8x8xf16, {order = #NHWC}>
         %softmax = VPU.SoftMax(%conv) {axisInd = 1 : i64} : tensor<1x16x8x8xf16, {order = #NHWC}> -> tensor<1x16x8x8xf16, {order = #NHWC}>
         return %softmax : tensor<1x16x8x8xf16, {order = #NHWC}>
@@ -227,8 +227,8 @@ module @DumpVPUOpsFromCMX {
     // CHECK-VPU: func.func @main({{%.+}}: tensor<1x16x8x8xf16, {order = #NHWC}>) -> (tensor<1x16x8x8xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x16x8x8xf16, {mem_space = @DDR, order = #NHWC}>) {
     func.func @main(%input: tensor<1x16x8x8xf16, {order = #NHWC}>) -> tensor<1x16x8x8xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}> {
         %weights = const.Declare tensor<16x16x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<16x16x1x1xf16>, [#const.Reorder<#NHWC>]
-        %conv = VPU.NCE.Convolution(%input, %weights) {
-            pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [16, 16, 1, 1], strides = [1, 1]
+        %conv = VPU.NCE.Convolution(%input, %weights) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+            pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,  strides = [1, 1]
         } : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}> -> tensor<1x16x8x8xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
         %softmax = VPU.SoftMax(%conv) {axisInd = 1 : i64} : tensor<1x16x8x8xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}> -> tensor<1x16x8x8xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
         return %softmax : tensor<1x16x8x8xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
@@ -271,8 +271,8 @@ module @DumpDistributedVPUOpsFromCMX {
     // CHECK-VPU: func.func @main({{%.+}}: tensor<1x16x8x8xf16, {order = #NHWC}>) -> (tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<1x16x8x8xf16, {mem_space = @DDR, order = #NHWC}>) {
     func.func @main(%input: tensor<1x16x8x8xf16, {order = #NHWC}>) -> tensor<1x16x8x8xf16, {order = #NHWC}> {
         %weights = const.Declare tensor<16x16x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<16x16x1x1xf16>, [#const.Reorder<#NHWC>]
-        %conv = VPU.NCE.Convolution(%input, %weights) {
-            pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [16, 16, 1, 1], strides = [1, 1]
+        %conv = VPU.NCE.Convolution(%input, %weights) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+            pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,  strides = [1, 1]
         } : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}> -> !DistributedType
         %softmax = VPU.SoftMax(%conv) {axisInd = 1 : i64} : !DistributedType -> !DistributedType
         %softmax_copy = VPU.Copy(%softmax) {out_mem_space = @DDR} : !DistributedType -> tensor<1x16x8x8xf16, {order = #NHWC}>

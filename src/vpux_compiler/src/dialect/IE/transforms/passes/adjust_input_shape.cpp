@@ -595,7 +595,7 @@ mlir::LogicalResult ExpandEltwisePattern::rewrite(mlir::PatternRewriter& rewrite
             // and update shape with "const.broadcast".
             const auto& baseContent = contentAttr.getBaseContent();
             auto baseType = baseContent.getType();
-            Const::ContentSetup newContentAttrSetup(baseType);
+            Const::ContentSetup newContentAttrSetup(baseContent, baseType);
             auto numDims = newConstOutputType.getShape().size();
             auto newConstantShape = Shape(numDims, int64_t(1));
             auto constType = mlir::cast<NDTypeInterface>(baseType);

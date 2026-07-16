@@ -24,6 +24,13 @@ using namespace vpux;
 
 namespace {
 
+struct RoPEConfig final {
+    int64_t channel;
+    int64_t width;
+};
+
+static const SmallVector<RoPEConfig> LEGAL_ROPE_CONFIGS = {{32, 128}, {1, 128}, {8, 128}, {40, 128}, {8, 256}, {1, 256},
+                                                           {4, 256},  {1, 64},  {64, 64}, {16, 128}, {2, 128}};
 //
 // FuseRoPEPass
 //
@@ -54,7 +61,7 @@ bool isSliceOrStridedSliceOp(mlir::Operation* op) {
     return mlir::isa_and_nonnull<IE::SliceOp, IE::StridedSliceOp>(op);
 }
 
-bool isPairwiseInterleaved(mlir::Operation* lhsDataDef, mlir::Operation* rhsDataDef) {
+bool isInterleavedStridedSlice(mlir::Operation* lhsDataDef, mlir::Operation* rhsDataDef) {
     auto lhsSlice = mlir::dyn_cast_or_null<IE::StridedSliceOp>(lhsDataDef);
     auto rhsSlice = mlir::dyn_cast_or_null<IE::StridedSliceOp>(rhsDataDef);
     if (!lhsSlice || !rhsSlice) {
@@ -130,6 +137,17 @@ mlir::Operation* skipReshapeIfPresent(mlir::Operation* op) {
     return op->getOperand(0).getDefiningOp();
 }
 
+// Walk through Slice/StridedSlice chains to find the underlying base tensor.
+mlir::Value getRootTensor(mlir::Value val) {
+    while (auto* defOp = val.getDefiningOp()) {
+        if (!mlir::isa<IE::SliceOp, IE::StridedSliceOp>(defOp) || defOp->getNumOperands() == 0) {
+            break;
+        }
+        val = defOp->getOperand(0);
+    }
+    return val;
+}
+
 mlir::LogicalResult fuseRoPEPattern(IE::AddOp addOp, mlir::PatternRewriter& rewriter, Logger log) {
     bool isInterleaved = false;
 
@@ -145,7 +163,16 @@ mlir::LogicalResult fuseRoPEPattern(IE::AddOp addOp, mlir::PatternRewriter& rewr
     }
 
     auto mulOp3 = mlir::dyn_cast_or_null<IE::MultiplyOp>(skipReshapeIfPresent(concatOp.getOperand(0).getDefiningOp()));
-    auto stridedSliceOp2 = getSliceOrStridedSliceOp(concatOp.getOperand(1).getDefiningOp(), isInterleaved);
+    // Only skip reshape on concat operand 1 when it leads to StridedSlice/Slice (stride-2 pattern).
+    // Skipping reshape unconditionally would also reach SplitOp and set isInterleaved=true for models
+    auto concatInput1Op = concatOp.getOperand(1).getDefiningOp();
+    if (mlir::isa_and_nonnull<IE::AffineReshapeOp, IE::ReshapeOp>(concatInput1Op) && concatInput1Op->hasOneUse()) {
+        auto underlying = concatInput1Op->getOperand(0).getDefiningOp();
+        if (mlir::isa_and_nonnull<IE::StridedSliceOp, IE::SliceOp>(underlying)) {
+            concatInput1Op = underlying;
+        }
+    }
+    auto stridedSliceOp2 = getSliceOrStridedSliceOp(concatInput1Op, isInterleaved);
     if (!mulOp3 || !stridedSliceOp2) {
         return mlir::failure();
     }
@@ -156,38 +183,103 @@ mlir::LogicalResult fuseRoPEPattern(IE::AddOp addOp, mlir::PatternRewriter& rewr
         return mlir::failure();
     }
 
-    auto input = stridedSliceOp1->getOperand(0);
+    if (!isInterleaved) {
+        isInterleaved = isInterleavedStridedSlice(stridedSliceOp1, stridedSliceOp2);
+    }
+
     auto inputCos = mulOp1.getOperand(1);
     auto inputSin = mulOp2.getOperand(1);
 
-    // For interleaving, before SplitOp, the input is reshaped to <NxCxHxWx2>,
-    // so the input has to be taken from the MultiplyOp.
+    const auto cosWidth = mlir::cast<mlir::RankedTensorType>(inputCos.getType()).getShape().back();
+    const auto sinWidth = mlir::cast<mlir::RankedTensorType>(inputSin.getType()).getShape().back();
+
+    // Determine the canonical RoPE input.
+    // For INTERLEAVED mode, use the cos-multiply operand directly (the sin path uses
+    // Reshape+Split, so stridedSliceOp1->getOperand(0) would be a reshape output).
+    // For SPLIT_HALF, prefer stridedSliceOp1->getOperand(0) to correctly handle models
+    // that insert a reshape before slicing. Fall back to mulOp1.getOperand(0) when a
+    // prior pass (e.g. ResolveStridedSlice) has merged cascaded slice chains, leaving
+    // stridedSliceOp1's parent wider than the RoPE region (width != cosWidth).
+    mlir::Value input;
     if (isInterleaved) {
-        input = mulOp1->getOperand(0);
+        input = mulOp1.getOperand(0);
+    } else {
+        const auto sliceParent = stridedSliceOp1->getOperand(0);
+        const auto sliceParentType = mlir::dyn_cast<vpux::NDTypeInterface>(sliceParent.getType());
+        if (sliceParentType && sliceParentType.getRank() == 4 && sliceParentType.getShape().back() == cosWidth) {
+            input = sliceParent;
+        } else {
+            input = mulOp1.getOperand(0);
+        }
     }
 
     auto tensorType = mlir::dyn_cast<vpux::NDTypeInterface>(input.getType());
     if (!tensorType || tensorType.getRank() != 4) {
         return mlir::failure();
     }
+    // Verify that input, cos and sin last-dimension widths agree. A mismatch means the
+    // pattern was only partially matched; fusing would produce incorrect results.
+    const auto inputWidth = tensorType.getShape().back();
+    if (inputWidth != cosWidth || inputWidth != sinWidth) {
+        log.trace("RoPE fusion rejected for {0} at {1}: width mismatch (input={2}, cos={3}, sin={4})", addOp->getName(),
+                  addOp->getLoc(), inputWidth, cosWidth, sinWidth);
+        return mlir::failure();
+    }
+    // Verify that both sin-path slices share the same base tensor as the RoPE input.
+    // Both slices must come from the same source, and that source must trace back to
+    // the same root as input through any Slice/StridedSlice chain (e.g. in the
+    // partial-width case: input = Slice[0:W](root), sin-path slices come from root).
+    if (!isInterleaved) {
+        const auto sinRoot = stridedSliceOp1->getOperand(0);
+        if (sinRoot != stridedSliceOp2->getOperand(0)) {
+            log.trace("RoPE fusion rejected for {0} at {1}: sin-path slices come from different sources",
+                      addOp->getName(), addOp->getLoc());
+            return mlir::failure();
+        }
+        if (getRootTensor(input) != getRootTensor(sinRoot)) {
+            log.trace("RoPE fusion rejected for {0} at {1}: sin-path root is inconsistent with input source",
+                      addOp->getName(), addOp->getLoc());
+            return mlir::failure();
+        }
+    }
+    // Currently we only support floating-point tensors for RoPE fusion
+    const auto isFloatTensor = [](mlir::Value value) {
+        const auto type = mlir::dyn_cast<vpux::NDTypeInterface>(value.getType());
+        return type != nullptr && mlir::isa<mlir::FloatType>(type.getElementType());
+    };
 
+    if (!isFloatTensor(input) || !isFloatTensor(inputCos) || !isFloatTensor(inputSin)) {
+        log.trace("RoPE fusion skipped for operation {0} at {1}: non-floating-point operands", addOp->getName(),
+                  addOp->getLoc());
+        return mlir::failure();
+    }
     const auto shape = tensorType.getShape();
 
-    // For avoiding performance decrease for certain networks, we limit the cases below for H = 1.
-    // Follow next ticket for updates on generalizing the pass: E#162922
     constexpr int64_t unsupportedH = 1;
-    const auto channelAndWidth = SmallVector<SmallVector<int64_t>>{{1, 64}, {64, 64}, {16, 128}, {2, 128}};
-
     if (shape[Dims4D::Act::H] == unsupportedH) {
-        auto it = std::find(channelAndWidth.begin(), channelAndWidth.end(),
-                            SmallVector<int64_t>{shape[Dims4D::Act::C], shape[Dims4D::Act::W]});
-        if (it == channelAndWidth.end()) {
+        const auto channel = shape[Dims4D::Act::C];
+        const auto width = shape[Dims4D::Act::W];
+
+        const auto it =
+                std::find_if(LEGAL_ROPE_CONFIGS.begin(), LEGAL_ROPE_CONFIGS.end(), [&](const RoPEConfig& config) {
+                    return config.channel == channel && config.width == width;
+                });
+        if (it == LEGAL_ROPE_CONFIGS.end()) {
             return mlir::failure();
         }
     }
 
+    // The RoPE op output inherits input's type and directly replaces addOp.
+    if (addOp.getType() != input.getType()) {
+        log.trace("RoPE fusion rejected for {0} at {1}: addOp result type incompatible with input type",
+                  addOp->getName(), addOp->getLoc());
+        return mlir::failure();
+    }
+
     log.trace("RoPE pattern matched for operation {0} at {1}", addOp->getName(), addOp->getLoc());
+
     auto builder = mlir::OpBuilder(addOp);
+
     auto cosShape = mlir::cast<mlir::RankedTensorType>(inputCos.getType()).getShape();
     auto sinShape = mlir::cast<mlir::RankedTensorType>(inputSin.getType()).getShape();
     if (cosShape != sinShape) {
@@ -204,10 +296,61 @@ mlir::LogicalResult fuseRoPEPattern(IE::AddOp addOp, mlir::PatternRewriter& rewr
     return mlir::success();
 }
 
+// Try to merge two adjacent IE::SliceOps that differ only in last-dim offset/size into a
+// single wider SliceOp covering both regions. The slices must share the same source and
+// agree on offsets and sizes in every dimension except the last. Returns the merged result
+// Value on success, or a null Value on failure.
+mlir::Value tryMergeAdjacentSlices(IE::SliceOp lhsSlice, IE::SliceOp rhsSlice, mlir::OpBuilder& builder, Logger log) {
+    const auto lhsOffsets = parseIntArrayAttr<int64_t>(lhsSlice.getStaticOffsets());
+    const auto lhsSizes = parseIntArrayAttr<int64_t>(lhsSlice.getStaticSizes());
+    const auto rhsOffsets = parseIntArrayAttr<int64_t>(rhsSlice.getStaticOffsets());
+    const auto rhsSizes = parseIntArrayAttr<int64_t>(rhsSlice.getStaticSizes());
+
+    if (lhsOffsets.size() != rhsOffsets.size() || lhsOffsets.empty()) {
+        return {};
+    }
+
+    const auto rank = static_cast<int64_t>(lhsOffsets.size());
+    for (int64_t i = 0; i < rank - 1; ++i) {
+        if (lhsOffsets[i] != rhsOffsets[i] || lhsSizes[i] != rhsSizes[i]) {
+            return {};
+        }
+    }
+
+    const auto lhsLastOffset = lhsOffsets[rank - 1];
+    const auto lhsLastSize = lhsSizes[rank - 1];
+    const auto rhsLastOffset = rhsOffsets[rank - 1];
+    const auto rhsLastSize = rhsSizes[rank - 1];
+
+    int64_t mergedLastOffset = 0;
+    if (lhsLastOffset + lhsLastSize == rhsLastOffset) {
+        mergedLastOffset = lhsLastOffset;
+    } else if (rhsLastOffset + rhsLastSize == lhsLastOffset) {
+        mergedLastOffset = rhsLastOffset;
+    } else {
+        return {};
+    }
+
+    SmallVector<int64_t> mergedOffsets(lhsOffsets.begin(), lhsOffsets.end());
+    SmallVector<int64_t> mergedSizes(lhsSizes.begin(), lhsSizes.end());
+    mergedOffsets[rank - 1] = mergedLastOffset;
+    mergedSizes[rank - 1] = lhsLastSize + rhsLastSize;
+
+    log.trace("Synthesized merged Slice for RoPE Pairwise: offsets=[{0}], sizes=[{1}]",
+              llvm::make_range(mergedOffsets.begin(), mergedOffsets.end()),
+              llvm::make_range(mergedSizes.begin(), mergedSizes.end()));
+    return builder
+            .create<IE::SliceOp>(lhsSlice.getLoc(), lhsSlice.getSource(), getIntArrayAttr(builder, mergedOffsets),
+                                 getIntArrayAttr(builder, mergedSizes))
+            .getResult();
+}
+
 mlir::LogicalResult fuseRoPEPairwisePattern(IE::ConcatOp concatOp, mlir::PatternRewriter& rewriter, Logger log) {
     if (concatOp.getInputs().size() != 2) {
         return mlir::failure();
     }
+
+    SmallVector<mlir::Operation*> trailingReshapes;
 
     auto subOp = mlir::dyn_cast_or_null<IE::SubtractOp>(skipReshapeIfPresent(concatOp.getOperand(0).getDefiningOp()));
     auto addOp = mlir::dyn_cast_or_null<IE::AddOp>(skipReshapeIfPresent(concatOp.getOperand(1).getDefiningOp()));
@@ -259,15 +402,55 @@ mlir::LogicalResult fuseRoPEPairwisePattern(IE::ConcatOp concatOp, mlir::Pattern
         return mlir::failure();
     }
 
-    // E#211377: to avoid regressions, we only fuse when C=256 and H=3
     const auto inputShape = tensorType.getShape();
-    if (!(inputShape[Dims4D::Act::C] == 256 && inputShape[Dims4D::Act::H] == 3)) {
-        return mlir::failure();
+    const auto isInterleaved = isInterleavedStridedSlice(lhsDataDef, rhsDataDef);
+    if (isInterleaved) {
+        for (auto* user : concatOp->getUsers()) {
+            if (!mlir::isa<IE::AffineReshapeOp, IE::ReshapeOp>(user)) {
+                return mlir::failure();
+            }
+
+            if (user->getNumResults() != 1 || user->getResult(0).getType() != input.getType()) {
+                return mlir::failure();
+            }
+
+            trailingReshapes.push_back(user);
+        }
+
+        if (trailingReshapes.empty()) {
+            return mlir::failure();
+        }
+
+        auto concatType = mlir::dyn_cast<vpux::NDTypeInterface>(concatOp.getType());
+        if (concatType == nullptr || concatType.getRank() != 5) {
+            return mlir::failure();
+        }
     }
 
-    const auto isInterleaved = isPairwiseInterleaved(lhsDataDef, rhsDataDef);
-    if (isInterleaved) {
-        return mlir::failure();
+    auto builder = mlir::OpBuilder(concatOp);
+
+    // When the data slices cut both channels and width from a wider parent, `input` is the full
+    // parent and its type does not match the concat result type. Merge the two half-width slices
+    // into one covering the full RoPE width:
+    //   Slice %src [0,40,0, 0][1,10,H, 64] --+
+    //                                          +--> Slice %src [0,40,0,0][1,10,H,128]
+    //   Slice %src [0,40,0,64][1,10,H, 64] --+
+    if (!isInterleaved && concatOp.getType() != input.getType()) {
+        auto lhsSliceOp = mlir::dyn_cast<IE::SliceOp>(lhsDataDef);
+        auto rhsSliceOp = mlir::dyn_cast<IE::SliceOp>(rhsDataDef);
+        if (!lhsSliceOp || !rhsSliceOp) {
+            log.trace("RoPE Pairwise fusion rejected for {0} at {1}: type mismatch and data ops are not plain SliceOps",
+                      concatOp->getName(), concatOp->getLoc());
+            return mlir::failure();
+        }
+        auto mergedInput = tryMergeAdjacentSlices(lhsSliceOp, rhsSliceOp, builder, log);
+        if (!mergedInput || mergedInput.getType() != concatOp.getType()) {
+            log.trace("RoPE Pairwise fusion rejected for {0} at {1}: could not merge adjacent width slices",
+                      concatOp->getName(), concatOp->getLoc());
+            return mlir::failure();
+        }
+        input = mergedInput;
+        tensorType = mlir::dyn_cast<vpux::NDTypeInterface>(input.getType());
     }
 
     auto inputCos = subLhs.trig;
@@ -277,13 +460,12 @@ mlir::LogicalResult fuseRoPEPairwisePattern(IE::ConcatOp concatOp, mlir::Pattern
 
     // For RoPE Pairwise, sin and cos width should be inputW/2
     const auto inputWidth = inputShape[Dims4D::Act::W];
-    const auto cosWidth = cosShape[Dims4D::Act::W.ind()];
-    const auto sinWidth = sinShape[Dims4D::Act::W.ind()];
+    const auto cosWidth = cosShape.back();
+    const auto sinWidth = sinShape.back();
     if (cosWidth != inputWidth / 2 || sinWidth != inputWidth / 2) {
         return mlir::failure();
     }
 
-    auto builder = mlir::OpBuilder(concatOp);
     log.trace("RoPE Pairwise pattern matched for operation {0} at {1}", concatOp->getName(), concatOp->getLoc());
     if (cosShape != sinShape) {
         inputCos = builder.create<IE::ReshapeOp>(appendLoc(concatOp->getLoc(), "cos_reshape"), inputCos,
@@ -291,10 +473,20 @@ mlir::LogicalResult fuseRoPEPairwisePattern(IE::ConcatOp concatOp, mlir::Pattern
         log.trace("Reshaped input_cos to match input_sin shape");
     }
 
-    const auto ropeMode = IE::RoPEModeAttr::get(concatOp.getContext(), IE::RoPEMode::PAIRWISE);
+    const auto ropeMode = IE::RoPEModeAttr::get(
+            concatOp.getContext(), isInterleaved ? IE::RoPEMode::PAIRWISE_INTERLEAVED : IE::RoPEMode::PAIRWISE);
     auto ropeOp =
             builder.create<IE::RoPEOp>(appendLoc(concatOp->getLoc(), "rope"), input, inputCos, inputSin, ropeMode);
-    rewriter.replaceOp(concatOp, ropeOp.getOutput());
+
+    // Pairwise-interleaved uses Concat only as a temporary 5D packing step; the trailing reshapes materialize the
+    // real result shape, so rewrite those users directly. Plain pairwise produces the final result at Concat.
+    if (isInterleaved) {
+        for (auto* user : trailingReshapes) {
+            rewriter.replaceOp(user, ropeOp.getOutput());
+        }
+    } else {
+        rewriter.replaceOp(concatOp, ropeOp.getOutput());
+    }
 
     return mlir::success();
 }

@@ -20,14 +20,14 @@ NPU_COMPILATION_MODE_PARAMS disabled-passes=FuseConvertPass
 If it is not possible to use compilation mode params (e.g. in LIT tests), this option can also be passed in the init
 compiler pipeline options. Example from [pass_disabling.mlir](/tests/lit/NPU/utils/pass_disabling.mlir):
 ```bash
-vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% disabled-passes=set-memory-space" --set-memory-space="memory-space=DDR" %s
+vpux-opt --split-input-file --init-compiler="platform=%platform% disabled-passes=set-memory-space" --set-memory-space="memory-space=DDR" %s
 ```
 
 ## Implementation
 This option is only available in developer builds, i.e. if `VPUX_DEVELOPER_BUILD` is defined.
 
-If the `disabled-passes` option is set, the init compiler pipeline registers the [PassDisablingExecutionContext](/src/vpux_compiler/include/vpux/compiler/utils/pass_disabling_execution_context.hpp)
-as the action handler for the MLIR context. Before each pass is executed, this execution context checks whether the pass name
+If the `disabled-passes` option is set, the init compiler pipeline sets the [PassDisablingCallback](/src/vpux_compiler/include/vpux/compiler/utils/pass_disabling_callback.hpp)
+as the callback for the `NpuActionHandler`. Before each pass is executed, this callback checks whether the pass name
 or pass argument name match the `disabled-passes` regex and skips the pass execution if so.
 
 ## Related options

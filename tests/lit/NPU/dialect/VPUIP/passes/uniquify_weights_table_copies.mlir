@@ -42,16 +42,16 @@
         memory_offsets = [[0, 0, 0, 0], [288, 0, 0, 0], [576, 0, 0, 0], [864, 0, 0, 0]]}>
 
 // CHECK-LABEL: func.func @UniquifyWeightsTableCopies
-// CHECK-SAME:      ([[IN1:%.+]]: memref<1x128x1x1xf16, #NHWC>, [[IN2:%.+]]: memref<1x128x1x1xf16, #NHWC>,
-// CHECK-SAME:      [[WEIGHTS1:%.+]]: memref<1152x128x1x1xf16, #NHWC>, [[WEIGHTS2:%.+]]: memref<1152x128x1x1xf16, #NHWC>)
-func.func @UniquifyWeightsTableCopies(%input1: memref<1x128x1x1xf16, #NHWC>, %input2: memref<1x128x1x1xf16, #NHWC>,
-                            %weights1: memref<1152x128x1x1xf16, #NHWC>, %weights2: memref<1152x128x1x1xf16, #NHWC>) -> !OutDistType {
+// CHECK-SAME:      ([[IN1:%.+]]: memref<1x128x1x1xf16, {order = #NHWC}>, [[IN2:%.+]]: memref<1x128x1x1xf16, {order = #NHWC}>,
+// CHECK-SAME:      [[WEIGHTS1:%.+]]: memref<1152x128x1x1xf16, {order = #NHWC}>, [[WEIGHTS2:%.+]]: memref<1152x128x1x1xf16, {order = #NHWC}>)
+func.func @UniquifyWeightsTableCopies(%input1: memref<1x128x1x1xf16, {order = #NHWC}>, %input2: memref<1x128x1x1xf16, {order = #NHWC}>,
+                            %weights1: memref<1152x128x1x1xf16, {order = #NHWC}>, %weights2: memref<1152x128x1x1xf16, {order = #NHWC}>) -> !OutDistType {
 
     %wt = const.Declare memref<1152x1x1x4xsi32> = dense<1> : tensor<1152x1x1x4xsi32>
     %in1_alloc = VPURT.AllocDistributed -> !InDistType
-    %in1_cmx = VPUIP.Copy inputs(%input1 : memref<1x128x1x1xf16, #NHWC>) outputs(%in1_alloc : !InDistType) -> !InDistType
+    %in1_cmx = VPUIP.Copy inputs(%input1 : memref<1x128x1x1xf16, {order = #NHWC}>) outputs(%in1_alloc : !InDistType) -> !InDistType
     %weights1_alloc = VPURT.AllocDistributed -> !WeightsDistType
-    %weights1_cmx = VPUIP.Copy inputs(%weights1 : memref<1152x128x1x1xf16, #NHWC>) outputs(%weights1_alloc : !WeightsDistType) -> !WeightsDistType
+    %weights1_cmx = VPUIP.Copy inputs(%weights1 : memref<1152x128x1x1xf16, {order = #NHWC}>) outputs(%weights1_alloc : !WeightsDistType) -> !WeightsDistType
     %wt1_alloc = VPURT.AllocDistributed -> !WeightTableDistType
     %wt1_cmx = VPUIP.Copy inputs(%wt : memref<1152x1x1x4xsi32>) outputs(%wt1_alloc : !WeightTableDistType) -> !WeightTableDistType
     %conv1_out = VPURT.AllocDistributed -> !OutDistType
@@ -78,9 +78,9 @@ func.func @UniquifyWeightsTableCopies(%input1: memref<1x128x1x1xf16, #NHWC>, %in
               lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>}
     }
     %in2_alloc = VPURT.AllocDistributed -> !InDistType
-    %in2_cmx = VPUIP.Copy inputs(%input2 : memref<1x128x1x1xf16, #NHWC>) outputs(%in2_alloc : !InDistType) -> !InDistType
+    %in2_cmx = VPUIP.Copy inputs(%input2 : memref<1x128x1x1xf16, {order = #NHWC}>) outputs(%in2_alloc : !InDistType) -> !InDistType
     %weights2_alloc = VPURT.AllocDistributed -> !WeightsDistType
-    %weights2_cmx = VPUIP.Copy inputs(%weights2 : memref<1152x128x1x1xf16, #NHWC>) outputs(%weights2_alloc : !WeightsDistType) -> !WeightsDistType
+    %weights2_cmx = VPUIP.Copy inputs(%weights2 : memref<1152x128x1x1xf16, {order = #NHWC}>) outputs(%weights2_alloc : !WeightsDistType) -> !WeightsDistType
     %wt2_alloc = VPURT.AllocDistributed -> !WeightTableDistType
     %wt2_cmx = VPUIP.Copy inputs(%wt : memref<1152x1x1x4xsi32>) outputs(%wt2_alloc : !WeightTableDistType) -> !WeightTableDistType
     %conv2_out = VPURT.AllocDistributed -> !OutDistType
@@ -111,12 +111,12 @@ func.func @UniquifyWeightsTableCopies(%input1: memref<1x128x1x1xf16, #NHWC>, %in
     // CHECK:     [[WT:%.+]] = const.Declare memref<1152x1x1x4xsi32> = dense<1> : tensor<1152x1x1x4xsi32>
 
     // CHECK:     [[IN1_ALLOC:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x128x1x1xf16, #NHWC, @CMX_NN
-    // CHECK:     [[IN1_CMX:%.+]] = VPUIP.Copy inputs([[IN1]] : memref<1x128x1x1xf16, #NHWC>)
+    // CHECK:     [[IN1_CMX:%.+]] = VPUIP.Copy inputs([[IN1]] : memref<1x128x1x1xf16, {order = #NHWC}>)
     // CHECK-SAME:      outputs([[IN1_ALLOC]] : !VPUIP.DistributedBuffer<1x128x1x1xf16, #NHWC, @CMX_NN
     // CHECK-SAME:      -> !VPUIP.DistributedBuffer<1x128x1x1xf16, #NHWC, @CMX_NN
 
     // CHECK:     [[WEIGHTS1_ALLOC:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1152x128x1x1xf16, #NHWC, @CMX_NN
-    // CHECK:     [[WEIGHTS1_CMX:%.+]] = VPUIP.Copy inputs([[WEIGHTS1]] : memref<1152x128x1x1xf16, #NHWC>)
+    // CHECK:     [[WEIGHTS1_CMX:%.+]] = VPUIP.Copy inputs([[WEIGHTS1]] : memref<1152x128x1x1xf16, {order = #NHWC}>)
     // CHECK-SAME:      outputs([[WEIGHTS1_ALLOC]] : !VPUIP.DistributedBuffer<1152x128x1x1xf16, #NHWC, @CMX_NN
     // CHECK-SAME:      -> !VPUIP.DistributedBuffer<1152x128x1x1xf16, #NHWC, @CMX_NN
 
@@ -136,11 +136,11 @@ func.func @UniquifyWeightsTableCopies(%input1: memref<1x128x1x1xf16, #NHWC>, %in
     // CHECK-SAME:      -> !VPUIP.DistributedBuffer<1x1152x1x1xf16, #NHWC, @CMX_NN
 
     // CHECK:     [[IN2_ALLOC:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x128x1x1xf16, #NHWC, @CMX_NN
-    // CHECK:     [[IN2_CMX:%.+]] = VPUIP.Copy inputs([[IN2]] : memref<1x128x1x1xf16, #NHWC>)
+    // CHECK:     [[IN2_CMX:%.+]] = VPUIP.Copy inputs([[IN2]] : memref<1x128x1x1xf16, {order = #NHWC}>)
     // CHECK-SAME:      outputs([[IN2_ALLOC]] : !VPUIP.DistributedBuffer<1x128x1x1xf16, #NHWC, @CMX_NN
     // CHECK-SAME:      -> !VPUIP.DistributedBuffer<1x128x1x1xf16, #NHWC, @CMX_NN
     // CHECK:     [[WEIGHTS2_ALLOC:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1152x128x1x1xf16, #NHWC, @CMX_NN
-    // CHECK:     [[WEIGHTS2_CMX:%.+]] = VPUIP.Copy inputs([[WEIGHTS2]] : memref<1152x128x1x1xf16, #NHWC>)
+    // CHECK:     [[WEIGHTS2_CMX:%.+]] = VPUIP.Copy inputs([[WEIGHTS2]] : memref<1152x128x1x1xf16, {order = #NHWC}>)
     // CHECK-SAME:      outputs([[WEIGHTS2_ALLOC]] : !VPUIP.DistributedBuffer<1152x128x1x1xf16, #NHWC, @CMX_NN
     // CHECK-SAME:      -> !VPUIP.DistributedBuffer<1152x128x1x1xf16, #NHWC, @CMX_NN
     // CHECK:     [[CONV2_OUT:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x1152x1x1xf16, #NHWC, @CMX_NN
@@ -161,22 +161,22 @@ func.func @UniquifyWeightsTableCopies(%input1: memref<1x128x1x1xf16, #NHWC>, %in
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-!OutDistType = memref<1x1152x1x1xf16, #NHWC, @CMX_NN>
-!InDistType = memref<1x128x1x1xf16, #NHWC, @CMX_NN>
-!WeightsDistType = memref<1152x128x1x1xf16, #NHWC, @CMX_NN>
-!WeightTableDistType = memref<1152x1x1x4xsi32, #NCHW, @CMX_NN>
+!OutDistType = memref<1x1152x1x1xf16, {order = #NHWC}, @CMX_NN>
+!InDistType = memref<1x128x1x1xf16, {order = #NHWC}, @CMX_NN>
+!WeightsDistType = memref<1152x128x1x1xf16, {order = #NHWC}, @CMX_NN>
+!WeightTableDistType = memref<1152x1x1x4xsi32, @CMX_NN>
 
 // CHECK-LABEL: func.func @DoNotUniquifyWhenSiblingViewOp
-// CHECK-SAME:      ([[IN1:%.+]]: memref<1x128x1x1xf16, #NHWC>, [[IN2:%.+]]: memref<1x128x1x1xf16, #NHWC>,
-// CHECK-SAME:      [[WEIGHTS1:%.+]]: memref<1152x128x1x1xf16, #NHWC>, [[WEIGHTS2:%.+]]: memref<1152x128x1x1xf16, #NHWC>)
-func.func @DoNotUniquifyWhenSiblingViewOp(%input1: memref<1x128x1x1xf16, #NHWC>, %input2: memref<1x128x1x1xf16, #NHWC>,
-                            %weights1: memref<1152x128x1x1xf16, #NHWC>, %weights2: memref<1152x128x1x1xf16, #NHWC>) -> !OutDistType {
+// CHECK-SAME:      ([[IN1:%.+]]: memref<1x128x1x1xf16, {order = #NHWC}>, [[IN2:%.+]]: memref<1x128x1x1xf16, {order = #NHWC}>,
+// CHECK-SAME:      [[WEIGHTS1:%.+]]: memref<1152x128x1x1xf16, {order = #NHWC}>, [[WEIGHTS2:%.+]]: memref<1152x128x1x1xf16, {order = #NHWC}>)
+func.func @DoNotUniquifyWhenSiblingViewOp(%input1: memref<1x128x1x1xf16, {order = #NHWC}>, %input2: memref<1x128x1x1xf16, {order = #NHWC}>,
+                            %weights1: memref<1152x128x1x1xf16, {order = #NHWC}>, %weights2: memref<1152x128x1x1xf16, {order = #NHWC}>) -> !OutDistType {
 
     %wt = const.Declare memref<1152x1x1x4xsi32> = dense<1> : tensor<1152x1x1x4xsi32>
     %in1_alloc = memref.alloc() : !InDistType
-    %in1_cmx = VPUIP.Copy inputs(%input1 : memref<1x128x1x1xf16, #NHWC>) outputs(%in1_alloc : !InDistType) -> !InDistType
+    %in1_cmx = VPUIP.Copy inputs(%input1 : memref<1x128x1x1xf16, {order = #NHWC}>) outputs(%in1_alloc : !InDistType) -> !InDistType
     %weights1_alloc = memref.alloc() : !WeightsDistType
-    %weights1_cmx = VPUIP.Copy inputs(%weights1 : memref<1152x128x1x1xf16, #NHWC>) outputs(%weights1_alloc : !WeightsDistType) -> !WeightsDistType
+    %weights1_cmx = VPUIP.Copy inputs(%weights1 : memref<1152x128x1x1xf16, {order = #NHWC}>) outputs(%weights1_alloc : !WeightsDistType) -> !WeightsDistType
     %wt1_alloc = memref.alloc() : !WeightTableDistType
     %wt1_cmx = VPUIP.Copy inputs(%wt : memref<1152x1x1x4xsi32>) outputs(%wt1_alloc : !WeightTableDistType) -> !WeightTableDistType
     %conv1_out = memref.alloc() : !OutDistType
@@ -194,9 +194,9 @@ func.func @DoNotUniquifyWhenSiblingViewOp(%input1: memref<1x128x1x1xf16, #NHWC>,
               lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>}
     }
     %in2_alloc = memref.alloc() : !InDistType
-    %in2_cmx = VPUIP.Copy inputs(%input2 : memref<1x128x1x1xf16, #NHWC>) outputs(%in2_alloc : !InDistType) -> !InDistType
+    %in2_cmx = VPUIP.Copy inputs(%input2 : memref<1x128x1x1xf16, {order = #NHWC}>) outputs(%in2_alloc : !InDistType) -> !InDistType
     %weights2_alloc = memref.alloc() : !WeightsDistType
-    %weights2_cmx = VPUIP.Copy inputs(%weights2 : memref<1152x128x1x1xf16, #NHWC>) outputs(%weights2_alloc : !WeightsDistType) -> !WeightsDistType
+    %weights2_cmx = VPUIP.Copy inputs(%weights2 : memref<1152x128x1x1xf16, {order = #NHWC}>) outputs(%weights2_alloc : !WeightsDistType) -> !WeightsDistType
     %re = VPUIP.GenericReshape inputs(%wt :  memref<1152x1x1x4xsi32>) ->  memref<1x1152x1x4xsi32>
     %reshape = VPUIP.GenericReshape inputs(%re :  memref<1x1152x1x4xsi32>) ->  memref<1152x1x1x4xsi32>
     %wt2_alloc = memref.alloc() : !WeightTableDistType
@@ -218,48 +218,48 @@ func.func @DoNotUniquifyWhenSiblingViewOp(%input1: memref<1x128x1x1xf16, #NHWC>,
     return %conv2 : !OutDistType
     // CHECK:     [[WT:%.+]] = const.Declare memref<1152x1x1x4xsi32> = dense<1> : tensor<1152x1x1x4xsi32>
 
-    // CHECK:     [[IN1_ALLOC:%.+]] = memref.alloc() : memref<1x128x1x1xf16, #NHWC, @CMX_NN>
-    // CHECK:     [[IN1_CMX:%.+]] = VPUIP.Copy inputs([[IN1]] : memref<1x128x1x1xf16, #NHWC>)
-    // CHECK-SAME:      outputs([[IN1_ALLOC]] : memref<1x128x1x1xf16, #NHWC, @CMX_NN>) -> memref<1x128x1x1xf16, #NHWC, @CMX_NN>
+    // CHECK:     [[IN1_ALLOC:%.+]] = memref.alloc() : memref<1x128x1x1xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK:     [[IN1_CMX:%.+]] = VPUIP.Copy inputs([[IN1]] : memref<1x128x1x1xf16, {order = #NHWC}>)
+    // CHECK-SAME:      outputs([[IN1_ALLOC]] : memref<1x128x1x1xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x128x1x1xf16, {order = #NHWC}, @CMX_NN>
 
-    // CHECK:     [[WEIGHTS1_ALLOC:%.+]] = memref.alloc() : memref<1152x128x1x1xf16, #NHWC, @CMX_NN>
-    // CHECK:     [[WEIGHTS1_CMX:%.+]] = VPUIP.Copy inputs([[WEIGHTS1]] : memref<1152x128x1x1xf16, #NHWC>)
-    // CHECK-SAME:      outputs([[WEIGHTS1_ALLOC]] : memref<1152x128x1x1xf16, #NHWC, @CMX_NN>) -> memref<1152x128x1x1xf16, #NHWC, @CMX_NN>
+    // CHECK:     [[WEIGHTS1_ALLOC:%.+]] = memref.alloc() : memref<1152x128x1x1xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK:     [[WEIGHTS1_CMX:%.+]] = VPUIP.Copy inputs([[WEIGHTS1]] : memref<1152x128x1x1xf16, {order = #NHWC}>)
+    // CHECK-SAME:      outputs([[WEIGHTS1_ALLOC]] : memref<1152x128x1x1xf16, {order = #NHWC}, @CMX_NN>) -> memref<1152x128x1x1xf16, {order = #NHWC}, @CMX_NN>
 
     // CHECK:     [[WT_ALLOC:%.+]] = memref.alloc() : memref<1152x1x1x4xsi32, @CMX_NN>
     // CHECK:     [[WT_CMX:%.+]] = VPUIP.Copy inputs([[WT]] : memref<1152x1x1x4xsi32>)
     // CHECK-SAME:      outputs([[WT_ALLOC]] : memref<1152x1x1x4xsi32, @CMX_NN>) -> memref<1152x1x1x4xsi32, @CMX_NN>
 
-    // CHECK:     [[CONV1_OUT:%.+]] = memref.alloc() : memref<1x1152x1x1xf16, #NHWC, @CMX_NN>
+    // CHECK:     [[CONV1_OUT:%.+]] = memref.alloc() : memref<1x1152x1x1xf16, {order = #NHWC}, @CMX_NN>
     // CHECK:     [[CONV1:%.+]] = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 1029 : i64} <{is_zero_offset_weights_table,
-    // CHECK-SAME:      input([[IN1_CMX]] : memref<1x128x1x1xf16, #NHWC, @CMX_NN>
-    // CHECK-SAME:      weights([[WEIGHTS1_CMX]] : memref<1152x128x1x1xf16, #NHWC, @CMX_NN>
+    // CHECK-SAME:      input([[IN1_CMX]] : memref<1x128x1x1xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK-SAME:      weights([[WEIGHTS1_CMX]] : memref<1152x128x1x1xf16, {order = #NHWC}, @CMX_NN>
     // CHECK-SAME:      weight_table([[WT_CMX]] : memref<1152x1x1x4xsi32, @CMX_NN>
-    // CHECK-SAME:      parent_input([[IN1_CMX]] : memref<1x128x1x1xf16, #NHWC, @CMX_NN>
-    // CHECK-SAME:      parent_output([[CONV1_OUT]] : memref<1x1152x1x1xf16, #NHWC, @CMX_NN>
-    // CHECK-SAME:      outputs([[CONV1_OUT]] : memref<1x1152x1x1xf16, #NHWC, @CMX_NN>
-    // CHECK-SAME:      -> memref<1x1152x1x1xf16, #NHWC, @CMX_NN>
+    // CHECK-SAME:      parent_input([[IN1_CMX]] : memref<1x128x1x1xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK-SAME:      parent_output([[CONV1_OUT]] : memref<1x1152x1x1xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK-SAME:      outputs([[CONV1_OUT]] : memref<1x1152x1x1xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK-SAME:      -> memref<1x1152x1x1xf16, {order = #NHWC}, @CMX_NN>
 
-    // CHECK:     [[IN2_ALLOC:%.+]] = memref.alloc() : memref<1x128x1x1xf16, #NHWC, @CMX_NN>
-    // CHECK:     [[IN2_CMX:%.+]] = VPUIP.Copy inputs([[IN2]] : memref<1x128x1x1xf16, #NHWC>)
-    // CHECK-SAME:      outputs([[IN2_ALLOC]] : memref<1x128x1x1xf16, #NHWC, @CMX_NN>) -> memref<1x128x1x1xf16, #NHWC, @CMX_NN>
-    // CHECK:     [[WEIGHTS2_ALLOC:%.+]] = memref.alloc() : memref<1152x128x1x1xf16, #NHWC, @CMX_NN>
-    // CHECK:     [[WEIGHTS2_CMX:%.+]] = VPUIP.Copy inputs([[WEIGHTS2]] : memref<1152x128x1x1xf16, #NHWC>)
-    // CHECK-SAME:      outputs([[WEIGHTS2_ALLOC]] : memref<1152x128x1x1xf16, #NHWC, @CMX_NN>) -> memref<1152x128x1x1xf16, #NHWC, @CMX_NN>
+    // CHECK:     [[IN2_ALLOC:%.+]] = memref.alloc() : memref<1x128x1x1xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK:     [[IN2_CMX:%.+]] = VPUIP.Copy inputs([[IN2]] : memref<1x128x1x1xf16, {order = #NHWC}>)
+    // CHECK-SAME:      outputs([[IN2_ALLOC]] : memref<1x128x1x1xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x128x1x1xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK:     [[WEIGHTS2_ALLOC:%.+]] = memref.alloc() : memref<1152x128x1x1xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK:     [[WEIGHTS2_CMX:%.+]] = VPUIP.Copy inputs([[WEIGHTS2]] : memref<1152x128x1x1xf16, {order = #NHWC}>)
+    // CHECK-SAME:      outputs([[WEIGHTS2_ALLOC]] : memref<1152x128x1x1xf16, {order = #NHWC}, @CMX_NN>) -> memref<1152x128x1x1xf16, {order = #NHWC}, @CMX_NN>
     // CHECK:     [[WT_RESHAPE0:%.+]] = VPUIP.GenericReshape inputs([[WT]] : memref<1152x1x1x4xsi32>) -> memref<1x1152x1x4xsi32>
     // CHECK:     [[WT_RESHAPE1:%.+]] = VPUIP.GenericReshape inputs([[WT_RESHAPE0]] : memref<1x1152x1x4xsi32>) -> memref<1152x1x1x4xsi32>
     // CHECK:     [[WT2_ALLOC:%.+]] = memref.alloc() : memref<1152x1x1x4xsi32, @CMX_NN>
     // CHECK:     [[WT2_CMX:%.+]] = VPUIP.Copy inputs([[WT_RESHAPE1]] : memref<1152x1x1x4xsi32>)
     // CHECK-SAME:      outputs([[WT2_ALLOC]] : memref<1152x1x1x4xsi32, @CMX_NN>) -> memref<1152x1x1x4xsi32, @CMX_NN>
-    // CHECK:     [[CONV2_OUT:%.+]] = memref.alloc() : memref<1x1152x1x1xf16, #NHWC, @CMX_NN>
+    // CHECK:     [[CONV2_OUT:%.+]] = memref.alloc() : memref<1x1152x1x1xf16, {order = #NHWC}, @CMX_NN>
     // CHECK:     [[CONV2:%.+]] = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 1029 : i64} <{is_zero_offset_weights_table,
-    // CHECK-SAME:      input([[IN2_CMX]] : memref<1x128x1x1xf16, #NHWC, @CMX_NN>
-    // CHECK-SAME:      weights([[WEIGHTS2_CMX]] : memref<1152x128x1x1xf16, #NHWC, @CMX_NN>
+    // CHECK-SAME:      input([[IN2_CMX]] : memref<1x128x1x1xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK-SAME:      weights([[WEIGHTS2_CMX]] : memref<1152x128x1x1xf16, {order = #NHWC}, @CMX_NN>
     // CHECK-SAME:      weight_table([[WT2_CMX]] : memref<1152x1x1x4xsi32, @CMX_NN>
-    // CHECK-SAME:      parent_input([[IN2_CMX]] : memref<1x128x1x1xf16, #NHWC, @CMX_NN>
-    // CHECK-SAME:      parent_output([[CONV2_OUT]] : memref<1x1152x1x1xf16, #NHWC, @CMX_NN>
-    // CHECK-SAME:      outputs([[CONV2_OUT]] : memref<1x1152x1x1xf16, #NHWC, @CMX_NN>
-    // CHECK-SAME:      -> memref<1x1152x1x1xf16, #NHWC, @CMX_NN>
+    // CHECK-SAME:      parent_input([[IN2_CMX]] : memref<1x128x1x1xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK-SAME:      parent_output([[CONV2_OUT]] : memref<1x1152x1x1xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK-SAME:      outputs([[CONV2_OUT]] : memref<1x1152x1x1xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK-SAME:      -> memref<1x1152x1x1xf16, {order = #NHWC}, @CMX_NN>
 
-    // CHECK:     return [[CONV2]] : memref<1x1152x1x1xf16, #NHWC, @CMX_NN>
+    // CHECK:     return [[CONV2]] : memref<1x1152x1x1xf16, {order = #NHWC}, @CMX_NN>
 }

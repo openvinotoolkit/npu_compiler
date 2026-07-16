@@ -5,8 +5,6 @@
 
 #pragma once
 
-#include "vpux/compiler/dialect/VPU/interfaces/cost_model_shave_utils.hpp"
-
 #include <memory>
 
 namespace VPUNN {

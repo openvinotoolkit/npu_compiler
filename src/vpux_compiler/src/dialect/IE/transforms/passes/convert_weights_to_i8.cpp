@@ -112,7 +112,8 @@ Const::DeclareOp ConvolutionRewriter::replaceConstDeclare(Const::DeclareOp origO
     _log.nest().trace("Convert content from '{0}' to '{1}'", origQuantType, newQuantType);
 
     auto newContentAttr = origOp.getContentAttr().transform().convertElemType(newQuantType).get();
-    auto newConstantOp = rewriter.create<Const::DeclareOp>(origOp->getLoc(), newType, std::move(newContentAttr));
+    auto newConstantOp =
+            rewriter.create<Const::DeclareOp>(takeOpLoc(origOp, "as_i8"), newType, std::move(newContentAttr));
     return newConstantOp;
 }
 
@@ -129,8 +130,8 @@ mlir::LogicalResult ConvolutionRewriter::matchAndRewrite(IE::ConvolutionOp origO
     if (dequantizeOp != nullptr) {
         auto weightDeclareOp = dequantizeOp.getInput().getDefiningOp<Const::DeclareOp>();
         auto newCstDeclareOp = replaceConstDeclare(weightDeclareOp, rewriter);
-        auto newDequantizeOp = rewriter.create<IE::DequantizeOp>(origOp->getLoc(), newCstDeclareOp.getOutput(),
-                                                                 dequantizeOp.getDstElemTypeAttr());
+        auto newDequantizeOp = rewriter.create<IE::DequantizeOp>(
+                takeOpLoc(origOp, "dequantize_filter"), newCstDeclareOp.getOutput(), dequantizeOp.getDstElemTypeAttr());
         newConvOp = cloneConvolutionOp(rewriter, origOp, origOp.getInput(), newDequantizeOp);
     } else {
         auto weightDeclareOp = origOp.getFilter().getDefiningOp<Const::DeclareOp>();

@@ -5,7 +5,6 @@
 
 #include "vpux/compiler/dialect/VPU/utils/performance_metrics.hpp"
 #include "vpux/compiler/dialect/config/IR/ops.hpp"
-#include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/config/constraints.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
@@ -25,6 +24,8 @@ static constexpr uint32_t NUM_ENTRIES = 5;
 // For MTL it runs at 38.4 MHz
 // TODO: it should be provided by vpunn API per arch
 static constexpr double PROF_CLK = 38.4;
+// Recommended default activity factor by VPUNN team.
+static constexpr double DEFAULT_ACTIVITY_FACTOR = 0.5;
 
 uint32_t getBWBase() {
     return BW_BASE;
@@ -82,46 +83,42 @@ SmallVector<SmallVector<uint64_t>> getBWTicks(mlir::ModuleOp module) {
     return ret;
 }
 
-double getActivityFactor(config::ExecutorKind execKind, mlir::ModuleOp module, config::ComputeResourceOpInterface res) {
-    // 0.5 is a recommanded default value for AF by VPUNN team
-    double activityFactor = 0.5;
-    const auto arch = config::getArch(module);
-    if (execKind == config::ExecutorKind::NCE || execKind == config::ExecutorKind::SHAVE_NN) {
-        switch (arch) {
-        case config::ArchKind::NPU37XX:
-        case config::ArchKind::NPU40XX:
-        case config::ArchKind::NPU50XX:
-            // Here we must get AF from NCE res (a ResourcesOp) as the AF attribute is attached to tile op
-            if (execKind == config::ExecutorKind::NCE) {
-                auto NCERes = mlir::cast<config::ResourcesOp>(res.getOperation());
-                if (auto factorAttr = NCERes.getActivityFactorAttr()) {
-                    activityFactor = factorAttr.getValue().convertToDouble();
-                }
-            } else {
-                auto SHAVERes = mlir::cast<config::ExecutorResourceOp>(res.getOperation());
-                if (auto factorAttr = SHAVERes.getActivityFactorAttr()) {
-                    activityFactor = factorAttr.getValue().convertToDouble();
-                }
-            }
-            // In below situation, activityFactor may to be >1
-            // 1) when the energy reference is not the maximum powervirus. Eg: the powerVirus for INT is smaller
-            // than powerVirus for FLOAT. Now we are using INT8 powervirus (for NPU2.7 /w v1.5.9 VPUNN releases) as
-            // max power reference so that AF>1 is possible 2) If inferenceTime estimation is smaller than the
-            // Energy estimated in powervirusDPUCycles their ratio will be >1. This is transitory because in the
-            // real world the measured time will be bigger and the RuntimeNN will normalize the numbers considering
-            // real execution time. Eg: NewAF = (OldAF * CompledInferedTimeSmall) / measuredTimeBig. This scenario
-            // might happen in some extreme cases.
-            if (activityFactor < 0 || activityFactor > 1) {
-                vpux::Logger::global().warning("Activity factor value should be in range [0, 1] for general situation "
-                                               "but got {0}. Some unexpected cases may happen",
-                                               activityFactor);
-            }
-            return activityFactor;
-        default:
-            return activityFactor;
+double getActivityFactor(config::ExecutorKind execKind, config::ComputeResourceOpInterface res) {
+    // 0.5 is a recommended default value for AF by VPUNN team
+    double activityFactor = DEFAULT_ACTIVITY_FACTOR;
+    if (execKind != config::ExecutorKind::NCE && execKind != config::ExecutorKind::SHAVE_NN) {
+        return INVALID_AF;
+    }
+
+    // Here we must get AF from NCE res (a ResourcesOp) as the AF attribute is attached to tile op
+    if (execKind == config::ExecutorKind::NCE) {
+        // nceRes is a ResourcesOp, which corresponds to the tile-level container.
+        auto nceRes = mlir::cast<config::ResourcesOp>(res.getOperation());
+        if (auto factorAttr = nceRes.getActivityFactorAttr()) {
+            activityFactor = factorAttr.getValue().convertToDouble();
+        }
+    } else if (execKind == config::ExecutorKind::SHAVE_NN) {
+        auto shaveRes = mlir::cast<config::ExecutorResourceOp>(res.getOperation());
+        if (auto factorAttr = shaveRes.getActivityFactorAttr()) {
+            activityFactor = factorAttr.getValue().convertToDouble();
         }
     }
-    return INVALID_AF;
+
+    // In below situation, activityFactor may to be >1
+    // 1) when the energy reference is not the maximum powervirus. Eg: the powerVirus for INT is smaller
+    // than powerVirus for FLOAT. Now we are using INT8 powervirus (for NPU2.7 /w v1.5.9 VPUNN releases) as
+    // max power reference so that AF>1 is possible 2) If inferenceTime estimation is smaller than the
+    // Energy estimated in powervirusDPUCycles their ratio will be >1. This is transitory because in the
+    // real world the measured time will be bigger and the RuntimeNN will normalize the numbers considering
+    // real execution time. Eg: NewAF = (OldAF * CompledInferedTimeSmall) / measuredTimeBig. This scenario
+    // might happen in some extreme cases.
+    if (activityFactor < 0 || activityFactor > 1) {
+        vpux::Logger::global().warning("Activity factor value should be in range [0, 1] for general situation "
+                                       "but got {0}. Some unexpected cases may happen",
+                                       activityFactor);
+    }
+
+    return activityFactor;
 }
 
 }  // namespace VPU

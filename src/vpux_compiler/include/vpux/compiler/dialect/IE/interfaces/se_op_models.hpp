@@ -26,6 +26,7 @@
 #include "vpux/compiler/dialect/VPU/utils/nce_interpolate_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/constraints.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
@@ -140,18 +141,17 @@ public:
         }
 
         const auto scales = potentialScales.value();
-        if (config::hasMaxKernelSize(op)) {
-            // kernelSize must be in range [1:MAX_KERNEL_SIZE]
-            const auto kernelSize = VPU::getNCEInterpolateKernelSize(
-                    scales, VPU::getNCEInterpolateModeAttr(attr.getMode()), attrCoordMode);
-            auto maxKernelSize = config::getMaxKernelSize(op);
-            for (auto kernel : kernelSize) {
-                if (kernel > maxKernelSize || kernel <= 0) {
-                    logCb(formatv("Only kernel size less than {0} are supported for nce interpolate. Got kernel Size "
-                                  "{1}",
-                                  maxKernelSize, kernel));
-                    return false;
-                }
+        // kernelSize must be in range [1:MAX_KERNEL_SIZE]
+        const auto kernelSize =
+                VPU::getNCEInterpolateKernelSize(scales, VPU::getNCEInterpolateModeAttr(attr.getMode()), attrCoordMode);
+        const auto maxKernelSize = config::getNPUConstraints(op->getContext()).maxKernelSize;
+        VPUX_THROW_WHEN(maxKernelSize <= 0, "Invalid maxKernelSize {0}", maxKernelSize);
+        for (auto kernel : kernelSize) {
+            if (kernel > maxKernelSize || kernel <= 0) {
+                logCb(formatv("Only kernel size less than {0} are supported for nce interpolate. Got kernel Size "
+                              "{1}",
+                              maxKernelSize, kernel));
+                return false;
             }
         }
 
@@ -160,7 +160,7 @@ public:
                         inputType, vpux::VPU::NCEInvariant::getAlignment(inputType.getElementType()),
                         /*supportsInputActCompression=*/false) ||
                 !VPU::NCEInvariant::isOutputActTypeSupported(
-                        outputType, vpux::VPU::NCEInvariant::getAlignment(outputType.getElementType()))) {
+                        op, outputType, vpux::VPU::NCEInvariant::getAlignment(outputType.getElementType()))) {
                 logCb(formatv("Misaligned tensor shape"));
                 return false;
             }

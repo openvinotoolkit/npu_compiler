@@ -33,3 +33,8 @@ add_npu_library(npu_compiler_dialect_vpu
         npu_logger
         openvino::core::dev
 )
+
+# Circular dependency chain: dialect_vpu <-> dialect_vpu_utils <-> compiler_core
+# requires 3 linker passes over static archives to resolve all symbols.
+# TODO: E215713 - reduce circular dependencies and remove this workaround
+set_target_properties(npu_compiler_dialect_vpu PROPERTIES LINK_INTERFACE_MULTIPLICITY 3)

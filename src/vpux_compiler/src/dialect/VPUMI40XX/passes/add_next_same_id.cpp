@@ -9,8 +9,6 @@
 #include "vpux/compiler/dialect/VPUMI40XX/wlm_utils.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 
-#include <npu_40xx_nnrt.hpp>
-
 namespace vpux::VPUMI40XX {
 #define GEN_PASS_DECL_NEXTSAMEIDASSIGNMENT
 #define GEN_PASS_DEF_NEXTSAMEIDASSIGNMENT
@@ -18,7 +16,6 @@ namespace vpux::VPUMI40XX {
 }  // namespace vpux::VPUMI40XX
 
 using namespace vpux;
-using namespace npu40xx;
 
 namespace {
 // TODO: E111344

@@ -9,7 +9,7 @@
 module @SingleCosLayer {
   VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096]
   module @VPU.SW {
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
     llvm.func @generated_0(%arg0: !llvm.ptr, %arg1: !llvm.ptr {llvm.noalias}, %arg2: i32, %arg3: i32, %arg4: i32, %arg5: i32, %arg6: i32, %arg7: i32, %arg8: i32, %arg9: i32, %arg10: i32, %arg11: !llvm.ptr, %arg12: !llvm.ptr {llvm.noalias}, %arg13: i32, %arg14: i32, %arg15: i32, %arg16: i32, %arg17: i32, %arg18: i32, %arg19: i32, %arg20: i32, %arg21: i32) -> !llvm.struct<(ptr, ptr, i32, array<4 x i32>, array<4 x i32>)> {
       %0 = llvm.mlir.constant(1000 : index) : i32
       %1 = llvm.mlir.constant(1 : index) : i32

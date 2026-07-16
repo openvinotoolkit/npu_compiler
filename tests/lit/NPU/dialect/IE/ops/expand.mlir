@@ -57,6 +57,20 @@ func.func @ConstantFolding() -> tensor<1x11x12x12xf16> {
     // CHECK:       return [[CST]] : tensor<1x11x12x12xf16>
 }
 
+// CHECK-LABEL: @ConstantFoldingWithNHWCLayout
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+func.func @ConstantFoldingWithNHWCLayout() -> tensor<1x16x1x16xf16, {order = #NHWC}> {
+    %cst = const.Declare tensor<1x8x1x16xf16> = dense<1.0> : tensor<1x8x1x16xf16>
+    %reorder = IE.Reorder(%cst) {dstOrder = #NHWC} : tensor<1x8x1x16xf16> -> tensor<1x8x1x16xf16, {order = #NHWC}>
+    %expand = IE.Expand(%reorder) {pads_begin = [0, 0, 0, 0], pads_end = [0, 8, 0, 0]} : tensor<1x8x1x16xf16, {order = #NHWC}> -> tensor<1x16x1x16xf16, {order = #NHWC}>
+    return %expand : tensor<1x16x1x16xf16, {order = #NHWC}>
+
+    // CHECK:       [[CST:%.+]] = const.Declare tensor<1x16x1x16xf16, {order = #NHWC}>
+    // CHECK-SAME:      dense<1.000000e+00> : tensor<1x8x1x16xf16>,
+    // CHECK-SAME:      [#const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [0, 8, 0, 0]>]
+    // CHECK:       return [[CST]] : tensor<1x16x1x16xf16, {order = #NHWC}>
+}
+
 // CHECK-LABEL: @KeepExpandForEltwiseToBenefitFromAdjustInputShape
 // CHECK-SAME:    ([[ARG_0:%[^:]+]]: tensor<1x80x56x56xf16>)
 func.func @KeepExpandForEltwiseToBenefitFromAdjustInputShape(%arg0: tensor<1x80x56x56xf16>) -> tensor<1x80x56x56xf16> {

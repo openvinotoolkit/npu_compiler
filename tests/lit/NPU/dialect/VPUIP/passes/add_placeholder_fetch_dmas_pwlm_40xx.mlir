@@ -20,7 +20,6 @@ module @LegalizeWithMultiTile attributes {config.compilationMode = #config.compi
     config.Option @config.MetadataMaxKernelRangeCount : 4
   }
   config.Resources 2 of @NCE at 1.700000e+03 MHz {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     config.ExecutorResource 4 of @SHAVE_ACT
     config.ExecutorResource 2 of @DPU
@@ -47,8 +46,8 @@ module @LegalizeWithMultiTile attributes {config.compilationMode = #config.compi
     %9 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x3x114x224xf16, [@CMX_NN, 0]>
     %10 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x3x115x224xf16, [@CMX_NN, 1]>
     %11 = VPURT.DeclareBuffer <CMX_NN> <154560> -> !VPUIP.DistributedBuffer<1x224x4x224x!qElemType, #NWCH, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64, equal_memory_and_compute_view}>
-    %12 = VPURT.DeclareBuffer <CMX_NN> [0] <154560> -> memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 0]>
-    %122 = VPURT.DeclareBuffer <CMX_NN> [1] <154560> -> memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 1]>
+    %12 = VPURT.DeclareBuffer <CMX_NN> [0] <154560> -> memref<1x224x4x114x!qElemType, {order = #NWCH}, [@CMX_NN, 0]>
+    %122 = VPURT.DeclareBuffer <CMX_NN> [1] <154560> -> memref<1x224x4x114x!qElemType, {order = #NWCH}, [@CMX_NN, 1]>
     %14 = VPURT.DeclareBuffer <CMX_NN> <278528> {swizzlingKey = 5 : i64} -> !VPUIP.DistributedBuffer<1x64x112x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
     %15 = VPURT.DeclareBuffer <CMX_NN> [0] <278528> {swizzlingKey = 5 : i64} -> memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]>
     %16 = VPURT.DeclareBuffer <CMX_NN> [0] <278528> {swizzlingKey = 5 : i64} -> memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]>
@@ -59,11 +58,11 @@ module @LegalizeWithMultiTile attributes {config.compilationMode = #config.compi
     %19 = VPURT.DeclareBuffer <CMX_NN> [0, 1] <267840> -> !VPUIP.DistributedBuffer<1x1x1x5120xui8, {order = #NCHW, strides = [5120, 5120, 5120, 1]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
     %20 = VPURT.DeclareBuffer <CMX_NN> [0] <200704> -> memref<1x64x28x56xf16, [@CMX_NN, 0]>
     %21 = VPURT.DeclareBuffer <CMX_NN> <0> -> !VPUIP.DistributedBuffer<1x224x3x224xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>
-    %22 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>
-    %23 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>
-    %24 = VPURT.DeclareBuffer <CMX_NN> [0] <257600> -> memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>
+    %22 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %23 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %24 = VPURT.DeclareBuffer <CMX_NN> [0] <257600> -> memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     %25 = VPURT.DeclareBuffer <CMX_NN> <154560> -> !VPUIP.DistributedBuffer<1x16x224x224x!qElemType2, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>
-    %26 = VPURT.DeclareBuffer <CMX_NN> [0] <154560> -> memref<1x16x114x224x!qElemType2, #NHWC, [@CMX_NN, 0]>
+    %26 = VPURT.DeclareBuffer <CMX_NN> [0] <154560> -> memref<1x16x114x224x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>
     VPURT.Task updates(%0 : !VPURT.Barrier) {
       %27 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%6 : memref<1x3x114x224xf16, {order = #NCHW, strides = [150528, 50176, 224, 1]}, @DDR>) outputs(%9 : memref<1x3x114x224xf16, [@CMX_NN, 0]>) -> memref<1x3x114x224xf16, [@CMX_NN, 0]>
     }
@@ -71,7 +70,7 @@ module @LegalizeWithMultiTile attributes {config.compilationMode = #config.compi
       %27 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%7 : memref<1x3x115x224xf16, {order = #NCHW, strides = [150528, 50176, 224, 1]}, @DDR>) outputs(%10 : memref<1x3x115x224xf16, [@CMX_NN, 1]>) -> memref<1x3x115x224xf16, [@CMX_NN, 1]>
     }
     VPURT.Task waits(%0 : !VPURT.Barrier) updates(%1 : !VPURT.Barrier) {
-      %27 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_permute_quantize, is_superdense, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%23 : memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>) weights(%22 : memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>) parent_input(%21 : !VPUIP.DistributedBuffer<1x224x3x224xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%11 : !VPUIP.DistributedBuffer<1x224x4x224x!qElemType, #NWCH, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64, equal_memory_and_compute_view}>) outputs(%12 : memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 0]>) -> memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 0]> variants : {
+      %27 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_permute_quantize, is_superdense, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%23 : memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%22 : memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%21 : !VPUIP.DistributedBuffer<1x224x3x224xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%11 : !VPUIP.DistributedBuffer<1x224x4x224x!qElemType, #NWCH, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64, equal_memory_and_compute_view}>) outputs(%12 : memref<1x224x4x114x!qElemType, {order = #NWCH}, [@CMX_NN, 0]>) -> memref<1x224x4x114x!qElemType, {order = #NWCH}, [@CMX_NN, 0]> variants : {
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
@@ -81,7 +80,7 @@ module @LegalizeWithMultiTile attributes {config.compilationMode = #config.compi
       }
     }
     VPURT.Task waits(%0 : !VPURT.Barrier) updates(%1 : !VPURT.Barrier) {
-      %27 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_permute_quantize, is_superdense, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%23 : memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>) weights(%22 : memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>) parent_input(%21 : !VPUIP.DistributedBuffer<1x224x3x224xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%11 : !VPUIP.DistributedBuffer<1x224x4x224x!qElemType, #NWCH, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64, equal_memory_and_compute_view}>) outputs(%122 : memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 1]>) -> memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 1]> variants : {
+      %27 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_permute_quantize, is_superdense, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%23 : memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%22 : memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%21 : !VPUIP.DistributedBuffer<1x224x3x224xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%11 : !VPUIP.DistributedBuffer<1x224x4x224x!qElemType, #NWCH, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64, equal_memory_and_compute_view}>) outputs(%122 : memref<1x224x4x114x!qElemType, {order = #NWCH}, [@CMX_NN, 1]>) -> memref<1x224x4x114x!qElemType, {order = #NWCH}, [@CMX_NN, 1]> variants : {
         DPUTask {cluster_id = 1 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 1 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 1 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
@@ -92,7 +91,7 @@ module @LegalizeWithMultiTile attributes {config.compilationMode = #config.compi
     }
 
     VPURT.Task waits(%1: !VPURT.Barrier) updates(%3 : !VPURT.Barrier) {
-      %27 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}> input(%26 : memref<1x16x114x224x!qElemType2, #NHWC, [@CMX_NN, 0]>) weights(%24 : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>) parent_input(%25 : !VPUIP.DistributedBuffer<1x16x224x224x!qElemType2, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%14 : !VPUIP.DistributedBuffer<1x64x112x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) outputs(%16 : memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]>) -> memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]> variants : {
+      %27 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}> input(%26 : memref<1x16x114x224x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>) weights(%24 : memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%25 : !VPUIP.DistributedBuffer<1x16x224x224x!qElemType2, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%14 : !VPUIP.DistributedBuffer<1x64x112x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) outputs(%16 : memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]>) -> memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]> variants : {
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 55, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 55, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 55, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>}
@@ -102,7 +101,7 @@ module @LegalizeWithMultiTile attributes {config.compilationMode = #config.compi
       }
     }
     VPURT.Task waits(%1: !VPURT.Barrier) updates(%3 : !VPURT.Barrier) {
-      %27 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}> input(%26 : memref<1x16x114x224x!qElemType2, #NHWC, [@CMX_NN, 0]>) weights(%24 : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>) parent_input(%25 : !VPUIP.DistributedBuffer<1x16x224x224x!qElemType2, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%14 : !VPUIP.DistributedBuffer<1x64x112x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) outputs(%166 : memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 1]>) -> memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 1]> variants : {
+      %27 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}> input(%26 : memref<1x16x114x224x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>) weights(%24 : memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%25 : !VPUIP.DistributedBuffer<1x16x224x224x!qElemType2, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%14 : !VPUIP.DistributedBuffer<1x64x112x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) outputs(%166 : memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 1]>) -> memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 1]> variants : {
         DPUTask {cluster_id = 1 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 55, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 1 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 55, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 1 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 55, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>}
@@ -229,7 +228,6 @@ module @LegalizeMultiTileAsymmetry attributes {config.compilationMode = #config.
     config.Option @config.MetadataMaxKernelRangeCount : 4
   }
   config.Resources 2 of @NCE at 1.700000e+03 MHz {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     config.ExecutorResource 4 of @SHAVE_ACT
     config.ExecutorResource 2 of @DPU
@@ -257,8 +255,8 @@ module @LegalizeMultiTileAsymmetry attributes {config.compilationMode = #config.
     %9 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x3x114x224xf16, [@CMX_NN, 0]>
     %10 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x3x115x224xf16, [@CMX_NN, 1]>
     %11 = VPURT.DeclareBuffer <CMX_NN> <154560> -> !VPUIP.DistributedBuffer<1x224x4x224x!qElemType, #NWCH, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64, equal_memory_and_compute_view}>
-    %12 = VPURT.DeclareBuffer <CMX_NN> [0] <154560> -> memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 0]>
-    %122 = VPURT.DeclareBuffer <CMX_NN> [1] <154560> -> memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 1]>
+    %12 = VPURT.DeclareBuffer <CMX_NN> [0] <154560> -> memref<1x224x4x114x!qElemType, {order = #NWCH}, [@CMX_NN, 0]>
+    %122 = VPURT.DeclareBuffer <CMX_NN> [1] <154560> -> memref<1x224x4x114x!qElemType, {order = #NWCH}, [@CMX_NN, 1]>
     %14 = VPURT.DeclareBuffer <CMX_NN> <278528> {swizzlingKey = 5 : i64} -> !VPUIP.DistributedBuffer<1x64x112x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
     %15 = VPURT.DeclareBuffer <CMX_NN> [0] <278528> {swizzlingKey = 5 : i64} -> memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]>
     %16 = VPURT.DeclareBuffer <CMX_NN> [0] <278528> {swizzlingKey = 5 : i64} -> memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]>
@@ -269,11 +267,11 @@ module @LegalizeMultiTileAsymmetry attributes {config.compilationMode = #config.
     %19 = VPURT.DeclareBuffer <CMX_NN> [0, 1] <267840> -> !VPUIP.DistributedBuffer<1x1x1x5120xui8, {order = #NCHW, strides = [5120, 5120, 5120, 1]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
     %20 = VPURT.DeclareBuffer <CMX_NN> [0] <200704> -> memref<1x64x28x56xf16, [@CMX_NN, 0]>
     %21 = VPURT.DeclareBuffer <CMX_NN> <0> -> !VPUIP.DistributedBuffer<1x224x3x224xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>
-    %22 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>
-    %23 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>
-    %24 = VPURT.DeclareBuffer <CMX_NN> [0] <257600> -> memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>
+    %22 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %23 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %24 = VPURT.DeclareBuffer <CMX_NN> [0] <257600> -> memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     %25 = VPURT.DeclareBuffer <CMX_NN> <154560> -> !VPUIP.DistributedBuffer<1x16x224x224x!qElemType2, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>
-    %26 = VPURT.DeclareBuffer <CMX_NN> [0] <154560> -> memref<1x16x114x224x!qElemType2, #NHWC, [@CMX_NN, 0]>
+    %26 = VPURT.DeclareBuffer <CMX_NN> [0] <154560> -> memref<1x16x114x224x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>
     VPURT.Task updates(%0 : !VPURT.Barrier) {
       %27 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%6 : memref<1x3x114x224xf16, {order = #NCHW, strides = [150528, 50176, 224, 1]}, @DDR>) outputs(%9 : memref<1x3x114x224xf16, [@CMX_NN, 0]>) -> memref<1x3x114x224xf16, [@CMX_NN, 0]>
     }
@@ -281,7 +279,7 @@ module @LegalizeMultiTileAsymmetry attributes {config.compilationMode = #config.
       %27 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%7 : memref<1x3x115x224xf16, {order = #NCHW, strides = [150528, 50176, 224, 1]}, @DDR>) outputs(%10 : memref<1x3x115x224xf16, [@CMX_NN, 1]>) -> memref<1x3x115x224xf16, [@CMX_NN, 1]>
     }
     VPURT.Task waits(%0 : !VPURT.Barrier) updates(%1 : !VPURT.Barrier) {
-      %27 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_permute_quantize, is_superdense, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%23 : memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>) weights(%22 : memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>) parent_input(%21 : !VPUIP.DistributedBuffer<1x224x3x224xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%11 : !VPUIP.DistributedBuffer<1x224x4x224x!qElemType, #NWCH, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64, equal_memory_and_compute_view}>) outputs(%12 : memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 0]>) -> memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 0]> variants : {
+      %27 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_permute_quantize, is_superdense, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%23 : memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%22 : memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%21 : !VPUIP.DistributedBuffer<1x224x3x224xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%11 : !VPUIP.DistributedBuffer<1x224x4x224x!qElemType, #NWCH, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64, equal_memory_and_compute_view}>) outputs(%12 : memref<1x224x4x114x!qElemType, {order = #NWCH}, [@CMX_NN, 0]>) -> memref<1x224x4x114x!qElemType, {order = #NWCH}, [@CMX_NN, 0]> variants : {
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
@@ -291,7 +289,7 @@ module @LegalizeMultiTileAsymmetry attributes {config.compilationMode = #config.
       }
     }
     VPURT.Task waits(%0 : !VPURT.Barrier) updates(%2 : !VPURT.Barrier) {
-      %27 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_permute_quantize, is_superdense, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%23 : memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>) weights(%22 : memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>) parent_input(%21 : !VPUIP.DistributedBuffer<1x224x3x224xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%11 : !VPUIP.DistributedBuffer<1x224x4x224x!qElemType, #NWCH, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64, equal_memory_and_compute_view}>) outputs(%122 : memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 1]>) -> memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 1]> variants : {
+      %27 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_permute_quantize, is_superdense, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%23 : memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%22 : memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%21 : !VPUIP.DistributedBuffer<1x224x3x224xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%11 : !VPUIP.DistributedBuffer<1x224x4x224x!qElemType, #NWCH, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64, equal_memory_and_compute_view}>) outputs(%122 : memref<1x224x4x114x!qElemType, {order = #NWCH}, [@CMX_NN, 1]>) -> memref<1x224x4x114x!qElemType, {order = #NWCH}, [@CMX_NN, 1]> variants : {
         DPUTask {cluster_id = 1 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 1 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 1 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
@@ -302,7 +300,7 @@ module @LegalizeMultiTileAsymmetry attributes {config.compilationMode = #config.
     }
 
     VPURT.Task waits(%1: !VPURT.Barrier) updates(%3 : !VPURT.Barrier) {
-      %27 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}> input(%26 : memref<1x16x114x224x!qElemType2, #NHWC, [@CMX_NN, 0]>) weights(%24 : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>) parent_input(%25 : !VPUIP.DistributedBuffer<1x16x224x224x!qElemType2, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%14 : !VPUIP.DistributedBuffer<1x64x112x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) outputs(%16 : memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]>) -> memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]> variants : {
+      %27 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}> input(%26 : memref<1x16x114x224x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>) weights(%24 : memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%25 : !VPUIP.DistributedBuffer<1x16x224x224x!qElemType2, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%14 : !VPUIP.DistributedBuffer<1x64x112x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) outputs(%16 : memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]>) -> memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]> variants : {
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 55, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 55, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 55, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>}
@@ -312,7 +310,7 @@ module @LegalizeMultiTileAsymmetry attributes {config.compilationMode = #config.
       }
     }
     VPURT.Task waits(%2: !VPURT.Barrier) updates(%3 : !VPURT.Barrier) {
-      %27 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}> input(%26 : memref<1x16x114x224x!qElemType2, #NHWC, [@CMX_NN, 0]>) weights(%24 : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>) parent_input(%25 : !VPUIP.DistributedBuffer<1x16x224x224x!qElemType2, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%14 : !VPUIP.DistributedBuffer<1x64x112x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) outputs(%166 : memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 1]>) -> memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 1]> variants : {
+      %27 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}> input(%26 : memref<1x16x114x224x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>) weights(%24 : memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%25 : !VPUIP.DistributedBuffer<1x16x224x224x!qElemType2, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%14 : !VPUIP.DistributedBuffer<1x64x112x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) outputs(%166 : memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 1]>) -> memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 1]> variants : {
         DPUTask {cluster_id = 1 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 55, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 1 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 55, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 1 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 55, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>}
@@ -432,7 +430,6 @@ module @LegalizeMultiTileAsymmetry attributes {config.compilationMode = #config.
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 module @PlaceholderForFetchWithMultipleBocks {
   config.Resources 3 of @NCE at 1.700000e+03 MHz {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {VPU.bandwidth = 64 : i64, VPU.derateFactor = 1.000000e+00 : f64}
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU
@@ -451,20 +448,20 @@ module @PlaceholderForFetchWithMultipleBocks {
     %3 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %4 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %5 = VPURT.DeclareBuffer <CMX_NN> <154560> -> !VPUIP.DistributedBuffer<1x224x4x224x!qElemType, #NWCH, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64, equal_memory_and_compute_view}>
-    %6 = VPURT.DeclareBuffer <CMX_NN> [0] <154560> -> memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 0]>
+    %6 = VPURT.DeclareBuffer <CMX_NN> [0] <154560> -> memref<1x224x4x114x!qElemType, {order = #NWCH}, [@CMX_NN, 0]>
     %8 = VPURT.DeclareBuffer <CMX_NN> <278528> {swizzlingKey = 5 : i64} -> !VPUIP.DistributedBuffer<1x64x112x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
     %9 = VPURT.DeclareBuffer <CMX_NN> [0] <278528> {swizzlingKey = 5 : i64} -> memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]>
     %10 = VPURT.DeclareBuffer <CMX_NN> [0] <278528> {swizzlingKey = 5 : i64} -> memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]>
     %11 = VPURT.DeclareBuffer <CMX_NN> <0> {swizzlingKey = 5 : i64} -> !VPUIP.DistributedBuffer<1x64x56x56x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
     %12 = VPURT.DeclareBuffer <CMX_NN> [0] <0> {swizzlingKey = 5 : i64} -> memref<1x64x28x56x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]>
     %13 = VPURT.DeclareBuffer <CMX_NN> <0> -> !VPUIP.DistributedBuffer<1x224x3x224xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>
-    %14 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>
-    %15 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>
-    %16 = VPURT.DeclareBuffer <CMX_NN> [0] <257600> -> memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>
+    %14 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %15 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %16 = VPURT.DeclareBuffer <CMX_NN> [0] <257600> -> memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     %17 = VPURT.DeclareBuffer <CMX_NN> <154560> -> !VPUIP.DistributedBuffer<1x16x224x224x!qElemType2, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>
-    %18 = VPURT.DeclareBuffer <CMX_NN> [0] <154560> -> memref<1x16x114x224x!qElemType2, #NHWC, [@CMX_NN, 0]>
+    %18 = VPURT.DeclareBuffer <CMX_NN> [0] <154560> -> memref<1x16x114x224x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>
     VPURT.Task updates(%0 : !VPURT.Barrier) {
-      %19 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_permute_quantize, is_superdense, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%15 : memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>) weights(%14 : memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>) parent_input(%13 : !VPUIP.DistributedBuffer<1x224x3x224xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%5 : !VPUIP.DistributedBuffer<1x224x4x224x!qElemType, #NWCH, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64, equal_memory_and_compute_view}>) outputs(%6 : memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 0]>) -> memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 0]> variants : {
+      %19 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_permute_quantize, is_superdense, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%15 : memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%14 : memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%13 : !VPUIP.DistributedBuffer<1x224x3x224xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%5 : !VPUIP.DistributedBuffer<1x224x4x224x!qElemType, #NWCH, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64, equal_memory_and_compute_view}>) outputs(%6 : memref<1x224x4x114x!qElemType, {order = #NWCH}, [@CMX_NN, 0]>) -> memref<1x224x4x114x!qElemType, {order = #NWCH}, [@CMX_NN, 0]> variants : {
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
@@ -474,7 +471,7 @@ module @PlaceholderForFetchWithMultipleBocks {
       }
     }
     VPURT.Task waits(%0 : !VPURT.Barrier) updates(%1 : !VPURT.Barrier) attributes {"sync-task"} {
-      %19 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_permute_quantize, is_superdense, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%15 : memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>) weights(%14 : memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>) parent_input(%13 : !VPUIP.DistributedBuffer<1x224x3x224xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%5 : !VPUIP.DistributedBuffer<1x224x4x224x!qElemType, #NWCH, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64, equal_memory_and_compute_view}>) outputs(%6 : memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 0]>) -> memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 0]> variants : {
+      %19 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_permute_quantize, is_superdense, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%15 : memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%14 : memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%13 : !VPUIP.DistributedBuffer<1x224x3x224xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%5 : !VPUIP.DistributedBuffer<1x224x4x224x!qElemType, #NWCH, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64, equal_memory_and_compute_view}>) outputs(%6 : memref<1x224x4x114x!qElemType, {order = #NWCH}, [@CMX_NN, 0]>) -> memref<1x224x4x114x!qElemType, {order = #NWCH}, [@CMX_NN, 0]> variants : {
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
@@ -484,7 +481,7 @@ module @PlaceholderForFetchWithMultipleBocks {
       }
     }
     VPURT.Task waits(%1 : !VPURT.Barrier) updates(%2 : !VPURT.Barrier) {
-      %19 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_permute_quantize, is_superdense, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%15 : memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>) weights(%14 : memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>) parent_input(%13 : !VPUIP.DistributedBuffer<1x224x3x224xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%5 : !VPUIP.DistributedBuffer<1x224x4x224x!qElemType, #NWCH, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64, equal_memory_and_compute_view}>) outputs(%6 : memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 0]>) -> memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 0]> variants : {
+      %19 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_permute_quantize, is_superdense, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%15 : memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%14 : memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%13 : !VPUIP.DistributedBuffer<1x224x3x224xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%5 : !VPUIP.DistributedBuffer<1x224x4x224x!qElemType, #NWCH, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64, equal_memory_and_compute_view}>) outputs(%6 : memref<1x224x4x114x!qElemType, {order = #NWCH}, [@CMX_NN, 0]>) -> memref<1x224x4x114x!qElemType, {order = #NWCH}, [@CMX_NN, 0]> variants : {
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
@@ -494,7 +491,7 @@ module @PlaceholderForFetchWithMultipleBocks {
       }
     }
     VPURT.Task waits(%2, %1 : !VPURT.Barrier, !VPURT.Barrier) updates(%3 : !VPURT.Barrier) attributes {"sync-task"} {
-      %19 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}> input(%18 : memref<1x16x114x224x!qElemType2, #NHWC, [@CMX_NN, 0]>) weights(%16 : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>) parent_input(%17 : !VPUIP.DistributedBuffer<1x16x224x224x!qElemType2, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%8 : !VPUIP.DistributedBuffer<1x64x112x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) outputs(%10 : memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]>) -> memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]> variants : {
+      %19 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}> input(%18 : memref<1x16x114x224x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>) weights(%16 : memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%17 : !VPUIP.DistributedBuffer<1x16x224x224x!qElemType2, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%8 : !VPUIP.DistributedBuffer<1x64x112x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) outputs(%10 : memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]>) -> memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]> variants : {
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 55, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 55, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 55, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>}
@@ -613,7 +610,6 @@ module @LegalizeWithMultiTileParent attributes {config.compilationMode = #config
     config.Option @config.MetadataMaxKernelRangeCount : 4
   }
   config.Resources 2 of @NCE at 1.700000e+03 MHz {
-    config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     config.ExecutorResource 4 of @SHAVE_ACT
     config.ExecutorResource 2 of @DPU
@@ -642,8 +638,8 @@ module @LegalizeWithMultiTileParent attributes {config.compilationMode = #config
     %9 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x3x114x224xf16, [@CMX_NN, 0]>
     %10 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x3x115x224xf16, [@CMX_NN, 1]>
     %11 = VPURT.DeclareBuffer <CMX_NN> <154560> -> !VPUIP.DistributedBuffer<1x224x4x224x!qElemType, #NWCH, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64, equal_memory_and_compute_view}>
-    %12 = VPURT.DeclareBuffer <CMX_NN> [0] <154560> -> memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 0]>
-    %122 = VPURT.DeclareBuffer <CMX_NN> [1] <154560> -> memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 1]>
+    %12 = VPURT.DeclareBuffer <CMX_NN> [0] <154560> -> memref<1x224x4x114x!qElemType, {order = #NWCH}, [@CMX_NN, 0]>
+    %122 = VPURT.DeclareBuffer <CMX_NN> [1] <154560> -> memref<1x224x4x114x!qElemType, {order = #NWCH}, [@CMX_NN, 1]>
     %14 = VPURT.DeclareBuffer <CMX_NN> <278528> {swizzlingKey = 5 : i64} -> !VPUIP.DistributedBuffer<1x64x112x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
     %15 = VPURT.DeclareBuffer <CMX_NN> [0] <278528> {swizzlingKey = 5 : i64} -> memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]>
     %16 = VPURT.DeclareBuffer <CMX_NN> [0] <278528> {swizzlingKey = 5 : i64} -> memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]>
@@ -654,11 +650,11 @@ module @LegalizeWithMultiTileParent attributes {config.compilationMode = #config
     %19 = VPURT.DeclareBuffer <CMX_NN> [0, 1] <267840> -> !VPUIP.DistributedBuffer<1x1x1x5120xui8, {order = #NCHW, strides = [5120, 5120, 5120, 1]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
     %20 = VPURT.DeclareBuffer <CMX_NN> [0] <200704> -> memref<1x64x28x56xf16, [@CMX_NN, 0]>
     %21 = VPURT.DeclareBuffer <CMX_NN> <0> -> !VPUIP.DistributedBuffer<1x224x3x224xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>
-    %22 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>
-    %23 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>
-    %24 = VPURT.DeclareBuffer <CMX_NN> [0] <257600> -> memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>
+    %22 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %23 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %24 = VPURT.DeclareBuffer <CMX_NN> [0] <257600> -> memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     %25 = VPURT.DeclareBuffer <CMX_NN> <154560> -> !VPUIP.DistributedBuffer<1x16x224x224x!qElemType2, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>
-    %26 = VPURT.DeclareBuffer <CMX_NN> [0] <154560> -> memref<1x16x114x224x!qElemType2, #NHWC, [@CMX_NN, 0]>
+    %26 = VPURT.DeclareBuffer <CMX_NN> [0] <154560> -> memref<1x16x114x224x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>
     VPURT.Task updates(%0 : !VPURT.Barrier) {
       %27 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%6 : memref<1x3x114x224xf16, {order = #NCHW, strides = [150528, 50176, 224, 1]}, @DDR>) outputs(%9 : memref<1x3x114x224xf16, [@CMX_NN, 0]>) -> memref<1x3x114x224xf16, [@CMX_NN, 0]>
     }
@@ -666,7 +662,7 @@ module @LegalizeWithMultiTileParent attributes {config.compilationMode = #config
       %27 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%7 : memref<1x3x115x224xf16, {order = #NCHW, strides = [150528, 50176, 224, 1]}, @DDR>) outputs(%10 : memref<1x3x115x224xf16, [@CMX_NN, 1]>) -> memref<1x3x115x224xf16, [@CMX_NN, 1]>
     }
     VPURT.Task waits(%0 : !VPURT.Barrier) updates(%1 : !VPURT.Barrier) {
-      %27 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_permute_quantize, is_superdense, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%23 : memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>) weights(%22 : memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>) parent_input(%21 : !VPUIP.DistributedBuffer<1x224x3x224xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%11 : !VPUIP.DistributedBuffer<1x224x4x224x!qElemType, #NWCH, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64, equal_memory_and_compute_view}>) outputs(%12 : memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 0]>) -> memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 0]> variants : {
+      %27 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_permute_quantize, is_superdense, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%23 : memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%22 : memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%21 : !VPUIP.DistributedBuffer<1x224x3x224xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%11 : !VPUIP.DistributedBuffer<1x224x4x224x!qElemType, #NWCH, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64, equal_memory_and_compute_view}>) outputs(%12 : memref<1x224x4x114x!qElemType, {order = #NWCH}, [@CMX_NN, 0]>) -> memref<1x224x4x114x!qElemType, {order = #NWCH}, [@CMX_NN, 0]> variants : {
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
       } PPE : {
@@ -674,7 +670,7 @@ module @LegalizeWithMultiTileParent attributes {config.compilationMode = #config
       }
     }
     VPURT.Task waits(%0 : !VPURT.Barrier) updates(%1 : !VPURT.Barrier) {
-      %27 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_permute_quantize, is_superdense, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%23 : memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>) weights(%22 : memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>) parent_input(%21 : !VPUIP.DistributedBuffer<1x224x3x224xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%11 : !VPUIP.DistributedBuffer<1x224x4x224x!qElemType, #NWCH, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64, equal_memory_and_compute_view}>) outputs(%122 : memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 1]>) -> memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 1]> variants : {
+      %27 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_permute_quantize, is_superdense, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%23 : memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%22 : memref<1x224x3x114xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%21 : !VPUIP.DistributedBuffer<1x224x3x224xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%11 : !VPUIP.DistributedBuffer<1x224x4x224x!qElemType, #NWCH, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64, equal_memory_and_compute_view}>) outputs(%122 : memref<1x224x4x114x!qElemType, {order = #NWCH}, [@CMX_NN, 1]>) -> memref<1x224x4x114x!qElemType, {order = #NWCH}, [@CMX_NN, 1]> variants : {
         DPUTask {cluster_id = 1 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 1 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
       } PPE : {
@@ -683,7 +679,7 @@ module @LegalizeWithMultiTileParent attributes {config.compilationMode = #config
     }
 
     VPURT.Task waits(%1: !VPURT.Barrier) updates(%3 : !VPURT.Barrier) {
-      %27 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}> input(%26 : memref<1x16x114x224x!qElemType2, #NHWC, [@CMX_NN, 0]>) weights(%24 : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>) parent_input(%25 : !VPUIP.DistributedBuffer<1x16x224x224x!qElemType2, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%14 : !VPUIP.DistributedBuffer<1x64x112x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) outputs(%16 : memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]>) -> memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]> variants : {
+      %27 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}> input(%26 : memref<1x16x114x224x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>) weights(%24 : memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%25 : !VPUIP.DistributedBuffer<1x16x224x224x!qElemType2, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%14 : !VPUIP.DistributedBuffer<1x64x112x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) outputs(%16 : memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]>) -> memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]> variants : {
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 55, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 55, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>}
       } PPE : {
@@ -691,7 +687,7 @@ module @LegalizeWithMultiTileParent attributes {config.compilationMode = #config
       }
     }
     VPURT.Task waits(%1: !VPURT.Barrier) updates(%3 : !VPURT.Barrier) {
-      %27 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}> input(%26 : memref<1x16x114x224x!qElemType2, #NHWC, [@CMX_NN, 0]>) weights(%24 : memref<64x16x7x7x!qElemType, #NHWC, [@CMX_NN, 0]>) parent_input(%25 : !VPUIP.DistributedBuffer<1x16x224x224x!qElemType2, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%14 : !VPUIP.DistributedBuffer<1x64x112x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) outputs(%166 : memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 1]>) -> memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 1]> variants : {
+      %27 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{cm_sp_pattern = 7 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}> input(%26 : memref<1x16x114x224x!qElemType2, {order = #NHWC}, [@CMX_NN, 0]>) weights(%24 : memref<64x16x7x7x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%25 : !VPUIP.DistributedBuffer<1x16x224x224x!qElemType2, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%14 : !VPUIP.DistributedBuffer<1x64x112x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) outputs(%166 : memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 1]>) -> memref<1x64x56x112x!qElemType1, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 1]> variants : {
         DPUTask {cluster_id = 1 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 55, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>}
         DPUTask {cluster_id = 1 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [111, 55, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 0 : i64>}
       } PPE : {
@@ -870,12 +866,12 @@ module @DmaAndShvGraphFetchReuseBars attributes {config.compilationMode = #confi
   }
 
   module @VPU.SW {
-  func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {
+  func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {
       VPU.kernel_code = "activation_relu.cpp", VPU.kernel_entry = "activation_relu", VPU.task_type = @COMPUTE
       }
   }
 
-  func.func @main() -> memref<1x16x8x32xf16,  #NHWC, [@CMX_NN, 0]> {
+  func.func @main() -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]> {
     %bar0 = VPURT.DeclareVirtualBarrier <{isStartBarrier}> -> !VPURT.Barrier
     %bar1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %bar2 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
@@ -888,88 +884,88 @@ module @DmaAndShvGraphFetchReuseBars attributes {config.compilationMode = #confi
     %bar9 = VPURT.DeclareVirtualBarrier <{isFinalBarrier}> -> !VPURT.Barrier
 
     // dummy buffer
-    %cst0 = const.Declare memref<16x16x1x1xf16, #NHWC> =
+    %cst0 = const.Declare memref<16x16x1x1xf16, {order = #NHWC}> =
         dense<1.0> : tensor<16x16x1x1xf16>, [#const.Reorder<#NHWC>]
-    %buf0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
-    %buf1 = VPURT.DeclareBuffer <CMX_NN> [0] <32768> -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+    %buf0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %buf1 = VPURT.DeclareBuffer <CMX_NN> [0] <32768> -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %buf2 = VPURT.DeclareBuffer <CMX_NN> [0] <33280> -> memref<16x1x1x4xsi32, [@CMX_NN, 0]>
-    %buf3 = VPURT.DeclareBuffer <CMX_NN> [0] <8192> -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
+    %buf3 = VPURT.DeclareBuffer <CMX_NN> [0] <8192> -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     VPURT.Task updates(%bar0: !VPURT.Barrier)
     {
-         VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst0: memref<16x16x1x1xf16, #NHWC>) outputs(%buf1: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+         VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
     VPURT.Task waits(%bar0: !VPURT.Barrier) updates(%bar1: !VPURT.Barrier)
     {
-         VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst0: memref<16x16x1x1xf16, #NHWC>) outputs(%buf1: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+         VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
     VPURT.Task waits(%bar1: !VPURT.Barrier) updates(%bar2: !VPURT.Barrier)
     {
           VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_relu
-              inputs(%buf0 as %input: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
-              outputs(%buf0 as %output: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]> {
-              VPUIP.SW.Kernel.run {attrs = [false, true, 6.0892105102539063E-4]} (%input, %output) : memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>, memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
+              inputs(%buf0 as %input: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+              outputs(%buf0 as %output: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]> {
+              VPUIP.SW.Kernel.run {attrs = [false, true, 6.0892105102539063E-4]} (%input, %output) : memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
           }
     }
 
     VPURT.Task waits(%bar2: !VPURT.Barrier) updates(%bar3: !VPURT.Barrier)
     {
           VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_relu
-              inputs(%buf0 as %input: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
-              outputs(%buf0 as %output: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]> {
-              VPUIP.SW.Kernel.run {attrs = [false, true, 6.0892105102539063E-4]} (%input, %output) : memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>, memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
+              inputs(%buf0 as %input: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+              outputs(%buf0 as %output: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]> {
+              VPUIP.SW.Kernel.run {attrs = [false, true, 6.0892105102539063E-4]} (%input, %output) : memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
           }
     }
 
     VPURT.Task waits(%bar3: !VPURT.Barrier) updates(%bar4: !VPURT.Barrier)
     {
-         VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst0: memref<16x16x1x1xf16, #NHWC>) outputs(%buf1: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+         VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
     VPURT.Task waits(%bar4: !VPURT.Barrier) updates(%bar5: !VPURT.Barrier)
     {
           VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_relu
-              inputs(%buf0 as %input: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
-              outputs(%buf0 as %output: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]> {
-              VPUIP.SW.Kernel.run {attrs = [false, true, 6.0892105102539063E-4]} (%input, %output) : memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>, memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
+              inputs(%buf0 as %input: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+              outputs(%buf0 as %output: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]> {
+              VPUIP.SW.Kernel.run {attrs = [false, true, 6.0892105102539063E-4]} (%input, %output) : memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
           }
     }
 
     VPURT.Task waits(%bar5: !VPURT.Barrier) updates(%bar6: !VPURT.Barrier)
     {
           VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_relu
-              inputs(%buf0 as %input: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
-              outputs(%buf0 as %output: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]> {
-              VPUIP.SW.Kernel.run {attrs = [false, true, 6.0892105102539063E-4]} (%input, %output) : memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>, memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
+              inputs(%buf0 as %input: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+              outputs(%buf0 as %output: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]> {
+              VPUIP.SW.Kernel.run {attrs = [false, true, 6.0892105102539063E-4]} (%input, %output) : memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
           }
     }
 
     VPURT.Task waits(%bar6: !VPURT.Barrier) updates(%bar7: !VPURT.Barrier)
     {
           VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_relu
-              inputs(%buf0 as %input: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
-              outputs(%buf0 as %output: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]> {
-              VPUIP.SW.Kernel.run {attrs = [false, true, 6.0892105102539063E-4]} (%input, %output) : memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>, memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
+              inputs(%buf0 as %input: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+              outputs(%buf0 as %output: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]> {
+              VPUIP.SW.Kernel.run {attrs = [false, true, 6.0892105102539063E-4]} (%input, %output) : memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
           }
     }
 
     VPURT.Task waits(%bar7: !VPURT.Barrier) updates(%bar8: !VPURT.Barrier)
     {
           VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_relu
-              inputs(%buf0 as %input: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
-              outputs(%buf0 as %output: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]> {
-              VPUIP.SW.Kernel.run {attrs = [false, true, 6.0892105102539063E-4]} (%input, %output) : memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>, memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
+              inputs(%buf0 as %input: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+              outputs(%buf0 as %output: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]> {
+              VPUIP.SW.Kernel.run {attrs = [false, true, 6.0892105102539063E-4]} (%input, %output) : memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
           }
     }
 
     VPURT.Task waits(%bar8: !VPURT.Barrier) updates(%bar9: !VPURT.Barrier)
     {
-         VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst0: memref<16x16x1x1xf16, #NHWC>) outputs(%buf1: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+         VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
-    return %buf3: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
+    return %buf3: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
   }
 
   // CHECK: [[BAR0:%.+]] = VPURT.DeclareVirtualBarrier <{isStartBarrier}> -> !VPURT.Barrier

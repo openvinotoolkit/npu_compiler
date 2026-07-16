@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/ELFNPU37XX/metadata.hpp"
+#include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/types/quantile_float/types.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
@@ -322,14 +323,9 @@ std::string stringifyOVNodeType(elf::OVNodeType val) {
     }
 }
 
-std::string stringifyPlatform(mlir::ModuleOp module, const Logger& log) {
+std::string stringifyPlatform(mlir::ModuleOp module) {
     auto platform = config::getPlatform(module);
-    if (platform.has_value()) {
-        return config::stringifyPlatform(platform.value()).str();
-    }
-    log.warning("Target platform is not defined. Serializing TEST blob.");
-    // Unknown platform indicates test configuration
-    return "TEST";
+    return config::stringifyPlatform(platform).str();
 }
 
 std::string namesToString(elf::TensorName* names, uint32_t size) {
@@ -385,7 +381,7 @@ void printMetadata(elf::NetworkMetadata* metadata, const Logger& log) {
 std::unique_ptr<elf::NetworkMetadata> ELFNPU37XX::constructMetadata(mlir::ModuleOp module, Logger log) {
     log.setName("constructMetadata");
 
-    auto [netInfo, netFunc] = net::getFromModule(module);
+    auto netInfo = net::getNetworkInfo(module);
 
     auto inputsInfo = netInfo.getInputsDataInfo();
     auto outputsInfo = netInfo.getOutputsDataInfo();
@@ -398,7 +394,7 @@ std::unique_ptr<elf::NetworkMetadata> ELFNPU37XX::constructMetadata(mlir::Module
 
     // Copy arch_name and throw if it doesn't fit into the buffer.
     // arch_name must not be truncated to ensure proper operation of the ELF loader.
-    copy_str(metadata.mIdentification.arch_name, stringifyPlatform(module, log), true);
+    copy_str(metadata.mIdentification.arch_name, stringifyPlatform(module), true);
     // Copy blob_name and throw if it doesn't fit into the buffer.
     // blob_name must not be truncated to ensure proper operation of the driver.
     copy_str(metadata.mIdentification.blob_name, module.getName().value_or("network").str(), true);
@@ -414,8 +410,7 @@ std::unique_ptr<elf::NetworkMetadata> ELFNPU37XX::constructMetadata(mlir::Module
     const auto architecture = config::getArch(module);
 
     const bool isLLVMMainForHostCompile =
-            (config::getCompilationMode(module) == config::CompilationMode::HostCompile) &&
-            (module->getParentOfType<mlir::ModuleOp>() == nullptr);
+            config::isHostCompileMode(module) && (module->getParentOfType<mlir::ModuleOp>() == nullptr);
 
     auto setTensor = [&](elf::TensorRef& netInput, elf::TensorRef& tensorDesc, NDTypeInterface type,
                          net::DataInfoOp userInfo) {
@@ -426,8 +421,13 @@ std::unique_ptr<elf::NetworkMetadata> ELFNPU37XX::constructMetadata(mlir::Module
             flags |= elf::TENSOR_REF_FLAG_DYNAMIC_STRIDES_SUPPORT;
         }
 
-        // For dynamic shape, userType is required as it has both size and bounds.
-        netInput = createTensorRef(isLLVMMainForHostCompile ? userType : type, userInfo.getName(), flags);
+        // For dynamic shape, userType is required as it has both size and bounds
+        NDTypeInterface netInputType = type;
+        if (isLLVMMainForHostCompile || netInputType == nullptr || netInputType.getShape().isDynamic()) {
+            netInputType = userType;
+        }
+
+        netInput = createTensorRef(netInputType, userInfo.getName(), flags);
         tensorDesc = createTensorRef(userType, userInfo.getName(), flags);
     };
 
@@ -501,6 +501,7 @@ std::unique_ptr<elf::NetworkMetadata> ELFNPU37XX::constructMetadata(mlir::Module
             VPUX_THROW_UNLESS(profilingOutputsInfo.size() == 0, "Profiling is not supported for HostCompile Mode");
         }
     } else {
+        auto netFunc = net::getMainFunc(module);
         // input
         for (const auto& p : inputsInfo | indexed) {
             const auto index = checked_cast<uint32_t>(p.index());

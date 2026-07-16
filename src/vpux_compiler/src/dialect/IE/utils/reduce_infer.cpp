@@ -4,7 +4,10 @@
 //
 
 #include "vpux/compiler/dialect/IE/utils/reduce_infer.hpp"
+#include "vpux/compiler/core/layers.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/IE/utils/type_padding.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/utils/error.hpp"
 
 mlir::LogicalResult vpux::IE::inferReduceReturnTypeComponents(
@@ -91,4 +94,62 @@ vpux::DimsOrder vpux::IE::calculateReducedOutputLayout(const vpux::DimsOrder& in
     outputCodeOrder = outputCodeOrder != 0 ? outputCodeOrder : 0x1;
 
     return vpux::DimsOrder::fromCode(outputCodeOrder);
+}
+
+bool vpux::IE::isChannelAxisReductionWithMatchingLayout(vpux::NDTypeInterface parentInputType,
+                                                        vpux::NDTypeInterface parentOutputType, ArrayRef<int64_t> axes,
+                                                        Logger log) {
+    if (axes.size() != 1) {
+        log.trace("Expected single reduction axis, got {0}", axes.size());
+        return false;
+    }
+
+    const auto rank = checked_cast<int64_t>(parentOutputType.getShape().size());
+    int64_t axis = axes.front();
+    if (axis < 0) {
+        axis += rank;
+    }
+
+    // DPU-supported ops with rank-5 output always use DimsGroups5D semantics (group conv, NCEMatMul).
+    // No DPU-supported op produces rank-5 output in the 3D-spatial (Dims5D) axis system.
+    int64_t channelAxis = (rank == 5) ? DimsGroups5D::Act::C.ind() : Dims4D::Act::C.ind();
+
+    if (axis != channelAxis) {
+        log.trace("Axis for reduction {0} is not channel axis {1}", axis, channelAxis);
+        return false;
+    }
+
+    if (parentInputType.getDimsOrder() != parentOutputType.getDimsOrder()) {
+        log.trace("Parent op input and output have different layouts, permutation active");
+        return false;
+    }
+
+    // TODO: E#218334 remove this check once the support for tiling on channel axis is added to the reduce fusion path.
+    // Fusing requires all channels to fit in a single DPU tile; tiling on the
+    // channel axis is not supported for the reduce fusion path.
+    const auto numChannels = parentOutputType.getShape()[Dim(channelAxis)];
+    if (numChannels > VPU::NCEInvariant::VPU_DIMENSION_LIMIT) {
+        log.trace("Number of channels {0} exceeds maximum {1} for channel-axis reduction fusion", numChannels,
+                  VPU::NCEInvariant::VPU_DIMENSION_LIMIT);
+        return false;
+    }
+
+    return true;
+}
+
+bool vpux::IE::isChannelAxisReductionWithDPUParent(mlir::Operation* op, ArrayRef<int64_t> axes, Logger log) {
+    if (!mlir::isa<IE::ReduceMinOp, IE::ReduceMaxOp>(op) || axes.size() != 1) {
+        return false;
+    }
+
+    auto parentOp = op->getOperand(0).getDefiningOp();
+    if (parentOp == nullptr || mlir::failed(VPU::NCEInvariant::isSupported(parentOp, log))) {
+        log.trace("Parent op is not DPU-supported");
+        return false;
+    }
+
+    const auto parentInputType = mlir::cast<vpux::NDTypeInterface>(parentOp->getOperand(0).getType());
+    const auto parentOutputType = mlir::cast<vpux::NDTypeInterface>(parentOp->getResult(0).getType());
+
+    return isChannelAxisReductionWithMatchingLayout(parentInputType, parentOutputType, axes, log);
 }

@@ -37,7 +37,8 @@ std::pair<const uint8_t*, size_t> vpux::ELFNPU37XX::getDataAndSizeOfElfSection(
     return {secData, secSize};
 }
 
-size_t vpux::ELFNPU37XX::getOffsetOfOpInSection(mlir::Value op, mlir::Value section, ELFNPU37XX::OffsetCache& cache) {
+size_t vpux::ELFNPU37XX::getOffsetOfOpInSection(mlir::Value op, mlir::Value section,
+                                                vpux::ELFNPU37XX::OffsetCache& cache) {
     // specific case of uninitialized buffer where the offset to it is actually specified as an op attribute and there
     // is no need for any computation
     auto actualOp = op.getDefiningOp();
@@ -108,7 +109,7 @@ void vpux::ELFNPU37XX::RelocationManager::initCMXSymTab(ELFNPU37XX::CreateSymbol
     cmxMappingSymTab_ = cmxMappingSymTab;
 }
 
-ELFNPU37XX::ElfSectionInterface vpux::ELFNPU37XX::RelocationManager::getSection(mlir::Value value) {
+vpux::ELFNPU37XX::ElfSectionInterface vpux::ELFNPU37XX::RelocationManager::getSection(mlir::Value value) {
     auto section = sectionMap_.find(value);
     if (section != sectionMap_.end()) {
         return section->second;
@@ -117,18 +118,18 @@ ELFNPU37XX::ElfSectionInterface vpux::ELFNPU37XX::RelocationManager::getSection(
     VPUX_THROW_UNLESS(funcOp_ != nullptr, "Relocation Manager is not initialized with a mlir::func::FuncOp");
 
     auto parent = value.getDefiningOp();
-    if (parent->hasTrait<ELFNPU37XX::ElfSectionInterface::Trait>()) {
-        auto parentInterface = mlir::cast<ELFNPU37XX::ElfSectionInterface>(parent);
+    if (parent->hasTrait<vpux::ELFNPU37XX::ElfSectionInterface::Trait>()) {
+        auto parentInterface = mlir::cast<vpux::ELFNPU37XX::ElfSectionInterface>(parent);
         sectionMap_[value] = parentInterface;
         return parentInterface;
     }
 
     auto users = value.getUsers();
-    ELFNPU37XX::PutOpInSectionOp placer;
+    vpux::ELFNPU37XX::PutOpInSectionOp placer;
     for (auto user : users) {
-        if (mlir::isa<ELFNPU37XX::PutOpInSectionOp>(user)) {
+        if (mlir::isa<vpux::ELFNPU37XX::PutOpInSectionOp>(user)) {
             parent = user->getParentOp();
-            auto parentInterface = mlir::cast<ELFNPU37XX::ElfSectionInterface>(parent);
+            auto parentInterface = mlir::cast<vpux::ELFNPU37XX::ElfSectionInterface>(parent);
             sectionMap_[value] = parentInterface;
             return parentInterface;
         }
@@ -138,12 +139,12 @@ ELFNPU37XX::ElfSectionInterface vpux::ELFNPU37XX::RelocationManager::getSection(
     return nullptr;
 }
 
-ELFNPU37XX::CreateSymbolTableSectionOp vpux::ELFNPU37XX::RelocationManager::getCMXSymTab() {
+vpux::ELFNPU37XX::CreateSymbolTableSectionOp vpux::ELFNPU37XX::RelocationManager::getCMXSymTab() {
     VPUX_THROW_UNLESS(cmxMappingSymTab_ != nullptr, "Relocation Manager: CMX Mapping SymTab not init!");
     return cmxMappingSymTab_;
 }
 
-ELFNPU37XX::CreateSymbolTableSectionOp vpux::ELFNPU37XX::RelocationManager::getSymTab(mlir::Value value) {
+vpux::ELFNPU37XX::CreateSymbolTableSectionOp vpux::ELFNPU37XX::RelocationManager::getSymTab(mlir::Value value) {
     auto section = symTabMap_.find(value);
     if (section != symTabMap_.end()) {
         return section->second;
@@ -151,7 +152,7 @@ ELFNPU37XX::CreateSymbolTableSectionOp vpux::ELFNPU37XX::RelocationManager::getS
 
     VPUX_THROW_UNLESS(funcOp_ != nullptr, "Relocation Manager is not initialized with a mlir::func::FuncOp");
 
-    auto binaryOp = mlir::dyn_cast<ELFNPU37XX::BinaryOpInterface>(value.getDefiningOp());
+    auto binaryOp = mlir::dyn_cast<vpux::ELFNPU37XX::BinaryOpInterface>(value.getDefiningOp());
 
     if (binaryOp != nullptr) {
         auto memSpace = binaryOp.getMemorySpace();
@@ -162,19 +163,20 @@ ELFNPU37XX::CreateSymbolTableSectionOp vpux::ELFNPU37XX::RelocationManager::getS
         }
     }
 
-    auto lookupSymTab = [&](mlir::Value::user_range children) -> ELFNPU37XX::CreateSymbolTableSectionOp {
+    auto lookupSymTab = [&](mlir::Value::user_range children) -> vpux::ELFNPU37XX::CreateSymbolTableSectionOp {
         for (auto child : children) {
-            if (mlir::isa<ELFNPU37XX::SymbolOp>(child)) {
-                if (mlir::isa<ELFNPU37XX::CreateSymbolTableSectionOp>(child->getParentOp())) {
-                    auto symTab = mlir::cast<ELFNPU37XX::CreateSymbolTableSectionOp>(child->getParentOp());
+            if (mlir::isa<vpux::ELFNPU37XX::SymbolOp>(child)) {
+                if (mlir::isa<vpux::ELFNPU37XX::CreateSymbolTableSectionOp>(child->getParentOp())) {
+                    auto symTab = mlir::cast<vpux::ELFNPU37XX::CreateSymbolTableSectionOp>(child->getParentOp());
                     symTabMap_[value] = symTab;
                     return symTab;
                 }
 
                 auto grandChildren = child->getUsers();
                 for (auto grandChild : grandChildren) {
-                    if (mlir::isa<ELFNPU37XX::PutOpInSectionOp>(grandChild)) {
-                        auto symTab = mlir::cast<ELFNPU37XX::CreateSymbolTableSectionOp>(grandChild->getParentOp());
+                    if (mlir::isa<vpux::ELFNPU37XX::PutOpInSectionOp>(grandChild)) {
+                        auto symTab =
+                                mlir::cast<vpux::ELFNPU37XX::CreateSymbolTableSectionOp>(grandChild->getParentOp());
                         symTabMap_[value] = symTab;
                         return symTab;
                     }
@@ -207,8 +209,8 @@ ELFNPU37XX::CreateSymbolTableSectionOp vpux::ELFNPU37XX::RelocationManager::getS
     return nullptr;
 }
 
-ELFNPU37XX::CreateRelocationSectionOp vpux::ELFNPU37XX::RelocationManager::getRelocSection(
-        ELFNPU37XX::ElfSectionInterface section, ELFNPU37XX::CreateSymbolTableSectionOp symTab) {
+vpux::ELFNPU37XX::CreateRelocationSectionOp vpux::ELFNPU37XX::RelocationManager::getRelocSection(
+        vpux::ELFNPU37XX::ElfSectionInterface section, vpux::ELFNPU37XX::CreateSymbolTableSectionOp symTab) {
     VPUX_THROW_UNLESS(funcOp_ != nullptr, "Relocation Manager is not initialized with a mlir::func::FuncOp");
 
     // for some reason, can't construct an interface object from opaque pointer. So will use the result as the key
@@ -223,7 +225,7 @@ ELFNPU37XX::CreateRelocationSectionOp vpux::ELFNPU37XX::RelocationManager::getRe
     auto builder = mlir::OpBuilder::atBlockTerminator(&funcOp_.getBody().front());
 
     std::string secName = std::string(".rlt") + section.getName().str();
-    auto newRelocation = builder.create<ELFNPU37XX::CreateRelocationSectionOp>(
+    auto newRelocation = builder.create<vpux::ELFNPU37XX::CreateRelocationSectionOp>(
             section.getLoc(),
             vpux::ELFNPU37XX::SectionType::get(builder.getContext()),  // mlir::Type
             llvm::StringRef(secName),                                  // llvm::StringRef secName
@@ -237,11 +239,12 @@ ELFNPU37XX::CreateRelocationSectionOp vpux::ELFNPU37XX::RelocationManager::getRe
 
 // TODO:
 // create non-static getSymbol() method that returns a (generic or section) symbol for any mlir:Value (if it exists)
-ELFNPU37XX::SymbolOp vpux::ELFNPU37XX::RelocationManager::getSymbol(ELFNPU37XX::ElfSectionInterface section) {
+vpux::ELFNPU37XX::SymbolOp vpux::ELFNPU37XX::RelocationManager::getSymbol(
+        vpux::ELFNPU37XX::ElfSectionInterface section) {
     mlir::Operation* op = section.getOperation();
     for (auto user : op->getUsers()) {
-        if (mlir::isa<ELFNPU37XX::SymbolOp>(user)) {
-            return mlir::cast<ELFNPU37XX::SymbolOp>(user);
+        if (mlir::isa<vpux::ELFNPU37XX::SymbolOp>(user)) {
+            return mlir::cast<vpux::ELFNPU37XX::SymbolOp>(user);
         }
     }
 
@@ -265,11 +268,11 @@ size_t vpux::ELFNPU37XX::math::lcm(size_t a, size_t b) {
 //
 
 namespace {
-const std::unordered_map<config::ArchKind, elf::platform::ArchKind> vpuToElfArchEnumMap = {
-        {config::ArchKind::UNKNOWN, elf::platform::ArchKind::UNKNOWN},
-        {config::ArchKind::NPU37XX, elf::platform::ArchKind::VPUX37XX}};
+const std::unordered_map<vpux::config::ArchKind, elf::platform::ArchKind> vpuToElfArchEnumMap = {
+        {vpux::config::ArchKind::UNKNOWN, elf::platform::ArchKind::UNKNOWN},
+        {vpux::config::ArchKind::NPU37XX, elf::platform::ArchKind::VPUX37XX}};
 }  // namespace
 
-elf::platform::ArchKind vpux::ELFNPU37XX::mapVpuArchKindToElfArchKind(const config::ArchKind& archKind) {
+elf::platform::ArchKind vpux::ELFNPU37XX::mapVpuArchKindToElfArchKind(const vpux::config::ArchKind& archKind) {
     return vpuToElfArchEnumMap.at(archKind);
 }

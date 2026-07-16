@@ -11,7 +11,7 @@
 
 namespace vpux {
 
-void addLogging(mlir::MLIRContext& ctx, Logger log);
+void addLogging(mlir::MLIRContext& ctx, Logger& log);
 
 class OpBuilderLogger final : public mlir::OpBuilder::Listener {
 public:

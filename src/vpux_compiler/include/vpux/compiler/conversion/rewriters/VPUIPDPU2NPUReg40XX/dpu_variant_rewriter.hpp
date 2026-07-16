@@ -10,8 +10,6 @@
 #include "vpux/compiler/NPU40XX/dialect/VPUIPDPU/ops.hpp"
 #include "vpux/compiler/conversion.hpp"
 
-using namespace NPUReg40XX;
-
 namespace vpux {
 namespace vpuipdpu2npureg40xx {
 

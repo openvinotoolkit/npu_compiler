@@ -86,7 +86,7 @@ func.func @DynamicOpsDDRLargeBounds_StridedSlice(
 func.func @DynamicOpsCMXSmallBounds_MemPermute(
     %input: tensor<1x16x64x128xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[1, 1, 1, 1]>: tensor<4xsi64>, mem_space = [@CMX_NN, 0], order = #NHWC}>
 ) -> tensor<1x128x16x64xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[1, 1, 1, 1]>: tensor<4xsi64>, mem_space = [@CMX_NN, 0], order = #NCHW}> {
-// CHECK:       [[INPUT_CMX:%.+]]: !VPUIP.BoundedBuffer<data=memref<1x16x64x128xf16, #NHWC, [@CMX_NN, 0]>, dynamic_shape=memref<4xsi32, [@CMX_NN, 0]>>
+// CHECK:       [[INPUT_CMX:%.+]]: !VPUIP.BoundedBuffer<data=memref<1x16x64x128xf16, {order = #NHWC}, [@CMX_NN, 0]>, dynamic_shape=memref<4xsi32, [@CMX_NN, 0]>>
 
 // CHECK:       [[ALLOC_OUT_TENSOR_CMX:%.+]] = memref.alloc() : memref<1x128x16x64xf16, [@CMX_NN, 0]>
 // CHECK:       [[ALLOC_OUT_SHAPE_CMX:%.+]] = memref.alloc() : memref<4xsi32, [@CMX_NN, 0]>
@@ -114,7 +114,7 @@ func.func @DynamicOpsCMXSmallBounds_MemPermute(
 func.func @DynamicOpsDDRLargeBounds_MemPermute(
     %input: tensor<1x16x64x8000xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[1, 1, 1, 1]>: tensor<4xsi64>, order = #NHWC}>
 ) -> tensor<1x8000x16x64xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[1, 1, 1, 1]>: tensor<4xsi64>, order = #NCHW}> {
-// CHECK:       [[INPUT_DDR:%.+]]: !VPUIP.BoundedBuffer<data=memref<1x16x64x8000xf16, #NHWC>, dynamic_shape=memref<4xsi32>>
+// CHECK:       [[INPUT_DDR:%.+]]: !VPUIP.BoundedBuffer<data=memref<1x16x64x8000xf16, {order = #NHWC}>, dynamic_shape=memref<4xsi32>>
 
 // CHECK:       [[ALLOC_OUT_TENSOR_DDR:%.+]] = memref.alloc() : memref<1x8000x16x64xf16>
 // CHECK:       [[ALLOC_OUT_SHAPE_DDR:%.+]] = memref.alloc() : memref<4xsi32>

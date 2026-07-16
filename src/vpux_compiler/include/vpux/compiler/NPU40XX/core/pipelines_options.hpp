@@ -34,10 +34,6 @@ struct DefaultHWOptionsDeviceBase : public virtual vpux::DefaultHWOptionsBase {
     BoolOption workloadManagementEnable{*this, "workload-management-enable",
                                         llvm::cl::desc("Enable partial workload management"), llvm::cl::init(true)};
 
-    IntOption workloadManagementBarrierCountThreshold{*this, "workload-management-barrier-count-threshold",
-                                                      llvm::cl::desc("Threshold for WLM optimization"),
-                                                      llvm::cl::init(std::numeric_limits<int>::max())};
-
     mlir::detail::PassOptions::Option<DMAFifoType> workloadManagementDmaFifoType{
             *this, "workload-management-dma-fifo-type",
             ::llvm::cl::desc("Option to switch behaviour between software and hardware DMA FIFO types"),
@@ -73,10 +69,8 @@ struct DefaultHWOptionsDeviceBase : public virtual vpux::DefaultHWOptionsBase {
                     ::llvm::cl::values(
                             clEnumValN(WorkloadManagementBarrierProgrammingMode::LEGACY, "LEGACY", "Legacy Mode"),
                             clEnumValN(WorkloadManagementBarrierProgrammingMode::ALL_BARRIER_DMAS_SCHEDULED,
-                                       "ALL_BARRIER_DMAS_SCHEDULED", "Compiler generates DMAs to program all barriers"),
-                            clEnumValN(WorkloadManagementBarrierProgrammingMode::ALL_BARRIER_DMAS_SCHEDULED_4K,
-                                       "ALL_BARRIER_DMAS_SCHEDULED_4K",
-                                       "Compiler generates DMAs to program all barriers leveraging 4K barrier block"))};
+                                       "ALL_BARRIER_DMAS_SCHEDULED",
+                                       "Compiler generates DMAs to program all barriers"))};
 
     IntOption modelIdentifier{
             *this, "model-identifier",

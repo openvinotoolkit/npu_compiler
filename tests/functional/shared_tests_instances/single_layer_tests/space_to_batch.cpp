@@ -9,6 +9,9 @@
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(SpaceToBatchLayerTest);
+
 class SpaceToBatchLayerTestCommon : public SpaceToBatchLayerTest, virtual public VpuOv2LayerTest {};
 
 TEST_P(SpaceToBatchLayerTestCommon, NPU3720_SW) {

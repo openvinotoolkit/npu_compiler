@@ -10,11 +10,12 @@
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
+#include "vpux/compiler/dialect/IE/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/handle_kernels_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_reduce_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
+#include "vpux/compiler/dialect/config/constraints.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
@@ -188,6 +189,73 @@ mlir::LogicalResult generalReduceRewrite(
         return mlir::success();
     }
 
+    // Optimization for N-axis (batch) reduction: when H=1 and W is channel-aligned,
+    // two Transpose ops bracket the pool so that AdjustLayouts can later rewrite each
+    // Transpose into a zero-copy PermuteCast with NHWC layout. In NHWC terms, the
+    // reduction axis becomes the spatial H dimension and W becomes the channel dimension
+    // (C_nhwc=W >= 16), avoiding Expand/Slice overhead.
+    //
+    //   NxCx1xW NCHW (axes=[0])
+    //       |
+    //   Reshape -> 1xNxCxW NCHW  (valid since H=1, flat index unchanged)
+    //       |
+    //   Transpose [N,W,C,H] -> 1xWxNxC NCHW  (AdjustLayouts rewrites to PermuteCast NHWC)
+    //       |
+    //   Pool kernel [N,1]  (W >= 16 ensures channel alignment in NHWC, no Expand/Slice)
+    //       |
+    //   Transpose [N,H,W,C] -> 1x1xCxW NCHW  (AdjustLayouts rewrites to PermuteCast)
+    //       |
+    //   Reshape -> output shape
+    if (inputShape.size() == 4 && axes.size() == 1 && axes.front() == Dims4D::Act::N.ind() &&
+        inputShape[Dims4D::Act::H.ind()] == 1 &&
+        inputShape[Dims4D::Act::W.ind()] % VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT == 0 &&
+        inputShape[Dims4D::Act::N.ind()] > 1) {
+        const auto origN = inputShape[Dims4D::Act::N.ind()];
+        const auto origC = inputShape[Dims4D::Act::C.ind()];
+        const auto origW = inputShape[Dims4D::Act::W.ind()];
+
+        auto input = origOp->getOperand(0);
+
+        // Reshape NxCx1xW -> 1xNxCxW (valid since H=1, flat index unchanged)
+        const auto reshapeShapeAttr = getIntArrayAttr(ctx, SmallVector<int64_t>{1, origN, origC, origW});
+        input = rewriter.create<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_in"), input, reshapeShapeAttr);
+
+        // Transpose [N,W,C,H]: 1xNxCxW NCHW -> 1xWxNxC NCHW
+        // AdjustLayouts will later reorder this Transpose to NHWC layout, enabling a zero-copy
+        // PermuteCast. In NHWC terms: C=origW (channel-aligned >= 16), H=origN (pool target), W=origC.
+        DimArr permFwd{Dims4D::Act::N, Dims4D::Act::W, Dims4D::Act::C, Dims4D::Act::H};
+        auto orderFwd = DimsOrder::fromPermutation(ArrayRef(permFwd));
+        input = rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "transpose_in"), input, nullptr,
+                                                 mlir::AffineMapAttr::get(orderFwd.toAffineMap(ctx)));
+
+        const auto poolKernelAttr = getIntArrayAttr(ctx, SmallVector<int64_t>{origN, 1});
+        const auto poolStridesAttr = getIntArrayAttr(ctx, SmallVector<int64_t>{1, 1});
+        const auto poolPadBeginAttr = getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0});
+        const auto poolPadEndAttr = getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0});
+        const auto poolRoundingAttr = IE::RoundingTypeAttr::get(ctx, IE::RoundingType::FLOOR);
+        const auto poolExcludePadsAttr = mlir::UnitAttr::get(ctx);
+
+        auto* newOp = makeOperations(origOp->getLoc(), input,
+                                     {poolKernelAttr, poolStridesAttr, poolPadBeginAttr, poolPadEndAttr,
+                                      poolRoundingAttr, poolExcludePadsAttr});
+        input = newOp->getResult(0);
+
+        // Transpose [N,H,W,C]: 1xWx1xC NCHW -> 1x1xCxW NCHW
+        // Inverse of transpose_in; AdjustLayouts will convert this to a PermuteCast as well.
+        DimArr permBwd{Dims4D::Act::N, Dims4D::Act::H, Dims4D::Act::W, Dims4D::Act::C};
+        auto orderBwd = DimsOrder::fromPermutation(ArrayRef(permBwd));
+        input = rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "transpose_out"), input, nullptr,
+                                                 mlir::AffineMapAttr::get(orderBwd.toAffineMap(ctx)));
+
+        if (getShape(input).raw() != outputShape) {
+            const auto outputShapeAttr = getIntArrayAttr(ctx, ArrayRef(outputShape));
+            input = rewriter.create<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_out"), input, outputShapeAttr);
+        }
+
+        rewriter.replaceOp(origOp, input);
+        return mlir::success();
+    }
+
     const auto reduceChannels = axes.size() == 1 && axes.front() == Dims4D::Act::C.ind();
     const auto heightAligned = (inputShape.size() == 4)
                                        ? (inputShape[Dims4D::Act::H.ind()] * inputShape[Dims4D::Act::W.ind()] %
@@ -297,7 +365,9 @@ mlir::LogicalResult generalReduceRewrite(
     return mlir::success();
 }
 
-bool isValidOperationForConversion(mlir::Operation* op, Logger log, bool checkConsecutiveAxes = true) {
+bool isValidOperationForConversion(mlir::Operation* op, Logger log,
+                                   IE::ChannelAxisReductionWithDPUParentCheckerBase* channelReductionChecker,
+                                   bool checkConsecutiveAxes = true) {
     const auto isLegalOp = [&](mlir::Operation* op) {
         const auto logCb = [&](const formatv_object_base& msg) {
             log.trace("{0}", msg.str());
@@ -332,6 +402,10 @@ bool isValidOperationForConversion(mlir::Operation* op, Logger log, bool checkCo
             }
             mergedDim *= inputShape[axes[i]];
         }
+        // For ReduceMin/ReduceMax on C axis, keep fusion opportunity only when the parent can run on DPU.
+        if (channelReductionChecker->isChannelAxisReductionWithDPUParent(op, axes, log)) {
+            return false;
+        }
 
         std::sort(axes.begin(), axes.end());
 
@@ -343,7 +417,7 @@ bool isValidOperationForConversion(mlir::Operation* op, Logger log, bool checkCo
         const auto outputElementType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType()).getElementType();
         const auto isDataTypeDpuCompatible = inputElementType.isF16() && outputElementType.isF16();
 
-        const auto maxKernelSize = config::getMaxKernelSize(op);
+        const auto maxKernelSize = config::getNPUConstraints(op->getContext()).maxKernelSize;
         // Check that handleLargeKernels supports this op
         const auto isKernelSizeDpuCompatible =
                 (axes.size() == 2) ? (vpux::IE::isPoolingKernelSizeValid(inputShape[axes[0]], maxKernelSize) &&
@@ -358,7 +432,7 @@ bool isValidOperationForConversion(mlir::Operation* op, Logger log, bool checkCo
     };
 
     if (mlir::isa<IE::ReduceMinOp>(op)) {
-        const auto maxKernelSize = config::getMaxKernelSize(op);
+        const auto maxKernelSize = config::getNPUConstraints(op->getContext()).maxKernelSize;
         if ((getShape(op->getResult(0)).totalSize() == 1) &&
             (getShape(op->getOperand(0)).totalSize() > std::pow(maxKernelSize, 2))) {
             return false;
@@ -374,8 +448,9 @@ bool isValidOperationForConversion(mlir::Operation* op, Logger log, bool checkCo
 
 class ReduceMeanRewriter final : public mlir::OpRewritePattern<IE::ReduceMeanOp> {
 public:
-    ReduceMeanRewriter(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
-            : mlir::OpRewritePattern<IE::ReduceMeanOp>(ctx, benefit), _log(log) {
+    ReduceMeanRewriter(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log,
+                       IE::ChannelAxisReductionWithDPUParentCheckerBase* checker)
+            : mlir::OpRewritePattern<IE::ReduceMeanOp>(ctx, benefit), _log(log), _channelReductionChecker(checker) {
         setDebugName("ReduceMeanRewriter");
     }
 
@@ -383,13 +458,14 @@ public:
 
 private:
     Logger _log;
+    IE::ChannelAxisReductionWithDPUParentCheckerBase* _channelReductionChecker;
 };
 
 mlir::LogicalResult ReduceMeanRewriter::matchAndRewrite(IE::ReduceMeanOp origOp,
                                                         mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got ReduceMean layer at '{1}'", getDebugName(), origOp->getLoc());
     auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue().value());
-    if (!isValidOperationForConversion(origOp, _log)) {
+    if (!isValidOperationForConversion(origOp, _log, _channelReductionChecker)) {
         return mlir::failure();
     }
     return generalReduceRewrite(origOp, rewriter, std::move(axes),
@@ -407,8 +483,9 @@ mlir::LogicalResult ReduceMeanRewriter::matchAndRewrite(IE::ReduceMeanOp origOp,
 
 class ReduceMaxRewriter final : public mlir::OpRewritePattern<IE::ReduceMaxOp> {
 public:
-    ReduceMaxRewriter(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
-            : mlir::OpRewritePattern<IE::ReduceMaxOp>(ctx, benefit), _log(log) {
+    ReduceMaxRewriter(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log,
+                      IE::ChannelAxisReductionWithDPUParentCheckerBase* checker)
+            : mlir::OpRewritePattern<IE::ReduceMaxOp>(ctx, benefit), _log(log), _channelReductionChecker(checker) {
         setDebugName("ReduceMaxRewriter");
     }
 
@@ -416,11 +493,13 @@ public:
 
 private:
     Logger _log;
+    IE::ChannelAxisReductionWithDPUParentCheckerBase* _channelReductionChecker;
 };
 
 mlir::LogicalResult ReduceMaxRewriter::matchAndRewrite(IE::ReduceMaxOp origOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got ReduceMax layer at '{1}'", getDebugName(), origOp->getLoc());
-    if (!isValidOperationForConversion(origOp, _log)) {
+    if (!isValidOperationForConversion(origOp, _log, _channelReductionChecker)) {
+        _log.trace("Operation at '{0}' is not valid for conversion to Pooling", origOp->getLoc());
         return mlir::failure();
     }
     auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue().value());
@@ -429,7 +508,7 @@ mlir::LogicalResult ReduceMaxRewriter::matchAndRewrite(IE::ReduceMaxOp origOp, m
                                     return rewriter.create<IE::MaxPoolOp>(
                                             appendLoc(loc, "as_maxpool"), input, attr.kernelAttr, attr.stridesAttr,
                                             attr.padBeginAttr, attr.padEndAttr, attr.roundingAttr, nullptr, nullptr,
-                                            nullptr, nullptr);
+                                            nullptr, nullptr, nullptr);
                                 });
 }
 
@@ -439,8 +518,9 @@ mlir::LogicalResult ReduceMaxRewriter::matchAndRewrite(IE::ReduceMaxOp origOp, m
 
 class ReduceSumRewriter final : public mlir::OpRewritePattern<IE::ReduceSumOp> {
 public:
-    ReduceSumRewriter(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
-            : mlir::OpRewritePattern<IE::ReduceSumOp>(ctx, benefit), _log(log) {
+    ReduceSumRewriter(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log,
+                      IE::ChannelAxisReductionWithDPUParentCheckerBase* checker)
+            : mlir::OpRewritePattern<IE::ReduceSumOp>(ctx, benefit), _log(log), _channelReductionChecker(checker) {
         setDebugName("ReduceSumRewriter");
     }
 
@@ -448,12 +528,13 @@ public:
 
 private:
     Logger _log;
+    IE::ChannelAxisReductionWithDPUParentCheckerBase* _channelReductionChecker;
 };
 
 mlir::LogicalResult ReduceSumRewriter::matchAndRewrite(IE::ReduceSumOp origOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got ReduceSum layer at '{1}'", getDebugName(), origOp->getLoc());
     auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue().value());
-    if (!isValidOperationForConversion(origOp, _log)) {
+    if (!isValidOperationForConversion(origOp, _log, _channelReductionChecker)) {
         return mlir::failure();
     }
 
@@ -495,8 +576,9 @@ mlir::LogicalResult ReduceSumRewriter::matchAndRewrite(IE::ReduceSumOp origOp, m
 
 class ReduceMinRewriter final : public mlir::OpRewritePattern<IE::ReduceMinOp> {
 public:
-    ReduceMinRewriter(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
-            : mlir::OpRewritePattern<IE::ReduceMinOp>(ctx, benefit), _log(log) {
+    ReduceMinRewriter(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log,
+                      IE::ChannelAxisReductionWithDPUParentCheckerBase* checker)
+            : mlir::OpRewritePattern<IE::ReduceMinOp>(ctx, benefit), _log(log), _channelReductionChecker(checker) {
         setDebugName("ReduceMinRewriter");
     }
 
@@ -504,11 +586,12 @@ public:
 
 private:
     Logger _log;
+    IE::ChannelAxisReductionWithDPUParentCheckerBase* _channelReductionChecker;
 };
 
 mlir::LogicalResult ReduceMinRewriter::matchAndRewrite(IE::ReduceMinOp origOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got ReduceMin layer at '{1}'", getDebugName(), origOp->getLoc());
-    if (!isValidOperationForConversion(origOp, _log)) {
+    if (!isValidOperationForConversion(origOp, _log, _channelReductionChecker)) {
         return mlir::failure();
     }
     auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue().value());
@@ -516,9 +599,10 @@ mlir::LogicalResult ReduceMinRewriter::matchAndRewrite(IE::ReduceMinOp origOp, m
             origOp, rewriter, std::move(axes),
             [&](mlir::Location loc, mlir::Value input, PoolingAttr attr) -> mlir::Operation* {
                 auto scale1 = rewriter.create<IE::NegativeOp>(appendLoc(loc, "inv_in"), input.getType(), input);
-                auto maxPool = rewriter.create<IE::MaxPoolOp>(
-                        appendLoc(loc, "as_maxpool"), scale1.getOutput(), attr.kernelAttr, attr.stridesAttr,
-                        attr.padBeginAttr, attr.padEndAttr, attr.roundingAttr, nullptr, nullptr, nullptr, nullptr);
+                auto maxPool = rewriter.create<IE::MaxPoolOp>(appendLoc(loc, "as_maxpool"), scale1.getOutput(),
+                                                              attr.kernelAttr, attr.stridesAttr, attr.padBeginAttr,
+                                                              attr.padEndAttr, attr.roundingAttr, nullptr, nullptr,
+                                                              nullptr, nullptr, nullptr);
                 return rewriter.create<IE::NegativeOp>(appendLoc(loc, "inv_out"), maxPool.getOutput().getType(),
                                                        maxPool.getOutput());
             });
@@ -539,8 +623,9 @@ mlir::LogicalResult ReduceMinRewriter::matchAndRewrite(IE::ReduceMinOp origOp, m
 template <class ConcreteOp>
 class ReduceSimplifyAxesRewriter final : public mlir::OpRewritePattern<ConcreteOp> {
 public:
-    ReduceSimplifyAxesRewriter(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
-            : mlir::OpRewritePattern<ConcreteOp>(ctx, benefit), _log(log) {
+    ReduceSimplifyAxesRewriter(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log,
+                               IE::ChannelAxisReductionWithDPUParentCheckerBase* checker)
+            : mlir::OpRewritePattern<ConcreteOp>(ctx, benefit), _log(log), _channelReductionChecker(checker) {
         this->setDebugName("ReduceSimplifyAxesRewriter");
     }
 
@@ -548,6 +633,7 @@ public:
 
 private:
     Logger _log;
+    IE::ChannelAxisReductionWithDPUParentCheckerBase* _channelReductionChecker;
 };
 
 template <class ConcreteOp>
@@ -555,7 +641,7 @@ mlir::LogicalResult ReduceSimplifyAxesRewriter<ConcreteOp>::matchAndRewrite(Conc
                                                                             mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got Reduce layer at '{1}'", this->getDebugName(), origOp->getLoc());
 
-    if (isValidOperationForConversion(origOp, _log)) {
+    if (isValidOperationForConversion(origOp, _log, _channelReductionChecker)) {
         return mlir::failure();
     }
 
@@ -589,7 +675,8 @@ mlir::LogicalResult ReduceSimplifyAxesRewriter<ConcreteOp>::matchAndRewrite(Conc
         return mlir::failure();
     }
 
-    if (!isAxesConsecutive(simplifiedAxes) || !isValidOperationForConversion(origOp, _log, false)) {
+    if (!isAxesConsecutive(simplifiedAxes) ||
+        !isValidOperationForConversion(origOp, _log, _channelReductionChecker, false)) {
         return mlir::failure();
     }
 
@@ -674,7 +761,8 @@ mlir::LogicalResult ReduceSumBatchToChannelRewriter::matchAndRewrite(IE::ReduceS
 
 class ConvertReduceToPoolingPass final : public IE::impl::ConvertReduceToPoolingBase<ConvertReduceToPoolingPass> {
 public:
-    explicit ConvertReduceToPoolingPass(Logger log) {
+    ConvertReduceToPoolingPass(bool enableFuseReduceMinMaxToDpu, Logger log) {
+        this->enableFuseReduceMinMaxToDpu = enableFuseReduceMinMaxToDpu;
         Base::initLogger(log, Base::getArgumentName());
     }
 
@@ -686,16 +774,24 @@ void ConvertReduceToPoolingPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
 
+    const auto& strategyFactory = IE::getIEStrategyFactory(&ctx);
+    const auto channelReductionChecker =
+            strategyFactory->getChannelAxisReductionWithDPUParentChecker(enableFuseReduceMinMaxToDpu);
+
     mlir::RewritePatternSet patterns(&ctx);
-    patterns.add<ReduceSimplifyAxesRewriter<IE::ReduceMeanOp>>(&ctx, benefitLevels[0], _log);
-    patterns.add<ReduceSimplifyAxesRewriter<IE::ReduceMaxOp>>(&ctx, benefitLevels[0], _log);
-    patterns.add<ReduceSimplifyAxesRewriter<IE::ReduceMinOp>>(&ctx, benefitLevels[0], _log);
-    patterns.add<ReduceSimplifyAxesRewriter<IE::ReduceSumOp>>(&ctx, benefitLevels[0], _log);
+    patterns.add<ReduceSimplifyAxesRewriter<IE::ReduceMeanOp>>(&ctx, benefitLevels[0], _log,
+                                                               channelReductionChecker.get());
+    patterns.add<ReduceSimplifyAxesRewriter<IE::ReduceMaxOp>>(&ctx, benefitLevels[0], _log,
+                                                              channelReductionChecker.get());
+    patterns.add<ReduceSimplifyAxesRewriter<IE::ReduceMinOp>>(&ctx, benefitLevels[0], _log,
+                                                              channelReductionChecker.get());
+    patterns.add<ReduceSimplifyAxesRewriter<IE::ReduceSumOp>>(&ctx, benefitLevels[0], _log,
+                                                              channelReductionChecker.get());
     patterns.add<ReduceSumBatchToChannelRewriter>(&ctx, benefitLevels[0], _log);
-    patterns.add<ReduceMeanRewriter>(&ctx, benefitLevels[1], _log);
-    patterns.add<ReduceMaxRewriter>(&ctx, benefitLevels[1], _log);
-    patterns.add<ReduceSumRewriter>(&ctx, benefitLevels[1], _log);
-    patterns.add<ReduceMinRewriter>(&ctx, benefitLevels[1], _log);
+    patterns.add<ReduceMeanRewriter>(&ctx, benefitLevels[1], _log, channelReductionChecker.get());
+    patterns.add<ReduceMaxRewriter>(&ctx, benefitLevels[1], _log, channelReductionChecker.get());
+    patterns.add<ReduceSumRewriter>(&ctx, benefitLevels[1], _log, channelReductionChecker.get());
+    patterns.add<ReduceMinRewriter>(&ctx, benefitLevels[1], _log, channelReductionChecker.get());
 
     if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
@@ -708,6 +804,6 @@ void ConvertReduceToPoolingPass::safeRunOnFunc() {
 // createConvertReduceToPoolingPass
 //
 
-std::unique_ptr<mlir::Pass> vpux::IE::createConvertReduceToPoolingPass(Logger log) {
-    return std::make_unique<ConvertReduceToPoolingPass>(log);
+std::unique_ptr<mlir::Pass> vpux::IE::createConvertReduceToPoolingPass(bool enableFuseReduceMinMaxToDpu, Logger log) {
+    return std::make_unique<ConvertReduceToPoolingPass>(enableFuseReduceMinMaxToDpu, log);
 }

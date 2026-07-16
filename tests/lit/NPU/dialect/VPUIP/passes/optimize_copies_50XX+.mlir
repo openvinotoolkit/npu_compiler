@@ -3,11 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --optimize-copies="workload-management-mode=FWLM_V1_PAGES" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --optimize-copies %s | FileCheck %s
 // REQUIRES: platform-NPU5010
 
 config.Resources 3 of @NCE at 1.700000e+03 MHz {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
   }
 
@@ -49,7 +48,7 @@ config.Resources 3 of @NCE at 1.700000e+03 MHz {
     memory_offsets = [[0, 0, 0, 0], [0, 0, 266, 0], [0, 0, 533, 0]]
 }>
 
-!InputDDRType = memref<1x32x800x32x!qElemType, #NHWC , @DDR>
+!InputDDRType = memref<1x32x800x32x!qElemType, {order = #NHWC}, @DDR>
 !OutputDDRType = memref<1x32x800x31x!qElemType, {order = #NHWC, strides = [819200, 1, 1024, 32]}, @DDR>
 
 // CHECK-LABEL: func.func @OptimizeCopyOpSequence
@@ -88,7 +87,6 @@ func.func @OptimizeCopyOpSequence(%arg0: !InputDistributedType, %arg1: !InputDis
 // -----
 
 config.Resources 3 of @NCE at 1.700000e+03 MHz {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
   }
 
@@ -118,7 +116,7 @@ config.Resources 3 of @NCE at 1.700000e+03 MHz {
     memory_offsets = [[0, 0, 0, 0], [0, 0, 266, 0], [0, 0, 533, 0]]
 }>
 
-!InputDDRType = memref<1x32x800x32x!qElemType, #NHWC , @DDR>
+!InputDDRType = memref<1x32x800x32x!qElemType, {order = #NHWC}, @DDR>
 !OutputDDRType = memref<1x32x800x31x!qElemType, {order = #NHWC, strides = [819200, 1, 1024, 32]}, @DDR>
 
 // CHECK-LABEL: func.func @OptimizeCopyOpSequenceWithSubview
@@ -157,7 +155,6 @@ func.func @OptimizeCopyOpSequenceWithSubview(%arg0: !InputDistributedType, %arg1
 // -----
 
 config.Resources 3 of @NCE at 1.700000e+03 MHz {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
   }
 
@@ -186,7 +183,7 @@ config.Resources 3 of @NCE at 1.700000e+03 MHz {
     memory_offsets = [[0, 0, 0, 0], [0, 0, 266, 0], [0, 0, 533, 0]]
 }>
 
-!InputDDRType = memref<1x32x800x32xf16, #NHWC , @DDR>
+!InputDDRType = memref<1x32x800x32xf16, {order = #NHWC}, @DDR>
 !OutputDDRType = memref<1x32x800x31xf16, {order = #NHWC, strides = [819200, 1, 1024, 32]}, @DDR>
 
 // CHECK-LABEL: func.func @NotOptimizeCopyOpSequenceWithSubviewDueToLongSpilling
@@ -256,7 +253,6 @@ func.func @NotOptimizeCopyOpSequenceWithSubviewDueToLongSpilling(%arg0: !InputDi
 // -----
 
 config.Resources 3 of @NCE at 1.700000e+03 MHz {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
   }
 
@@ -297,7 +293,7 @@ config.Resources 3 of @NCE at 1.700000e+03 MHz {
     memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
 }>
 
-!InputDDRType = memref<1x32x800x32x!qElemType, #NHWC , @DDR>
+!InputDDRType = memref<1x32x800x32x!qElemType, {order = #NHWC}, @DDR>
 !OutputDDRType = memref<1x32x800x31x!qElemType, {order = #NHWC, strides = [819200, 1, 1024, 32]}, @DDR>
 
 // CHECK-LABEL: func.func @NotOptimizeCopyOpSequenceWithSubviewDueToIncompatibleUsers

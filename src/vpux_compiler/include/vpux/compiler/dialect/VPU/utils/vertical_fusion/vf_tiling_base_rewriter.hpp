@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 
 namespace vpux::VPU {
 
@@ -107,7 +108,7 @@ void VerticalFusionTilingRewriterBase<VFConfigType, VFSchedulingFactoryType>::pr
     if (operandOp != nullptr) {
         auto inputOutputTiling = opStorage->get(operandOp, tilingIndex);
         VPUX_THROW_UNLESS(inputOutputTiling.has_value(), "Couldn't find tiling info at {0}", operandOp->getLoc());
-        const auto inputOutputTilingPair = inputOutputTiling.value();
+        const auto& inputOutputTilingPair = inputOutputTiling.value();
         auto& outTile = inputOutputTilingPair.second;
         for (auto dim : dims) {
             offset[dim] -= outTile.offsets[dim];
@@ -262,8 +263,8 @@ void VerticalFusionTilingRewriterBase<VFConfigType, VFSchedulingFactoryType>::ap
         for (auto* op : operations) {
             tilingProcedure(index, op, currentResult, currentTile);
             currentResult.getDefiningOp()->setAttr(VF_LOOP_INDEX_ATTR_NAME, vfIndexAttr);
-            currentResult.getDefiningOp()->setAttr(VF_LOOP_LAYER_INDEX_ATTR_NAME,
-                                                   VFLoopLayerIndexAttr::get(getContext(), index));
+            currentResult.getDefiningOp()->setAttr(VF_LOOP_TILE_INDEX_ATTR_NAME,
+                                                   VFLoopTileIndexAttr::get(getContext(), index));
         }
 
         resultTileVals.push_back(currentResult);
@@ -300,8 +301,8 @@ void VerticalFusionTilingRewriterBase<VFConfigType, VFSchedulingFactoryType>::ap
                                       " cannot attach VF loop attrs",
                                       index);
                     viewProducerOp->setAttr(VF_LOOP_INDEX_ATTR_NAME, vfIndexAttr);
-                    viewProducerOp->setAttr(VF_LOOP_LAYER_INDEX_ATTR_NAME,
-                                            VFLoopLayerIndexAttr::get(getContext(), index));
+                    viewProducerOp->setAttr(VF_LOOP_TILE_INDEX_ATTR_NAME,
+                                            VFLoopTileIndexAttr::get(getContext(), index));
                 }
 
                 // currentResult and currentTiles keep result from previous call tilingProcedure
@@ -312,7 +313,7 @@ void VerticalFusionTilingRewriterBase<VFConfigType, VFSchedulingFactoryType>::ap
                                   " cannot attach VF loop attrs",
                                   index);
                 producerOp->setAttr(VF_LOOP_INDEX_ATTR_NAME, vfIndexAttr);
-                producerOp->setAttr(VF_LOOP_LAYER_INDEX_ATTR_NAME, VFLoopLayerIndexAttr::get(getContext(), index));
+                producerOp->setAttr(VF_LOOP_TILE_INDEX_ATTR_NAME, VFLoopTileIndexAttr::get(getContext(), index));
 
                 if (llvm::find(config.getOutputs(), operation) != config.getOutputs().end()) {
                     resultTileVals.push_back(currentResult);
@@ -356,7 +357,7 @@ mlir::LogicalResult VerticalFusionTilingRewriterBase<VFConfigType, VFSchedulingF
         VPUX_THROW_WHEN(!inputTiling.has_value(), "Couldn't find tile information for operation {0} and tile {1}", *op,
                         index);
 
-        const auto inputTilingPair = inputTiling.value();
+        const auto& inputTilingPair = inputTiling.value();
         auto inputTilingInfo = inputTilingPair.first;
         currentTile = inputTilingPair.second.offsets;
         auto& mapper = mappers[index];
@@ -376,7 +377,7 @@ mlir::LogicalResult VerticalFusionTilingRewriterBase<VFConfigType, VFSchedulingF
             if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(operand)) {
                 const auto valName = printToString("ba_input {0}", index);
                 auto origInput = vfOp.getOperand(blockArg.getArgNumber());
-                auto tileInfo = tilingStorage.get(std::make_pair(blockArg.getArgNumber(), op), index);
+                const auto& tileInfo = tilingStorage.get(std::make_pair(blockArg.getArgNumber(), op), index);
 
                 VPUX_THROW_WHEN(!tileInfo.has_value(), "Couldn't find tile information for argument {0} and tile {1}",
                                 blockArg.getArgNumber(), index);
@@ -389,6 +390,7 @@ mlir::LogicalResult VerticalFusionTilingRewriterBase<VFConfigType, VFSchedulingF
         adjustInputShape(rewriter, op, inputTilingInfo, mapper, tilingStorage, operationStorage, index, dims);
 
         auto* copiedOp = rewriter.clone(*op, mapper);
+        extendOpLoc(copiedOp, "slice_{0}", index);
         currentResult = copiedOp->getResult(0);
 
         const auto baseResType = mlir::cast<NDTypeInterface>(op->getResult(0).getType());

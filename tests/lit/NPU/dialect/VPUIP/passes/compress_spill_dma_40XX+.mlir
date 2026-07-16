@@ -8,8 +8,8 @@
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-!dataTypeDdr = memref<1x1x1x1xf16, #NCHW, @DDR>
-!dataTypeCmx = memref<1x1x1x1xf16, #NCHW, [@CMX_NN, 0]>
+!dataTypeDdr = memref<1x1x1x1xf16, @DDR>
+!dataTypeCmx = memref<1x1x1x1xf16, [@CMX_NN, 0]>
 !dataTypeDdrCompBuf = memref<1x1x1x1xf16, {compression = #VPUIP.Compression<CompressionCandidate>, order = #NCHW}, @DDR>
 
 module @DmaSpillSingleClusterNoCompressionCandSmallBuf {
@@ -25,7 +25,7 @@ module @DmaSpillSingleClusterNoCompressionCandSmallBuf {
   } outputsInfo : {
     DataInfo "prob" : tensor<1x1x1x1xf16>
   }
-  
+
   // CHECK-LABEL: func.func @main
   // CHECK-SAME: [[ARG_0:%[^:]+]]: memref<1x1x1x1xf16, @DDR>
   func.func @main(%arg0: !dataTypeDdr) -> !dataTypeDdr {
@@ -89,8 +89,8 @@ module @DmaSpillSingleClusterNoCompressionCandSmallBuf {
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-!dataTypeDdr = memref<1x64x56x56xf16, #NCHW, @DDR>
-!dataTypeCmx = memref<1x64x56x56xf16, #NCHW, [@CMX_NN, 0]>
+!dataTypeDdr = memref<1x64x56x56xf16, @DDR>
+!dataTypeCmx = memref<1x64x56x56xf16, [@CMX_NN, 0]>
 !dataTypeDdrCompBuf = memref<1x64x56x56xf16, {compression = #VPUIP.Compression<CompressionCandidate>, order = #NCHW}, @DDR>
 
 module @DmaSpillSingleCluster {
@@ -205,8 +205,8 @@ module @DmaSpillSingleCluster {
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-!dataTypeDdr = memref<1x64x56x56xf16, #NCHW, @DDR>
-!dataTypeCmx = memref<1x64x56x56xf16, #NCHW, [@CMX_NN, 0]>
+!dataTypeDdr = memref<1x64x56x56xf16, @DDR>
+!dataTypeCmx = memref<1x64x56x56xf16, [@CMX_NN, 0]>
 !dataTypeDdrCompBuf = memref<1x64x56x56xf16, {compression = #VPUIP.Compression<CompressionCandidate>, order = #NCHW}, @DDR>
 
 module @DmaSpillSingleClusterWithNoUniqueIdsAfterInlining {
@@ -322,8 +322,8 @@ module @DmaSpillSingleClusterWithNoUniqueIdsAfterInlining {
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-!dataTypeDdr = memref<1x64x56x56xf16, #NCHW, @DDR>
-!dataTypeCmx = memref<1x64x56x56xf16, #NCHW, [@CMX_NN, 0]>
+!dataTypeDdr = memref<1x64x56x56xf16, @DDR>
+!dataTypeCmx = memref<1x64x56x56xf16, [@CMX_NN, 0]>
 !dataTypeDdrCompBuf = memref<1x64x56x56xf16, {compression = #VPUIP.Compression<CompressionCandidate>, order = #NCHW}, @DDR>
 
 module @DmaSpillSingleClusterWithParallelDecompressAndCompressTasks {

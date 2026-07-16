@@ -15,7 +15,7 @@ module {
     DataInfo "output_shape" : tensor<4xsi32>
   }
   module @VPU.SW {
-    func.func private @builtin_dummy(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "dummy.cpp", VPU.kernel_entry = "dummy"}
+    func.func nested @builtin_dummy(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "dummy.cpp", VPU.kernel_entry = "dummy"}
   }
   // CHECK-LABEL: @SWKernelDynamicInputs
   func.func @SWKernelDynamicInputs(%arg0: memref<1x3x10x10xf16>, %arg1: memref<4xsi32>) -> (memref<1x3x10x10xf16, [@CMX_NN, 0]>, memref<4xsi32, [@CMX_NN, 0]>) {

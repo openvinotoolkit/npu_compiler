@@ -423,12 +423,20 @@ def VPU_NCEOpInterface : OpInterface<"NCEOpInterface"> {
         >,
 
         InterfaceMethod<
-            "Get S2D_D2S supported",
-            "bool", "getS2DD2SSupported",
+            /*desc=*/"Return per-dimension ODU scaling factors (pre-ODU to post-ODU). "
+                     "Each element describes how one output dimension is derived from "
+                     "the corresponding pre-ODU dimension: "
+                     "post_dim = pre_dim * multiplier / divisor. "
+                     "Returns an empty vector when no ODU transform is active; "
+                     "callers must treat an empty result as identity (multiplier = divisor = 1 "
+                     "for every dimension). "
+                     "Use vpux::VPU::applyODUScaling / invertODUScaling to apply or invert "
+                     "the returned scales to a concrete shape vector.",
+            /*retTy=*/"SmallVector<vpux::VPU::ODUDimScale>", "getODUScaling",
             (ins),
-            [{}],
-            [{
-                return false;
+            /*methodBody=*/[{}],
+            /*defaultImplementation=*/[{
+                return {};
             }]
         >,
     ];

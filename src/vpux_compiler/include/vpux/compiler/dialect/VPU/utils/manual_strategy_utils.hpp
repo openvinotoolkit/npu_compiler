@@ -19,6 +19,8 @@ namespace vpux {
 
 constexpr StringLiteral multiClusterStrategy = "multiClusterStrategy";  // only be used for manual strategy utils
 constexpr StringLiteral tilingStrategy = "tilingStrategy";
+constexpr StringLiteral tilingScenario = "tilingScenario";
+constexpr StringLiteral strategyCost = "strategyCost";
 constexpr StringLiteral defaultNoValue = "NONE";
 constexpr StringLiteral verticalFusion = "verticalFusion";  // only be used for manual strategy utils
 constexpr StringLiteral verticalFusionHash = "verticalFusionHash";
@@ -39,8 +41,8 @@ void collectAllComputeOps(mlir::func::FuncOp func, llvm::MapVector<mlir::Locatio
 constexpr StringLiteral TILING_LOOP_INDEX_ATTR_NAME = "tiling_loop_index";
 /// Identifies the vertical fusion region
 constexpr StringLiteral VF_LOOP_INDEX_ATTR_NAME = "vf_loop_index";
-/// Identifies the layer within vertical fusion region
-constexpr StringLiteral VF_LOOP_LAYER_INDEX_ATTR_NAME = "vf_loop_layer_index";
+/// Identifies the tile index within vertical fusion region
+constexpr StringLiteral VF_LOOP_TILE_INDEX_ATTR_NAME = "vf_loop_tile_index";
 
 /// This class is a proxy for mlir::IntegerAttr with 64-bit integer type. It integrates nicely with MLIR's typesystem
 /// and to the user it looks like any other ordinary attribute. Example usage:
@@ -67,17 +69,17 @@ public:
 
 using TilingLoopIndexAttr = I64Attr;
 using VFLoopIndexAttr = I64Attr;
-using VFLoopLayerIndexAttr = I64Attr;
+using VFLoopTileIndexAttr = I64Attr;
 
 struct LoopAttributes {
     LoopAttributes(TilingLoopIndexAttr tilingLoopIndex, VFLoopIndexAttr vfLoopIndex,
-                   VFLoopLayerIndexAttr vfLoopLayerIndex)
-            : tilingLoopIndex(tilingLoopIndex), vfLoopIndex(vfLoopIndex), vfLoopLayerIndex(vfLoopLayerIndex) {
+                   VFLoopTileIndexAttr vfLoopTileIndex)
+            : tilingLoopIndex(tilingLoopIndex), vfLoopIndex(vfLoopIndex), vfLoopTileIndex(vfLoopTileIndex) {
     }
 
     TilingLoopIndexAttr tilingLoopIndex;
     VFLoopIndexAttr vfLoopIndex;
-    VFLoopLayerIndexAttr vfLoopLayerIndex;
+    VFLoopTileIndexAttr vfLoopTileIndex;
 };
 
 LoopAttributes getLoopAttributes(mlir::Operation* op);

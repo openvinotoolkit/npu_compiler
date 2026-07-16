@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/VPU/IR/tiling_info.hpp"
@@ -26,6 +27,8 @@
 #include <mlir/IR/MLIRContext.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+#include <climits>
 
 namespace vpux::VPUIP {
 #define GEN_PASS_DECL_TILEACTSHAVEKERNELTASK
@@ -91,6 +94,18 @@ bool isNormalizeL2Axis(VPUIP::SwKernelOp swKernelOp, Dim axis) {
     auto numOfAxis = mlir::cast<mlir::IntegerAttr>(taskArgs[2]).getInt();
     const auto kernelAxises = parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(taskArgs[3]));
     return std::find(kernelAxises.begin(), kernelAxises.begin() + numOfAxis, axis.ind()) != kernelAxises.end();
+}
+
+bool isLrnAxis(VPUIP::SwKernelOp swKernelOp, Dim axis) {
+    auto taskArgs = kernelArgsRange(swKernelOp);
+    auto numOfAxis = mlir::cast<mlir::IntegerAttr>(taskArgs[4]).getInt();
+    const auto kernelAxes = parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(taskArgs[5]));
+    for (int64_t i = 0; i < numOfAxis; i++) {
+        if (convertKernelAxisToDim(swKernelOp.getResult(0), kernelAxes[i]) == axis) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // Returns the highest non-trivial dimension of the kernel output, excluding the axis specified by the kernel argument.
@@ -308,17 +323,14 @@ Dim getSwKernelTileDim(VPUIP::SwKernelOp swKernelOp) {
 
 // Returns configured numShaves/tile from existing attribute
 int64_t getIoDmaSwKernelNumShaves(VPUIP::SwKernelOp swKernelOp) {
-    auto kernelEntryName = getSwKernelEntryName(swKernelOp);
     auto args = kernelArgsRange(swKernelOp);
-
-    // See attr ordering for VPUIP::KernelInfo ctor (in sw_kernel.cpp)
-    if (kernelEntryName == "activation_atan_dma") {
-        const auto attr = mlir::dyn_cast<mlir::IntegerAttr>(args.begin()[0]);
-        VPUX_THROW_UNLESS(attr != nullptr, "Failed to extract numShaves attr at '{0}'", swKernelOp->getLoc());
-        return (attr.getInt() >> 32);  // low 32bits are numTiles
-    }
-
-    VPUX_THROW("Missing numShaves extraction support for '{0}'", kernelEntryName);
+    // See attr ordering for VPUIP::KernelInfo ctor (in sw_kernel.cpp).
+    // Agreement is that we always put runInfoAttr at the end of the args list for IoDmaOps
+    // activation_atan_dma: attrs = {runInfoAttr}           -> runInfoAttr at last index
+    // interpolate_dma:     attrs = {..., runInfoAttr} -> runInfoAttr at last index
+    const auto attr = mlir::dyn_cast<mlir::IntegerAttr>(args.back());
+    VPUX_THROW_UNLESS(attr != nullptr, "Failed to extract runInfoAttr at '{0}'", swKernelOp->getLoc());
+    return (attr.getInt() >> 32);  // high 32bits are numShaves, low 32bits are numTiles
 }
 
 bool isGatherOpTileAtHighestDim(VPUIP::SwKernelOp swKernelOp) {
@@ -457,7 +469,8 @@ bool isTopKOpTileAtHighestDim(VPUIP::SwKernelOp swKernelOp) {
 bool isOpTileOverWidthDim(VPUIP::SwKernelOp swKernelOp) {
     auto kernelEntryName = getSwKernelEntryName(swKernelOp);
     VPUX_THROW_UNLESS(kernelEntryName == "rms_norm" || kernelEntryName == "rope" || kernelEntryName == "rope_ilv" ||
-                              kernelEntryName == "rope_pairwise" || kernelEntryName == "sdpa",
+                              kernelEntryName == "rope_pairwise" || kernelEntryName == "rope_pairwise_ilv" ||
+                              kernelEntryName == "sdpa",
                       "This function was designed for RMSNorm, RoPE or SDPA operators");
 
     const auto outTileDimVal = getSwKernelTileDim(swKernelOp);
@@ -565,10 +578,16 @@ bool doesSwKernelSupportTiling(VPUIP::SwKernelOp swKernelOp, vpux::Logger log) {
         if (isTopKAxis(swKernelOp, highestDim)) {
             return false;
         }
-    } else if (kernelEntryName == "normalize_l2") {
+    } else if (kernelEntryName == "normalize_l2" || kernelEntryName == "normalize_l2_innermost") {
         const auto outputType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getResult(0).getType());
         auto highestDim = getHighestNonTrivialDim(outputType.getShape(), outputType.getDimsOrder()).value_or(Dim(0));
         if (isNormalizeL2Axis(swKernelOp, highestDim)) {
+            return false;
+        }
+    } else if (kernelEntryName == "lrn") {
+        const auto outputType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getResult(0).getType());
+        auto highestDim = getHighestNonTrivialDim(outputType.getShape(), outputType.getDimsOrder()).value_or(Dim(0));
+        if (isLrnAxis(swKernelOp, highestDim)) {
             return false;
         }
     } else if (kernelEntryName == "gather") {
@@ -640,7 +659,9 @@ bool doesSwKernelSupportTiling(VPUIP::SwKernelOp swKernelOp, vpux::Logger log) {
                       outputSize);
             return false;
         }
-    } else if (kernelEntryName == "rms_norm" || kernelEntryName == "rope" || kernelEntryName == "sdpa") {
+    } else if (kernelEntryName == "rms_norm" || kernelEntryName == "rope" || kernelEntryName == "rope_ilv" ||
+               kernelEntryName == "rope_pairwise" || kernelEntryName == "rope_pairwise_ilv" ||
+               kernelEntryName == "sdpa") {
         if (isOpTileOverWidthDim(swKernelOp)) {
             return false;
         }
@@ -695,7 +716,12 @@ bool doesSwKernelSupportTiling(VPUIP::SwKernelOp swKernelOp, vpux::Logger log) {
         const auto outputType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getResult(0).getType());
         const auto dmaPortNum = config::getNumOfDMAPorts(swKernelOp);
 
-        if (isBeneficialForUsingPermuteDMA(arch, inputType, outputType, memPerm.value(), dmaPortNum, log)) {
+        const auto supportsPermuteDMA =
+                VPUIP::isBeneficialForUsingPermuteDMA(arch, inputType, outputType, memPerm.value(), dmaPortNum, log);
+        const auto supportsWeightsPermutationFusion =
+                VPUIP::isBeneficialForFusingWeightsPermutation(arch, swKernelOp.getOperation());
+        // Using PermuteDMA is also expected if the consumer is a DynamicDequantize
+        if (supportsWeightsPermutationFusion || supportsPermuteDMA) {
             return false;
         }
     } else if (kernelEntryName == "nv12_to_rgb" || kernelEntryName == "i420_to_rgb") {
@@ -724,10 +750,64 @@ bool doesSwKernelSupportTiling(VPUIP::SwKernelOp swKernelOp, vpux::Logger log) {
     return true;
 }
 
+bool isNonContiguous(vpux::NDTypeInterface typeIf) {
+    return !vpux::StrideReqs::compact(typeIf.getRank()).checkStrides(typeIf);
+}
+
+int64_t getByteAddressableTileAlignment(mlir::Value value, Dim tileDim) {
+    const auto valueType = mlir::dyn_cast<vpux::NDTypeInterface>(value.getType());
+    if (valueType == nullptr || valueType.getRank() <= tileDim.ind()) {
+        return 1;
+    }
+
+    const auto elemTypeSizeBits = valueType.getElemTypeSize().count();
+    if (elemTypeSizeBits % CHAR_BIT == 0) {
+        return 1;
+    }
+
+    const auto dimOrder = valueType.getDimsOrder();
+    const auto memDim = dimOrder.toMemDim(tileDim);
+    const auto strides = valueType.getStrides();
+    if (!strides.empty()) {
+        const auto strideOnTilingDimBits = strides[tileDim].count();
+        if (strideOnTilingDimBits % CHAR_BIT == 0) {
+            return 1;
+        }
+        VPUX_THROW_WHEN(isNonContiguous(valueType),
+                        "Non-contiguous strides must be byte-aligned for SwKernel at '{0}'.", value.getLoc());
+    }
+
+    const auto memShape = dimOrder.toMemoryOrder(valueType.getShape());
+    int64_t strideOnTilingDim = 1;
+    for (auto i = static_cast<size_t>(memDim.ind()) + 1; i < memShape.size(); ++i) {
+        strideOnTilingDim *= memShape[MemDim(i)];
+    }
+
+    const auto bitsPerStep = strideOnTilingDim * elemTypeSizeBits;
+    if (bitsPerStep % CHAR_BIT == 0) {
+        return 1;
+    }
+
+    return CHAR_BIT / std::gcd<int64_t>(bitsPerStep, CHAR_BIT);
+}
+
+int64_t getSwKernelByteAddressableTileAlignment(VPUIP::SwKernelOp swKernelOp, Dim tileDim) {
+    int64_t alignment = 1;
+
+    auto allOperands = llvm::concat<mlir::Value>(swKernelOp.getInputs(), swKernelOp.getOutputs());
+    for (auto operand : allOperands) {
+        alignment = std::lcm(alignment, getByteAddressableTileAlignment(operand, tileDim));
+        if (alignment == CHAR_BIT) {
+            return alignment;
+        }
+    }
+
+    return alignment;
+}
+
 mlir::FailureOr<OutputTiling> getSwKernelOutputTiling(VPUIP::SwKernelOp swKernelOp, ShapeRef outputShape,
                                                       int64_t maxNumTiles, bool insertSubview, vpux::Logger log) {
     auto kernelEntryName = getSwKernelEntryName(swKernelOp);
-
     if (kernelEntryName == "lstm_sequence" || kernelEntryName == "attention" || kernelEntryName == "flash_sdpa") {
         OutputTiling dividedTiles;
         TileInfo tileFullOutput(outputShape);
@@ -754,6 +834,7 @@ mlir::FailureOr<OutputTiling> getSwKernelOutputTiling(VPUIP::SwKernelOp swKernel
     const auto tileDim = getSwKernelTileDim(swKernelOp);
     log.trace("Tile Dim is {0}", tileDim);
     nTilesOnDim[tileDim] = std::min(maxNumTiles, outputShape[tileDim]);
+
     std::optional<ArrayRef<int64_t>> optionalAlignment = std::nullopt;
     // Declare the neutral value outside of the condition.
     // Otherwise alignment vector gets destroyed at the end.
@@ -782,26 +863,47 @@ mlir::FailureOr<OutputTiling> getSwKernelOutputTiling(VPUIP::SwKernelOp swKernel
         // Shave can gain better performance when data address is 32 bytes aligned, the begin offset on the first shave
         // is already guaranteed with this condition. And for the other shaves, we need to adjust the tiled shape to
         // guarantee it.
-        auto dimOrder = DimsOrder::fromValue(swKernelOp->getResult(0));
-        auto memShape = dimOrder.toMemoryOrder(outputShape);
-        auto memDim = dimOrder.toMemDim(tileDim);
-        int64_t strideOnTilingDim = 1;
-        for (auto i : irange(memShape.size())) {
-            if (i > static_cast<size_t>(memDim.ind())) {
-                strideOnTilingDim *= memShape[MemDim(i)];
+        auto swKernelFirstOutput = swKernelOp->getResult(0);
+        const auto swKernelFirstOutputType = mlir::cast<vpux::NDTypeInterface>(swKernelFirstOutput.getType());
+        const auto elemSize = swKernelFirstOutputType.getElemTypeSize();
+        const auto strides = swKernelFirstOutputType.getStrides();
+        const auto elemSizeBits = elemSize.count();
+        int64_t byteStrideOnTilingDim = 1;
+        if (!strides.empty()) {
+            byteStrideOnTilingDim = strides[tileDim].count() / elemSizeBits;
+        } else {
+            auto dimOrder = DimsOrder::fromValue(swKernelFirstOutput);
+            auto memShape = dimOrder.toMemoryOrder(outputShape);
+            auto memDim = dimOrder.toMemDim(tileDim);
+            for (auto i : irange(memShape.size())) {
+                if (i > static_cast<size_t>(memDim.ind())) {
+                    byteStrideOnTilingDim *= memShape[MemDim(i)];
+                }
             }
         }
+
         const auto arch = config::getArch(swKernelOp);
         const auto addrAlign = VPUIP::getSwKernelTilingAddressAlignment(swKernelOp, arch);
-        const auto elemSize =
-                mlir::cast<vpux::NDTypeInterface>(swKernelOp.getOutputs().front().getType()).getElemTypeSize();
-        auto alignmentVal =
-                std::lcm(strideOnTilingDim, Byte(addrAlign).to<Bit>().count() / elemSize.count()) / strideOnTilingDim;
-        if (alignmentVal < outputShape[tileDim]) {
+        const auto byteAddressableAlignment = getSwKernelByteAddressableTileAlignment(swKernelOp, tileDim);
+        if (byteAddressableAlignment >= outputShape[tileDim]) {
+            return mlir::failure();
+        }
+
+        const auto bitsPerAddrAlign = Byte(addrAlign).to<Bit>().count();
+        int64_t alignmentVal = byteAddressableAlignment;
+        const auto addrAlignmentVal =
+                std::lcm(byteStrideOnTilingDim, bitsPerAddrAlign / elemSizeBits) / byteStrideOnTilingDim;
+
+        if (addrAlignmentVal > 0 && addrAlignmentVal < outputShape[tileDim]) {
+            alignmentVal = std::lcm(alignmentVal, addrAlignmentVal);
+        }
+
+        if (alignmentVal > 1 && alignmentVal < outputShape[tileDim]) {
             alignment[tileDim.ind()] = alignmentVal;
             optionalAlignment = std::optional<ArrayRef<int64_t>>(alignment);
         }
     }
+
     return fillDividedTiles(nTilesOnDim, outputShape, optionalAlignment);
 }
 
@@ -1654,8 +1756,10 @@ bool ClusterSwKernelRewriter::requireBalancingShapeCast(VPUIP::SwKernelOp swKern
                 auto tiles =
                         getTileFromList(inTiles.value(), clusterId, shaveId, numClusters, mode, needInserSubview).tiles;
                 // here only check the first input for eltwise like operation
-                auto totalSize = tiles.front().shape.totalSize() * elemSize;
-                if (Byte(totalSize).count() % VPUIP::getSwKernelTilingAddressAlignment(swKernelOp, arch) != 0) {
+                const auto totalSizeBits = tiles.front().shape.totalSize() * elemSize.count();
+                const auto alignBits =
+                        Byte(VPUIP::getSwKernelTilingAddressAlignment(swKernelOp, arch)).to<Bit>().count();
+                if (totalSizeBits % alignBits != 0) {
                     _log.trace("SwKernelOp {0} requires balancing tiling for address align", swKernelOp->getName());
                     return true;
                 }

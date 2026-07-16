@@ -14,7 +14,7 @@ module @DoNotDuplicateUnusedFQ {
     } outputsInfo : {
         DataInfo "output" : tensor<1x48x60x60xf32>
     }
-    func.func private @function(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
+    func.func nested @function(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
         %in_low = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
         %in_high = const.Declare tensor<1x1x1x1xf32> = dense<2.540000e+02> : tensor<1x1x1x1xf32>
         %out_low = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
@@ -31,7 +31,7 @@ module @DoNotDuplicateUnusedFQ {
         return %call : tensor<1x48x60x60xf32>
     }
 
-    // CHECK:      func.func private @function([[ARG:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
+    // CHECK:      func.func nested @function([[ARG:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
     // CHECK-DAG:      [[IN_LOW:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
     // CHECK-DAG:      [[IN_HIGH:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<2.540000e+02> : tensor<1x1x1x1xf32>
     // CHECK-DAG:      [[OUT_LOW:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
@@ -57,7 +57,7 @@ module @DoNotDuplicateUnusedFQBetweenCallOps {
     } outputsInfo : {
         DataInfo "output" : tensor<1x48x60x60xf32>
     }
-    func.func private @function(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
+    func.func nested @function(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
         %in_low = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
         %in_high = const.Declare tensor<1x1x1x1xf32> = dense<2.540000e+02> : tensor<1x1x1x1xf32>
         %out_low = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
@@ -74,7 +74,7 @@ module @DoNotDuplicateUnusedFQBetweenCallOps {
         return %call2 : tensor<1x48x60x60xf32>
     }
 
-    // CHECK:      func.func private @function([[ARG:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
+    // CHECK:      func.func nested @function([[ARG:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
     // CHECK-DAG:      [[IN_LOW:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
     // CHECK-DAG:      [[IN_HIGH:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<2.540000e+02> : tensor<1x1x1x1xf32>
     // CHECK-DAG:      [[OUT_LOW:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
@@ -101,7 +101,7 @@ module @DuplicateOutside {
     } outputsInfo : {
         DataInfo "output" : tensor<1x48x60x60xf32>
     }
-    func.func private @function(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
+    func.func nested @function(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
         %in_low = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
         %in_high = const.Declare tensor<1x1x1x1xf32> = dense<2.540000e+02> : tensor<1x1x1x1xf32>
         %out_low = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
@@ -118,7 +118,7 @@ module @DuplicateOutside {
         return %relu2 : tensor<1x48x60x60xf32>
     }
 
-    // CHECK:      func.func private @function([[ARG:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
+    // CHECK:      func.func nested @function([[ARG:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
     // CHECK-DAG:      [[IN_LOW:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
     // CHECK-DAG:      [[IN_HIGH:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<2.540000e+02> : tensor<1x1x1x1xf32>
     // CHECK-DAG:      [[OUT_LOW:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
@@ -152,7 +152,7 @@ module @DuplicateOutsideWithReshapes {
     } outputsInfo : {
         DataInfo "output" : tensor<1x48x60x60xf32>
     }
-    func.func private @function(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
+    func.func nested @function(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
         %in_low = const.Declare tensor<1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1xf32>
         %in_high = const.Declare tensor<1x1x1xf32> = dense<2.540000e+02> : tensor<1x1x1xf32>
         %out_low = const.Declare tensor<1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1xf32>
@@ -171,7 +171,7 @@ module @DuplicateOutsideWithReshapes {
         return %relu2 : tensor<1x48x60x60xf32>
     }
 
-    // CHECK:      func.func private @function([[ARG:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
+    // CHECK:      func.func nested @function([[ARG:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
     // CHECK-DAG:      [[IN_LOW:%.+]] = const.Declare tensor<1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1xf32>
     // CHECK-DAG:      [[IN_HIGH:%.+]] = const.Declare tensor<1x1x1xf32> = dense<2.540000e+02> : tensor<1x1x1xf32>
     // CHECK-DAG:      [[OUT_LOW:%.+]] = const.Declare tensor<1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1xf32>
@@ -222,7 +222,7 @@ module @DuplicateInside {
     } outputsInfo : {
         DataInfo "output" : tensor<1x48x60x60xf32>
     }
-    func.func private @function(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
+    func.func nested @function(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
         %relu = IE.ReLU(%arg0) : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
         return %relu : tensor<1x48x60x60xf32>
     }
@@ -237,7 +237,7 @@ module @DuplicateInside {
         return %fq_out : tensor<1x48x60x60xf32>
     }
 
-    // CHECK:      func.func private @function([[ARG:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
+    // CHECK:      func.func nested @function([[ARG:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
     // CHECK-DAG:      [[DUPL_IN_LOW:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
     // CHECK-DAG:      [[DUPL_IN_HIGH:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<2.540000e+02> : tensor<1x1x1x1xf32>
     // CHECK-DAG:      [[DUPL_OUT_LOW:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
@@ -263,7 +263,7 @@ module @DuplicateInsideWithReshapes {
     } outputsInfo : {
         DataInfo "output" : tensor<1x48x60x60xf32>
     }
-    func.func private @function(%arg0: tensor<48x60x60xf32>) -> tensor<48x60x60xf32> {
+    func.func nested @function(%arg0: tensor<48x60x60xf32>) -> tensor<48x60x60xf32> {
         %relu = IE.ReLU(%arg0) : tensor<48x60x60xf32> -> tensor<48x60x60xf32>
         return %relu : tensor<48x60x60xf32>
     }
@@ -280,7 +280,7 @@ module @DuplicateInsideWithReshapes {
         return %fq_out : tensor<1x48x60x60xf32>
     }
 
-    // CHECK:      func.func private @function([[ARG:%.+]]: tensor<48x60x60xf32>) -> tensor<48x60x60xf32> {
+    // CHECK:      func.func nested @function([[ARG:%.+]]: tensor<48x60x60xf32>) -> tensor<48x60x60xf32> {
     // CHECK-DAG:      [[DUPL_IN_LOW:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
     // CHECK-DAG:      [[DUPL_IN_HIGH:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<2.540000e+02> : tensor<1x1x1x1xf32>
     // CHECK-DAG:      [[DUPL_OUT_LOW:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
@@ -322,12 +322,12 @@ module @DuplicateFQInsideBetweenCalls {
     } outputsInfo : {
         DataInfo "output" : tensor<1x48x60x60xf32>
     }
-    func.func private @function1(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
+    func.func nested @function1(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
         %relu = IE.ReLU(%arg0) : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
         // FQ is duplicated here
         return %relu : tensor<1x48x60x60xf32>
     }
-    func.func private @function2(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
+    func.func nested @function2(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
         %in_low = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
         %in_high = const.Declare tensor<1x1x1x1xf32> = dense<2.540000e+02> : tensor<1x1x1x1xf32>
         %out_low = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
@@ -337,7 +337,7 @@ module @DuplicateFQInsideBetweenCalls {
         %fq_out = IE.FakeQuantize(%relu, %out_low, %out_high, %out_low, %out_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i32} : tensor<1x48x60x60xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x48x60x60xf32>
         return %fq_out : tensor<1x48x60x60xf32>
     }
-    func.func private @function3(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
+    func.func nested @function3(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
         // FQ is duplicated here
         %relu = IE.ReLU(%arg0) : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
         return %relu : tensor<1x48x60x60xf32>
@@ -349,14 +349,14 @@ module @DuplicateFQInsideBetweenCalls {
         return %call3 : tensor<1x48x60x60xf32>
     }
 
-    // CHECK:      func.func private @function1([[ARG:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
+    // CHECK:      func.func nested @function1([[ARG:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
     // CHECK-DAG:      [[DUPL_IN_LOW:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
     // CHECK-DAG:      [[DUPL_IN_HIGH:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<2.540000e+02> : tensor<1x1x1x1xf32>
     // CHECK:          [[FN1_RELU:%.+]] = IE.ReLU([[ARG]])
     // CHECK:          [[DUPL_FQ_IN:%.+]] = IE.FakeQuantize([[FN1_RELU]], [[DUPL_IN_LOW]], [[DUPL_IN_HIGH]], [[DUPL_IN_LOW]], [[DUPL_IN_HIGH]])
     // CHECK:          return [[DUPL_FQ_IN]]
     // CHECK:      }
-    // CHECK:      func.func private @function2([[ARG:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
+    // CHECK:      func.func nested @function2([[ARG:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
     // CHECK-DAG:      [[IN_LOW:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
     // CHECK-DAG:      [[IN_HIGH:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<2.540000e+02> : tensor<1x1x1x1xf32>
     // CHECK-DAG:      [[OUT_LOW:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
@@ -366,7 +366,7 @@ module @DuplicateFQInsideBetweenCalls {
     // CHECK:          [[FQ_OUT:%.+]] = IE.FakeQuantize([[FN1_RELU]], [[OUT_LOW]], [[OUT_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
     // CHECK:          return [[FQ_OUT]]
     // CHECK:      }
-    // CHECK:      func.func private @function3([[ARG:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
+    // CHECK:      func.func nested @function3([[ARG:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
     // CHECK-DAG:      [[DUPL_OUT_LOW:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
     // CHECK-DAG:      [[DUPL_OUT_HIGH:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<2.550000e+02> : tensor<1x1x1x1xf32>
     // CHECK:          [[FQ_OUT:%.+]] = IE.FakeQuantize([[ARG]], [[DUPL_OUT_LOW]], [[DUPL_OUT_HIGH]], [[DUPL_OUT_LOW]], [[DUPL_OUT_HIGH]])

@@ -44,3 +44,28 @@ func.func @ReplaceFQU16WithReLU(%arg0: tensor<1x4x640x640xf16>) -> tensor<1x4x64
 
     // CHECK: return [[SIGMOID]]
 }
+
+// -----
+
+// With adaptive stripping disabled, the ParentFQ U16 -> ChildFQ U16 chain is not
+// collapsed; each FQ is handled independently (parent dropped on il=ol, child -> ReLU).
+
+// CHECK-LABEL: @DoNotChainCollapseAdaptiveStrippingDisabled
+// CHECK-SAME:     ([[ARG0:%.+]]: tensor<1x512x51x39xf16>)
+func.func @DoNotChainCollapseAdaptiveStrippingDisabled(%arg0: tensor<1x512x51x39xf16>) -> tensor<1x512x51x39xf16> {
+    %fq1_low  = const.Declare tensor<1x1x1x1xf16> = dense<1.000000e+00> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
+    %fq1_high = const.Declare tensor<1x1x1x1xf16> = dense<12.7559032> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
+    %fq2_low  = const.Declare tensor<1x1x1x1xf16> = dense<0.000000e+00> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
+    %fq2_high = const.Declare tensor<1x1x1x1xf16> = dense<14.7559032> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
+
+    %parent = IE.FakeQuantize(%arg0, %fq1_low, %fq1_high, %fq1_low, %fq1_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x512x51x39xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x512x51x39xf16>
+    %child  = IE.FakeQuantize(%parent, %fq2_low, %fq2_high, %fq2_low, %fq2_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x512x51x39xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x512x51x39xf16>
+    %sigmoid = IE.Sigmoid(%child) : tensor<1x512x51x39xf16> -> tensor<1x512x51x39xf16>
+    return %sigmoid : tensor<1x512x51x39xf16>
+
+    // With adaptive stripping disabled: parent FQ is dropped (il=ol so it is replaced
+    // with its input), child FQ is per-tensor il=ol=0 so it is replaced with a ReLU.
+    // CHECK:    [[RELU:%.+]] = IE.ReLU([[ARG0]]) : tensor<1x512x51x39xf16> -> tensor<1x512x51x39xf16>
+    // CHECK:    [[SIGMOID:%.+]] = IE.Sigmoid([[RELU]]) : tensor<1x512x51x39xf16> -> tensor<1x512x51x39xf16>
+    // CHECK:    return [[SIGMOID]]
+}

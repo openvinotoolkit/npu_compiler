@@ -39,7 +39,7 @@ struct TypeComponents {
     TypeComponents& setShapeWithRepresentation(BoundedShape&& newShape);
     TypeComponents& setShapeWithRepresentation(DimsMaskedShape&& newShape);
     TypeComponents& setElementType(mlir::Type newElementType);
-    TypeComponents& setDimsOrder(DimsOrder newDimsOrder);
+    TypeComponents& setDimsOrder(const DimsOrder& newDimsOrder);
     TypeComponents& setMemSpace(IndexedSymbolAttr newMemSpace);
     TypeComponents& setStrides(StridesRef newStrides);
     TypeComponents& setBounds(Bounds&& newBounds);
@@ -75,7 +75,7 @@ public:
     vpux::NDTypeInterface changeShape(mlir::Type type, vpux::ShapeRef shape) const;
     vpux::NDTypeInterface changeElemType(mlir::Type type, mlir::Type elemType) const;
     vpux::NDTypeInterface changeShapeElemType(mlir::Type type, vpux::ShapeRef shape, mlir::Type elemType) const;
-    vpux::NDTypeInterface changeDimsOrder(mlir::Type type, vpux::DimsOrder order) const;
+    vpux::NDTypeInterface changeDimsOrder(mlir::Type type, const vpux::DimsOrder& order) const;
     vpux::NDTypeInterface changeMemSpace(mlir::Type type, vpux::IndexedSymbolAttr memSpace) const;
     vpux::NDTypeInterface changeStrides(mlir::Type type, vpux::StridesRef strides) const;
     vpux::NDTypeInterface changeTypeComponents(mlir::Type type, const vpux::TypeComponents& typeComponents) const;
@@ -105,7 +105,7 @@ public:
     vpux::NDTypeInterface changeShape(mlir::Type type, vpux::ShapeRef shape) const;
     vpux::NDTypeInterface changeElemType(mlir::Type type, mlir::Type elemType) const;
     vpux::NDTypeInterface changeShapeElemType(mlir::Type type, vpux::ShapeRef shape, mlir::Type elemType) const;
-    vpux::NDTypeInterface changeDimsOrder(mlir::Type type, vpux::DimsOrder order) const;
+    vpux::NDTypeInterface changeDimsOrder(mlir::Type type, const vpux::DimsOrder& order) const;
     vpux::NDTypeInterface changeMemSpace(mlir::Type type, vpux::IndexedSymbolAttr memSpace) const;
     vpux::NDTypeInterface changeStrides(mlir::Type type, vpux::StridesRef strides) const;
     vpux::NDTypeInterface changeTypeComponents(mlir::Type type, const vpux::TypeComponents& typeComponents) const;

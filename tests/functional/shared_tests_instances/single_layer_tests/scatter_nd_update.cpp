@@ -9,6 +9,10 @@
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ScatterNDUpdateLayerTest);
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ScatterNDUpdate15LayerTest);
+
 class ScatterNDUpdateLayerTestCommon : public ScatterNDUpdateLayerTest, virtual public VpuOv2LayerTest {};
 class ScatterNDUpdateLayerTestMTLHW : public ScatterNDUpdateLayerTest, virtual public VpuOv2LayerTest {};
 
@@ -109,6 +113,28 @@ INSTANTIATE_TEST_SUITE_P(smoke_ScatterNDUpdate, ScatterNDUpdateLayerTestMTLHW, p
                          ScatterNDUpdateLayerTestMTLHW::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_ScatterNDUpdate, ScatterNDUpdateLayerTestCommon, precommit_params,
+                         ScatterNDUpdateLayerTestCommon::getTestCaseName);
+
+// Cases exercising the identity-prefix Select-to-Concat optimization
+// (ConvertScatterNDUpdateSelectToConcat pattern in convert_scatter pass)
+InputMap selectToConcatInShape{
+        // 1D point-level: data=[15], indices=[4,1], positions [1,4,7,11] (non-uniform gaps)
+        {{15}, {{{4, 1}, {1, 4, 7, 11}}}},
+        // 2D point-level: data=[4,3], indices=[4,2,2], identity prefix on dim0, selecting cols [0,2]
+        {{4, 3}, {{{4, 2, 2}, {0, 0, 0, 2, 1, 0, 1, 2, 2, 0, 2, 2, 3, 0, 3, 2}}}},
+        // 3D point-level: data=[1,4,3], indices=[1,4,2,3], identity prefix on dims [0,1], cols [0,2]
+        {{1, 4, 3}, {{{1, 4, 2, 3}, {0, 0, 0, 0, 0, 2, 0, 1, 0, 0, 1, 2, 0, 2, 0, 0, 2, 2, 0, 3, 0, 0, 3, 2}}}},
+        // 4D partial scatter: data=[1,4,10,3], indices=[1,4,3,3], identity prefix dims [0,1], rows [2,5,8]
+        {{1, 4, 10, 3}, {{{1, 4, 3, 3}, {0, 0, 2, 0, 0, 5, 0, 0, 8, 0, 1, 2, 0, 1, 5, 0, 1, 8,
+                                         0, 2, 2, 0, 2, 5, 0, 2, 8, 0, 3, 2, 0, 3, 5, 0, 3, 8}}}},
+};
+
+const auto selectToConcatParams = testing::Combine(testing::ValuesIn(combineShapes(selectToConcatInShape)),
+                                                   testing::Values(ov::element::f16),  // model
+                                                   testing::Values(ov::element::i32),  // indices
+                                                   testing::Values(test_utils::TARGET_DEVICE));
+
+INSTANTIATE_TEST_SUITE_P(smoke_ScatterNDUpdate_SelectToConcat, ScatterNDUpdateLayerTestCommon, selectToConcatParams,
                          ScatterNDUpdateLayerTestCommon::getTestCaseName);
 
 }  // namespace

@@ -13,6 +13,9 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ProposalLayerTest);
+
 class ProposalLayerTestCommon : public ProposalLayerTest, virtual public VpuOv2LayerTest {
 protected:
     void SetUp() override {

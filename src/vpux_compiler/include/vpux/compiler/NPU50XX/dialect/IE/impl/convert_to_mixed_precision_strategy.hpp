@@ -8,7 +8,7 @@
 #include "vpux/compiler/dialect/IE/interfaces/convert_to_mixed_precision_strategy.hpp"
 
 namespace vpux::IE::arch50xx {
-class ConvertToMixedPrecisionStrategy final : public vpux::IE::IConvertToMixedPrecisionStrategy {
+class ConvertToMixedPrecisionStrategy : public vpux::IE::IConvertToMixedPrecisionStrategy {
 public:
     ConvertToMixedPrecisionStrategy(const bool enableFloatInQuantWeightsMixedMode)
             : IConvertToMixedPrecisionStrategy(enableFloatInQuantWeightsMixedMode) {

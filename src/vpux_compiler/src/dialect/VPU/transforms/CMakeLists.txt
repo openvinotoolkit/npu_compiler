@@ -29,7 +29,7 @@ add_npu_library(npu_compiler_dialect_vpu_transforms
         npu_compiler_conversion
         npu_compiler_dialect_const
         npu_compiler_dialect_core
-        npu_compiler_dialect_elf_utils
+        npu_compiler_dialect_elf
         npu_compiler_dialect_hostexec
         npu_compiler_dialect_ie
         npu_compiler_dialect_ie_utils
@@ -37,4 +37,5 @@ add_npu_library(npu_compiler_dialect_vpu_transforms
         npu_compiler_dialect_npureg40xx
         npu_compiler_dialect_vpuip
         npu_compiler_dialect_vpuip_utils
+        npu_compiler_dialect_shave
 )

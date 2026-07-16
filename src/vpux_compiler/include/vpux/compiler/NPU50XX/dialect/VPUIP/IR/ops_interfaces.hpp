@@ -5,8 +5,4 @@
 
 #include <mlir/IR/Dialect.h>
 
-namespace vpux::VPUIP::arch50xx {
-
-void registerAlignedChannelsOpInterfaces(mlir::DialectRegistry& registry);
-
-}  // namespace vpux::VPUIP::arch50xx
+namespace vpux::VPUIP::arch50xx {}  // namespace vpux::VPUIP::arch50xx

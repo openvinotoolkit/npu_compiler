@@ -83,62 +83,115 @@ mlir::LogicalResult MaxPoolConverter::matchAndRewrite(IE::MaxPoolOp origOp, mlir
         return mlir::failure();
     }
 
+    using namespace Dims4D::Act;
+
+    int64_t paddedC = inShape[C];
     int64_t divisor = 1;
-    if (inShape[Dims4D::Act::C] % VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT == 0) {
-        for (int64_t i = inShape[Dims4D::Act::C] / 2; i > 2; i--) {
-            if ((i < VPU::NCEInvariant::VPU_DIMENSION_LIMIT) && (inShape[Dims4D::Act::C] % i == 0) &&
-                ((inShape[Dims4D::Act::C] / i) % VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT == 0)) {
-                divisor = i;
+
+    if (inShape[C] % VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT == 0) {
+        // For 16-aligned C: find a divisor (with optional padding) where both new_C and new_W are 16-aligned.
+        // This avoids producing non-aligned W dimensions that cause costly scatter DMA downstream.
+        const auto maxChannelAlignment = VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT *
+                                         VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT;  // 256 when alignment is 16
+        const auto maxPadC =
+                inShape[C] +
+                maxChannelAlignment;  //  originC + 256 (when vpu channel alignment is 16) which is the max value for
+                                      //  which we need to find a divisor that satisfies the alignment for both C and W.
+                                      //  Beyond that, we would be padding too much without finding a suitable divisor.
+        for (int64_t tryC = inShape[C]; tryC <= maxPadC; tryC += VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT) {
+            for (int64_t i = (tryC / 2 / VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT) *
+                             VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT;
+                 i >= VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT; i -= VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT) {
+                if ((tryC % i == 0) && ((tryC / i) % VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT == 0) &&
+                    (i < VPU::NCEInvariant::VPU_DIMENSION_LIMIT) &&
+                    ((tryC / i) < VPU::NCEInvariant::VPU_DIMENSION_LIMIT)) {
+                    divisor = i;
+                    paddedC = tryC;
+                    break;
+                }
+            }
+            if (divisor != 1) {
                 break;
             }
         }
     } else {
-        for (int64_t i = inShape[Dims4D::Act::C] / 2; i > 2; i--) {
-            if ((i < VPU::NCEInvariant::VPU_DIMENSION_LIMIT) && (inShape[Dims4D::Act::C] % i == 0)) {
+        // For non-aligned C: use original logic — find any valid divisor without alignment constraints.
+        for (int64_t i = inShape[C] / 2; i > 2; i--) {
+            if ((i < VPU::NCEInvariant::VPU_DIMENSION_LIMIT) && (inShape[C] % i == 0)) {
                 divisor = i;
                 break;
             }
         }
     }
-    if (divisor == 1 || inShape[Dims4D::Act::C] % divisor != 0) {
+
+    if (divisor == 1 || paddedC % divisor != 0) {
         return mlir::failure();
     }
 
-    auto newInputShape = {
-            inShape[Dims4D::Act::N],
-            inShape[Dims4D::Act::C] / divisor,
-            inShape[Dims4D::Act::W] * divisor,
-            inShape[Dims4D::Act::H],
-    };
-
     auto ctx = origOp.getContext();
-    const auto inputShapeAttr = getIntArrayAttr(ctx, newInputShape);
     const SmallVector<unsigned> order = {0, 1, 3, 2};
     auto orderAttr = mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(order, ctx));
+
+    // Transpose first (swaps H and W, does not touch C)
     auto transposeInResult = rewriter.createOrFold<IE::TransposeOp>(appendLoc(origOp->getLoc(), "transpose_in"),
                                                                     origOp.getInput(), nullptr, orderAttr);
-    auto reshapeInResult = rewriter.createOrFold<IE::ReshapeOp>(appendLoc(origOp->getLoc(), "reshape_in"),
-                                                                transposeInResult, inputShapeAttr);
+
+    // If padding is needed, expand C with zeros after transpose to avoid transposing padded data
+    mlir::Value reshapeInput = transposeInResult;
+    if (paddedC != inShape[C]) {
+        const auto padAmount = paddedC - inShape[C];
+        SmallVector<int64_t> padsBegin(4, 0);
+        SmallVector<int64_t> padsEnd(4, 0);
+        padsEnd[C.ind()] = padAmount;
+        reshapeInput = rewriter.create<IE::ExpandOp>(appendLoc(origOp->getLoc(), "pad_channels"), transposeInResult,
+                                                     getIntArrayAttr(ctx, padsBegin), getIntArrayAttr(ctx, padsEnd));
+    }
+
+    const SmallVector<int64_t> newInputShape = {
+            inShape[N],
+            paddedC / divisor,
+            inShape[W] * divisor,
+            inShape[H],
+    };
+    const auto inputShapeAttr = getIntArrayAttr(ctx, newInputShape);
+    auto reshapeInResult = rewriter.createOrFold<IE::ReshapeOp>(appendLoc(origOp->getLoc(), "reshape_in"), reshapeInput,
+                                                                inputShapeAttr);
 
     const auto newKernel = getIntArrayAttr(ctx, SmallVector<int64_t>{kernel[1], kernel[0]});
     const auto newStrides = getIntArrayAttr(ctx, SmallVector<int64_t>{strides[1], strides[0]});
     auto maxpool = rewriter.create<IE::MaxPoolOp>(
             origOp.getLoc(), reshapeInResult, newKernel, newStrides, origOp.getPadsBeginAttr(), origOp.getPadsEndAttr(),
-            origOp.getRoundingType(), origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getOutputPaddingAttr(),
-            origOp.getInputPaddingAttr());
+            origOp.getRoundingType(), origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getStaticScaleAttr(),
+            origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
 
+    // Reshape output back
     const SmallVector<int64_t> newOutputShape = {
-            outShape[Dims4D::Act::N],
-            outShape[Dims4D::Act::C],
-            outShape[Dims4D::Act::W],
-            outShape[Dims4D::Act::H],
+            outShape[N],
+            paddedC,
+            outShape[W],
+            outShape[H],
     };
     const auto outputShapeAttr = getIntArrayAttr(ctx, newOutputShape);
     auto reshapeOutResult = rewriter.createOrFold<IE::ReshapeOp>(appendLoc(origOp->getLoc(), "reshape_out"),
                                                                  maxpool->getResult(0), outputShapeAttr);
 
+    // If we padded, slice back to original C before transpose to avoid transposing padded data
+    mlir::Value transposeInput = reshapeOutResult;
+    if (paddedC != inShape[C]) {
+        SmallVector<int64_t> offsets(4, 0);
+        const SmallVector<int64_t> sizes = {
+                outShape[N],
+                outShape[C],
+                outShape[W],
+                outShape[H],
+        };
+        transposeInput = rewriter.create<IE::SliceOp>(appendLoc(origOp->getLoc(), "slice_channels"), reshapeOutResult,
+                                                      getIntArrayAttr(ctx, offsets), getIntArrayAttr(ctx, sizes));
+    }
+
     auto transposeOutResult = rewriter.createOrFold<IE::TransposeOp>(appendLoc(origOp->getLoc(), "transpose_out"),
-                                                                     reshapeOutResult, nullptr, orderAttr);
+                                                                     transposeInput, nullptr, orderAttr);
+
     origOp.getOutput().replaceAllUsesWith(transposeOutResult);
 
     return mlir::success();

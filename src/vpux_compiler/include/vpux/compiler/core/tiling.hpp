@@ -19,13 +19,14 @@ namespace vpux::IE {
 enum class InterpolateMode : uint64_t;
 enum class InterpolateCoordMode : uint64_t;
 enum class InterpolateNearestMode : uint64_t;
+enum class InterpolateCalcMode : uint64_t;
 }  // namespace vpux::IE
 
 namespace vpux {
 
 // Experimental number to avoid memory fragmentation when generating tiling.
 // This one is also used in memory check of long-term spilling.
-static constexpr double FRAGMENTATION_AVOID_RATIO = 0.9;
+static constexpr double FRAGMENTATION_AVOID_RATIO = 0.8996;
 
 // Experimental number to avoid big memory fragmentation when pipelining
 static constexpr double FRAGMENTATION_AVOID_RATIO_MAX_PIPELINING = 0.85;
@@ -86,6 +87,9 @@ static constexpr double ACTSPARSE_DPU_COST_RATIO = 2;
 // Experimental number for reducemin to get better DPU performance than SHAVE
 // Track [E#126141]
 static constexpr double REDUCEMIN_DPU_THRESHOLD = 96 * 1024;
+
+// Experimental number to avoid excessive tiling in output pipeline tiling for MatMul SOG
+static constexpr int MATMUL_GROUP_THRESHOLD = 64;
 
 // Experimental numbers to correct Convolution SOK cost
 static constexpr double NCECONV_DPU_SOK_COST_RATIO = 1.1;
@@ -174,6 +178,8 @@ struct TileInfo final {
 
 // Operation output tiles information
 using OutputTiling = SmallVector<TileInfo>;
+
+bool requiresDimsGroups5D(mlir::Operation* op);
 
 // helper function to generate a set of tiles from dividing a shape. A shape divided across multiple
 // dimensions will generate a set of tiles, each having its own size and offsets. Additionally an alignment
@@ -356,7 +362,9 @@ InputTiling backInferInterpolateTile(const vpux::TileInfo& outputTile, ArrayRef<
                                      std::optional<ArrayRef<int64_t>> lambdasDims,
                                      vpux::IE::InterpolateMode interpolateMode,
                                      vpux::IE::InterpolateCoordMode coordMode,
-                                     vpux::IE::InterpolateNearestMode nearestMode, vpux::Logger log);
+                                     vpux::IE::InterpolateNearestMode nearestMode,
+                                     vpux::IE::InterpolateCalcMode calcMode, ArrayRef<double> originalScales,
+                                     ArrayRef<int64_t> axesAttr, vpux::Logger log);
 
 //
 // Gather tiling
@@ -489,9 +497,26 @@ SmallVector<int64_t> alignShape(ArrayRef<int64_t> shape, std::optional<ArrayRef<
     return alignedShape;
 }
 SmallVector<Strides> adaptStrides(ShapeRef origShape, StridesRef origStrides, ArrayRef<Shape> adaptedShapes,
-                                  DimsOrder dimsOrder);
+                                  const DimsOrder& dimsOrder);
 
 SmallVector<int64_t> getMinNumTiles(mlir::Operation* op);
+
+// Returns the packing granularity for sub-byte element types used by the op. For example, 4-bit elements require
+// tile sizes to keep at least two packed values per byte, so the returned factor is 2.
+int64_t getSubByteAlignmentFactor(mlir::Operation* op);
+void adjustMaxNumTilesForSubByteAlignment(SmallVector<int64_t>& maxNumTiles, ShapeRef outputShape,
+                                          int64_t subByteAlignmentFactor);
+void updateTilingSizeForOpAlignment(mlir::Operation* op, ShapeRef outputShape, int64_t& minChannelSize,
+                                    int64_t& minHeightSize, int64_t& minWidthSize,
+                                    bool checkWorkloadEfficiency = false);
+
+DimArr stripChannelsDimIfAutopadIsUsed(mlir::Operation* op, DimArr dims);
+DimArr keepDims(DimArrRef dims, ArrayRef<Dim> allowedDims);
+DimArr removeDims(DimArrRef dims, ArrayRef<Dim> forbiddenDims);
+DimArr removeAxes(DimArrRef dims, ArrayRef<int64_t> axes);
+void ensureNTilesIsCompatibleWithMultiClusterDown(mlir::Operation* op, Shape& nTilesOnDim, Dim dimToTile,
+                                                  ShapeRef outputShape, bool requireChannelDivisible,
+                                                  const Logger& log);
 
 SmallVector<int64_t> getMaxNumTiles(mlir::Operation* op, bool checkMinimalWidthAndHeight = false,
                                     bool checkWorkloadEfficiency = false, ArrayRef<int64_t> maxTilesPerDim = {});
@@ -533,7 +558,7 @@ mlir::FailureOr<OutputTiling> getHWLayerTilingStrategyWithTileDimOrder(mlir::Ope
 mlir::FailureOr<OutputTiling> getHWLayerTilingStrategy(mlir::Operation* op, TilingMode tilingMode, Logger log);
 
 DimArr getTileDimOrder(mlir::Operation* op, TilingMode tilingMode, Logger log);
-DimArr getTileDimOrderND(MemShape memShape, DimsOrder dimOrder);
+DimArr getTileDimOrderND(MemShape memShape, const DimsOrder& dimOrder);
 
 // utils for tiling strategy
 
@@ -578,12 +603,19 @@ std::pair<Dim, int64_t> getAlignDimAndSize(mlir::Operation* op);
  * Gets alignment for operation based on tiling
  */
 SmallVector<int64_t> getAlignment(mlir::Operation* op, ShapeRef divisors, ShapeRef shape,
-                                  bool canUseDynamicAlignment = true);
+                                  bool canUseDynamicAlignment = true, const bool enableOptimizationAlignment = true);
 
 /*
  * Check if the shape size is divisible with alignment
  */
 bool isSupportedAlignedDivision(int64_t dimSize, int64_t tiles, int64_t alignment);
+
+bool isCostInaccurate(mlir::Operation* op);
+void dimPlus(Shape& nTilesOnDim, Dim dimToTile, Dim dimToAlign, int64_t dimAlignment, ShapeRef outputShape,
+             ArrayRef<int64_t> maxNumTiles, const Logger& log);
+
+void dimMinus(Shape& nTilesOnDim, Dim dimToTile, Dim dimToAlign, int64_t dimAlignment, ShapeRef outputShape,
+              const Logger& log);
 
 /*
  * Check if the new tile has the same cost as the historical one and has benefits for DMA

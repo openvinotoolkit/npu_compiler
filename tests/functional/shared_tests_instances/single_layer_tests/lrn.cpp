@@ -11,21 +11,20 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(LrnLayerTest);
+
 class LrnLayerTestCommon_FP16 : public LrnLayerTest, virtual public VpuOv2LayerTest {};
 class LrnLayerTestCommon_FP32 : public LrnLayerTestCommon_FP16 {
     void configure_model() override {
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp16";
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp";
     }
 };
+class LrnTilingLayerTestCommon_FP16 : public LrnLayerTestCommon_FP16 {};
 
 TEST_P(LrnLayerTestCommon_FP16, NPU3720_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU3720);
-}
-
-TEST_P(LrnLayerTestCommon_FP16, NPU4000_SW) {
-    setReferenceSoftwareMode();
-    run(Platform::NPU4000);
 }
 
 TEST_P(LrnLayerTestCommon_FP32, NPU3720_SW) {
@@ -33,9 +32,24 @@ TEST_P(LrnLayerTestCommon_FP32, NPU3720_SW) {
     run(Platform::NPU3720);
 }
 
+TEST_P(LrnTilingLayerTestCommon_FP16, NPU4000_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU4000);
+}
+
+TEST_P(LrnLayerTestCommon_FP16, NPU4000_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU4000);
+}
+
 TEST_P(LrnLayerTestCommon_FP32, NPU4000_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU4000);
+}
+
+TEST_P(LrnTilingLayerTestCommon_FP16, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
 }
 
 TEST_P(LrnLayerTestCommon_FP16, NPU5010_SW) {
@@ -47,6 +61,11 @@ TEST_P(LrnLayerTestCommon_FP32, NPU5010_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5010);
 }
+TEST_P(LrnTilingLayerTestCommon_FP16, NPU5020_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5020);
+}
+
 TEST_P(LrnLayerTestCommon_FP16, NPU5020_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5020);
@@ -72,6 +91,7 @@ const double bias = 1.0;
 const size_t size = 5;
 
 const std::vector<std::vector<int64_t>> axes = {{1}, {2}, {1, 2}, {2, 3}, {1, 2, 3}};
+const std::vector<std::vector<int64_t>> tilingAxes = {{1}, {2}, {1, 2}, {2, 3}};
 
 const auto lrnParams_FP16 = ::testing::Combine(
         ::testing::Values(alpha), ::testing::Values(beta), ::testing::Values(bias), ::testing::Values(size),
@@ -101,11 +121,24 @@ const auto lrnParams_FP32 = ::testing::Combine(::testing::Values(9.9e-05),      
                                                        std::vector<std::vector<ov::Shape>>({{{1, 32, 56, 56}}}))),
                                                ::testing::Values(test_utils::TARGET_DEVICE));
 
+const auto lrnTilingParams_FP16 = ::testing::Combine(
+        ::testing::Values(alpha),         // alpha
+        ::testing::Values(beta),          // beta
+        ::testing::Values(bias),          // bias
+        ::testing::Values(size),          // size
+        ::testing::ValuesIn(tilingAxes),  // axes
+        ::testing::ValuesIn(modelTypes),  // modelTypes
+        ::testing::ValuesIn(
+                static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 64, 128, 128}}}))),
+        ::testing::Values(test_utils::TARGET_DEVICE));
+
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_LrnCheck, LrnLayerTestCommon_FP16, lrnParams_FP16,
                          LrnLayerTestCommon_FP16::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_LrnGooglenetV1, LrnLayerTestCommon_FP16, lrnGooglenetV1Params_FP16,
                          LrnLayerTestCommon_FP16::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_LrnGooglenetV1_FP32, LrnLayerTestCommon_FP32, lrnParams_FP32,
                          LrnLayerTestCommon_FP32::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_LrnTilingCheck, LrnTilingLayerTestCommon_FP16, lrnTilingParams_FP16,
+                         LrnTilingLayerTestCommon_FP16::getTestCaseName);
 
 }  // namespace

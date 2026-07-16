@@ -28,15 +28,13 @@ void vpux::arch40xx::buildLowerVPUIP2ELFPipeline(mlir::OpPassManager& pm,
     log.info("BackendCompilationOptions:\n"
              "  workloadManagementEnable = {0}\n"
              "  workloadManagementMode = {1}\n"
-             "  workloadManagementBarrierCountThreshold = {2}\n"
-             "  workloadManagementBarrierProgrammingMode = {3}\n"
-             "  workloadManagementDmaFifoType = {4}\n"
-             "  enableMemorySideCache = {5}\n"
-             "  enableDMAProfiling = {6}\n"
-             "  enableShaveDDRAccessOptimization = {7}\n",
+             "  workloadManagementBarrierProgrammingMode = {2}\n"
+             "  workloadManagementDmaFifoType = {3}\n"
+             "  enableMemorySideCache = {4}\n"
+             "  enableDMAProfiling = {5}\n"
+             "  enableShaveDDRAccessOptimization = {6}\n",
              backendCompilationOptions.workloadManagementEnable,
              stringifyEnum(backendCompilationOptions.workloadManagementMode),
-             backendCompilationOptions.workloadManagementBarrierCountThreshold,
              stringifyEnum(backendCompilationOptions.workloadManagementBarrierProgrammingMode),
              stringifyEnum(backendCompilationOptions.workloadManagementDmaFifoType),
              backendCompilationOptions.enableMemorySideCache, backendCompilationOptions.enableDMAProfiling,
@@ -61,7 +59,8 @@ void vpux::arch40xx::buildLowerVPUIP2ELFPipeline(mlir::OpPassManager& pm,
     elfSubsetPipelineVPUASM(pm, backendCompilationOptions.workloadManagementDmaFifoType == DMAFifoType::HW, log);
 
     pm.addPass(VPUIPDPU::createExpandDPUConfigPass(log));
-    pm.addPass(ELF::createUpdateELFSectionFlagsPass(log, backendCompilationOptions.enableShaveDDRAccessOptimization));
+    pm.addPass(ELF::createUpdateELFSectionFlagsPass(
+            log, std::string(backendCompilationOptions.enableShaveDDRAccessOptimization) == "true"));
     pm.addPass(createConvertVPUASM2NPUReg40XXPass(log, backendCompilationOptions.modelIdentifier));
     pm.addPass(createConvertVPUIPDPU2NPUReg40XXPass(log, dpuDryRunMode));
 
@@ -122,8 +121,7 @@ void vpux::arch40xx::elfSubsetPipelineVPUMI(
         pm.addPass(VPUMI40XX::createSplitEnqueueOpsPass(log));
     }
 
-    // TODO: Enable when E#197787 is implemented
-    // pm.addPass(VPUMI40XX::createUpdateFetchDMAForSkipDMAsPass(log));
+    pm.addPass(VPUMI40XX::createUpdateFetchDMAForSkipDMAsPass(log));
     pm.addPass(VPUMI40XX::createLinkEnqueueTargetsPass(workloadManagementMode, log));
     if (workloadManagementMode == WorkloadManagementMode::FWLM_V1_PAGES) {
         pm.addPass(VPUMI40XX::createUpdateEnqueueDMAInputAndOutput(log));
@@ -152,9 +150,7 @@ void vpux::arch40xx::elfSubsetPipelineVPUASM(mlir::OpPassManager& pm, bool disab
     pm.addPass(createConvertVPUMI40XX2VPUASMPass(log, disableDmaSwFifo));
     pm.addPass(ELF::createAddABIVersionPass(log));
     pm.addPass(ELF::createAddELFSymbolTablePass(log));
-
-    // TODO: Enable when E#197787 is implemented
-    // pm.addPass(ELF::createFinalizeSkipDmaChainsPass(log));
+    pm.addPass(ELF::createFinalizeSkipDmaChainsPass(log));
     pm.addPass(ELF::createSetEntryPointPass(log));
     pm.addPass(ELF::createAddNetworkMetadataPass(log));
     pm.addPass(VPUASM::createAddProfilingSectionPass(log));

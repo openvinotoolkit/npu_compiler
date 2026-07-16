@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/utils/broadcast_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/matmul.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -240,17 +241,94 @@ void To4D(IE::MatMulOp origOp) {
     if (!lhsOrder.isIdentity() || !rhsOrder.isIdentity() || !outOrder.isIdentity()) {
         return;
     }
-    // Exclude row and column dimensions from the list, multiply only batches.
-    const auto lhsBatch = std::accumulate(lhsShape.begin(), lhsShape.end() - 2, 1, std::multiplies<int64_t>());
-    const auto rhsBatch = std::accumulate(rhsShape.begin(), rhsShape.end() - 2, 1, std::multiplies<int64_t>());
-    const Shape newLhsShape = {1, lhsBatch, lhsShape[Dim(lhsRank - 2)], lhsShape[Dim(lhsRank - 1)]};
-    const Shape newRhsShape = {1, rhsBatch, rhsShape[Dim(rhsRank - 2)], rhsShape[Dim(rhsRank - 1)]};
+
+    // Broadcast-expand batch dimensions before flattening to 4D.
+    // Flattening batch dims into a single dimension is only semantics-preserving when:
+    //   (a) all per-dim batch sizes are identical (element-wise equal), OR
+    //   (b) one operand's entire batch product is 1 (4D MatMul naturally broadcasts 1 → N).
+    // Counter-example: lhs batch [2,1] × rhs batch [1,2] → output batch [2,2] (product 4).
+    //   Products are both 2, but flattening pairs elements incorrectly (2 matmuls vs. 4 needed).
+    // Guard: only broadcast when both operands have batch dims, neither product is 1,
+    //   AND there is any per-dim mismatch.
+    const auto numBatchDimsLhs = lhsRank - 2;
+    const auto numBatchDimsRhs = rhsRank - 2;
+    const auto maxBatchDims = std::max(numBatchDimsLhs, numBatchDimsRhs);
+
+    auto getAlignedBatchDim = [&](ShapeRef shape, size_t numBatchDims, size_t i) -> int64_t {
+        return (i >= maxBatchDims - numBatchDims) ? shape[Dim(i - (maxBatchDims - numBatchDims))] : 1;
+    };
+
+    bool needBroadcast = false;
+    if (numBatchDimsLhs > 0 && numBatchDimsRhs > 0) {
+        const auto lhsBatchProduct =
+                std::accumulate(lhsShape.begin(), lhsShape.end() - 2, int64_t(1), std::multiplies<int64_t>());
+        const auto rhsBatchProduct =
+                std::accumulate(rhsShape.begin(), rhsShape.end() - 2, int64_t(1), std::multiplies<int64_t>());
+        // Flatten is safe only when one operand's batch is all-ones (product == 1),
+        // which lets 4D broadcast handle it naturally.
+        if (lhsBatchProduct != 1 && rhsBatchProduct != 1) {
+            for (size_t i = 0; i < maxBatchDims; ++i) {
+                const int64_t lhsDim = getAlignedBatchDim(lhsShape, numBatchDimsLhs, i);
+                const int64_t rhsDim = getAlignedBatchDim(rhsShape, numBatchDimsRhs, i);
+                if (lhsDim != rhsDim) {
+                    if (lhsDim != 1 && rhsDim != 1) {
+                        return;  // Not broadcastable, skip.
+                    }
+                    needBroadcast = true;
+                }
+            }
+        }
+    }
 
     auto ctx = origOp.getContext();
     mlir::OpBuilder builder(origOp);
-    auto reshapeLhs = builder.createOrFold<IE::ReshapeOp>(appendLoc(lhs.getLoc(), "reshape_lhs"), lhs,
+    mlir::Value lhsVal = lhs;
+    mlir::Value rhsVal = rhs;
+
+    if (needBroadcast) {
+        SmallVector<int64_t> broadcastedBatch(maxBatchDims);
+        for (size_t i = 0; i < maxBatchDims; ++i) {
+            broadcastedBatch[i] = std::max(getAlignedBatchDim(lhsShape, numBatchDimsLhs, i),
+                                           getAlignedBatchDim(rhsShape, numBatchDimsRhs, i));
+        }
+
+        auto buildTargetShape = [](ArrayRef<int64_t> batchDims, int64_t rows, int64_t cols) {
+            SmallVector<int64_t> shape(batchDims.begin(), batchDims.end());
+            shape.push_back(rows);
+            shape.push_back(cols);
+            return Shape(shape);
+        };
+
+        const Shape lhsTarget =
+                buildTargetShape(broadcastedBatch, lhsShape[Dim(lhsRank - 2)], lhsShape[Dim(lhsRank - 1)]);
+        const Shape rhsTarget =
+                buildTargetShape(broadcastedBatch, rhsShape[Dim(rhsRank - 2)], rhsShape[Dim(rhsRank - 1)]);
+
+        if (Shape(lhsShape.toValues()) != lhsTarget) {
+            lhsVal = IE::createBroadcast(builder, appendLoc(lhs.getLoc(), "broadcast_lhs"), lhs, lhsTarget,
+                                         /*axisMapping=*/nullptr, /*broadcastTypeAttr=*/nullptr);
+        }
+        if (Shape(rhsShape.toValues()) != rhsTarget) {
+            rhsVal = IE::createBroadcast(builder, appendLoc(rhs.getLoc(), "broadcast_rhs"), rhs, rhsTarget,
+                                         /*axisMapping=*/nullptr, /*broadcastTypeAttr=*/nullptr);
+        }
+    }
+
+    // Flatten batch dimensions to 4D: [1, batch1*batch2*..., rows, columns]
+    const auto broadLhsShape = getShape(lhsVal);
+    const auto broadRhsShape = getShape(rhsVal);
+    const auto broadLhsRank = broadLhsShape.size();
+    const auto broadRhsRank = broadRhsShape.size();
+    const auto lhsBatch =
+            std::accumulate(broadLhsShape.begin(), broadLhsShape.end() - 2, 1, std::multiplies<int64_t>());
+    const auto rhsBatch =
+            std::accumulate(broadRhsShape.begin(), broadRhsShape.end() - 2, 1, std::multiplies<int64_t>());
+    const Shape newLhsShape = {1, lhsBatch, broadLhsShape[Dim(broadLhsRank - 2)], broadLhsShape[Dim(broadLhsRank - 1)]};
+    const Shape newRhsShape = {1, rhsBatch, broadRhsShape[Dim(broadRhsRank - 2)], broadRhsShape[Dim(broadRhsRank - 1)]};
+
+    auto reshapeLhs = builder.createOrFold<IE::ReshapeOp>(appendLoc(lhs.getLoc(), "reshape_lhs"), lhsVal,
                                                           /*shape_value=*/getIntArrayAttr(ctx, newLhsShape));
-    auto reshapeRhs = builder.createOrFold<IE::ReshapeOp>(appendLoc(rhs.getLoc(), "reshape_rhs"), rhs,
+    auto reshapeRhs = builder.createOrFold<IE::ReshapeOp>(appendLoc(rhs.getLoc(), "reshape_rhs"), rhsVal,
                                                           /*shape_value=*/getIntArrayAttr(ctx, newRhsShape));
     auto newMatMul = cloneMatMulOp(builder, origOp, reshapeLhs, reshapeRhs);
     auto reshapeOut =
@@ -317,7 +395,8 @@ void SoftMaxTo4D(IE::SoftMaxOp origOp) {
     auto reshapeInput = builder.createOrFold<IE::ReshapeOp>(appendLoc(input.getLoc(), "reshape_in"), input,
                                                             /*shape_value=*/getIntArrayAttr(ctx, newInShape));
     auto newSoftMax = builder.create<IE::SoftMaxOp>(origOp->getLoc(), reshapeInput, getIntAttr(ctx, axisValue),
-                                                    origOp.getPadSizeAttr());
+                                                    origOp.getPadSizeAttr(), origOp.getDstElemTypeAttr(),
+                                                    origOp.getMaskAwareAttr());
     auto reshapeOut =
             builder.createOrFold<IE::ReshapeOp>(appendLoc(out.getLoc(), "reshape_out"), newSoftMax.getOutput(),
                                                 /*shape_value=*/getIntArrayAttr(ctx, outShape));

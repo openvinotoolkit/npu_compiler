@@ -192,7 +192,7 @@ def VPU_DepthToSpaceOp :
                 DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "DepthToSpace VPU layer";
@@ -304,7 +304,12 @@ def VPU_DynamicTileOp :
 
 def VPU_ExpandOp :
         VPU_LayerOp<
-            "Expand"
+            "Expand",
+            [
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
+                DeclareOpInterfaceMethods<VPU_TilingViewLikeOpInterface,
+                    ["isVFSupported", "isSupportedOutTile", "isSupportedTilingDim"]>
+            ]
         > {
     let summary = "Expand tensor with uninitialized values";
 
@@ -913,13 +918,56 @@ def VPU_ScatterUpdateOp :
 }
 
 
+def VPU_ScatterUpdateSwDmaOp :
+        VPU_LayerOp<
+            "ScatterUpdateSwDma",
+            [
+                VPU_SwIoDmaOpInterface,
+                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
+                DeclareOpInterfaceMethods<VPU_AuxiliaryBufferOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["getDistributedTypeForOpOperand",
+                                                                     "getDistributedTypeForOpResult"]>
+            ]
+        > {
+    let summary = "ScatterUpdate VPU layer using a DMA-from-Shave";
+
+    let arguments = (ins
+        AnyRankedTensor:$input,
+        RankedTensorOf<[AnyInteger]>:$indices,
+        AnyRankedTensor:$updates,
+        AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>:$aux_buffer,
+        IntAttr:$axis_value,
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
+    );
+
+    let results = (outs
+        AnyRankedTensor:$output
+    );
+
+    let extraClassDeclaration = [{
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+    }] # baseExtraClassDeclaration;
+
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::Value":$input,
+            "::mlir::Value":$indices,
+            "::mlir::Value":$updates,
+            "::mlir::IntegerAttr":$axis_value
+        )>
+    ];
+}
+
+
 def VPU_SliceOp :
         VPU_LayerOp<
             "Slice",
             [
                 VPU_ViewLikeOpInterface,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>,
-                DeclareOpInterfaceMethods<VPU_TilingViewLikeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
+                DeclareOpInterfaceMethods<VPU_TilingViewLikeOpInterface>,
+                DeclareOpInterfaceMethods<VPU_DistributedCastOpInterface>
             ]
         > {
     let summary = "Extract single slice from ranked tensor or distributed tensor";
@@ -956,6 +1004,7 @@ def VPU_SliceOp :
     let extraClassDeclaration = [{
                 mlir::Value getSource() { return getInput(); }
                 bool isVFSupported();
+                bool isSupportedTilingDim(DimArrRef tilingDims);
     }] # baseExtraClassDeclaration;
 }
 

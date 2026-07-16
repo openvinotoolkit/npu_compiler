@@ -253,6 +253,21 @@ private:
 
 void UngroupHostBuffersAsFuncArgs::safeRunOnModule() {
     auto module = getOperation();
+    auto ctx = module.getContext();
+
+    if (!config::isHostCompileMode(module)) {
+        return;
+    }
+
+    // The UngroupHostBuffersAsFuncArgs pass recognizes hidden buffer boundaries (input GroupBoundedBuffer / output
+    // UngroupBoundedBuffer) only when a single Core.ReinterpretCast step separated the dynamic function argument (or
+    // return value) from the bounded-buffer op. Canonicalizer is needed to ensure Casts fusing is done before
+    // UngroupHostBuffersAsFuncArgs processes them
+    mlir::RewritePatternSet castsPatterns(ctx);
+    vpux::Core::ReinterpretCastOp::getCanonicalizationPatterns(castsPatterns, ctx);
+    if (mlir::failed(mlir::applyPatternsGreedily(module, std::move(castsPatterns), getDefaultGreedyRewriteConfig()))) {
+        signalPassFailure();
+    }
 
     llvm::DenseMap<mlir::func::FuncOp, net::NetworkInfoOp> entryNetInfoByFunc;
     module.walk([&](net::NetworkInfoOp netInfo) {

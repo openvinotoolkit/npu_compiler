@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/types.hpp"
 
 #include <mlir/IR/DialectResourceBlobManager.h>
 

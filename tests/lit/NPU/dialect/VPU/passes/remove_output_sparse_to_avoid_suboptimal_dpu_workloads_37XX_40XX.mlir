@@ -40,13 +40,13 @@ func.func @RemoveOutputSparseForConvSOKFollowedByConcat(%arg0: tensor<1x128x28x2
     %0 = VPU.UnrolledType(%arg0 : tensor<1x128x28x28xf16, {order = #NHWC}>) -> !ActConv0Distributed
     %1 = VPU.UnrolledType(%cst_0: tensor<128x128x1x1xf16, {order = #NHWC}>) -> !WeightsConv0Distributed
     %2 = VPU.UnrolledType(%cst : tensor<128x1x1x4xsi32>) -> !WtableConv0Distribution
-    %3 = VPU.NCE.Convolution(%0, %1, %2) {ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, rawFilterShape = [128, 128, 1, 1], strides = [1, 1]} : !ActConv0Distributed, !WeightsConv0Distributed, !WtableConv0Distribution -> !OutConv0Distributed
+    %3 = VPU.NCE.Convolution(%0, %1, %2) rawFilterShape [128, 128, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,  strides = [1, 1]} : !ActConv0Distributed, !WeightsConv0Distributed, !WtableConv0Distribution -> !OutConv0Distributed
     %4 = VPU.UnrolledType(%3: !OutConv0Distributed) -> !SparseType
 
     %5 = VPU.UnrolledType(%arg0 : tensor<1x128x28x28xf16, {order = #NHWC}>) -> !ActConv0Distributed
     %6 = VPU.UnrolledType(%cst_2: tensor<128x128x1x1xf16, {order = #NHWC}>) -> !WeightsConv0Distributed
     %7 = VPU.UnrolledType(%cst_1 : tensor<128x1x1x4xsi32>) -> !WtableConv0Distribution
-    %8 = VPU.NCE.Convolution(%5, %6, %7) {ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, rawFilterShape = [128, 128, 1, 1], strides = [1, 1]} : !ActConv0Distributed, !WeightsConv0Distributed, !WtableConv0Distribution -> !OutConv0Distributed
+    %8 = VPU.NCE.Convolution(%5, %6, %7) rawFilterShape [128, 128, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,  strides = [1, 1]} : !ActConv0Distributed, !WeightsConv0Distributed, !WtableConv0Distribution -> !OutConv0Distributed
     %9 = VPU.UnrolledType(%8: !OutConv0Distributed) -> !SparseType
 
     %10 = VPU.Concat(%4, %9) {static_offsets = [[0, 0, 0, 0], [0, 128, 0, 0]]}
@@ -58,7 +58,7 @@ func.func @RemoveOutputSparseForConvSOKFollowedByConcat(%arg0: tensor<1x128x28x2
     %11 = VPU.UnrolledType(%10 : !ConcatSparseType) -> !ActConv1Distributed
     %12 = VPU.UnrolledType(%cst_4: tensor<128x256x1x1xf16, {order = #NHWC}>) -> !WeightsConv1Distributed
     %13 = VPU.UnrolledType(%cst_3 : tensor<128x1x1x4xsi32>) -> !WtableConv1Distribution
-    %14 = VPU.NCE.Convolution(%11, %12, %13) {ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, rawFilterShape = [128, 256, 1, 1], strides = [1, 1]} : !ActConv1Distributed, !WeightsConv1Distributed, !WtableConv1Distribution -> !OutConv1Distributed
+    %14 = VPU.NCE.Convolution(%11, %12, %13) rawFilterShape [128, 256, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,  strides = [1, 1]} : !ActConv1Distributed, !WeightsConv1Distributed, !WtableConv1Distribution -> !OutConv1Distributed
     %15 = VPU.UnrolledType(%14 : !OutConv1Distributed) -> tensor<1x128x28x28xf16, {order = #NHWC}>
 
     return %15 : tensor<1x128x28x28xf16, {order = #NHWC}>

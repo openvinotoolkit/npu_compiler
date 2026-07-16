@@ -11,7 +11,6 @@
 module @Test {
 
 config.Resources 6 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -25,11 +24,11 @@ func.func @NCEMatMulSOGAndGTile(%arg0: tensor<64x8x64x32xf16>, %arg1: tensor<64x
   %4 = VPU.AffineReshape(%1) {dim_mapping = [[0], [0], [1], [2, 3, 4]], shape_value = [512, 64, 32, 1, 1]} : tensor<1x512x64x32xf16> -> tensor<512x64x32x1x1xf16>
   %5 = VPU.PermuteCast(%4) {dst_order = #GNHWC, mem_perm = #GNHWC} : tensor<512x64x32x1x1xf16> -> tensor<512x64x32x1x1xf16, {order = #GNHWC}>
   %6 = VPU.AffineReshape(%3) {dim_mapping = [[0], [1], [2], [3, 4], [4]], shape_value = [512, 1, 32, 16, 4]} : tensor<512x1x32x64x1xf16, {order = #GNHWC}> -> tensor<512x1x32x16x4xf16, {order = #GNHWC}>
-  %7 = VPU.NCE.MatMul(%6, %5, %cst_0) {
+  %7 = VPU.NCE.MatMul(%6, %5, %cst_0) rawFilterShape [512, 64, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
     mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
     multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverGroup>,
     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
-    rawFilterShape = [512, 64, 32, 1, 1], strides = [1, 1], tilingStrategy = [2, 1, 1, 1, 1]} -> tensor<512x1x64x16x4xf16, {order = #GNHWC}>
+     strides = [1, 1], tilingStrategy = [2, 1, 1, 1, 1]} -> tensor<512x1x64x16x4xf16, {order = #GNHWC}>
   %8 = VPU.AffineReshape(%7) {dim_mapping = [[0], [1], [2], [3], [3, 4]], shape_value = [512, 1, 64, 64, 1]} : tensor<512x1x64x16x4xf16, {order = #GNHWC}> -> tensor<512x1x64x64x1xf16, {order = #GNHWC}>
   return %8 : tensor<512x1x64x64x1xf16, {order = #GNHWC}>
 
@@ -45,7 +44,6 @@ func.func @NCEMatMulSOGAndGTile(%arg0: tensor<64x8x64x32xf16>, %arg1: tensor<64x
 module @Test {
 
 config.Resources 6 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -59,7 +57,7 @@ func.func @NCEMatMulSOGAndHTile(%arg0: tensor<6x1x512x512xf16>, %arg1: tensor<6x
   %4 = VPU.AffineReshape(%1) {dim_mapping = [[0], [0], [1], [2, 3, 4]], shape_value = [6, 512, 512, 1, 1]} : tensor<1x6x512x512xf16> -> tensor<6x512x512x1x1xf16>
   %5 = VPU.PermuteCast(%4) {dst_order = #GNHWC, mem_perm = #GNHWC} : tensor<6x512x512x1x1xf16> -> tensor<6x512x512x1x1xf16, {order = #GNHWC}>
   %6 = VPU.AffineReshape(%3) {dim_mapping = [[0], [1], [2], [3, 4], [4]], shape_value = [6, 1, 512, 128, 4]} : tensor<6x1x512x512x1xf16, {order = #GNHWC}> -> tensor<6x1x512x128x4xf16, {order = #GNHWC}>
-  %7 = VPU.NCE.MatMul(%6, %5, %cst) {mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverGroup>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>, rawFilterShape = [6, 512, 512, 1, 1], strides = [1, 1]} -> tensor<6x1x512x128x4xf16, {order = #GNHWC}>
+  %7 = VPU.NCE.MatMul(%6, %5, %cst) rawFilterShape [6, 512, 512, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverGroup>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1]} -> tensor<6x1x512x128x4xf16, {order = #GNHWC}>
   %8 = VPU.AffineReshape(%7) {dim_mapping = [[0], [1], [2], [3], [3, 4]], shape_value = [6, 1, 512, 512, 1]} : tensor<6x1x512x128x4xf16, {order = #GNHWC}> -> tensor<6x1x512x512x1xf16, {order = #GNHWC}>
   return %8 : tensor<6x1x512x512x1xf16, {order = #GNHWC}>
 
@@ -76,7 +74,6 @@ func.func @NCEMatMulSOGAndHTile(%arg0: tensor<6x1x512x512xf16>, %arg1: tensor<6x
 module @Test attributes {config.compilationMode = #config.compilation_mode<HostCompile>}  {
 
 config.Resources 3 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -124,11 +121,11 @@ func.func @DWConvWithSEPSOK(%arg0: tensor<1x288x1x1xf16, {order = #NHWC}>) -> te
                            #VPU.SEInterpolate<mode = <NEAREST>, coordinate_transformation_mode = <ASYMMETRIC>,
                                               scale = [1.0, 1.0, 2.0, 2.0], nearest_mode = <FLOOR>, offsets = [0, 0, 0, 0], sizes = [1, 288, 2, 2]>>
 
-    %interpolate = VPU.NCE.DepthConvolution(%input, %weights) {
+    %interpolate = VPU.NCE.DepthConvolution(%input, %weights) rawFilterShape [288, 1, 1, 1] {
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
-        rawFilterShape = [288, 1, 1, 1],
+        
         strides = [1, 1]
     } -> tensor<1x288x2x2xf16, {order = #NHWC}>
 
@@ -174,10 +171,10 @@ func.func @DWConvWithSEPNoMC(%arg0: tensor<1x288x1x1xf16, {order = #NHWC}>) -> t
                            #VPU.SEInterpolate<mode = <NEAREST>, coordinate_transformation_mode = <ASYMMETRIC>,
                                               scale = [1.0, 1.0, 2.0, 2.0], nearest_mode = <FLOOR>, offsets = [0, 0, 0, 0], sizes = [1, 288, 2, 2]>>
 
-    %interpolate = VPU.NCE.DepthConvolution(%input, %weights) {
+    %interpolate = VPU.NCE.DepthConvolution(%input, %weights) rawFilterShape [288, 1, 1, 1] {
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
-        rawFilterShape = [288, 1, 1, 1],
+        
         strides = [1, 1]
     } -> tensor<1x288x2x2xf16, {order = #NHWC}>
 
@@ -198,14 +195,13 @@ func.func @DWConvWithSEPNoMC(%arg0: tensor<1x288x1x1xf16, {order = #NHWC}>) -> t
 module @Test {
 
 config.Resources 3 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
 // CHECK-LABEL: @SplitNCEMaxPoolWithBigC
 // CHECK-SAME: ([[ARG_0:%[^:]+]]: tensor<1x5120x32x4xf16, {order = #NHWC}>)
 func.func @SplitNCEMaxPoolWithBigC(%arg0: tensor<1x5120x32x4xf16, {order = #NHWC}>) -> tensor<1x5120x32x4xf16, {order = #NHWC}> {
-    %0 = VPU.NCE.MaxPool(%arg0) {
+    %0 = VPU.NCE.MaxPool(%arg0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         kernel_size = [1, 1],
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,

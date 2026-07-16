@@ -9,7 +9,7 @@
 #include "vpux/compiler/dialect/VPU/utils/strategy_manager/state_provider_interface.hpp"
 #include "vpux/compiler/dialect/VPU/utils/strategy_manager/strategy_opt_alg_interface.hpp"
 
-using namespace vpux::VPU;
+namespace vpux::VPU {
 
 /*
 Strategy Optimization Algorithm :
@@ -47,3 +47,5 @@ std::unique_ptr<IStrategyOptAlgorithm> createAlgorithm(const vpux::VPU::TilingOp
 Calculate initial temperature for Simulated Annealing
 */
 size_t getInitialTemperature(const std::shared_ptr<OperationStrategies>& storage);
+
+}  // namespace vpux::VPU

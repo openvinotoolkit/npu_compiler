@@ -13,7 +13,8 @@
 #include <mutex>
 #include <thread>
 
-class VCLParallelCompilationTest : public VCLTestsUtils::VCLTestsCommon {
+namespace VCLTest {
+class VCLParallelCompilationTest : public VCLTestsCommon {
 public:
     VCLParallelCompilationTest(): numCompilationThreads(0), numGetBlobThreads(0) {
         outputs.clear();
@@ -272,9 +273,9 @@ TEST_P(VCLParallelCompilationTest, ParallelCompilation) {
 /// The path of config files for tests
 const auto cidTool = VCLParallelCompilationTest::getCidToolPath();
 /// Models and configs for smoke test
-const auto smokeIRInfos = VCLParallelCompilationTest::readJson2Vec(cidTool + VCLTestsUtils::SMOKE_TEST_CONFIG);
+const auto smokeIRInfos = VCLParallelCompilationTest::readJson2Vec(cidTool + VCLTest::SMOKE_TEST_CONFIG);
 /// Models and configs for normal test
-const auto irInfos = VCLParallelCompilationTest::readJson2Vec(cidTool + VCLTestsUtils::TEST_CONFIG);
+const auto irInfos = VCLParallelCompilationTest::readJson2Vec(cidTool + VCLTest::TEST_CONFIG);
 /// Parameters for smoke tests
 const auto smokeParams = testing::Combine(testing::ValuesIn(smokeIRInfos));
 /// Parameters for normal tests
@@ -286,7 +287,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_ParallelCompilationTest, VCLParallelCompilationTe
 INSTANTIATE_TEST_SUITE_P(ParallelCompilationTest, VCLParallelCompilationTest, params,
                          VCLParallelCompilationTest::getTestCaseName);
 
-class VCLAllocatorParallelCompilationTest : public VCLTestsUtils::VCLTestsCommon {
+class VCLAllocatorParallelCompilationTest : public VCLTest::VCLTestsCommon {
 public:
     VCLAllocatorParallelCompilationTest(): numCompilationThreads(0) {
         outputs.clear();
@@ -403,8 +404,8 @@ vcl_result_t VCLAllocatorParallelCompilationTest::parallelCompilation(const std:
     std::cout << "############################################" << std::endl;
 
     vcl_allocator_t allocator;
-    allocator.allocate = VCLTestsUtils::allocateBlob;
-    allocator.deallocate = VCLTestsUtils::deallocateBlob;
+    allocator.allocate = VCLTest::allocateBlob;
+    allocator.deallocate = VCLTest::deallocateBlob;
 
     vcl_executable_desc_t exeDesc = {getModelIR().data(), getModelIRSize(), options.c_str(), options.size() + 1};
 
@@ -514,3 +515,115 @@ INSTANTIATE_TEST_SUITE_P(smoke_ParallelCompilationTest, VCLAllocatorParallelComp
 
 INSTANTIATE_TEST_SUITE_P(ParallelCompilationTest, VCLAllocatorParallelCompilationTest, params,
                          VCLAllocatorParallelCompilationTest::getTestCaseName);
+
+class VCLQueryNetworkParallelTest : public VCLTestsCommon {
+public:
+    VCLQueryNetworkParallelTest(): numQueryThreads(0) {
+    }
+
+    void setThreadCount(int queryThreads) {
+        numQueryThreads = queryThreads;
+    }
+
+    vcl_result_t parallelQueryNetwork(const std::string& options);
+    void run();
+
+private:
+    int numQueryThreads;
+};
+
+vcl_result_t VCLQueryNetworkParallelTest::parallelQueryNetwork(const std::string& options) {
+    vcl_result_t ret = VCL_RESULT_SUCCESS;
+
+    vcl_compiler_desc_t compilerDesc;
+    compilerDesc.version.major = VCL_COMPILER_VERSION_MAJOR;
+    compilerDesc.version.minor = VCL_COMPILER_VERSION_MINOR;
+    compilerDesc.debugLevel = VCL_LOG_ERROR;
+    vcl_device_desc_t deviceDesc = {sizeof(vcl_device_desc_t), 0x643e, 3, 5};
+
+    vcl_compiler_handle_t compiler = nullptr;
+    ret = vclCompilerCreate(&compilerDesc, &deviceDesc, &compiler, nullptr);
+    if (ret != VCL_RESULT_SUCCESS) {
+        printErrorInfo("Failed to create compiler! Result:0x", ret);
+        return ret;
+    }
+
+    vcl_query_desc_t desc = {getModelIR().data(), getModelIRSize(), options.c_str(), options.size() + 1};
+    std::vector<std::thread> queryThreads;
+    std::vector<vcl_result_t> queryResults(numQueryThreads, VCL_RESULT_SUCCESS);
+
+    for (int i = 0; i < numQueryThreads; ++i) {
+        queryThreads.emplace_back([&, i] {
+            vcl_query_handle_t queryHandle = nullptr;
+            queryResults[i] = vclQueryNetworkCreate(compiler, desc, &queryHandle);
+            if (queryResults[i] != VCL_RESULT_SUCCESS) {
+                return;
+            }
+
+            uint64_t layerSize = 0;
+            queryResults[i] = vclQueryNetwork(queryHandle, nullptr, &layerSize);
+            if (queryResults[i] != VCL_RESULT_SUCCESS) {
+                (void)vclQueryNetworkDestroy(queryHandle);
+                return;
+            }
+            if (layerSize == 0) {
+                std::cerr << "Query result size is zero after first vclQueryNetwork call in thread " << i << "."
+                          << std::endl;
+                queryResults[i] = VCL_RESULT_ERROR_INVALID_ARGUMENT;
+                (void)vclQueryNetworkDestroy(queryHandle);
+                return;
+            }
+
+            std::vector<uint8_t> layerRawData;
+            layerRawData.resize(layerSize);
+            queryResults[i] = vclQueryNetwork(queryHandle, layerRawData.data(), &layerSize);
+            if (queryResults[i] != VCL_RESULT_SUCCESS) {
+                (void)vclQueryNetworkDestroy(queryHandle);
+                return;
+            }
+
+            queryResults[i] = vclQueryNetworkDestroy(queryHandle);
+        });
+    }
+
+    for (auto& thread : queryThreads) {
+        thread.join();
+    }
+
+    for (size_t i = 0; i < queryResults.size(); ++i) {
+        if (queryResults[i] != VCL_RESULT_SUCCESS) {
+            std::string printStr = "Failed query-network API flow with " + std::to_string(i) +
+                                   " thread!\n"
+                                   "Result:0x";
+            printErrorInfo(printStr, queryResults[i]);
+            (void)vclCompilerDestroy(compiler);
+            return queryResults[i];
+        }
+    }
+
+    ret = vclCompilerDestroy(compiler);
+    if (ret != VCL_RESULT_SUCCESS) {
+        printErrorInfo("Failed to destroy compiler! Result:0x", ret);
+        return ret;
+    }
+
+    return VCL_RESULT_SUCCESS;
+}
+
+void VCLQueryNetworkParallelTest::run() {
+    setThreadCount(8);
+    const auto ret = parallelQueryNetwork(getNetOptions());
+    EXPECT_EQ(ret, VCL_RESULT_SUCCESS) << "Failed to run parallel query-network test! Result:0x" << std::hex
+                                       << uint64_t(ret) << std::dec << std::endl;
+}
+
+TEST_P(VCLQueryNetworkParallelTest, ParallelQueryNetwork) {
+    run();
+}
+
+INSTANTIATE_TEST_SUITE_P(smoke_ParallelQueryNetworkTest, VCLQueryNetworkParallelTest, smokeParams,
+                         VCLQueryNetworkParallelTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(ParallelQueryNetworkTest, VCLQueryNetworkParallelTest, params,
+                         VCLQueryNetworkParallelTest::getTestCaseName);
+}  // namespace VCLTest

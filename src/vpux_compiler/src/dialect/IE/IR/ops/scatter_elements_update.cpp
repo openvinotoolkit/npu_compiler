@@ -5,7 +5,9 @@
 
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/error.hpp"
+#include "vpux/utils/core/numeric.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 
@@ -95,9 +97,38 @@ mlir::LogicalResult ConvertConstToAttr::matchAndRewrite(IE::ScatterElementsUpdat
     return mlir::success();
 }
 
+class FoldScatterSplatInputEqualsUpdates final : public mlir::OpRewritePattern<IE::ScatterElementsUpdateOp> {
+public:
+    using mlir::OpRewritePattern<IE::ScatterElementsUpdateOp>::OpRewritePattern;
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::ScatterElementsUpdateOp op, mlir::PatternRewriter& rewriter) const final;
+};
+
+mlir::LogicalResult FoldScatterSplatInputEqualsUpdates::matchAndRewrite(IE::ScatterElementsUpdateOp op,
+                                                                        mlir::PatternRewriter& rewriter) const {
+    if (op.getReduction() != IE::ScatterElementsUpdateReductionType::NONE) {
+        return mlir::failure();
+    }
+
+    auto inputVal = vpux::Const::getSplatValue<double>(op.getInput());
+    auto updateVal = vpux::Const::getSplatValue<double>(op.getUpdates());
+    if (mlir::failed(inputVal) || mlir::failed(updateVal)) {
+        return mlir::failure();
+    }
+
+    if (!isDoubleEqual(inputVal.value(), updateVal.value())) {
+        return mlir::failure();
+    }
+
+    rewriter.replaceOp(op, op.getInput());
+    return mlir::success();
+}
+
 }  // namespace
 
 void vpux::IE::ScatterElementsUpdateOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns,
                                                                     mlir::MLIRContext* context) {
     patterns.add<ConvertConstToAttr>(context);
+    patterns.add<FoldScatterSplatInputEqualsUpdates>(context);
 }

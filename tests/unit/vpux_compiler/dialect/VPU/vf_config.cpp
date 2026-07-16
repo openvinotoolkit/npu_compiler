@@ -19,7 +19,7 @@
 
 #include <gtest/gtest.h>
 
-using vpux::config::ArchKind;
+using vpux::config::Platform;
 using namespace vpux;
 
 using MLIR_VPU_VFConfig = vpux::VPU::arch37xx::UnitTest;
@@ -37,10 +37,9 @@ TEST_F(MLIR_VPU_VFConfig, VF_ConfigSimple) {
             %0 = VPU.VerticalFusion (%arg0 as %arg2: tensor<1x48x256x16xf16, {order = #NHWC}>, %cst as %arg3: tensor<1024x48x1x1xf16, {order = #NHWC}>,
             %cst_0 as %arg4: tensor<1024x1x1x4xsi32>) attributes {tilingStrategy = [1, 1, 5, 1]}
                 -> tensor<1x1024x256x16xf16, {order = #NHWC}> {
-            %1 = VPU.NCE.Convolution(%arg2, %arg3, %arg4)
-                {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, ppe = #VPU.PPEStub<>,
+            %1 = VPU.NCE.Convolution(%arg2, %arg3, %arg4) rawFilterShape [1024, 48, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                rawFilterShape = [1024, 48, 1, 1], strides = [1, 1]}
+                 strides = [1, 1]}
                 : tensor<1x48x256x16xf16, {order = #NHWC}>, tensor<1024x48x1x1xf16, {order = #NHWC}>, tensor<1024x1x1x4xsi32> -> tensor<1x1024x256x16xf16, {order = #NHWC}>
             %2 = VPU.SoftMax(%1)
                 {axisInd = 1 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x1024x256x16xf16, {order = #NHWC}>
@@ -58,7 +57,7 @@ TEST_F(MLIR_VPU_VFConfig, VF_ConfigSimple) {
     ASSERT_TRUE(func != nullptr);
 
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    auto initCompilerOptions = VPU::InitCompilerOptions(ArchKind::NPU37XX, config::CompilationMode::DefaultHW);
+    auto initCompilerOptions = VPU::InitCompilerOptions(Platform::NPU3720, config::CompilationMode::DefaultHW);
 
     VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
 
@@ -87,13 +86,12 @@ TEST_F(MLIR_VPU_VFConfig, VF_ConfigPipelined) {
             %cst_2 = const.Declare tensor<48x1x1x4xsi32> = dense<1> : tensor<48x1x1x4xsi32>
 
             %0 = VPU.VerticalFusion (%arg0 as %arg3: tensor<1x48x1024x4xf16, {order = #NHWC}>, %arg1 as %arg4: tensor<4096x48x1x1xf16, {order = #NHWC}>, %cst_0 as %arg5: tensor<4096x1x1x4xsi32>, %arg1 as %arg6: tensor<48x4096x1x1xf16, {order = #NHWC}>, %cst_2 as %arg7: tensor<48x1x1x4xsi32>) attributes {tilingStrategy = [1, 1, 24, 1]} -> tensor<1x48x1024x4xf16, {order = #NHWC}>
-            { %1 = VPU.NCE.Convolution(%arg3, %arg4, %arg5)
-                {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, ppe = #VPU.PPEStub<>,
+            { %1 = VPU.NCE.Convolution(%arg3, %arg4, %arg5) rawFilterShape [4096, 48, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    rawFilterShape = [4096, 48, 1, 1], strides = [1, 1]} : tensor<1x48x1024x4xf16, {order = #NHWC}>, tensor<4096x48x1x1xf16, {order = #NHWC}>, tensor<4096x1x1x4xsi32> -> tensor<1x4096x1024x4xf16, {order = #NHWC}>
+                     strides = [1, 1]} : tensor<1x48x1024x4xf16, {order = #NHWC}>, tensor<4096x48x1x1xf16, {order = #NHWC}>, tensor<4096x1x1x4xsi32> -> tensor<1x4096x1024x4xf16, {order = #NHWC}>
                 %2 = VPU.SoftMax(%1) {axisInd = 1 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x4096x1024x4xf16, {order = #NHWC}> -> tensor<1x4096x1024x4xf16, {order = #NHWC}>
-                %3 = VPU.NCE.Convolution(%2, %arg6, %arg7) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, ppe = #VPU.PPEStub<>,
-                    pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, rawFilterShape = [48, 4096, 1, 1], strides = [1, 1]} : tensor<1x4096x1024x4xf16, {order = #NHWC}>, tensor<48x4096x1x1xf16, {order = #NHWC}>, tensor<48x1x1x4xsi32> -> tensor<1x48x1024x4xf16, {order = #NHWC}>
+                %3 = VPU.NCE.Convolution(%2, %arg6, %arg7) rawFilterShape [48, 4096, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, ppe = #VPU.PPEStub<>,
+                    pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,  strides = [1, 1]} : tensor<1x4096x1024x4xf16, {order = #NHWC}>, tensor<48x4096x1x1xf16, {order = #NHWC}>, tensor<48x1x1x4xsi32> -> tensor<1x48x1024x4xf16, {order = #NHWC}>
                 VPU.Yield %3
             }
 
@@ -108,7 +106,7 @@ TEST_F(MLIR_VPU_VFConfig, VF_ConfigPipelined) {
     ASSERT_TRUE(func != nullptr);
 
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    auto initCompilerOptions = VPU::InitCompilerOptions(ArchKind::NPU37XX, config::CompilationMode::DefaultHW);
+    auto initCompilerOptions = VPU::InitCompilerOptions(Platform::NPU3720, config::CompilationMode::DefaultHW);
 
     VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
 
@@ -135,10 +133,9 @@ TEST_F(MLIR_VPU_VFConfig, VF_GenericConfigPipelined) {
             %cst_0 = const.Declare tensor<4096x1x1x4xsi32> = dense<1> : tensor<4096x1x1x4xsi32>
 
             %0 = VPU.VerticalFusion (%arg0 as %arg3: tensor<1x48x1024x4xf16, {order = #NHWC}>, %arg1 as %arg4: tensor<4096x48x1x1xf16, {order = #NHWC}>, %cst_0 as %arg5: tensor<4096x1x1x4xsi32>, %arg1 as %arg6: tensor<48x4096x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 24, 1]} -> tensor<1x4096x1024x4xf16, {order = #NHWC}>
-            {   %1 = VPU.NCE.Convolution(%arg3, %arg4, %arg5)
-                {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, ppe = #VPU.PPEStub<>,
+            {   %1 = VPU.NCE.Convolution(%arg3, %arg4, %arg5) rawFilterShape [4096, 48, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    rawFilterShape = [4096, 48, 1, 1], strides = [1, 1]} : tensor<1x48x1024x4xf16, {order = #NHWC}>, tensor<4096x48x1x1xf16, {order = #NHWC}>, tensor<4096x1x1x4xsi32> -> tensor<1x4096x1024x4xf16, {order = #NHWC}>
+                     strides = [1, 1]} : tensor<1x48x1024x4xf16, {order = #NHWC}>, tensor<4096x48x1x1xf16, {order = #NHWC}>, tensor<4096x1x1x4xsi32> -> tensor<1x4096x1024x4xf16, {order = #NHWC}>
                 %2 = VPU.SoftMax(%1) {axisInd = 1 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x4096x1024x4xf16, {order = #NHWC}> -> tensor<1x4096x1024x4xf16, {order = #NHWC}>
                 VPU.Yield %2
             }
@@ -154,7 +151,7 @@ TEST_F(MLIR_VPU_VFConfig, VF_GenericConfigPipelined) {
     ASSERT_TRUE(func != nullptr);
 
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    auto initCompilerOptions = VPU::InitCompilerOptions(ArchKind::NPU37XX, config::CompilationMode::DefaultHW);
+    auto initCompilerOptions = VPU::InitCompilerOptions(Platform::NPU3720, config::CompilationMode::DefaultHW);
 
     VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
 
@@ -179,10 +176,9 @@ TEST_F(MLIR_VPU_VFConfig, VF_ManualConfiguration) {
     func.func @main(%arg0: tensor<1x48x1024x4xf16, {order = #NHWC}>, %arg1: tensor<4096x48x1x1xf16, {order = #NHWC}>) -> tensor<1x4096x1024x4xf16, {order = #NHWC}> {
           %cst_0 = const.Declare tensor<4096x1x1x4xsi32> = dense<1> : tensor<4096x1x1x4xsi32>
           %0 = VPU.VerticalFusion (%arg0 as %arg3: tensor<1x48x1024x4xf16, {order = #NHWC}>, %arg1 as %arg4: tensor<4096x48x1x1xf16, {order = #NHWC}>, %cst_0 as %arg5: tensor<4096x1x1x4xsi32>, %arg1 as %arg6: tensor<48x4096x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 24, 1]} -> tensor<1x4096x1024x4xf16, {order = #NHWC}>
-          {   %1 = VPU.NCE.Convolution(%arg3, %arg4, %arg5)
-              {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, ppe = #VPU.PPEStub<>,
+          {   %1 = VPU.NCE.Convolution(%arg3, %arg4, %arg5) rawFilterShape [4096, 48, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, ppe = #VPU.PPEStub<>,
                   pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                  rawFilterShape = [4096, 48, 1, 1], strides = [1, 1]} : tensor<1x48x1024x4xf16, {order = #NHWC}>, tensor<4096x48x1x1xf16, {order = #NHWC}>, tensor<4096x1x1x4xsi32> -> tensor<1x4096x1024x4xf16, {order = #NHWC}> loc(fused<{name = "Conv", type = "Convolution"}>["Conv", "_1"])
+                   strides = [1, 1]} : tensor<1x48x1024x4xf16, {order = #NHWC}>, tensor<4096x48x1x1xf16, {order = #NHWC}>, tensor<4096x1x1x4xsi32> -> tensor<1x4096x1024x4xf16, {order = #NHWC}> loc(fused<{name = "Conv", type = "Convolution"}>["Conv", "_1"])
               VPU.Yield %1
           }
           %2 = VPU.VerticalFusion (%0 as %arg3: tensor<1x4096x1024x4xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 24, 1]} -> tensor<1x4096x1024x4xf16, {order = #NHWC}>{
@@ -258,7 +254,7 @@ TEST_F(MLIR_VPU_VFConfig, VF_ManualConfiguration) {
     ASSERT_TRUE(func != nullptr);
 
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    auto initCompilerOptions = VPU::InitCompilerOptions(ArchKind::NPU40XX, config::CompilationMode::DefaultHW);
+    auto initCompilerOptions = VPU::InitCompilerOptions(Platform::NPU4000, config::CompilationMode::DefaultHW);
 
     VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
 
@@ -305,10 +301,9 @@ TEST_F(MLIR_VPU_VFConfig, VF_ManualConfigurationForDuplicatedLoc) {
     func.func @main(%arg0: tensor<1x48x1024x4xf16, {order = #NHWC}>, %arg1: tensor<4096x48x1x1xf16, {order = #NHWC}>) -> tensor<1x4096x1024x4xf16, {order = #NHWC}> {
           %cst_0 = const.Declare tensor<4096x1x1x4xsi32> = dense<1> : tensor<4096x1x1x4xsi32>
           %0 = VPU.VerticalFusion (%arg0 as %arg3: tensor<1x48x1024x4xf16, {order = #NHWC}>, %arg1 as %arg4: tensor<4096x48x1x1xf16, {order = #NHWC}>, %cst_0 as %arg5: tensor<4096x1x1x4xsi32>, %arg1 as %arg6: tensor<48x4096x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 24, 1]} -> tensor<1x4096x1024x4xf16, {order = #NHWC}>
-          {   %1 = VPU.NCE.Convolution(%arg3, %arg4, %arg5)
-              {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, ppe = #VPU.PPEStub<>,
+          {   %1 = VPU.NCE.Convolution(%arg3, %arg4, %arg5) rawFilterShape [4096, 48, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, ppe = #VPU.PPEStub<>,
                   pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                  rawFilterShape = [4096, 48, 1, 1], strides = [1, 1]} : tensor<1x48x1024x4xf16, {order = #NHWC}>, tensor<4096x48x1x1xf16, {order = #NHWC}>, tensor<4096x1x1x4xsi32> -> tensor<1x4096x1024x4xf16, {order = #NHWC}> loc(fused<{name = "Conv", type = "Convolution"}>["Conv", "_1"])
+                   strides = [1, 1]} : tensor<1x48x1024x4xf16, {order = #NHWC}>, tensor<4096x48x1x1xf16, {order = #NHWC}>, tensor<4096x1x1x4xsi32> -> tensor<1x4096x1024x4xf16, {order = #NHWC}> loc(fused<{name = "Conv", type = "Convolution"}>["Conv", "_1"])
               VPU.Yield %1
           }
           %2 = VPU.VerticalFusion (%0 as %arg3: tensor<1x4096x1024x4xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 24, 1]} -> tensor<1x4096x1024x4xf16, {order = #NHWC}>{
@@ -376,7 +371,7 @@ TEST_F(MLIR_VPU_VFConfig, VF_ManualConfigurationForDuplicatedLoc) {
     ASSERT_TRUE(func != nullptr);
 
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    auto initCompilerOptions = VPU::InitCompilerOptions(ArchKind::NPU40XX, config::CompilationMode::DefaultHW);
+    auto initCompilerOptions = VPU::InitCompilerOptions(Platform::NPU4000, config::CompilationMode::DefaultHW);
 
     VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
 
@@ -468,7 +463,7 @@ TEST_F(MLIR_VPU_VFConfig, VF_ManualConfigurationWithViewOp) {
     ASSERT_TRUE(func != nullptr);
 
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    auto initCompilerOptions = VPU::InitCompilerOptions(ArchKind::NPU40XX, config::CompilationMode::DefaultHW);
+    auto initCompilerOptions = VPU::InitCompilerOptions(Platform::NPU4000, config::CompilationMode::DefaultHW);
 
     VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
 

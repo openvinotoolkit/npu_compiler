@@ -222,9 +222,11 @@ def ConvertAffine2LLVM : PassBase<"convert-Affine-to-LLVM", "vpux::ModulePass"> 
 
         Converts affine.for loops and structured control flow (SCF) to standard LLVM
         control flow, then lowers all operations (arith, memref, func, math) to LLVM
-        dialect. Analyzes memref argument aliases across all SW kernel invocations to
-        add LLVM noalias attributes, enabling aggressive vectorization optimizations
-        in generated SHAVE code.
+        dialect. Propagates statically known memref properties after lowering to compensate
+        for any information lost during argument conversion. Adjusts index arguments to
+        keep the calling convention compatible with the caller. Analyzes memref argument
+        aliases across all SW kernel invocations to add LLVM noalias attributes, enabling
+        aggressive vectorization optimizations in generated SHAVE code.
     }];
 
     let constructor = "vpux::ShaveCodeGen::createConvertAffine2LLVMPass()";
@@ -478,9 +480,8 @@ def ConvertHostcodeToBytecode : PassBase<"convert-hostcode-to-bytecode", "vpux::
     let summary = "Convert operations that execute on host to Bytecode";
 
     let description = [{
-        The pass converts operations that execute on host to Bytecode.
-        A function section is introduced in the IR, and the converted bytecode functions are stored in this section.
-        The original functions are erased after conversion.
+        Converts host-compile functions (func.func with the HostCompile compilation mode attribute)
+        to the Bytecode dialect.
 
         In Bytecode dialect, there are multiple sections that exist (e.g. constant section, string section).
         This pass only creates the function section, so the other sections will be inserted by later passes.
@@ -489,18 +490,48 @@ def ConvertHostcodeToBytecode : PassBase<"convert-hostcode-to-bytecode", "vpux::
         For example, `cf.assert` will be converted to `bytecode.ext.assert` in this pass and will store the message string as an attribute.
         Another pass will lower `bytecode.ext.assert` to `bytecode.assert` and move the message string to the string section, and replace
         the attribute with a symbol from the string section. See the `ConvertIntermediateBytecodeOps` pass for details.
+        The pass also lowers static `memref.alloc` to `bytecode.ext.buffer.create` and static non-rank-reducing
+        `memref.subview` directly to `bytecode.buffer.subview` with per-dimension offsets/sizes/strides materialized
+        as immediate registers. `memref.dim` is folded when both the source dimension and the index are statically
+        known; the residual cases (dynamic source dim or dynamic index) lower to `bytecode.buffer.get_dim`, which
+        reads the dimension from the runtime buffer descriptor. `memref.store` lowers to `bytecode.buffer.store`
+        when the stored value and all indices are converted to bytecode registers.
+
+        The following dialect operations are lowered:
+        - `arith` arithmetic and comparison ops -> bytecode arithmetic/comparison ops
+        - `cf.br` -> `bytecode.jmp`
+        - `cf.cond_br` -> `bytecode.je` with dedicated setup blocks for the true and false edges
+        - `cf.switch` -> a chain of `bytecode.je` ops (one per case value) with a default fallback block
+        - empty `func.return` -> `bytecode.ret`; non-empty `func.return` -> `bytecode.retv`
+        - `func.call` -> `bytecode.call`
+        - `async.create_group`, `async.add_to_group`, `async.await_all`, `async.execute` -> bytecode async ops
+        - `cf.assert` -> `bytecode.ext.assert` (string payload kept as attribute; resolved by ConvertIntermediateBytecodeOps)
+
+        Block arguments of non-entry blocks are eliminated: a pre-pass allocates one
+        `bytecode.virtual_general_register` per non-entry block argument at the entry block.
+        Branch rewriters emit `bytecode.set` ops before each jump to copy values into those registers.
+        After conversion, all uses of the original block arguments are replaced with the canonical registers.
+
+        The pre-pass also allocates a shared const-1 register (used by all `cf.cond_br` JE comparisons)
+        and one comparison register per `cf.switch` op, both at the entry block.
+
+        The converted function body is placed inside a `bytecode.func_section`. The original
+        `func.func` op is erased. String, type, and constant sections are not created by this pass;
+        they are inserted by subsequent passes.
     }];
 
     let constructor = "vpux::bytecode::createConvertHostcodeToBytecodePass()";
 
     let dependentDialects = [
         "mlir::arith::ArithDialect",
+        "mlir::async::AsyncDialect",
         "mlir::cf::ControlFlowDialect",
         "mlir::func::FuncDialect",
         "mlir::math::MathDialect",
         "mlir::memref::MemRefDialect",
         "mlir::tensor::TensorDialect",
-        "vpux::bytecode::BytecodeDialect"
+        "vpux::bytecode::BytecodeDialect",
+        "vpux::Core::CoreDialect"
     ];
 }
 //

@@ -9,11 +9,20 @@
 #include "vpux/compiler/dialect/ELF/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
-#include "vpux/compiler/dialect/net/IR/ops.hpp"
+#include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
+#include "vpux/compiler/utils/types.hpp"
+#include "vpux/utils/core/error.hpp"
+#include "vpux/utils/logger/logger.hpp"
+
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
+
+#include <optional>
 
 #include <vpux_elf/accessor.hpp>
 #include <vpux_elf/reader.hpp>
+
+using namespace vpux;
 
 ArrayRef<uint8_t> vpux::ELF::getDataAndSizeOfElfSection(ArrayRef<uint8_t> elfBlob,
                                                         ArrayRef<StringRef> possibleSecNames) {
@@ -154,27 +163,12 @@ void ELF::SymbolReferenceMap::walkAllSymbols() {
 
 namespace {
 
-elf::platform::ArchKind mapArchKindToElfArchKind(config::ArchKind archKind) {
-    switch (archKind) {
-    case config::ArchKind::NPU37XX:
-        VPUX_THROW("NPU3720 is not supported");  // in new backend
-    case config::ArchKind::NPU40XX:
-        return elf::platform::ArchKind::VPUX40XX;
-    case config::ArchKind::NPU50XX:
-        return elf::platform::ArchKind::VPUX501X;
-    case config::ArchKind::UNKNOWN:
-        break;
-    }
-    VPUX_THROW("Unknown architecture");
-}
-
 elf::platform::ArchKind mapPlatformToElfArchKind(config::Platform platform) {
     switch (platform) {
     case config::Platform::NPU3720:
         VPUX_THROW("NPU3720 is not supported");  // in new backend
     case config::Platform::NPU4000:
         return elf::platform::ArchKind::VPUX40XX;
-    case config::Platform::NPU5000:
     case config::Platform::NPU5010:
         return elf::platform::ArchKind::VPUX501X;
     case config::Platform::NPU5020:
@@ -186,12 +180,7 @@ elf::platform::ArchKind mapPlatformToElfArchKind(config::Platform platform) {
 }  // namespace
 
 elf::platform::ArchKind vpux::ELF::getElfArchKind(mlir::Operation* op) {
-    auto platform = config::getPlatform(op);
-    if (platform.has_value()) {
-        return mapPlatformToElfArchKind(platform.value());
-    } else {
-        return mapArchKindToElfArchKind(config::getArch(op));
-    }
+    return mapPlatformToElfArchKind(config::getPlatform(op));
 }
 
 std::pair<uint8_t, uint8_t> vpux::ELF::reduceWaitMaskTo8bit(uint64_t waitMask) {
@@ -222,7 +211,8 @@ mlir::MemRefType vpux::ELF::getLinearMemrefType(mlir::MLIRContext* ctx, int64_t 
     unsigned int perm[1] = {0};
     auto map = mlir::AffineMap::getPermutationMap(to_small_vector(perm), ctx);
 
-    auto memrefType = mlir::MemRefType::get(memrefShape, dataType, map, memKindSymbolAttr);
+    auto memrefType =
+            vpux::getMemRefType(ShapeRef(memrefShape), dataType, DimsOrder::fromAffineMap(map), memKindSymbolAttr);
     return memrefType;
 }
 
@@ -318,6 +308,76 @@ void vpux::ELF::insertELFMain(mlir::func::FuncOp netFunc) {
     // as we've moved the whole function we also moved the terminator
     auto terminator = elf.getContent().front().getTerminator();
     terminator->moveAfter(elf.getOperation());
+}
+
+namespace {
+
+// Maps a VPURT buffer section to the appropriate DataInfoOp list in NetworkInfo and returns the
+// per-dimension upper bounds for the given index. Returns empty for non-IO sections.
+SmallVector<int64_t> getNetworkIOBoundsForSection(net::NetworkInfoOp netInfo, VPURT::BufferSection section,
+                                                  size_t index) {
+    SmallVector<net::DataInfoOp, 1> dataInfos;
+    switch (section) {
+    case VPURT::BufferSection::NetworkInput:
+        dataInfos = netInfo.getInputsDataInfo();
+        break;
+    case VPURT::BufferSection::NetworkOutput:
+        dataInfos = netInfo.getOutputsDataInfo();
+        break;
+    case VPURT::BufferSection::ProfilingOutput:
+        dataInfos = netInfo.getProfilingOutputsDataInfo();
+        break;
+    default:
+        return {};
+    }
+    return net::getBoundsFromDataInfo(dataInfos, index);
+}
+
+// Resolves the binary size of an IO buffer by substituting declared per-dimension upper bounds
+// from the callee's net::NetworkInfoOp. Called by ELF buffer ops that must compute section sizes
+// at compile time when the underlying memref type contains dynamic dimensions
+size_t getBoundedNetworkIOBinarySize(vpux::NDTypeInterface type, mlir::Operation* contextOp,
+                                     VPURT::BufferSection section, int64_t sectionIndex) {
+    // Guard against invalid context or index before any potentially expensive lookups
+    VPUX_THROW_WHEN(contextOp == nullptr || sectionIndex < 0,
+                    "Invalid context operation or section index: contextOp={0}, sectionIndex={1}", contextOp,
+                    sectionIndex);
+
+    auto memrefType = mlir::dyn_cast<mlir::MemRefType>(type);
+    // Not a dynamic memref: static size is already correct, no bounds substitution needed
+    VPUX_THROW_WHEN(!memrefType || memrefType.getNumDynamicDims() == 0,
+                    "getBoundedNetworkIOBinarySize should only be called for dynamic memrefs, got type: {0}", type);
+
+    auto netInfo = net::getNetworkInfo(contextOp);
+    VPUX_THROW_UNLESS(netInfo, "Missing NetworkInfo for context operation: contextOp={0}", contextOp);
+
+    const auto ioIndex = checked_cast<size_t>(sectionIndex);
+
+    // getNetworkIOBoundsForSection maps the section type to the right DataInfo list and delegates
+    // to getBoundsFromDataInfo; returns empty for non-IO sections or missing BoundedTensorType
+    const auto bounds = getNetworkIOBoundsForSection(netInfo, section, ioIndex);
+    VPUX_THROW_WHEN(bounds.empty(), "No bounds found for section: section={0}, index={1}", section, ioIndex);
+
+    const auto upperBoundType = type.changeShape(ShapeRef(bounds));
+    const auto sizeInBytes = vpux::ELF::getOpBinarySize(upperBoundType);
+    Logger::global().trace(
+            "ELF bounded binary size from NetworkInfo: section={0}, index={1}, type={2}, bounds={3}, size={4}", section,
+            ioIndex, type, bounds, sizeInBytes);
+    return sizeInBytes;
+}
+
+}  // namespace
+
+// Returns the binary size for a buffer, using declared upper bounds from NetworkInfo when available
+size_t vpux::ELF::getBufferBinarySize(vpux::NDTypeInterface type, mlir::Operation* contextOp,
+                                      VPURT::BufferSection section, int64_t sectionIndex) {
+    auto memrefType = mlir::dyn_cast<mlir::MemRefType>(type);
+    // Dynamic memref: must resolve size via NetworkInfo bounds
+    if (memrefType && memrefType.getNumDynamicDims() > 0) {
+        return getBoundedNetworkIOBinarySize(type, contextOp, section, sectionIndex);
+    }
+
+    return getOpBinarySize(type);
 }
 
 size_t vpux::ELF::getOpBinarySize(vpux::NDTypeInterface type) {

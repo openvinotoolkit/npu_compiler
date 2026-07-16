@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/scf/scf_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tiling_algorithm/tiling_context.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_algorithm.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Dialect/Affine/IR/AffineOps.h>
@@ -222,6 +223,28 @@ private:
     void safeRunOnFunc() final;
 };
 
+struct MergeMCTilingConfiguration : MergeConfiguration {
+    MergeMCTilingConfiguration(Logger log) {
+        splitGetter = [log](VPU::VF::v2::VFConfig& config, DimArrRef allowedDims) -> VPU::VF::v2::VFCase {
+            auto vfSplit = VPU::VF::v2::getVFSplitForSCF(config, allowedDims);
+            auto outputs = config.getOutputs();
+            if (outputs.empty()) {
+                return VPU::VF::v2::VFCase(config, {});
+            }
+            auto* lastOp = outputs.back();
+            auto outputType = mlir::cast<vpux::NDTypeInterface>(lastOp->getResult(0).getType());
+            return VPU::VF::v2::computeVFSCFCase(outputType, vfSplit, config, lastOp, log);
+        };
+        mergeDecision = [](VPU::VF::v2::VFCase& vfCase) -> bool {
+            return vfCase.isInitialized();
+        };
+        viewLikePolicy = [](mlir::Operation*) -> bool {
+            // Allow view like operations in HostCompile pipeline
+            return true;
+        };
+    }
+};
+
 //
 // safeRunOnFunc
 //
@@ -243,15 +266,18 @@ void SCFMulticlusteringPass::safeRunOnFunc() {
             return;
         }
 
-        if (!op->hasAttr(multiClusterStrategy)) {
+        if (!op->hasAttr(VPU::multiClusterStrategy)) {
             _log.nest().trace("No multicluster strategy or it has already been applied.");
             return;
         }
-        const auto mcStrategy = op->getAttr(multiClusterStrategy);
+        const auto mcStrategy = op->getAttr(VPU::multiClusterStrategy);
         const auto options = VPU::TilingContextOptions(VPU::TilingContextOptions::ContextType::MULTICLUSTERING,
                                                        /* enableSCFTiling = */ true);
         auto tilingContext = VPU::createTilingContext(op, options);
-        const auto fused = tilingContext.applySCFTilingAndFusion(irBuilder, _log);
+
+        // E-219896: define merge config for MC tiling, reuse now current logic
+        auto mergeDefultConfig = MergeMCTilingConfiguration(_log);
+        const auto fused = tilingContext.applySCFTilingAndFusion(irBuilder, mergeDefultConfig, _log);
 
         if (!fused.empty()) {
             // Op and its producers are compatible, therefore there is the

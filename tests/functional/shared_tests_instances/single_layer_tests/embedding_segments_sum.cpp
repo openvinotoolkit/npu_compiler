@@ -11,6 +11,9 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(EmbeddingSegmentsSumLayerTest);
+
 class EmbeddingSegmentsSumLayerTestCommon : public EmbeddingSegmentsSumLayerTest, virtual public VpuOv2LayerTest {};
 
 TEST_P(EmbeddingSegmentsSumLayerTestCommon, NPU3720_HW) {

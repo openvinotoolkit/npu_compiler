@@ -69,11 +69,16 @@ func.func @testDynamicReshapeWithConstants(%arg0: tensor<4x1x16x?xf32, {bounds =
 
      return %1 : tensor<1x?x64xf32, {bounds = #const.OpaqueI64Elements<[1, 10, 64]> : tensor<3xsi64>, order = #CHW}>
 
-     // CHECK: [[CST:%.+]] = const.Declare tensor<3xsi64> = dense<[1, -1, 64]> : tensor<3xsi64>
+     // CHECK: [[CST:%.+]] = const.Declare tensor<3xsi64>
+     // CHECK-SAME: #const.Concat
+     // CHECK-SAME: dense<1>
+     // CHECK-SAME: dense<[-1, 1, 64]>
+     // CHECK-SAME: #const.SubView
+     // CHECK-SAME: dense<64>
      // CHECK: [[DYN_RESHAPE:%.+]] = IE.DynamicReshape([[ARG0]], [[CST]]) {output_bounds = [1, 10, 64],
-     // CHECK:    output_shape = [1, -9223372036854775808, 64]} : tensor<4x1x16x?xf32, {bounds = #const.OpaqueI64Elements<[4, 1, 16, 10]> :
-     // CHECK:    tensor<4xsi64>, order = #NCHW}>, tensor<3xsi64> -> tensor<1x?x64xf32, {bounds = #const.OpaqueI64Elements<[1, 10, 64]> :
-     // CHECK:    tensor<3xsi64>, order = #CHW}>
+     // CHECK-SAME:    output_shape = [1, -9223372036854775808, 64]} : tensor<4x1x16x?xf32, {bounds = #const.OpaqueI64Elements<[4, 1, 16, 10]> :
+     // CHECK-SAME:    tensor<4xsi64>, order = #NCHW}>, tensor<3xsi64> -> tensor<1x?x64xf32, {bounds = #const.OpaqueI64Elements<[1, 10, 64]> :
+     // CHECK-SAME:    tensor<3xsi64>, order = #CHW}>
      // CHECK: return [[DYN_RESHAPE]] : tensor<1x?x64xf32, {bounds = #const.OpaqueI64Elements<[1, 10, 64]> : tensor<3xsi64>, order = #CHW}>
 }
 

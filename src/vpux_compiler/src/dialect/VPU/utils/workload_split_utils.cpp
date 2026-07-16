@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/op_tiling_cache.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_utils.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
@@ -129,7 +130,10 @@ void generateWorkloads(mlir::OpBuilder& builder, VPU::NCEOpInterface origOp,
                        ArrayRef<bool> isTileOverDimsSupported, VPUNN::VPUCostModel& costModel, Logger log,
                        mlir::IntegerAttr clusterId = nullptr, ShapeRef subTensorOffset = {}) {
     auto ctx = origOp.getContext();
-    VPUIP::DpuTiler dpuTiler(costParams.outputShape, mpeMode);
+    // Tile in pre-ODU space so that workload offsets/shapes match the coordinate system the DPU
+    // hardware operates in.  For ops without an active ODU transform,
+    // preODUShape equals outputShape, so behaviour is identical.
+    VPUIP::DpuTiler dpuTiler(costParams.preODUShape, mpeMode);
     VPUIP::WorkloadSplitPool splitPoolSet;
     dpuTiler.tileOverH(costParams.numDPU, splitPoolSet);
 
@@ -278,11 +282,22 @@ void splitOntoWorkloads(mlir::OpBuilder& builder, VPU::NCEOpInterface origOp, VP
             }
         }
 
+        // ODU scales are op-level (same for all clusters); read once before the loop.
+        const auto oduScales = VPU::getODUScaling(origOp.getOperation());
+
         for (size_t clusterId = 0; clusterId < outputSubTensorShapes.size(); clusterId++) {
             auto clusterIdAttr = getIntAttr(origOp->getContext(), clusterId);
             // Update workload params for per tile
             costParams.inputShape = inputSubTensorShapes[clusterId];
             costParams.outputShape = outputSubTensorShapes[clusterId];
+            // Map the per-cluster post-ODU output shape back to pre-ODU space so DpuTiler
+            // sees the coordinate system the DPU hardware operates in.  When no transform is
+            // active, invertODUScaling is a no-op and preODUShape equals outputShape.
+            const auto preODUShapeResult =
+                    VPU::invertODUScaling(oduScales, SmallVector<int64_t>(costParams.outputShape.raw()));
+            VPUX_THROW_UNLESS(mlir::succeeded(preODUShapeResult),
+                              "Failed to invert ODU scaling for workload split at cluster {0}", clusterId);
+            costParams.preODUShape = Shape(preODUShapeResult.value());
             costParams.numTiles = distributionAttr.getNumClusters().getInt();
             // #E129156 once with the update of VPUNN to provide MPE mode explicitly
             // avoid using below logic for NPU5 onwards
@@ -430,6 +445,13 @@ bool vpux::VPU::isSupportedPreSplitNCEOp(VPU::NCEOpInterface nceOp) {
     }
     if (isActSparseOp(nceOp)) {
         // Track E#160972. Activation sparse op accuracy issue
+        return false;
+    }
+    // VPUNN pre-split generates workloads in the op's output coordinate space, which for ops
+    // with an active ODU transform (D2S/S2D) is post-ODU. The DPU hardware requires workload
+    // offsets/shapes in pre-ODU space. This will require further adjusting in different parts of the code and will be
+    // handled with E#221433.
+    if (!VPU::getODUScaling(nceOp.getOperation()).empty()) {
         return false;
     }
     const auto isDistributedOp = getDistributedTensor(nceOp->getResult(0)) != nullptr &&

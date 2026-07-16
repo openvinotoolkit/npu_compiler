@@ -8,20 +8,20 @@
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-func.func @SetSwizzlingForDpuToDpuBuffer(%in : memref<1x16x56x56xf16, #NHWC, @DDR>,
-                        %weight_table : memref<16x1x1x4xsi32, #NHWC, @CMX_NN>,
-                        %weights : memref<16x16x1x1xf16, #NHWC, @CMX_NN>)
-                        -> memref<1x16x56x56xf16, #NHWC, @DDR> {
+func.func @SetSwizzlingForDpuToDpuBuffer(%in : memref<1x16x56x56xf16, {order = #NHWC}, @DDR>,
+                        %weight_table : memref<16x1x1x4xsi32, {order = #NHWC}, @CMX_NN>,
+                        %weights : memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>)
+                        -> memref<1x16x56x56xf16, {order = #NHWC}, @DDR> {
 
-    %buf0 = memref.alloc() : memref<1x16x56x56xf16, #NHWC, @CMX_NN>
-    %buf1 = memref.alloc() : memref<1x16x56x56xf16, #NHWC, @CMX_NN>
-    %buf2 = memref.alloc() : memref<1x16x56x56xf16, #NHWC, @CMX_NN>
-    %buf3 = memref.alloc() : memref<1x16x56x56xf16, #NHWC, @DDR>
+    %buf0 = memref.alloc() : memref<1x16x56x56xf16, {order = #NHWC}, @CMX_NN>
+    %buf1 = memref.alloc() : memref<1x16x56x56xf16, {order = #NHWC}, @CMX_NN>
+    %buf2 = memref.alloc() : memref<1x16x56x56xf16, {order = #NHWC}, @CMX_NN>
+    %buf3 = memref.alloc() : memref<1x16x56x56xf16, {order = #NHWC}, @DDR>
 
     %0 = VPUIP.Copy
-            inputs(%in : memref<1x16x56x56xf16, #NHWC, @DDR>)
-            outputs(%buf0 : memref<1x16x56x56xf16, #NHWC, @CMX_NN>)
-             -> memref<1x16x56x56xf16, #NHWC, @CMX_NN>
+            inputs(%in : memref<1x16x56x56xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf0 : memref<1x16x56x56xf16, {order = #NHWC}, @CMX_NN>)
+             -> memref<1x16x56x56xf16, {order = #NHWC}, @CMX_NN>
 
     %1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
@@ -29,12 +29,12 @@ func.func @SetSwizzlingForDpuToDpuBuffer(%in : memref<1x16x56x56xf16, #NHWC, @DD
             kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>
         }>
-        input(%0 : memref<1x16x56x56xf16, #NHWC, @CMX_NN>)
-        weights(%weights : memref<16x16x1x1xf16, #NHWC, @CMX_NN>)
-        weight_table(%weight_table : memref<16x1x1x4xsi32, #NHWC, @CMX_NN>)
-        parent_input(%0 : memref<1x16x56x56xf16, #NHWC, @CMX_NN>)
-        parent_output(%buf1 : memref<1x16x56x56xf16, #NHWC, @CMX_NN>)
-        outputs(%buf1 : memref<1x16x56x56xf16, #NHWC, @CMX_NN>) -> memref<1x16x56x56xf16, #NHWC, @CMX_NN>
+        input(%0 : memref<1x16x56x56xf16, {order = #NHWC}, @CMX_NN>)
+        weights(%weights : memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>)
+        weight_table(%weight_table : memref<16x1x1x4xsi32, {order = #NHWC}, @CMX_NN>)
+        parent_input(%0 : memref<1x16x56x56xf16, {order = #NHWC}, @CMX_NN>)
+        parent_output(%buf1 : memref<1x16x56x56xf16, {order = #NHWC}, @CMX_NN>)
+        outputs(%buf1 : memref<1x16x56x56xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x16x56x56xf16, {order = #NHWC}, @CMX_NN>
         variants :
         {
             DPUTask
@@ -54,12 +54,12 @@ func.func @SetSwizzlingForDpuToDpuBuffer(%in : memref<1x16x56x56xf16, #NHWC, @DD
             kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>
         }>
-        input(%1 : memref<1x16x56x56xf16, #NHWC, @CMX_NN>)
-        weights(%weights : memref<16x16x1x1xf16, #NHWC, @CMX_NN>)
-        weight_table(%weight_table : memref<16x1x1x4xsi32, #NHWC, @CMX_NN>)
-        parent_input(%1 : memref<1x16x56x56xf16, #NHWC, @CMX_NN>)
-        parent_output(%buf2 : memref<1x16x56x56xf16, #NHWC, @CMX_NN>)
-        outputs(%buf2 : memref<1x16x56x56xf16, #NHWC, @CMX_NN>) -> memref<1x16x56x56xf16, #NHWC, @CMX_NN>
+        input(%1 : memref<1x16x56x56xf16, {order = #NHWC}, @CMX_NN>)
+        weights(%weights : memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>)
+        weight_table(%weight_table : memref<16x1x1x4xsi32, {order = #NHWC}, @CMX_NN>)
+        parent_input(%1 : memref<1x16x56x56xf16, {order = #NHWC}, @CMX_NN>)
+        parent_output(%buf2 : memref<1x16x56x56xf16, {order = #NHWC}, @CMX_NN>)
+        outputs(%buf2 : memref<1x16x56x56xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x16x56x56xf16, {order = #NHWC}, @CMX_NN>
         variants :
         {
             DPUTask
@@ -74,18 +74,18 @@ func.func @SetSwizzlingForDpuToDpuBuffer(%in : memref<1x16x56x56xf16, #NHWC, @DD
         }
 
     %3 = VPUIP.Copy
-            inputs(%2 : memref<1x16x56x56xf16, #NHWC, @CMX_NN>)
-            outputs(%buf3 : memref<1x16x56x56xf16, #NHWC, @DDR>)
-             -> memref<1x16x56x56xf16, #NHWC, @DDR>
+            inputs(%2 : memref<1x16x56x56xf16, {order = #NHWC}, @CMX_NN>)
+            outputs(%buf3 : memref<1x16x56x56xf16, {order = #NHWC}, @DDR>)
+             -> memref<1x16x56x56xf16, {order = #NHWC}, @DDR>
 
-    return %3 : memref<1x16x56x56xf16, #NHWC, @DDR>
+    return %3 : memref<1x16x56x56xf16, {order = #NHWC}, @DDR>
 
     // Verify that alignment is set only for DPU to DPU buffer
 
-    // CHECK:      [[BUF0:%.+]] = memref.alloc() : memref<1x16x56x56xf16, #NHWC, @CMX_NN>
+    // CHECK:      [[BUF0:%.+]] = memref.alloc() : memref<1x16x56x56xf16, {order = #NHWC}, @CMX_NN>
     // CHECK:      [[BUF1:%.+]] = VPURT.Alloc {alignment = 16384 : i64, swizzlingKey = 5 : i64} -> memref<1x16x56x56xf16, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN>
-    // CHECK:      [[BUF2:%.+]] = memref.alloc() : memref<1x16x56x56xf16, #NHWC, @CMX_NN>
-    // CHECK:      [[BUF3:%.+]] = memref.alloc() : memref<1x16x56x56xf16, #NHWC, @DDR>
+    // CHECK:      [[BUF2:%.+]] = memref.alloc() : memref<1x16x56x56xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK:      [[BUF3:%.+]] = memref.alloc() : memref<1x16x56x56xf16, {order = #NHWC}, @DDR>
 
 }
 
@@ -93,19 +93,19 @@ func.func @SetSwizzlingForDpuToDpuBuffer(%in : memref<1x16x56x56xf16, #NHWC, @DD
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-func.func @DoNotSetSwizzlingDueToCmxUsageIncrease(%in : memref<1x16x176x175xf16, #NHWC, @DDR>,
-                        %weight_table : memref<16x1x1x4xsi32, #NHWC, @CMX_NN>)
-                        -> memref<1x16x176x175xf16, #NHWC, @DDR> {
+func.func @DoNotSetSwizzlingDueToCmxUsageIncrease(%in : memref<1x16x176x175xf16, {order = #NHWC}, @DDR>,
+                        %weight_table : memref<16x1x1x4xsi32, {order = #NHWC}, @CMX_NN>)
+                        -> memref<1x16x176x175xf16, {order = #NHWC}, @DDR> {
 
-    %buf0 = memref.alloc() : memref<1x16x176x175xf16, #NHWC, @CMX_NN>
-    %buf1 = memref.alloc() : memref<1x16x176x175xf16, #NHWC, @CMX_NN>
-    %buf2 = memref.alloc() : memref<1x16x176x175xf16, #NHWC, @CMX_NN>
-    %buf3 = memref.alloc() : memref<1x16x176x175xf16, #NHWC, @DDR>
+    %buf0 = memref.alloc() : memref<1x16x176x175xf16, {order = #NHWC}, @CMX_NN>
+    %buf1 = memref.alloc() : memref<1x16x176x175xf16, {order = #NHWC}, @CMX_NN>
+    %buf2 = memref.alloc() : memref<1x16x176x175xf16, {order = #NHWC}, @CMX_NN>
+    %buf3 = memref.alloc() : memref<1x16x176x175xf16, {order = #NHWC}, @DDR>
 
     %0 = VPUIP.Copy
-            inputs(%in : memref<1x16x176x175xf16, #NHWC, @DDR>)
-            outputs(%buf0 : memref<1x16x176x175xf16, #NHWC, @CMX_NN>)
-             -> memref<1x16x176x175xf16, #NHWC, @CMX_NN>
+            inputs(%in : memref<1x16x176x175xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf0 : memref<1x16x176x175xf16, {order = #NHWC}, @CMX_NN>)
+             -> memref<1x16x176x175xf16, {order = #NHWC}, @CMX_NN>
 
     %1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
@@ -113,11 +113,11 @@ func.func @DoNotSetSwizzlingDueToCmxUsageIncrease(%in : memref<1x16x176x175xf16,
             kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<MAXPOOL>
         }>
-        input(%0 : memref<1x16x176x175xf16, #NHWC, @CMX_NN>)
-        weight_table(%weight_table : memref<16x1x1x4xsi32, #NHWC, @CMX_NN>)
-        parent_input(%0 : memref<1x16x176x175xf16, #NHWC, @CMX_NN>)
-        parent_output(%buf1 : memref<1x16x176x175xf16, #NHWC, @CMX_NN>)
-        outputs(%buf1 : memref<1x16x176x175xf16, #NHWC, @CMX_NN>) -> memref<1x16x176x175xf16, #NHWC, @CMX_NN>
+        input(%0 : memref<1x16x176x175xf16, {order = #NHWC}, @CMX_NN>)
+        weight_table(%weight_table : memref<16x1x1x4xsi32, {order = #NHWC}, @CMX_NN>)
+        parent_input(%0 : memref<1x16x176x175xf16, {order = #NHWC}, @CMX_NN>)
+        parent_output(%buf1 : memref<1x16x176x175xf16, {order = #NHWC}, @CMX_NN>)
+        outputs(%buf1 : memref<1x16x176x175xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x16x176x175xf16, {order = #NHWC}, @CMX_NN>
         variants :
         {
             DPUTask
@@ -137,11 +137,11 @@ func.func @DoNotSetSwizzlingDueToCmxUsageIncrease(%in : memref<1x16x176x175xf16,
             kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<MAXPOOL>
         }>
-        input(%1 : memref<1x16x176x175xf16, #NHWC, @CMX_NN>)
-        weight_table(%weight_table : memref<16x1x1x4xsi32, #NHWC, @CMX_NN>)
-        parent_input(%1 : memref<1x16x176x175xf16, #NHWC, @CMX_NN>)
-        parent_output(%buf2 : memref<1x16x176x175xf16, #NHWC, @CMX_NN>)
-        outputs(%buf2 : memref<1x16x176x175xf16, #NHWC, @CMX_NN>) -> memref<1x16x176x175xf16, #NHWC, @CMX_NN>
+        input(%1 : memref<1x16x176x175xf16, {order = #NHWC}, @CMX_NN>)
+        weight_table(%weight_table : memref<16x1x1x4xsi32, {order = #NHWC}, @CMX_NN>)
+        parent_input(%1 : memref<1x16x176x175xf16, {order = #NHWC}, @CMX_NN>)
+        parent_output(%buf2 : memref<1x16x176x175xf16, {order = #NHWC}, @CMX_NN>)
+        outputs(%buf2 : memref<1x16x176x175xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x16x176x175xf16, {order = #NHWC}, @CMX_NN>
         variants :
         {
             DPUTask
@@ -156,19 +156,19 @@ func.func @DoNotSetSwizzlingDueToCmxUsageIncrease(%in : memref<1x16x176x175xf16,
         }
 
     %3 = VPUIP.Copy
-            inputs(%2 : memref<1x16x176x175xf16, #NHWC, @CMX_NN>)
-            outputs(%buf3 : memref<1x16x176x175xf16, #NHWC, @DDR>)
-             -> memref<1x16x176x175xf16, #NHWC, @DDR>
+            inputs(%2 : memref<1x16x176x175xf16, {order = #NHWC}, @CMX_NN>)
+            outputs(%buf3 : memref<1x16x176x175xf16, {order = #NHWC}, @DDR>)
+             -> memref<1x16x176x175xf16, {order = #NHWC}, @DDR>
 
-    return %3 : memref<1x16x176x175xf16, #NHWC, @DDR>
+    return %3 : memref<1x16x176x175xf16, {order = #NHWC}, @DDR>
 
     // Verify that no swizzling is enabled
 
-    // CHECK:      [[BUF0:%.+]] = memref.alloc() : memref<1x16x176x175xf16, #NHWC, @CMX_NN>
+    // CHECK:      [[BUF0:%.+]] = memref.alloc() : memref<1x16x176x175xf16, {order = #NHWC}, @CMX_NN>
     // CHECK-NOT:  VPURT.Alloc {alignment = 16384 : i64, swizzlingKey = 5 : i64}
-    // CHECK:      [[BUF1:%.+]] = memref.alloc() : memref<1x16x176x175xf16, #NHWC, @CMX_NN>
-    // CHECK:      [[BUF2:%.+]] = memref.alloc() : memref<1x16x176x175xf16, #NHWC, @CMX_NN>
-    // CHECK:      [[BUF3:%.+]] = memref.alloc() : memref<1x16x176x175xf16, #NHWC, @DDR>
+    // CHECK:      [[BUF1:%.+]] = memref.alloc() : memref<1x16x176x175xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK:      [[BUF2:%.+]] = memref.alloc() : memref<1x16x176x175xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK:      [[BUF3:%.+]] = memref.alloc() : memref<1x16x176x175xf16, {order = #NHWC}, @DDR>
 
 }
 
@@ -200,15 +200,15 @@ func.func @DoNotSetSwizzlingDueToCmxUsageIncrease(%in : memref<1x16x176x175xf16,
     num_clusters = 2
 }>
 
-!Input_DDR = memref<1x16x56x56xf16, #NHWC, @DDR>
-!WeightsTable_DDR = memref<16x1x1x4xsi32, #NHWC, @DDR>
-!Weights_DDR = memref<16x16x1x1xf16, #NHWC, @DDR>
-!Output_DDR = memref<1x16x56x56xf16, #NHWC, @DDR>
+!Input_DDR = memref<1x16x56x56xf16, {order = #NHWC}, @DDR>
+!WeightsTable_DDR = memref<16x1x1x4xsi32, {order = #NHWC}, @DDR>
+!Weights_DDR = memref<16x16x1x1xf16, {order = #NHWC}, @DDR>
+!Output_DDR = memref<1x16x56x56xf16, {order = #NHWC}, @DDR>
 
-!InputStub_CMX = memref<1x16x56x56xf16, #NHWC, [@CMX_NN, 0]>
-!WeightsTableStub_CMX = memref<16x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>
-!WeightsStub_CMX = memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
-!OutputStub_CMX = memref<1x16x56x56xf16, #NHWC, [@CMX_NN, 0]>
+!InputStub_CMX = memref<1x16x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!WeightsTableStub_CMX = memref<16x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>
+!WeightsStub_CMX = memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!OutputStub_CMX = memref<1x16x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
 func.func @SetSwizzlingForDpuToDpuBufferInMultiCluster(%input : !Input_DDR,
                         %weights_table : !WeightsTable_DDR,
@@ -289,7 +289,7 @@ func.func @SetSwizzlingForDpuToDpuBufferInMultiCluster(%input : !Input_DDR,
     // CHECK:      [[BUF_W:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<16x16x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
     // CHECK:      [[BUF_OUT_1_CMX_SWIZZLED:%.+]] = VPURT.AllocDistributed {alignment = 16384 : i64, swizzlingKey = 5 : i64} -> !VPUIP.DistributedBuffer<1x16x56x56xf16, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN,  {mode = "DUPLICATED", num_clusters = 2 : i64}>
     // CHECK:      [[BUF_OUT_2_CMX:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x16x56x56xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
-    // CHECK:      [[BUF_OUT_DDR:%.+]] = memref.alloc() : memref<1x16x56x56xf16, #NHWC, @DDR>
+    // CHECK:      [[BUF_OUT_DDR:%.+]] = memref.alloc() : memref<1x16x56x56xf16, {order = #NHWC}, @DDR>
     // CHECK:      [[NCE_CT_COPY_INPUT:%.+]] = VPUIP.Copy
     // CHECK:      [[NCE_CT_COPY_WEIGHTS:%.+]] = VPUIP.Copy
     // CHECK:      [[NCE_CT_NCE_TASK:%.+]] = VPUIP.NCEClusterTask
@@ -324,15 +324,15 @@ func.func @SetSwizzlingForDpuToDpuBufferInMultiCluster(%input : !Input_DDR,
     num_clusters = 2
 }>
 
-!Input_DDR = memref<1x16x56x56xf16, #NHWC, @DDR>
-!Weights_DDR = memref<32x32x1x1xf16, #NHWC, @DDR>
+!Input_DDR = memref<1x16x56x56xf16, {order = #NHWC}, @DDR>
+!Weights_DDR = memref<32x32x1x1xf16, {order = #NHWC}, @DDR>
 !WeightsTable_DDR = memref<32x1x1x4xsi32, @DDR>
-!Output_DDR = memref<1x16x56x56xf16, #NHWC, @DDR>
+!Output_DDR = memref<1x16x56x56xf16, {order = #NHWC}, @DDR>
 
-!InputStub_CMX = memref<1x16x56x56xf16, #NHWC, [@CMX_NN, 0]>
-!WeightsStub_CMX = memref<32x32x1x1xf16, #NHWC, @CMX_NN>
-!WeightsTableStub_CMX = memref<32x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>
-!OutputStub_CMX = memref<1x16x56x56xf16, #NHWC, [@CMX_NN, 0]>
+!InputStub_CMX = memref<1x16x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!WeightsStub_CMX = memref<32x32x1x1xf16, {order = #NHWC}, @CMX_NN>
+!WeightsTableStub_CMX = memref<32x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>
+!OutputStub_CMX = memref<1x16x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
 // CHECK-LABEL: @SetSwizzlingForConstantsMultiClusterDuplicated
 func.func @SetSwizzlingForConstantsMultiClusterDuplicated(%input : !Input_DDR) -> !Output_DDR
@@ -394,7 +394,7 @@ func.func @SetSwizzlingForConstantsMultiClusterDuplicated(%input : !Input_DDR) -
     // CHECK:      [[BUF_OUT_1_CMX:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x16x56x56xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
     // CHECK:      [[BUF_OUT_2_CMX:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x16x56x56xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
 
-    // CHECK:      [[BUF_OUT_DDR:%.+]] = memref.alloc() : memref<1x16x56x56xf16, #NHWC, @DDR>
+    // CHECK:      [[BUF_OUT_DDR:%.+]] = memref.alloc() : memref<1x16x56x56xf16, {order = #NHWC}, @DDR>
 
     // CHECK:      [[NCE_CT_COPY_INPUT:%.+]] = VPUIP.Copy
     // CHECK:      [[NCE_CT_COPY_WT:%.+]] = VPUIP.Copy
@@ -438,15 +438,15 @@ func.func @SetSwizzlingForConstantsMultiClusterDuplicated(%input : !Input_DDR) -
     alignment = [1, 16, 1, 1]
 }>
 
-!Input_DDR = memref<1x32x3x3xf16, #NHWC, @DDR>
-!Weights_DDR = memref<64x32x1x1xf16, #NHWC, @DDR>
+!Input_DDR = memref<1x32x3x3xf16, {order = #NHWC}, @DDR>
+!Weights_DDR = memref<64x32x1x1xf16, {order = #NHWC}, @DDR>
 !WeightsTable_DDR = memref<64x1x1x4xsi32, @DDR>
-!Output_DDR = memref<1x64x3x3xf16, #NHWC, @DDR>
+!Output_DDR = memref<1x64x3x3xf16, {order = #NHWC}, @DDR>
 
-!InputStub_CMX = memref<1x32x3x3xf16, #NHWC, [@CMX_NN, 0]>
-!WeightsStub_CMX = memref<64x32x1x1xf16, #NHWC, @CMX_NN>
+!InputStub_CMX = memref<1x32x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!WeightsStub_CMX = memref<64x32x1x1xf16, {order = #NHWC}, @CMX_NN>
 !WeightsTableStub_CMX = memref<64x1x1x4xsi32, [@CMX_NN, 0]>
-!OutputStub_CMX = memref<1x64x3x3xf16, #NHWC, [@CMX_NN, 0]>
+!OutputStub_CMX = memref<1x64x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
 // CHECK-LABEL: @SetSwizzlingForConstantsSOK
 func.func @SetSwizzlingForConstantsSOK(%input : !Input_DDR) -> !Output_DDR
@@ -549,19 +549,19 @@ func.func @SetSwizzlingForConstantsSOK(%input : !Input_DDR) -> !Output_DDR
     num_clusters = 2
 }>
 
-!Input_DDR = memref<1x16x32x32x!qElemType, #NHWC, @DDR>
-!Output_DDR = memref<1x64x32x32x!qElemType1, #NHWC, @DDR>
-!Weights_DDR = memref<64x16x1x1x!qElemType3, #NHWC, @DDR>
-!WeightsTable_DDR = memref<64x1x1x4xsi32, #NCHW, @DDR>
+!Input_DDR = memref<1x16x32x32x!qElemType, {order = #NHWC}, @DDR>
+!Output_DDR = memref<1x64x32x32x!qElemType1, {order = #NHWC}, @DDR>
+!Weights_DDR = memref<64x16x1x1x!qElemType3, {order = #NHWC}, @DDR>
+!WeightsTable_DDR = memref<64x1x1x4xsi32, @DDR>
 
-!InputStub_CMX = memref<1x16x32x32x!qElemType, #NHWC, @CMX_NN>
-!OutputStub_CMX = memref<1x64x32x32x!qElemType1, #NHWC, @CMX_NN>
-!WeightsStub_CMX = memref<64x16x1x1x!qElemType3, #NHWC, @CMX_NN>
-!WeightsTableStub_CMX = memref<64x1x1x4xsi32, #NCHW, @CMX_NN>
+!InputStub_CMX = memref<1x16x32x32x!qElemType, {order = #NHWC}, @CMX_NN>
+!OutputStub_CMX = memref<1x64x32x32x!qElemType1, {order = #NHWC}, @CMX_NN>
+!WeightsStub_CMX = memref<64x16x1x1x!qElemType3, {order = #NHWC}, @CMX_NN>
+!WeightsTableStub_CMX = memref<64x1x1x4xsi32, @CMX_NN>
 
 func.func @SetSwizzlingForQuantConstantsSOK(%input : !Input_DDR) -> !Output_DDR
 {
-    %weights = const.Declare memref<64x16x1x1x!qElemType3, #NHWC> =
+    %weights = const.Declare memref<64x16x1x1x!qElemType3, {order = #NHWC}> =
         dense<1.0> : tensor<64x16x1x1xf16>, [#const.CastElemType<ui8>, #const.CastElemType<!qElemType3>, #const.Reorder<#NHWC>]
     %weights_table = const.Declare memref<64x1x1x4xsi32> = dense<1> : tensor<64x1x1x4xsi32>
 
@@ -575,7 +575,7 @@ func.func @SetSwizzlingForQuantConstantsSOK(%input : !Input_DDR) -> !Output_DDR
 
     %2 = VPUIP.Copy { out_mem_space = @CMX_NN } inputs(%weights_table: memref<64x1x1x4xsi32>) outputs(%weights_table_cmx: !WeightsTableDistributed) -> !WeightsTableDistributed
 
-    %3 = VPUIP.Copy { out_mem_space = @CMX_NN } inputs(%weights: memref<64x16x1x1x!qElemType3, #NHWC>) outputs(%weights_cmx: !WeightsDistributed) -> !WeightsDistributed
+    %3 = VPUIP.Copy { out_mem_space = @CMX_NN } inputs(%weights: memref<64x16x1x1x!qElemType3, {order = #NHWC}>) outputs(%weights_cmx: !WeightsDistributed) -> !WeightsDistributed
 
     %4 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 177 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
@@ -625,22 +625,22 @@ config.Resources 1 of @NCE at 1.300000e+03 MHz {
     config.ExecutorResource 1 of @DPU
 }
 
-func.func @DoNotSwizzleDueToAlignmentMemIncrease(%in : memref<1x16x180x180xf16, #NHWC, @DDR>,
-                        %weight_table : memref<16x1x1x4xsi32, #NHWC, @CMX_NN>,
-                        %weights : memref<16x16x1x1xf16, #NHWC, @CMX_NN>,
-                        %weights_0 : memref<16x16x1x1xf16, #NHWC, @CMX_NN>)
-                        -> memref<1x16x180x180xf16, #NHWC, @DDR> {
+func.func @DoNotSwizzleDueToAlignmentMemIncrease(%in : memref<1x16x180x180xf16, {order = #NHWC}, @DDR>,
+                        %weight_table : memref<16x1x1x4xsi32, {order = #NHWC}, @CMX_NN>,
+                        %weights : memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>,
+                        %weights_0 : memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>)
+                        -> memref<1x16x180x180xf16, {order = #NHWC}, @DDR> {
 
-    %buf0 = memref.alloc() : memref<1x16x180x180xf16, #NHWC, @CMX_NN>
-    %buf1 = memref.alloc() : memref<1x16x180x180xf16, #NHWC, @CMX_NN>
-    %buf2 = memref.alloc() : memref<1x16x180x180xf16, #NHWC, @CMX_NN>
-    %buf3 = memref.alloc() : memref<1x16x180x180xf16, #NHWC, @CMX_NN>
-    %buf4 = memref.alloc() : memref<1x16x180x180xf16, #NHWC, @DDR>
+    %buf0 = memref.alloc() : memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>
+    %buf1 = memref.alloc() : memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>
+    %buf2 = memref.alloc() : memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>
+    %buf3 = memref.alloc() : memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>
+    %buf4 = memref.alloc() : memref<1x16x180x180xf16, {order = #NHWC}, @DDR>
 
     %0 = VPUIP.Copy
-            inputs(%in : memref<1x16x180x180xf16, #NHWC, @DDR>)
-            outputs(%buf0 : memref<1x16x180x180xf16, #NHWC, @CMX_NN>)
-             -> memref<1x16x180x180xf16, #NHWC, @CMX_NN>
+            inputs(%in : memref<1x16x180x180xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf0 : memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>)
+             -> memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>
 
     %1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
@@ -648,12 +648,12 @@ func.func @DoNotSwizzleDueToAlignmentMemIncrease(%in : memref<1x16x180x180xf16, 
             kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>
         }>
-        input(%0 : memref<1x16x180x180xf16, #NHWC, @CMX_NN>)
-        weights(%weights : memref<16x16x1x1xf16, #NHWC, @CMX_NN>)
-        weight_table(%weight_table : memref<16x1x1x4xsi32, #NHWC, @CMX_NN>)
-        parent_input(%0 : memref<1x16x180x180xf16, #NHWC, @CMX_NN>)
-        parent_output(%buf1 : memref<1x16x180x180xf16, #NHWC, @CMX_NN>)
-        outputs(%buf1 : memref<1x16x180x180xf16, #NHWC, @CMX_NN>) -> memref<1x16x180x180xf16, #NHWC, @CMX_NN>
+        input(%0 : memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>)
+        weights(%weights : memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>)
+        weight_table(%weight_table : memref<16x1x1x4xsi32, {order = #NHWC}, @CMX_NN>)
+        parent_input(%0 : memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>)
+        parent_output(%buf1 : memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>)
+        outputs(%buf1 : memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>
         variants :
         {
             DPUTask
@@ -673,12 +673,12 @@ func.func @DoNotSwizzleDueToAlignmentMemIncrease(%in : memref<1x16x180x180xf16, 
             kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>
         }>
-        input(%1 : memref<1x16x180x180xf16, #NHWC, @CMX_NN>)
-        weights(%weights_0 : memref<16x16x1x1xf16, #NHWC, @CMX_NN>)
-        weight_table(%weight_table : memref<16x1x1x4xsi32, #NHWC, @CMX_NN>)
-        parent_input(%1 : memref<1x16x180x180xf16, #NHWC, @CMX_NN>)
-        parent_output(%buf2 : memref<1x16x180x180xf16, #NHWC, @CMX_NN>)
-        outputs(%buf2 : memref<1x16x180x180xf16, #NHWC, @CMX_NN>) -> memref<1x16x180x180xf16, #NHWC, @CMX_NN>
+        input(%1 : memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>)
+        weights(%weights_0 : memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>)
+        weight_table(%weight_table : memref<16x1x1x4xsi32, {order = #NHWC}, @CMX_NN>)
+        parent_input(%1 : memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>)
+        parent_output(%buf2 : memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>)
+        outputs(%buf2 : memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>
         variants :
         {
             DPUTask
@@ -699,12 +699,12 @@ func.func @DoNotSwizzleDueToAlignmentMemIncrease(%in : memref<1x16x180x180xf16, 
             kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>
         }>
-        input(%2 : memref<1x16x180x180xf16, #NHWC, @CMX_NN>)
-        weights(%weights : memref<16x16x1x1xf16, #NHWC, @CMX_NN>)
-        weight_table(%weight_table : memref<16x1x1x4xsi32, #NHWC, @CMX_NN>)
-        parent_input(%2 : memref<1x16x180x180xf16, #NHWC, @CMX_NN>)
-        parent_output(%buf3 : memref<1x16x180x180xf16, #NHWC, @CMX_NN>)
-        outputs(%buf3 : memref<1x16x180x180xf16, #NHWC, @CMX_NN>) -> memref<1x16x180x180xf16, #NHWC, @CMX_NN>
+        input(%2 : memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>)
+        weights(%weights : memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>)
+        weight_table(%weight_table : memref<16x1x1x4xsi32, {order = #NHWC}, @CMX_NN>)
+        parent_input(%2 : memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>)
+        parent_output(%buf3 : memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>)
+        outputs(%buf3 : memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>
         variants :
         {
             DPUTask
@@ -718,28 +718,28 @@ func.func @DoNotSwizzleDueToAlignmentMemIncrease(%in : memref<1x16x180x180xf16, 
         {
         }
     %4 = VPUIP.Copy
-            inputs(%3 : memref<1x16x180x180xf16, #NHWC, @CMX_NN>)
-            outputs(%buf4 : memref<1x16x180x180xf16, #NHWC, @DDR>)
-             -> memref<1x16x180x180xf16, #NHWC, @DDR>
+            inputs(%3 : memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>)
+            outputs(%buf4 : memref<1x16x180x180xf16, {order = #NHWC}, @DDR>)
+             -> memref<1x16x180x180xf16, {order = #NHWC}, @DDR>
 
-    return %4 : memref<1x16x180x180xf16, #NHWC, @DDR>
+    return %4 : memref<1x16x180x180xf16, {order = #NHWC}, @DDR>
 
     // Verify that swizzling is only assigned to the output buffer of the first conv
     // The second conv doesn't have output swizzling because of the memory exceeds CMX size when the input is swizzled
-    // CHECK:      [[BUF0:%.+]] = memref.alloc() : memref<1x16x180x180xf16, #NHWC, @CMX_NN>
+    // CHECK:      [[BUF0:%.+]] = memref.alloc() : memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>
     // CHECK:      [[BUF1:%.+]] = VPURT.Alloc {alignment = 16384 : i64, swizzlingKey = 5 : i64} -> memref<1x16x180x180xf16, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN>
-    // CHECK:      [[BUF2:%.+]] = memref.alloc() : memref<1x16x180x180xf16, #NHWC, @CMX_NN>
-    // CHECK:      [[BUF3:%.+]] = memref.alloc() : memref<1x16x180x180xf16, #NHWC, @CMX_NN>
-    // CHECK:      [[BUF4:%.+]] = memref.alloc() : memref<1x16x180x180xf16, #NHWC, @DDR>
+    // CHECK:      [[BUF2:%.+]] = memref.alloc() : memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK:      [[BUF3:%.+]] = memref.alloc() : memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK:      [[BUF4:%.+]] = memref.alloc() : memref<1x16x180x180xf16, {order = #NHWC}, @DDR>
 
     // CHECK:      [[CONV0:%.+]] = VPUIP.NCEClusterTask
     // CHECK-SAME:      outputs([[BUF1]] : memref<1x16x180x180xf16, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN>)
     // CHECK:      [[CONV1:%.+]] = VPUIP.NCEClusterTask
     // CHECK-SAME:      input([[CONV0]] : memref<1x16x180x180xf16, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN>)
-    // CHECK-SAME:      outputs([[BUF2]] : memref<1x16x180x180xf16, #NHWC, @CMX_NN>)
+    // CHECK-SAME:      outputs([[BUF2]] : memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>)
     // CHECK:      [[CONV2:%.+]] = VPUIP.NCEClusterTask
-    // CHECK-SAME:      input([[CONV1]] : memref<1x16x180x180xf16, #NHWC, @CMX_NN>)
-    // CHECK-SAME:      outputs([[BUF3]] : memref<1x16x180x180xf16, #NHWC, @CMX_NN>)
+    // CHECK-SAME:      input([[CONV1]] : memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>)
+    // CHECK-SAME:      outputs([[BUF3]] : memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>)
 }
 
 // -----
@@ -770,15 +770,15 @@ func.func @DoNotSwizzleDueToAlignmentMemIncrease(%in : memref<1x16x180x180xf16, 
     num_clusters = 2
 }>
 
-!Input_DDR = memref<1x16x174x174xf16, #NHWC, @DDR>
-!WeightsTable_DDR = memref<16x1x1x4xsi32, #NHWC, @DDR>
-!Weights_DDR = memref<16x16x1x1xf16, #NHWC, @DDR>
-!Output_DDR = memref<1x16x174x174xf16, #NHWC, @DDR>
+!Input_DDR = memref<1x16x174x174xf16, {order = #NHWC}, @DDR>
+!WeightsTable_DDR = memref<16x1x1x4xsi32, {order = #NHWC}, @DDR>
+!Weights_DDR = memref<16x16x1x1xf16, {order = #NHWC}, @DDR>
+!Output_DDR = memref<1x16x174x174xf16, {order = #NHWC}, @DDR>
 
-!InputStub_CMX = memref<1x16x174x174xf16, #NHWC, [@CMX_NN, 0]>
-!WeightsTableStub_CMX = memref<16x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>
-!WeightsStub_CMX = memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
-!OutputStub_CMX = memref<1x16x174x174xf16, #NHWC, [@CMX_NN, 0]>
+!InputStub_CMX = memref<1x16x174x174xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!WeightsTableStub_CMX = memref<16x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>
+!WeightsStub_CMX = memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!OutputStub_CMX = memref<1x16x174x174xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
 func.func @SetSwizzlingForConstantButNotActivationDueToCmxSizeLimit(%input : !Input_DDR)
                         -> !Output_DDR {
@@ -865,7 +865,7 @@ func.func @SetSwizzlingForConstantButNotActivationDueToCmxSizeLimit(%input : !In
     // CHECK:      [[BUF_W:%.+]] = VPURT.AllocDistributed {alignment = 16384 : i64, swizzlingKey = 5 : i64} -> !VPUIP.DistributedBuffer<16x16x1x1xf16, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
     // CHECK:      [[BUF_OUT_1_CMX:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x16x174x174xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
     // CHECK:      [[BUF_OUT_2_CMX:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x16x174x174xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
-    // CHECK:      [[BUF_OUT_DDR:%.+]] = memref.alloc() : memref<1x16x174x174xf16, #NHWC, @DDR>
+    // CHECK:      [[BUF_OUT_DDR:%.+]] = memref.alloc() : memref<1x16x174x174xf16, {order = #NHWC}, @DDR>
 
     // CHECK:      [[NCE_CT_COPY_INPUT:%.+]] = VPUIP.Copy
     // CHECK-SAME:   -> !VPUIP.DistributedBuffer<1x16x174x174xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
@@ -883,7 +883,7 @@ func.func @SetSwizzlingForConstantButNotActivationDueToCmxSizeLimit(%input : !In
     // CHECK-SAME:   -> !VPUIP.DistributedBuffer<1x16x174x174xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}> variants
 
     // CHECK:      [[NCE_CT_COPY_OUTPUT:%.+]] = VPUIP.Copy
-    // CHECK-SAME:   -> memref<1x16x174x174xf16, #NHWC, @DDR>
+    // CHECK-SAME:   -> memref<1x16x174x174xf16, {order = #NHWC}, @DDR>
 }
 
 // -----
@@ -892,39 +892,39 @@ func.func @SetSwizzlingForConstantButNotActivationDueToCmxSizeLimit(%input : !In
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @SetSwizzlingForDpuToDpuBufferWithInplace
-func.func @SetSwizzlingForDpuToDpuBufferWithInplace(%in0 : memref<1x240x8x98xf16, #NHWC, @DDR>,
+func.func @SetSwizzlingForDpuToDpuBufferWithInplace(%in0 : memref<1x240x8x98xf16, {order = #NHWC}, @DDR>,
                         %weight_table0 : memref<80x1x1x4xsi32, [@CMX_NN, 0]>,
-                        %weights0 : memref<80x240x3x3xf16, #NHWC, [@CMX_NN, 0]>,
-                        %in1 : memref<1x80x8x98xf16, #NHWC, @DDR>,
+                        %weights0 : memref<80x240x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+                        %in1 : memref<1x80x8x98xf16, {order = #NHWC}, @DDR>,
                         %weight_table1 : memref<80x1x1x4xsi32, [@CMX_NN, 0]>,
-                        %weights1 : memref<80x80x3x3xf16, #NHWC, [@CMX_NN, 0]>)
-                        -> memref<1x80x6x96xf16, #NHWC, @DDR> {
-    %buf0 = memref.alloc() : memref<1x240x8x98xf16, #NHWC, [@CMX_NN, 0]>
-    %buf1 = memref.alloc() : memref<1x80x6x96xf16, #NHWC, [@CMX_NN, 0]>
-    %buf2 = memref.alloc() : memref<1x80x8x98xf16, #NHWC, [@CMX_NN, 0]>
-    %buf3 = memref.alloc() : memref<1x80x6x96xf16, #NHWC, [@CMX_NN, 0]>
-    %buf4 = memref.alloc() : memref<80x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+                        %weights1 : memref<80x80x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+                        -> memref<1x80x6x96xf16, {order = #NHWC}, @DDR> {
+    %buf0 = memref.alloc() : memref<1x240x8x98xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %buf1 = memref.alloc() : memref<1x80x6x96xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %buf2 = memref.alloc() : memref<1x80x8x98xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %buf3 = memref.alloc() : memref<1x80x6x96xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %buf4 = memref.alloc() : memref<80x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %buf5 = memref.alloc() : memref<80x1x1x4xsi32, [@CMX_NN, 0]>
-    %buf6 = memref.alloc() : memref<1x80x6x96xf16, #NHWC, [@CMX_NN, 0]>
-    %buf7 = memref.alloc() : memref<1x80x6x96xf16, #NHWC, @DDR>
+    %buf6 = memref.alloc() : memref<1x80x6x96xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %buf7 = memref.alloc() : memref<1x80x6x96xf16, {order = #NHWC}, @DDR>
 
     // Conv output as weights for Add
     %0 = VPUIP.Copy
-               inputs(%in0 : memref<1x240x8x98xf16, #NHWC, @DDR>)
-               outputs(%buf0 : memref<1x240x8x98xf16, #NHWC, [@CMX_NN, 0]>)
-                -> memref<1x240x8x98xf16, #NHWC, [@CMX_NN, 0]>
+               inputs(%in0 : memref<1x240x8x98xf16, {order = #NHWC}, @DDR>)
+               outputs(%buf0 : memref<1x240x8x98xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+                -> memref<1x240x8x98xf16, {order = #NHWC}, [@CMX_NN, 0]>
         %1 = VPUIP.NCEClusterTask {constantsFused = true, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
                kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                kernel_size = [3, 3],
                kernel_strides = [1, 1],
                task_type = #VPUIP.nce_task_type<CONV>
            }>
-           input(%0 : memref<1x240x8x98xf16, #NHWC, [@CMX_NN, 0]>)
-           weights(%weights0 : memref<80x240x3x3xf16, #NHWC, [@CMX_NN, 0]>)
+           input(%0 : memref<1x240x8x98xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+           weights(%weights0 : memref<80x240x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>)
            weight_table(%weight_table0 : memref<80x1x1x4xsi32, [@CMX_NN, 0]>)
-           parent_input(%0 : memref<1x240x8x98xf16, #NHWC, [@CMX_NN, 0]>)
-           parent_output(%buf1 : memref<1x80x6x96xf16, #NHWC, [@CMX_NN, 0]>)
-           outputs(%buf1 : memref<1x80x6x96xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x80x6x96xf16, #NHWC, [@CMX_NN, 0]>
+           parent_input(%0 : memref<1x240x8x98xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+           parent_output(%buf1 : memref<1x80x6x96xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+           outputs(%buf1 : memref<1x80x6x96xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x80x6x96xf16, {order = #NHWC}, [@CMX_NN, 0]>
            variants :
            {
                DPUTask
@@ -944,21 +944,21 @@ func.func @SetSwizzlingForDpuToDpuBufferWithInplace(%in0 : memref<1x240x8x98xf16
 
     // Conv output as activation for Add
     %2 = VPUIP.Copy
-               inputs(%in1 : memref<1x80x8x98xf16, #NHWC, @DDR>)
-               outputs(%buf2 : memref<1x80x8x98xf16, #NHWC, [@CMX_NN, 0]>)
-                -> memref<1x80x8x98xf16, #NHWC, [@CMX_NN, 0]>
+               inputs(%in1 : memref<1x80x8x98xf16, {order = #NHWC}, @DDR>)
+               outputs(%buf2 : memref<1x80x8x98xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+                -> memref<1x80x8x98xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %3 = VPUIP.NCEClusterTask {constantsFused = true, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
                kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                kernel_size = [3, 3],
                kernel_strides = [1, 1],
                task_type = #VPUIP.nce_task_type<CONV>
            }>
-           input(%2 : memref<1x80x8x98xf16, #NHWC, [@CMX_NN, 0]>)
-           weights(%weights1 : memref<80x80x3x3xf16, #NHWC, [@CMX_NN, 0]>)
+           input(%2 : memref<1x80x8x98xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+           weights(%weights1 : memref<80x80x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>)
            weight_table(%weight_table1 : memref<80x1x1x4xsi32, [@CMX_NN, 0]>)
-           parent_input(%2 : memref<1x80x8x98xf16, #NHWC, [@CMX_NN, 0]>)
-           parent_output(%buf3 : memref<1x80x6x96xf16, #NHWC, [@CMX_NN, 0]>)
-           outputs(%buf3 : memref<1x80x6x96xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x80x6x96xf16, #NHWC, [@CMX_NN, 0]>
+           parent_input(%2 : memref<1x80x8x98xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+           parent_output(%buf3 : memref<1x80x6x96xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+           outputs(%buf3 : memref<1x80x6x96xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x80x6x96xf16, {order = #NHWC}, [@CMX_NN, 0]>
            variants :
            {
                DPUTask
@@ -981,11 +981,11 @@ func.func @SetSwizzlingForDpuToDpuBufferWithInplace(%in0 : memref<1x240x8x98xf16
                is_inplace = true,
                task_type = #VPUIP.nce_task_type<ELTWISE>
            }>
-           input(%3 : memref<1x80x6x96xf16, #NHWC, [@CMX_NN, 0]>)
-           weights(%1 : memref<1x80x6x96xf16, #NHWC, [@CMX_NN, 0]>)
-           parent_input(%3 : memref<1x80x6x96xf16, #NHWC, [@CMX_NN, 0]>)
-           parent_output(%buf3 : memref<1x80x6x96xf16, #NHWC, [@CMX_NN, 0]>)
-           outputs(%buf3 : memref<1x80x6x96xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x80x6x96xf16, #NHWC, [@CMX_NN, 0]>
+           input(%3 : memref<1x80x6x96xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+           weights(%1 : memref<1x80x6x96xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+           parent_input(%3 : memref<1x80x6x96xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+           parent_output(%buf3 : memref<1x80x6x96xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+           outputs(%buf3 : memref<1x80x6x96xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x80x6x96xf16, {order = #NHWC}, [@CMX_NN, 0]>
            variants :
            {
                DPUTask
@@ -1004,12 +1004,12 @@ func.func @SetSwizzlingForDpuToDpuBufferWithInplace(%in0 : memref<1x240x8x98xf16
            }
 
     // DWConv
-    %weights2 = const.Declare memref<80x16x1x1xf16, #NHWC> = dense<1.250000e-01> : tensor<80x16x1x1xf16>, [#const.Reorder<#NHWC>]
+    %weights2 = const.Declare memref<80x16x1x1xf16, {order = #NHWC}> = dense<1.250000e-01> : tensor<80x16x1x1xf16>, [#const.Reorder<#NHWC>]
     %weight_table2 = const.Declare memref<80x1x1x4xsi32> = dense<1> : tensor<80x1x1x4xsi32>
     %5 = VPUIP.Copy
-               inputs(%weights2 : memref<80x16x1x1xf16, #NHWC>)
-               outputs(%buf4 : memref<80x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-                -> memref<80x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+               inputs(%weights2 : memref<80x16x1x1xf16, {order = #NHWC}>)
+               outputs(%buf4 : memref<80x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+                -> memref<80x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %6 = VPUIP.Copy
                inputs(%weight_table2 : memref<80x1x1x4xsi32>)
                outputs(%buf5 : memref<80x1x1x4xsi32, [@CMX_NN, 0]>)
@@ -1019,12 +1019,12 @@ func.func @SetSwizzlingForDpuToDpuBufferWithInplace(%in0 : memref<1x240x8x98xf16
                kernel_size = [1, 1], kernel_strides = [1, 1],
                task_type = #VPUIP.nce_task_type<DWCONV>
            }>
-           input(%4 : memref<1x80x6x96xf16, #NHWC, [@CMX_NN, 0]>)
-           weights(%5 : memref<80x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
+           input(%4 : memref<1x80x6x96xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+           weights(%5 : memref<80x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
            weight_table(%6 : memref<80x1x1x4xsi32, [@CMX_NN, 0]>)
-           parent_input(%4 : memref<1x80x6x96xf16, #NHWC, [@CMX_NN, 0]>)
-           parent_output(%buf6 : memref<1x80x6x96xf16, #NHWC, [@CMX_NN, 0]>)
-           outputs(%buf6 : memref<1x80x6x96xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x80x6x96xf16, #NHWC, [@CMX_NN, 0]>
+           parent_input(%4 : memref<1x80x6x96xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+           parent_output(%buf6 : memref<1x80x6x96xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+           outputs(%buf6 : memref<1x80x6x96xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x80x6x96xf16, {order = #NHWC}, [@CMX_NN, 0]>
            variants :
            {
                DPUTask
@@ -1049,22 +1049,22 @@ func.func @SetSwizzlingForDpuToDpuBufferWithInplace(%in0 : memref<1x240x8x98xf16
            }
 
     %8 = VPUIP.Copy
-            inputs(%7 : memref<1x80x6x96xf16, #NHWC, [@CMX_NN, 0]>)
-            outputs(%buf7 : memref<1x80x6x96xf16, #NHWC, @DDR>)
-             -> memref<1x80x6x96xf16, #NHWC, @DDR>
+            inputs(%7 : memref<1x80x6x96xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            outputs(%buf7 : memref<1x80x6x96xf16, {order = #NHWC}, @DDR>)
+             -> memref<1x80x6x96xf16, {order = #NHWC}, @DDR>
 
-    return %8 : memref<1x80x6x96xf16, #NHWC, @DDR>
+    return %8 : memref<1x80x6x96xf16, {order = #NHWC}, @DDR>
 
     // Verify that alignment is set only for DPU to DPU buffer
 
-    // CHECK:      [[BUF0_CONV0_ACT:%.+]] = memref.alloc() : memref<1x240x8x98xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:      [[BUF0_CONV0_ACT:%.+]] = memref.alloc() : memref<1x240x8x98xf16, {order = #NHWC}, [@CMX_NN, 0]>
     // CHECK:      [[BUF1_CONV0_OUT:%.+]] = VPURT.Alloc {alignment = 16384 : i64, swizzlingKey = 5 : i64} -> memref<1x80x6x96xf16, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]>
-    // CHECK:      [[BUF2_CONV1_ACT:%.+]] = memref.alloc() : memref<1x80x8x98xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:      [[BUF2_CONV1_ACT:%.+]] = memref.alloc() : memref<1x80x8x98xf16, {order = #NHWC}, [@CMX_NN, 0]>
     // CHECK:      [[BUF3_CONV1_OUT:%.+]] = VPURT.Alloc {alignment = 16384 : i64, swizzlingKey = 5 : i64} -> memref<1x80x6x96xf16, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]>
     // CHECK:      [[BUF4_DWCONV_WEIGHTS:%.+]] = VPURT.Alloc {alignment = 16384 : i64, swizzlingKey = 5 : i64} -> memref<80x16x1x1xf16, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]>
     // CHECK:      [[BUF5_DWCONV_WEIGHTTABLE:%.+]] = VPURT.Alloc {alignment = 16384 : i64, swizzlingKey = 5 : i64} -> memref<80x1x1x4xsi32, {order = #NCHW, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]>
-    // CHECK:      [[BUF6_DWCONV_OUT:%.+]] = memref.alloc() : memref<1x80x6x96xf16, #NHWC, [@CMX_NN, 0]>
-    // CHECK:      [[BUF7_COPY_OUT:%.+]] = memref.alloc() : memref<1x80x6x96xf16, #NHWC, @DDR>
+    // CHECK:      [[BUF6_DWCONV_OUT:%.+]] = memref.alloc() : memref<1x80x6x96xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    // CHECK:      [[BUF7_COPY_OUT:%.+]] = memref.alloc() : memref<1x80x6x96xf16, {order = #NHWC}, @DDR>
 
 }
 
@@ -1078,33 +1078,33 @@ config.Resources 1 of @NCE at 1.700000e+03 MHz {
 }
 
 // CHECK: func.func @CannotSwizzledDueToMultiUserWhichCannotSwizzled
-// CHECK-SAME: [[ARG0:%[^:]+]]: memref<1x256x5x40xf16, #NHWC, @DDR>,
-// CHECK-SAME: [[ARG1:%[^:]+]]: memref<1x256x7x40xf16, #NHWC, @DDR>,
-// CHECK-SAME: [[WEIGHT_TABLE_0:%[^:]+]]: memref<256x1x1x4xsi32, #NHWC, @CMX_NN>,
-// CHECK-SAME: [[WEIGHT_TABLE_1:%[^:]+]]: memref<256x1x1x4xsi32, #NHWC, @CMX_NN>,
-// CHECK-SAME: [[WEIGHTS:%[^:]+]]: memref<256x256x3x3xf16, #NHWC, @CMX_NN>
-func.func @CannotSwizzledDueToMultiUserWhichCannotSwizzled(%arg0 : memref<1x256x5x40xf16, #NHWC, @DDR>,
-                        %arg1 : memref<1x256x7x40xf16, #NHWC, @DDR>,
-                        %weight_table_0 : memref<256x1x1x4xsi32, #NHWC, @CMX_NN>,
-                        %weight_table_1 : memref<256x1x1x4xsi32, #NHWC, @CMX_NN>,
-                        %weights : memref<256x256x3x3xf16, #NHWC, @CMX_NN>)
-                        -> (memref<1x256x2x20xf16, #NHWC, @DDR>, memref<1x256x3x20xf16, #NHWC, @DDR>) {
+// CHECK-SAME: [[ARG0:%[^:]+]]: memref<1x256x5x40xf16, {order = #NHWC}, @DDR>,
+// CHECK-SAME: [[ARG1:%[^:]+]]: memref<1x256x7x40xf16, {order = #NHWC}, @DDR>,
+// CHECK-SAME: [[WEIGHT_TABLE_0:%[^:]+]]: memref<256x1x1x4xsi32, {order = #NHWC}, @CMX_NN>,
+// CHECK-SAME: [[WEIGHT_TABLE_1:%[^:]+]]: memref<256x1x1x4xsi32, {order = #NHWC}, @CMX_NN>,
+// CHECK-SAME: [[WEIGHTS:%[^:]+]]: memref<256x256x3x3xf16, {order = #NHWC}, @CMX_NN>
+func.func @CannotSwizzledDueToMultiUserWhichCannotSwizzled(%arg0 : memref<1x256x5x40xf16, {order = #NHWC}, @DDR>,
+                        %arg1 : memref<1x256x7x40xf16, {order = #NHWC}, @DDR>,
+                        %weight_table_0 : memref<256x1x1x4xsi32, {order = #NHWC}, @CMX_NN>,
+                        %weight_table_1 : memref<256x1x1x4xsi32, {order = #NHWC}, @CMX_NN>,
+                        %weights : memref<256x256x3x3xf16, {order = #NHWC}, @CMX_NN>)
+                        -> (memref<1x256x2x20xf16, {order = #NHWC}, @DDR>, memref<1x256x3x20xf16, {order = #NHWC}, @DDR>) {
 
-    %buf0 = memref.alloc() : memref<1x256x5x40xf16, #NHWC, @CMX_NN>
-    %buf1 = memref.alloc() : memref<1x256x7x40xf16, #NHWC, @CMX_NN>
-    %buf2 = memref.alloc() : memref<1x256x2x20xf16, #NHWC, @CMX_NN>
-    %buf3 = memref.alloc() : memref<1x256x3x20xf16, #NHWC, @CMX_NN>
-    %buf4 = memref.alloc() : memref<1x256x2x20xf16, #NHWC, @DDR>
-    %buf5 = memref.alloc() : memref<1x256x3x20xf16, #NHWC, @DDR>
+    %buf0 = memref.alloc() : memref<1x256x5x40xf16, {order = #NHWC}, @CMX_NN>
+    %buf1 = memref.alloc() : memref<1x256x7x40xf16, {order = #NHWC}, @CMX_NN>
+    %buf2 = memref.alloc() : memref<1x256x2x20xf16, {order = #NHWC}, @CMX_NN>
+    %buf3 = memref.alloc() : memref<1x256x3x20xf16, {order = #NHWC}, @CMX_NN>
+    %buf4 = memref.alloc() : memref<1x256x2x20xf16, {order = #NHWC}, @DDR>
+    %buf5 = memref.alloc() : memref<1x256x3x20xf16, {order = #NHWC}, @DDR>
 
     %0 = VPUIP.Copy
-            inputs(%arg0 : memref<1x256x5x40xf16, #NHWC, @DDR>)
-            outputs(%buf0 : memref<1x256x5x40xf16, #NHWC, @CMX_NN>)
-             -> memref<1x256x5x40xf16, #NHWC, @CMX_NN>
+            inputs(%arg0 : memref<1x256x5x40xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf0 : memref<1x256x5x40xf16, {order = #NHWC}, @CMX_NN>)
+             -> memref<1x256x5x40xf16, {order = #NHWC}, @CMX_NN>
     %1 = VPUIP.Copy
-            inputs(%arg1 : memref<1x256x7x40xf16, #NHWC, @DDR>)
-            outputs(%buf1 : memref<1x256x7x40xf16, #NHWC, @CMX_NN>)
-             -> memref<1x256x7x40xf16, #NHWC, @CMX_NN>
+            inputs(%arg1 : memref<1x256x7x40xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1 : memref<1x256x7x40xf16, {order = #NHWC}, @CMX_NN>)
+             -> memref<1x256x7x40xf16, {order = #NHWC}, @CMX_NN>
 
     %2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 99787 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
             is_superdense,
@@ -1113,12 +1113,12 @@ func.func @CannotSwizzledDueToMultiUserWhichCannotSwizzled(%arg0 : memref<1x256x
             kernel_strides = [2, 2],
             task_type = #VPUIP.nce_task_type<CONV>
         }>
-        input(%0 : memref<1x256x5x40xf16, #NHWC, @CMX_NN>)
-        weights(%weights : memref<256x256x3x3xf16, #NHWC, @CMX_NN>)
-        weight_table(%weight_table_0 : memref<256x1x1x4xsi32, #NHWC, @CMX_NN>)
-        parent_input(%0 : memref<1x256x5x40xf16, #NHWC, @CMX_NN>)
-        parent_output(%buf2 : memref<1x256x2x20xf16, #NHWC, @CMX_NN>)
-        outputs(%buf2 : memref<1x256x2x20xf16, #NHWC, @CMX_NN>) -> memref<1x256x2x20xf16, #NHWC, @CMX_NN>
+        input(%0 : memref<1x256x5x40xf16, {order = #NHWC}, @CMX_NN>)
+        weights(%weights : memref<256x256x3x3xf16, {order = #NHWC}, @CMX_NN>)
+        weight_table(%weight_table_0 : memref<256x1x1x4xsi32, {order = #NHWC}, @CMX_NN>)
+        parent_input(%0 : memref<1x256x5x40xf16, {order = #NHWC}, @CMX_NN>)
+        parent_output(%buf2 : memref<1x256x2x20xf16, {order = #NHWC}, @CMX_NN>)
+        outputs(%buf2 : memref<1x256x2x20xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x256x2x20xf16, {order = #NHWC}, @CMX_NN>
         variants :
         {
             DPUTask
@@ -1148,12 +1148,12 @@ func.func @CannotSwizzledDueToMultiUserWhichCannotSwizzled(%arg0 : memref<1x256x
             kernel_size = [3, 3], kernel_strides = [2, 2],
             task_type = #VPUIP.nce_task_type<CONV>
         }>
-        input(%1 : memref<1x256x7x40xf16, #NHWC, @CMX_NN>)
-        weights(%weights : memref<256x256x3x3xf16, #NHWC, @CMX_NN>)
-        weight_table(%weight_table_1 : memref<256x1x1x4xsi32, #NHWC, @CMX_NN>)
-        parent_input(%1 : memref<1x256x7x40xf16, #NHWC, @CMX_NN>)
-        parent_output(%buf3 : memref<1x256x3x20xf16, #NHWC, @CMX_NN>)
-        outputs(%buf3 : memref<1x256x3x20xf16, #NHWC, @CMX_NN>) -> memref<1x256x3x20xf16, #NHWC, @CMX_NN>
+        input(%1 : memref<1x256x7x40xf16, {order = #NHWC}, @CMX_NN>)
+        weights(%weights : memref<256x256x3x3xf16, {order = #NHWC}, @CMX_NN>)
+        weight_table(%weight_table_1 : memref<256x1x1x4xsi32, {order = #NHWC}, @CMX_NN>)
+        parent_input(%1 : memref<1x256x7x40xf16, {order = #NHWC}, @CMX_NN>)
+        parent_output(%buf3 : memref<1x256x3x20xf16, {order = #NHWC}, @CMX_NN>)
+        outputs(%buf3 : memref<1x256x3x20xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x256x3x20xf16, {order = #NHWC}, @CMX_NN>
         variants :
         {
             DPUTask
@@ -1178,31 +1178,31 @@ func.func @CannotSwizzledDueToMultiUserWhichCannotSwizzled(%arg0 : memref<1x256x
         }
 
     %4 = VPUIP.Copy
-            inputs(%2 : memref<1x256x2x20xf16, #NHWC, @CMX_NN>)
-            outputs(%buf4 : memref<1x256x2x20xf16, #NHWC, @DDR>)
-             -> memref<1x256x2x20xf16, #NHWC, @DDR>
+            inputs(%2 : memref<1x256x2x20xf16, {order = #NHWC}, @CMX_NN>)
+            outputs(%buf4 : memref<1x256x2x20xf16, {order = #NHWC}, @DDR>)
+             -> memref<1x256x2x20xf16, {order = #NHWC}, @DDR>
 
     %5 = VPUIP.Copy
-            inputs(%3 : memref<1x256x3x20xf16, #NHWC, @CMX_NN>)
-            outputs(%buf5 : memref<1x256x3x20xf16, #NHWC, @DDR>)
-             -> memref<1x256x3x20xf16, #NHWC, @DDR>
+            inputs(%3 : memref<1x256x3x20xf16, {order = #NHWC}, @CMX_NN>)
+            outputs(%buf5 : memref<1x256x3x20xf16, {order = #NHWC}, @DDR>)
+             -> memref<1x256x3x20xf16, {order = #NHWC}, @DDR>
 
-    return %4, %5 : memref<1x256x2x20xf16, #NHWC, @DDR>, memref<1x256x3x20xf16, #NHWC, @DDR>
+    return %4, %5 : memref<1x256x2x20xf16, {order = #NHWC}, @DDR>, memref<1x256x3x20xf16, {order = #NHWC}, @DDR>
 
-    // CHECK:      [[INPUT_1:%.+]] = memref.alloc() : memref<1x256x5x40xf16, #NHWC, @CMX_NN>
-    // CHECK:      [[INPUT_2:%.+]] = memref.alloc() : memref<1x256x7x40xf16, #NHWC, @CMX_NN>
-    // CHECK:      [[CONV_OUT_1:%.+]] = memref.alloc() : memref<1x256x2x20xf16, #NHWC, @CMX_NN>
-    // CHECK:      [[CONV_OUT_2:%.+]] = memref.alloc() : memref<1x256x3x20xf16, #NHWC, @CMX_NN>
-    // CHECK:      [[OUTPUT_1:%.+]] = memref.alloc() : memref<1x256x2x20xf16, #NHWC, @DDR>
-    // CHECK:      [[OUTPUT_2:%.+]] = memref.alloc() : memref<1x256x3x20xf16, #NHWC, @DDR>
+    // CHECK:      [[INPUT_1:%.+]] = memref.alloc() : memref<1x256x5x40xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK:      [[INPUT_2:%.+]] = memref.alloc() : memref<1x256x7x40xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK:      [[CONV_OUT_1:%.+]] = memref.alloc() : memref<1x256x2x20xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK:      [[CONV_OUT_2:%.+]] = memref.alloc() : memref<1x256x3x20xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK:      [[OUTPUT_1:%.+]] = memref.alloc() : memref<1x256x2x20xf16, {order = #NHWC}, @DDR>
+    // CHECK:      [[OUTPUT_2:%.+]] = memref.alloc() : memref<1x256x3x20xf16, {order = #NHWC}, @DDR>
 
-    // CHECK:      [[COPY_IN_1:%.+]] = VPUIP.Copy inputs([[ARG0]] : memref<1x256x5x40xf16, #NHWC, @DDR>) outputs([[INPUT_1]] : memref<1x256x5x40xf16, #NHWC, @CMX_NN>) -> memref<1x256x5x40xf16, #NHWC, @CMX_NN>
-    // CHECK:      [[COPY_IN_2:%.+]] = VPUIP.Copy inputs([[ARG1]] : memref<1x256x7x40xf16, #NHWC, @DDR>) outputs([[INPUT_2]] : memref<1x256x7x40xf16, #NHWC, @CMX_NN>) -> memref<1x256x7x40xf16, #NHWC, @CMX_NN>
+    // CHECK:      [[COPY_IN_1:%.+]] = VPUIP.Copy inputs([[ARG0]] : memref<1x256x5x40xf16, {order = #NHWC}, @DDR>) outputs([[INPUT_1]] : memref<1x256x5x40xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x256x5x40xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK:      [[COPY_IN_2:%.+]] = VPUIP.Copy inputs([[ARG1]] : memref<1x256x7x40xf16, {order = #NHWC}, @DDR>) outputs([[INPUT_2]] : memref<1x256x7x40xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x256x7x40xf16, {order = #NHWC}, @CMX_NN>
     // CHECK:      [[CONV_1:%.+]] = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 99787 : i64} <{is_superdense, kernel_padding = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [3, 3], kernel_strides = [2, 2]
     // CHECK-SAME:                   task_type = #VPUIP.nce_task_type<CONV>}>
-    // CHECK-SAME:   input([[COPY_IN_1]] : memref<1x256x5x40xf16, #NHWC, @CMX_NN>) weights([[WEIGHTS]] : memref<256x256x3x3xf16, #NHWC, @CMX_NN>) weight_table([[WEIGHT_TABLE_0]] : memref<256x1x1x4xsi32, #NHWC, @CMX_NN>)
-    // CHECK-SAME:   parent_input([[COPY_IN_1]] : memref<1x256x5x40xf16, #NHWC, @CMX_NN>) parent_output([[CONV_OUT_1]] : memref<1x256x2x20xf16, #NHWC, @CMX_NN>) outputs([[CONV_OUT_1]] : memref<1x256x2x20xf16, #NHWC, @CMX_NN>)
-    // CHECK-SAME:   -> memref<1x256x2x20xf16, #NHWC, @CMX_NN> variants : {
+    // CHECK-SAME:   input([[COPY_IN_1]] : memref<1x256x5x40xf16, {order = #NHWC}, @CMX_NN>) weights([[WEIGHTS]] : memref<256x256x3x3xf16, {order = #NHWC}, @CMX_NN>) weight_table([[WEIGHT_TABLE_0]] : memref<256x1x1x4xsi32, {order = #NHWC}, @CMX_NN>)
+    // CHECK-SAME:   parent_input([[COPY_IN_1]] : memref<1x256x5x40xf16, {order = #NHWC}, @CMX_NN>) parent_output([[CONV_OUT_1]] : memref<1x256x2x20xf16, {order = #NHWC}, @CMX_NN>) outputs([[CONV_OUT_1]] : memref<1x256x2x20xf16, {order = #NHWC}, @CMX_NN>)
+    // CHECK-SAME:   -> memref<1x256x2x20xf16, {order = #NHWC}, @CMX_NN> variants : {
     // CHECK-NEXT:        DPUTask {cluster_id = 0 : i64, inEnd = [39, 2, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [19, 0, 255], outStart = [0, 0, 0], pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     // CHECK-NEXT:        DPUTask {cluster_id = 1 : i64, inEnd = [39, 2, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [19, 0, 255], outStart = [0, 0, 0], pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     // CHECK-NEXT:      } PPE : {
@@ -1210,14 +1210,14 @@ func.func @CannotSwizzledDueToMultiUserWhichCannotSwizzled(%arg0 : memref<1x256x
     // CHECK-NEXT:      }
     // CHECK:      [[CONV_2:%.+]] = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 99787 : i64} <{is_superdense, kernel_padding = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [3, 3], kernel_strides = [2, 2],
     // CHECK-SAME:                   task_type = #VPUIP.nce_task_type<CONV>}>
-    // CHECK-SAME:   input([[COPY_IN_2]] : memref<1x256x7x40xf16, #NHWC, @CMX_NN>) weights([[WEIGHTS]] : memref<256x256x3x3xf16, #NHWC, @CMX_NN>) weight_table([[WEIGHT_TABLE_1]] : memref<256x1x1x4xsi32, #NHWC, @CMX_NN>)
-    // CHECK-SAME:   parent_input([[COPY_IN_2]] : memref<1x256x7x40xf16, #NHWC, @CMX_NN>) parent_output([[CONV_OUT_2]] : memref<1x256x3x20xf16, #NHWC, @CMX_NN>) outputs([[CONV_OUT_2]] : memref<1x256x3x20xf16, #NHWC, @CMX_NN>)
-    // CHECK-SAME:   -> memref<1x256x3x20xf16, #NHWC, @CMX_NN> variants : {
+    // CHECK-SAME:   input([[COPY_IN_2]] : memref<1x256x7x40xf16, {order = #NHWC}, @CMX_NN>) weights([[WEIGHTS]] : memref<256x256x3x3xf16, {order = #NHWC}, @CMX_NN>) weight_table([[WEIGHT_TABLE_1]] : memref<256x1x1x4xsi32, {order = #NHWC}, @CMX_NN>)
+    // CHECK-SAME:   parent_input([[COPY_IN_2]] : memref<1x256x7x40xf16, {order = #NHWC}, @CMX_NN>) parent_output([[CONV_OUT_2]] : memref<1x256x3x20xf16, {order = #NHWC}, @CMX_NN>) outputs([[CONV_OUT_2]] : memref<1x256x3x20xf16, {order = #NHWC}, @CMX_NN>)
+    // CHECK-SAME:   -> memref<1x256x3x20xf16, {order = #NHWC}, @CMX_NN> variants : {
     // CHECK-NEXT:        DPUTask {cluster_id = 0 : i64, inEnd = [39, 4, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [19, 1, 255], outStart = [0, 0, 0], pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     // CHECK-NEXT:        DPUTask {cluster_id = 1 : i64, inEnd = [39, 2, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [19, 0, 255], outStart = [0, 0, 0], pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     // CHECK-NEXT:      } PPE : {
     // CHECK-NEXT:        PPETask {ppe = #VPU.PPEStub<>}
     // CHECK-NEXT:      }
-    // CHECK:      [[OUT_1:%.+]] = VPUIP.Copy inputs([[CONV_1]] : memref<1x256x2x20xf16, #NHWC, @CMX_NN>) outputs([[OUTPUT_1]] : memref<1x256x2x20xf16, #NHWC, @DDR>) -> memref<1x256x2x20xf16, #NHWC, @DDR>
-    // CHECK:      [[OUT_2:%.+]] = VPUIP.Copy inputs([[CONV_2]] : memref<1x256x3x20xf16, #NHWC, @CMX_NN>) outputs([[OUTPUT_2]] : memref<1x256x3x20xf16, #NHWC, @DDR>) -> memref<1x256x3x20xf16, #NHWC, @DDR>
+    // CHECK:      [[OUT_1:%.+]] = VPUIP.Copy inputs([[CONV_1]] : memref<1x256x2x20xf16, {order = #NHWC}, @CMX_NN>) outputs([[OUTPUT_1]] : memref<1x256x2x20xf16, {order = #NHWC}, @DDR>) -> memref<1x256x2x20xf16, {order = #NHWC}, @DDR>
+    // CHECK:      [[OUT_2:%.+]] = VPUIP.Copy inputs([[CONV_2]] : memref<1x256x3x20xf16, {order = #NHWC}, @CMX_NN>) outputs([[OUTPUT_2]] : memref<1x256x3x20xf16, {order = #NHWC}, @DDR>) -> memref<1x256x3x20xf16, {order = #NHWC}, @DDR>
 }

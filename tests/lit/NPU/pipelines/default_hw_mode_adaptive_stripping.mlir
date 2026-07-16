@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-/// InitCompilerOptions has enable-adaptive-stripping as a flag and adaptive stripping can also be set using
-/// NPU_QDQ_OPTIMIZATION.
+/// Adaptive stripping is enabled by default.
+/// Adaptive Stripping can be unset/disabled using NPU_QDQ_OPTIMIZATION from COMPILE_PARAMS
+/// or through InitCompilerOptions using the flag enable-adaptive-stripping.
+
 /// This test checks to make sure that default-hw-mode for non specific dialects cannot invoke
 /// enable-adaptive-stripping flag as it was removed to remove ambiguity for which flag takes priority.
 /// stderr should be: <Pass-Options-Parser>: no such option enable-adaptive-stripping

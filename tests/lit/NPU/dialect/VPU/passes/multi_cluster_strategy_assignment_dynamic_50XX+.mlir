@@ -21,11 +21,11 @@ module @ConvD2SEltwise {
 func.func @ConvD2SEltwise(%arg0: !inputConvDynamicType, %arg1: !inputEltwiseDynamicType) -> !outputDynamicType {
   %weights = const.Declare tensor<12x32x3x3x!quant.uniform<u8:f16, 0.0060863536946913774:128>, {order = #NHWC}> = dense<1> : tensor<16x32x3x3xui8, {order = #NHWC}>, [#const.SubView<[0, 0, 0, 0], [12, 32, 3, 3]>, #const.CastElemType<!quant.uniform<u8:f16, 0.0060863536946913774:128>>]
 
-  %0 = VPU.NCE.Convolution(%arg0, %weights) {
+  %0 = VPU.NCE.Convolution(%arg0, %weights) rawFilterShape [12, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
     input_padding = [0, 0, 0, 0], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
     pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
     ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, prelu_alpha = [1.000000e+00], adder = 0.000000e+00 : f64>,
-    rawFilterShape = [12, 32, 3, 3], strides = [1, 1]
+     strides = [1, 1]
   } : !inputConvDynamicType, tensor<12x32x3x3x!quant.uniform<u8:f16, 0.0060863536946913774:128>, {order = #NHWC}> -> !inputD2SDynamicType
 
   // CHECK: VPU.NCE.Convolution

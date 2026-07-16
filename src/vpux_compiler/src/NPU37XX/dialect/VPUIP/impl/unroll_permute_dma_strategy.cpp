@@ -48,7 +48,7 @@ mlir::LogicalResult SingleClusterPermuteDMARewriter::unroll(VPUIP::PermuteDMAOp 
 
     auto inType = mlir::cast<vpux::NDTypeInterface>(permuteDMAOp.getInput().getType());
     auto outType = mlir::cast<vpux::NDTypeInterface>(permuteDMAOp.getOutput().getType());
-    Byte elemTypeSize = inType.getElemTypeSize();
+    Bit elemTypeSizeBits = inType.getElemTypeSize();
 
     auto srcType = mlir::cast<vpux::NDTypeInterface>(srcDeclBuff.getType());
     auto dstType = mlir::cast<vpux::NDTypeInterface>(dstDeclBuff.getType());
@@ -67,6 +67,14 @@ mlir::LogicalResult SingleClusterPermuteDMARewriter::unroll(VPUIP::PermuteDMAOp 
         auto mergedInputShape = VPUIP::getPermuteDMAInputShape(inType, outType, memPerm, _log).value();
         auto mergedOutputShape = VPUIP::getPermuteDMAOutputShape(inType, outType, memPerm, _log).value();
         auto dmaDescriptorGenerator = VPUIP::PermuteDmaDescriptorGenerator(ctx, mergedMemPerm, _log);
+
+        // Merge inner most dimension before converting to bytes (swap-front only)
+        auto effectiveElemTypeSizeBits = elemTypeSizeBits;
+        if (mergedMemPerm == mlir::AffineMap::getPermutationMap(SmallVector<unsigned>{1, 0, 2}, ctx)) {
+            effectiveElemTypeSizeBits *= mergedInputShape.back();
+        }
+        auto elemTypeSize = effectiveElemTypeSizeBits.to<Byte>();
+
         dmaDescriptorAttr = dmaDescriptorGenerator.generate(mergedInputShape, mergedOutputShape, elemTypeSize);
         portIsAlreadyAssigned = false;
     }
@@ -89,12 +97,12 @@ mlir::LogicalResult SingleClusterPermuteDMARewriter::unroll(VPUIP::PermuteDMAOp 
         const auto dimOrder = (subInputShapes[0].size() == 2) ? DimsOrder::NC : DimsOrder::CHW;
         auto newSrcStrides =
                 (subInputShapes[idx].size() == 2)
-                        ? SmallVector<vpux::Bit>{Bit(subInputShapes[idx].back() * Bit(elemTypeSize).count()),
-                                                 Bit(Bit(elemTypeSize).count())}
+                        ? SmallVector<vpux::Bit>{Bit(subInputShapes[idx].back() * elemTypeSizeBits.count()),
+                                                 elemTypeSizeBits}
                         : SmallVector<vpux::Bit>{Bit(subInputShapes[idx][Dim(1)] * subInputShapes[idx][Dim(2)] *
-                                                     Bit(elemTypeSize).count()),
-                                                 Bit(subInputShapes[idx].back() * Bit(elemTypeSize).count()),
-                                                 Bit(Bit(elemTypeSize).count())};
+                                                     elemTypeSizeBits.count()),
+                                                 Bit(subInputShapes[idx].back() * elemTypeSizeBits.count()),
+                                                 elemTypeSizeBits};
 
         auto newSrcMemRef = vpux::getMemRefType(subInputShapes[idx], srcType.getElementType(), dimOrder,
                                                 srcType.getMemSpace(), StridesRef(newSrcStrides));
@@ -113,12 +121,12 @@ mlir::LogicalResult SingleClusterPermuteDMARewriter::unroll(VPUIP::PermuteDMAOp 
 
         auto newDstStrides =
                 (subOutputShapes[idx].size() == 2)
-                        ? SmallVector<vpux::Bit>{Bit(subOutputShapes[idx].back() * Bit(elemTypeSize).count()),
-                                                 Bit(Bit(elemTypeSize).count())}
+                        ? SmallVector<vpux::Bit>{Bit(subOutputShapes[idx].back() * elemTypeSizeBits.count()),
+                                                 elemTypeSizeBits}
                         : SmallVector<vpux::Bit>{Bit(subOutputShapes[idx][Dim(1)] * subOutputShapes[idx][Dim(2)] *
-                                                     Bit(elemTypeSize).count()),
-                                                 Bit(subOutputShapes[idx][Dim(2)] * Bit(elemTypeSize).count()),
-                                                 Bit(Bit(elemTypeSize).count())};
+                                                     elemTypeSizeBits.count()),
+                                                 Bit(subOutputShapes[idx][Dim(2)] * elemTypeSizeBits.count()),
+                                                 elemTypeSizeBits};
         mlir::Type newDstType;
         if (auto dstDistributedType = mlir::dyn_cast<vpux::VPUIP::DistributedBufferType>(dstType)) {
             auto ctx = permuteDMAOp->getContext();
@@ -219,7 +227,7 @@ UnrollPermuteDMAStrategy::UnrollPermuteDMAStrategy(mlir::MLIRContext* ctx, int64
 
 void UnrollPermuteDMAStrategy::addPatterns(llvm::SmallVector<mlir::RewritePatternSet>& patterns, Logger& log) const {
     mlir::RewritePatternSet patternSet1(_ctx);
-    patternSet1.add<vpux::VPUIP::MultiClusterPermuteDMARewriter>(_ctx, _dmaPortCount, log);
+    patternSet1.add<vpux::VPUIP::MultiClusterPermuteDMARewriter>(_ctx, _dmaPortCount, true, log);
     mlir::RewritePatternSet patternSet2(_ctx);
     patternSet2.add<vpux::VPUIP::arch37xx::SingleClusterPermuteDMARewriter>(_ctx, _dmaPortCount, log);
     patterns.push_back(std::move(patternSet1));

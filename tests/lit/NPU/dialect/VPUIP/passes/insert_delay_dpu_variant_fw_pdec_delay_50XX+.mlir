@@ -8,9 +8,9 @@
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!DataType = memref<1x64x3x4xf16, #NHWC, [@CMX_NN, 0]>
-!WeightsType = memref<1x64x1x1xf16, #NHWC, [@CMX_NN, 0]>
-!WeightTableType = memref<16x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>
+!DataType = memref<1x64x3x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!WeightsType = memref<1x64x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!WeightTableType = memref<16x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>
 !OutputITICluster0 = !VPUIP.ITIBuffer<
     1x1x8x4xf16, #NHWC, [@CMX_NN, 0],
     inwardHaloRegions = [
@@ -62,7 +62,7 @@ func.func  @SkipConvWithODUAutopadAndHaloFwPdecDelay(
         }> input(%input : !DataType)
           weights(%weights : !WeightsType)
           weight_table(%weight_table : !WeightTableType)
-          parent_input(%input : memref<1x64x3x4xf16, #NHWC, [@CMX_NN, 0]>)
+          parent_input(%input : memref<1x64x3x4xf16, {order = #NHWC}, [@CMX_NN, 0]>)
           parent_output(%output_iti0 : !OutputITICluster0)
           output_ITI_buff(%output_iti1, %output_iti2 : !OutputITICluster1, !OutputITICluster2)
           outputs(%output_iti0 : !OutputITICluster0) -> !OutputITICluster0

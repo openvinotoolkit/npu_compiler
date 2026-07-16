@@ -65,3 +65,30 @@ func.func @bif(%arg0: tensor<1x3x16x16xf32, {order = #NHWC}>) -> tensor<1x3x8x4x
   } -> tensor<1x3x8x4xf32, {order = #NHWC}>
   return %0 : tensor<1x3x8x4xf32, {order = #NHWC}>
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+!qElemType = !quant.uniform<u8:f16:1, {0.030591299019607842,0.032935049019607844,0.34542432}>
+!qElemType1 = !quant.uniform<u8:f16:1, {0.031372549019607843,0.030591299019607842,0.032935049019607844,0.34542432}>
+
+// CHECK-DAG: [[QT1:!.+]] = !quant.uniform<u8:f16:3, {0.031372549019607843,0.030591299019607842,0.032935049019607844,0.34542432000000001}>
+// CHECK-DAG: [[QT2:!.+]] = !quant.uniform<u8:f16:3, {0.030591299019607842,0.032935049019607844,0.34542432000000001}>
+
+// CHECK: func.func @bat(
+func.func @bat(%arg0: tensor<1x4x8x32xf16, {order = #NHWC}>) -> tensor<1x3x8x32x!qElemType, {order = #NHWC}> {
+  %foo = IE.Quantize(%arg0) {dstElemType = !qElemType1} : tensor<1x4x8x32xf16, {order = #NHWC}> -> tensor<1x4x8x32x!qElemType1, {order = #NHWC}>
+  %0 = IE.CodeGenCapsule inputs(%foo as %arg1: tensor<1x4x8x32x!qElemType1, {order = #NHWC}>) {
+    %1 = IE.Slice %arg1 [0, 1, 0, 0] [1, 3, 8, 32] : tensor<1x4x8x32x!qElemType1, {order = #NHWC}> to tensor<1x3x8x32x!qElemType, {order = #NHWC}>
+    IE.CGCYield %1 : tensor<1x3x8x32x!qElemType, {order = #NHWC}>
+  } -> tensor<1x3x8x32x!qElemType, {order = #NHWC}>
+  return %0 : tensor<1x3x8x32x!qElemType, {order = #NHWC}>
+
+  // CHECK: IE.CodeGenCapsule inputs({{%.+}} as [[ARG1:%.+]]: tensor<1x8x32x4xi8>) {
+  // CHECK:  [[ARGCAST:%.+]] = quant.scast [[ARG1]] : tensor<1x8x32x4xi8> to tensor<1x8x32x4x[[QT1]]>
+  // CHECK:  [[INSLICECAST:%.+]] = quant.scast [[ARGCAST]] : tensor<1x8x32x4x[[QT1]]> to tensor<1x8x32x4xi8>
+  // CHECK:  [[SLICE:%.+]] = tensor.extract_slice [[INSLICECAST]][0, 0, 0, 1] [1, 8, 32, 3] [1, 1, 1, 1] : tensor<1x8x32x4xi8> to tensor<1x8x32x3xi8>
+  // CHECK:  [[OUTSLICECAST:%.+]] = quant.scast [[SLICE]] : tensor<1x8x32x3xi8> to tensor<1x8x32x3x[[QT2]]>
+  // CHECK:  [[YIELDCAST:%.+]] = quant.scast [[OUTSLICECAST]] : tensor<1x8x32x3x[[QT2]]> to tensor<1x8x32x3xi8>
+  // CHECK:  IE.CGCYield [[YIELDCAST]] : tensor<1x8x32x3xi8>
+}

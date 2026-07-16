@@ -7,6 +7,7 @@
 #include "vpux/compiler/core/bounded_buffer.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
+#include "vpux/compiler/dialect/Shave/IR/ops/meta-ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/arithmetic.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/bitwise.hpp"
@@ -26,11 +27,11 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
-#include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/asm.hpp"
 #include "vpux/compiler/utils/error.hpp"
@@ -42,6 +43,7 @@
 #include <mlir/IR/BuiltinAttributes.h>
 
 #include <algorithm>
+#include <cstring>
 
 #define REGION_YOLO_MAX_MASK_SIZE 9   // max mask size for region yolo op
 #define PROPOSAL_MAX_RATIO 3          // max ratio size for proposal op
@@ -58,8 +60,11 @@ using namespace mlir;
 namespace {
 
 // permute int array attribute in the physical order
-static SmallVector<int64_t> permuteIntArrayAttr(DimsOrder inOrder, mlir::ArrayAttr arrayAttr) {
-    const auto origPerm = inOrder.toPermutation();
+static SmallVector<int64_t> permuteIntArrayAttr(const DimsOrder& inOrder, mlir::ArrayAttr arrayAttr) {
+    if (inOrder.empty() || arrayAttr.empty()) {
+        return {};
+    }
+    const auto& origPerm = inOrder.toPermutation();
     const auto origArray = parseIntArrayAttr<int64_t>(arrayAttr);
     SmallVector<int64_t> permArray(arrayAttr.size());
     for (const auto srcInd : irange(origPerm.size())) {
@@ -130,20 +135,11 @@ mlir::ArrayAttr optionalIoAttr(mlir::Operation* op) {
                 mask |= 1 << 2;                                    // InputV
                 mask |= (attention.getInputMask() ? 1 : 0) << 3;   // InputMask
                 mask |= (attention.getInputScale() ? 1 : 0) << 4;  // InputScale
-                if (attention.getInputSink()) {
-                    // Sink kernel layout
-                    mask |= 1 << 5;                                    // InputSink
-                    mask |= (attention.getInputBias() ? 1 : 0) << 6;   // InputBias
-                    mask |= 1 << 7;                                    // InputDataStorage
-                    mask |= (attention.getDpuStorage() ? 1 : 0) << 8;  // InputDpuStorage
-                    mask |= 1 << 9;                                    // output
-                } else {
-                    // original kernel layout
-                    mask |= (attention.getInputBias() ? 1 : 0) << 5;   // InputBias
-                    mask |= 1 << 6;                                    // InputDataStorage
-                    mask |= (attention.getDpuStorage() ? 1 : 0) << 7;  // InputDpuStorage
-                    mask |= 1 << 8;                                    // output
-                }
+                mask |= (attention.getInputSink() ? 1 : 0) << 5;   // InputSink
+                mask |= (attention.getInputBias() ? 1 : 0) << 6;   // InputBias
+                mask |= 1 << 7;                                    // InputDataStorage
+                mask |= (attention.getDpuStorage() ? 1 : 0) << 8;  // InputDpuStorage
+                mask |= 1 << 9;                                    // output
             })
             .Case<VPU::PadOp>([&](VPU::PadOp pad) {
                 mask |= 1 << 0;                             // main input
@@ -151,13 +147,6 @@ mlir::ArrayAttr optionalIoAttr(mlir::Operation* op) {
                 mask |= (pad.getPadsEnd() ? 1 : 0) << 2;    // pad_end
                 mask |= (pad.getPadValue() ? 1 : 0) << 3;   // pad_value
                 mask |= 1 << 4;
-            })
-            .Case<VPU::InterpolateDMAOp>([&](VPU::InterpolateDMAOp interpDMA) {
-                mask |= 1 << 0;                                     // input
-                mask |= 1 << 1;                                     // scales
-                mask |= (interpDMA.getCoordinates() ? 1 : 0) << 2;  // coordinates
-                mask |= (interpDMA.getLambdas() ? 1 : 0) << 3;      // lambdas
-                mask |= 1 << 4;                                     // output
             })
             .Default([](mlir::Operation* op) {
                 VPUX_THROW("Bit-mask for '{0}' not implemented", op->getName());
@@ -743,6 +732,11 @@ std::pair<SmallString, SmallString> getKernelImpl(VPU::ConvertOp op) {
 std::tuple<SmallString, SmallString, SmallString> getKernelImpl(VPU::SoftMaxOp op) {
     const auto iType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType()).getElementType();
     const auto oType = mlir::cast<vpux::NDTypeInterface>(op.getOutput().getType()).getElementType();
+    const auto axisParam = computeReverseMemDim(op.getInput(), op.getAxisInd());
+
+    if (op->hasAttr("SkipNormalization")) {
+        return std::tuple<SmallString, SmallString, SmallString>{"exp_stabilized", "exp_stabilized.cpp", "softmax"};
+    }
 
     if (iType.isF16() && oType.isF32()) {
         return std::tuple<SmallString, SmallString, SmallString>{"softmax_convert_fp32", "softmax_convert_fp32.cpp",
@@ -753,12 +747,21 @@ std::tuple<SmallString, SmallString, SmallString> getKernelImpl(VPU::SoftMaxOp o
         return std::tuple<SmallString, SmallString, SmallString>{"softmaxFp32", "softmaxFp32.cpp", "softmaxFp32"};
     }
 
+    if (iType.isF16() && oType.isF16() && (axisParam == 0) &&
+        (config::isSoftmaxMaskAwareEnabled(op.getOperation()) || op.getMaskAware())) {
+        return std::tuple<SmallString, SmallString, SmallString>{"softmax_inner_mask_aware",
+                                                                 "softmax_inner_mask_aware.cpp", "softmax"};
+    }
+
     return std::tuple<SmallString, SmallString, SmallString>{"softmax", "softmax.cpp", "softmax"};
 }
 
 std::tuple<SmallString, SmallString> getKernelImpl(VPU::AttentionOp op) {
     if (op.getInputSink()) {
         return std::tuple<SmallString, SmallString>{"attention_sink", "attention_sink.cpp"};
+    }
+    if (op.getInputMask()) {
+        return std::tuple<SmallString, SmallString>{"attention_mask_aware", "attention_mask_aware.cpp"};
     }
     return std::tuple<SmallString, SmallString>{"attention", "attention.cpp"};
 }
@@ -790,7 +793,7 @@ std::pair<SmallString, SmallString> getKernelImpl(VPU::RMSOp op) {
         if (isF16 && (type.getDimsOrder() == DimsOrder::NCHW)) {
             const auto shape = type.getShape();
             const auto W = shape[Dims4D::Act::W];
-            if (W == 64) {
+            if (W == 64 || W == 256) {
                 return std::pair<SmallString, SmallString>{"rms_norm_p00", "rms_norm_p00.cpp"};
             }
         }
@@ -844,7 +847,7 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                                          {genericSwLayerOp.getCallee().getLeafReference().getValue()},
                                          {"jit_generated"}};
             })
-            .Case<VPU::ExternalKernelOp>([&](VPU::ExternalKernelOp externalKernelOp) {
+            .Case<Shave::ExternalKernelOp>([&](Shave::ExternalKernelOp externalKernelOp) {
                 auto attrDict = externalKernelOp.getAttrDict();
                 auto attrVec = SmallVector<mlir::Attribute>{};
                 for (auto namedAttr : attrDict) {
@@ -887,6 +890,16 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                         computeReverseMemDim(scatterUpdate.getInput(), scatterUpdate.getAxisValue().value());
                 const auto axisParamAttr = getIntAttr(scatterUpdate.getContext(), axisParam);
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{axisParamAttr}, {"scatter_update"}};
+            })
+            .Case<VPU::ScatterUpdateSwDmaOp>([&](VPU::ScatterUpdateSwDmaOp op) {
+                const int64_t numTiles = getNumTiles(op.getAuxBuffer());
+                // Single Shave/tile (low processing requirements, mainly config/loop around DMA invocations)
+                const int64_t numShaves = 1;
+                const auto runInfoAttr = getIntAttr(op.getContext(), (numShaves << 32) | numTiles);
+                const auto axisParam = computeReverseMemDim(op.getInput(), op.getAxisValue());
+                const auto axisParamAttr = getIntAttr(op.getContext(), axisParam);
+                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{axisParamAttr, runInfoAttr},
+                                         {"scatter_update_dma"}};
             })
             .Case<VPU::ScatterElementsUpdateOp>([&](VPU::ScatterElementsUpdateOp scatterElementsUpdate) {
                 const auto axisParam =
@@ -940,13 +953,25 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 // input tensor, to transform axis
                 const auto axisParam = computeReverseMemDim(softmax.getInput(), softmax.getAxisInd());
                 const auto axisParamAttr = getIntAttr(ctx, axisParam);
-                const int64_t padSize = 0;
-                auto padSizeAttr = getIntAttr(ctx, padSize);
-                if (softmax.getPadSize().has_value()) {
-                    padSizeAttr = softmax.getPadSizeAttr();
-                }
+                int64_t padSize = 0;
 
+                if (softmax.getPadSize().has_value()) {
+                    padSize = softmax.getPadSizeAttr().getInt();
+                }
                 auto [kernelEntry, kernelSrc, kernelName] = getKernelImpl(softmax);
+                // Pack the mask-aware threshold into padSize for the mask-aware softmax kernel.
+                if (kernelEntry == "softmax_inner_mask_aware") {
+                    const auto softmaxThreshold = config::getSoftmaxMaskAwareThreshold(softmax.getOperation());
+                    // Convert to float16
+                    const auto softmaxThresholdFp16 = static_cast<vpux::type::float16>(softmaxThreshold);
+                    const uint32_t softmaxThresholdF16Bits = static_cast<uint32_t>(softmaxThresholdFp16.to_bits());
+                    // Pack as SoftmaxMaskAwarePackedParams (pack(1), little-endian):
+                    //   bits [15:0]  = maskThreshold (fp16)
+                    //   bits [23:16] = padSize
+                    //   bits [31:24] = thresholdEnable (1)
+                    padSize = (softmaxThresholdF16Bits & 0xFFFF) | ((padSize & 0xFF) << 16) | (1 << 24);
+                }
+                auto padSizeAttr = getIntAttr(ctx, padSize);
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{axisParamAttr, padSizeAttr}, kernelEntry,
                                          kernelSrc, kernelName};
             })
@@ -1054,16 +1079,78 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 const auto initialInputOffsetAttr = getIntArrayAttr(ctx, initialInputOffset);
                 const auto initialOutputOffsetAttr = getIntArrayAttr(ctx, initialOutputOffset);
 
+                // Shape calculation mode and original scales for SCALES mode
+                const auto shapeCalcMode = static_cast<int64_t>(interpolate.getAttr().getShapeCalcMode().getValue());
+                const auto shapeCalcModeAttr = getIntAttr(ctx, shapeCalcMode);
+
+                // Default to 1.0 (identity scale) for both slots. The kernel struct always reads
+                // original_scales[0] (rh) and original_scales[1] (rw) regardless of how many axes
+                // are actually interpolated. After split_interpolate_axes, a single-axis op provides
+                // only one scale, leaving the second slot at this default. A default of 0.0 would
+                // cause the kernel to compute 1/0 = infinity for the unused axis; 1.0 is a safe
+                // no-op (scale of 1 → coordinate maps to itself).
+                SmallVector<double> originalScales(2, 1.0);
+                if (shapeCalcMode == static_cast<int64_t>(IE::InterpolateCalcMode::SCALES)) {
+                    // Detect SCF tiling by comparing initial_input_dims_attr against the actual
+                    // tensor shape. When SCF tiling splits the op, initial_input_dims_attr holds
+                    // the pre-tiling global shape (set by backInferTileInfo), which differs from
+                    // the tile's actual shape; scales_attr is then rewritten to the tile-local
+                    // ratio by adjustAttrs() and must not be passed to the kernel. When no SCF
+                    // tiling occurs (including when initial_input_dims_attr is set by multi-cluster
+                    // strategy evaluation), initial_input_dims_attr equals the actual shape and
+                    // scales_attr holds the user-specified scale (authoritative).
+                    const auto actualInputShape = to_small_vector(getShape(interpolate.getInput()));
+                    bool isTiled = false;
+                    if (interpolate.getInitialInputDimsAttr().has_value()) {
+                        const auto initialDims =
+                                parseIntArrayAttr<int64_t>(interpolate.getInitialInputDimsAttr().value());
+                        isTiled =
+                                (initialDims != SmallVector<int64_t>(actualInputShape.begin(), actualInputShape.end()));
+                    }
+
+                    if (isTiled) {
+                        // SCF-tiled: use global dims ratio from initial (pre-tiling) dimensions.
+                        for (size_t i = 0; i < scalingAxis.size() && i < 2; i++) {
+                            const auto axis = checked_cast<unsigned>(scalingAxis[i]);
+                            const auto inDim = mlir::cast<mlir::IntegerAttr>(initialInputDim[axis]).getInt();
+                            const auto outDim = mlir::cast<mlir::IntegerAttr>(initialOutputDim[axis]).getInt();
+                            originalScales[i] = static_cast<double>(outDim) / inDim;
+                        }
+                    } else if (interpolate.getScalesAttrAttr()) {
+                        // Non-tiled: scales_attr is a positional array indexed by position in axes_attr.
+                        // For each kernel slot (scalingAxis[i]), find the axis's position in axisParam and
+                        // use that as the index into scalesVec. Synthetically added neighbor axes (not
+                        // present in axisParam) keep the default 1.0.
+                        const auto scalesVec = parseFPArrayAttr<double>(interpolate.getScalesAttrAttr());
+                        for (size_t i = 0; i < scalingAxis.size() && i < 2; i++) {
+                            const auto targetAxis = scalingAxis[i];
+                            auto it = std::find(axisParam.begin(), axisParam.end(), targetAxis);
+                            if (it != axisParam.end()) {
+                                auto idx = static_cast<size_t>(std::distance(axisParam.begin(), it));
+                                if (idx < scalesVec.size()) {
+                                    originalScales[i] = scalesVec[idx];
+                                }
+                            } else {
+                                const auto axis = checked_cast<unsigned>(targetAxis);
+                                VPUX_THROW_WHEN(initialInputDim[axis] != initialOutputDim[axis],
+                                                "Synthetic neighbor axis {0} has mismatched I/O dims at '{1}'",
+                                                targetAxis, interpolate->getLoc());
+                            }
+                        }
+                    }
+                }
+                const auto originalScalesAttr = getFPArrayAttr(ctx, originalScales);
+
                 // INT64_MAX added as a delimiter to find where MemRefData fields are ended in case of variadic number
                 // of inputs
                 const auto delimiterAttr = getIntAttr(ctx, INT64_MAX);
 
-                return VPUIP::KernelInfo{
-                        SmallVector<mlir::Attribute>{delimiterAttr, modeAttr, coordModeAttr, nearestModeAttr,
-                                                     antialiasAttr, tileAttr, initialInputDimsParamAttr,
-                                                     initialOutputDimsParamAttr, axisParamAttr, cubeCoeffParamAttr,
-                                                     initialInputOffsetAttr, initialOutputOffsetAttr},
-                        {"interpolate"}};
+                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{
+                                                 delimiterAttr, modeAttr, coordModeAttr, nearestModeAttr, antialiasAttr,
+                                                 tileAttr, initialInputDimsParamAttr, initialOutputDimsParamAttr,
+                                                 axisParamAttr, cubeCoeffParamAttr, initialInputOffsetAttr,
+                                                 initialOutputOffsetAttr, shapeCalcModeAttr, originalScalesAttr},
+                                         {"interpolate"}};
             })
             .Case<VPU::InterpolateDMAOp>([&](VPU::InterpolateDMAOp interpDMA) {
                 const auto mode = static_cast<int64_t>(interpDMA.getAttr().getMode().getValue());
@@ -1081,12 +1168,19 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 const auto antialiasAttr = getIntAttr(ctx, antialias);
                 const auto axisParamAttr = getIntArrayAttr(ctx, scalingAxis);
                 const auto cubeCoeffParamAttr = getFPAttr(ctx, cubeCoeffParam);
+                // Adding this dummy attr as the dma streaming expects
+                // the params to be passed as a struct with 8-byte fields.
+                const auto releasePadAttr = getFPAttr(ctx, 0.0f);
 
-                const auto delimiterAttr = getIntAttr(ctx, INT64_MAX);
+                // Setting numTiles and numShaves for interpolateDMAStreaming
+                int64_t numTiles = getNumTiles(interpDMA.getAuxBuffer());
+                int64_t numShaves = (static_cast<VPU::SwIoDmaOpInterface>(interpDMA)).getDuplicatedNumShaves();
+
+                const auto runInfoAttr = getIntAttr(ctx, (numShaves << 32) | numTiles);
 
                 return VPUIP::KernelInfo{
-                        SmallVector<mlir::Attribute>{delimiterAttr, modeAttr, coordModeAttr, nearestModeAttr,
-                                                     antialiasAttr, axisParamAttr, cubeCoeffParamAttr},
+                        SmallVector<mlir::Attribute>{modeAttr, coordModeAttr, nearestModeAttr, antialiasAttr,
+                                                     axisParamAttr, cubeCoeffParamAttr, releasePadAttr, runInfoAttr},
                         {"interpolate_dma"}};
             })
             .Case<VPU::ScatterNDUpdateOp>([&](VPU::ScatterNDUpdateOp) {
@@ -1223,7 +1317,7 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 const auto iOrder = iType.getDimsOrder();
                 const auto supported = {DimsOrder::NCHW, DimsOrder::NCWH, DimsOrder::NHWC, DimsOrder::NWHC};
                 VPUX_THROW_UNLESS(llvm::any_of(supported,
-                                               [iOrder](DimsOrder order) {
+                                               [iOrder](const DimsOrder& order) {
                                                    return order == iOrder;
                                                }),
                                   "Unsupported order {0}", iOrder);
@@ -1370,7 +1464,7 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 const auto iOrder = iType.getDimsOrder();
                 const auto supported = {DimsOrder::NCHW};
                 VPUX_THROW_UNLESS(llvm::any_of(supported,
-                                               [iOrder](DimsOrder order) {
+                                               [iOrder](const DimsOrder& order) {
                                                    return order == iOrder;
                                                }),
                                   "Unsupported order {0}", iOrder);
@@ -1753,7 +1847,7 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 int64_t axis = oneHot.getAxis();
                 const auto shape = getShape(oneHot.getInput());
                 auto nDims = checked_cast<int64_t>(shape.size());
-                const int64_t actualAxis = (axis < 0) ? -axis - 1 : nDims - axis;
+                const int64_t actualAxis = nDims - axis;
 
                 int64_t mode = static_cast<int64_t>(oneHot.getModeAttr().getValue());
                 const auto oneHotModeAttr = getIntAttr(ctx, mode);
@@ -2075,9 +2169,16 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 auto noAxes = axes.size();
                 const auto noAxesAttr = getIntAttr(ctx, static_cast<int32_t>(noAxes));
                 const auto axesAttr = getIntArrayAttr(ctx, axes);
+
+                const auto inputType = mlir::cast<vpux::NDTypeInterface>(normalizeL2.getData().getType());
+                const auto inputRank = inputType.getRank();
+                const int32_t normalizedAxis = axes[0] < 0 ? axes[0] + static_cast<int32_t>(inputRank) : axes[0];
+                const bool isInnermost = (noAxes == 1) && (normalizedAxis == inputRank - 1);
+                const auto kernelEntry = isInnermost ? "normalize_l2_innermost" : "normalize_l2";
+
                 return VPUIP::KernelInfo{
                         SmallVector<mlir::Attribute>{normalizeL2.getEpsAttr(), epsModeAttr, noAxesAttr, axesAttr},
-                        {"normalize_l2"}};
+                        {kernelEntry}};
             })
             .Case<VPU::CumSumOp>([&](VPU::CumSumOp cumSum) {
                 const auto axisParam = computeReverseMemDim(cumSum.getInput(), cumSum.getAxisValue().value());
@@ -2413,8 +2514,9 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 const auto iType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType());
                 VPUX_THROW_UNLESS(iType.getRank() <= 4, "Supporting only 3D and 4D input, got {0}", iType.getRank());
                 const auto epsilonAttr = op.getEpsAttr();
+                const auto conditionalEpsAttr = op.getConditionalEpsAttr();
                 auto [kernelEntry, kernelSrc] = getKernelImpl(op);
-                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{epsilonAttr},
+                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{epsilonAttr, conditionalEpsAttr},
                                          kernelEntry,
                                          kernelSrc,
                                          {"rms_norm"}};
@@ -2501,6 +2603,11 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                                              {"rope_pairwise"},
                                              {"rope_pairwise.cpp"}};
                 }
+                if (modeValue == IE::RoPEMode::PAIRWISE_INTERLEAVED) {
+                    return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{modeAttr},
+                                             {"rope_pairwise_ilv"},
+                                             {"rope_pairwise_ilv.cpp"}};
+                }
 
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{modeAttr}, {"rope"}, {"rope.cpp"}};
             })
@@ -2539,15 +2646,21 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                     VPUX_THROW_UNLESS((shape[Dim(scaleType.getRank() - 1)] * shape[Dim(scaleType.getRank() - 2)]) == 1,
                                       "AttentionOp supporting only Scale with size 1 on last dims, got {0}", shape);
                 }
-                int64_t padSize = 0;
+                int32_t padSize = 0;
                 if (op.getPadSizeSAttr() != nullptr) {
                     if (op.getPadSizeS().has_value()) {
-                        padSize = op.getPadSizeS().value();
+                        padSize = static_cast<int32_t>(op.getPadSizeS().value());
                     }
                 }
-                const auto padSizeAttr = getIntAttr(ctx, padSize);
                 auto [kernelEntry, kernelSrc] = getKernelImpl(op);
-                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{optionalIoAttr(op), padSizeAttr},
+                // Pack AttentionAttrs: {int32_t spad_size, float mask_threshold}
+                const auto maskThreshold = static_cast<float>(config::getSoftmaxMaskAwareThreshold(op.getOperation()));
+                uint32_t thresholdBits;
+                std::memcpy(&thresholdBits, &maskThreshold, sizeof(uint32_t));
+                int64_t packedAttrs = static_cast<int64_t>(static_cast<uint64_t>(static_cast<uint32_t>(padSize)) |
+                                                           (static_cast<uint64_t>(thresholdBits) << 32));
+                const auto packedAttr = getIntAttr(ctx, packedAttrs);
+                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{optionalIoAttr(op), packedAttr},
                                          kernelEntry,
                                          kernelSrc,
                                          {"attention"}};

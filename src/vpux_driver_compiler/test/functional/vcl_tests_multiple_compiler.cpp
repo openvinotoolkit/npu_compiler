@@ -13,7 +13,8 @@
 #include <mutex>
 #include <thread>
 
-class VCLMultipleCompilerTest : public VCLTestsUtils::VCLTestsCommon {
+namespace VCLTest {
+class VCLMultipleCompilerTest : public VCLTestsCommon {
 public:
     /**
      * @brief Use compiler to compile one model
@@ -203,9 +204,9 @@ TEST_P(VCLMultipleCompilerTest, CompilerInstance) {
 /// The path of config files for tests
 const auto cidTool = VCLMultipleCompilerTest::getCidToolPath();
 /// Models and configs for smoke test
-const auto smokeIRInfos = VCLMultipleCompilerTest::readJson2Vec(cidTool + VCLTestsUtils::SMOKE_TEST_CONFIG);
+const auto smokeIRInfos = VCLMultipleCompilerTest::readJson2Vec(cidTool + VCLTest::SMOKE_TEST_CONFIG);
 /// Models and configs for normal test
-const auto irInfos = VCLMultipleCompilerTest::readJson2Vec(cidTool + VCLTestsUtils::TEST_CONFIG);
+const auto irInfos = VCLMultipleCompilerTest::readJson2Vec(cidTool + VCLTest::TEST_CONFIG);
 /// Parameters for smoke tests
 const auto smokeParams = testing::Combine(testing::ValuesIn(smokeIRInfos));
 /// Parameters for normal tests
@@ -217,7 +218,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_MultipleCompilerInstanceTest, VCLMultipleCompiler
 INSTANTIATE_TEST_SUITE_P(MultipleCompilerInstanceTest, VCLMultipleCompilerTest, params,
                          VCLMultipleCompilerTest::getTestCaseName);
 
-class VCLAllocatorMultipleCompilerTest : public VCLTestsUtils::VCLTestsCommon {
+class VCLAllocatorMultipleCompilerTest : public VCLTestsCommon {
 public:
     /**
      * @brief Use compiler to compile one model
@@ -282,8 +283,8 @@ vcl_result_t VCLAllocatorMultipleCompilerTest::singleCompilation(const std::stri
     std::cout << "############################################" << std::endl;
 
     vcl_allocator_t allocator;
-    allocator.allocate = VCLTestsUtils::allocateBlob;
-    allocator.deallocate = VCLTestsUtils::deallocateBlob;
+    allocator.allocate = VCLTest::allocateBlob;
+    allocator.deallocate = VCLTest::deallocateBlob;
     uint8_t* blob = nullptr;
     uint64_t size = 0;
 
@@ -385,3 +386,4 @@ INSTANTIATE_TEST_SUITE_P(smoke_MultipleCompilerInstanceTest, VCLAllocatorMultipl
 
 INSTANTIATE_TEST_SUITE_P(MultipleCompilerInstanceTest, VCLAllocatorMultipleCompilerTest, params,
                          VCLAllocatorMultipleCompilerTest::getTestCaseName);
+}  // namespace VCLTest

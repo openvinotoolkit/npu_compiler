@@ -49,7 +49,7 @@ OpType getCommonOp(SmallVector<VPURT::TaskOp> tasks, bool input) {
     return commonOp;
 }
 
-bool verifyPossibleType(SmallVector<int64_t> shape, SmallVector<Bit> strides, DimsOrder order) {
+bool verifyPossibleType(SmallVector<int64_t> shape, SmallVector<Bit> strides, const DimsOrder& order) {
     const auto newOrder = inferNewDimsOrder(order, shape.size());
 
     const auto memShape = newOrder.toMemoryOrder(ShapeRef(shape));

@@ -13,7 +13,7 @@
 // CHECK-SAME: (
 // CHECK-SAME: [[ARG0:%.+]]: memref<1x3x224x224xf16, @CMX_NN>
 // CHECK-SAME: )
-// CHECK-SAME: -> memref<1x4x224x224xf16, #NHWC, @CMX_NN>
+// CHECK-SAME: -> memref<1x4x224x224xf16, {order = #NHWC}, @CMX_NN>
 func.func @NcePermute(%arg0: tensor<1x3x224x224xf16, {mem_space = @CMX_NN}>)
         -> tensor<1x4x224x224xf16, {mem_space = @CMX_NN, order = #NHWC}> {
 
@@ -28,18 +28,18 @@ func.func @NcePermute(%arg0: tensor<1x3x224x224xf16, {mem_space = @CMX_NN}>)
 
     return %0 : tensor<1x4x224x224xf16, {mem_space = @CMX_NN, order = #NHWC}>
     // CHECK: [[VIEW_OP_IN:%.+]] = VPUIP.ViewOp [[ARG0]] : memref<1x3x224x224xf16, @CMX_NN>
-    // CHECK-SAME:  to memref<1x224x3x224xf16, #NHWC, @CMX_NN>
+    // CHECK-SAME:  to memref<1x224x3x224xf16, {order = #NHWC}, @CMX_NN>
 
-    // CHECK: [[OUT_BUF:%.+]] = memref.alloc() : memref<1x224x4x224xf16, #NWCH, @CMX_NN>
+    // CHECK: [[OUT_BUF:%.+]] = memref.alloc() : memref<1x224x4x224xf16, {order = #NWCH}, @CMX_NN>
 
     // CHECK:       [[PERMUTE_RES:%.+]] = VPUIP.NCEClusterTask
     // CHECK-SAME:      task_type = #VPUIP.nce_task_type<ELTWISE>
-    // CHECK-SAME:  input([[VIEW_OP_IN]] : memref<1x224x3x224xf16, #NHWC, @CMX_NN>)
-    // CHECK-SAME:  weights([[VIEW_OP_IN]] : memref<1x224x3x224xf16, #NHWC, @CMX_NN>)
-    // CHECK-SAME:  parent_input([[VIEW_OP_IN]] : memref<1x224x3x224xf16, #NHWC, @CMX_NN>)
-    // CHECK-SAME:  parent_output([[OUT_BUF]] : memref<1x224x4x224xf16, #NWCH, @CMX_NN>)
-    // CHECK-SAME:  outputs([[OUT_BUF]] : memref<1x224x4x224xf16, #NWCH, @CMX_NN>)
-    // CHECK-SAME:  -> memref<1x224x4x224xf16, #NWCH, @CMX_NN>
+    // CHECK-SAME:  input([[VIEW_OP_IN]] : memref<1x224x3x224xf16, {order = #NHWC}, @CMX_NN>)
+    // CHECK-SAME:  weights([[VIEW_OP_IN]] : memref<1x224x3x224xf16, {order = #NHWC}, @CMX_NN>)
+    // CHECK-SAME:  parent_input([[VIEW_OP_IN]] : memref<1x224x3x224xf16, {order = #NHWC}, @CMX_NN>)
+    // CHECK-SAME:  parent_output([[OUT_BUF]] : memref<1x224x4x224xf16, {order = #NWCH}, @CMX_NN>)
+    // CHECK-SAME:  outputs([[OUT_BUF]] : memref<1x224x4x224xf16, {order = #NWCH}, @CMX_NN>)
+    // CHECK-SAME:  -> memref<1x224x4x224xf16, {order = #NWCH}, @CMX_NN>
 
     // CHECK:       PPETask {ppe = #VPU.PPEInt<
     // CHECK-SAME:      mode = <ADD>,
@@ -49,10 +49,10 @@ func.func @NcePermute(%arg0: tensor<1x3x224x224xf16, {mem_space = @CMX_NN}>)
     // CHECK-SAME:      fp_prelu_alpha = 5.000000e-01 : f64
     // CHECK-SAME:  >}
 
-    // CHECK: [[VIEW_OP_OUT:%.+]] = VPUIP.ViewOp [[PERMUTE_RES]] : memref<1x224x4x224xf16, #NWCH, @CMX_NN>
-    // CHECK-SAME: to memref<1x4x224x224xf16, #NHWC, @CMX_NN>
+    // CHECK: [[VIEW_OP_OUT:%.+]] = VPUIP.ViewOp [[PERMUTE_RES]] : memref<1x224x4x224xf16, {order = #NWCH}, @CMX_NN>
+    // CHECK-SAME: to memref<1x4x224x224xf16, {order = #NHWC}, @CMX_NN>
 
-    // CHECK: return [[VIEW_OP_OUT]] : memref<1x4x224x224xf16, #NHWC, @CMX_NN>
+    // CHECK: return [[VIEW_OP_OUT]] : memref<1x4x224x224xf16, {order = #NHWC}, @CMX_NN>
 }
 
 // -----
@@ -66,7 +66,7 @@ func.func @NcePermute(%arg0: tensor<1x3x224x224xf16, {mem_space = @CMX_NN}>)
 // CHECK-SAME: (
 // CHECK-SAME: [[ARG0:%.+]]: memref<1x3x224x224xf16, @CMX_NN>
 // CHECK-SAME: )
-// CHECK-SAME: -> memref<1x4x224x224x!qElemType, #NHWC, @CMX_NN>
+// CHECK-SAME: -> memref<1x4x224x224x!qElemType, {order = #NHWC}, @CMX_NN>
 func.func @NcePermuteQuantOut(%arg0: tensor<1x3x224x224xf16, {mem_space = @CMX_NN}>)
         -> tensor<1x4x224x224x!qElemType, {mem_space = @CMX_NN, order = #NHWC}> {
 
@@ -82,18 +82,18 @@ func.func @NcePermuteQuantOut(%arg0: tensor<1x3x224x224xf16, {mem_space = @CMX_N
     return %0 : tensor<1x4x224x224x!qElemType, {mem_space = @CMX_NN, order = #NHWC}>
 
     // CHECK: [[VIEW_OP_IN:%.+]] = VPUIP.ViewOp [[ARG0]] : memref<1x3x224x224xf16, @CMX_NN>
-    // CHECK-SAME:  to memref<1x224x3x224xf16, #NHWC, @CMX_NN>
+    // CHECK-SAME:  to memref<1x224x3x224xf16, {order = #NHWC}, @CMX_NN>
 
-    // CHECK: [[OUT_BUF:%.+]] = memref.alloc() : memref<1x224x4x224x!qElemType, #NWCH, @CMX_NN>
+    // CHECK: [[OUT_BUF:%.+]] = memref.alloc() : memref<1x224x4x224x!qElemType, {order = #NWCH}, @CMX_NN>
 
     // CHECK:       [[PERMUTE_RES:%.+]] = VPUIP.NCEClusterTask
     // CHECK-SAME:      task_type = #VPUIP.nce_task_type<ELTWISE>
-    // CHECK-SAME:  input([[VIEW_OP_IN]] : memref<1x224x3x224xf16, #NHWC, @CMX_NN>)
-    // CHECK-SAME:  weights([[VIEW_OP_IN]] : memref<1x224x3x224xf16, #NHWC, @CMX_NN>)
-    // CHECK-SAME:  parent_input([[VIEW_OP_IN]] : memref<1x224x3x224xf16, #NHWC, @CMX_NN>)
-    // CHECK-SAME:  parent_output([[OUT_BUF]] : memref<1x224x4x224x!qElemType, #NWCH, @CMX_NN>)
-    // CHECK-SAME:  outputs([[OUT_BUF]] : memref<1x224x4x224x!qElemType, #NWCH, @CMX_NN>)
-    // CHECK-SAME:  -> memref<1x224x4x224x!qElemType, #NWCH, @CMX_NN>
+    // CHECK-SAME:  input([[VIEW_OP_IN]] : memref<1x224x3x224xf16, {order = #NHWC}, @CMX_NN>)
+    // CHECK-SAME:  weights([[VIEW_OP_IN]] : memref<1x224x3x224xf16, {order = #NHWC}, @CMX_NN>)
+    // CHECK-SAME:  parent_input([[VIEW_OP_IN]] : memref<1x224x3x224xf16, {order = #NHWC}, @CMX_NN>)
+    // CHECK-SAME:  parent_output([[OUT_BUF]] : memref<1x224x4x224x!qElemType, {order = #NWCH}, @CMX_NN>)
+    // CHECK-SAME:  outputs([[OUT_BUF]] : memref<1x224x4x224x!qElemType, {order = #NWCH}, @CMX_NN>)
+    // CHECK-SAME:  -> memref<1x224x4x224x!qElemType, {order = #NWCH}, @CMX_NN>
 
     // CHECK:       PPETask {ppe = #VPU.PPEInt<
     // CHECK-SAME:      mode = <ADD>,
@@ -103,10 +103,10 @@ func.func @NcePermuteQuantOut(%arg0: tensor<1x3x224x224xf16, {mem_space = @CMX_N
     // CHECK-SAME:      fp_prelu_alpha = 5.000000e-01 : f64
     // CHECK-SAME:  >}
 
-    // CHECK: [[VIEW_OP_OUT:%.+]] = VPUIP.ViewOp [[PERMUTE_RES]] : memref<1x224x4x224x!qElemType, #NWCH, @CMX_NN>
-    // CHECK-SAME: to memref<1x4x224x224x!qElemType, #NHWC, @CMX_NN>
+    // CHECK: [[VIEW_OP_OUT:%.+]] = VPUIP.ViewOp [[PERMUTE_RES]] : memref<1x224x4x224x!qElemType, {order = #NWCH}, @CMX_NN>
+    // CHECK-SAME: to memref<1x4x224x224x!qElemType, {order = #NHWC}, @CMX_NN>
 
-    // CHECK: return [[VIEW_OP_OUT]] : memref<1x4x224x224x!qElemType, #NHWC, @CMX_NN>
+    // CHECK: return [[VIEW_OP_OUT]] : memref<1x4x224x224x!qElemType, {order = #NHWC}, @CMX_NN>
 }
 
 // -----
@@ -120,7 +120,7 @@ func.func @NcePermuteQuantOut(%arg0: tensor<1x3x224x224xf16, {mem_space = @CMX_N
 // CHECK-SAME: (
 // CHECK-SAME: [[ARG0:%.+]]: memref<1x3x224x224x!qElemType, @CMX_NN>
 // CHECK-SAME: )
-// CHECK-SAME: -> memref<1x4x224x224x!qElemType, #NHWC, @CMX_NN>
+// CHECK-SAME: -> memref<1x4x224x224x!qElemType, {order = #NHWC}, @CMX_NN>
 func.func @NcePermuteQuantInQuantOut(%arg0: tensor<1x3x224x224x!qElemType, {mem_space = @CMX_NN}>)
         -> tensor<1x4x224x224x!qElemType, {mem_space = @CMX_NN, order = #NHWC}> {
 
@@ -136,18 +136,18 @@ func.func @NcePermuteQuantInQuantOut(%arg0: tensor<1x3x224x224x!qElemType, {mem_
     return %0 : tensor<1x4x224x224x!qElemType, {mem_space = @CMX_NN, order = #NHWC}>
 
     // CHECK: [[VIEW_OP_IN:%.+]] = VPUIP.ViewOp [[ARG0]] : memref<1x3x224x224x!qElemType, @CMX_NN>
-    // CHECK-SAME:  to memref<1x224x3x224x!qElemType, #NHWC, @CMX_NN>
+    // CHECK-SAME:  to memref<1x224x3x224x!qElemType, {order = #NHWC}, @CMX_NN>
 
-    // CHECK: [[OUT_BUF:%.+]] = memref.alloc() : memref<1x224x4x224x!qElemType, #NWCH, @CMX_NN>
+    // CHECK: [[OUT_BUF:%.+]] = memref.alloc() : memref<1x224x4x224x!qElemType, {order = #NWCH}, @CMX_NN>
 
     // CHECK:       [[PERMUTE_RES:%.+]] = VPUIP.NCEClusterTask
     // CHECK-SAME:      task_type = #VPUIP.nce_task_type<ELTWISE>
-    // CHECK-SAME:  input([[VIEW_OP_IN]] : memref<1x224x3x224x!qElemType, #NHWC, @CMX_NN>)
-    // CHECK-SAME:  weights([[VIEW_OP_IN]] : memref<1x224x3x224x!qElemType, #NHWC, @CMX_NN>)
-    // CHECK-SAME:  parent_input([[VIEW_OP_IN]] : memref<1x224x3x224x!qElemType, #NHWC, @CMX_NN>)
-    // CHECK-SAME:  parent_output([[OUT_BUF]] : memref<1x224x4x224x!qElemType, #NWCH, @CMX_NN>)
-    // CHECK-SAME:  outputs([[OUT_BUF]] : memref<1x224x4x224x!qElemType, #NWCH, @CMX_NN>)
-    // CHECK-SAME:  -> memref<1x224x4x224x!qElemType, #NWCH, @CMX_NN>
+    // CHECK-SAME:  input([[VIEW_OP_IN]] : memref<1x224x3x224x!qElemType, {order = #NHWC}, @CMX_NN>)
+    // CHECK-SAME:  weights([[VIEW_OP_IN]] : memref<1x224x3x224x!qElemType, {order = #NHWC}, @CMX_NN>)
+    // CHECK-SAME:  parent_input([[VIEW_OP_IN]] : memref<1x224x3x224x!qElemType, {order = #NHWC}, @CMX_NN>)
+    // CHECK-SAME:  parent_output([[OUT_BUF]] : memref<1x224x4x224x!qElemType, {order = #NWCH}, @CMX_NN>)
+    // CHECK-SAME:  outputs([[OUT_BUF]] : memref<1x224x4x224x!qElemType, {order = #NWCH}, @CMX_NN>)
+    // CHECK-SAME:  -> memref<1x224x4x224x!qElemType, {order = #NWCH}, @CMX_NN>
 
     // CHECK:       PPETask {ppe = #VPU.PPEInt<
     // CHECK-SAME:      mode = <ADD>,
@@ -158,10 +158,10 @@ func.func @NcePermuteQuantInQuantOut(%arg0: tensor<1x3x224x224x!qElemType, {mem_
     // CHECK-SAME:      fp_prelu_alpha = 1.000000e+00 : f64
     // CHECK-SAME:  >}
 
-    // CHECK: [[VIEW_OP_OUT:%.+]] = VPUIP.ViewOp [[PERMUTE_RES]] : memref<1x224x4x224x!qElemType, #NWCH, @CMX_NN>
-    // CHECK-SAME: to memref<1x4x224x224x!qElemType, #NHWC, @CMX_NN>
+    // CHECK: [[VIEW_OP_OUT:%.+]] = VPUIP.ViewOp [[PERMUTE_RES]] : memref<1x224x4x224x!qElemType, {order = #NWCH}, @CMX_NN>
+    // CHECK-SAME: to memref<1x4x224x224x!qElemType, {order = #NHWC}, @CMX_NN>
 
-    // CHECK: return [[VIEW_OP_OUT]] : memref<1x4x224x224x!qElemType, #NHWC, @CMX_NN>
+    // CHECK: return [[VIEW_OP_OUT]] : memref<1x4x224x224x!qElemType, {order = #NHWC}, @CMX_NN>
 }
 
 // -----

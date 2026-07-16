@@ -12,6 +12,9 @@
 #include "vpux/utils/core/numeric.hpp"
 #include "vpux/utils/core/range.hpp"
 
+#include <mlir/IR/BuiltinAttributes.h>
+#include <mlir/IR/BuiltinTypeInterfaces.h>
+#include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/DialectImplementation.h>
 
 using namespace vpux;
@@ -407,7 +410,10 @@ Const::Content vpux::Const::SubViewAttr::transform(vpux::Const::Content& input) 
 
         const auto storageElemTypeSize = vpux::getElemTypeSize(input.getStorageElemType()).count();
         if (storageElemTypeSize < CHAR_BIT) {
-            // Sub byte type specific implementation
+            const auto expectedInBufSize = static_cast<size_t>(getExpectedBufferSize(input.getType()).count());
+            VPUX_THROW_UNLESS(inBuf.size() == expectedInBufSize,
+                              "Input buffer size '{0}' doesn't match expected '{1}' in 'SubViewAttr'", inBuf.size(),
+                              expectedInBufSize);
             subByteTransform(inMemShape, outMemShape, memOffset, storageElemTypeSize, outNumElems, inBuf, outBuf);
         } else {
             generalTransform(inMemShape, outMemShape, memOffset, storageElemTypeSize, outNumElems, inBuf, outBuf,

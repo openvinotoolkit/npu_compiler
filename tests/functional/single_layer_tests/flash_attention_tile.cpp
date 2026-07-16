@@ -5,6 +5,8 @@
 
 #include <intel_npu/ops/flash_attention_tile.hpp>
 
+#include <openvino/core/type/float16.hpp>
+
 #include <common/print_test_case_name.hpp>
 #include <common/tensor_comparison.hpp>
 #include <common_test_utils/ov_tensor_utils.hpp>
@@ -23,6 +25,8 @@ namespace {
 const int32_t SEED = 42;
 
 PRETTY_PARAM(Heads, BoundedDim);            // H
+PRETTY_PARAM(QHeads, BoundedDim);           // H_q (for GQA)
+PRETTY_PARAM(KVHeads, BoundedDim);          // H_kv (for GQA)
 PRETTY_PARAM(SourceSeqLen, BoundedDim);     // S
 PRETTY_PARAM(TargetSeqLen, BoundedDim);     // L
 PRETTY_PARAM(QKEmbeddingSize, BoundedDim);  // E
@@ -43,7 +47,7 @@ ov::ParameterVector generateInputParams(const std::vector<ov::PartialShape>& inp
     const auto requiredParamNames =
             std::array<std::string_view, 6>{"query", "key", "value", "running_output", "running_max", "running_sum"};
 
-    const auto inputType = ov::element::f32;
+    const auto inputType = ov::element::f16;
     for (auto [i, paramName] : vpux::enumerate(requiredParamNames)) {
         inputParams.push_back(std::make_shared<ov::op::v0::Parameter>(inputType, inputDynamicShapes[i]));
         inputParams[i]->set_friendly_name(std::string{paramName});
@@ -204,8 +208,8 @@ public:
 using FlashAttentionTileParams =
         std::tuple<Heads, SourceSeqLen, TargetSeqLen, QKEmbeddingSize, VEmbeddingSize, AttentionMask, IsHead, IsTail>;
 
-class FlashAttentionTileLayerTest :
-        public FlashAttentionTileLayerTestBase<FlashAttentionTileLayerTest>,
+class FlashAttentionTileMHALayerTest :
+        public FlashAttentionTileLayerTestBase<FlashAttentionTileMHALayerTest>,
         public ::testing::WithParamInterface<FlashAttentionTileParams> {
 public:
     std::vector<InputShape> generateInputShapes(FlashAttentionTileParams params) {
@@ -235,55 +239,142 @@ public:
     }
 };
 
+using FlashAttentionTileGQAParams = std::tuple<QHeads, KVHeads, SourceSeqLen, TargetSeqLen, QKEmbeddingSize,
+                                               VEmbeddingSize, AttentionMask, IsHead, IsTail>;
+
+class FlashAttentionTileGQALayerTest :
+        public FlashAttentionTileLayerTestBase<FlashAttentionTileGQALayerTest>,
+        public ::testing::WithParamInterface<FlashAttentionTileGQAParams> {
+public:
+    std::vector<InputShape> generateInputShapes(FlashAttentionTileGQAParams params) {
+        const auto& [qHeads, kvHeads, sourceSeqLen, targetSeqLen, qkEmbeddingSize, vEmbeddingSize, attentionMask,
+                     isHead, isTail] = params;
+
+        auto qShape = generateTestShape(qHeads.value(), targetSeqLen.value(), qkEmbeddingSize.value());
+        auto kShape = generateTestShape(kvHeads.value(), sourceSeqLen.value(), qkEmbeddingSize.value());
+        auto vShape = generateTestShape(kvHeads.value(), sourceSeqLen.value(), vEmbeddingSize.value());
+
+        auto runningOutShape = generateTestShape(qHeads.value(), targetSeqLen.value(), vEmbeddingSize.value());
+        auto runningMaxShape = generateTestShape(qHeads.value(), targetSeqLen.value());
+        auto runningSumShape = generateTestShape(qHeads.value(), targetSeqLen.value());
+
+        auto inputShapes =
+                std::vector<InputShape>{qShape, kShape, vShape, runningOutShape, runningMaxShape, runningSumShape};
+
+        if (attentionMask.value() == Mask::Full) {
+            auto attentionMaskShape = generateTestShape(qHeads.value(), targetSeqLen.value(), sourceSeqLen.value());
+            inputShapes.push_back(attentionMaskShape);
+        } else if (attentionMask.value() == Mask::Broadcasted) {
+            auto attentionMaskShape = generateTestShape(1, targetSeqLen.value(), sourceSeqLen.value());
+            inputShapes.push_back(attentionMaskShape);
+        }
+
+        return inputShapes;
+    }
+};
+
 }  // namespace
 
-TEST_P(FlashAttentionTileLayerTest, NPU5010_HW) {
+//
+// FlashAttentionTileMHALayerTest
+//
+
+TEST_P(FlashAttentionTileMHALayerTest, NPU5010_HW) {
     abs_threshold = 0.001;
     rel_threshold = 0.001;
     run(Platform::NPU5010);
 }
 
-//
-// FlashAttentionTileLayerTest
-//
-
-INSTANTIATE_TEST_SUITE_P(smoke, FlashAttentionTileLayerTest,
-                         ::testing::Combine(::testing::Values(Heads{8}),              //
-                                            ::testing::Values(SourceSeqLen{160}),     //
-                                            ::testing::Values(TargetSeqLen{64}),      //
-                                            ::testing::Values(QKEmbeddingSize{128}),  //
-                                            ::testing::Values(VEmbeddingSize{128}),   //
-                                            ::testing::ValuesIn(std::vector<AttentionMask>{
-                                                    Mask::Full, Mask::Broadcasted, Mask::Absent}),  //
-                                            ::testing::ValuesIn(std::vector<IsHead>{true, false}),  //
-                                            ::testing::ValuesIn(std::vector<IsTail>{true, false})   //
-                                            ),                                                      //
+INSTANTIATE_TEST_SUITE_P(smoke, FlashAttentionTileMHALayerTest,
+                         ::testing::Combine(::testing::Values(Heads{8}),                                       //
+                                            ::testing::Values(SourceSeqLen{160}),                              //
+                                            ::testing::Values(TargetSeqLen{64}),                               //
+                                            ::testing::Values(QKEmbeddingSize{128}),                           //
+                                            ::testing::Values(VEmbeddingSize{128}),                            //
+                                            ::testing::ValuesIn(std::vector<AttentionMask>{Mask::Full,         //
+                                                                                           Mask::Broadcasted,  //
+                                                                                           Mask::Absent}),     //
+                                            ::testing::ValuesIn(std::vector<IsHead>{true, false}),             //
+                                            ::testing::ValuesIn(std::vector<IsTail>{true, false})              //
+                                            ),                                                                 //
                          PrintTestCaseName());
 
-INSTANTIATE_TEST_SUITE_P(smoke_SeqLen960, FlashAttentionTileLayerTest,
-                         ::testing::Combine(::testing::Values(Heads{32}),             //
-                                            ::testing::Values(SourceSeqLen{960}),     //
-                                            ::testing::Values(TargetSeqLen{960}),     //
-                                            ::testing::Values(QKEmbeddingSize{128}),  //
-                                            ::testing::Values(VEmbeddingSize{128}),   //
-                                            ::testing::ValuesIn(std::vector<AttentionMask>{Mask::Broadcasted,
-                                                                                           Mask::Absent}),  //
-                                            ::testing::ValuesIn(std::vector<IsHead>{false}),                //
-                                            ::testing::ValuesIn(std::vector<IsTail>{true})                  //
-                                            ),                                                              //
+INSTANTIATE_TEST_SUITE_P(smoke_SeqLen960, FlashAttentionTileMHALayerTest,
+                         ::testing::Combine(::testing::Values(Heads{32}),                                      //
+                                            ::testing::Values(SourceSeqLen{960}),                              //
+                                            ::testing::Values(TargetSeqLen{960}),                              //
+                                            ::testing::Values(QKEmbeddingSize{128}),                           //
+                                            ::testing::Values(VEmbeddingSize{128}),                            //
+                                            ::testing::ValuesIn(std::vector<AttentionMask>{Mask::Broadcasted,  //
+                                                                                           Mask::Absent}),     //
+                                            ::testing::ValuesIn(std::vector<IsHead>{false}),                   //
+                                            ::testing::ValuesIn(std::vector<IsTail>{true})                     //
+                                            ),                                                                 //
                          PrintTestCaseName());
 
-INSTANTIATE_TEST_SUITE_P(smoke_SeqLen1024, FlashAttentionTileLayerTest,
-                         ::testing::Combine(::testing::Values(Heads{32}),             //
-                                            ::testing::Values(SourceSeqLen{1024}),    //
-                                            ::testing::Values(TargetSeqLen{1024}),    //
-                                            ::testing::Values(QKEmbeddingSize{128}),  //
-                                            ::testing::Values(VEmbeddingSize{128}),   //
-                                            ::testing::ValuesIn(std::vector<AttentionMask>{Mask::Broadcasted,
-                                                                                           Mask::Absent}),  //
-                                            ::testing::ValuesIn(std::vector<IsHead>{false}),                //
-                                            ::testing::ValuesIn(std::vector<IsTail>{true})                  //
-                                            ),                                                              //
+INSTANTIATE_TEST_SUITE_P(smoke_SeqLen1024, FlashAttentionTileMHALayerTest,
+                         ::testing::Combine(::testing::Values(Heads{32}),                                      //
+                                            ::testing::Values(SourceSeqLen{1024}),                             //
+                                            ::testing::Values(TargetSeqLen{1024}),                             //
+                                            ::testing::Values(QKEmbeddingSize{128}),                           //
+                                            ::testing::Values(VEmbeddingSize{128}),                            //
+                                            ::testing::ValuesIn(std::vector<AttentionMask>{Mask::Broadcasted,  //
+                                                                                           Mask::Absent}),     //
+                                            ::testing::ValuesIn(std::vector<IsHead>{false}),                   //
+                                            ::testing::ValuesIn(std::vector<IsTail>{true})                     //
+                                            ),                                                                 //
+                         PrintTestCaseName());
+
+//
+// FlashAttentionTileGQALayerTest
+//
+
+TEST_P(FlashAttentionTileGQALayerTest, NPU5010_HW) {
+    abs_threshold = 0.001;
+    rel_threshold = 0.001;
+    run(Platform::NPU5010);
+}
+
+INSTANTIATE_TEST_SUITE_P(smoke_OneTargetSeqLen, FlashAttentionTileGQALayerTest,
+                         ::testing::Combine(::testing::Values(QHeads{32}),                                     //
+                                            ::testing::Values(KVHeads{8}),                                     //
+                                            ::testing::Values(SourceSeqLen{1024}),                             //
+                                            ::testing::Values(TargetSeqLen{1}),                                //
+                                            ::testing::Values(QKEmbeddingSize{128}),                           //
+                                            ::testing::Values(VEmbeddingSize{128}),                            //
+                                            ::testing::ValuesIn(std::vector<AttentionMask>{Mask::Broadcasted,  //
+                                                                                           Mask::Absent}),     //
+                                            ::testing::ValuesIn(std::vector<IsHead>{false}),                   //
+                                            ::testing::ValuesIn(std::vector<IsTail>{true})                     //
+                                            ),                                                                 //
+                         PrintTestCaseName());
+
+INSTANTIATE_TEST_SUITE_P(smoke_SeqLen960, FlashAttentionTileGQALayerTest,
+                         ::testing::Combine(::testing::Values(QHeads{32}),                                     //
+                                            ::testing::Values(KVHeads{8}),                                     //
+                                            ::testing::Values(SourceSeqLen{960}),                              //
+                                            ::testing::Values(TargetSeqLen{960}),                              //
+                                            ::testing::Values(QKEmbeddingSize{128}),                           //
+                                            ::testing::Values(VEmbeddingSize{128}),                            //
+                                            ::testing::ValuesIn(std::vector<AttentionMask>{Mask::Broadcasted,  //
+                                                                                           Mask::Absent}),     //
+                                            ::testing::ValuesIn(std::vector<IsHead>{false}),                   //
+                                            ::testing::ValuesIn(std::vector<IsTail>{true})                     //
+                                            ),                                                                 //
+                         PrintTestCaseName());
+
+INSTANTIATE_TEST_SUITE_P(smoke_SeqLen1024, FlashAttentionTileGQALayerTest,
+                         ::testing::Combine(::testing::Values(QHeads{32}),                                     //
+                                            ::testing::Values(KVHeads{8}),                                     //
+                                            ::testing::Values(SourceSeqLen{1024}),                             //
+                                            ::testing::Values(TargetSeqLen{1024}),                             //
+                                            ::testing::Values(QKEmbeddingSize{128}),                           //
+                                            ::testing::Values(VEmbeddingSize{128}),                            //
+                                            ::testing::ValuesIn(std::vector<AttentionMask>{Mask::Broadcasted,  //
+                                                                                           Mask::Absent}),     //
+                                            ::testing::ValuesIn(std::vector<IsHead>{false}),                   //
+                                            ::testing::ValuesIn(std::vector<IsTail>{true})                     //
+                                            ),                                                                 //
                          PrintTestCaseName());
 
 }  // namespace ov::test

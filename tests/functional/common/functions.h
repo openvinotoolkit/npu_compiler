@@ -11,6 +11,9 @@
 // create dummy network for tests
 std::shared_ptr<ov::Model> buildSingleLayerSoftMaxNetwork();
 
+// create dummy network for ws tests
+std::shared_ptr<ov::Model> buildSingleWsFriendlyNetwork(ov::element::Type_t inType, const ov::Shape& inputShape);
+
 std::shared_ptr<ov::Model> createModelWithLargeSize();
 
 // class encapsulated Platform getting from environmental variable

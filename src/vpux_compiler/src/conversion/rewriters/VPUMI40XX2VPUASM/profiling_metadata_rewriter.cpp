@@ -9,11 +9,6 @@
 namespace vpux {
 namespace vpumi40xx2vpuasm {
 
-llvm::SmallVector<mlir::FlatSymbolRefAttr> ProfilingMetadataRewriter::getSymbolicNames(VPUMI40XX::ProfilingMetadataOp,
-                                                                                       size_t) {
-    return {mlir::FlatSymbolRefAttr::get(getContext(), "ProfilingMetadata")};
-}
-
 mlir::FailureOr<SymbolizationResult> ProfilingMetadataRewriter::symbolize(
         VPUMI40XX::ProfilingMetadataOp op, SymbolMapper&, mlir::ConversionPatternRewriter& rewriter) const {
     auto result = op.getResult();

@@ -45,10 +45,8 @@ class InsertBarrierToMarkTheEndOfDescriptorGroupPass final :
                 InsertBarrierToMarkTheEndOfDescriptorGroupPass> {
 public:
     explicit InsertBarrierToMarkTheEndOfDescriptorGroupPass(
-            std::optional<size_t> workloadManagementBarrierCountThreshold,
             std::optional<WorkloadManagementMode> workloadManagementMode, Logger log)
-            : _workloadManagementBarrierCountThreshold(workloadManagementBarrierCountThreshold),
-              _workloadManagementMode(workloadManagementMode) {
+            : _workloadManagementMode(workloadManagementMode) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
@@ -62,7 +60,6 @@ public:
                                  BarrierInfo& barrierInfo, const BlockRange& blockRange, size_t& numOfBarriersInserted);
 
 private:
-    std::optional<size_t> _workloadManagementBarrierCountThreshold;
     std::optional<WorkloadManagementMode> _workloadManagementMode;
     void safeRunOnFunc() final;
 };
@@ -206,7 +203,6 @@ void InsertBarrierToMarkTheEndOfDescriptorGroupPass::insertBarriersForQueue(
  */
 void InsertBarrierToMarkTheEndOfDescriptorGroupPass::safeRunOnFunc() {
     auto netFunc = getOperation();
-    auto module = netFunc->getParentOfType<mlir::ModuleOp>();
 
     // createAddPlaceholderFetchDMAsPass inserts placeholder FetchDMAs
     if (_workloadManagementMode.has_value() &&
@@ -222,20 +218,6 @@ void InsertBarrierToMarkTheEndOfDescriptorGroupPass::safeRunOnFunc() {
         _log.info("Network has no tasks. Legalization skipped");
         return;
     }
-    auto barriersOps = netFunc.getOps<VPURT::DeclareVirtualBarrierOp>();
-    auto numVirtualBarriers = static_cast<size_t>(std::distance(barriersOps.begin(), barriersOps.end()));
-    if (_workloadManagementBarrierCountThreshold.has_value() &&
-        numVirtualBarriers > _workloadManagementBarrierCountThreshold.value()) {
-        _log.info("Skip WLM schedule legalization due to high number of barriers: {0}, threshold: {1}. WLM will be "
-                  "disabled.",
-                  numVirtualBarriers, _workloadManagementBarrierCountThreshold.value());
-        config::setWorkloadManagementStatus(module, WorkloadManagementStatus::FAILED);
-        // Need to signal pass failure here in order to reconfigure pipeline options with WLM disabled, so as to not
-        // execute WLM passes that are under condition of WLM enabled
-        signalPassFailure();
-        return;
-    }
-
     auto& barrierInfo = getAnalysis<BarrierInfo>();
     BlockRange blockRange;
     for (size_t blockIdx = 0; blockIdx < barrierInfo.getControlGraphBlockCount(); ++blockIdx) {
@@ -288,8 +270,6 @@ void InsertBarrierToMarkTheEndOfDescriptorGroupPass::safeRunOnFunc() {
 //
 
 std::unique_ptr<mlir::Pass> vpux::VPURT::createInsertBarrierToMarkTheEndOfDescriptorGroupPass(
-        std::optional<size_t> workloadManagementBarrierCountThreshold,
         std::optional<WorkloadManagementMode> workloadManagementMode, Logger log) {
-    return std::make_unique<InsertBarrierToMarkTheEndOfDescriptorGroupPass>(workloadManagementBarrierCountThreshold,
-                                                                            workloadManagementMode, log);
+    return std::make_unique<InsertBarrierToMarkTheEndOfDescriptorGroupPass>(workloadManagementMode, log);
 }

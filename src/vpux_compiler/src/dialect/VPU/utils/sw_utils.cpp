@@ -852,6 +852,10 @@ DistributionMode vpux::VPU::getSWInputTensorDistributionMode(VPU::ClusteredOpInt
             .Case<VPU::CumSumOp>([&](VPU::CumSumOp op) {
                 return getSWInputTensorDistributionMode(op, strategy);
             })
+            .Case<VPU::SoftMaxOp>([&](VPU::SoftMaxOp) {
+                // Both 'input' and optional 'max' operands follow the same distribution.
+                return getSWInputTensorDistributionMode(strategy);
+            })
             .Case<VPU::RMSOp>([&](VPU::RMSOp op) {
                 return getSWInputTensorDistributionMode(op, strategy, operand);
             })
@@ -1781,6 +1785,10 @@ SmallVector<int64_t> vpux::VPU::getSWInputTensorNumTiles(VPU::ClusteredOpInterfa
             .Case<VPU::CumSumOp>([&](VPU::CumSumOp op) {
                 return getSWInputTensorNumTiles(op, numClustersAvailableForCompilation, strategy, inputType);
             })
+            .Case<VPU::SoftMaxOp>([&](VPU::SoftMaxOp) {
+                // Both 'input' and optional 'max' operands use the same num-tiles as activation.
+                return getSWInputTensorNumTiles(clusteredOp, numClustersAvailableForCompilation, strategy);
+            })
             .Case<VPU::SDPAOp>([&](VPU::SDPAOp op) {
                 return getSWInputTensorNumTiles(op, numClustersAvailableForCompilation, strategy, operand, inputType);
             })
@@ -1865,7 +1873,8 @@ bool vpux::VPU::isSWEltwiseAndNeedsAlignment(mlir::Operation* op) {
     return false;
 }
 
-std::optional<SmallVector<int64_t>> vpux::VPU::getSWAlignment(mlir::Operation* op, ShapeRef divisors, ShapeRef shape) {
+std::optional<SmallVector<int64_t>> vpux::VPU::getSWAlignment(mlir::Operation* op, ShapeRef divisors, ShapeRef shape,
+                                                              bool enableOptimizationAlignment /*true*/) {
     std::optional<SmallVector<int64_t>> optionalAlignment;
     if (isSWEltwiseAndNeedsAlignment(op)) {
         optionalAlignment = getSWEltwiseAlignment(op, divisors);
@@ -1888,10 +1897,12 @@ std::optional<SmallVector<int64_t>> vpux::VPU::getSWAlignment(mlir::Operation* o
         }
     }
 
-    auto isTiledOverC = divisors.size() == 4 ? divisors[Dims4D::Act::C] > 1 : false;
-    if (isTiledOverC) {
-        if (shape[Dims4D::Act::C] / divisors[Dims4D::Act::C] > VPU::DISTRIBUTED_C_ALIGNMENT[Dims4D::Act::C.ind()]) {
-            return VPU::DISTRIBUTED_C_ALIGNMENT;
+    if (enableOptimizationAlignment) {
+        auto isTiledOverC = divisors.size() == 4 ? divisors[Dims4D::Act::C] > 1 : false;
+        if (isTiledOverC) {
+            if (shape[Dims4D::Act::C] / divisors[Dims4D::Act::C] > VPU::DISTRIBUTED_C_ALIGNMENT[Dims4D::Act::C.ind()]) {
+                return VPU::DISTRIBUTED_C_ALIGNMENT;
+            }
         }
     }
     return optionalAlignment;
@@ -1912,6 +1923,14 @@ bool vpux::VPU::opHasAccurateCost(mlir::Operation* op) {
             // E#154343: Inaccurate VPUNN cost for those ops when the size is small.
             .Case<VPU::InterpolateOp, VPU::MultiplyOp>([](auto) {
                 return false;
+            })
+            .Case<VPU::DynamicDequantizeOp>([](auto dequantOp) {
+                auto inType = mlir::cast<vpux::NDTypeInterface>(dequantOp.getInput().getType());
+                auto outType = mlir::cast<vpux::NDTypeInterface>(dequantOp.getResult().getType());
+                auto dimOrder = inType.getDimsOrder();
+                // E#210776 Inccurate cost when input is int4 and output is int16 in NCHW layout
+                return dimOrder != DimsOrder::NCHW || inType.getElemTypeSize() != Bit(4) ||
+                       outType.getElemTypeSize() != Bit(16);
             })
             .Default([](mlir::Operation*) {
                 return true;

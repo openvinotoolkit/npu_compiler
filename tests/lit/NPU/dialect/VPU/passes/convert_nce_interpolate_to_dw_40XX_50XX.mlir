@@ -37,9 +37,9 @@ func.func @InterpAssignedSOHAsDwConv(%arg0: tensor<1x96x10x10xf16, {order = #NHW
                            #VPU.SEInterpolate<mode = <BILINEAR>, coordinate_transformation_mode = <HALF_PIXEL>,
                                               scale = [1.000000e+00, 1.000000e+00, 2.000000e+00, 2.000000e+00], nearest_mode = <FLOOR>, offsets = [0, 0, 0, 0], sizes = [1, 96, 22, 22]>>
 
-    %interpolate = VPU.NCE.Interpolate(%input, %weights, %weights_table) {
+    %interpolate = VPU.NCE.Interpolate(%input, %weights, %weights_table) rawFilterShape [96, 96, 3, 3] {
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
-        rawFilterShape = [96, 96, 3, 3],
+        
         strides = [1, 1],
         mode = #VPU.nce_interpolate_mode<BILINEAR>,
         scales_attr = [2, 2],
@@ -61,9 +61,8 @@ func.func @InterpAssignedSOHAsDwConv(%arg0: tensor<1x96x10x10xf16, {order = #NHW
     // CHECK-SAME:      } -> tensor<1x1x22x22xi32, {order = #NHWC}>
     // CHECK:       [[INPUT_SPARSE:%.+]] = VPU.GroupSparseTensor([[ARG0]], [[INPUT_SM]], [[INPUT_SE]])
 
-    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.DepthConvolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]])
+    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.DepthConvolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [96, 1, 3, 3] {
     // CHECK-SAME:      multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
-    // CHECK-SAME:      rawFilterShape = [96, 1, 3, 3],
     // CHECK-SAME:      strides = [1, 1]
     // CHECK-SAME:      -> tensor<1x96x20x20xf16, {order = #NHWC}>
     // CHECK:       return [[OUTPUT]] : tensor<1x96x20x20xf16, {order = #NHWC}>
@@ -112,9 +111,9 @@ func.func @InterpAssignedSOKAsDwConv(%arg0: tensor<1x96x10x10x!inElemType, {orde
                            #VPU.SEInterpolate<mode = <BILINEAR>, coordinate_transformation_mode = <HALF_PIXEL>,
                                               scale = [1.000000e+00, 1.000000e+00, 2.000000e+00, 2.000000e+00], nearest_mode = <FLOOR>, offsets = [0, 0, 0, 0], sizes = [1, 96, 22, 22]>>
 
-    %interpolate = VPU.NCE.Interpolate(%input, %weights, %weights_table) {
+    %interpolate = VPU.NCE.Interpolate(%input, %weights, %weights_table) rawFilterShape [96, 96, 3, 3] {
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
-        rawFilterShape = [96, 96, 3, 3],
+        
         strides = [1, 1],
         mode = #VPU.nce_interpolate_mode<BILINEAR>,
         scales_attr = [2, 2],
@@ -137,9 +136,8 @@ func.func @InterpAssignedSOKAsDwConv(%arg0: tensor<1x96x10x10x!inElemType, {orde
     // CHECK-SAME:      } -> tensor<1x6x22x22xi32, {order = #NHWC}>
     // CHECK:       [[INPUT_SPARSE:%.+]] = VPU.GroupSparseTensor([[ARG0]], [[INPUT_SM]], [[INPUT_SE]])
 
-    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.DepthConvolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]])
+    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.DepthConvolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [96, 1, 3, 3] {
     // CHECK-SAME:      multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
-    // CHECK-SAME:      rawFilterShape = [96, 1, 3, 3],
     // CHECK-SAME:      strides = [1, 1]
     // CHECK-SAME:      -> tensor<1x96x20x20x[[OUT_TYPE]], {order = #NHWC}>
     // CHECK:       return [[OUTPUT]] : tensor<1x96x20x20x[[OUT_TYPE]], {order = #NHWC}>
@@ -178,9 +176,9 @@ func.func @InterpAssignedClusteringAsDwConv(%arg0: tensor<1x96x10x10xf16, {order
                            #VPU.SEInterpolate<mode = <BILINEAR>, coordinate_transformation_mode = <HALF_PIXEL>,
                                               scale = [1.000000e+00, 1.000000e+00, 2.000000e+00, 2.000000e+00], nearest_mode = <FLOOR>, offsets = [0, 0, 0, 0], sizes = [1, 96, 22, 22]>>
 
-    %interpolate = VPU.NCE.Interpolate(%input, %weights, %weights_table) {
+    %interpolate = VPU.NCE.Interpolate(%input, %weights, %weights_table) rawFilterShape [96, 96, 3, 3] {
         multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>,
-        rawFilterShape = [96, 96, 3, 3],
+        
         strides = [1, 1],
         mode = #VPU.nce_interpolate_mode<BILINEAR>,
         scales_attr = [2, 2],
@@ -203,9 +201,8 @@ func.func @InterpAssignedClusteringAsDwConv(%arg0: tensor<1x96x10x10xf16, {order
     // CHECK-SAME:      } -> tensor<1x1x22x22xi32, {order = #NHWC}>
     // CHECK:       [[INPUT_SPARSE:%.+]] = VPU.GroupSparseTensor([[ARG0]], [[INPUT_SM]], [[INPUT_SE]])
 
-    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.DepthConvolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]])
+    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.DepthConvolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [96, 1, 3, 3] {
     // CHECK-SAME:      multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>,
-    // CHECK-SAME:      rawFilterShape = [96, 1, 3, 3],
     // CHECK-SAME:      strides = [1, 1]
     // CHECK-SAME:      -> tensor<1x96x20x20xf16, {order = #NHWC}>
     // CHECK:       return [[OUTPUT]] : tensor<1x96x20x20xf16, {order = #NHWC}>
@@ -244,9 +241,9 @@ func.func @InterpAssignedHKSwitchAsDwConv(%arg0: tensor<1x32x10x10xf16, {order =
                            #VPU.SEInterpolate<mode = <BILINEAR>, coordinate_transformation_mode = <HALF_PIXEL>,
                                               scale = [1.000000e+00, 1.000000e+00, 2.000000e+00, 2.000000e+00], nearest_mode = <FLOOR>, offsets = [0, 0, 0, 0], sizes = [1, 32, 22, 22]>>
 
-    %interpolate = VPU.NCE.Interpolate(%input, %weights, %weights_table) {
+    %interpolate = VPU.NCE.Interpolate(%input, %weights, %weights_table) rawFilterShape [32, 32, 3, 3] {
         multiClusterStrategy = #VPU.multi_cluster_strategy<HKSwitch>,
-        rawFilterShape = [32, 32, 3, 3],
+        
         strides = [1, 1],
         mode = #VPU.nce_interpolate_mode<BILINEAR>,
         scales_attr = [2, 2],
@@ -270,9 +267,8 @@ func.func @InterpAssignedHKSwitchAsDwConv(%arg0: tensor<1x32x10x10xf16, {order =
     // CHECK-SAME:      } -> tensor<1x1x22x22xi32, {order = #NHWC}>
     // CHECK:       [[INPUT_SPARSE:%.+]] = VPU.GroupSparseTensor([[ARG0]], [[INPUT_SM]], [[INPUT_SE]])
 
-    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.DepthConvolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]])
+    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.DepthConvolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [32, 1, 3, 3] {
     // CHECK-SAME:      multiClusterStrategy = #VPU.multi_cluster_strategy<HKSwitch>,
-    // CHECK-SAME:      rawFilterShape = [32, 1, 3, 3],
     // CHECK-SAME:      strides = [1, 1]
     // CHECK-SAME:      -> tensor<1x32x20x20xf16, {order = #NHWC}>
     // CHECK:       return [[OUTPUT]] : tensor<1x32x20x20xf16, {order = #NHWC}>
@@ -315,8 +311,8 @@ func.func @SingleClusterInterpAsDwConv(%arg0: tensor<1x64x10x10x!inElemType, {or
                            #VPU.SEInterpolate<mode = <BILINEAR>, coordinate_transformation_mode = <HALF_PIXEL>,
                                               scale = [1.000000e+00, 1.000000e+00, 2.000000e+00, 2.000000e+00], nearest_mode = <FLOOR>, offsets = [0, 0, 0, 0], sizes = [1, 64, 22, 22]>>
 
-    %interpolate = VPU.NCE.Interpolate(%input, %weights, %weights_table) {
-        rawFilterShape = [64, 64, 3, 3],
+    %interpolate = VPU.NCE.Interpolate(%input, %weights, %weights_table) rawFilterShape [64, 64, 3, 3] {
+        
         strides = [1, 1],
         mode = #VPU.nce_interpolate_mode<BILINEAR>,
         scales_attr = [2, 2],
@@ -339,8 +335,7 @@ func.func @SingleClusterInterpAsDwConv(%arg0: tensor<1x64x10x10x!inElemType, {or
     // CHECK-SAME:      } -> tensor<1x1x22x22xi32, {order = #NHWC}>
     // CHECK:       [[INPUT_SPARSE:%.+]] = VPU.GroupSparseTensor([[ARG0]], [[INPUT_SM]], [[INPUT_SE]])
 
-    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.DepthConvolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]])
-    // CHECK-SAME:      rawFilterShape = [64, 1, 3, 3],
+    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.DepthConvolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [64, 1, 3, 3] {
     // CHECK-SAME:      strides = [1, 1]
     // CHECK-SAME:      -> tensor<1x64x20x20x[[OUT_TYPE]], {order = #NHWC}>
     // CHECK:       return [[OUTPUT]] : tensor<1x64x20x20x[[OUT_TYPE]], {order = #NHWC}>
@@ -375,8 +370,8 @@ func.func @SingleClusterInterpNotSupportedChannel(%arg0: tensor<1x128x10x10xf16,
                            #VPU.SEInterpolate<mode = <BILINEAR>, coordinate_transformation_mode = <HALF_PIXEL>,
                                               scale = [1.000000e+00, 1.000000e+00, 2.000000e+00, 2.000000e+00], nearest_mode = <FLOOR>, offsets = [0, 0, 0, 0], sizes = [1, 128, 22, 22]>>
 
-    %interpolate = VPU.NCE.Interpolate(%input, %weights, %weights_table) {
-        rawFilterShape = [128, 128, 3, 3],
+    %interpolate = VPU.NCE.Interpolate(%input, %weights, %weights_table) rawFilterShape [128, 128, 3, 3] {
+        
         strides = [1, 1],
         mode = #VPU.nce_interpolate_mode<BILINEAR>,
         scales_attr = [2, 2],
@@ -418,8 +413,8 @@ func.func @SingleClusterInterpNotSupportedWorkloadWithOptimization(%arg0: tensor
                            #VPU.SEInterpolate<mode = <BILINEAR>, coordinate_transformation_mode = <HALF_PIXEL>,
                                               scale = [1.000000e+00, 1.000000e+00, 2.000000e+00, 2.000000e+00], nearest_mode = <FLOOR>, offsets = [0, 0, 0, 0], sizes = [1, 64, 22, 22]>>
 
-    %interpolate = VPU.NCE.Interpolate(%input, %weights, %weights_table) {
-        rawFilterShape = [64, 64, 3, 3],
+    %interpolate = VPU.NCE.Interpolate(%input, %weights, %weights_table) rawFilterShape [64, 64, 3, 3] {
+        
         strides = [1, 1],
         mode = #VPU.nce_interpolate_mode<BILINEAR>,
         scales_attr = [2, 2],
@@ -463,9 +458,9 @@ func.func @SOKInterpTooManyTilesNeeded(%arg0: tensor<1x512x10x10xf16, {order = #
                            #VPU.SEInterpolate<mode = <BILINEAR>, coordinate_transformation_mode = <HALF_PIXEL>,
                                               scale = [1.000000e+00, 1.000000e+00, 2.000000e+00, 2.000000e+00], nearest_mode = <FLOOR>, offsets = [0, 0, 0, 0], sizes = [1, 512, 22, 22]>>
 
-    %interpolate = VPU.NCE.Interpolate(%input, %weights, %weights_table) {
+    %interpolate = VPU.NCE.Interpolate(%input, %weights, %weights_table) rawFilterShape [512, 512, 3, 3] {
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
-        rawFilterShape = [512, 512, 3, 3],
+        
         strides = [1, 1],
         mode = #VPU.nce_interpolate_mode<BILINEAR>,
         scales_attr = [2, 2],
@@ -508,9 +503,9 @@ func.func @SOHInterpTooManyTilesNeeded(%arg0: tensor<1x128x10x10xf16, {order = #
                            #VPU.SEInterpolate<mode = <BILINEAR>, coordinate_transformation_mode = <HALF_PIXEL>,
                                               scale = [1.000000e+00, 1.000000e+00, 2.000000e+00, 2.000000e+00], nearest_mode = <FLOOR>, offsets = [0, 0, 0, 0], sizes = [1, 128, 22, 22]>>
 
-    %interpolate = VPU.NCE.Interpolate(%input, %weights, %weights_table) {
+    %interpolate = VPU.NCE.Interpolate(%input, %weights, %weights_table) rawFilterShape [128, 128, 3, 3] {
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
-        rawFilterShape = [128, 128, 3, 3],
+        
         strides = [1, 1],
         mode = #VPU.nce_interpolate_mode<BILINEAR>,
         scales_attr = [2, 2],
@@ -555,9 +550,9 @@ func.func @SOKInterpNotSupportedWorkload(%arg0: tensor<1x64x10x10xf16, {order = 
                            #VPU.SEInterpolate<mode = <NEAREST>, coordinate_transformation_mode = <ASYMMETRIC>,
                                               scale = [1.0, 1.0, 3.0, 3.0], nearest_mode = <FLOOR>, offsets = [0, 0, 0, 0], sizes = [1, 64, 30, 30]>>
 
-    %interpolate = VPU.NCE.Interpolate(%input, %weights, %weights_table) {
+    %interpolate = VPU.NCE.Interpolate(%input, %weights, %weights_table) rawFilterShape [64, 64, 1, 1] {
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
-        rawFilterShape = [64, 64, 1, 1],
+        
         strides = [1, 1],
         mode = #VPU.nce_interpolate_mode<NEAREST>,
         scales_attr = [3, 3],

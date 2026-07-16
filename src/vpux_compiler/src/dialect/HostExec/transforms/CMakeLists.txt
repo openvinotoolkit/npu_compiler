@@ -28,4 +28,5 @@ add_npu_library(${TARGET_NAME}
         npu_compiler_dialect_vpuasm
         npu_compiler_dialect_vpuip
         npu_compiler_dialect_vpuip_utils
+        npu_compiler_dialect_ie
 )

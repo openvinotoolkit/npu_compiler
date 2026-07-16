@@ -33,6 +33,7 @@
 #include "vpux/utils/logger/logger.hpp"
 
 #include <mlir/IR/BuiltinTypes.h>
+#include <mlir/IR/Matchers.h>
 
 using namespace vpux;
 using namespace VPU;
@@ -70,7 +71,7 @@ bool vpux::VPU::isNCEConvSupported(mlir::Operation* op, NDTypeInterface inputTyp
                                                 : vpux::VPU::NCEInvariant::getAlignment(outputType.getElementType());
         if (!NCEInvariant::isInputActTypeSupported(inputType, !isChannelMajor ? inputAlignment : 1,
                                                    supportsInputActCompression) ||
-            !NCEInvariant::isOutputActTypeSupported(outputType, outputAlignment)) {
+            !NCEInvariant::isOutputActTypeSupported(op, outputType, outputAlignment)) {
             logCb(formatv("Misaligned tensor shape"));
             return false;
         }
@@ -214,33 +215,36 @@ mlir::Value updateScaleTableForConvOps(mlir::PatternRewriter& rewriter, mlir::Va
     assert(origScaleTable != nullptr && "Scale table does not exist.");
 
     auto scaleTableConst = origScaleTable.getDefiningOp<Const::DeclareOp>();
-    if (scaleTableConst) {
-        auto scaleTableContent = scaleTableConst.getContent();
-        auto scaleTableValues = scaleTableContent.getValues<T>();
 
-        std::vector<T> scaleTableVec;
-        scaleTableVec.reserve(oCh);
-        std::copy(scaleTableValues.begin(), scaleTableValues.end(), std::back_inserter(scaleTableVec));
-
-        for (int64_t i = 0; i < oCh; ++i) {
-            double origScale = 1.0;
-            const auto newScale = ppeConverter(0, 0, inputRescale[i], scaleTableType);
-
-            origScale = scaleRetrieveConverter(scaleTableVec[i], scaleTableType);
-            scaleTableVec[i] = std::get<T>(newScale);
-
-            outQuantScales.push_back(origScale / inputRescale[i]);
-        }
-
-        const auto scaleTableShape = VPU::NCESparsity::inferWeightsTableShape(oCh, /*newFormat=*/true);
-        auto convScaleTable =
-                VPU::createNewWeightsTableTensor<T>(rewriter, loc, scaleTableVec, scaleTableShape, scaleTableType);
-        log.trace("Created updated scale table for decomposed Conv ops.");
-        return convScaleTable;
-    } else {
+    // If the scale table is WAI, we cannot update it, so we return the original one.
+    if (scaleTableConst == nullptr) {
         outQuantScales = SmallVector<double>(oCh, 1.0);
         return origScaleTable;
     }
+
+    auto scaleTableContent = scaleTableConst.getContent();
+    auto scaleTableValues = scaleTableContent.getValues<T>();
+
+    std::vector<T> scaleTableVec;
+    scaleTableVec.reserve(oCh);
+    std::copy(scaleTableValues.begin(), scaleTableValues.end(), std::back_inserter(scaleTableVec));
+
+    for (int64_t i = 0; i < oCh; ++i) {
+        double origScale = 1.0;
+        const auto newScale = ppeConverter(0, 0, inputRescale[i], scaleTableType);
+
+        origScale = scaleRetrieveConverter(scaleTableVec[i], scaleTableType);
+        scaleTableVec[i] = std::get<T>(newScale);
+
+        outQuantScales.push_back(origScale / inputRescale[i]);
+    }
+
+    const auto scaleTableShape = VPU::NCESparsity::inferWeightsTableShape(oCh, /*newFormat=*/true);
+    auto convScaleTable =
+            VPU::createTensorFromTableData<T>(rewriter, loc, scaleTableVec, scaleTableShape, scaleTableType);
+
+    log.trace("Created updated scale table for decomposed Conv ops.");
+    return convScaleTable;
 }
 
 // Do conv scale update as described above, but replace the corresponding values inside weights table
@@ -304,7 +308,8 @@ mlir::Value updateDataPtrSpPtrAndBiasInConvWeightTable(mlir::PatternRewriter& re
     }
 
     const auto wtShape = VPU::NCESparsity::inferWeightsTableShape(static_cast<int64_t>(oCh));
-    return VPU::createWeightsTableTensor(rewriter, loc, weightTableVec, wtShape);
+    return VPU::createTensorFromTableData<int32_t>(rewriter, loc, weightTableVec, wtShape,
+                                                   getSInt32Type(rewriter.getContext()));
 }
 
 SmallVector<int32_t> getScaleValuesTableForLegacyWTDepthwiseOp(VPU::NCESparsity::PPEConverterCb ppeConverter,
@@ -353,7 +358,7 @@ mlir::Value getScaleTableForDepthwiseOp(mlir::PatternRewriter& rewriter, VPU::NC
     std::transform(outQuantScales.begin(), outQuantScales.end(), std::back_inserter(dwScales), [&](auto scale) {
         return std::get<T>(ppeConverter(0, 0, scale, scaleTableType));
     });
-    return VPU::createNewWeightsTableTensor<T>(rewriter, loc, dwScales, tableShape, scaleTableType);
+    return VPU::createTensorFromTableData<T>(rewriter, loc, dwScales, tableShape, scaleTableType);
 }
 
 SmallVector<double> getNewScaleValues(mlir::Type inElemType, mlir::Type filterElemType, int64_t oCh) {
@@ -373,6 +378,11 @@ SmallVector<double> getNewScaleValues(mlir::Type inElemType, mlir::Type filterEl
 }
 
 }  // namespace
+
+bool vpux::VPU::hasReduceOutputs(VPU::NCEConvolutionOp op) {
+    // The first result is always the primary output; any additional results are reduce outputs.
+    return op->getNumResults() > 1;
+}
 
 mlir::Value vpux::VPU::splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, mlir::Value weightInput,
                                                  SmallVector<VPU::NCEConvolutionOp>& convOps,
@@ -547,8 +557,8 @@ mlir::Value vpux::VPU::splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, m
     if (biasTable != nullptr) {
         const auto tablesShape = VPU::NCESparsity::inferWeightsTableShape(kernelN, /*newFormat=*/true);
         const auto zeroBias = std::vector<float>(tablesShape.totalSize(), 0.f);
-        zeroFilledBiasTable = VPU::createNewWeightsTableTensor<float>(rewriter, origOp->getLoc(), zeroBias, tablesShape,
-                                                                      rewriter.getF32Type());
+        zeroFilledBiasTable = VPU::createTensorFromTableData<float>(rewriter, origOp->getLoc(), zeroBias, tablesShape,
+                                                                    rewriter.getF32Type());
     }
 
     for (size_t tile = 0; tile < tiles.size(); tile++) {
@@ -565,7 +575,6 @@ mlir::Value vpux::VPU::splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, m
 
         // Slice kernels
         const auto kernelSliceShape = SmallVector<int64_t>{kernelN, sizeIC, kernelH, kernelW};
-        const auto rawKernelSliceShape = getIntArrayAttr(rewriter, kernelSliceShape);
         auto weightSlice = rewriter.create<VPU::SliceOp>(appendLoc(origOp->getLoc(), "w_slice_{0}", sliceOffsets),
                                                          weightInput, getIntArrayAttr(rewriter, sliceOffsets),
                                                          getIntArrayAttr(rewriter, kernelSliceShape));
@@ -616,13 +625,19 @@ mlir::Value vpux::VPU::splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, m
         // Set the bias values to 0, if bias exists
         mlir::Value convBiasTable = (biasTable != nullptr && tile != 0) ? zeroFilledBiasTable : biasTable;
         auto convPpeAttr = tile == 0 ? firstConvPpeAttr : strippedPpeAttr;
+        auto reduceXyMaxType = origOp.getReduceXyMax() ? origOp.getReduceXyMax().getType() : nullptr;
+        auto reduceXyMinType = origOp.getReduceXyMin() ? origOp.getReduceXyMin().getType() : nullptr;
+        auto reduceTensorMinMaxType =
+                origOp.getReduceTensorMinMax() ? origOp.getReduceTensorMinMax().getType() : nullptr;
         auto convOp = rewriter.create<VPU::NCEConvolutionOp>(
-                appendLoc(origOp->getLoc(), "ic_tile_{0}", tile), f16TypeOutputs, convInput.getResult(),
-                weightSliceResult, weightTable, origOp.getWeightTableDataPtr(), origOp.getWeightTableSpPtr(),
-                convScaleTable, convBiasTable, origOp.getWeightZeroPoints(), origOp.getStrides(), origOp.getPad(),
-                convPpeAttr, origOp.getMpeEngineAttr(), rawKernelSliceShape, origOp.getMultiClusterStrategyAttr(),
-                origOp.getOutputPaddingAttr(),
-                /*inputPadding=*/nullptr);
+                appendLoc(origOp->getLoc(), "ic_tile_{0}", tile), f16TypeOutputs, reduceXyMaxType, reduceXyMinType,
+                reduceTensorMinMaxType, convInput.getResult(), weightSliceResult, weightTable,
+                origOp.getWeightTableDataPtr(), origOp.getWeightTableSpPtr(), convScaleTable, convBiasTable,
+                origOp.getWeightZeroPoints(), origOp.getStrides(), origOp.getPad(), convPpeAttr,
+                origOp.getMpeEngineAttr(), /*rawFilterShape=*/mlir::ValueRange{},
+                /*static_raw_filter_shape=*/kernelSliceShape, origOp.getMultiClusterStrategyAttr(),
+                origOp.getOutputPaddingAttr(), /*inputPadding=*/nullptr, origOp.getAxesValueAttr());
+
         convOps.push_back(convOp);
         log.trace("Created new conv.");
     }
@@ -657,6 +672,7 @@ mlir::Value vpux::VPU::splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, m
         auto outputPadding = origOp.getOutputPaddingAttr();
         addResult = rewriter.create<VPU::NCEEltwiseOp>(appendLoc(origOp->getLoc(), "accumulator_{0}", index),
                                                        eltwiseOutputType, addOperand, convOps[index + 1].getOutput(),
+                                                       /*weight_table_scale=*/nullptr, /*weight_table_bias=*/nullptr,
                                                        opType, ppeAttr, mpeEngineModeAttr,
                                                        /*multicluster_strategy_attr=*/nullptr,
                                                        /*in_place=*/nullptr, outputPadding, outputPadding);
@@ -740,7 +756,8 @@ mlir::Value vpux::VPU::splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, m
                 weightTableContent[index + scaleOffset] = outputScaleVals[i];
             }
 
-            dwWeightTable = VPU::createWeightsTableTensor(rewriter, origOp->getLoc(), weightTableContent, wtShape);
+            dwWeightTable = VPU::createTensorFromTableData<int32_t>(rewriter, origOp->getLoc(), weightTableContent,
+                                                                    wtShape, getSInt32Type(rewriter.getContext()));
         } else {
             const auto tablesShape = VPU::NCESparsity::inferWeightsTableShape(kernelN, /*newFormat=*/true);
 
@@ -761,8 +778,8 @@ mlir::Value vpux::VPU::splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, m
 
             if (zeroFilledBiasTable == nullptr) {
                 const auto zeroBias = std::vector<float>(tablesShape.totalSize(), 0.f);
-                zeroFilledBiasTable = VPU::createNewWeightsTableTensor<float>(rewriter, origOp->getLoc(), zeroBias,
-                                                                              tablesShape, rewriter.getF32Type());
+                zeroFilledBiasTable = VPU::createTensorFromTableData<float>(rewriter, origOp->getLoc(), zeroBias,
+                                                                            tablesShape, rewriter.getF32Type());
             }
 
             dwBiasTable = zeroFilledBiasTable;
@@ -777,11 +794,14 @@ mlir::Value vpux::VPU::splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, m
         auto strides = getIntArrayAttr(ctx, SmallVector<int64_t>{1, 1});
         auto padding = VPU::getPaddingAttr(ctx, PadInfo(0, 0, 0, 0));
         auto nceDepthConvolutionOp = rewriter.create<VPU::NCEDepthConvolutionOp>(
-                appendLoc(origOp->getLoc(), "dw_conv_out_scale"), origOutType, addResult.getOutput(), alignedWeights,
-                dwWeightTable, /*data_ptr_table=*/nullptr, /*sparsity_ptr_table=*/nullptr, dwScaleTable, dwBiasTable,
+                appendLoc(origOp->getLoc(), "dw_conv_out_scale"), origOp.getOutput().getType(), addResult.getOutput(),
+                alignedWeights, dwWeightTable, /*data_ptr_table=*/nullptr, /*sparsity_ptr_table=*/nullptr, dwScaleTable,
+                dwBiasTable,
                 /*zp_table=*/nullptr, strides, padding, finalPpeAttr, mpeEngineModeAttr,
-                getIntArrayAttr(rewriter, weightsShape.raw()),
-                /*multiClusterStrategyAttr=*/nullptr, origOp.getOutputPaddingAttr(), nullptr);
+                /*rawFilterShape=*/mlir::ValueRange{},
+                /*static_raw_filter_shape=*/weightsShape.raw(),
+                /*multiClusterStrategyAttr=*/nullptr, origOp.getOutputPaddingAttr(),
+                nullptr /*origOp.getInputPaddingAttr()*/);
 
         return nceDepthConvolutionOp.getOutput();
     }
@@ -813,4 +833,26 @@ mlir::Value vpux::VPU::splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, m
     }
 
     return addResult.getOutput();
+}
+
+SmallVector<int64_t> vpux::VPU::resolveRawFilterShape(ArrayRef<int64_t> staticRawFilterShape,
+                                                      mlir::ValueRange dynamicRawFilterShapeValues) {
+    SmallVector<int64_t> resolvedFilterShape;
+    resolvedFilterShape.reserve(staticRawFilterShape.size());
+    unsigned dynIdx = 0;
+    for (auto staticDim : staticRawFilterShape) {
+        if (mlir::ShapedType::isDynamic(staticDim)) {
+            llvm::APInt constVal;
+            if (dynIdx < dynamicRawFilterShapeValues.size() &&
+                mlir::matchPattern(dynamicRawFilterShapeValues[dynIdx], mlir::m_ConstantInt(&constVal))) {
+                resolvedFilterShape.push_back(constVal.getSExtValue());
+            } else {
+                resolvedFilterShape.push_back(mlir::ShapedType::kDynamic);
+            }
+            ++dynIdx;
+        } else {
+            resolvedFilterShape.push_back(staticDim);
+        }
+    }
+    return resolvedFilterShape;
 }

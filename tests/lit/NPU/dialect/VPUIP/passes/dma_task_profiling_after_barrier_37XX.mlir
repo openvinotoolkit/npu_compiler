@@ -6,7 +6,7 @@
 // RUN: vpux-opt --init-compiler="platform=%platform% allow-custom-values=true" --dma-task-profiling-after-barrier %s | FileCheck %s
 // REQUIRES: platform-NPU3720
 
-!dataType = memref<1x16x4x4xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
+!dataType = memref<1x16x4x4xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>
 
 module @DMAGraph {
 
@@ -49,14 +49,14 @@ module @DMAGraph {
 
 // CHECK:        profilingOutputsInfo
 // CHECK-NEXT:   DataInfo "dma" : tensor<6xui64>
-// CHECK:        func.func @main([[ARG_0:%[^:]+]]: memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>,
-// CHECK-SAME:       [[ARG_1:%[^:]+]]: memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>,
+// CHECK:        func.func @main([[ARG_0:%[^:]+]]: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>,
+// CHECK-SAME:       [[ARG_1:%[^:]+]]: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>,
 // CHECK-SAME:       [[ARG_2:%[^:]+]]: memref<6xui64>) ->
-// CHECK-SAME:       (memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>,
+// CHECK-SAME:       (memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>,
 // CHECK-SAME:       memref<6xui64>) {
 // CHECK:    [[BAR0:%.+]] = VPURT.DeclareVirtualBarrier
-// CHECK:    [[BUF_DATA_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <256> -> memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>
-// CHECK:    [[BUF_DATA_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <768> -> memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>
+// CHECK:    [[BUF_DATA_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <256> -> memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+// CHECK:    [[BUF_DATA_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <768> -> memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
 // Getting start time of a DMA task
 // CHECK:    [[REG_0:%.+]] = VPURT.DeclareBuffer <Register> <637702144> -> memref<1xui64, @Register>

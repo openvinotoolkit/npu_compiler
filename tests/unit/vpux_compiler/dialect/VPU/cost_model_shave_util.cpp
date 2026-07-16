@@ -23,9 +23,9 @@ public:
     CostModelShaveUtil(): MLIR_UnitBase() {
     }
 
-    void setFactory(config::ArchKind archKind) {
+    void setFactory(config::Platform platform) {
         ctx.loadDialect<vpux::VPU::VPUDialect>();
-        VPU::initializeSingletons(registry, VPU::DeviceVersion{std::nullopt, archKind});
+        VPU::initializeSingletons(registry, platform);
 
         ctx.appendDialectRegistry(registry);
     }
@@ -34,7 +34,7 @@ public:
 };
 
 TEST_F(CostModelShaveUtil, testCreateShaveCostModelUtilsAndCheckOpNPU37) {
-    setFactory(config::ArchKind::NPU37XX);
+    setFactory(config::Platform::NPU3720);
 
     const auto& shaveUtils = VPU::getShaveCostModelUtils(&ctx);
 
@@ -43,7 +43,7 @@ TEST_F(CostModelShaveUtil, testCreateShaveCostModelUtilsAndCheckOpNPU37) {
 }
 
 TEST_F(CostModelShaveUtil, testCreateShaveCostModelUtilsAndCheckOpNPU40) {
-    setFactory(config::ArchKind::NPU40XX);
+    setFactory(config::Platform::NPU4000);
 
     const auto& shaveUtils = VPU::getShaveCostModelUtils(&ctx);
 
@@ -52,7 +52,7 @@ TEST_F(CostModelShaveUtil, testCreateShaveCostModelUtilsAndCheckOpNPU40) {
 }
 
 TEST_F(CostModelShaveUtil, testCreateShaveCostModelUtilsAndCheckOpNPU50) {
-    setFactory(config::ArchKind::NPU50XX);
+    setFactory(config::Platform::NPU5010);
 
     const auto& shaveUtils = VPU::getShaveCostModelUtils(&ctx);
 

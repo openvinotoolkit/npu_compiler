@@ -32,6 +32,75 @@
 using namespace vpux;
 using namespace VPU;
 
+int64_t vpux::VPU::getTilePositionShift(vpux::Dim dim) {
+    // Point encoding packs one TilePosition (2 bits) per dimension into a single integer:
+    // bits [7:6] = N,  bits [5:4] = C,  bits [3:2] = H,  bits [1:0] = W
+    constexpr std::array<int64_t, 4> shifts = {6, 4, 2, 0};
+    VPUX_THROW_WHEN(dim.ind() < 0 || static_cast<size_t>(dim.ind()) >= shifts.size(),
+                    "NCHW point/range encoding only supports N/C/H/W (dim indices 0-3), got dim {0}", dim.ind());
+    return shifts[dim.ind()];
+}
+
+mlir::Value vpux::VPU::encodePointPosition(mlir::OpBuilder& builder, mlir::Location loc, ArrayRef<mlir::Value> values,
+                                           ArrayRef<mlir::Value> shiftAmounts) {
+    VPUX_THROW_WHEN(values.empty(), "encodePointPosition requires at least one value");
+    VPUX_THROW_WHEN(values.size() != shiftAmounts.size(),
+                    "encodePointPosition: values and shiftAmounts must have the same size ({0} vs {1})", values.size(),
+                    shiftAmounts.size());
+    auto index = builder.create<mlir::arith::ShLIOp>(loc, values[0], shiftAmounts[0]).getResult();
+    for (auto [val, shiftAmt] : llvm::zip(values.drop_front(), shiftAmounts.drop_front())) {
+        auto shifted = builder.create<mlir::arith::ShLIOp>(loc, val, shiftAmt).getResult();
+        index = builder.create<mlir::arith::OrIOp>(loc, index, shifted).getResult();
+    }
+    return index;
+}
+
+int64_t vpux::VPU::getEncodedPointPosition(ArrayRef<std::pair<vpux::Dim, TilePosition>> dimPositions) {
+    int64_t encoded = 0;
+    for (auto [dim, pos] : dimPositions) {
+        encoded |= (static_cast<int64_t>(pos) << getTilePositionShift(dim));
+    }
+    return encoded;
+}
+
+TilePosition vpux::VPU::getDimPosition(int64_t pointEncoded, vpux::Dim dim) {
+    const int64_t mask = (1LL << NUMBITS) - 1;
+    return static_cast<TilePosition>((pointEncoded >> getTilePositionShift(dim)) & mask);
+}
+
+int64_t vpux::VPU::setDimPosition(int64_t pointEncoded, vpux::Dim dim, TilePosition pos) {
+    const int64_t mask = (1LL << NUMBITS) - 1;
+    auto shift = getTilePositionShift(dim);
+    pointEncoded &= ~(mask << shift);
+    pointEncoded |= (static_cast<int64_t>(pos) << shift);
+    return pointEncoded;
+}
+
+SmallVector<TilePosition> vpux::VPU::decodePointPosition(int64_t encoded, ArrayRef<vpux::Dim> dims) {
+    SmallVector<TilePosition> positions;
+    positions.reserve(dims.size());
+    const int64_t mask = (1LL << NUMBITS) - 1;
+    for (auto dim : dims) {
+        positions.push_back(static_cast<TilePosition>((encoded >> getTilePositionShift(dim)) & mask));
+    }
+    return positions;
+}
+
+int64_t vpux::VPU::encodeRangePosition(vpux::Dim dim, int64_t currentValue, TilePosition start, TilePosition end) {
+    auto baseShift = getTilePositionShift(dim) * 2;
+    currentValue |= (static_cast<int64_t>(start) << baseShift);
+    currentValue |= (static_cast<int64_t>(end) << (baseShift + static_cast<int64_t>(NUMBITS)));
+    return currentValue;
+}
+
+std::pair<TilePosition, TilePosition> vpux::VPU::decodeRangePosition(int64_t rangeEncoded, vpux::Dim dim) {
+    const int64_t mask = (1LL << NUMBITS) - 1;
+    auto baseShift = getTilePositionShift(dim) * 2;
+    auto start = static_cast<TilePosition>((rangeEncoded >> baseShift) & mask);
+    auto end = static_cast<TilePosition>((rangeEncoded >> (baseShift + static_cast<int64_t>(NUMBITS))) & mask);
+    return {start, end};
+}
+
 mlir::LogicalResult vpux::VPU::getResultTileBounds(mlir::Operation* operation, unsigned resultNumber,
                                                    DimArrRef tilingDims, ArrayRef<mlir::OpFoldResult> sizes,
                                                    Bounds& resultBounds) {
@@ -119,7 +188,11 @@ mlir::Value vpux::VPU::generateTile(mlir::Location loc, mlir::OpBuilder& builder
     auto newType = origType.changeShape(ShapeRef(newShape));
     if (newShape.isDynamic()) {
         if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(newType)) {
-            newType = boundedType.changeBounds(inputTileInfo.bounds);
+            // `changeBounds` expects non-empty bounds and will assert otherwise.
+            // Keep current bounds when tile bounds were not inferred.
+            if (!inputTileInfo.bounds.raw().empty()) {
+                newType = boundedType.changeBounds(inputTileInfo.bounds);
+            }
         } else {
             auto origInputShape = to_small_vector(getShape(origInput));
             SmallVector<int64_t, 4> boundsValue(newShape.begin(), newShape.end());
@@ -266,8 +339,51 @@ std::pair<std::optional<mlir::Range>, std::optional<int64_t>> vpux::VPU::solutio
     return {inputRange, dimBound};
 }
 
+std::optional<vpux::Dim> vpux::VPU::getSinglePaddedExpandDim(mlir::Operation* op) {
+    auto expandOp = mlir::dyn_cast_or_null<VPU::ExpandOp>(op);
+    if (expandOp == nullptr) {
+        return std::nullopt;
+    }
+    const auto padsBegin = parseIntArrayAttr<int64_t>(expandOp.getPadsBegin());
+    const auto padsEnd = parseIntArrayAttr<int64_t>(expandOp.getPadsEnd());
+    if (padsBegin.size() != padsEnd.size() || padsBegin.empty()) {
+        return std::nullopt;
+    }
+    // Only end-padding is supported (matches all real VPU.Expand workloads:
+    // channel alignment to 16, H/W canonicalization). `pads_begin != 0` would
+    // require offset arithmetic not covered by the SCF Expand tiling model.
+    for (auto v : padsBegin) {
+        if (v != 0) {
+            return std::nullopt;
+        }
+    }
+    std::optional<size_t> paddedIdx;
+    for (size_t i = 0; i < padsEnd.size(); ++i) {
+        if (padsEnd[i] == 0) {
+            continue;
+        }
+        if (padsEnd[i] < 0) {
+            return std::nullopt;
+        }
+        if (paddedIdx.has_value()) {
+            return std::nullopt;
+        }
+        paddedIdx = i;
+    }
+    if (!paddedIdx.has_value()) {
+        // Zero-pad Expand is a no-op; defer to canonical folding and generic handling.
+        return std::nullopt;
+    }
+    // Padded dim must be statically shaped: callers emit it as a constant extent.
+    const auto inputShape = getShape(expandOp.getInput());
+    if (*paddedIdx >= inputShape.size() || inputShape[vpux::Dim(*paddedIdx)] == mlir::ShapedType::kDynamic) {
+        return std::nullopt;
+    }
+    return vpux::Dim(*paddedIdx);
+}
+
 bool vpux::VPU::checkFusion(mlir::OpOperand& consumer, mlir::OpResult producerCandidate,
-                            const llvm::SetVector<mlir::Operation*>& producers) {
+                            const llvm::SetVector<mlir::Operation*>& producers, const MergeConfiguration& mergeConfig) {
     // TODO E-172888 rewrite unified code for checking compatibility with current VF
 
     auto* producer = producerCandidate.getOwner();
@@ -276,7 +392,21 @@ bool vpux::VPU::checkFusion(mlir::OpOperand& consumer, mlir::OpResult producerCa
         return false;
     }
 
-    if (VPU::isPureViewOp(producer) || VPU::isPureViewOp(consumer.getOwner())) {
+    if (VPU::isPureViewOp(producer)) {
+        return mergeConfig.viewLikePolicy(producer);
+    }
+
+    // so far no checks for consumer with view like ops
+    // MC strategies alignment should be brought here and E-218728 should be resolved.
+    if (VPU::isPureViewOp(consumer.getOwner())) {
+        return true;
+    }
+
+    // Single-dim end-padded Expand can be fused as an SCF VF producer, but isn't
+    // in `VPU::isPureViewOp` (which is used by other code paths — cost model,
+    // copy optimization, strategy assignment — that need Expand's non-view behavior).
+    // Accept it here explicitly instead of widening `isPureViewOp`.
+    if (getSinglePaddedExpandDim(producer).has_value()) {
         return true;
     }
 
@@ -1112,6 +1242,11 @@ void vpux::VPU::applyDeferredSliceReplacements(
     for (const auto& mapEntry : skipConnectionMap) {
         const auto& deferredReplacement = mapEntry.second;
         if (!deferredReplacement.biggestUserTiled && !deferredReplacement.allUsersWithTheSameTileSize) {
+            continue;
+        }
+        if (deferredReplacement.tiledValue == nullptr) {
+            log.debug("Skip-connection producer was never tiled for op {0}; leaving related ExtractSlices in place",
+                      mapEntry.first->getName());
             continue;
         }
 

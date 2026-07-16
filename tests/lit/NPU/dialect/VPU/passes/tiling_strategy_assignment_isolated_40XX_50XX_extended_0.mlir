@@ -9,7 +9,6 @@
 module @Test {
 
 config.Resources 1 of @NCE {
-config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
 config.MemoryResource 1473536 bytes of @CMX_NN {VPU.bandwidth = 64 : i64, VPU.derateFactor = 1.000000e+00 : f64}
 }
 
@@ -44,7 +43,6 @@ func.func @MVNTileOverCEvenly(%arg0: tensor<1x18x93200x1xf16>) -> tensor<1x18x93
 module @Test {
 
 config.Resources 1 of @NCE {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {VPU.bandwidth = 64 : i64, VPU.derateFactor = 1.000000e+00 : f64}
 }
 

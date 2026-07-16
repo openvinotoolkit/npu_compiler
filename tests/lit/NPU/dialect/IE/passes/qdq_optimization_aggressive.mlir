@@ -68,5 +68,6 @@ func.func @QDQOptimizationAggressiveForConv(%input: tensor<1x1x60x60xui8>) -> te
     // CHECK-AGG-ON: [[CONVERT:%.+]] = IE.Convert([[INPUT]]) {dstElemType = f32} : tensor<1x1x60x60xui8> -> tensor<1x1x60x60xf32>
     // CHECK-AGG-ON: [[CST:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<5.000000e+00> : tensor<1x1x1x1xf32>
     // CHECK-AGG-ON: [[CONV:%.+]] = IE.Convolution([[CONVERT]], [[CST]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x1x60x60xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x60x60xf32>
-    // CHECK-AGG-ON: return [[CONV]] : tensor<1x1x60x60xf32>
+    // CHECK-AGG-ON: [[RELU:%.+]] = IE.ReLU([[CONV]]) : tensor<1x1x60x60xf32> -> tensor<1x1x60x60xf32>
+    // CHECK-AGG-ON: return [[RELU]] : tensor<1x1x60x60xf32>
 }

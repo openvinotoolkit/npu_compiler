@@ -2231,8 +2231,6 @@ def reg_mapped_VpuBarrierConfigurationDescriptor : NPUReg40XX_RegMappedWrapper<"
         "BarrierConfiguration_consumerCount", "BarrierConfiguration_consumerInterruptEnabled"
     ]>;
 
-
-
 //
 // VpuManagedMappedInferenceInfo
 //
@@ -2444,7 +2442,6 @@ def bf_taskReferenceAddr_MMI_reserved0_2 : NPUReg40XX_RegFieldWrapper<"taskRefer
 def reg_taskReferenceAddr_MMI_reserved0_2 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_MMI_reserved0_2", 8, 0xC0, ["taskReferenceAddr_MMI_reserved0_2"]>;
 def bf_taskReferenceCount_MMI_reserved0_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_MMI_reserved0_2", 64, 0>;
 def reg_taskReferenceCount_MMI_reserved0_2 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_MMI_reserved0_2", 8, 0xC8, ["taskReferenceCount_MMI_reserved0_2"]>;
-
 def bf_taskReferenceR1_MMI_reserved0_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_MMI_reserved0_3", 64, 0, "UINT">;
 def reg_taskReferenceR1_MMI_reserved0_3 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_MMI_reserved0_3", 8, 0xD0, ["taskReferenceR1_MMI_reserved0_3"]>;
 def bf_taskReferenceR2_MMI_reserved0_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_MMI_reserved0_3", 64, 0, "UINT">;

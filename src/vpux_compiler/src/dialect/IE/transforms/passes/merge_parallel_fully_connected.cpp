@@ -19,6 +19,7 @@
 #include <llvm/ADT/SmallVector.h>
 #include <mlir/IR/IRMapping.h>
 #include <mlir/Transforms/DialectConversion.h>
+#include "vpux/compiler/dialect/IE/utils/concat_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/utils/error.hpp"
@@ -488,6 +489,24 @@ IE::DynamicDequantizeOp createDynamicDequantize(SmallVector<IE::DynamicDequantiz
     return newDynDQ;
 }
 
+// Creates a merged IE.FullyConnectedOp from N parallel FC ops whose weights are direct
+// Const::DeclareOp values. Weights are concatenated along axis 0 (output-channel axis)
+// in the order given by fcOrder, which must match the input ordering of the downstream
+// consumer (e.g. a Concat) to preserve output semantics. The caller is responsible for
+// replacing or slicing the merged FC output to recover individual FC results.
+//
+// fcOrder must be sorted to match the concatenation semantics of the downstream consumer.
+IE::FullyConnectedOp mergeFCForDirectWeightsOrder(ArrayRef<IE::FullyConnectedOp> fcOrder, IE::FullyConnectedOp origOp,
+                                                  mlir::PatternRewriter& rewriter) {
+    SmallVector<mlir::Value> weights;
+    for (auto fc : fcOrder) {
+        weights.push_back(fc.getWeights());
+    }
+    auto mergedWeights = rewriter.create<IE::ConcatOp>(appendLoc(origOp->getLoc(), "concat_weights"), weights, Dim(0));
+    return rewriter.create<IE::FullyConnectedOp>(appendLoc(origOp->getLoc(), "concat_"), origOp.getInput(),
+                                                 mergedWeights.getOutput(), nullptr);
+}
+
 mlir::FailureOr<IE::FullyConnectedOp> mergeFCForReshapeTransposeOrder(ArrayRef<IE::FullyConnectedOp> fullyConnectedOps,
                                                                       IE::FullyConnectedOp origOp,
                                                                       mlir::PatternRewriter& rewriter) {
@@ -632,12 +651,111 @@ mlir::LogicalResult MergeParallelFullyConnected::matchAndRewrite(IE::FullyConnec
         }
         return false;
     };
+    // Helper: trace FC output → optional single AffineReshape → Concat.
+    auto getConcatThroughReshape = [](IE::FullyConnectedOp fc) -> IE::ConcatOp {
+        mlir::Value val = fc.getOutput();
+        if (!val.hasOneUse()) {
+            return nullptr;
+        }
+        auto* user = *val.getUsers().begin();
+        if (auto concat = mlir::dyn_cast<IE::ConcatOp>(user)) {
+            return concat;
+        }
+        if (auto reshape = mlir::dyn_cast<IE::AffineReshapeOp>(user)) {
+            if (!reshape->hasOneUse()) {
+                return nullptr;
+            }
+            return mlir::dyn_cast<IE::ConcatOp>(*reshape->getUsers().begin());
+        }
+        return nullptr;
+    };
+
+    // Detect the direct-const-weights + Concat-elimination path.
+    // Only applies when ALL of the following hold:
+    //   1. Every FC weight is a direct Const::DeclareOp (no FQ / DynDQ preprocessing).
+    //   2. Every FC output (through an optional AffineReshape) feeds the same Concat.
+    //   3. That Concat has a valid single contiguous axis.
+    // When this path fires the Concat is replaced by a Reshape; no Slice ops are emitted.
+    auto parentIsConstOp = [](IE::FullyConnectedOp fcOp) {
+        return mlir::dyn_cast_if_present<Const::DeclareOp>(fcOp.getWeights().getDefiningOp()) != nullptr;
+    };
+    bool isDirectConst = llvm::all_of(fullyConnectedOps, parentIsConstOp);
+
+    IE::ConcatOp sharedConcat = isDirectConst ? getConcatThroughReshape(fullyConnectedOps.front()) : nullptr;
+    bool allFeedSameConcat = sharedConcat != nullptr && IE::getConcatAxis(sharedConcat).has_value();
+    if (allFeedSameConcat) {
+        for (auto fc : fullyConnectedOps) {
+            if (getConcatThroughReshape(fc) != sharedConcat) {
+                allFeedSameConcat = false;
+                break;
+            }
+        }
+        // Verify the Concat has no extra inputs beyond the FC group to avoid silently
+        // dropping unrelated Concat inputs when the op is replaced.
+        if (allFeedSameConcat && sharedConcat.getInputs().size() != fullyConnectedOps.size()) {
+            allFeedSameConcat = false;
+        }
+    }
+    const bool directConstWithConcat = isDirectConst && allFeedSameConcat;
+
     auto maybeReshapeTranspose = llvm::all_of(fullyConnectedOps, parentIsTransposeOp);
     auto maybeTransposeReshape = llvm::all_of(fullyConnectedOps, parentIsAffineReshapeOp);
     auto maybeDynamicDequantReshape = llvm::all_of(fullyConnectedOps, parentIsAffineReshapeWithDynamicDequantizeOp);
-    if (!maybeReshapeTranspose && !maybeTransposeReshape) {
-        nestedLog.debug("At least one parent is neither AffineReshape, nor Transpose");
+
+    if (!maybeReshapeTranspose && !maybeTransposeReshape && !directConstWithConcat) {
+        nestedLog.debug("At least one parent is neither AffineReshape, Transpose, nor direct Const feeding a Concat");
         return mlir::failure();
+    }
+
+    // Fast path: direct const weights + Concat elimination (no Slices needed).
+    //
+    // Pattern (direct const weights, all FC outputs → optional AffineReshape → same Concat):
+    //
+    //  cst_w1(N1xK)  cst_w2(N2xK)
+    //       |               |
+    //       \    Input(BxK) /
+    //        \   /       \ /
+    //    FC(BxN1)      FC(BxN2)
+    //        |               |
+    //  AffineReshape   AffineReshape        ← optional
+    //   (Bx1xN1)        (Bx1xN2)
+    //         \              /
+    //       Concat(axis=0) → (2xBxN_total/2)
+    //
+    // Becomes:
+    //
+    //  Input(BxK)    Concat(cst_w1, cst_w2, axis=0)
+    //           \           ((N1+N2)xK)
+    //            \          /
+    //          FC(Bx(N1+N2))
+    //                |
+    //      Reshape → (2xBxN_total/2)   ← Concat eliminated
+    //
+    if (directConstWithConcat) {
+        // Re-order FCs to match the input ordering of sharedConcat so that the merged
+        // weight tensor preserves the same output ordering as the original Concat.
+        SmallVector<IE::FullyConnectedOp> orderedFCOps;
+        orderedFCOps.reserve(sharedConcat.getInputs().size());
+        for (auto concatInput : sharedConcat.getInputs()) {
+            mlir::Value v = concatInput;
+            if (auto reshape = concatInput.getDefiningOp<IE::AffineReshapeOp>()) {
+                v = reshape.getInput();
+            }
+            auto fc = v.getDefiningOp<IE::FullyConnectedOp>();
+            VPUX_THROW_UNLESS(fc != nullptr, "Expected FullyConnectedOp feeding Concat input");
+            orderedFCOps.push_back(fc);
+        }
+
+        auto concatOutShape = mlir::cast<mlir::RankedTensorType>(sharedConcat.getOutput().getType()).getShape();
+        auto shapeAttr = getIntArrayAttr(rewriter.getContext(), concatOutShape);
+        nestedLog.trace("Direct-const FC + Concat eliminated at '{0}'", sharedConcat->getLoc());
+        auto mergedFC = mergeFCForDirectWeightsOrder(orderedFCOps, fullyConnectedOp, rewriter);
+        auto reshaped = rewriter.create<IE::ReshapeOp>(appendLoc(mergedFC->getLoc(), "reshape_merged"),
+                                                       mergedFC.getOutput(), shapeAttr)
+                                .getResult();
+        rewriter.replaceOp(sharedConcat, reshaped);
+        _log.debug("Merge parallel fully connected (concat elimination) successful");
+        return mlir::success();
     }
 
     mlir::FailureOr<IE::FullyConnectedOp> mergedFC;

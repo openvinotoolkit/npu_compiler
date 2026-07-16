@@ -348,7 +348,7 @@ MVCNN::PPELayerType getPPELayerType(VPU::PPEMode ppeType) {
     }
 }
 
-MVCNN::Permutation getODUPermutationType(DimsOrder outputDimsOrder) {
+MVCNN::Permutation getODUPermutationType(const DimsOrder& outputDimsOrder) {
     if (outputDimsOrder == vpux::DimsOrder::NHWC) {
         return MVCNN::Permutation::Permutation_ZXY;
     } else if (outputDimsOrder == DimsOrder::fromCode(0x1432)) {  // NWHC

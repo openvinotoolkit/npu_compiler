@@ -7,6 +7,7 @@
 
 #include "vpux/compiler/core/interfaces/rewriter_pattern_strategies.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+#include "vpux/compiler/dialect/VPU/interfaces/convert_IE_to_VPU_NCE_strategy_getter.hpp"
 #include "vpux/compiler/dialect/VPU/interfaces/mc_strategy_getter.hpp"
 #include "vpux/compiler/dialect/VPU/interfaces/sparsity_constraint.hpp"
 #include "vpux/compiler/dialect/VPU/interfaces/workload_size_constraint.hpp"
@@ -57,6 +58,9 @@ public:
      * @return bool True if NCE permute offsets correction is required, false otherwise
      */
     virtual bool isNCEPermuteOffsetsCorrectionNeeded(VPU::NCEOpInterface nceOp) = 0;
+
+    // IE to VPU conversion
+    virtual std::unique_ptr<IConvertIEToVPUNCEStrategy> getConvertIEToVPUNCEStrategy(const Logger& log) = 0;
 };
 
 class StrategyFactoryCache final : public mlir::DialectInterface::Base<StrategyFactoryCache> {

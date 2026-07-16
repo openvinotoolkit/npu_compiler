@@ -13,6 +13,7 @@
 
 namespace vpux::VPU {
 class SWOpInterface;
+class DistributionInfo;
 }  // namespace vpux::VPU
 namespace VPUNN {
 class VPUCostModel;
@@ -36,6 +37,17 @@ constexpr StringLiteral DPUCost = "minimumHardwareExecutionCost";
 constexpr StringLiteral cycleCostAttrName = "cycleCost";
 constexpr StringLiteral cycleBegin = "cycleBegin";
 constexpr StringLiteral cycleEnd = "cycleEnd";
+
+double getStrideDMACorrectionThresholdByArch(config::ArchKind arch);
+bool applyStrideDMACorrectionForTile(vpux::NDTypeInterface tileType, bool isStridedDMA, uint32_t& cost,
+                                     config::ArchKind arch);
+bool correctStrideDMACost(
+        ArrayRef<std::vector<std::pair<vpux::NDTypeInterface, llvm::DenseMap<mlir::Type, VPU::DistributionInfo>>>>
+                tilesTypes,
+        const std::function<vpux::NDTypeInterface(
+                ArrayRef<std::pair<vpux::NDTypeInterface, llvm::DenseMap<mlir::Type, VPU::DistributionInfo>>>)>&
+                tileTypeGetter,
+        SmallVector<uint32_t>& dmaCost, bool isStridedDMA, config::ArchKind arch);
 
 size_t getDMACost(mlir::Value input, mlir::Value output, config::ArchKind archKind, VPUNN::VPUDevice vpuDevice,
                   const std::shared_ptr<VPUNN::VPUCostModel>& costModel, int64_t numDMAPorts = 1);
@@ -75,4 +87,5 @@ VPUNN::ActivationFunction getVPUNNActivationFunction(VPU::PPEAttr ppeAttr);
 VPUNN::SEPModeInfo getSEPModeInfo(const VPUIP::SEPInfo& sepInfo);
 
 std::string stringifyVPUNNStrategy(VPUNN::VPUTilingStrategy strategy);
+uint64_t addSaturating(uint64_t a, uint64_t b);
 }  // namespace vpux

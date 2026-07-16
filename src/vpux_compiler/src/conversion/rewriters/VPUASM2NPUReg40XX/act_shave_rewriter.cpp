@@ -7,6 +7,7 @@
 
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/ops.hpp"
 
+using namespace vpux;
 using namespace NPUReg40XX;
 using namespace NPUReg40XX::Descriptors;
 

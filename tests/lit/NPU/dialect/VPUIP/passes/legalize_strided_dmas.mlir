@@ -51,7 +51,7 @@ func.func @LegalizeStridedDmas(%arg0: !DDRType, %arg1: !DDRType, %arg2: !DDRType
 
     // CHECK:   [[RESHAPE_OUTPUT:%.+]] = VPUIP.GenericReshape inputs([[NNDMA_2]] : memref<4x6xui8, @DDR>) -> memref<1x24x1x1xui8, @DDR>
     // CHECK-NEXT:   [[INCOMPATIBLE_OUT_DMA:%.+]] = VPUIP.NNDMA
-    // CHECK:   [[CONCAT_VIEW_OUT:%.+]] = VPUIP.ConcatView inputs([[ARG_2]] 
+    // CHECK:   [[CONCAT_VIEW_OUT:%.+]] = VPUIP.ConcatView inputs([[ARG_2]]
     // CHECK-SAME:                                                [[INCOMPATIBLE_OUT_DMA]]
     // CHECK-SAME:                                                [[NNDMA_2]]
     // CHECK-SAME:                                                outputs([[ALLOC_OUTPUT]]
@@ -863,7 +863,7 @@ net.NetworkInfo entryPoint : @DynamicStridesIncompatibleWriteDmas inputsInfo : {
 func.func @DynamicStridesIncompatibleWriteDmas(%arg: !DDRType) -> !DDRType {
     %cmx = memref.alloc() : !CMXType
     %act_compression_size = memref.alloc() : memref<32xui8, @CMX_NN>
-    %1 = VPUIP.CompressDMAOp inputs(%cmx : !CMXType) 
+    %1 = VPUIP.CompressDMAOp inputs(%cmx : !CMXType)
                             outputs(%arg : !DDRType)
                             act_compression_size_entry(%act_compression_size : memref<32xui8, @CMX_NN>)
                             -> !DDRType

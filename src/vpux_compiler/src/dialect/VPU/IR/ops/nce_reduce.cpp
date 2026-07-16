@@ -79,7 +79,7 @@ bool vpux::VPU::NCEReduceOp::isSupported(mlir::Operation* op, LogCb logCb, bool 
     if (checkChannelAlignment) {
         if (auto iface = mlir::dyn_cast<IE::AlignedChannelsOpInterface>(op)) {
             if (!NCEInvariant::isInputActTypeSupported(inputType, iface.getInputChannelAlignment(), false) ||
-                !NCEInvariant::isOutputActTypeSupported(outputType, iface.getOutputChannelAlignment())) {
+                !NCEInvariant::isOutputActTypeSupported(op, outputType, iface.getOutputChannelAlignment())) {
                 logCb(formatv("Misaligned tensor shape"));
                 return false;
             }

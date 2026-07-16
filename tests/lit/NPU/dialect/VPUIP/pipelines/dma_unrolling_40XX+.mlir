@@ -26,12 +26,12 @@ func.func @UnrollS2DepthAndUpsamplingDMA() -> !OutputDistributed {
     %bar1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %bar2 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %bar3 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    %inputToS2D = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x4x48x48x!qElemType, #NHWC, [@CMX_NN, 0]>
+    %inputToS2D = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x4x48x48x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     %outputOfS2D = VPURT.DeclareBuffer <CMX_NN> <0> -> !OutputDistributed
 
     VPURT.Task waits(%bar0 : !VPURT.Barrier) updates(%bar1 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
         VPUIP.SpaceToDepthDMA <{block_size = 2 : i64, mode = #IE.space_to_depth_mode<BLOCKS_FIRST>}>
-              inputs(%inputToS2D : memref<1x4x48x48x!qElemType, #NHWC, [@CMX_NN, 0]>)
+              inputs(%inputToS2D : memref<1x4x48x48x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
               outputs(%outputOfS2D : !OutputDistributed) -> !OutputDistributed
     }
 

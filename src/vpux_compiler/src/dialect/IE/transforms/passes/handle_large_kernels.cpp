@@ -14,7 +14,7 @@
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/handle_kernels_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
-#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
+#include "vpux/compiler/dialect/config/constraints.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -205,7 +205,8 @@ void rewriteSubGraph(IE::ConvolutionOp origOp, ArrayRef<mlir::Value> slicedFilte
             auto conv = rewriter.create<IE::ConvolutionOp>(
                     takeOpLoc(origOp, "conv_slice_{0}_{1}", j, i), convInput, slicedFilters[j * numXSlices + i],
                     isLastSlice ? origOp.getBias() : mlir::TypedValue<mlir::RankedTensorType>{nullptr},
-                    /*scale*/ nullptr, origOp.getStrides(), getIntArrayAttr(origOp->getContext(), ArrayRef({0, 0})),
+                    /*scale*/ nullptr, /*zero_points*/ nullptr, origOp.getStrides(),
+                    getIntArrayAttr(origOp->getContext(), ArrayRef({0, 0})),
                     getIntArrayAttr(origOp->getContext(), ArrayRef({0, 0})), origOp.getDilationsAttr(), nullptr,
                     nullptr, origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
 
@@ -280,7 +281,7 @@ bool GeneralPoolingBaseRewriter<ConcreteOp>::isLegalGeneralPoolingOp(ConcreteOp 
 
     const auto kernelSize = parseIntArrayAttr<int64_t>(origOp.getKernelSize());
     const auto strides = parseIntArrayAttr<int64_t>(origOp.getStrides());
-    const auto maxKernelSize = config::getMaxKernelSize(origOp);
+    const auto maxKernelSize = config::getNPUConstraints(origOp->getContext()).maxKernelSize;
     if (vpux::IE::hasSupportedKernels(ShapeRef(kernelSize), maxKernelSize)) {
         _log.trace("Kernel size of general Pooling Op is legal");
         return true;
@@ -411,7 +412,7 @@ mlir::LogicalResult GeneralPoolingBaseRewriter<ConcreteOp>::matchAndRewrite(Conc
     }
 
     const auto origKernel = parseIntArrayAttr<int64_t>(origOp.getKernelSize());
-    const auto maxKernelSize = config::getMaxKernelSize(origOp);
+    const auto maxKernelSize = config::getNPUConstraints(origOp->getContext()).maxKernelSize;
 
     const auto kernelsInfo = IE::calculateKernelsInfo(ShapeRef(origKernel), maxKernelSize, _log.nest(2));
     if (!kernelsInfo.has_value()) {
@@ -610,7 +611,8 @@ mlir::Value GeneralMaxPoolRewriter::handlePoolWithPadding(IE::MaxPoolOp origOp, 
             .replaceOpWithNewOp<IE::MaxPoolOp>(origOp, inputVal, origOp.getKernelSizeAttr(), origOp.getStridesAttr(),
                                                origOp.getPadsBeginAttr(), getIntArrayAttr(ctx, padsEnd),
                                                origOp.getRoundingType(), origOp.getPostOpAttr(), origOp.getClampAttr(),
-                                               origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr())
+                                               origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(),
+                                               origOp.getInputPaddingAttr())
             .getOutput();
 }
 
@@ -696,7 +698,7 @@ mlir::LogicalResult OverlappedMaxPoolRewriter::matchAndRewrite(IE::MaxPoolOp ori
     _log.trace("[{0}] Got '{1}' layer at '{2}'", getDebugName(), origOp.getOperationName(), origOp->getLoc());
 
     auto* ctx = origOp->getContext();
-    const auto maxKernelSize = config::getMaxKernelSize(origOp);
+    const auto maxKernelSize = config::getNPUConstraints(ctx).maxKernelSize;
 
     if (isLegalOverlappedMaxPool(origOp, maxKernelSize)) {
         return mlir::failure();
@@ -719,7 +721,7 @@ mlir::LogicalResult OverlappedMaxPoolRewriter::matchAndRewrite(IE::MaxPoolOp ori
     auto firstOp = rewriter.create<IE::MaxPoolOp>(
             takeOpLoc(origOp, "first_split"), origOp.getInput(), newKernelsAttr, origOp.getStridesAttr(),
             newPadsBeginAttr, newPadsEndAttr, origOp.getRoundingType(), origOp.getPostOpAttr(), origOp.getClampAttr(),
-            origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+            origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
     _log.nest(2).trace("Create firstSplitOp with Kernel: '{0}', Stride: '{1}', PadBegin: '{2}', PadEnd: '{3}'",
                        newKernelsAttr, origOp.getStridesAttr(), newPadsBeginAttr, newPadsEndAttr);
 
@@ -727,8 +729,8 @@ mlir::LogicalResult OverlappedMaxPoolRewriter::matchAndRewrite(IE::MaxPoolOp ori
                        newKernelsAttr, origOp.getStridesAttr(), newPadsBeginAttr, newPadsEndAttr);
     auto secondOp = rewriter.replaceOpWithNewOp<IE::MaxPoolOp>(
             origOp, firstOp.getOutput(), newKernelsAttr, origOp.getStridesAttr(), newPadsBeginAttr, newPadsEndAttr,
-            origOp.getRoundingType(), origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getOutputPaddingAttr(),
-            origOp.getInputPaddingAttr());
+            origOp.getRoundingType(), origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getStaticScaleAttr(),
+            origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
     extendOpLoc(secondOp, "second_split");
 
     return mlir::success();
@@ -828,7 +830,7 @@ bool PadLargeKernelRewriter::isLegalOpToConvert(IE::ConvolutionOp origOp, int64_
         _log.trace("H-dimensional 1D conv: input={0}, kernel={1}, stride={2}", inputSize, kernelSize, stride);
     }
 
-    const auto maxKernelSize = config::getMaxKernelSize(origOp);
+    const auto maxKernelSize = config::getNPUConstraints(origOp->getContext()).maxKernelSize;
 
     if (kernelSize <= maxKernelSize) {
         _log.trace("Kernel size {0} <= max {1}, no padding needed", kernelSize, maxKernelSize);
@@ -1054,7 +1056,7 @@ mlir::LogicalResult SliceLargeConvRewriter::matchAndRewrite(IE::ConvolutionOp or
                                                             mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got Convolution layer at '{1}'", getDebugName(), origOp->getLoc());
 
-    const auto targetKernelSize = config::getMaxKernelSize(origOp);
+    const auto targetKernelSize = config::getNPUConstraints(origOp->getContext()).maxKernelSize;
     if (targetKernelSize <= 0) {
         return mlir::failure();
     }
@@ -1141,7 +1143,7 @@ mlir::LogicalResult SliceLargeKernelAvgPoolRewriter::matchAndRewrite(IE::AvgPool
     }
 
     const auto kernelSize = parseIntArrayAttr<int64_t>(origOp.getKernelSize());
-    const auto maxKernelSize = config::getMaxKernelSize(origOp);
+    const auto maxKernelSize = config::getNPUConstraints(origOp->getContext()).maxKernelSize;
     VPUX_THROW_WHEN(maxKernelSize <= 0, "Invalid maxKernelSize {0}", maxKernelSize);
     const auto KY = kernelSize[Dims4D::Kernel::Y.ind()];
     const auto KX = kernelSize[Dims4D::Kernel::X.ind()];
@@ -1349,7 +1351,7 @@ private:
 
 bool ReshapeLargeConvRewriter::isLegalOpToConvert(IE::ConvolutionOp origOp, std::optional<Factors>& factorsResult,
                                                   Shape inputShape, bool& strideOne) const {
-    const auto maxKernelSize = config::getMaxKernelSize(origOp);
+    const auto maxKernelSize = config::getNPUConstraints(origOp->getContext()).maxKernelSize;
     const auto inputHeight = inputShape[Dims4D::Act::H];
     const auto inputWidth = inputShape[Dims4D::Act::W];
 
@@ -1534,7 +1536,8 @@ mlir::Value ReshapeLargeConvRewriter::getOutputFromStrideOne(mlir::PatternRewrit
                                                         Dims4D::Act::C);
     }
 
-    auto newConvOp = cloneConvolutionOp(rewriter, origOp, newInputValue, newFilterValue, biasValue, origOp.getScale());
+    auto newConvOp = cloneConvolutionOp(rewriter, origOp, newInputValue, newFilterValue, biasValue, origOp.getScale(),
+                                        origOp.getZeroPoints());
     auto origOutputShape = getShape(origOp.getOutput());
     auto convOutputShape = getShape(newConvOp.getOutput());
     auto newOutputShape = Shape(
@@ -1580,7 +1583,7 @@ mlir::LogicalResult ReshapeLargeConvRewriter::matchAndRewrite(IE::ConvolutionOp 
     auto KX = filterShape[Dims4D::Filter::KX];
     auto KY = filterShape[Dims4D::Filter::KY];
 
-    const auto maxKernelSize = config::getMaxKernelSize(origOp);
+    const auto maxKernelSize = static_cast<int64_t>(config::getNPUConstraints(origOp->getContext()).maxKernelSize);
     const auto limit = std::min(maxKernelSize, VPU::NCEInvariant::MAX_STRIDE);
     auto factorsResult =
             KX > maxKernelSize ? IE::getFactorsWithLimitation(KX, limit) : IE::getFactorsWithLimitation(KY, limit);
@@ -1746,7 +1749,7 @@ mlir::LogicalResult SliceLargePrimeKernelRewriter::matchAndRewrite(IE::Convoluti
 
     auto KX = filterShape[Dims4D::Filter::KX.ind()];
     auto KY = filterShape[Dims4D::Filter::KY.ind()];
-    const auto maxKernelSize = config::getMaxKernelSize(origOp);
+    const auto maxKernelSize = static_cast<int64_t>(config::getNPUConstraints(origOp->getContext()).maxKernelSize);
 
     const auto limit = std::min(maxKernelSize, VPU::NCEInvariant::MAX_STRIDE);
     auto factorsResult =
@@ -1837,7 +1840,7 @@ bool ReshapeGlobalConvRewriter::isLegalOpToConvert(IE::ConvolutionOp origOp) con
         return false;
     }
 
-    const auto maxKernelSize = config::getMaxKernelSize(origOp);
+    const auto maxKernelSize = config::getNPUConstraints(origOp->getContext()).maxKernelSize;
     return KX > maxKernelSize || KY > maxKernelSize;
 }
 
@@ -1863,8 +1866,8 @@ mlir::LogicalResult ReshapeGlobalConvRewriter::matchAndRewrite(IE::ConvolutionOp
     SmallVector<int64_t> newStrides = {1, 1};
     auto newConvOp = IE::cloneConvolutionOp(
             rewriter, origOp, inputReshape.getOutput(), filterReshape.getOutput(), origOp.getBias(), origOp.getScale(),
-            getIntArrayAttr(rewriter.getContext(), newStrides), origOp.getPadsBeginAttr(), origOp.getPadsEndAttr(),
-            origOp.getDilationsAttr());
+            origOp.getZeroPoints(), getIntArrayAttr(rewriter.getContext(), newStrides), origOp.getPadsBeginAttr(),
+            origOp.getPadsEndAttr(), origOp.getDilationsAttr());
     rewriter.replaceOp(origOp, newConvOp.getOutput());
 
     return mlir::success();

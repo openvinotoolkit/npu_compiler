@@ -12,8 +12,8 @@
 module @RepeatingBlocksDecalrationsMismatch {
     VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
     module @VPU.SW {
-        func.func private @builtin_SoftMax(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.task_type = @COMPUTE}
-        func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+        func.func nested @builtin_SoftMax(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.task_type = @COMPUTE}
+        func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
     }
 
     net.NetworkInfo entryPoint : @main inputsInfo : {

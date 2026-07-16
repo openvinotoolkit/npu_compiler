@@ -39,13 +39,24 @@ mlir::LogicalResult vpux::VPU::RMSOp::inferReturnTypes(mlir::MLIRContext* ctx, s
 //
 
 bool vpux::VPU::RMSOp::checkStrategyCompatibility(VPU::MultiClusterStrategy strategy, size_t) {
-    return strategy == VPU::MultiClusterStrategy::SplitOverKernel ||
-           strategy == VPU::MultiClusterStrategy::SplitOverHeight || strategy == VPU::MultiClusterStrategy::Clustering;
+    if (strategy == VPU::MultiClusterStrategy::Clustering) {
+        return true;
+    }
+
+    const auto outputShape = getBoundedShape(getOutput().getType());
+    if (strategy == VPU::MultiClusterStrategy::SplitOverHeight) {
+        return outputShape[Dims4D::Act::H] > 1;
+    }
+    if (strategy == VPU::MultiClusterStrategy::SplitOverKernel) {
+        return outputShape[Dims4D::Act::C] > 1;
+    }
+
+    return false;
 }
 
 void vpux::VPU::RMSOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState, ::mlir::Value input,
-                             ::mlir::Value gamma, ::mlir::FloatAttr epsilon) {
-    build(odsBuilder, odsState, input, gamma, epsilon, {});
+                             ::mlir::Value gamma, ::mlir::FloatAttr epsilon, ::mlir::BoolAttr conditionalEps) {
+    build(odsBuilder, odsState, input, gamma, epsilon, conditionalEps, {});
 }
 
 vpux::VPU::DistributionInfo vpux::VPU::RMSOp::getExplicitDistributionInfoAttr(
@@ -85,6 +96,17 @@ bool vpux::VPU::RMSOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeInterface> buffers)
 
 bool vpux::VPU::RMSOp::supportCycleCostCalculation() {
     return false;
+}
+
+//
+// VerticalFusionOpInterface
+//
+
+// RMS normalizes across the last axis; tiling on that axis would break reduction
+DimArr vpux::VPU::RMSOp::restrictedFusionAxes() {
+    const auto outputType = mlir::cast<vpux::NDTypeInterface>(getOutput().getType());
+    const auto outputRank = outputType.getShape().size();
+    return {Dim(outputRank - 1)};
 }
 
 //

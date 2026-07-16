@@ -24,8 +24,8 @@
 module @LogSoftmax attributes {config.platform = #config.platform<NPU5010>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
     VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096]
     module @VPU.SW {
-        func.func private @builtin_LogSoftmax(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i64, i64) attributes {VPU.kernel_code = "log_softmax.cpp", VPU.kernel_entry = "log_softmax", VPU.task_type = @COMPUTE}
-        func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+        func.func nested @builtin_LogSoftmax(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i64, i64) attributes {VPU.kernel_code = "log_softmax.cpp", VPU.kernel_entry = "log_softmax", VPU.task_type = @COMPUTE}
+        func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
     }
 
     net.NetworkInfo entryPoint : @main inputsInfo : {

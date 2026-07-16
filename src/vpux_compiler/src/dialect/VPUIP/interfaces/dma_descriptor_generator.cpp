@@ -36,8 +36,15 @@ VPUIP::DMADescriptorAttr vpux::VPUIP::PermuteDmaDescriptorGenerator::generate(Sh
 SmallVector<VPUIP::DMADescriptorAttr> vpux::VPUIP::PermuteDmaDescriptorGenerator::generate(
         ShapeRef mergedInputShape, ShapeRef mergedOutputShape, ArrayRef<Shape> mergedSubOutputShapes, Dim tileDim,
         Byte elemTypeSize) const {
-    VPUX_THROW_UNLESS(_mergedMemPerm.getNumResults() == 2, "Invalid merged mem perm {0}", _mergedMemPerm);
-    return generateWithTwoAxis(mergedInputShape, mergedOutputShape, mergedSubOutputShapes, tileDim, elemTypeSize);
+    VPUX_THROW_UNLESS(_mergedMemPerm.getNumResults() == 2 || _mergedMemPerm.getNumResults() == 3,
+                      "Invalid merged mem perm {0}", _mergedMemPerm);
+    if (mergedInputShape.size() == 2) {
+        return generateWithTwoAxis(mergedInputShape, mergedOutputShape, mergedSubOutputShapes, tileDim, elemTypeSize);
+    } else if (_mergedMemPerm == mlir::AffineMap::getPermutationMap(SmallVector<unsigned>{1, 0, 2}, _ctx)) {
+        return generateWithSwapFront(mergedInputShape, mergedSubOutputShapes, tileDim, elemTypeSize);
+    } else {
+        VPUX_THROW("Unsupported merged mem perm {0} ", _mergedMemPerm);
+    }
 }
 
 VPUIP::DMADescriptorAttr vpux::VPUIP::PermuteDmaDescriptorGenerator::generateWithTwoAxis(ShapeRef mergedInputShape,
@@ -50,10 +57,11 @@ VPUIP::DMADescriptorAttr vpux::VPUIP::PermuteDmaDescriptorGenerator::generateWit
     VPUX_THROW_UNLESS(mergedOutputShape.size() == 2, "The size of merged output shape {0} is not equal to 2",
                       mergedOutputShape.size());
     VPUX_THROW_UNLESS(elemSize.count() > 0, "Invalid element size {0}", elemSize);
+
+    auto elemTypeSize = elemSize.count();
     auto IN = mergedInputShape.front();
     auto IC = mergedInputShape.back();
     auto OC = mergedOutputShape.back();
-    auto elemTypeSize = elemSize.count();
 
     auto numPlane = vpux::getIntAttr(_ctx, IN);
     auto len = vpux::getIntAttr(_ctx, IC * elemTypeSize);
@@ -81,10 +89,9 @@ SmallVector<VPUIP::DMADescriptorAttr> vpux::VPUIP::PermuteDmaDescriptorGenerator
     auto elemTypeSize = elemSize.count();
     auto IN = mergedInputShape.front();
     auto IC = mergedInputShape.back();
-
     auto OC = mergedOutputShape.back();
-    SmallVector<VPUIP::DMADescriptorAttr> dmaDescriptorAttrs;
 
+    SmallVector<VPUIP::DMADescriptorAttr> dmaDescriptorAttrs;
     int64_t usedNumPlaneCount = 0;
     for (auto& mergedSubOutputShape : mergedSubOutputShapes) {
         VPUX_THROW_UNLESS(mergedSubOutputShape.size() == 2, "The size of merged sub output shape {0} is not equal to 2",
@@ -123,22 +130,74 @@ VPUIP::DMADescriptorAttr vpux::VPUIP::PermuteDmaDescriptorGenerator::generateWit
     VPUX_THROW_UNLESS(mergedInputShape.size() == 3, "The size of merged input shape {0} is not equal to 3",
                       mergedInputShape.size());
     VPUX_THROW_UNLESS(elemSize.count() > 0, "Invalid element size {0}", elemSize);
+
     // Permute pattern #HWC ->  #WHC
     auto elemTypeSize = elemSize.count();
     auto H = mergedInputShape[Dim(0)];
     auto W = mergedInputShape[Dim(1)];
-    auto C = mergedInputShape[Dim(2)];
 
     auto numPlane = vpux::getIntAttr(_ctx, H);
-    auto len = vpux::getIntAttr(_ctx, W * C * elemTypeSize);
-    auto srcWidth = vpux::getIntAttr(_ctx, W * C * elemTypeSize);
-    auto srcStride = vpux::getIntAttr(_ctx, elemTypeSize);
-    auto srcPlaneStride = vpux::getIntAttr(_ctx, W * C * elemTypeSize);
-    auto dstWidth = vpux::getIntAttr(_ctx, C * elemTypeSize);
-    auto dstStride = vpux::getIntAttr(_ctx, H * C * elemTypeSize);
-    auto dstPlaneStride = vpux::getIntAttr(_ctx, C * elemTypeSize);
+    auto len = vpux::getIntAttr(_ctx, W * elemTypeSize);
+    auto srcWidth = vpux::getIntAttr(_ctx, W * elemTypeSize);
+    auto srcStride = vpux::getIntAttr(_ctx, W * elemTypeSize);
+    auto srcPlaneStride = vpux::getIntAttr(_ctx, W * elemTypeSize);
+    auto dstWidth = vpux::getIntAttr(_ctx, elemTypeSize);
+    auto dstStride = vpux::getIntAttr(_ctx, H * elemTypeSize);
+    auto dstPlaneStride = vpux::getIntAttr(_ctx, elemTypeSize);
     return VPUIP::DMADescriptorAttr::get(_ctx, numPlane, len, srcWidth, srcStride, srcPlaneStride, dstWidth, dstStride,
                                          dstPlaneStride);
+}
+
+SmallVector<VPUIP::DMADescriptorAttr> vpux::VPUIP::PermuteDmaDescriptorGenerator::generateWithSwapFront(
+        ShapeRef mergedInputShape, ArrayRef<Shape> mergedSubOutputShapes, Dim tileDim, Byte elemSize) const {
+    VPUX_THROW_UNLESS(mergedInputShape.size() == 3, "The size of merged input shape {0} is not equal to 3",
+                      mergedInputShape.size());
+    VPUX_THROW_UNLESS(tileDim.ind() == 0 || tileDim.ind() == 1,
+                      "Only tileDim == Dim(0) or Dim(1) is supported, got {0}", tileDim.ind());
+
+    // Permute pattern #HWC ->  #WHC
+    auto elemTypeSize = elemSize.count();
+    auto H = mergedInputShape[Dim(0)];
+    auto W = mergedInputShape[Dim(1)];
+
+    SmallVector<VPUIP::DMADescriptorAttr> dmaDescriptorAttrs;
+    int64_t usedCount = 0;
+    for (auto& mergedSubOutputShape : mergedSubOutputShapes) {
+        VPUX_THROW_UNLESS(mergedSubOutputShape.size() == 3, "The size of merged sub output shape {0} is not equal to 3",
+                          mergedSubOutputShape);
+
+        auto srcPlaneStride = vpux::getIntAttr(_ctx, W * elemTypeSize);
+        auto dstWidth = vpux::getIntAttr(_ctx, elemTypeSize);
+        auto dstPlaneStride = vpux::getIntAttr(_ctx, elemTypeSize);
+
+        if (tileDim.ind() == 0) {
+            auto subW = std::min(W - usedCount, mergedSubOutputShape[Dim(0)]);
+
+            auto numPlane = vpux::getIntAttr(_ctx, H);
+            auto len = vpux::getIntAttr(_ctx, subW * elemTypeSize);
+            auto srcWidth = vpux::getIntAttr(_ctx, subW * elemTypeSize);
+            auto srcStride = vpux::getIntAttr(_ctx, subW * elemTypeSize);
+            auto dstStride = vpux::getIntAttr(_ctx, H * elemTypeSize);
+
+            dmaDescriptorAttrs.push_back(VPUIP::DMADescriptorAttr::get(
+                    _ctx, numPlane, len, srcWidth, srcStride, srcPlaneStride, dstWidth, dstStride, dstPlaneStride));
+            usedCount += subW;
+        } else {
+            auto subH = std::min(H - usedCount, mergedSubOutputShape[Dim(1)]);
+
+            auto numPlane = vpux::getIntAttr(_ctx, subH);
+            auto len = vpux::getIntAttr(_ctx, W * elemTypeSize);
+            auto srcWidth = vpux::getIntAttr(_ctx, W * elemTypeSize);
+            auto srcStride = vpux::getIntAttr(_ctx, W * elemTypeSize);
+            auto dstStride = vpux::getIntAttr(_ctx, subH * elemTypeSize);
+
+            dmaDescriptorAttrs.push_back(VPUIP::DMADescriptorAttr::get(
+                    _ctx, numPlane, len, srcWidth, srcStride, srcPlaneStride, dstWidth, dstStride, dstPlaneStride));
+            usedCount += subH;
+        }
+    }
+
+    return dmaDescriptorAttrs;
 }
 
 VPUIP::DMADescriptorAttr vpux::VPUIP::PermuteDmaDescriptorGenerator::generateWithSwapBack(ShapeRef mergedInputShape,
@@ -147,6 +206,7 @@ VPUIP::DMADescriptorAttr vpux::VPUIP::PermuteDmaDescriptorGenerator::generateWit
     VPUX_THROW_UNLESS(mergedInputShape.size() == 3, "The size of merged input shape {0} is not equal to 2",
                       mergedInputShape.size());
     VPUX_THROW_UNLESS(elemSize.count() > 0, "Invalid element size {0}", elemSize);
+
     auto elemTypeSize = elemSize.count();
     auto H = mergedInputShape[Dim(0)];
     auto W = mergedInputShape[Dim(1)];

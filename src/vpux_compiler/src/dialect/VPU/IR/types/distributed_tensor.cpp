@@ -619,7 +619,7 @@ NDTypeInterface VPU::DistributedTensorType::changeShapeElemType(ShapeRef shape, 
                                            distribution);
 }
 
-NDTypeInterface VPU::DistributedTensorType::changeDimsOrder(DimsOrder order) const {
+NDTypeInterface VPU::DistributedTensorType::changeDimsOrder(const DimsOrder& order) const {
     return VPU::DistributedTensorType::get(getContext(), getShape().raw(), getElementType(),
                                            mlir::AffineMapAttr::get(order.toAffineMap(getContext())), getMemSpace(),
                                            getDistribution());

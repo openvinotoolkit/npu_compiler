@@ -84,7 +84,7 @@ Const::DeclareOp ReshapeGroupConvInput::broadcastConst(mlir::Value activation, i
     if (cst.getContentAttr().isSplat()) {
         const auto& contentAttr = cst.getContentAttr();
         const auto& baseContent = contentAttr.getBaseContent();
-        Const::ContentSetup setup(baseContent.getType());  // content-only copy
+        Const::ContentSetup setup(baseContent, baseContent.getType());  // content-only copy
         Shape shape(origInShape.size(), int64_t(1));
         setup = setup.reshape(shape);
 

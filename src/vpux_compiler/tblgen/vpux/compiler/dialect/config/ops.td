@@ -287,4 +287,60 @@ def Config_ResourcesOp :
     let hasVerifier = 1;
 }
 
+// Designed for test only.
+def Config_CustomConstraintsOp :
+        Config_Op<
+            "CustomConstraints",
+            [
+                SymbolTable,
+                Symbol
+            ]
+            # GraphRegionNoTerminator.traits
+        > {
+    let summary = "Parallel to config custom constraints used in the compiler to be exposed globally";
+
+    let description = [{
+        Constraints can include another CustomConstraintsOp or ConstraintOp.
+    }];
+
+    let arguments = (ins
+        SymbolNameAttr:$sym_name
+    );
+
+    let regions = (region
+        SizedRegion<1>:$constraints
+    );
+
+    let assemblyFormat = [{
+        attr-dict
+        $sym_name
+        custom<OptionalBlockRegion>($constraints)
+    }];
+}
+
+def Config_ConstraintOp :
+        Config_Op<
+            "Constraint",
+            [
+                Symbol
+            ]
+            # GraphRegionNoTerminator.traits
+        > {
+    let summary = "Constraint to be added to the model/IR";
+
+    let description = [{
+        Concrete constraint values that will be added to IR, must have a sym_name for lookup.
+    }];
+
+    let arguments = (ins
+        SymbolNameAttr:$sym_name,
+        AnyAttrOf<[IntAttr, F32Attr, BoolAttr, StrAttr, ArrayAttr]>:$constraintValue
+    );
+
+    let assemblyFormat = [{
+        $sym_name `:` $constraintValue
+        attr-dict
+    }];
+}
+
 #endif

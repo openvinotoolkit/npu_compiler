@@ -9,6 +9,9 @@
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ShapeOfLayerTest);
+
 class ShapeOfLayerTestCommon : public ShapeOfLayerTest, virtual public VpuOv2LayerTest {};
 
 TEST_P(ShapeOfLayerTestCommon, NPU3720_SW) {

@@ -7,7 +7,6 @@
 #include "vpux/compiler/NPU37XX/conversion.hpp"
 #include "vpux/compiler/NPU37XX/pipeline_options.hpp"
 #include "vpux/compiler/conversion.hpp"
-#include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/pipelines/options_setup.hpp"
 
 using namespace vpux;
@@ -18,13 +17,13 @@ namespace {
 // OptionsSetup37XX
 //
 
-class DefaultHWSetup37XX : public OptionsSetupBase<DefaultHWSetup37XX, DefaultHWOptions37XX> {
+class DefaultHWSetup37XX final : public OptionsSetupBase<DefaultHWSetup37XX, DefaultHWOptions37XX> {
 public:
     using Base = OptionsSetupBase<DefaultHWSetup37XX, DefaultHWOptions37XX>;
     using Base::Base;
 };
 
-class ReferenceSWSetup37XX : public OptionsSetupBase<ReferenceSWSetup37XX, DefaultHWOptions37XX> {
+class ReferenceSWSetup37XX final : public OptionsSetupBase<ReferenceSWSetup37XX, DefaultHWOptions37XX> {
 public:
     using Base = OptionsSetupBase<ReferenceSWSetup37XX, DefaultHWOptions37XX>;
     using Base::Base;
@@ -64,16 +63,38 @@ public:
     }
 };
 
-class WSInitSetup37XX : public WSInitSetupBase<WSInitSetup37XX, DefaultHWOptions37XX> {
+class WSInitSetup37XX final : public OptionsSetupBase<WSInitSetup37XX, DefaultHWOptions37XX> {
 public:
-    using Base = WSInitSetupBase<WSInitSetup37XX, DefaultHWOptions37XX>;
+    using Base = OptionsSetupBase<WSInitSetup37XX, DefaultHWOptions37XX>;
     using Base::Base;
+
+    static void setupLitTestOptionsImpl(DefaultHWOptions37XX& options, VPU::InitCompilerOptions& initCompilerOptions) {
+        setupWSInitOptionsCommon<DefaultHWOptions37XX>(options);
+        Base::setupLitTestOptionsImpl(options, initCompilerOptions);
+    }
+
+    static void setupOptionsImpl(DefaultHWOptions37XX& options, VPU::InitCompilerOptions& initCompilerOptions,
+                                 const intel_npu::Config& config) {
+        setupWSInitOptionsCommon<DefaultHWOptions37XX>(options);
+        Base::setupOptionsImpl(options, initCompilerOptions, config);
+    }
 };
 
-class WSMainSetup37XX : public WSMainSetupBase<WSMainSetup37XX, DefaultHWOptions37XX> {
+class WSMainSetup37XX final : public OptionsSetupBase<WSMainSetup37XX, DefaultHWOptions37XX> {
 public:
-    using Base = WSMainSetupBase<WSMainSetup37XX, DefaultHWOptions37XX>;
+    using Base = OptionsSetupBase<WSMainSetup37XX, DefaultHWOptions37XX>;
     using Base::Base;
+
+    static void setupLitTestOptionsImpl(DefaultHWOptions37XX& options, VPU::InitCompilerOptions& initCompilerOptions) {
+        setupWSMainOptionsCommon<DefaultHWOptions37XX>(options);
+        Base::setupLitTestOptionsImpl(options, initCompilerOptions);
+    }
+
+    static void setupOptionsImpl(DefaultHWOptions37XX& options, VPU::InitCompilerOptions& initCompilerOptions,
+                                 const intel_npu::Config& config) {
+        setupWSMainOptionsCommon<DefaultHWOptions37XX>(options);
+        Base::setupOptionsImpl(options, initCompilerOptions, config);
+    }
 };
 
 //
@@ -215,4 +236,16 @@ std::unique_ptr<IDialectPipelineStrategy> vpux::createDialectPipelineStrategy37X
         const VPU::InitCompilerOptions* initCompilerOptions, const DefaultHWOptions37XX* options) {
     auto wrapper = std::make_unique<ReferenceSWSetup37XX>(initCompilerOptions, options);
     return std::make_unique<DialectPipelineStrategy37XX<ReferenceSWSetup37XX>>(std::move(wrapper));
+}
+
+//
+// createOptionsDefaultHW [unit-tests]
+//
+
+template <>
+std::tuple<std::unique_ptr<VPU::InitCompilerOptions>, std::unique_ptr<DefaultHWOptions37XX>>
+vpux::createOptionsDefaultHW(const intel_npu::Config& config) {
+    // NOTE: DefaultHWSetup37XX is defined in this file which is why helper is called
+    auto defaultHWSetup = std::make_unique<DefaultHWSetup37XX>(config);
+    return createOptionsDefaultHWHelper<DefaultHWSetup37XX, DefaultHWOptions37XX>(std::move(defaultHWSetup));
 }

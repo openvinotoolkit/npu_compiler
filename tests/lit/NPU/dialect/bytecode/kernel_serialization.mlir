@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-translate --split-input-file --vpu-arch=%arch% --export-bytecode %s -o %t
+// RUN: vpux-translate --split-input-file --platform=%platform% --export-bytecode %s -o %t
 // RUN: bytecode_interpreter --path %t --mode print-full | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
 module {
 bytecode.kernel_section @kernel_section {

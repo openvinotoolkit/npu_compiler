@@ -22,7 +22,6 @@ include "vpux/compiler/dialect/ELF/ops_interfaces.td"
 include "vpux/compiler/dialect/VPUMI40XX/attributes.td"
 
 include "mlir/Dialect/Quant/IR/QuantBase.td"
-include "mlir/Interfaces/CopyOpInterface.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/ViewLikeInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
@@ -417,7 +416,6 @@ def VPUASM_ManagedMappedInferenceOp :
         `mappedInferenceVersion` `(` $mappedInferenceVersion `)`
         (`barrierConfigurationTasks` `(` $barrierConfigurationTasks^ `)`)?
         (`numOfBarrierReprogrammings` `(` $numOfBarrierReprogrammings^ `)`)?
-
         attr-dict
     }];
 }
@@ -439,10 +437,10 @@ def VPUASM_ConfigureBarrierOp :
         VPUASM_IndexTypeAttr:$task_index,
 
         OptionalAttr<VPUASM_IndexTypeAttr>:$work_item_idx,
-        UI8Attr:$id,
+        UI16Attr:$id,
         SI64Attr:$next_same_id,
-        UI8Attr:$producer_count,
-        UI8Attr:$consumer_count
+        UI16Attr:$producer_count,
+        UI16Attr:$consumer_count
     );
 
     let hasVerifier = 1;
@@ -505,10 +503,10 @@ def VPUASM_ManagedBarrierOp :
 
         OptionalAttr<VPUASM_IndexTypeAttr>:$work_item_idx,
         DefaultValuedAttr<UI32Attr, "0">:$work_item_count,
-        UI8Attr:$id,
+        UI16Attr:$id,
         SI64Attr:$next_same_id,
-        UI8Attr:$producer_count,
-        UI8Attr:$consumer_count
+        UI16Attr:$producer_count,
+        UI16Attr:$consumer_count
     );
 
     let hasVerifier = 1;
@@ -580,11 +578,12 @@ def VPUASM_NNDMAOp :
         OptionalAttr<SymbolRefAttr>:$next_link,
         SymbolRefAttr:$input,
         SymbolRefArrayAttr:$output_buffs,
-        UI8ArrayAttr:$waitBarriers,
-        UI8ArrayAttr:$updateBarriers,
+        UI16ArrayAttr:$waitBarriers,
+        UI16ArrayAttr:$updateBarriers,
         UI64Attr:$start_after,
         UI64Attr:$clean_after,
         DefaultValuedAttr<VPUIP_DMAAccModeAttr, "VPUIP::DMAAccMode::DISABLE">:$acceleration_mode,
+        OptionalAttr<VPUIP_DMAEncodingAlgoAttr>:$dma_encoding_algo,
         UnitProp:$is_out_of_order,
         UnitProp:$is_critical,
         UnitProp:$enable_msc,
@@ -796,6 +795,7 @@ def VPUASM_KernelParamsOp :
 
         UnitProp:$is_output_broadcasted,
         UnitProp:$isJitCompiled,
+        UnitProp:$uses_dma,
         OptionalAttr<ArrayAttr>:$skipDescIds,
         OptionalAttr<SymbolRefArrayAttr>:$releaseDesc
     );
@@ -818,6 +818,7 @@ def VPUASM_KernelParamsOp :
 
             "bool":$is_output_broadcasted,
             "bool":$isJitCompiled,
+            "bool":$uses_dma,
             "mlir::ArrayAttr":$skipDescIds
         )>
     ];
@@ -901,8 +902,8 @@ def VPUASM_ActKernelInvocationOp :
         SymbolRefAttr:$kernel_range,
         OptionalAttr<SymbolRefAttr>:$kernel_data,
         SymbolRefAttr:$kernel_params,
-        UI8ArrayAttr:$waitBarriers,
-        UI8ArrayAttr:$updateBarriers,
+        UI16ArrayAttr:$waitBarriers,
+        UI16ArrayAttr:$updateBarriers,
         OptionalAttr<SymbolRefAttr>:$profiling_data,
         DefaultValuedAttr<UI64Attr, "0">:$tile,
         UI64Attr:$start_after,
@@ -962,6 +963,7 @@ def VPUASM_DPUVariantOp :
         OptionalAttr<SymbolRefAttr>:$weight_table_sp_ptr,
         OptionalAttr<SymbolRefAttr>:$weight_table_scale,
         OptionalAttr<SymbolRefAttr>:$weight_table_bias,
+        OptionalAttr<SymbolRefAttr>:$weight_table_alpha,
         OptionalAttr<SymbolRefAttr>:$weight_zero_points,
 
         VPUIP_NCETaskTypeAttr:$nce_task_type,
@@ -994,6 +996,7 @@ def VPUASM_DPUVariantOp :
         (`weight_table_sp_ptr` `(` $weight_table_sp_ptr^ `)`)?
         (`weight_table_scale` `(` $weight_table_scale^ `)`)?
         (`weight_table_bias` `(` $weight_table_bias^ `)`)?
+        (`weight_table_alpha` `(` $weight_table_alpha^ `)`)?
         (`weight_zero_points` `(` $weight_zero_points^ `)`)?
         attr-dict
         prop-dict
@@ -1037,6 +1040,7 @@ def VPUASM_DPUInvariantOp :
         OptionalAttr<SymbolRefAttr>:$weight_table_sp_ptr,
         OptionalAttr<SymbolRefAttr>:$weight_table_scale,
         OptionalAttr<SymbolRefAttr>:$weight_table_bias,
+        OptionalAttr<SymbolRefAttr>:$weight_table_alpha,
         OptionalAttr<SymbolRefAttr>:$weight_zero_points,
 
         OptionalAttr<SymbolRefAttr>:$spr_lookup_table,
@@ -1054,8 +1058,8 @@ def VPUASM_DPUInvariantOp :
 
         OptionalAttr<VPUASM_BufferTypeAttr>:$output_type_continued,
 
-        UI8ArrayAttr:$waitBarriers,
-        UI8ArrayAttr:$updateBarriers,
+        UI16ArrayAttr:$waitBarriers,
+        UI16ArrayAttr:$updateBarriers,
 
         VPUIP_NCETaskTypeAttr:$nce_task_type,
         OptionalAttr<VPU_EltwiseTypeAttr>:$eltwise_type,
@@ -1113,6 +1117,7 @@ def VPUASM_DPUInvariantOp :
         (`weight_table_sp_ptr` `(` $weight_table_sp_ptr^ `)`)?
         (`weight_table_scale` `(` $weight_table_scale^ `)`)?
         (`weight_table_bias` `(` $weight_table_bias^ `)`)?
+        (`weight_table_alpha` `(` $weight_table_alpha^ `)`)?
         (`weight_zero_points` `(` $weight_zero_points^ `)`)?
         (`spr_lookup_table` `(` $spr_lookup_table^ `)`)?
         (`pallet_lookup_table` `(` $pallet_lookup_table^ `)`)?
@@ -1205,8 +1210,8 @@ def VPUASM_DPUInvariantOp_37XX :
 
         OptionalAttr<SymbolRefAttr>:$profiling_data,
 
-        UI8ArrayAttr:$waitBarriers,
-        UI8ArrayAttr:$updateBarriers,
+        UI16ArrayAttr:$waitBarriers,
+        UI16ArrayAttr:$updateBarriers,
 
         VPUIP_NCETaskTypeAttr:$nce_task_type,
         OptionalAttr<VPU_EltwiseTypeAttr>:$eltwise_type,

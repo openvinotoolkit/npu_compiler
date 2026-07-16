@@ -18,7 +18,7 @@
 
 #include <gtest/gtest.h>
 
-using vpux::config::ArchKind;
+using vpux::config::Platform;
 using namespace vpux;
 
 using MLIR_VPU_RT_SPARSITY_STATS_PROVIDER = vpux::VPU::arch37xx::UnitTest;
@@ -30,10 +30,10 @@ TEST_F(MLIR_VPU_RT_SPARSITY_STATS_PROVIDER, MissedStats) {
 #loc0 = loc(unknown)
     module @main {
         func.func @main(%arg0: tensor<1x16x16x16xf16, {order = #NHWC}>, %wt: tensor<16x1x1x4xsi32>, %weights: tensor<16x16x1x1xf16, {order = #NHWC}>) -> tensor<1x16x16x16xf16, {order = #NHWC}> {
-            %1 = VPU.NCE.Convolution(%arg0, %weights, %wt) {
+            %1 = VPU.NCE.Convolution(%arg0, %weights, %wt) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    rawFilterShape = [16, 16, 1, 1],
+                    
                     strides = [1, 1]
                 } : tensor<1x16x16x16xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x16x16xf16, {order = #NHWC}> loc(fused["Conv_1", "t_Convolution"])
 
@@ -48,7 +48,7 @@ TEST_F(MLIR_VPU_RT_SPARSITY_STATS_PROVIDER, MissedStats) {
     ASSERT_TRUE(func != nullptr);
 
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    auto initCompilerOptions = VPU::InitCompilerOptions(ArchKind::NPU37XX, config::CompilationMode::DefaultHW);
+    auto initCompilerOptions = VPU::InitCompilerOptions(Platform::NPU3720, config::CompilationMode::DefaultHW);
 
     VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
 
@@ -69,10 +69,10 @@ TEST_F(MLIR_VPU_RT_SPARSITY_STATS_PROVIDER, WithStats) {
 #loc0 = loc(unknown)
     module @main {
         func.func @main(%arg0: tensor<1x16x16x16xf16, {order = #NHWC}>, %wt: tensor<16x1x1x4xsi32>, %weights: tensor<16x16x1x1xf16, {order = #NHWC}>) -> (tensor<1x16x16x16xf16, {order = #NHWC}>, tensor<1x16x16x16xf16, {order = #NHWC}>) {
-        %1 = VPU.NCE.Convolution(%arg0, %weights, %wt) {
+        %1 = VPU.NCE.Convolution(%arg0, %weights, %wt) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                rawFilterShape = [16, 16, 1, 1],
+                
                 strides = [1, 1]
             } : tensor<1x16x16x16xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x16x16xf16, {order = #NHWC}> loc(fused["Conv_100", "t_Convolution"])
         %2 = VPU.NCE.Eltwise(%1, %1) {
@@ -106,7 +106,7 @@ TEST_F(MLIR_VPU_RT_SPARSITY_STATS_PROVIDER, WithStats) {
     ASSERT_TRUE(func != nullptr);
 
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    auto initCompilerOptions = VPU::InitCompilerOptions(ArchKind::NPU37XX, config::CompilationMode::DefaultHW);
+    auto initCompilerOptions = VPU::InitCompilerOptions(Platform::NPU3720, config::CompilationMode::DefaultHW);
 
     VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
 

@@ -17,6 +17,10 @@
 
 #include <llvm/ADT/TypeSwitch.h>
 #include <mlir/Dialect/Quant/IR/QuantTypes.h>
+
+#include <algorithm>
+#include <cstring>
+#include <limits>
 #include <numeric>
 
 using namespace vpux;
@@ -513,6 +517,26 @@ std::pair<optimization::TransformAttrPos, bool> swapTransformations(optimization
     return {prevIt, true};
 }
 
+size_t computePermutedOutMemIndex1D(size_t inMemInd1D, ArrayRef<int64_t> inMemShape,
+                                    ArrayRef<size_t> inDimToOutStride) {
+    size_t outMemInd1D = 0;
+    size_t tmp = inMemInd1D;
+
+    // Iterate with a decrementing size_t index: d is non-negative inside the loop body by
+    // construction (the post-decrement wraps past zero only after the last iteration when the
+    // loop condition is re-evaluated, at which point the body is never entered again). This
+    // avoids a checked_cast<size_t> for the dim index and removes the intermediate dimIdx variable from the hot path.
+    for (size_t d = inMemShape.size(); d-- > 0;) {
+        const auto dimSize = checked_cast<size_t>(inMemShape[d]);
+        const auto coord = tmp % dimSize;
+        tmp /= dimSize;
+
+        outMemInd1D += coord * inDimToOutStride[d];
+    }
+
+    return outMemInd1D;
+}
+
 }  // namespace
 
 //
@@ -672,6 +696,8 @@ std::pair<optimization::TransformAttrPos, bool> foldTransformation(
 // MoveSubViewBefore
 //
 
+Const::TransformAttrInterface moveSubViewIntoConcat(Const::ConcatAttr concatAttr, Const::SubViewAttr subViewAttr);
+
 std::pair<optimization::TransformAttrPos, bool> moveSubViewBefore(
         SmallVector<Const::TransformAttrInterface>& transformations, optimization::TransformAttrPos& currPos,
         NDTypeInterface baseType) {
@@ -686,7 +712,7 @@ std::pair<optimization::TransformAttrPos, bool> moveSubViewBefore(
         !mlir::isa<Const::AddAttr, Const::RescaleAttr, Const::CastElemTypeAttr, Const::DequantizeAttr,
                    Const::ReorderAttr, Const::MemPermuteAttr, Const::ConvertElemTypeAttr, Const::TransposeAttr,
                    Const::ReshapeAttr, Const::ChangeShapeAndElemTypeAttr, Const::RelocateWeightsTableAttr,
-                   Const::PadWithZeroAttr, Const::AffineReshapeAttr>(prevTransformation)) {
+                   Const::PadWithZeroAttr, Const::AffineReshapeAttr, Const::ConcatAttr>(prevTransformation)) {
         return {currPos, false};
     }
 
@@ -749,6 +775,16 @@ std::pair<optimization::TransformAttrPos, bool> moveSubViewBefore(
                             return std::pair<optimization::TransformAttrPos, bool>{currPos, false};
                         }
                         return swapTransformations(currPos - 1, currPos);
+                    })
+                    .Case<Const::ConcatAttr>([&](Const::ConcatAttr concatAttr) {
+                        auto subViewAttr = mlir::cast<Const::SubViewAttr>(currTransformation);
+                        auto replacement = moveSubViewIntoConcat(concatAttr, subViewAttr);
+                        if (replacement == nullptr) {
+                            return std::pair<optimization::TransformAttrPos, bool>{currPos, false};
+                        }
+                        auto insertPos = transformations.erase(currPos - 1, currPos + 1);
+                        insertPos = transformations.insert(insertPos, replacement);
+                        return std::pair<optimization::TransformAttrPos, bool>{insertPos, true};
                     })
                     .Default([&](Const::TransformAttrInterface /*transformation*/) {
                         return std::pair<optimization::TransformAttrPos, bool>{currPos, false};
@@ -1137,6 +1173,73 @@ mlir::FailureOr<Const::FuseWeightsAttr> moveSubViewIntoFuse(Const::FuseWeightsAt
 }
 
 //
+// moveSubViewIntoConcat
+//
+
+// Decomposes a SubView on a ConcatAttr output into per-input SubViews by computing the
+// intersection of the SubView region with each input's region. Inputs that do not overlap
+// are dropped; inputs that partially overlap get a smaller SubView. Returns a new ConcatAttr
+// with adjusted inputs, or nullptr if no input overlaps.
+Const::TransformAttrInterface moveSubViewIntoConcat(Const::ConcatAttr concatAttr, Const::SubViewAttr subViewAttr) {
+    auto offsets = parseIntArrayOfArrayAttr<int64_t>(concatAttr.getStaticOffsets());
+    auto subViewOffset = parseIntArrayAttr<int64_t>(subViewAttr.getOffset());
+    auto subViewShape = parseIntArrayAttr<int64_t>(subViewAttr.getShape());
+    auto constants = concatAttr.getConstants();
+    const auto rank = static_cast<int64_t>(subViewOffset.size());
+
+    auto* ctx = concatAttr.getContext();
+    std::vector<Const::ContentAttr> newInputContents;
+    SmallVector<SmallVector<int64_t>> newOffsets;
+
+    for (size_t i = 0; i < constants.size(); ++i) {
+        auto inputShape = constants[i].getType().getShape().raw();
+
+        // Compute intersection of SubView with this input's region along each dimension.
+        // An input contributes only if there is overlap in ALL dimensions (hyperrectangle intersection).
+        // TODO: Extract into a shared utility similar to VPUIP::getOverlappedShape in VPUIP/utils/utils.cpp.
+        SmallVector<int64_t> localOffset(rank);
+        SmallVector<int64_t> localShape(rank);
+        SmallVector<int64_t> newInputOffset(rank, 0);
+        bool hasOverlap = true;
+
+        for (int64_t d = 0; d < rank; ++d) {
+            const auto inputBegin = offsets[i][d];
+            const auto inputEnd = inputBegin + inputShape[d];
+            const auto svBegin = subViewOffset[d];
+            const auto svEnd = svBegin + subViewShape[d];
+
+            const auto overlapBegin = std::max(svBegin, inputBegin);
+            const auto overlapEnd = std::min(svEnd, inputEnd);
+
+            if (overlapBegin >= overlapEnd) {
+                hasOverlap = false;
+                break;
+            }
+
+            localOffset[d] = overlapBegin - inputBegin;
+            localShape[d] = overlapEnd - overlapBegin;
+            newInputOffset[d] = overlapBegin - svBegin;
+        }
+
+        if (!hasOverlap) {
+            continue;
+        }
+
+        auto newContent = constants[i].transform().subview(ShapeRef(localOffset), ShapeRef(localShape)).get();
+        newInputContents.push_back(newContent);
+        newOffsets.push_back(newInputOffset);
+    }
+
+    if (newInputContents.empty()) {
+        return nullptr;
+    }
+
+    auto newStaticOffsets = getIntArrayOfArray(ctx, ArrayRef(newOffsets));
+    auto axisAttr = concatAttr.getAxis();
+    return Const::ConcatAttr::get(ctx, axisAttr, newStaticOffsets, Const::ContentArrayAttr::get(ctx, newInputContents));
+}
+
+//
 // moveTransformationIntoFuse
 //
 
@@ -1219,7 +1322,8 @@ Const::Content Const::details::memPermuteTransformation(vpux::Const::Content& in
     VPUX_THROW_UNLESS(inOrder.numDims() == permOrder.numDims(), "Can't reorder from '{0}' to '{1}'", inOrder,
                       permOrder);
 
-    auto inMemShape = inOrder.toMemoryOrder(input.getType().getShape());
+    const auto inShape = input.getType().getShape();
+    const auto inMemShape = inOrder.toMemoryOrder(inShape);
     if (input.isSplat() || isTrivialPermute(inMemShape, memPerm)) {
         return Const::Content::moveBuffer(outType, std::move(input));
     } else {
@@ -1229,11 +1333,9 @@ Const::Content Const::details::memPermuteTransformation(vpux::Const::Content& in
         VPUX_THROW_UNLESS(outBuf.size() == inBuf.size(), "Storage buffer size mismatch in 'memPermuteTransformation'");
 
         const Byte elemSize = getElemTypeSize(input.getStorageElemType());
-        const auto inShape = input.getType().getShape();
-        const auto inMemShape = inOrder.toMemoryOrder(inShape);
 
         // Check capability to use specific solution. Most transforms are between NCHW and NHWC layouts, so they
-        // implemented separatly
+        // are implemented separately.
         // Note: For inOrder NHWC, the permutation (inMemShape, memPerm) is trivial, so couldn't test the case
         if (Const::details::isOptimizedTransformationSupported(input, outType, permOrder)) {
             Const::details::memPermuteTransformationOptimized(input, output);
@@ -1241,24 +1343,93 @@ Const::Content Const::details::memPermuteTransformation(vpux::Const::Content& in
             // Use generic algorithm
             const auto outShape = outType.getShape();
             const auto outMemShape = outOrder.toMemoryOrder(outShape);
+            const auto numDims = inMemShape.size();
+            const auto numElements = input.getType().getNumElements();
+            const auto numElementsVal = checked_cast<size_t>(numElements);
+            const auto elemSizeBytes = checked_cast<size_t>(elemSize.count());
 
-            loop_1d(LoopExecPolicy::Parallel, memPerm.getContext(), input.getType().getNumElements(),
-                    [&](int64_t inMemInd1D) {
-                        const auto inMemIndND = getMemIndexND(inMemInd1D, inMemShape);
-                        const auto outMemIndND = permOrder.toMemoryOrder(ShapeRef(inMemIndND.raw()));
-                        const auto outMemInd1D = getMemIndex1D(outMemIndND, outMemShape);
+            VPUX_THROW_UNLESS(elemSizeBytes > 0, "Generic memPermute expects element size greater than zero");
 
-                        const auto inMemRawInd = checked_cast<size_t>(inMemInd1D * elemSize.count());
-                        VPUX_THROW_UNLESS(inMemRawInd < inBuf.size(),
-                                          "Out-of-bound access in 'memPermuteTransformation'");
+            const auto inBufMatchesNumElements =
+                    (inBuf.size() % elemSizeBytes == 0) && (inBuf.size() / elemSizeBytes == numElementsVal);
+            const auto outBufMatchesNumElements =
+                    (outBuf.size() % elemSizeBytes == 0) && (outBuf.size() / elemSizeBytes == numElementsVal);
 
-                        const auto outMemRawInd = checked_cast<size_t>(outMemInd1D * elemSize.count());
-                        VPUX_THROW_UNLESS(outMemRawInd < outBuf.size(),
-                                          "Out-of-bound access in 'memPermuteTransformation'");
+            VPUX_THROW_UNLESS(inBufMatchesNumElements && outBufMatchesNumElements,
+                              "Generic memPermute expects buffers sized for exactly {0} elements x {1} bytes, but "
+                              "got input {2} and output {3}",
+                              numElements, elemSizeBytes, inBuf.size(), outBuf.size());
 
-                        std::copy_n(inBuf.data() + inMemRawInd, checked_cast<size_t>(elemSize.count()),
-                                    outBuf.data() + outMemRawInd);
-                    });
+            // Precompute row-major strides for output memory shape.
+            SmallVector<size_t> outStrides(numDims, 1);
+            size_t stride = 1;
+            for (int64_t d = checked_cast<int64_t>(numDims) - 1; d >= 0; --d) {
+                outStrides[checked_cast<size_t>(d)] = stride;
+                const auto dimSize = checked_cast<size_t>(outMemShape[MemDim(checked_cast<size_t>(d))]);
+                VPUX_THROW_UNLESS(dimSize == 0 || stride <= std::numeric_limits<size_t>::max() / dimSize,
+                                  "Generic memPermute output stride overflow: {0} * {1}", stride, dimSize);
+                stride *= dimSize;
+            }
+
+            VPUX_THROW_UNLESS(stride == numElementsVal,
+                              "Generic memPermute expects output memory shape to cover {0} elements, got {1}",
+                              numElements, stride);
+
+            // Map input memory dimension -> output stride using memPerm.
+            SmallVector<size_t> inDimToOutStride(numDims, 0);
+            for (size_t outDim = 0; outDim < numDims; ++outDim) {
+                const auto inDim = permOrder.dimAt(outDim).ind();
+                inDimToOutStride[checked_cast<size_t>(inDim)] = outStrides[outDim];
+            }
+
+            // Validate once (outside the per-element loop) that index arithmetic is representable.
+            size_t maxOutMemInd1D = 0;
+            for (size_t inDim = 0; inDim < numDims; ++inDim) {
+                const auto dimSize = checked_cast<size_t>(inMemShape[MemDim(inDim)]);
+                VPUX_THROW_UNLESS(dimSize > 0 || numElementsVal == 0,
+                                  "Generic memPermute expects positive dimensions for non-empty tensors, got dim {0} "
+                                  "size {1} with {2} elements",
+                                  inDim, dimSize, numElementsVal);
+                if (dimSize == 0) {
+                    continue;
+                }
+
+                const auto maxCoord = dimSize - 1;
+                const auto outStride = inDimToOutStride[inDim];
+                VPUX_THROW_UNLESS(maxCoord == 0 || outStride <= std::numeric_limits<size_t>::max() / maxCoord,
+                                  "Generic memPermute index overflow in maxCoord ({0}) * outStride ({1})", maxCoord,
+                                  outStride);
+
+                const auto contrib = maxCoord * outStride;
+                VPUX_THROW_UNLESS(maxOutMemInd1D <= std::numeric_limits<size_t>::max() - contrib,
+                                  "Generic memPermute index overflow in accumulation ({0} + {1})", maxOutMemInd1D,
+                                  contrib);
+                maxOutMemInd1D += contrib;
+            }
+
+            if (numElementsVal > 0) {
+                VPUX_THROW_UNLESS(maxOutMemInd1D + 1 == numElementsVal,
+                                  "Generic memPermute expected max output index {0} to match element count {1}",
+                                  maxOutMemInd1D, numElementsVal);
+            }
+
+            // Buffer size checks above already guarantee that for every index in [0, numElementsVal),
+            // byte offsets computed as index * elemSizeBytes stay within input and output buffers.
+
+            loop_1d(LoopExecPolicy::Parallel, memPerm.getContext(), numElements, [&](int64_t inMemInd1D) {
+                // Equivalent to getMemIndexND + permute + getMemIndex1D.
+                // Benefit: keep the per-element path lean by reusing precomputed stride mapping
+                // (`inDimToOutStride`) and avoiding extra helper-chain calls that construct
+                // temporary ND index containers in the hot parallel loop.
+                const auto inMemInd1DVal = checked_cast<size_t>(inMemInd1D);
+                const auto outMemInd1D =
+                        computePermutedOutMemIndex1D(inMemInd1DVal, inMemShape.raw(), inDimToOutStride);
+
+                const auto inMemRawInd = inMemInd1DVal * elemSizeBytes;
+                const auto outMemRawInd = outMemInd1D * elemSizeBytes;
+
+                std::memcpy(outBuf.data() + outMemRawInd, inBuf.data() + inMemRawInd, elemSizeBytes);
+            });
         }
         return output;
     }

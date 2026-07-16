@@ -31,11 +31,11 @@ const static llvm::StringLiteral inputIRSOK = R"(
         func.func @main(%arg0: tensor<1x128x32x32xf16, {order = #NHWC}>) -> tensor<1x64x32x32xf16, {order = #NHWC}> {
             %cst = const.Declare tensor<64x1x1x4xsi32> = dense<10> : tensor<64x1x1x4xsi32>
             %cst_0 = const.Declare tensor<64x128x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<64x128x1x1xf16>, [#const.Reorder<#NHWC>]
-            %0 = VPU.NCE.Convolution(%arg0, %cst_0, %cst) {
+            %0 = VPU.NCE.Convolution(%arg0, %cst_0, %cst) rawFilterShape [64, 128, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
                 ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                rawFilterShape = [64, 128, 1, 1], strides = [1, 1]} : tensor<1x128x32x32xf16, {order = #NHWC}>, tensor<64x128x1x1xf16, {order = #NHWC}>, tensor<64x1x1x4xsi32>
+                 strides = [1, 1]} : tensor<1x128x32x32xf16, {order = #NHWC}>, tensor<64x128x1x1xf16, {order = #NHWC}>, tensor<64x1x1x4xsi32>
                 -> tensor<1x64x32x32xf16, {order = #NHWC}>
             return %0 : tensor<1x64x32x32xf16, {order = #NHWC}>
         }
@@ -47,23 +47,24 @@ const static llvm::StringLiteral inputIRClustering = R"(
         func.func @main(%arg0: tensor<1x128x32x32xf16, {order = #NHWC}>) -> tensor<1x64x32x32xf16, {order = #NHWC}> {
             %cst = const.Declare tensor<64x1x1x4xsi32> = dense<10> : tensor<64x1x1x4xsi32>
             %cst_0 = const.Declare tensor<64x128x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<64x128x1x1xf16>, [#const.Reorder<#NHWC>]
-            %0 = VPU.NCE.Convolution(%arg0, %cst_0, %cst) {
+            %0 = VPU.NCE.Convolution(%arg0, %cst_0, %cst) rawFilterShape [64, 128, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>,
                 ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                rawFilterShape = [64, 128, 1, 1], strides = [1, 1]} : tensor<1x128x32x32xf16, {order = #NHWC}>, tensor<64x128x1x1xf16, {order = #NHWC}>, tensor<64x1x1x4xsi32>
+                 strides = [1, 1]} : tensor<1x128x32x32xf16, {order = #NHWC}>, tensor<64x128x1x1xf16, {order = #NHWC}>, tensor<64x1x1x4xsi32>
                 -> tensor<1x64x32x32xf16, {order = #NHWC}>
             return %0 : tensor<1x64x32x32xf16, {order = #NHWC}>
         }
 })";
 
 TEST_F(MLIR_PreSplitCostTest, SamePreSplitCostForSOK) {
-    const auto arch = config::ArchKind::NPU40XX;
+    const auto platform = config::Platform::NPU4000;
+    const auto arch = config::getArch(platform);
     auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIRSOK, &ctx);
     ASSERT_TRUE(module.get() != nullptr);
 
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    auto initCompilerOptions = VPU::InitCompilerOptions(arch, config::CompilationMode::DefaultHW);
+    auto initCompilerOptions = VPU::InitCompilerOptions(platform, config::CompilationMode::DefaultHW);
     VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
     ASSERT_TRUE(mlir::succeeded(pm.run(module.get())));
 
@@ -106,12 +107,13 @@ TEST_F(MLIR_PreSplitCostTest, SamePreSplitCostForSOK) {
 }
 
 TEST_F(MLIR_PreSplitCostTest, SamePreSplitCostForClustering) {
-    const auto arch = config::ArchKind::NPU40XX;
+    const auto platform = config::Platform::NPU4000;
+    const auto arch = config::getArch(platform);
     auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIRClustering, &ctx);
     ASSERT_TRUE(module.get() != nullptr);
 
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    auto initCompilerOptions = VPU::InitCompilerOptions(arch, config::CompilationMode::DefaultHW);
+    auto initCompilerOptions = VPU::InitCompilerOptions(platform, config::CompilationMode::DefaultHW);
     VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
     ASSERT_TRUE(mlir::succeeded(pm.run(module.get())));
 

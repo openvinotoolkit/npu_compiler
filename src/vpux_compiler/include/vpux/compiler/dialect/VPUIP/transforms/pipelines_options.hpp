@@ -18,18 +18,6 @@ struct OptimizeCopiesOptionsBase : mlir::PassPipelineOptions<OptimizeCopiesOptio
     BoolOption enableOpsAsDMA{*this, "enable-ops-as-dma",
                               llvm::cl::desc("Force using DMA transformations instead of SW ops"),
                               llvm::cl::init(true)};
-    PassOptions::Option<WorkloadManagementMode> workloadManagementMode{
-            *this, "workload-management-mode",
-            ::llvm::cl::desc("Option for enabling WLM enqueue barriers search algorithm at VPURT. To be used only for "
-                             "experiments."),
-            ::llvm::cl::init(WorkloadManagementMode::PWLM_V0_1_PAGES),
-            ::llvm::cl::values(
-                    clEnumValN(WorkloadManagementMode::PWLM_V0_1_PAGES, "PWLM_V0_1_PAGES",
-                               "PWLM with split into subgraphs (pages)"),
-                    clEnumValN(WorkloadManagementMode::PWLM_V0_1_PAGES, "PWLM_V0_LCA",
-                               "This is a deprecated WLM mode which is no longer supported. The option is kept for "
-                               "backwards compatibility only and the mode redirects to PWLM_V0_1_PAGES mode, which has "
-                               "the same vpu-fw compatibility but offers numerous stability improvements."))};
 
     template <class OtherOptions>
     explicit OptimizeCopiesOptionsBase(const OtherOptions& options) {
@@ -64,6 +52,12 @@ struct MemoryAllocationOptionsBase : mlir::PassPipelineOptions<MemoryAllocationO
     BoolOption enableMultiScheduleHeuristic{
             *this, "enable-multi-schedule-heuristic",
             ::llvm::cl::desc("Enables compiler to schedule with different heuristic logics and compare costs"),
+            ::llvm::cl::init(false)};
+
+    BoolOption enableVfUndefinedScheduler{
+            *this, "enable-vf-undefined-scheduler",
+            ::llvm::cl::desc("Route VF regions through UndefinedVF (currently returns an empty schedule and falls back "
+                             "to the legacy VF allocation path)"),
             ::llvm::cl::init(false)};
 
     BoolOption enablePrintStatistics{*this, "enable-print-statistics", ::llvm::cl::desc("Enable print statistics"),

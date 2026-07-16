@@ -11,12 +11,12 @@
 
 // CHECK-LABEL: func.func @CompressWeightsDuplicated
 func.func @CompressWeightsDuplicated() -> !VPUIP.DistributedBuffer<64x16x7x7x!qElemType, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}> {
-  %cst = const.Declare memref<64x16x7x7x!qElemType, #NHWC> = dense<1> : tensor<64x16x7x7xui8>, [#const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
+  %cst = const.Declare memref<64x16x7x7x!qElemType, {order = #NHWC}> = dense<1> : tensor<64x16x7x7xui8>, [#const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
   %0 = VPURT.DeclareBuffer <CMX_NN> <1605632> -> !VPUIP.DistributedBuffer<64x16x7x7x!qElemType, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
 
   VPURT.Task attributes {isTrailingSWLayer = false} {
     %609 = VPUIP.NNDMA
-      inputs(%cst : memref<64x16x7x7x!qElemType, #NHWC>)
+      inputs(%cst : memref<64x16x7x7x!qElemType, {order = #NHWC}>)
       outputs(%0 : !VPUIP.DistributedBuffer<64x16x7x7x!qElemType, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>)
       -> !VPUIP.DistributedBuffer<64x16x7x7x!qElemType, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
   }
@@ -54,11 +54,11 @@ func.func @CompressWeightsDuplicated() -> !VPUIP.DistributedBuffer<64x16x7x7x!qE
 
 // CHECK-LABEL: func.func @CompressWeightsDuplicatedWithExplicitDistribution
 func.func @CompressWeightsDuplicatedWithExplicitDistribution() -> !DistributedBuffer {
-  %cst = const.Declare memref<64x16x7x7x!qElemType, #NHWC> = dense<1> : tensor<64x16x7x7xui8>, [#const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
+  %cst = const.Declare memref<64x16x7x7x!qElemType, {order = #NHWC}> = dense<1> : tensor<64x16x7x7xui8>, [#const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
   %0 = VPURT.DeclareBuffer <CMX_NN> <1605632> -> !DistributedBuffer
 
   VPURT.Task attributes {isTrailingSWLayer = false} {
-    %609 = VPUIP.NNDMA inputs(%cst : memref<64x16x7x7x!qElemType, #NHWC>) outputs(%0 : !DistributedBuffer)
+    %609 = VPUIP.NNDMA inputs(%cst : memref<64x16x7x7x!qElemType, {order = #NHWC}>) outputs(%0 : !DistributedBuffer)
       -> !DistributedBuffer
   }
 

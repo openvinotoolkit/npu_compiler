@@ -12,6 +12,10 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ROIAlignLayerTest);
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ROIAlignV9LayerTest);
+
 class ROIAlignV9LayerTestCommon : public ROIAlignV9LayerTest, virtual public VpuOv2LayerTest {
     void generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) override {
         VpuOv2LayerTest::inputs.clear();

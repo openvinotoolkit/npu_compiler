@@ -881,6 +881,19 @@ bool SubgraphOptimizer::hasOutputSpillingToMultiClusterLayer(VPU::ClusteredOpInt
     if (!propagateShapeCast) {
         // Infer and pass CastOp
         while (auto castOp = mlir::dyn_cast_or_null<VPU::DistributedCastOpInterface>(userOp)) {
+            // Because copy optimization does not yet support 5D affine reshape, return true here to calculate the
+            // spilling cost of this case and make the right decision. After copy optimization supports 5D affine
+            // reshape, we can remove this check and let the algorithm to make the decision.
+            if (auto affineReshapeOp = mlir::dyn_cast<VPU::AffineReshapeOp>(userOp)) {
+                const auto inShape = mlir::cast<vpux::NDTypeInterface>(affineReshapeOp.getInput().getType()).getShape();
+                const auto outShape =
+                        mlir::cast<vpux::NDTypeInterface>(affineReshapeOp.getOutput().getType()).getShape();
+                // Check both original and new shape are 4D
+                if (inShape.size() != outShape.size() || inShape.size() != 4) {
+                    return true;
+                }
+            }
+
             if (VPU::hasMultiBranches(userOp)) {
                 break;
             }
@@ -1438,6 +1451,31 @@ void SubgraphOptimizer::optimizeStrategyAvoidSpillingOnModel() {
     };
     _func.walk(callbackForHK);
 
+    // DUPLICATED output type is beneficial for removing DMAs between MaxPool/Multiply and scale table.
+    // The scale size tends to be relatively small, so it is better to set
+    // it Clustering rather than SOK/HKSwitch to avoid generating more DMA fragmentation
+    const auto callbackForNCEOpAsConvScale = [this](VPU::ClusteredOpInterface clusteredOp) {
+        if (!vpux::VPU::isNCEOpUsedAsConvScale(clusteredOp.getOperation())) {
+            return;
+        }
+
+        const auto currentStrategy = clusteredOp.getMultiClusterStrategy();
+        if (currentStrategy.has_value() && currentStrategy.value() == VPU::MultiClusterStrategy::Clustering) {
+            return;
+        }
+
+        if (!isValidStrategy(clusteredOp, VPU::MultiClusterStrategy::Clustering)) {
+            _log.trace("Skip converting strategy to Clustering for op {0} at {1}: strategy is not valid",
+                       clusteredOp->getName(), clusteredOp->getLoc());
+            return;
+        }
+
+        _log.trace("Converting strategy from {0} to Clustering for convolution weight table scale at {1}",
+                   currentStrategy, clusteredOp->getLoc());
+        clusteredOp.setMultiClusterStrategy(VPU::MultiClusterStrategy::Clustering);
+    };
+    _func.walk(callbackForNCEOpAsConvScale);
+
     const auto clusteringOptimizationCallBack = [this](VPU::ClusteredOpInterface clusteredOp) {
         removeClusteringStrategyAvoidSpillingOnSubgraph(clusteredOp);
     };
@@ -1478,6 +1516,31 @@ void SubgraphOptimizer::optimizeStrategyPairsOnModel() {
         }
     };
     _func.walk(callbackToSetHK);
+
+    // DUPLICATED output type is beneficial for removing DMAs between MaxPool/Multiply and scale table.
+    // The scale size tends to be relatively small, so it is better to set
+    // it Clustering rather than SOK/HKSwitch to avoid generating more DMA fragmentation
+    const auto callbackForNCEOpAsConvScale = [this](VPU::ClusteredOpInterface clusteredOp) {
+        if (!vpux::VPU::isNCEOpUsedAsConvScale(clusteredOp.getOperation())) {
+            return;
+        }
+
+        const auto currentStrategy = clusteredOp.getMultiClusterStrategy();
+        if (currentStrategy.has_value() && currentStrategy.value() == VPU::MultiClusterStrategy::Clustering) {
+            return;
+        }
+
+        if (!isValidStrategy(clusteredOp, VPU::MultiClusterStrategy::Clustering)) {
+            _log.trace("Skip converting strategy to Clustering for op {0} at {1}: strategy is not valid",
+                       clusteredOp->getName(), clusteredOp->getLoc());
+            return;
+        }
+
+        _log.trace("Converting strategy from {0} to Clustering for convolution weight table scale at {1}",
+                   currentStrategy, clusteredOp->getLoc());
+        clusteredOp.setMultiClusterStrategy(VPU::MultiClusterStrategy::Clustering);
+    };
+    _func.walk(callbackForNCEOpAsConvScale);
 
     // TODO will no longer be needed after #E-193566
     const auto clusteringOptimizationCallBack = [this](VPU::ClusteredOpInterface clusteredOp) {

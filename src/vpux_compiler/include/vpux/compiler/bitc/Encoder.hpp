@@ -20,7 +20,7 @@ namespace vpux::bitc {
 class Encoder {
 public:
     Encoder();
-    void encode(const BitCompactorConfig& config, const std::vector<uint8_t>& in, std::vector<uint8_t>& out);
+    bool encode(const BitCompactorConfig& config, const std::vector<uint8_t>& in, std::vector<uint8_t>& out);
     ~Encoder();
 
 private:

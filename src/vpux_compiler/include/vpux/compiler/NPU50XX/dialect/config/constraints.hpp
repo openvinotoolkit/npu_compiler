@@ -15,6 +15,8 @@ namespace arch50xx {
 constexpr uint32_t FREQ_BASE = 1000;
 // Step of frequency for each entry in tables (in MHz).
 constexpr uint32_t FREQ_STEP = 250;
+// Maximum kernel size supported by the target DPU.
+constexpr uint32_t DPU_MAX_KERNEL_SIZE = 15;
 
 }  // namespace arch50xx
 }  // namespace vpux

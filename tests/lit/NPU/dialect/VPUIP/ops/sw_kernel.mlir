@@ -7,7 +7,7 @@
 // REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
 #NWHC = affine_map<(d0, d1, d2, d3) -> (d0, d3, d2, d1)>
-!MemRef1 = memref<1x128x64x32xf16, #NWHC>
+!MemRef1 = memref<1x128x64x32xf16, {order = #NWHC}>
 !Distributed0 = !VPUIP.DistributedBuffer<1x128x64x32xf16, #NWHC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
 !Distributed1 = !VPUIP.DistributedBuffer<1x64x64x32xf16, {order = #NWHC, strides = [262144, 1, 128, 8192]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
 !Distributed2 = !VPUIP.DistributedBuffer<1x62x64x32xf16, {order = #NWHC, strides = [262144, 1, 128, 8192]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
@@ -15,8 +15,8 @@
 !MemRef2 = memref<1x62x64x32xf16, {order = #NWHC, strides = [262144, 1, 128, 8192]}, @CMX_NN>
 
 module @VPU.SW {
-func.func private @builtin_MVN(!Distributed1, !Distributed2, !Distributed1, !Distributed2) attributes {VPU.kernel_code = "mvn1.cpp", VPU.kernel_entry = "mvn1"}
-func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+func.func nested @builtin_MVN(!Distributed1, !Distributed2, !Distributed1, !Distributed2) attributes {VPU.kernel_code = "mvn1.cpp", VPU.kernel_entry = "mvn1"}
+func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
 func.func @ParsePrintDistributedBuffer(%arg0: !MemRef1) -> !MemRef1 {
@@ -68,7 +68,7 @@ func.func @ParsePrintDistributedBuffer(%arg0: !MemRef1) -> !MemRef1 {
 
 module {
   module @VPU.SW {
-    func.func private @builtin_dummy(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "dummy.cpp", VPU.kernel_entry = "dummy"}
+    func.func nested @builtin_dummy(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "dummy.cpp", VPU.kernel_entry = "dummy"}
   }
   // CHECK-LABEL: @UseBoundedBufferAsSWKernelInput
   func.func @UseBoundedBufferAsSWKernelInput() -> !VPUIP.BoundedBuffer<data=memref<1x8x384x384xf16>, dynamic_shape=memref<4xsi32>> {
@@ -110,7 +110,7 @@ module {
 
 module {
   module @VPU.SW {
-    func.func private @builtin_dummy(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "dummy.cpp", VPU.kernel_entry = "dummy"}
+    func.func nested @builtin_dummy(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "dummy.cpp", VPU.kernel_entry = "dummy"}
   }
   // CHECK-LABEL: @SWKernelDynamicInputs
   func.func @SWKernelDynamicInputs() -> (memref<1x8x384x384xf16>, memref<4xsi32>) {

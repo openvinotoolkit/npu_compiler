@@ -9,8 +9,8 @@
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 !qElemType = !quant.uniform<u8:f16, 0.0173492431640625:114>
-!Input_DDR = memref<1x3x224x224x!qElemType, #NCHW, @DDR>
-!Output_DDR = memref<1x6x224x224x!qElemType, #NCHW, @DDR>
+!Input_DDR = memref<1x3x224x224x!qElemType, @DDR>
+!Output_DDR = memref<1x6x224x224x!qElemType, @DDR>
 
 //CHECK-LABEL: @AddFinalBarrier
 func.func @AddFinalBarrier() -> !Output_DDR {
@@ -44,7 +44,7 @@ func.func @AddFinalBarrier() -> !Output_DDR {
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 !qElemType = !quant.uniform<u8:f16, 0.0173492431640625:114>
-!DDRType = memref<1x3x224x224x!qElemType, #NCHW, @DDR>
+!DDRType = memref<1x3x224x224x!qElemType, @DDR>
 
 //CHECK-LABEL: @AddFinalBarrierWithoutOtherBarrier
 func.func @AddFinalBarrierWithoutOtherBarrier() -> !DDRType {
@@ -65,8 +65,8 @@ func.func @AddFinalBarrierWithoutOtherBarrier() -> !DDRType {
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 !qElemType = !quant.uniform<u8:f16, 0.0173492431640625:114>
-!Input_DDR = memref<1x3x224x224x!qElemType, #NCHW, @DDR>
-!Output_DDR = memref<1x6x224x224x!qElemType, #NCHW, @DDR>
+!Input_DDR = memref<1x3x224x224x!qElemType, @DDR>
+!Output_DDR = memref<1x6x224x224x!qElemType, @DDR>
 
 //CHECK-LABEL: @AssignFinalBarrierInsteadOfCreatingOne
 func.func @AssignFinalBarrierInsteadOfCreatingOne() -> !Output_DDR {

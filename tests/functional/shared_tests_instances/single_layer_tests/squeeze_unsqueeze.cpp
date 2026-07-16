@@ -8,6 +8,10 @@
 
 namespace ov {
 namespace test {
+
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(SqueezeUnsqueezeLayerTest);
+
 class SqueezeUnsqueezeLayerTestCommon : public SqueezeUnsqueezeLayerTest, virtual public VpuOv2LayerTest {
 protected:
     ov::test::utils::SkipCallback skipCompilationCallback = [this](std::stringstream& str) {

@@ -26,7 +26,7 @@ def VPU_ConvertOp :
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "Convert VPU layer";
@@ -69,7 +69,8 @@ def VPU_DequantizeOp :
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, [
                     "isOperationSplitOverKernelCompatible",]>,
-                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>
+                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "Dequantize VPU layer";
@@ -114,22 +115,26 @@ def VPU_DynamicQuantizeOp :
         AnyTypeOf<[RankedTensorOf<[F32]>, VPU_DistributedTensor]>:$input,
         AnyTypeOf<[RankedTensorOf<[F32]>, VPU_DistributedTensor]>:$min,
         AnyTypeOf<[RankedTensorOf<[F32]>, VPU_DistributedTensor]>:$max,
+        TypeAttr:$dstElemType,
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
     let results = (outs
-        AnyTypeOf<[RankedTensorOf<[UI8]>, VPU_DistributedTensor]>:$output,
+        AnyTypeOf<[RankedTensorOf<[AnyInteger]>, VPU_DistributedTensor]>:$output,
         AnyTypeOf<[RankedTensorOf<[F32]>, VPU_DistributedTensor]>:$scale,
-        AnyTypeOf<[RankedTensorOf<[UI8]>, VPU_DistributedTensor]>:$zero_point
+        AnyTypeOf<[RankedTensorOf<[AnyInteger]>, VPU_DistributedTensor]>:$zero_point
     );
 
     let builders = [
         OpBuilder<(ins
             "::mlir::Value":$input,
             "::mlir::Value":$min,
-            "::mlir::Value":$max
+            "::mlir::Value":$max,
+            "::mlir::TypeAttr":$dstElemType
         )>
     ];
+
+    let hasVerifier = 1;
 
     let extraClassDeclaration = [{
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
@@ -211,10 +216,16 @@ def VPU_DynamicDequantizeOp :
         > {
     let summary = "InferenceEngine Dynamic Dequantize layer";
 
+    let description = [{
+        Integer element types are accepted via `AnyInteger` in the type constraint;
+        the supported bit widths (2/4/8/16) and the input/zp type compatibility
+        are enforced by the op verifier.
+    }];
+
     let arguments = (ins
-        AnyTypeOf<[RankedTensorOf<[quant_QuantizedType]>, VPU_DistributedTensor]>:$input,
+        AnyTypeOf<[RankedTensorOf<[AnyInteger, F8E4M3FN, F8E5M2, F4E2M1FN, vpux_QuantileType, quant_QuantizedType]>, VPU_DistributedTensor]>:$input,
         AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$scale,
-        Optional<AnyTypeOf<[RankedTensorOf<[I8, I4, I2, U2]>, VPU_DistributedTensor]>>:$zp,
+        Optional<AnyTypeOf<[RankedTensorOf<[AnyInteger, F8E4M3FN, F8E5M2, F4E2M1FN]>, VPU_DistributedTensor]>>:$zp,
 
         TypeAttr:$dstElemType,
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
@@ -333,7 +344,8 @@ def VPU_QuantizeCastOp :
             [
                 VPU_ViewLikeOpInterface,
                 DeclareOpInterfaceMethods<VPU_TilingViewLikeOpInterface>,
-                DeclareOpInterfaceMethods<VPU_DistributedCastOpInterface>
+                DeclareOpInterfaceMethods<VPU_DistributedCastOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "Quantize Cast VPU layer";

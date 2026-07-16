@@ -15,7 +15,7 @@ module @NoWrapFuncModule {
         DataInfo "output" : tensor<2x2xf32>
     }
 
-    func.func private @foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
+    func.func nested @foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
         return %arg : tensor<2x2xf32>
     }
 
@@ -41,19 +41,19 @@ module @SimpleWrapping {
         DataInfo "output_1" : tensor<3x2xf32>
     }
 
-    func.func private @foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_foo"]} {
+    func.func nested @foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_foo"]} {
         return %arg : tensor<2x2xf32>
     }
 
-    func.func private @bar(%arg: tensor<3x2xf32>) -> tensor<3x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_bar"]} {
+    func.func nested @bar(%arg: tensor<3x2xf32>) -> tensor<3x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_bar"]} {
         return %arg : tensor<3x2xf32>
     }
 
-    func.func private @real_foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
+    func.func nested @real_foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
         return %arg : tensor<2x2xf32>
     }
 
-    func.func private @real_bar(%arg: tensor<3x2xf32>) -> tensor<3x2xf32> {
+    func.func nested @real_bar(%arg: tensor<3x2xf32>) -> tensor<3x2xf32> {
         return %arg : tensor<3x2xf32>
     }
 
@@ -83,15 +83,15 @@ module @SimpleExternalFuncWrapping {
         DataInfo "output_1" : tensor<3x2xf32>
     }
 
-    func.func private @foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_foo"]}
+    func.func nested @foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_foo"]}
 
-    func.func private @bar(%arg: tensor<3x2xf32>) -> tensor<3x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_bar"]}
+    func.func nested @bar(%arg: tensor<3x2xf32>) -> tensor<3x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_bar"]}
 
-    func.func private @real_foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
+    func.func nested @real_foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
         return %arg : tensor<2x2xf32>
     }
 
-    func.func private @real_bar(%arg: tensor<3x2xf32>) -> tensor<3x2xf32> {
+    func.func nested @real_bar(%arg: tensor<3x2xf32>) -> tensor<3x2xf32> {
         return %arg : tensor<3x2xf32>
     }
 
@@ -114,29 +114,29 @@ module @SimpleExternalFuncWrapping {
 // CHECK-LABEL: @SimpleWrappingMultipleOccurrences
 module @SimpleWrappingMultipleOccurrences {
 
-    func.func private @foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_foo"]} {
+    func.func nested @foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_foo"]} {
         return %arg : tensor<2x2xf32>
     }
 
-    func.func private @bar(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
+    func.func nested @bar(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
         %ret = call @foo(%arg) : (tensor<2x2xf32>) -> tensor<2x2xf32>
         return %ret : tensor<2x2xf32>
     }
 
-    // CHECK: func.func private @bar([[ARG:%.+]]: tensor<2x2xf32>) -> tensor<2x2xf32>
+    // CHECK: func.func nested @bar([[ARG:%.+]]: tensor<2x2xf32>) -> tensor<2x2xf32>
     // CHECK:   [[RET:%.+]] = call @real_foo([[ARG]])
     // CHECK:   return [[RET]]
 
-    func.func private @baz(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
+    func.func nested @baz(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
         %ret = call @foo(%arg) : (tensor<2x2xf32>) -> tensor<2x2xf32>
         return %ret : tensor<2x2xf32>
     }
 
-    // CHECK: func.func private @baz([[ARG:%.+]]: tensor<2x2xf32>) -> tensor<2x2xf32>
+    // CHECK: func.func nested @baz([[ARG:%.+]]: tensor<2x2xf32>) -> tensor<2x2xf32>
     // CHECK:   [[RET:%.+]] = call @real_foo([[ARG]])
     // CHECK:   return [[RET]]
 
-    func.func private @real_foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
+    func.func nested @real_foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
         return %arg : tensor<2x2xf32>
     }
 
@@ -148,31 +148,31 @@ module @SimpleWrappingMultipleOccurrences {
 // CHECK-LABEL: @CrossWrapping
 module @CrossWrapping {
 
-    func.func private @foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_foo"]} {
+    func.func nested @foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_foo"]} {
         %call = call @bar(%arg) : (tensor<2x2xf32>) -> tensor<2x2xf32>
         return %call : tensor<2x2xf32>
     }
 
-    // CHECK: func.func private @foo([[ARG:%.+]]: tensor<2x2xf32>) -> tensor<2x2xf32>
+    // CHECK: func.func nested @foo([[ARG:%.+]]: tensor<2x2xf32>) -> tensor<2x2xf32>
     // CHECK:   [[RET:%.+]] = call @real_bar([[ARG]])
     // CHECK:   return [[RET]]
 
 
-    func.func private @bar(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_bar"]} {
+    func.func nested @bar(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_bar"]} {
         %call = call @foo(%arg) : (tensor<2x2xf32>) -> tensor<2x2xf32>
         return %call : tensor<2x2xf32>
     }
 
-    // CHECK: func.func private @bar([[ARG:%.+]]: tensor<2x2xf32>) -> tensor<2x2xf32>
+    // CHECK: func.func nested @bar([[ARG:%.+]]: tensor<2x2xf32>) -> tensor<2x2xf32>
     // CHECK:   [[RET:%.+]] = call @real_foo([[ARG]])
     // CHECK:   return [[RET]]
 
 
-    func.func private @real_foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
+    func.func nested @real_foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
         return %arg : tensor<2x2xf32>
     }
 
-    func.func private @real_bar(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
+    func.func nested @real_bar(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
         return %arg : tensor<2x2xf32>
     }
 }
@@ -183,21 +183,21 @@ module @CrossWrapping {
 // CHECK-LABEL: @CrossWrappingWithDelete
 module @CrossWrappingWithDelete {
 
-    func.func private @foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_foo", "deleteWrapped=1"]} {
+    func.func nested @foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_foo", "deleteWrapped=1"]} {
         %call = call @bar(%arg) : (tensor<2x2xf32>) -> tensor<2x2xf32>
         return %call : tensor<2x2xf32>
     }
 
-    func.func private @bar(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_bar", "deleteWrapped=1"]} {
+    func.func nested @bar(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_bar", "deleteWrapped=1"]} {
         %call = call @foo(%arg) : (tensor<2x2xf32>) -> tensor<2x2xf32>
         return %call : tensor<2x2xf32>
     }
 
-    func.func private @real_foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
+    func.func nested @real_foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
         return %arg : tensor<2x2xf32>
     }
 
-    func.func private @real_bar(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
+    func.func nested @real_bar(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
         return %arg : tensor<2x2xf32>
     }
 
@@ -220,27 +220,27 @@ module @SimpleWrappingDeleteOneWrapped {
         DataInfo "output_3" : tensor<3x2xf32>
     }
 
-    func.func private @foo_boolean_attr(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_foo", "deleteWrapped=false"]} {
+    func.func nested @foo_boolean_attr(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_foo", "deleteWrapped=false"]} {
         return %arg : tensor<2x2xf32>
     }
 
-    func.func private @foo_int_attr(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_foo", "deleteWrapped=0"]} {
+    func.func nested @foo_int_attr(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_foo", "deleteWrapped=0"]} {
         return %arg : tensor<2x2xf32>
     }
 
-    func.func private @to_delete_boolean_attr(%arg: tensor<3x2xf32>) -> tensor<3x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_bar", "deleteWrapped=true"]} {
+    func.func nested @to_delete_boolean_attr(%arg: tensor<3x2xf32>) -> tensor<3x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_bar", "deleteWrapped=true"]} {
         return %arg : tensor<3x2xf32>
     }
 
-    func.func private @to_delete_int_attr(%arg: tensor<3x2xf32>) -> tensor<3x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_bar", "deleteWrapped=1"]} {
+    func.func nested @to_delete_int_attr(%arg: tensor<3x2xf32>) -> tensor<3x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_bar", "deleteWrapped=1"]} {
         return %arg : tensor<3x2xf32>
     }
 
-    func.func private @real_foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
+    func.func nested @real_foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
         return %arg : tensor<2x2xf32>
     }
 
-    func.func private @real_bar(%arg: tensor<3x2xf32>) -> tensor<3x2xf32> {
+    func.func nested @real_bar(%arg: tensor<3x2xf32>) -> tensor<3x2xf32> {
         return %arg : tensor<3x2xf32>
     }
 
@@ -277,19 +277,19 @@ module @WrapperNotFound {
         DataInfo "output_1" : tensor<3x2xf32>
     }
 
-    func.func private @foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_foo"]} {
+    func.func nested @foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_foo"]} {
         return %arg : tensor<2x2xf32>
     }
 
-    func.func private @bar(%arg: tensor<3x2xf32>) -> tensor<3x2xf32> attributes {wrapFunctionAttr = ["wrapper=not_found_real_bar"]} {
+    func.func nested @bar(%arg: tensor<3x2xf32>) -> tensor<3x2xf32> attributes {wrapFunctionAttr = ["wrapper=not_found_real_bar"]} {
         return %arg : tensor<3x2xf32>
     }
 
-    func.func private @real_foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
+    func.func nested @real_foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
         return %arg : tensor<2x2xf32>
     }
 
-    func.func private @real_bar(%arg: tensor<3x2xf32>) -> tensor<3x2xf32> {
+    func.func nested @real_bar(%arg: tensor<3x2xf32>) -> tensor<3x2xf32> {
         return %arg : tensor<3x2xf32>
     }
 
@@ -310,11 +310,11 @@ module @WrappedWrapperTypesDiscrepancy {
         DataInfo "output" : tensor<2x2xf32>
     }
 
-    func.func private @foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_foo"]} {
+    func.func nested @foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> attributes {wrapFunctionAttr = ["wrapper=real_foo"]} {
         return %arg : tensor<2x2xf32>
     }
 
-    func.func private @real_foo(%arg: memref<2x2xf32>) -> memref<2x2xf32> {
+    func.func nested @real_foo(%arg: memref<2x2xf32>) -> memref<2x2xf32> {
         return %arg : memref<2x2xf32>
     }
 

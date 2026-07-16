@@ -41,3 +41,42 @@ func.func @MaxPoolWithReluTest(%arg0: tensor<1x16x5x5xf16>) -> tensor<1x16x3x3xf
 
     // CHECK:       return [[VAR2]] : tensor<1x16x3x3xf16>
 }
+
+// -----
+
+// CHECK-LABEL: @NoSwapMaxPoolWithReluTest
+// CHECK-SAME:      [[ARG_0:%[^:]+]]: tensor<1x16x5x5xf16>
+func.func @NoSwapMaxPoolWithReluTest(%arg0: tensor<1x16x5x5xf16>) -> tensor<1x16x3x3xf16> {
+    %filters = const.Declare tensor<16x16x2x2xf16> = dense<1.0> : tensor<16x16x2x2xf16>
+    %0 = IE.Convolution(%arg0, %filters)
+        {
+            strides = [1, 1],
+            pads_begin = [0, 0],
+            pads_end = [0, 0],
+            dilations = [1, 1]
+        } :
+        tensor<1x16x5x5xf16>, tensor<16x16x2x2xf16> -> tensor<1x16x4x4xf16>
+
+    %1 = IE.MaxPool(%0)
+         {
+             kernel_size = [2, 2],
+             pads_begin = [0, 0],
+             pads_end = [0, 0],
+             strides = [1, 1],
+             rounding_type = #IE.rounding_type<CEIL>,
+             static_scale = 0.247436523 : f32
+         } :
+         tensor<1x16x4x4xf16> -> tensor<1x16x3x3xf16>
+
+    %2 = IE.ReLU(%1) :
+        tensor<1x16x3x3xf16> -> tensor<1x16x3x3xf16>
+
+    return %2 : tensor<1x16x3x3xf16>
+
+    // CHECK-DAG:       [[FILTERS:%.+]] = const.Declare
+    // CHECK:       [[CONV:%.+]] = IE.Convolution([[ARG_0]], [[FILTERS]])
+    // CHECK:       [[MACPOOL:%.+]] = IE.MaxPool([[CONV]])
+    // CHECK:       [[RELU:%.+]] = IE.ReLU([[MACPOOL]])
+
+    // CHECK:       return [[RELU]] : tensor<1x16x3x3xf16>
+}

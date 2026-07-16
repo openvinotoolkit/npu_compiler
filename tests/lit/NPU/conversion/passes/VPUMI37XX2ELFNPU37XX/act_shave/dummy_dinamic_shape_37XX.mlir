@@ -8,7 +8,6 @@
 
 module attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
   config.Resources 2 of @NCE at 1.300000e+03 MHz {
-    config.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @SHAVE_NN
@@ -24,7 +23,7 @@ module attributes {config.compilationMode = #config.compilation_mode<DefaultHW>}
     DataInfo "output_shape" : tensor<4xsi32>
   }
   module @VPU.SW {
-    func.func private @builtin_dummy(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "dummy.cpp", VPU.kernel_entry = "dummy"}
+    func.func nested @builtin_dummy(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "dummy.cpp", VPU.kernel_entry = "dummy"}
   }
   // CHECK-LABEL: @SWKernelDynamicInputs
   func.func @SWKernelDynamicInputs(%arg0: memref<1x3x10x10xf16>, %arg1: memref<4xsi32>) -> (memref<1x3x10x10xf16, [@CMX_NN, 0]>, memref<4xsi32, [@CMX_NN, 0]>) {

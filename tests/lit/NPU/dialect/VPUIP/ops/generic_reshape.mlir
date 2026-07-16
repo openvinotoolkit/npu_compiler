@@ -9,25 +9,25 @@
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @Fold
-// CHECK-SAME: ([[ARG_0:%[^:]+]]: memref<1x3x16x16xf32, #NHWC>)
-func.func @Fold(%arg0: memref<1x3x16x16xf32, #NHWC>) -> memref<1x3x16x16xf32, #NHWC> {
-    %0 = const.Declare memref<1x3x16x16xf32, #NHWC> =
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: memref<1x3x16x16xf32, {order = #NHWC}>)
+func.func @Fold(%arg0: memref<1x3x16x16xf32, {order = #NHWC}>) -> memref<1x3x16x16xf32, {order = #NHWC}> {
+    %0 = const.Declare memref<1x3x16x16xf32, {order = #NHWC}> =
         dense<1.000000e+00> : tensor<1x3x16x16xf32>, [#const.Reorder<#NHWC>]
 
-    %1 = VPUIP.GenericReshape inputs(%0 : memref<1x3x16x16xf32, #NHWC>) -> memref<1x3x16x16xf32, #NHWC>
+    %1 = VPUIP.GenericReshape inputs(%0 : memref<1x3x16x16xf32, {order = #NHWC}>) -> memref<1x3x16x16xf32, {order = #NHWC}>
 
     %2 = VPUIP.Copy
-        inputs(%1 : memref<1x3x16x16xf32, #NHWC>)
-        outputs(%arg0 : memref<1x3x16x16xf32, #NHWC>)
-        -> memref<1x3x16x16xf32, #NHWC>
+        inputs(%1 : memref<1x3x16x16xf32, {order = #NHWC}>)
+        outputs(%arg0 : memref<1x3x16x16xf32, {order = #NHWC}>)
+        -> memref<1x3x16x16xf32, {order = #NHWC}>
 
-    return %2 : memref<1x3x16x16xf32, #NHWC>
+    return %2 : memref<1x3x16x16xf32, {order = #NHWC}>
 
-    // CHECK-DAG:       [[CST:%.+]] = const.Declare memref<1x3x16x16xf32, #NHWC>
+    // CHECK-DAG:       [[CST:%.+]] = const.Declare memref<1x3x16x16xf32, {order = #NHWC}>
     // CHECK-SAME:       dense<1.000000e+00> : tensor<1x3x16x16xf32>, [#const.Reorder<#NHWC>]
 
-    // CHECK:       [[VAR0:%.+]] = VPUIP.Copy inputs([[CST]] : memref<1x3x16x16xf32, #NHWC>) outputs([[ARG_0]] : memref<1x3x16x16xf32, #NHWC>)
-    // CHECK:       return [[VAR0]] : memref<1x3x16x16xf32, #NHWC>
+    // CHECK:       [[VAR0:%.+]] = VPUIP.Copy inputs([[CST]] : memref<1x3x16x16xf32, {order = #NHWC}>) outputs([[ARG_0]] : memref<1x3x16x16xf32, {order = #NHWC}>)
+    // CHECK:       return [[VAR0]] : memref<1x3x16x16xf32, {order = #NHWC}>
 }
 
 // -----

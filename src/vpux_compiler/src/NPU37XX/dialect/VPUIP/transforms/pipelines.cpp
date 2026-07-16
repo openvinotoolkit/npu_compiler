@@ -24,7 +24,8 @@ void vpux::VPUIP::arch37xx::buildMemoryAllocationPipeline(mlir::OpPassManager& p
     pm.addPass(VPUIP::createFeasibleAllocationPass(
             VPU::getMemKind<VPU::MemoryKind::CMX_NN>, VPU::getMemKind<VPU::MemoryKind::DDR>, options.linearizeSchedule,
             options.enableLoopAllocation, options.enablePipelining, options.enablePrefetching,
-            options.optimizeFragmentation, options.optimizeDynamicSpilling, options.enableMultiScheduleHeuristic, log));
+            options.optimizeFragmentation, options.optimizeDynamicSpilling, options.enableMultiScheduleHeuristic,
+            options.enableVfUndefinedScheduler, log));
 
     pm.addPass(VPUIP::createQueryArgsAllocationAnalysisPass());
     pm.addPass(VPUIP::createStaticAllocationPass(VPU::getMemKind<VPU::MemoryKind::DDR>, log));
@@ -50,7 +51,7 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
         pm.addPass(VPUIP::createWrapWithPermuteAsNNDMAPass(log));
     }
     pm.addPass(VPUIP::createOptimizeExpandSubviewPass(log));
-    pm.addPass(VPUIP::createConvertExpandPass(log));
+    pm.addPass(VPUIP::createConvertExpandPass(options.deferExpandToExpandDMA, log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
 
     pm.addPass(VPUIP::createConvertEltwiseToInPlacePass(log));
@@ -135,6 +136,7 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     VPUIP::buildHardwareAdaptationPipeline(pm, log);
 
     // Level 1 : VPU RunTime
+    pm.addPass(VPUIP::createAssignLogicalTaskIndexPass(log));
     pm.addPass(VPUIP::createUnrollSwKernelPass(log));
 
     pm.addPass(VPUIP::createUnrollDistributedOpsPass(log));
@@ -162,6 +164,7 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     }
 
     pm.addPass(VPURT::createSimplifySchedulePass(options.reduceParallelControlFlows, std::nullopt, log));
+    pm.addPass(VPUIP::createSplitLargeInvariantsPass(log));
 
     pm.addPass(VPURT::createAddFinalBarrierPass(options.workloadManagementMode, log));
 

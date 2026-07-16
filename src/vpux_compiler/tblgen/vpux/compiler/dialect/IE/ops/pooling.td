@@ -112,7 +112,7 @@ def IE_MaxPoolOp :
         IE_LayerOp<
             "MaxPool",
             [
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
                 DeclareOpInterfaceMethods<StaticShapeOpInterface>
             ]
         > {
@@ -129,6 +129,7 @@ def IE_MaxPoolOp :
 
         OptionalAttr<IE_PostOpAttrInterface>:$post_op,
         OptionalAttr<DictionaryAttr>:$clamp,
+        OptionalAttr<F32Attr>:$static_scale,
         OptionalAttr<I64ArrayAttr>:$output_padding,
         OptionalAttr<I64ArrayAttr>:$input_padding
     );

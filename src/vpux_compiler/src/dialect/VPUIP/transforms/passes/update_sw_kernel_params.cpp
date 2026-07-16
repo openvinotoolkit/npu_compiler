@@ -64,7 +64,11 @@ static SmallVector<uint64_t> generateVpuipSoftmaxAttr(mlir::Value input, mlir::V
         storage.push_back(packAsI32intoU64(mode, ndims));
         return storage;
     }
-
+    auto padSizeVal = padSize;
+    static constexpr int64_t packedPadSizeEnableBit = 0x01000000;
+    if ((padSizeVal & packedPadSizeEnableBit) != 0) {  // Get real pad size value if already packed with threshold
+        padSizeVal = (padSizeVal >> 16) & 0xFF;
+    }
     SmallVector<int64_t> inDims;
     SmallVector<int64_t> inStrides;
     SmallVector<int64_t> outStrides;
@@ -139,7 +143,7 @@ static SmallVector<uint64_t> generateVpuipSoftmaxAttr(mlir::Value input, mlir::V
     }
 
     if (0 == axis) {
-        if (((inDims[axis] == 2) || (inDims[axis] == 4)) && (padSize == 0) && (inStrides[2] == outStrides[2]) &&
+        if (((inDims[axis] == 2) || (inDims[axis] == 4)) && (padSizeVal == 0) && (inStrides[2] == outStrides[2]) &&
             ((inDims[0]) == (inStrides[1]))) {
             mode = SoftmaxModeInnerHardcoded;
         } else {

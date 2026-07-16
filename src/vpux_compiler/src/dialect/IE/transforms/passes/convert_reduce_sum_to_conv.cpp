@@ -7,6 +7,7 @@
 #include "vpux/compiler/core/attributes/shape.hpp"
 
 #include <limits>
+#include <optional>
 
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
@@ -69,11 +70,6 @@ mlir::Value createConvFilter(mlir::Value activation, mlir::PatternRewriter& rewr
     const auto weightType = mlir::RankedTensorType::get(
             weightShape.raw(), mlir::cast<NDTypeInterface>(activation.getType()).getElementType(),
             getTensorAttr(rewriter.getContext(), weightOrder, nullptr));
-    // buildWeightsConst always takes float values as logical "expressed" weights.
-    // Conversion to the actual storage type (fp16, quantized i8/u8/i16) is handled
-    // internally via castElemType on the ContentSetup pipeline.
-    // A single-element array is treated as a splat by DenseElementsAttr::get,
-    // avoiding O(IC) host allocation for the all-ones filter.
     return Const::buildWeightsConst(rewriter, activation.getLoc(), weightType, ArrayRef<float>{1.0f});
 }
 
@@ -152,6 +148,28 @@ bool isBeneficialToConvert(IE::ReduceSumOp origOp, Logger log) {
     return hasNCEParentOrChild(origOp, log);
 }
 
+// Returns the single reduce axis (normalized, 0-based) or std::nullopt if the op
+// cannot be handled (no axes attr, multiple axes, or out-of-range value).
+std::optional<int64_t> getSingleReduceAxis(IE::ReduceSumOp origOp) {
+    auto axesAttr = origOp.getAxesValue();
+    if (!axesAttr.has_value()) {
+        return std::nullopt;
+    }
+    auto axes = parseIntArrayAttr<int64_t>(axesAttr.value());
+    if (axes.size() != 1) {
+        return std::nullopt;
+    }
+    const int64_t rank = mlir::cast<NDTypeInterface>(origOp.getInput().getType()).getRank();
+    int64_t axis = axes[0];
+    if (axis < 0) {
+        axis += rank;
+    }
+    if (axis < 0 || axis >= rank) {
+        return std::nullopt;
+    }
+    return axis;
+}
+
 bool ReduceSumToConvRewriter::isSupportedReduceSum(IE::ReduceSumOp origOp, Logger log) const {
     if (!isSupportedElemType(origOp)) {
         return false;
@@ -164,14 +182,13 @@ bool ReduceSumToConvRewriter::isSupportedReduceSum(IE::ReduceSumOp origOp, Logge
     }
 
     // Check reduce axis
-    auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue().value());
-    if (axes.size() != 1) {
+    auto reduceAxis = getSingleReduceAxis(origOp);
+    if (!reduceAxis.has_value()) {
         log.trace("Only support ReduceSum reduce on one dimension");
         return false;
     }
 
-    auto reduceAxis = axes[0];
-    if (reduceAxis != Dims4D::Act::C.ind()) {
+    if (*reduceAxis != Dims4D::Act::C.ind()) {
         log.trace("Only support ReduceSum reduce on channel");
         return false;
     }
@@ -214,11 +231,13 @@ mlir::LogicalResult ReduceSumToConvRewriter::matchAndRewrite(IE::ReduceSumOp ori
 //
 // OuterDimReduceSumToConvRewriter
 //
-// Handles ReduceSum on the outermost (first) dimension of non-4D tensors.
-// Reshapes [A, D1, D2, ...] to [1, A, D1*D2*..., 1] preserving memory layout,
-// then applies Conv with IC=A to reduce A channels to 1 in a single operation.
-// Without this, large outermost-dimension reductions fall through to multi-stage
-// AvgPool decomposition, generating many DPU and DMA tasks.
+// Handles ReduceSum on the outermost non-unit dimension of non-4D tensors.
+// For axis=0: reshapes [A, D1, D2, ...] to [1, A, D1*D2*..., 1].
+// For axis=1 when dim(0)=1: reshapes [1, A, D1, D2, ...] to [1, A, D1*D2*..., 1].
+// Both cases preserve row-major memory layout and apply Conv with IC=A to reduce
+// A channels to 1 in a single operation.
+// Without this, these reductions fall through to multi-stage AvgPool decomposition
+// with C=1, generating expensive DMA padding operations for channel alignment.
 //
 
 class OuterDimReduceSumToConvRewriter final : public mlir::OpRewritePattern<IE::ReduceSumOp> {
@@ -263,60 +282,61 @@ mlir::LogicalResult OuterDimReduceSumToConvRewriter::matchAndRewrite(IE::ReduceS
         return mlir::failure();
     }
 
-    auto axesAttr = origOp.getAxesValue();
-    if (!axesAttr.has_value()) {
-        return mlir::failure();
-    }
-    auto axes = parseIntArrayAttr<int64_t>(axesAttr.value());
-    if (axes.size() != 1) {
-        return mlir::failure();
-    }
-
-    const auto reduceAxis = axes[0];
-    int64_t normalizedReduceAxis = reduceAxis;
-    if (normalizedReduceAxis < 0) {
-        normalizedReduceAxis += checked_cast<int64_t>(inputRank);
-    }
-    if (normalizedReduceAxis < 0 || normalizedReduceAxis >= checked_cast<int64_t>(inputRank)) {
+    // Handle outermost non-unit dimension reduction:
+    //   axis=0: [A, D1, D2, ...] -> Conv with IC=A
+    //   axis=1 when dim(0)=1: [1, A, D1, D2, ...] -> Conv with IC=A
+    // Both preserve row-major memory layout when mapped to [1, A, rest, 1].
+    auto normalizedReduceAxis = getSingleReduceAxis(origOp);
+    if (!normalizedReduceAxis.has_value()) {
         return mlir::failure();
     }
 
-    // Only handle outermost dimension reduction (axis=0).
-    // Also accept equivalent negative-axis form (axis=-rank).
-    // For axis=0, reshape [A, D1, D2, ...] -> [1, A, D1*D2*..., 1] preserves
-    // row-major memory layout since elements at index a*(D1*D2*...) + rest
-    // map identically in both shapes.
-    if (normalizedReduceAxis != 0) {
+    const int64_t reduceAxis = *normalizedReduceAxis;
+    // Accept axis=0, or axis=1 when the batch dimension is 1
+    const bool isAxis0 = (reduceAxis == 0);
+    const bool isAxis1WithUnitBatch = (reduceAxis == 1) && (inputShape[Dim(0)] == 1);
+    if (!isAxis0 && !isAxis1WithUnitBatch) {
         return mlir::failure();
     }
 
-    // Require canonical (row-major) memory layout so that mapping axis-0 into
-    // the convolution channel dimension does not change semantics.
+    // Require canonical (row-major) memory layout so that mapping the reduce
+    // dimension into the convolution channel dimension does not change semantics.
     if (inputType.getDimsOrder() != DimsOrder::fromNumDims(inputRank)) {
         return mlir::failure();
     }
 
-    const auto reduceSize = inputShape[Dim(0)];
+    const auto reduceSize = inputShape[Dim(reduceAxis)];
     if (reduceSize == mlir::ShapedType::kDynamic || reduceSize <= 0) {
         return mlir::failure();
     }
 
-    // For outermost-dim reduction, Conv is beneficial when the reduction dimension
-    // is large enough to exceed the NCE alignment threshold.  Small reductions are
-    // only converted when an NCE parent/child makes the Conv worthwhile.
-    // Use hasNCEParentOrChild (not isBeneficialToConvert) to avoid triggering
-    // conversions for higher-rank inputs based solely on W-misalignment of the
-    // output tensor when keep_dims is false (e.g. rank-5 -> rank-4).
     auto outType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
     const auto alignment = VPU::NCEInvariant::getAlignment(outType.getElementType());
-    if (reduceSize <= alignment && !hasNCEParentOrChild(origOp, _log)) {
+
+    // For axis=1 reductions, only convert when the reduction dimension fits within
+    // a single DPU channel group (alignment). Larger reductions produce different
+    // FP16 accumulation results compared to the staged AvgPool decomposition,
+    // which causes accuracy regressions on models with large IC (e.g. IC=64).
+    if (isAxis1WithUnitBatch && reduceSize > alignment) {
+        return mlir::failure();
+    }
+
+    // For axis=0: Conv is beneficial when the reduction dimension is large enough
+    // to exceed the NCE alignment threshold.  Small reductions are only converted
+    // when an NCE parent/child makes the Conv worthwhile.
+    // For axis=1: the accuracy guard above already restricts to small reduceSize,
+    // and converting avoids the multi-stage AvgPool decomposition overhead.
+    if (isAxis0 && reduceSize <= alignment && !hasNCEParentOrChild(origOp, _log)) {
         return mlir::failure();
     }
 
     // Calculate merged spatial dimension from all non-reduce dimensions.
     // Use checked multiplication to guard against overflow on extreme shapes.
     int64_t mergedRest = 1;
-    for (size_t i = 1; i < inputRank; ++i) {
+    for (size_t i = 0; i < inputRank; ++i) {
+        if (static_cast<int64_t>(i) == reduceAxis) {
+            continue;
+        }
         const auto dimSize = inputShape[Dim(i)];
         if (dimSize == mlir::ShapedType::kDynamic || dimSize <= 0) {
             return mlir::failure();
@@ -331,7 +351,7 @@ mlir::LogicalResult OuterDimReduceSumToConvRewriter::matchAndRewrite(IE::ReduceS
     const auto origLoc = origOp->getLoc();
     _log.trace("[{0}] Got ReduceSum layer at '{1}'", getDebugName(), origLoc);
 
-    // Reshape to 4D: [A, D1, D2, ...] -> [1, A, D1*D2*..., 1]
+    // Reshape to 4D: [1, A, D1*D2*..., 1] mapping the reduce dimension to IC.
     const auto newInputShape = Shape({1, reduceSize, mergedRest, 1});
     auto inReshapeOp = rewriter.create<IE::ReshapeOp>(appendLoc(origLoc, "reshape_to_4d"), origOp.getInput(),
                                                       getIntArrayAttr(ctx, newInputShape));
@@ -382,18 +402,13 @@ bool InnerDimReduceSumToConvRewriter::isValidReduceSum(IE::ReduceSumOp origOp) c
         return false;
     }
 
-    auto axesAttr = origOp.getAxesValue();
-    if (!axesAttr.has_value()) {
-        return false;
-    }
-
-    auto axes = parseIntArrayAttr<int64_t>(axesAttr.value());
-    if (axes.size() != 1) {
+    auto axis = getSingleReduceAxis(origOp);
+    if (!axis.has_value()) {
         _log.trace("Only support ReduceSum reduce on one dimension");
         return false;
     }
 
-    _reduceAxis = axes[0];
+    _reduceAxis = *axis;
     auto inputType = mlir::cast<NDTypeInterface>(origOp.getInput().getType());
     auto order = inputType.getDimsOrder();
     if (order.dimAt(order.numDims() - 1) != Dim(_reduceAxis)) {
@@ -490,7 +505,10 @@ void ConvertReduceSumToConvPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
 
-    // Convert ReduceSum to Convolution operation is optimum solution in case reduce axis is C
+    // Three patterns cover all ReduceSum-to-Conv cases:
+    //   ReduceSumToConvRewriter         - 4D input, reduce on channel dim (C)
+    //   OuterDimReduceSumToConvRewriter - non-4D input, reduce on outermost dim (axis=0)
+    //   InnerDimReduceSumToConvRewriter - non-4D input, reduce on innermost dim
     mlir::RewritePatternSet pattern(&ctx);
     pattern.add<ReduceSumToConvRewriter>(&ctx, _log);
     pattern.add<OuterDimReduceSumToConvRewriter>(&ctx, _log);

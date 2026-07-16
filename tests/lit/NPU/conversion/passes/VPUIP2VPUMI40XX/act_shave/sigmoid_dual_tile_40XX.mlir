@@ -33,14 +33,14 @@ VPURT.SW.Runtime
 module @VPU.SW {
     // The declaration should match C++ params structure in decomposed form.
     // `memref` will be translated to `MemRefData`, while raw scalars will be translated as is.
-    func.func private @builtin_sigmoid(%input : memref<*xf16>, %output : memref<*xf16>)
+    func.func nested @builtin_sigmoid(%input : memref<*xf16>, %output : memref<*xf16>)
         attributes {
             VPU.kernel_code = "activation_sigmoid.cpp",
             VPU.kernel_entry = "activation_sigmoid"
         }
 
     // management kernel definition
-    func.func private @runtime()
+    func.func nested @runtime()
         attributes {
             VPU.kernel_code = "nnActEntry"
         }

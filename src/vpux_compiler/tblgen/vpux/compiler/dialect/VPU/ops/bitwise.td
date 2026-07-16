@@ -20,6 +20,7 @@ def VPU_BitwiseAndOp :
                 Commutative,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
                 VPU_EltwiseOp
             ]
         > {

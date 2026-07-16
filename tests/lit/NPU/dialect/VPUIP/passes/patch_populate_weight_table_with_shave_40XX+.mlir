@@ -83,10 +83,10 @@
       memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
 
 module @VPU.SW {
-    func.func private @builtin_PopulateWeightTable(memref<*xsi32, @CMX_NN>, i64, i64)
+    func.func nested @builtin_PopulateWeightTable(memref<*xsi32, @CMX_NN>, i64, i64)
             attributes {VPU.kernel_code = "populate_weight_table.cpp",
                         VPU.kernel_entry = "populate_weight_table", VPU.task_type = @COMPUTE}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
 // CHECK-LABEL: @PatchSWKernelModeSegmented
@@ -99,7 +99,7 @@ func.func @PatchSWKernelModeSegmented(%arg0: memref<1x1x4096xf32, @DDR>, %scale:
     %3 = VPURT.DeclareBuffer <CMX_NN> <1073152> -> !WTDistributed
     %4 = VPURT.DeclareBuffer <CMX_NN> <1081344> -> !ConvOutputDistributed
 
-    %cst_2 = const.Declare memref<1024x4096x1x1x!qElemType, #NHWC> = dense<1.0> : tensor<1024x4096x1x1xf16>,
+    %cst_2 = const.Declare memref<1024x4096x1x1x!qElemType, {order = #NHWC}> = dense<1.0> : tensor<1024x4096x1x1xf16>,
               [#const.CastElemType<si4>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
 
     %token, %bodyResults:2 = async.execute ->
@@ -148,7 +148,7 @@ func.func @PatchSWKernelModeSegmented(%arg0: memref<1x1x4096xf32, @DDR>, %scale:
     %token_9, %bodyResults_10 = async.execute -> !async.value<!WeightsDistributed>
                   attributes {VPUIP.executor = @DMA_NN, VPUIP.executorIdx = [0, 1], "async-deps-index" = 4 : i64,
                   cycleBegin = 2072 : i64, cycleCost = 458697 : i64, cycleEnd = 460769 : i64} {
-      %18 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst_2 : memref<1024x4096x1x1x!qElemType, #NHWC>) outputs(%2 : !WeightsDistributed)
+      %18 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst_2 : memref<1024x4096x1x1x!qElemType, {order = #NHWC}>) outputs(%2 : !WeightsDistributed)
             -> !WeightsDistributed
       async.yield %18 : !WeightsDistributed
     }
@@ -337,10 +337,10 @@ func.func @PatchSWKernelModeSegmented(%arg0: memref<1x1x4096xf32, @DDR>, %scale:
       memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
 
 module @VPU.SW {
-    func.func private @builtin_PopulateWeightTable(memref<*xsi32, @CMX_NN>, i64, i64)
+    func.func nested @builtin_PopulateWeightTable(memref<*xsi32, @CMX_NN>, i64, i64)
             attributes {VPU.kernel_code = "populate_weight_table.cpp",
                         VPU.kernel_entry = "populate_weight_table", VPU.task_type = @COMPUTE}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
 // CHECK-LABEL: @PatchSWKernelClusteredWithDMASpill
@@ -361,7 +361,7 @@ func.func @PatchSWKernelClusteredWithDMASpill(%arg0: memref<1x1x4096xf32, @DDR>,
 
     %bias = const.Declare memref<512x1x1x4xi4> = dense<1.0> : memref<512x1x1x4xf16>,
             [#const.CastElemType<i4>]
-    %cst_2 = const.Declare memref<1024x4096x1x1x!qElemType, #NHWC> = dense<1.0> : tensor<1024x4096x1x1xf16>,
+    %cst_2 = const.Declare memref<1024x4096x1x1x!qElemType, {order = #NHWC}> = dense<1.0> : tensor<1024x4096x1x1xf16>,
               [#const.CastElemType<si4>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
 
     %token_13, %bodyResults_14 = async.execute -> !async.value<!BiasDistributed>
@@ -442,7 +442,7 @@ func.func @PatchSWKernelClusteredWithDMASpill(%arg0: memref<1x1x4096xf32, @DDR>,
     %token_9, %bodyResults_10 = async.execute -> !async.value<!WeightsDistributed>
                   attributes {VPUIP.executor = @DMA_NN, VPUIP.executorIdx = [0, 1], "async-deps-index" = 4 : i64,
                   cycleBegin = 2072 : i64, cycleCost = 458697 : i64, cycleEnd = 460769 : i64} {
-      %18 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst_2 : memref<1024x4096x1x1x!qElemType, #NHWC>) outputs(%2 : !WeightsDistributed)
+      %18 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst_2 : memref<1024x4096x1x1x!qElemType, {order = #NHWC}>) outputs(%2 : !WeightsDistributed)
             -> !WeightsDistributed
       async.yield %18 : !WeightsDistributed
     }

@@ -717,7 +717,12 @@ def VPUIPDPU_PPEFpBiasAddOp :
 def VPUIPDPU_PPEFpScalePreluMultOp :
         VPUIPDPU_Op<"PPEFpScalePreluMult",
             [
-                HasParent<"vpux::VPUIPDPU::PPECfgOp">
+                HasParent<"vpux::VPUIPDPU::PPECfgOp">,
+                LimitedToArch<[
+                "vpux::config::ArchKind::NPU37XX",
+                "vpux::config::ArchKind::NPU40XX"
+                  ]>
+
             ]
         > {
     let summary = "PPE floating point pipeline scale multiplication";

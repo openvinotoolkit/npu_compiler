@@ -11,6 +11,9 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(BucketizeLayerTest);
+
 class BucketizeLayerTestCommon : public BucketizeLayerTest, virtual public VpuOv2LayerTest {
     void SetUp() override {
         std::tie(std::ignore /*Data shape*/, std::ignore /*Right edge of interval*/,

@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 using namespace vpux;
 
@@ -95,4 +96,10 @@ void vpux::VPU::SqrtOp::adjustAttrs(const TilingInfo& /*inputTiling*/, const Til
 
 mlir::FailureOr<OutputTiling> vpux::VPU::SqrtOp::getTilingStrategy(TilingMode tilingMode, Logger log) {
     return vpux::getSWLayerTilingStrategy(this->getOperation(), tilingMode, log);
+}
+
+mlir::LogicalResult vpux::VPU::SqrtOp::reifyResultShapes(mlir::OpBuilder& builder,
+                                                         mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    reifiedReturnShapes.emplace_back(reifyTrivialTensor(builder, getInput(), getLoc()));
+    return mlir::success();
 }

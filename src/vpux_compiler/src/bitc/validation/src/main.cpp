@@ -32,6 +32,7 @@ int check_dataset_compression(const config_map& config_test, bitc::BitCompactorC
     std::cout << "\nEncoder running on dataset..." << std::endl;
     uint64_t count_size_diff{};
     uint64_t count_content_diff{};
+    uint64_t count_encode_err{};
     uint64_t count_runs{};
     if (config.sparse_mode_enable) {
         config.sparse_block_size = std::stoi(std::get<std::string>(config_test.at("sparse_block_size")));
@@ -66,7 +67,12 @@ int check_dataset_compression(const config_map& config_test, bitc::BitCompactorC
             auto start = steady_clock::now();
 #endif
             bitc::Encoder encoder{};
-            encoder.encode(config, decompressed_data, compressed_data_out);
+            auto status = encoder.encode(config, decompressed_data, compressed_data_out);
+            if (!status) {
+                count_encode_err++;
+                std::cerr << "Encoding failed for file: " << decompressed_data_filename_path << std::endl;
+                continue;
+            }
 #ifdef __BITC__EN_PROFILING__
             auto stop = steady_clock::now();
             auto duration = duration_cast<microseconds>(stop - start);
@@ -126,29 +132,31 @@ int check_dataset_compression(const config_map& config_test, bitc::BitCompactorC
 
     std::cout << "\nEncoder results" << std::endl;
     std::cout << count_runs << " runs" << std::endl;
-    std::cout << count_size_diff << " files from dataset doesn't match the golden one in terms of size" << std::endl;
-    std::cout << count_content_diff << " files from dataset doesn't match the golden one in terms of content"
+    std::cout << count_size_diff << " files from dataset not matching golden reference in terms of size" << std::endl;
+    std::cout << count_content_diff << " files from dataset not matching golden reference in terms of content"
               << std::endl;
 
-    return count_content_diff || count_size_diff;
+    return count_content_diff || count_size_diff || count_encode_err;
 }
 
-int check_dataset_decompression(const config_map& config_test, const bitc::BitCompactorConfig& config) {
+int check_dataset_decompression(const config_map& config_test, bitc::BitCompactorConfig& config) {
     std::cout << "\nDecoder running on dataset..." << std::endl;
 
     uint64_t count_size_diff{};
     uint64_t count_content_diff{};
+    uint64_t count_decode_err{};
     uint64_t count_runs{};
 
-    int sparse_block_size = 0;
+    config.sparse_block_size = 0;
     if (config.sparse_mode_enable) {
-        sparse_block_size = std::stoi(std::get<std::string>(config_test.at("sparse_block_size")));
+        config.sparse_block_size = std::stoi(std::get<std::string>(config_test.at("sparse_block_size")));
     }
     std::string compressed_data_path = std::get<std::string>(config_test.at("compressed_data_path"));
     const string_vector& decompressed_data_set = std::get<string_vector>(config_test.at("decompressed_data"));
     const string_vector& compressed_data_set = std::get<string_vector>(config_test.at("compressed_data"));
 
     for (size_t idx = 0; idx < compressed_data_set.size(); ++idx) {
+        auto config_local = config;
         std::string compressed_data_filename_path = compressed_data_set[idx];
         compressed_data_filename_path.insert(0, compressed_data_path);
 
@@ -158,16 +166,14 @@ int check_dataset_decompression(const config_map& config_test, const bitc::BitCo
             std::cout << "Decoder read compressed input: " << compressed_data_filename << " (" << compressed_data.size()
                       << " bytes)" << std::endl;
 #endif
-            bitc::Decoder decoder{compressed_data, config};
             std::vector<uint8_t> decompressed_data_out;
-            std::vector<uint8_t> bitmap;
-            if (config.sparse_mode_enable) {
+            if (config_local.sparse_mode_enable) {
                 const string_vector& bitmap_data_set = std::get<string_vector>(config_test.at("bitmap_data"));
                 std::string bitmap_file_path = bitmap_data_set[idx];
 
                 bitmap_file_path.insert(0, std::get<std::string>(config_test.at("bitmap_data_path")));
 
-                if (!FileIO::read(bitmap_file_path, bitmap)) {
+                if (!FileIO::read(bitmap_file_path, config_local.bitmap)) {
                     std::cerr << "Could not read bitmap\n";
                     return 1;
                 }
@@ -175,10 +181,12 @@ int check_dataset_decompression(const config_map& config_test, const bitc::BitCo
 #ifdef __BITC__EN_PROFILING__
             auto start = steady_clock::now();
 #endif
-            if (config.sparse_mode_enable) {
-                decoder.decode(decompressed_data_out, bitmap, sparse_block_size);
-            } else {
-                decoder.decode(decompressed_data_out);
+            bitc::Decoder decoder{std::move(compressed_data), std::move(config_local)};
+            auto status = decoder.decode(decompressed_data_out);
+            if (!status) {
+                count_decode_err++;
+                std::cerr << "Decoding failed for file: " << compressed_data_filename_path << std::endl;
+                continue;
             }
 #ifdef __BITC__EN_PROFILING__
             auto stop = steady_clock::now();
@@ -228,11 +236,11 @@ int check_dataset_decompression(const config_map& config_test, const bitc::BitCo
 
     std::cout << "\nDecoder results" << std::endl;
     std::cout << count_runs << " runs" << std::endl;
-    std::cout << count_size_diff << " files from dataset doesn't match the golden one in terms of size" << std::endl;
-    std::cout << count_content_diff << " files from dataset doesn't match the golden one in terms of content"
+    std::cout << count_size_diff << " files from dataset not matching golden reference in terms of size" << std::endl;
+    std::cout << count_content_diff << " files from dataset not matching golden reference in terms of content"
               << std::endl;
 
-    return count_content_diff || count_size_diff;
+    return count_content_diff || count_size_diff || count_decode_err;
 }
 
 int main(int argc, char* argv[]) {
@@ -257,11 +265,20 @@ int main(int argc, char* argv[]) {
 
     print_config(config);
 
-    bitc::BitCompactorConfig config_bitc{string_to_arch(std::get<std::string>(config.at("arch_type"))),
-                                         std::get<std::string>(config.at("sparse_mode_enable")) == "true"s,
-                                         std::get<std::string>(config.at("weight_compress_enable")) == "true"s,
-                                         std::get<std::string>(config.at("bypass_compression")) == "true"s,
-                                         std::get<std::string>(config.at("mode_fp16_enable")) == "true"s};
+    bitc::BitCompactorConfig config_bitc;
+    config_bitc.arch_type = string_to_arch(std::get<std::string>(config.at("arch_type")));
+    if (config.find("sparse_mode_enable") != config.end()) {
+        config_bitc.sparse_mode_enable = std::get<std::string>(config.at("sparse_mode_enable")) == "true"s;
+    }
+    if (config.find("weight_compress_enable") != config.end()) {
+        config_bitc.weight_compress_enable = std::get<std::string>(config.at("weight_compress_enable")) == "true"s;
+    }
+    if (config.find("bypass_compression") != config.end()) {
+        config_bitc.bypass_compression = std::get<std::string>(config.at("bypass_compression")) == "true"s;
+    }
+    if (config.find("mode_fp16_enable") != config.end()) {
+        config_bitc.mode_fp16_enable = std::get<std::string>(config.at("mode_fp16_enable")) == "true"s;
+    }
 
     return check_dataset_compression(config, config_bitc) || check_dataset_decompression(config, config_bitc);
 }

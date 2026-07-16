@@ -390,3 +390,141 @@ func.func @NotConvertDueToInvalidSourceShape(
 
     // CHECK-NOT:       IE.Gather
 }
+
+// -----
+
+// CHECK-LABEL: @MergeParallelGatherSameIndicesSi32
+// CHECK-SAME:      [[IDX:%.+]]: tensor<1xsi32>
+func.func @MergeParallelGatherSameIndicesSi32(%arg0: tensor<1xsi32>) -> tensor<1x3x1x1024xf16> {
+    %cst0 = const.Declare tensor<2048x1x1x1024xf16> = dense<0.0> : tensor<2048x1x1x1024xf16>
+    %cst1 = const.Declare tensor<2048x1x1x1024xf16> = dense<1.0> : tensor<2048x1x1x1024xf16>
+    %cst2 = const.Declare tensor<2048x1x1x1024xf16> = dense<2.0> : tensor<2048x1x1x1024xf16>
+
+    %0 = IE.Gather(%cst0, %arg0) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64} :
+            tensor<2048x1x1x1024xf16>, tensor<1xsi32> -> tensor<1x1x1x1024xf16>
+    %1 = IE.Gather(%cst1, %arg0) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64} :
+            tensor<2048x1x1x1024xf16>, tensor<1xsi32> -> tensor<1x1x1x1024xf16>
+    %2 = IE.Gather(%cst2, %arg0) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64} :
+            tensor<2048x1x1x1024xf16>, tensor<1xsi32> -> tensor<1x1x1x1024xf16>
+
+    %concat = IE.Concat(%0, %1, %2) {
+        static_offsets = [[0, 0, 0, 0], [0, 1, 0, 0], [0, 2, 0, 0]]
+    } : tensor<1x1x1x1024xf16>, tensor<1x1x1x1024xf16>, tensor<1x1x1x1024xf16> -> tensor<1x3x1x1024xf16>
+
+    return %concat : tensor<1x3x1x1024xf16>
+
+    // CHECK:       [[CONCAT_TABLE:%.+]] = IE.Concat
+    // CHECK-SAME:      tensor<2048x1x1x1024xf16>, tensor<2048x1x1x1024xf16>, tensor<2048x1x1x1024xf16> -> tensor<6144x1x1x1024xf16>
+    // CHECK-DAG:   [[OFFSETS:%.+]] = const.Declare tensor<3xsi32> = dense<[0, 2048, 4096]>
+    // CHECK:       [[MERGED_IDX:%.+]] = IE.Add([[IDX]], [[OFFSETS]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+    // CHECK:       [[MERGED:%.+]] = IE.Gather([[CONCAT_TABLE]], [[MERGED_IDX]]) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64} :
+    // CHECK-SAME:      tensor<6144x1x1x1024xf16>, tensor<3xsi32> -> tensor<3x1x1x1024xf16>
+    // CHECK:       [[RESULT:%.+]] = IE.Reshape([[MERGED]])
+    // CHECK-SAME:      tensor<3x1x1x1024xf16> -> tensor<1x3x1x1024xf16>
+    // CHECK-NOT:   IE.Concat
+}
+
+// -----
+
+// Positive: si64 indices — same pattern with 64-bit token indices.
+// CHECK-LABEL: @MergeParallelGatherSameIndicesSi64
+// CHECK-SAME:      [[IDX:%.+]]: tensor<1xsi64>
+func.func @MergeParallelGatherSameIndicesSi64(%arg0: tensor<1xsi64>) -> tensor<1x3x1x1024xf16> {
+    %cst0 = const.Declare tensor<2048x1x1x1024xf16> = dense<0.0> : tensor<2048x1x1x1024xf16>
+    %cst1 = const.Declare tensor<2048x1x1x1024xf16> = dense<1.0> : tensor<2048x1x1x1024xf16>
+    %cst2 = const.Declare tensor<2048x1x1x1024xf16> = dense<2.0> : tensor<2048x1x1x1024xf16>
+
+    %0 = IE.Gather(%cst0, %arg0) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64} :
+            tensor<2048x1x1x1024xf16>, tensor<1xsi64> -> tensor<1x1x1x1024xf16>
+    %1 = IE.Gather(%cst1, %arg0) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64} :
+            tensor<2048x1x1x1024xf16>, tensor<1xsi64> -> tensor<1x1x1x1024xf16>
+    %2 = IE.Gather(%cst2, %arg0) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64} :
+            tensor<2048x1x1x1024xf16>, tensor<1xsi64> -> tensor<1x1x1x1024xf16>
+
+    %concat = IE.Concat(%0, %1, %2) {
+        static_offsets = [[0, 0, 0, 0], [0, 1, 0, 0], [0, 2, 0, 0]]
+    } : tensor<1x1x1x1024xf16>, tensor<1x1x1x1024xf16>, tensor<1x1x1x1024xf16> -> tensor<1x3x1x1024xf16>
+
+    return %concat : tensor<1x3x1x1024xf16>
+
+    // CHECK:       [[CONCAT_TABLE:%.+]] = IE.Concat
+    // CHECK-SAME:      tensor<2048x1x1x1024xf16>, tensor<2048x1x1x1024xf16>, tensor<2048x1x1x1024xf16> -> tensor<6144x1x1x1024xf16>
+    // CHECK-DAG:   [[OFFSETS:%.+]] = const.Declare tensor<3xsi64> = dense<[0, 2048, 4096]>
+    // CHECK:       [[MERGED_IDX:%.+]] = IE.Add([[IDX]], [[OFFSETS]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+    // CHECK:       [[MERGED:%.+]] = IE.Gather([[CONCAT_TABLE]], [[MERGED_IDX]]) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64} :
+    // CHECK-SAME:      tensor<6144x1x1x1024xf16>, tensor<3xsi64> -> tensor<3x1x1x1024xf16>
+    // CHECK:       [[RESULT:%.+]] = IE.Reshape([[MERGED]])
+    // CHECK-SAME:  tensor<3x1x1x1024xf16> -> tensor<1x3x1x1024xf16>
+    // CHECK-NOT:   IE.Concat
+}
+
+// -----
+
+// Positive: Concat axis == Gather axis (both 0). Reshape is identity and folded away.
+// CHECK-LABEL: @MergeParallelGatherConcatAxisEqualsGatherAxis
+// CHECK-SAME:      [[IDX:%.+]]: tensor<1xsi32>
+func.func @MergeParallelGatherConcatAxisEqualsGatherAxis(%arg0: tensor<1xsi32>) -> tensor<2x1024xf16> {
+    %cst0 = const.Declare tensor<2048x1024xf16> = dense<0.0> : tensor<2048x1024xf16>
+    %cst1 = const.Declare tensor<2048x1024xf16> = dense<1.0> : tensor<2048x1024xf16>
+
+    %0 = IE.Gather(%cst0, %arg0) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64} :
+            tensor<2048x1024xf16>, tensor<1xsi32> -> tensor<1x1024xf16>
+    %1 = IE.Gather(%cst1, %arg0) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64} :
+            tensor<2048x1024xf16>, tensor<1xsi32> -> tensor<1x1024xf16>
+
+    %concat = IE.Concat(%0, %1) {
+        static_offsets = [[0, 0], [1, 0]]
+    } : tensor<1x1024xf16>, tensor<1x1024xf16> -> tensor<2x1024xf16>
+
+    return %concat : tensor<2x1024xf16>
+
+    // CHECK:       [[CONCAT_TABLE:%.+]] = IE.Concat
+    // CHECK-SAME:      tensor<2048x1024xf16>, tensor<2048x1024xf16> -> tensor<4096x1024xf16>
+    // CHECK-DAG:   [[OFFSETS:%.+]] = const.Declare tensor<2xsi32> = dense<[0, 2048]>
+    // CHECK:       [[MERGED_IDX:%.+]] = IE.Add([[IDX]], [[OFFSETS]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+    // CHECK:       IE.Gather([[CONCAT_TABLE]], [[MERGED_IDX]]) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64} :
+    // CHECK-SAME:      tensor<4096x1024xf16>, tensor<2xsi32> -> tensor<2x1024xf16>
+    // CHECK-NOT:   IE.Concat
+}
+
+// -----
+
+// Negative: tables have different shapes — offsets would be wrong.
+// CHECK-LABEL: @NoMergeGatherDifferentTableShapes
+func.func @NoMergeGatherDifferentTableShapes(%arg0: tensor<1xsi32>) -> tensor<2x1024xf16> {
+    %cst0 = const.Declare tensor<2048x1024xf16> = dense<0.0> : tensor<2048x1024xf16>
+    %cst1 = const.Declare tensor<1024x1024xf16> = dense<1.0> : tensor<1024x1024xf16>
+    %0 = IE.Gather(%cst0, %arg0) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64} :
+            tensor<2048x1024xf16>, tensor<1xsi32> -> tensor<1x1024xf16>
+    %1 = IE.Gather(%cst1, %arg0) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64} :
+            tensor<1024x1024xf16>, tensor<1xsi32> -> tensor<1x1024xf16>
+    %concat = IE.Concat(%0, %1) {
+        static_offsets = [[0, 0], [1, 0]]
+    } : tensor<1x1024xf16>, tensor<1x1024xf16> -> tensor<2x1024xf16>
+    return %concat : tensor<2x1024xf16>
+
+    // CHECK-NOT: IE.Add
+    // CHECK-COUNT-2: IE.Gather
+    // CHECK: IE.Concat
+}
+
+// -----
+
+// Negative: batch_dims != 0 changes gather semantics and is not supported by this rewrite.
+// CHECK-LABEL: @NoMergeGatherBatchDimsNonZero
+func.func @NoMergeGatherBatchDimsNonZero(%arg0: tensor<2x1xsi32>) -> tensor<4x1x1024xf16> {
+    %cst0 = const.Declare tensor<2x2048x1024xf16> = dense<0.0> : tensor<2x2048x1024xf16>
+    %cst1 = const.Declare tensor<2x2048x1024xf16> = dense<1.0> : tensor<2x2048x1024xf16>
+    %0 = IE.Gather(%cst0, %arg0) {axis_value = 1 : i64, batch_dims = 1 : i64, indices_rank = 2 : i64} :
+            tensor<2x2048x1024xf16>, tensor<2x1xsi32> -> tensor<2x1x1024xf16>
+    %1 = IE.Gather(%cst1, %arg0) {axis_value = 1 : i64, batch_dims = 1 : i64, indices_rank = 2 : i64} :
+            tensor<2x2048x1024xf16>, tensor<2x1xsi32> -> tensor<2x1x1024xf16>
+    %concat = IE.Concat(%0, %1) {
+        static_offsets = [[0, 0, 0], [2, 0, 0]]
+    } : tensor<2x1x1024xf16>, tensor<2x1x1024xf16> -> tensor<4x1x1024xf16>
+    return %concat : tensor<4x1x1024xf16>
+
+    // CHECK-NOT: IE.Add
+    // CHECK-COUNT-2: IE.Gather
+    // CHECK: IE.Concat
+}

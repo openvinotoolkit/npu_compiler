@@ -16,13 +16,13 @@ module @DynamicStridesCopyInputOutput {
 
 // CHECK-LABEL:  module @Module0 attributes {{.+}} {
 // CHECK:  net.NetworkInfo entryPoint : @main_part1 inputsInfo : {
-// CHECK:    DataInfo "in_0" : tensor<1x3x60x60xf16> {dynamicStrides}
-// CHECK:    DataInfo "in_1" : tensor<1x3x60x60xf16> {dynamicStrides}
+// CHECK:    DataInfo "in_0"  tensorNames = ["in_0"] : tensor<1x3x60x60xf16> {dynamicStrides}
+// CHECK:    DataInfo "in_1"  tensorNames = ["in_1"] : tensor<1x3x60x60xf16> {dynamicStrides}
 // CHECK:  } outputsInfo : {
-// CHECK:    DataInfo "out_0" : tensor<1x3x60x60xf16> {dynamicStrides}
+// CHECK:    DataInfo "out_0" tensorNames = ["out_0"] : tensor<1x3x60x60xf16> {dynamicStrides}
 
 
-  func.func private @main_part1(%arg0: memref<1x3x60x60xf16> {func.dynamicStrides = true}, %arg1: memref<1x3x60x60xf16> {func.dynamicStrides = true}) -> (memref<1x3x60x60xf16> {func.dynamicStrides = true}){
+  func.func nested @main_part1(%arg0: memref<1x3x60x60xf16> {func.dynamicStrides = true}, %arg1: memref<1x3x60x60xf16> {func.dynamicStrides = true}) -> (memref<1x3x60x60xf16> {func.dynamicStrides = true}){
     %0 = VPUIP.Copy inputs(%arg0 : memref<1x3x60x60xf16>) outputs(%arg1 : memref<1x3x60x60xf16>) -> memref<1x3x60x60xf16>
     return %0 : memref<1x3x60x60xf16>
   }
@@ -49,11 +49,11 @@ module @HostCompilePreserveDynamicInfo {
 
 // CHECK-LABEL: module @Module0 attributes {{.+}} {
 // CHECK: net.NetworkInfo entryPoint : @main_func0 inputsInfo : {
-// CHECK:   DataInfo "in_0" : tensor<?x1x548xf16, {bounds = #const.OpaqueI64Elements<[32, 1, 548]> : tensor<3xsi64>
+// CHECK:   DataInfo "in_0" tensorNames = ["in_0"] : tensor<?x1x548xf16, {bounds = #const.OpaqueI64Elements<[32, 1, 548]> : tensor<3xsi64>
 // CHECK: } outputsInfo : {
-// CHECK:   DataInfo "out_0" : tensor<?x1x548xf16, {bounds = #const.OpaqueI64Elements<[32, 1, 548]> : tensor<3xsi64>
+// CHECK:   DataInfo "out_0" tensorNames = ["out_0"] : tensor<?x1x548xf16, {bounds = #const.OpaqueI64Elements<[32, 1, 548]> : tensor<3xsi64>
 // CHECK: }
-  func.func private @main_func0(%main: tensor<?x1x548xf16>) -> tensor<?x1x548xf16> {
+  func.func nested @main_func0(%main: tensor<?x1x548xf16>) -> tensor<?x1x548xf16> {
     %main_1 = Core.ReinterpretCast(%main) : tensor<?x1x548xf16> -> tensor<?x1x548xf16, {bounds = #const.OpaqueI64Elements<[32, 1, 548]> : tensor<3xsi64>, order = #CHW}>
     %Softmax_14 = VPU.SoftMax(%main_1) {axisInd = 2 : i64} : tensor<?x1x548xf16, {bounds = #const.OpaqueI64Elements<[32, 1, 548]> : tensor<3xsi64>, order = #CHW}> -> tensor<?x1x548xf16, {bounds = #const.OpaqueI64Elements<[32, 1, 548]> : tensor<3xsi64>, order = #CHW}>
     %main_2 = Core.ReinterpretCast(%Softmax_14) : tensor<?x1x548xf16, {bounds = #const.OpaqueI64Elements<[32, 1, 548]> : tensor<3xsi64>, order = #CHW}> -> tensor<?x1x548xf16>

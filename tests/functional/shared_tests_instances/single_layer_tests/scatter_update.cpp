@@ -9,6 +9,9 @@
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ScatterUpdateLayerTest);
+
 class ScatterUpdateLayerTestCommon : public ScatterUpdateLayerTest, virtual public VpuOv2LayerTest {};
 
 TEST_P(ScatterUpdateLayerTestCommon, NPU3720_SW) {
@@ -30,8 +33,19 @@ TEST_P(ScatterUpdateLayerTestCommon, NPU5010_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5010);
 }
+
+TEST_P(ScatterUpdateLayerTestCommon, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
 TEST_P(ScatterUpdateLayerTestCommon, NPU5020_SW) {
     setReferenceSoftwareMode();
+    run(Platform::NPU5020);
+}
+
+TEST_P(ScatterUpdateLayerTestCommon, NPU5020_HW) {
+    setDefaultHardwareMode();
     run(Platform::NPU5020);
 }
 

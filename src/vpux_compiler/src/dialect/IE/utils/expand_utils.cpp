@@ -8,8 +8,10 @@
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
+#include "vpux/compiler/dialect/IE/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/permute_infer.hpp"
+#include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
@@ -98,15 +100,14 @@ mlir::Value expandWithOffset(mlir::Location loc, mlir::PatternRewriter& rewriter
 }
 
 mlir::Value paddingChannel(mlir::Operation* origOp, mlir::PatternRewriter& rewriter, mlir::Value expandValue,
-                           ShapeRef padsEnd, size_t expandDim) {
+                           ShapeRef padsEnd, size_t expandDim, StringRef suffix) {
     auto sliceOp = origOp->getOperand(0).getDefiningOp<IE::SliceOp>();
     if (sliceOp == nullptr) {
-        return rewriter.createOrFold<IE::ExpandOp>(appendLoc(origOp->getLoc(), "pad_{0}", padsEnd), expandValue,
+        return rewriter.createOrFold<IE::ExpandOp>(takeOpLoc(origOp, "pad_{0}_{1}", padsEnd, suffix), expandValue,
                                                    std::nullopt, padsEnd);
     }
 
-    return expandWithOffset(takeOpLoc(origOp, "expand_input"), rewriter, origOp, sliceOp, expandValue, padsEnd,
-                            expandDim);
+    return expandWithOffset(takeOpLoc(origOp, suffix), rewriter, origOp, sliceOp, expandValue, padsEnd, expandDim);
 }
 
 mlir::Value paddingFilter(mlir::Operation* origOp, mlir::PatternRewriter& rewriter, mlir::Value expandValue,
@@ -120,7 +121,7 @@ mlir::Value paddingFilter(mlir::Operation* origOp, mlir::PatternRewriter& rewrit
                                         padsEnd, Dims4D::Act::C.ind());
 
     padsEnd[Dims4D::Filter::IC] = 0;
-    return rewriter.createOrFold<IE::ExpandOp>(appendLoc(origOp->getLoc(), "pad_filter"), firstExpand, std::nullopt,
+    return rewriter.createOrFold<IE::ExpandOp>(takeOpLoc(origOp, "pad_filter"), firstExpand, std::nullopt,
                                                ShapeRef(padsEnd));
 }
 
@@ -295,6 +296,73 @@ int64_t calculateAlignmentRequirementForExpandOpConversion(const vpux::NDTypeInt
     return leastChannelMultiple / expandInChannels;
 }
 
+int64_t getCompatibleExpandConvAlignment(ShapeRef expandInShape, const int64_t currentAlignment,
+                                         const int64_t requiredConvAlignment) {
+    const auto currentConvIC = expandInShape[Dims4D::Act::C] * currentAlignment;
+    if (currentConvIC % requiredConvAlignment == 0) {
+        return currentAlignment;
+    }
+
+    const auto gcd = std::gcd(currentConvIC, requiredConvAlignment);
+    return currentAlignment * (requiredConvAlignment / gcd);
+}
+
+vpux::NDTypeInterface getProspectiveActivationType(vpux::NDTypeInterface baseType, ShapeRef baseShape,
+                                                   const int64_t alignment, mlir::Type elemType,
+                                                   IE::ReshapeMode reshapeMode) {
+    auto prospectiveShape = baseShape.toValues();
+    prospectiveShape[Dims4D::Act::C] *= alignment;
+
+    if (reshapeMode == IE::ReshapeMode::RESHAPE_H_TO_C) {
+        prospectiveShape[Dims4D::Act::N] = 1;
+        prospectiveShape[Dims4D::Act::H] = baseShape[Dims4D::Act::N] * baseShape[Dims4D::Act::H] / alignment;
+    } else {
+        prospectiveShape[Dims4D::Act::W] = (baseShape[Dims4D::Act::W] + alignment - 1) / alignment;
+    }
+    return baseType.changeShape(ShapeRef(prospectiveShape)).changeElemType(elemType);
+}
+
+vpux::NDTypeInterface getProspectiveWeightsType(ShapeRef expandInShape, ShapeRef expandOutShape, mlir::Type elemType,
+                                                const int64_t alignment) {
+    const int64_t kernelOutputChannels = expandOutShape[Dims4D::Act::C] * alignment;
+    const int64_t kernelInputChannels = expandInShape[Dims4D::Act::C] * alignment;
+    constexpr int64_t kernelY = 1;
+    constexpr int64_t kernelX = 1;
+    const Shape weightsShape{kernelOutputChannels, kernelInputChannels, kernelY, kernelX};
+    const auto tensorType = mlir::RankedTensorType::get(weightsShape.raw(), elemType);
+    return mlir::cast<vpux::NDTypeInterface>(tensorType);
+}
+
+int64_t getRequiredExpandConvInputAlignment(IE::ExpandOp expandOp, vpux::NDTypeInterface expandInType,
+                                            ShapeRef expandInShape, vpux::NDTypeInterface expandOutType,
+                                            ShapeRef expandOutShape, mlir::Type convOutElemType,
+                                            IE::ReshapeMode reshapeMode) {
+    const auto initialAlignment = IE::calculateAlignmentRequirementForExpandOpConversion(expandInType);
+
+    const auto& strategyFactory = IE::getIEStrategyFactory(expandOp->getContext());
+    if (strategyFactory == nullptr) {
+        return initialAlignment;
+    }
+
+    const auto expandConvAlignmentStrategy = strategyFactory->getConvertToConvAlignmentStrategy();
+    if (expandConvAlignmentStrategy == nullptr) {
+        return initialAlignment;
+    }
+
+    const auto weightsElemType = IE::composeWeightsExpressedType(expandInType.getElementType());
+    const auto initialInputType = getProspectiveActivationType(expandInType, expandInShape, initialAlignment,
+                                                               expandInType.getElementType(), reshapeMode);
+    const auto initialOutputType =
+            getProspectiveActivationType(expandOutType, expandOutShape, initialAlignment, convOutElemType, reshapeMode);
+    const auto initialWeightsType =
+            getProspectiveWeightsType(expandInShape, expandOutShape, weightsElemType, initialAlignment);
+
+    const auto requiredAlignment = expandConvAlignmentStrategy->getRequiredInputChannelAlignment(
+            expandOp, initialInputType, initialWeightsType, initialOutputType);
+
+    return getCompatibleExpandConvAlignment(expandInShape, initialAlignment, requiredAlignment.value());
+}
+
 bool beneficialToPadHeight(IE::ExpandOp origOp) {
     return beneficialToPadHeight(origOp.getInput().getType());
 }
@@ -399,7 +467,7 @@ bool beneficialToPadWidth(vpux::NDTypeInterface expandInType, mlir::Value origEx
            alignedInWWithPad / stridesData[Dims4D::Strides::X.ind()];
 }
 
-void convertExpandTypesToSupportedLayout(IE::ExpandOp expandOp, vpux::DimsOrder supportedLayout,
+void convertExpandTypesToSupportedLayout(IE::ExpandOp expandOp, const vpux::DimsOrder& supportedLayout,
                                          vpux::NDTypeInterface& expandInType, vpux::NDTypeInterface& expandOutType,
                                          SmallVector<int64_t>& padsBegin, SmallVector<int64_t>& padsEnd) {
     expandInType = mlir::cast<vpux::NDTypeInterface>(expandOp.getInput().getType());

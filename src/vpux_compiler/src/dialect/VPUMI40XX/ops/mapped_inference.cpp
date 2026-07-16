@@ -6,10 +6,9 @@
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
 
-#include <numeric>
-
 using namespace vpux;
 
+namespace {
 size_t countEmptyArray(mlir::ArrayAttr array, int64_t limit) {
     const auto emptyPredicate = [](const auto& item) -> bool {
         return mlir::cast<mlir::ArrayAttr>(item).empty();
@@ -28,12 +27,13 @@ size_t countZeroes(mlir::ArrayAttr array, int64_t limit) {
 mlir::ArrayAttr subArray(mlir::ArrayAttr attr, int64_t idx) {
     return mlir::cast<mlir::ArrayAttr>(attr[checked_cast<unsigned>(idx)]);
 }
+}  // namespace
 
 mlir::Value vpux::VPUMI40XX::MappedInferenceOp::getListHead(VPURegMapped::TaskType taskType, int64_t tileIdx,
                                                             int64_t listIdx) {
     auto mutableRange = getListHeadMutable(taskType, tileIdx, listIdx);
     if (mutableRange.size() > 0) {
-        size_t emptyTiles, emptyLists, majorOperand, minorOperand = 0;
+        size_t emptyTiles = 0, emptyLists = 0, majorOperand = 0, minorOperand = 0;
         switch (taskType) {
         case VPURegMapped::TaskType::DMA:
             emptyTiles = countEmptyArray(getDmaCount(), tileIdx);
@@ -86,23 +86,16 @@ mlir::MutableOperandRange vpux::VPUMI40XX::MappedInferenceOp::getListHeadMutable
     };
 
     auto taskListSizeIsNotValid = [&arrayIdx](mlir::ArrayAttr array, int64_t tileIdx) -> bool {
-        if (tileIdx >= static_cast<int64_t>(array.size()) || arrayIdx(array, tileIdx) == 0) {
-            return true;
-        }
-        return false;
+        return tileIdx >= static_cast<int64_t>(array.size()) || arrayIdx(array, tileIdx) == 0;
     };
 
     auto taskSubListSizeIsNotValid = [&arrayIdx](mlir::ArrayAttr array, int64_t tileIdx, int64_t listIdx) -> bool {
-        if (tileIdx >= static_cast<int64_t>(array.size()) || subArray(array, tileIdx).size() == 0 ||
-            listIdx >= static_cast<int64_t>(subArray(array, tileIdx).size()) ||
-            arrayIdx(subArray(array, tileIdx), listIdx) == 0) {
-            return true;
-        }
-
-        return false;
+        return tileIdx >= static_cast<int64_t>(array.size()) || subArray(array, tileIdx).size() == 0 ||
+               listIdx >= static_cast<int64_t>(subArray(array, tileIdx).size()) ||
+               arrayIdx(subArray(array, tileIdx), listIdx) == 0;
     };
 
-    size_t emptyTiles, emptyLists, majorOperand, minorOperand = 0;
+    size_t emptyTiles = 0, emptyLists = 0, majorOperand = 0, minorOperand = 0;
     auto emptyOperandRange = mlir::MutableOperandRange(getOperation(), 0, 0);
 
     switch (taskType) {

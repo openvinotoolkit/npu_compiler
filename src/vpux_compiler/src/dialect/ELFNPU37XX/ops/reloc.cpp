@@ -13,7 +13,7 @@
 namespace {
 mlir::Value getTargetSectionOfRelocOp(mlir::Operation* op) {
     auto parentOp = op->getParentOp();
-    auto relocSectionOp = mlir::dyn_cast<ELFNPU37XX::CreateRelocationSectionOp>(parentOp);
+    auto relocSectionOp = mlir::dyn_cast<vpux::ELFNPU37XX::CreateRelocationSectionOp>(parentOp);
     VPUX_THROW_UNLESS(relocSectionOp, "Parent Op of RelocOp must be an ELFNPU37XX::CreateRelocationSectionOp");
 
     return relocSectionOp.getTargetSection();

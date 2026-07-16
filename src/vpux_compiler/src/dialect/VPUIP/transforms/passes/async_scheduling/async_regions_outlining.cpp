@@ -45,7 +45,7 @@ public:
                       log) {
     }
 
-    void outline(mlir::ModuleOp moduleOp, StringRef functionSuffix) override;
+    bool outline(mlir::ModuleOp moduleOp, StringRef functionSuffix) override;
 
     static constexpr StringRef name() {
         return "async-region";
@@ -64,9 +64,12 @@ private:
     mlir::DenseSet<mlir::func::FuncOp> _outlinedFunctions = {};
 };
 
-void AsyncRegionsOutliner::outline(mlir::ModuleOp moduleOp, StringRef functionSuffix) {
-    OutlinerBase::outline(moduleOp, functionSuffix);
-    addBuffersForNetResults(moduleOp);
+bool AsyncRegionsOutliner::outline(mlir::ModuleOp moduleOp, StringRef functionSuffix) {
+    const auto irModified = OutlinerBase::outline(moduleOp, functionSuffix);
+    if (irModified) {
+        addBuffersForNetResults(moduleOp);
+    }
+    return irModified;
 }
 
 // cloneAsyncOpsWithMapping() is a helper function to clone async.execute operations
@@ -222,7 +225,7 @@ void AsyncRegionsOutliner::buildFuncOps(mlir::ModuleOp moduleOp, ArrayRef<SmallV
         const auto funcLoc = appendLoc(mainFuncOp.getLoc(), "part{0}", targetIdx + 1);
         auto func = builder.create<mlir::func::FuncOp>(funcLoc, funcsInfo[targetIdx][sliceIdx].funcName, funcType);
         _outlinedFunctions.insert(func);
-        func.setPrivate();
+        func.setNested();
 
         auto builder = mlir::OpBuilder::atBlockEnd(func.addEntryBlock(), &builderLog);
 

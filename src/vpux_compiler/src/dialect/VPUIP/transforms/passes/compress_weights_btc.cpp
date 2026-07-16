@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
+#include "vpux/compiler/core/types/quantile_float/types.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
@@ -34,12 +35,18 @@ namespace {
 
 class CompressWeightsBTCPass final : public VPUIP::impl::CompressWeightsBTCBase<CompressWeightsBTCPass> {
 public:
-    explicit CompressWeightsBTCPass(Logger log) {
+    explicit CompressWeightsBTCPass(Logger log, bool huffmanEnable, bool failIfNoCompression)
+            : _huffmanEnable(huffmanEnable), _failIfNoCompression(failIfNoCompression) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
+    mlir::LogicalResult initializeOptions(
+            StringRef options, llvm::function_ref<mlir::LogicalResult(const llvm::Twine&)> errorHandler) final;
+
 private:
     void safeRunOnFunc() final;
+    bool _huffmanEnable = false;
+    bool _failIfNoCompression = false;
 };
 
 //
@@ -49,8 +56,11 @@ private:
 class NNDMAOpConverter final : public mlir::OpRewritePattern<VPUIP::NNDMAOp> {
 public:
     NNDMAOpConverter(mlir::MLIRContext* ctx, const ICodec::CompressionAlgorithm& algo, config::ArchKind arch,
-                     Logger log)
-            : mlir::OpRewritePattern<VPUIP::NNDMAOp>(ctx), _log(log), _codec(vpux::makeCodec(algo, arch)) {
+                     bool huffmanEnable, Logger log)
+            : mlir::OpRewritePattern<VPUIP::NNDMAOp>(ctx),
+              _log(log),
+              _codec(vpux::makeCodec(algo, arch)),
+              _huffmanEnable(huffmanEnable) {
     }
 
 public:
@@ -61,8 +71,10 @@ private:
 
     Logger _log;
     const std::unique_ptr<ICodec> _codec;
+    [[maybe_unused]] bool _huffmanEnable = false;
     mlir::FailureOr<std::vector<uint8_t>> compressDataFromDeclareOp(Const::DeclareOp constOp,
-                                                                    ICodec::CompressionMode compressionMode) const;
+                                                                    ICodec::CompressionMode compressionMode,
+                                                                    ICodec::CompressionPath compPath) const;
 };
 
 ICodec::CompressionMode NNDMAOpConverter::getCompressionMode(Const::DeclareOp constOp) const {
@@ -75,13 +87,13 @@ ICodec::CompressionMode NNDMAOpConverter::getCompressionMode(Const::DeclareOp co
 }
 
 mlir::FailureOr<std::vector<uint8_t>> NNDMAOpConverter::compressDataFromDeclareOp(
-        Const::DeclareOp constOp, ICodec::CompressionMode compressionMode) const {
+        Const::DeclareOp constOp, ICodec::CompressionMode compressionMode, ICodec::CompressionPath compPath) const {
     const auto content = constOp.getContent();
     const Byte totalInputSize = getTotalSize(constOp);
     std::vector<uint8_t> origData(checked_cast<size_t>(totalInputSize.count()));
     content.copyTo(MutableArrayRef(reinterpret_cast<char*>(origData.data()), origData.size()));
 
-    return _codec->compress(origData, compressionMode, _log);
+    return _codec->compress(origData, compressionMode, compPath, _log);
 }
 
 mlir::LogicalResult NNDMAOpConverter::matchAndRewrite(VPUIP::NNDMAOp origOp, mlir::PatternRewriter& rewriter) const {
@@ -141,7 +153,8 @@ mlir::LogicalResult NNDMAOpConverter::matchAndRewrite(VPUIP::NNDMAOp origOp, mli
     _log.trace("Compress constant '{0}', type - '{1}', compression mode: {2}", inConstOp->getLoc(), inputType,
                ICodec::compressionModeToStr(compressionMode));
 
-    const auto compressedDataOrFailure = compressDataFromDeclareOp(inConstOp, compressionMode);
+    auto compressionPath = ICodec::CompressionPath::BTC;
+    const auto compressedDataOrFailure = compressDataFromDeclareOp(inConstOp, compressionMode, compressionPath);
 
     if (mlir::failed(compressedDataOrFailure)) {
         return mlir::failure();
@@ -201,18 +214,38 @@ mlir::LogicalResult NNDMAOpConverter::matchAndRewrite(VPUIP::NNDMAOp origOp, mli
     auto newSrcConstOp = rewriter.create<Const::DeclareOp>(inConstOp->getLoc(), newSrcType,
                                                            Const::ContentAttr::get(newSrcContentAttr));
 
+    VPUIP::DMAEncodingAlgoAttr dmaEncodingAlgoAttr = nullptr;
     rewriter.setInsertionPoint(origOp);
     rewriter.create<VPUIP::DecompressDMAOp>(loc, newSrcConstOp.getOutput(), /*act_compression_size_entry*/ nullptr,
                                             /*act_compression_sparsity_map*/ nullptr, newDstBufferOp.getBuffer(),
                                             origOp.getPortAttr(), origOp.getIsOutOfOrder(), origOp.getIsCritical(),
-                                            /*dmaHwpId=*/nullptr,
-                                            /*profilingMetadata=*/nullptr);
+                                            /*dmaHwpId=*/nullptr, /*profilingMetadata=*/nullptr, dmaEncodingAlgoAttr);
     rewriter.replaceOp(origOp, {outBufferOp.getBuffer()});
 
     const auto uncompressed = totalInputSize.count();
     const auto compressed = compressedData.size();
     _log.trace("Compressed weights for {0}: {1} / {2} ({3})", loc, compressed, uncompressed,
                (double)compressed / uncompressed);
+
+    return mlir::success();
+}
+
+mlir::LogicalResult CompressWeightsBTCPass::initializeOptions(
+        StringRef options, llvm::function_ref<mlir::LogicalResult(const llvm::Twine&)> errorHandler) {
+    if (mlir::failed(Base::initializeOptions(options, errorHandler))) {
+        return mlir::failure();
+    }
+
+    if (huffmanEnable.hasValue()) {
+        _huffmanEnable = huffmanEnable.getValue();
+        if (_huffmanEnable) {
+            return errorHandler("Huffman compression is not supported for this architecture");
+        }
+    }
+
+    if (failIfNoCompression.hasValue()) {
+        _failIfNoCompression = failIfNoCompression.getValue();
+    }
 
     return mlir::success();
 }
@@ -227,9 +260,14 @@ void CompressWeightsBTCPass::safeRunOnFunc() {
     auto& ctx = getContext();
 
     mlir::RewritePatternSet patterns(&ctx);
-    patterns.add<NNDMAOpConverter>(&ctx, algo, arch, _log);
+    patterns.add<NNDMAOpConverter>(&ctx, algo, arch, _huffmanEnable, _log);
 
-    if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), vpux::getDefaultGreedyRewriteConfig()))) {
+    bool IRChanged = false;
+    auto rewritersStatus =
+            applyPatternsGreedily(func, std::move(patterns), vpux::getDefaultGreedyRewriteConfig(), &IRChanged);
+    if (mlir::failed(rewritersStatus) || (_failIfNoCompression && !IRChanged)) {
+        VPUX_THROW_WHEN(_failIfNoCompression && !IRChanged,
+                        "No operations were compressed. Failing the pass because 'failIfNoCompression' is enabled.");
         signalPassFailure();
     }
 }
@@ -240,6 +278,7 @@ void CompressWeightsBTCPass::safeRunOnFunc() {
 // createCompressWeightsBTCPass
 //
 
-std::unique_ptr<mlir::Pass> vpux::VPUIP::createCompressWeightsBTCPass(Logger log) {
-    return std::make_unique<CompressWeightsBTCPass>(log);
+std::unique_ptr<mlir::Pass> vpux::VPUIP::createCompressWeightsBTCPass(Logger log, bool huffmanEnable,
+                                                                      bool failIfNoCompression) {
+    return std::make_unique<CompressWeightsBTCPass>(log, huffmanEnable, failIfNoCompression);
 }

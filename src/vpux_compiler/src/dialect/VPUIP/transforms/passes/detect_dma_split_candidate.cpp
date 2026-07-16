@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/dma_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/interfaces/inference_execution_simulator.hpp"
@@ -303,6 +304,11 @@ void DetectDMASplitCandidate::safeRunOnFunc() {
 
         const auto dmaPort = dmaOp.getPort().value();
         const auto channelType = dmaOp.getChannelType();
+
+        if (dmaOp->hasAttr(VPUIP::UNROLL_IDX)) {
+            _log.trace("DMA at '{0}' is a part of the unroll group", dmaOp->getLoc());
+            return;
+        }
 
         if (dmaOp.getSplitCandidate().has_value()) {
             _log.trace("DMA at '{0}' has been assigned with SplitCandidate attribute already", dmaOp->getLoc());

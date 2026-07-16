@@ -6,7 +6,15 @@
 #pragma once
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_config.hpp"
-#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_scheduler_interface.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_scheduler_interface.hpp"
+
+#include <functional>
+#include <map>
+#include <optional>
+
+namespace vpux::VPU {
+class LayerVPUNNCost;
+}
 
 namespace vpux::VPU::VF::v2 {
 
@@ -26,6 +34,16 @@ bool outputTileAxisIsSameAsMultiClusterStrategy(mlir::Operation* op);
 
 // Check if the op's input is tiled on same axis as the distributed input type's tiling axis
 bool inputTileAxisIsSameAsMultiClusterStrategy(mlir::Operation* op, mlir::Value operand);
+
+// Check if dim is spatial for 4D activation layouts
+bool isSpatialDim(Dim dim);
+
+// Check whether multi-dimensional tiling is performant for the VF subgraph and current split
+bool isMultiDimTilingPerformant(VFConfig& config, const VFSplit& currentVFSplit);
+
+// Build candidate single- and multi-dimensional VF splits from the requested dimensions
+SmallVector<VFSplit> getSplitFromDimArr(DimArrRef dimsToCheck, DimArrRef allowedDims, VFConfig& config,
+                                        bool enableMultiDimTiling);
 
 // get the maximal valid tiling strategy for VF block between the given range of tiling strategy
 mlir::FailureOr<SmallVector<int64_t>> getMaximalValidTilingStrategyFromRange(
@@ -53,6 +71,9 @@ std::optional<Dim> getNonTiledDimForVFOptimization(const VFSplit& vfSplit);
 // Get number of tiles from split
 int64_t getVFTilesLen(const VFSplit& vfSplit);
 
+// Build a map from each VF operation to its back-inferred tiling dimension.
+mlir::DenseMap<mlir::Operation*, Dim> buildOpDimMap(VFConfig& config, Dim outputDim);
+
 // calculate limit for number of tiles for set of operations
 int64_t getTilingLimit(Dim axis, VFConfig& config, bool multiDimTiling = false);
 
@@ -77,4 +98,8 @@ bool supportMultiClusterStrategyAdjustmentInVF(mlir::Operation* op);
 
 // Find the first non-view-like user of the operation and its operand index
 std::optional<std::pair<mlir::Operation*, int64_t>> findFirstNonViewUser(mlir::Operation* operation);
+
+// Check if the eltwise op with sw op user will cause cmx size exceed for the shared input, which will cause dynamic
+// spilling
+bool cmxSizeExceedForEltwiseOpWithSwOpUser(VFConfig& currentConfig, ArrayRef<mlir::Operation*> parents, Logger log);
 }  // namespace vpux::VPU::VF::v2

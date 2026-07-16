@@ -6,6 +6,7 @@
 #pragma once
 
 #include <algorithm>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -21,8 +22,8 @@ class CostModelShaveUtil {
 public:
     // Check if a kernel is supported
     bool isSwKernelOpSupported(const std::string& swKernelName) const {
-        return std::find(_supportedOperations.begin(), _supportedOperations.end(), swKernelName) !=
-               _supportedOperations.end();
+        const auto& supportedOps = getCachedSupportedOperations();
+        return llvm::is_contained(supportedOps, swKernelName);
     }
 
     // Check if Shave2 API is used
@@ -34,9 +35,28 @@ public:
             : _isShave2ApiUsedInVPUNN(isShave2ApiUsed), _supportedOperations(supportedOperations) {
     }
 
+    CostModelShaveUtil(bool isShave2ApiUsed, std::function<std::vector<std::string>()> lazySupportedOperations)
+            : _isShave2ApiUsedInVPUNN(isShave2ApiUsed), _lazySupportedOperations(std::move(lazySupportedOperations)) {
+    }
+
+private:
+    const std::vector<std::string>& getCachedSupportedOperations() const {
+        std::call_once(_initFlag, [this]() {
+            if (!_supportedOperations.empty()) {
+                return;
+            }
+            VPUX_THROW_WHEN(_lazySupportedOperations == nullptr,
+                            "Supported operations loader not initialized. Cannot retrieve supported operations.");
+            _supportedOperations = _lazySupportedOperations();
+        });
+        return _supportedOperations;
+    }
+
 private:
     bool _isShave2ApiUsedInVPUNN;
-    std::vector<std::string> _supportedOperations;
+    std::function<std::vector<std::string>()> _lazySupportedOperations;
+    mutable std::once_flag _initFlag;
+    mutable std::vector<std::string> _supportedOperations;
 };
 }  // namespace VPU
 }  // namespace vpux

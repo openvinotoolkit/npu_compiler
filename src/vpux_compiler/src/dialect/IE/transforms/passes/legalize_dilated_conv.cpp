@@ -12,6 +12,7 @@
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/conv_utils.hpp"
+#include "vpux/compiler/dialect/config/constraints.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/error.hpp"
@@ -270,7 +271,7 @@ mlir::LogicalResult ConvGeneralRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp 
     const auto kernelX = filterShape[Dims4D::Filter::KX];
     const auto expandedKernelX = (kernelX - 1) * dilations[Dims4D::Dilation::X] + 1;
     const auto expandedKernelY = (kernelY - 1) * dilations[Dims4D::Dilation::Y] + 1;
-    const auto maxKernelSize = config::getMaxKernelSize(origOp);
+    const auto maxKernelSize = config::getNPUConstraints(origOp->getContext()).maxKernelSize;
 
     const auto isKernelSupportedByNCE = (expandedKernelX <= maxKernelSize) && (expandedKernelY <= maxKernelSize);
     const auto isFilterConstant = mlir::succeeded(IE::getConstParentOp(origOp.getFilter()));

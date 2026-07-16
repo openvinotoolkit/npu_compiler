@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/core/types/quantile_float/types.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
@@ -21,6 +22,7 @@
 #include "vpux/compiler/utils/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/IR/IRMapping.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Interfaces/ViewLikeInterface.h>
@@ -184,8 +186,8 @@ mlir::LogicalResult MoveThroughTranspose::matchAndRewrite(IE::TransposeOp origOp
         const auto orderAttr =
                 mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(newPerm, origOp->getContext()));
 
-        auto newTranspose =
-                rewriter.create<IE::TransposeOp>(origOp.getLoc(), maybeAffineReshape.getInput(), nullptr, orderAttr);
+        auto newTranspose = rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "transpose_in"),
+                                                             maybeAffineReshape.getInput(), nullptr, orderAttr);
         auto outShapeAttr = getIntArrayAttr(rewriter.getContext(), finalShape);
         rewriter.replaceOpWithNewOp<IE::AffineReshapeOp>(origOp, newTranspose.getOutput(),
                                                          maybeAffineReshape.getDimMappingAttr(), outShapeAttr);
@@ -273,8 +275,8 @@ mlir::LogicalResult MoveThroughTranspose::matchAndRewrite(IE::TransposeOp origOp
     // 7. Create the new Transpose and AffineReshape operations
     const auto orderAttr =
             mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(newOrderVec, origOp->getContext()));
-    auto newTranspose =
-            rewriter.create<IE::TransposeOp>(origOp.getLoc(), maybeAffineReshape.getInput(), nullptr, orderAttr);
+    auto newTranspose = rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "transpose_in"),
+                                                         maybeAffineReshape.getInput(), nullptr, orderAttr);
 
     auto outShapeAttr = getIntArrayAttr(rewriter.getContext(), finalShape);
     auto newDimMappingAttr = getIntArrayOfArray(rewriter.getContext(), reassociationMap.value());
@@ -395,17 +397,17 @@ mlir::LogicalResult MoveAffineReshapePermuteCastThroughConcat::matchAndRewrite(I
 
     auto concatOutputShape = getShape(origOp.getOutput());
     auto reshape1OutputShape = getShape(firstAffineReshapeOp.getOutput());
-    auto newConcat = rewriter.create<IE::ConcatOp>(origOp.getLoc(), newConcatInputs, Dims4D::Act::N);
+    auto newConcat = rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, "concat_in"), newConcatInputs, Dims4D::Act::N);
 
     SmallVector<int64_t> newShape1 = {concatOutputShape[Dims4D::Act::C], reshape1OutputShape[Dims4D::Act::C],
                                       reshape1OutputShape[Dims4D::Act::H], 1};
     auto newAffineReshapeOp = rewriter.create<IE::AffineReshapeOp>(
-            appendLoc(origOp.getLoc(), "reshape_1"), newConcat.getOutput(), firstAffineReshapeOp.getDimMappingAttr(),
+            takeOpLoc(origOp, "reshape_out"), newConcat.getOutput(), firstAffineReshapeOp.getDimMappingAttr(),
             getIntArrayAttr(ctx, newShape1));
 
     auto dstOrder = mlir::AffineMapAttr::get(DimsOrder::NCHW.toAffineMap(ctx));
     const auto memPerm = mlir::AffineMapAttr::get(DimsOrder::NCHW.toAffineMap(ctx));
-    auto newPermuteCastOp = rewriter.create<IE::PermuteCastOp>(appendLoc(origOp.getLoc(), "permute_output"),
+    auto newPermuteCastOp = rewriter.create<IE::PermuteCastOp>(takeOpLoc(origOp, "permute_out"),
                                                                newAffineReshapeOp.getOutput(), dstOrder, memPerm);
 
     SmallVector<SmallVector<int64_t>> outDimMapping{{Dims4D::Act::N.ind(), Dims4D::Act::C.ind()},
@@ -727,7 +729,8 @@ mlir::LogicalResult MoveThroughConcat::matchAndRewrite(IE::ConcatOp origConcatOp
         return mlir::failure();
     }
 
-    auto newConcat = rewriter.create<IE::ConcatOp>(origConcatOp.getLoc(), newInputs, nullptr, newOffsetsAttr);
+    auto newConcat =
+            rewriter.create<IE::ConcatOp>(takeOpLoc(origConcatOp, "concat_in"), newInputs, nullptr, newOffsetsAttr);
 
     rewriter.replaceOpWithNewOp<IE::AffineReshapeOp>(
             origConcatOp, newConcat, dimsMapping,
@@ -781,7 +784,8 @@ mlir::LogicalResult MoveThroughConcat::handleSingleAffineReshapeInput(
     SmallVector<mlir::Value> newInputs;
     newInputs.reserve(inputs.size());
 
-    for (auto input : inputs) {
+    for (size_t idx = 0; idx < inputs.size(); idx++) {
+        auto input = inputs[idx];
         if (auto parentOp = mlir::dyn_cast_if_present<IE::AffineReshapeOp>(input.getDefiningOp())) {
             newInputs.push_back(parentOp.getInput());
         } else {
@@ -801,12 +805,13 @@ mlir::LogicalResult MoveThroughConcat::handleSingleAffineReshapeInput(
 
             auto targetShapeAttr = getIntArrayAttr(rewriter.getContext(), targetShape);
             if (useShapeCast) {
-                auto shapeCast = rewriter.create<IE::ShapeCastOp>(input.getLoc(), input, targetShapeAttr);
+                auto shapeCast = rewriter.create<IE::ShapeCastOp>(appendLoc(input.getLoc(), "shapecast_in{0}", idx),
+                                                                  input, targetShapeAttr);
                 newInputs.push_back(shapeCast.getResult());
             } else {
                 auto inverseDimMappingAttr = getIntArrayOfArray(rewriter.getContext(), ArrayRef(inverseDimMapping));
-                auto inverseReshape = rewriter.create<IE::AffineReshapeOp>(input.getLoc(), input, inverseDimMappingAttr,
-                                                                           targetShapeAttr);
+                auto inverseReshape = rewriter.create<IE::AffineReshapeOp>(
+                        appendLoc(input.getLoc(), "reshape_in{0}", idx), input, inverseDimMappingAttr, targetShapeAttr);
                 newInputs.push_back(inverseReshape.getOutput());
             }
         }
@@ -820,7 +825,8 @@ mlir::LogicalResult MoveThroughConcat::handleSingleAffineReshapeInput(
     }
 
     auto newOffsetsAttr = IE::inferConcatOffsets(newInputShapes, Dim(newConcatAxis), origConcatOp.getContext());
-    auto newConcat = rewriter.create<IE::ConcatOp>(origConcatOp.getLoc(), newInputs, nullptr, newOffsetsAttr);
+    auto newConcat =
+            rewriter.create<IE::ConcatOp>(takeOpLoc(origConcatOp, "concat_in"), newInputs, nullptr, newOffsetsAttr);
 
     // Apply forward AffineReshape
     rewriter.replaceOpWithNewOp<IE::AffineReshapeOp>(
@@ -858,10 +864,11 @@ mlir::LogicalResult MoveThroughSoftmax::matchAndRewrite(IE::SoftMaxOp origOp, ml
 
     auto newSoftmaxAxisValue = newSoftmaxAxis.value();
     auto newSoftmaxOp = rewriter.create<IE::SoftMaxOp>(
-            origOp.getLoc(), affineReshapeOp.getInput().getType(), affineReshapeOp.getInput(),
-            getIntAttr(getContext(), newSoftmaxAxisValue), origOp.getPadSizeAttr());
+            takeOpLoc(origOp, "softmax_in"), affineReshapeOp.getInput().getType(), affineReshapeOp.getInput(),
+            getIntAttr(getContext(), newSoftmaxAxisValue), origOp.getPadSizeAttr(), origOp.getDstElemTypeAttr(),
+            origOp.getMaskAwareAttr());
     auto newAffineReshapeOp =
-            rewriter.create<IE::AffineReshapeOp>(affineReshapeOp.getLoc(), newSoftmaxOp.getOutput(),
+            rewriter.create<IE::AffineReshapeOp>(takeOpLoc(origOp, "reshape_out"), newSoftmaxOp.getOutput(),
                                                  affineReshapeOp.getDimMapping(), affineReshapeOp.getShapeValue());
     origOp.replaceAllUsesWith(newAffineReshapeOp.getOutput());
 
@@ -920,14 +927,14 @@ mlir::LogicalResult MoveThroughMVN::matchAndRewrite(IE::MVNOp origOp, mlir::Patt
     }
 
     // Create new MVNOp
-    auto newMvnOp = rewriter.create<IE::MVNOp>(origOp->getLoc(), preAffineReshapeOp.getInput(),
+    auto newMvnOp = rewriter.create<IE::MVNOp>(takeOpLoc(origOp, "mvn_in"), preAffineReshapeOp.getInput(),
                                                mlir::BoolAttr::get(getContext(), isAcrossChannels),
                                                origOp.getNormalizeVarianceAttr(), origOp.getEpsAttr());
 
     // Create new AffineReshapeOp
-    auto newAffineReshapeOp = rewriter.create<IE::AffineReshapeOp>(preAffineReshapeOp.getLoc(), newMvnOp.getOutput(),
-                                                                   preAffineReshapeOp.getDimMapping(),
-                                                                   preAffineReshapeOp.getShapeValue());
+    auto newAffineReshapeOp = rewriter.create<IE::AffineReshapeOp>(
+            takeOpLoc(origOp, "reshape_out"), newMvnOp.getOutput(), preAffineReshapeOp.getDimMapping(),
+            preAffineReshapeOp.getShapeValue());
 
     origOp.replaceAllUsesWith(newAffineReshapeOp.getOutput());
 
@@ -982,11 +989,13 @@ mlir::LogicalResult MoveThroughEltwiseGeneric<ConcreteOp>::matchAndRewrite(Concr
     mlir::IRMapping mapper;
     mapper.map(origOp->getOperand(0), inputAffineReshape.getInput());
     auto newOp = rewriter.clone(*origOp, mapper);
-    vpux::inferReturnTypes(newOp, vpux::InferShapedTypeMode::SHAPE);
-    // Input layout should be kept
-    auto dimsOrder = mlir::cast<NDTypeInterface>(newOp->getOperand(0).getType()).getDimsOrder();
-    auto newOutType = mlir::cast<NDTypeInterface>(newOp->getResult(0).getType()).changeDimsOrder(dimsOrder);
-    newOp->getResult(0).setType(newOutType);
+    rewriter.modifyOpInPlace(newOp, [&]() {
+        vpux::inferReturnTypes(newOp, vpux::InferShapedTypeMode::SHAPE);
+        // Input layout should be kept
+        const auto dimsOrder = mlir::cast<NDTypeInterface>(newOp->getOperand(0).getType()).getDimsOrder();
+        newOp->getResult(0).setType(
+                mlir::cast<NDTypeInterface>(newOp->getResult(0).getType()).changeDimsOrder(dimsOrder));
+    });
 
     rewriter.replaceOpWithNewOp<IE::AffineReshapeOp>(origOp, newOp->getResult(0),
                                                      inputAffineReshape.getDimMappingAttr(),
@@ -1053,10 +1062,10 @@ mlir::LogicalResult MoveThroughMultiply::matchAndRewrite(IE::MultiplyOp origOp, 
     auto origOutputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
     auto newOutputType = origOutputType.changeShape(inputShape);
 
-    auto newMultiply = rewriter.create<IE::MultiplyOp>(origOp.getLoc(), newOutputType, inputAffineReshape1.getInput(),
-                                                       inputAffineReshape2.getInput(), origOp.getAutoBroadcastAttr(),
-                                                       origOp.getPostOpAttr(), origOp.getClampAttr(),
-                                                       origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+    auto newMultiply = rewriter.create<IE::MultiplyOp>(
+            takeOpLoc(origOp, "multiply_in"), newOutputType, inputAffineReshape1.getInput(),
+            inputAffineReshape2.getInput(), origOp.getAutoBroadcastAttr(), origOp.getPostOpAttr(),
+            origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
     rewriter.replaceOpWithNewOp<IE::AffineReshapeOp>(origOp, newMultiply.getOutput(),
                                                      inputAffineReshape1.getDimMappingAttr(),
                                                      inputAffineReshape1.getShapeValueAttr());
@@ -1147,16 +1156,16 @@ mlir::LogicalResult MoveThroughMultiply::processMultiplyOpWithBroadCastConstInpu
         }
         auto newConstInputShape = Shape(affineReshapeOutShape.size(), 1);
         newConstInputShape[nonBroadCastDimBeforeReshape] = nonBroadCastDimSize;
-        constInput = rewriter.createOrFold<IE::ReshapeOp>(constInput.getLoc(), constInput,
+        constInput = rewriter.createOrFold<IE::ReshapeOp>(appendLoc(constInput.getLoc(), "reshape_const"), constInput,
                                                           getIntArrayAttr(origOp->getContext(), newConstInputShape));
         // New constant should have the same memory order as AffineReshape input
         const auto affineReshapeInputDimOrder = DimsOrder::fromValue(affineReshapeOp.getInput());
         constInput = rewriter.createOrFold<IE::ReorderOp>(
-                constInput.getLoc(), constInput,
+                appendLoc(constInput.getLoc(), "reorder_const"), constInput,
                 mlir::AffineMapAttr::get(affineReshapeInputDimOrder.toAffineMap(getContext())));
     }
     auto newMultiply = rewriter.create<IE::MultiplyOp>(
-            origOp.getLoc(), affineReshapeOp.getInput(), constInput, origOp.getAutoBroadcastAttr(),
+            takeOpLoc(origOp, "multiply_in"), affineReshapeOp.getInput(), constInput, origOp.getAutoBroadcastAttr(),
             origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
     rewriter.replaceOpWithNewOp<IE::AffineReshapeOp>(
             origOp, newMultiply.getOutput(), affineReshapeOp.getDimMappingAttr(), affineReshapeOp.getShapeValueAttr());
@@ -1262,8 +1271,8 @@ mlir::LogicalResult MoveThroughAdd::matchAndRewrite(IE::AddOp origOp, mlir::Patt
     auto ctx = rewriter.getContext();
 
     auto inputShape = getShape(inputAffineReshapeOp.getInput());
-    auto newInputShapeCast =
-            rewriter.create<IE::ShapeCastOp>(anotherInput.getLoc(), anotherInput, getIntArrayAttr(ctx, inputShape));
+    auto newInputShapeCast = rewriter.create<IE::ShapeCastOp>(appendLoc(anotherInput.getLoc(), "shapecast_in"),
+                                                              anotherInput, getIntArrayAttr(ctx, inputShape));
 
     auto newInput1 =
             affineReshapeInput == origOp.getInput1() ? inputAffineReshapeOp.getInput() : newInputShapeCast.getResult();
@@ -1272,8 +1281,8 @@ mlir::LogicalResult MoveThroughAdd::matchAndRewrite(IE::AddOp origOp, mlir::Patt
     auto origOutputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
     auto newOutputType = origOutputType.changeShape(inputShape);
     auto newAddOp = rewriter.create<IE::AddOp>(
-            origOp.getLoc(), newOutputType, newInput1, newInput2, origOp.getAutoBroadcastAttr(), origOp.getPostOpAttr(),
-            origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+            takeOpLoc(origOp, "add_in"), newOutputType, newInput1, newInput2, origOp.getAutoBroadcastAttr(),
+            origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
 
     rewriter.replaceOpWithNewOp<IE::AffineReshapeOp>(origOp, origOutputType, newAddOp.getOutput(),
                                                      inputAffineReshapeOp.getDimMappingAttr(),
@@ -1368,8 +1377,9 @@ mlir::LogicalResult ConcatReshapeConcat::matchAndRewrite(IE::ConcatOp origOp, ml
         newConcatAxes.insert(newConcatDim);
 
         const auto outputShapeAttr = getIntArrayAttr(rewriter.getContext(), newShape);
-        auto newAffineReshapeOp = rewriter.create<IE::AffineReshapeOp>(reshapeOp.getLoc(), input,
-                                                                       reshapeOp.getDimMapping(), outputShapeAttr);
+        auto newAffineReshapeOp =
+                rewriter.create<IE::AffineReshapeOp>(appendLoc(reshapeOp.getLoc(), "reshape_{0}", newInputs.size()),
+                                                     input, reshapeOp.getDimMapping(), outputShapeAttr);
         newInputs.push_back(newAffineReshapeOp.getOutput());
         newInputShapes.push_back(getShape(newAffineReshapeOp.getOutput()));
     }
@@ -1556,10 +1566,12 @@ mlir::LogicalResult MoveThroughOneInputEltwise::matchAndRewrite(mlir::Operation*
     // inferReturnTypes(Gelu, LAYOUT) will overwrite the original layout with empty layout data,
     // which ultimately removes the original layout.
     // Therefore, manually set the output layout is required.
-    vpux::inferReturnTypes(newEltwiseOp, vpux::InferShapedTypeMode::SHAPE);
-    auto dimsOrder = mlir::cast<NDTypeInterface>(newEltwiseOp->getOperand(0).getType()).getDimsOrder();
-    auto newOutType = mlir::cast<NDTypeInterface>(newEltwiseOp->getResult(0).getType()).changeDimsOrder(dimsOrder);
-    newEltwiseOp->getResult(0).setType(newOutType);
+    rewriter.modifyOpInPlace(newEltwiseOp, [&]() {
+        vpux::inferReturnTypes(newEltwiseOp, vpux::InferShapedTypeMode::SHAPE);
+        const auto dimsOrder = mlir::cast<NDTypeInterface>(newEltwiseOp->getOperand(0).getType()).getDimsOrder();
+        newEltwiseOp->getResult(0).setType(
+                mlir::cast<NDTypeInterface>(newEltwiseOp->getResult(0).getType()).changeDimsOrder(dimsOrder));
+    });
 
     rewriter.replaceOpWithNewOp<IE::AffineReshapeOp>(eltwiseOp, newEltwiseOp->getResult(0),
                                                      affineReshapeOp.getDimMappingAttr(),
@@ -1629,8 +1641,8 @@ mlir::LogicalResult MoveThroughConvert::matchAndRewrite(IE::ConvertOp convertOp,
         return matchFailed(_log, rewriter, convertOp, "Propagating Affine Reshape through Convert not beneficial");
     }
 
-    auto newConvertOp =
-            rewriter.create<IE::ConvertOp>(convertOp.getLoc(), affineReshapeOp.getInput(), convertOp.getDstElemType());
+    auto newConvertOp = rewriter.create<IE::ConvertOp>(takeOpLoc(convertOp, "convert_in"), affineReshapeOp.getInput(),
+                                                       convertOp.getDstElemType());
     rewriter.replaceOpWithNewOp<IE::AffineReshapeOp>(convertOp, newConvertOp.getOutput(),
                                                      affineReshapeOp.getDimMappingAttr(),
                                                      affineReshapeOp.getShapeValueAttr());
@@ -1645,6 +1657,27 @@ AffineReshape        QuantizeCast
 QuantizeCast         AffineReshape
 
 */
+
+// Reports whether `quantizeCast` sits at the bottom of a QuantizeCast -> AffineReshape(s) -> QuantizeCast
+// chain: its AffineReshape producer chain (one or more single-use reshapes) terminates in a single-use
+// upstream QuantizeCast. Lifting `quantizeCast` above the reshapes places it next to the upstream cast,
+// forming a consecutive QuantizeCast pair for the FuseQuantizeCasts canonicalization to collapse.
+bool enablesQuantizeCastPairFusion(IE::QuantizeCastOp quantizeCast, IE::AffineReshapeOp affineReshapeOp) {
+    const auto dstQuantType = mlir::dyn_cast<mlir::quant::QuantizedType>(quantizeCast.getDstElemType());
+    if (dstQuantType == nullptr || mlir::dyn_cast<vpux::type::QuantileType>(dstQuantType.getStorageType()) == nullptr) {
+        return false;
+    }
+
+    mlir::Value chainSrc = affineReshapeOp.getInput();
+    while (auto upstreamReshape = mlir::dyn_cast_if_present<IE::AffineReshapeOp>(chainSrc.getDefiningOp())) {
+        if (!upstreamReshape.getOutput().hasOneUse()) {
+            return false;
+        }
+        chainSrc = upstreamReshape.getInput();
+    }
+    auto upstreamQuantizeCast = mlir::dyn_cast_if_present<IE::QuantizeCastOp>(chainSrc.getDefiningOp());
+    return upstreamQuantizeCast != nullptr && upstreamQuantizeCast.getOutput().hasOneUse();
+}
 
 class MoveThroughQuantizeCast final : public mlir::OpRewritePattern<IE::QuantizeCastOp> {
 public:
@@ -1676,14 +1709,21 @@ mlir::LogicalResult MoveThroughQuantizeCast::matchAndRewrite(IE::QuantizeCastOp 
         return matchFailed(_log, rewriter, origOp, "QuantizeCastOp has multiple uses");
     }
 
-    if (!mlir::isa_and_nonnull<IE::AffineReshapeOp>(*origOp->getUsers().begin())) {
-        return matchFailed(_log, rewriter, origOp, "QuantizeCastOp doesn't have affinereshape user");
+    // Two scenarios enable the swap:
+    //  - the QuantizeCast feeds an AffineReshape, so lifting it consolidates the surrounding reshapes;
+    //  - the QuantizeCast closes a QuantizeCast -> AffineReshape(s) -> QuantizeCast chain (an upstream
+    //    QuantizeCast at the top of the reshape chain), so lifting exposes a consecutive QuantizeCast pair
+    //    that canonicalization fuses.
+    const auto userIsAffineReshape = mlir::isa_and_present<IE::AffineReshapeOp>(*origOp->getUsers().begin());
+    if (!userIsAffineReshape && !enablesQuantizeCastPairFusion(origOp, affineReshapeOp)) {
+        return matchFailed(_log, rewriter, origOp,
+                           "QuantizeCastOp neither feeds an AffineReshape nor closes a QuantizeCast pair");
     }
 
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
     const auto outElemType = outputType.getElementType();
-    auto newQuantizeCastOp =
-            rewriter.create<IE::QuantizeCastOp>(origOp->getLoc(), affineReshapeOp.getInput(), outElemType);
+    auto newQuantizeCastOp = rewriter.create<IE::QuantizeCastOp>(takeOpLoc(origOp, "quantize_in"),
+                                                                 affineReshapeOp.getInput(), outElemType);
     rewriter.replaceOpWithNewOp<IE::AffineReshapeOp>(origOp, newQuantizeCastOp.getOutput(),
                                                      affineReshapeOp.getDimMappingAttr(),
                                                      affineReshapeOp.getShapeValueAttr());
@@ -1722,6 +1762,10 @@ mlir::LogicalResult MoveUpThroughGather::matchAndRewrite(IE::GatherOp origOp, ml
     }
 
     if (getShape(origOp.getIndices()).size() != 1 || origOp.getBatchDims() != 0) {
+        return mlir::failure();
+    }
+
+    if (getShape(origOp.getInput()).size() != getShape(origOp.getOutput()).size()) {
         return mlir::failure();
     }
 
@@ -1774,10 +1818,10 @@ mlir::LogicalResult MoveUpThroughGather::matchAndRewrite(IE::GatherOp origOp, ml
     SmallVector<int64_t> newInShape(affineReshapeOutShape.raw());
     newInShape[newAxis] = gatherInShape[Dim(origAxis)];
     auto inShapeAttr = getIntArrayAttr(origOp.getContext(), newInShape);
-    auto inAffineReshapeOp = rewriter.create<IE::AffineReshapeOp>(affineReshapeOp.getLoc(), origOp.getInput(),
+    auto inAffineReshapeOp = rewriter.create<IE::AffineReshapeOp>(takeOpLoc(origOp, "reshape_in"), origOp.getInput(),
                                                                   affineReshapeOp.getDimMapping(), inShapeAttr);
     auto newGatherOp = rewriter.create<IE::GatherOp>(
-            origOp.getLoc(), inAffineReshapeOp.getOutput(), origOp.getIndices(), origOp.getAxis(),
+            takeOpLoc(origOp, "gather_out"), inAffineReshapeOp.getOutput(), origOp.getIndices(), origOp.getAxis(),
             getIntAttr(origOp.getContext(), newAxis), origOp.getBatchDims(), origOp.getIndicesRankAttr());
     rewriter.replaceOp(affineReshapeOp, newGatherOp.getOutput());
 
@@ -1805,12 +1849,13 @@ void PropagateAffineReshape::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
 
+    mlir::RewritePatternSet patterns(&ctx);
+
     const auto verifyAvgPool = [](mlir::Operation* op) {
         auto avgPoolOp = mlir::dyn_cast<IE::AvgPoolOp>(op);
         return (avgPoolOp != nullptr) && (IE::isEltwisePooling<IE::AvgPoolOp>(avgPoolOp));
     };
 
-    mlir::RewritePatternSet patterns(&ctx);
     patterns.add<MoveThroughTranspose>(&ctx, _log);
     patterns.add<MoveThroughExpand>(&ctx, _log);
     patterns.add<MoveThroughConcat>(&ctx, _log);

@@ -5,11 +5,10 @@
 
 #pragma once
 
-#include "vpux/compiler/pipelines/dialect_pipeline_strategy.hpp"
-
+#include "vpux/compiler/NPU40XX/pipeline_options.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
-
+#include "vpux/compiler/pipelines/dialect_pipeline_strategy.hpp"
 #include "vpux/utils/ov/config.hpp"
 
 namespace vpux {
@@ -42,5 +41,9 @@ template <class OptionsType>
 std::unique_ptr<IDialectPipelineStrategy> createDialectPipelineStrategy40XXHostCompile(
         config::CompilationMode compilationMode, const VPU::InitCompilerOptions* initCompilerOptions,
         const OptionsType* options);
+
+template <class OptionsType>
+std::tuple<std::unique_ptr<VPU::InitCompilerOptions>, std::unique_ptr<OptionsType>> createOptionsDefaultHW(
+        const intel_npu::Config& config);
 
 }  // namespace vpux

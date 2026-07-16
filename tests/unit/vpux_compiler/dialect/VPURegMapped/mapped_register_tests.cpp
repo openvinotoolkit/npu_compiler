@@ -53,7 +53,7 @@ public:
 
         auto func = builder.create<mlir::func::FuncOp>(
                 builder.getUnknownLoc(), printToString("MLIR_VPURegMapped_CreateDpuVariantRegister"), funcType,
-                builder.getStringAttr("private"), /*arg_attrs=*/nullptr, /*res_attrs=*/nullptr);
+                builder.getStringAttr("nested"), /*arg_attrs=*/nullptr, /*res_attrs=*/nullptr);
 
         auto funcbuilder = mlir::OpBuilder::atBlockBegin(func.addEntryBlock(), builder.getListener());
 
@@ -64,7 +64,7 @@ public:
 
         mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
         auto initCompilerOptions =
-                VPU::InitCompilerOptions(vpux::config::ArchKind::NPU40XX, config::CompilationMode::DefaultHW);
+                VPU::InitCompilerOptions(vpux::config::Platform::NPU4000, config::CompilationMode::DefaultHW);
 
         VPU::buildInitCompilerPipeline(pm, initCompilerOptions, log);
 

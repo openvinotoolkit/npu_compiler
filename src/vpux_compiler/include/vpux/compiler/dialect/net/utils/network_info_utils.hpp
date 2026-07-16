@@ -7,6 +7,10 @@
 
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
+
+#include "vpux/utils/core/array_ref.hpp"
+#include "vpux/utils/core/small_vector.hpp"
+
 #include "vpux/utils/logger/logger.hpp"
 
 #include <utility>
@@ -75,5 +79,17 @@ void eraseSectionEntries(mlir::Region& section, size_t begin = 0);
 mlir::func::FuncOp findEntryPointFunc(mlir::Operation* op, Logger& log);
 
 bool isArgStrided(mlir::ModuleOp moduleOp, size_t argIndex);
+
+/** @brief Extract per-dimension upper bounds from a DataInfoOp list entry.
+
+    Looks up the DataInfoOp at the given index, inspects its declared
+    Core::BoundedTensorType user type, and returns the bounds array.
+    Returns an empty vector when the entry is missing or has no BoundedTensorType
+    (i.e. the buffer is purely static).
+
+    @param dataInfos  Ordered list of DataInfoOp values from one I/O section.
+    @param index      Zero-based position within the list.
+ */
+SmallVector<int64_t> getBoundsFromDataInfo(ArrayRef<net::DataInfoOp> dataInfos, size_t index);
 
 }  // namespace vpux::net

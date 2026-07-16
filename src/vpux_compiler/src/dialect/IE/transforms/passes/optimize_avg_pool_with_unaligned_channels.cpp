@@ -158,9 +158,9 @@ mlir::LogicalResult AvgPoolToConv::matchAndRewrite(IE::AvgPoolOp origOp, mlir::P
     const auto dilations = getIntArrayAttr(ctx, SmallVector<int64_t>{1, 1});
     auto newConvResult = rewriter.createOrFold<IE::ConvolutionOp>(
             origOp.getLoc(), origOp.getOutput().getType(), origOp.getInput(), reorderFilter, nullptr, /*scale*/ nullptr,
-            origOp.getStridesAttr(), origOp.getPadsBeginAttr(), origOp.getPadsEndAttr(), dilations,
-            origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(),
-            origOp.getInputPaddingAttr());
+            /*zero_points*/ nullptr, origOp.getStridesAttr(), origOp.getPadsBeginAttr(), origOp.getPadsEndAttr(),
+            dilations, origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getStaticScaleAttr(),
+            origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
 
     rewriter.replaceOp(origOp, newConvResult);
 

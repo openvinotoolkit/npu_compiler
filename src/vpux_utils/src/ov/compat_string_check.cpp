@@ -27,15 +27,7 @@ uint64_t parseInt(const std::string& str) {
 namespace vpux::compat {
 
 BlobRequirements parseCompatibilityString(std::string_view compatibilityString) {
-    parser::Parser parser(compatibilityString);
-
-    // Validate that only known attributes are present
-    std::array legalAttributes = {"npu", "t", "compiler", "elf", "mi"};
-    for (const auto& [name, value] : parser.getAttributes()) {
-        if (std::find(legalAttributes.begin(), legalAttributes.end(), name) == legalAttributes.end()) {
-            throw std::runtime_error("Illegal attribute in compatibility string: " + name);
-        }
-    }
+    Parser parser(compatibilityString, std::array{"compiler", "npu", "t", "elf", "mi"});
 
     BlobRequirements reqs;
     reqs.platformId = parseInt(parser.getAttribute("npu"));

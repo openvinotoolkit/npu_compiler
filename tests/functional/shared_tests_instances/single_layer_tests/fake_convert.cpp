@@ -13,6 +13,9 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(FakeConvertLayerTest);
+
 class FakeConvertLayerTestCommon : public FakeConvertLayerTest, virtual public VpuOv2LayerTest {
     // Override base impl to create Scale/Shift inputs as ::Parameter,
     // to avoid mapping on DPU/FakeQuantize
@@ -54,7 +57,7 @@ class FakeConvertLayerTestCommon : public FakeConvertLayerTest, virtual public V
     }
 
     void configure_model() override {
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp16";
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp";
     }
 };
 

@@ -10,7 +10,7 @@
 
 // CHECK-LABEL: @QuantizationPairInMain
 module @QuantizationPairInMain {
-    func.func private @function(%arg0: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16> {
+    func.func nested @function(%arg0: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16> {
         %quant = IE.Quantize(%arg0) {dstElemType = !qElemType} : tensor<1x48x60x60xf16> -> tensor<1x48x60x60x!qElemType>
         %add = IE.Add(%quant, %quant) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60x!qElemType>
         %dequant = IE.Dequantize(%add) {dstElemType = f16} : tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60xf16>
@@ -23,7 +23,7 @@ module @QuantizationPairInMain {
         return %quant : tensor<1x48x60x60x!qElemType>
     }
 
-    // CHECK:  func.func private @function([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60x!qElemType> {
+    // CHECK:  func.func nested @function([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60x!qElemType> {
     // CHECK:      [[ADD:%.+]] = IE.Add([[ARG0]], [[ARG0]])
     // CHECK:      return [[ADD]]
     // CHECK:  }
@@ -37,7 +37,7 @@ module @QuantizationPairInMain {
 
 // CHECK-LABEL: @ConversionPairInMain
 module @ConversionPairInMain {
-    func.func private @function(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
+    func.func nested @function(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
         %convert_f16 = IE.Convert(%arg0) {dstElemType = f16} : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf16>
         %add = IE.Add(%convert_f16, %convert_f16) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60xf16>, tensor<1x48x60x60xf16> -> tensor<1x48x60x60xf16>
         %convert_f32 = IE.Convert(%add) {dstElemType = f32} : tensor<1x48x60x60xf16> -> tensor<1x48x60x60xf32>
@@ -50,7 +50,7 @@ module @ConversionPairInMain {
         return %convert_f16 : tensor<1x48x60x60xf16>
     }
 
-    // CHECK:  func.func private @function([[ARG0:%.+]]: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16> {
+    // CHECK:  func.func nested @function([[ARG0:%.+]]: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16> {
     // CHECK:      [[ADD:%.+]] = IE.Add([[ARG0]], [[ARG0]])
     // CHECK:      return [[ADD]]
     // CHECK:  }
@@ -66,7 +66,7 @@ module @ConversionPairInMain {
 
 // CHECK-LABEL: @MultipleIdenticalQuantizeUsers
 module @MultipleIdenticalQuantizeUsers {
-    func.func private @function(%arg0: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16> {
+    func.func nested @function(%arg0: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16> {
         %quant1 = IE.Quantize(%arg0) {dstElemType = !qElemType} : tensor<1x48x60x60xf16> -> tensor<1x48x60x60x!qElemType>
         %quant2 = IE.Quantize(%arg0) {dstElemType = !qElemType} : tensor<1x48x60x60xf16> -> tensor<1x48x60x60x!qElemType>
         %add = IE.Add(%quant1, %quant2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60x!qElemType>
@@ -80,7 +80,7 @@ module @MultipleIdenticalQuantizeUsers {
         return %quant : tensor<1x48x60x60x!qElemType>
     }
 
-    // CHECK:  func.func private @function([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60x!qElemType> {
+    // CHECK:  func.func nested @function([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60x!qElemType> {
     // CHECK:      [[ADD:%.+]] = IE.Add([[ARG0]], [[ARG0]])
     // CHECK:      return [[ADD]]
     // CHECK:  }
@@ -97,7 +97,7 @@ module @MultipleIdenticalQuantizeUsers {
 
 // CHECK-LABEL: @DoNotOptimizeMultipleDifferentQuantizeUsers
 module @DoNotOptimizeMultipleDifferentQuantizeUsers {
-    func.func private @function(%arg0: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60x!qElemType> {
+    func.func nested @function(%arg0: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60x!qElemType> {
         %quant1 = IE.Quantize(%arg0) {dstElemType = !qElemType} : tensor<1x48x60x60xf16> -> tensor<1x48x60x60x!qElemType>
         %quant2 = IE.Quantize(%arg0) {dstElemType = !qElemType1} : tensor<1x48x60x60xf16> -> tensor<1x48x60x60x!qElemType1>
         %add = IE.Add(%quant1, %quant2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType1> -> tensor<1x48x60x60x!qElemType>
@@ -109,7 +109,7 @@ module @DoNotOptimizeMultipleDifferentQuantizeUsers {
         return %call : tensor<1x48x60x60x!qElemType>
     }
 
-    // CHECK:  func.func private @function([[ARG0:%.+]]: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60x!qElemType> {
+    // CHECK:  func.func nested @function([[ARG0:%.+]]: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60x!qElemType> {
     // CHECK:      [[QUANT1:%.+]] = IE.Quantize([[ARG0]]) {dstElemType = !qElemType}
     // CHECK:      [[QUANT2:%.+]] = IE.Quantize([[ARG0]]) {dstElemType = !qElemType1}
     // CHECK:      [[ADD:%.+]] = IE.Add([[QUANT1]], [[QUANT2]])
@@ -128,13 +128,13 @@ module @DoNotOptimizeMultipleDifferentQuantizeUsers {
 
 // CHECK-LABEL: @MultipleFunctionsSameProducer
 module @MultipleFunctionsSameProducer {
-    func.func private @function1(%arg0: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16> {
+    func.func nested @function1(%arg0: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16> {
         %quant = IE.Quantize(%arg0) {dstElemType = !qElemType} : tensor<1x48x60x60xf16> -> tensor<1x48x60x60x!qElemType>
         %add = IE.Add(%quant, %quant) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60x!qElemType>
         %dequant = IE.Dequantize(%add) {dstElemType = f16} : tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60xf16>
         return %dequant : tensor<1x48x60x60xf16>
     }
-    func.func private @function2(%arg0: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16> {
+    func.func nested @function2(%arg0: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16> {
         %quant = IE.Quantize(%arg0) {dstElemType = !qElemType} : tensor<1x48x60x60xf16> -> tensor<1x48x60x60x!qElemType>
         %add = IE.Add(%quant, %quant) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60x!qElemType>
         %dequant = IE.Dequantize(%add) {dstElemType = f16} : tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60xf16>
@@ -147,12 +147,12 @@ module @MultipleFunctionsSameProducer {
         return %call1, %call2 : tensor<1x48x60x60xf16>, tensor<1x48x60x60xf16>
     }
 
-    // CHECK:  func.func private @function1([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60xf16> {
+    // CHECK:  func.func nested @function1([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60xf16> {
     // CHECK:      [[ADD1:%.+]] = IE.Add([[ARG0]], [[ARG0]])
     // CHECK:      [[DEQUANT1:%.+]] = IE.Dequantize([[ADD1]])
     // CHECK:      return [[DEQUANT1]]
     // CHECK:  }
-    // CHECK:  func.func private @function2([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60xf16> {
+    // CHECK:  func.func nested @function2([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60xf16> {
     // CHECK:      [[ADD2:%.+]] = IE.Add([[ARG0]], [[ARG0]])
     // CHECK:      [[DEQUANT2:%.+]] = IE.Dequantize([[ADD2]])
     // CHECK:      return [[DEQUANT2]]
@@ -170,12 +170,12 @@ module @MultipleFunctionsSameProducer {
 
 // CHECK-LABEL: @QuantizationPairInSeparateFunctions
 module @QuantizationPairInSeparateFunctions {
-    func.func private @function1(%arg0: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60xf16> {
+    func.func nested @function1(%arg0: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60xf16> {
         %add = IE.Add(%arg0, %arg0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60x!qElemType>
         %dequant = IE.Dequantize(%add) {dstElemType = f16} : tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60xf16>
         return %dequant : tensor<1x48x60x60xf16>
     }
-    func.func private @function2(%arg0: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60x!qElemType> {
+    func.func nested @function2(%arg0: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60x!qElemType> {
         %quant = IE.Quantize(%arg0) {dstElemType = !qElemType} : tensor<1x48x60x60xf16> -> tensor<1x48x60x60x!qElemType>
         %add = IE.Add(%quant, %quant) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60x!qElemType>
         return %add : tensor<1x48x60x60x!qElemType>
@@ -186,11 +186,11 @@ module @QuantizationPairInSeparateFunctions {
         return %call2 : tensor<1x48x60x60x!qElemType>
     }
 
-    // CHECK:  func.func private @function1([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60x!qElemType> {
+    // CHECK:  func.func nested @function1([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60x!qElemType> {
     // CHECK:      [[ADD1:%.+]] = IE.Add([[ARG0]], [[ARG0]])
     // CHECK:      return [[ADD1]]
     // CHECK:  }
-    // CHECK:  func.func private @function2([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60x!qElemType> {
+    // CHECK:  func.func nested @function2([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60x!qElemType> {
     // CHECK:      [[ADD2:%.+]] = IE.Add([[ARG0]], [[ARG0]])
     // CHECK:      return [[ADD2]]
     // CHECK:  }
@@ -205,12 +205,12 @@ module @QuantizationPairInSeparateFunctions {
 
 // CHECK-LABEL: @ConversionPairInSeparateFunctions
 module @ConversionPairInSeparateFunctions {
-    func.func private @function1(%arg0: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf32> {
+    func.func nested @function1(%arg0: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf32> {
         %add = IE.Add(%arg0, %arg0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60xf16>, tensor<1x48x60x60xf16> -> tensor<1x48x60x60xf16>
         %convert = IE.Convert(%add) {dstElemType = f32} : tensor<1x48x60x60xf16> -> tensor<1x48x60x60xf32>
         return %convert : tensor<1x48x60x60xf32>
     }
-    func.func private @function2(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf16> {
+    func.func nested @function2(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf16> {
         %convert = IE.Convert(%arg0) {dstElemType = f16} : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf16>
         %add = IE.Add(%convert, %convert) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60xf16>, tensor<1x48x60x60xf16> -> tensor<1x48x60x60xf16>
         return %add : tensor<1x48x60x60xf16>
@@ -221,11 +221,11 @@ module @ConversionPairInSeparateFunctions {
         return %call2 : tensor<1x48x60x60xf16>
     }
 
-    // CHECK:  func.func private @function1([[ARG0:%.+]]: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16> {
+    // CHECK:  func.func nested @function1([[ARG0:%.+]]: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16> {
     // CHECK:      [[ADD1:%.+]] = IE.Add([[ARG0]], [[ARG0]])
     // CHECK:      return [[ADD1]]
     // CHECK:  }
-    // CHECK:  func.func private @function2([[ARG0:%.+]]: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16> {
+    // CHECK:  func.func nested @function2([[ARG0:%.+]]: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16> {
     // CHECK:      [[ADD2:%.+]] = IE.Add([[ARG0]], [[ARG0]])
     // CHECK:      return [[ADD2]]
     // CHECK:  }
@@ -242,12 +242,12 @@ module @ConversionPairInSeparateFunctions {
 
 // CHECK-LABEL: @QuantizationPairMiddleArgPosition
 module @QuantizationPairMiddleArgPosition {
-    func.func private @function1(%arg0: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60xf16> {
+    func.func nested @function1(%arg0: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60xf16> {
         %add = IE.Add(%arg0, %arg0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60x!qElemType>
         %dequant = IE.Dequantize(%add) {dstElemType = f16} : tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60xf16>
         return %dequant : tensor<1x48x60x60xf16>
     }
-    func.func private @function2(%arg0: tensor<1x48x60x60xf16>, %arg1: tensor<1x48x60x60xf16>, %arg2: tensor<1x48x60x60xf16>)
+    func.func nested @function2(%arg0: tensor<1x48x60x60xf16>, %arg1: tensor<1x48x60x60xf16>, %arg2: tensor<1x48x60x60xf16>)
             -> (tensor<1x48x60x60xf16>, tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60xf16>) {
         %softmax1 = IE.SoftMax(%arg0) {axisInd = 1 : i64} : tensor<1x48x60x60xf16> -> tensor<1x48x60x60xf16>
         %quant = IE.Quantize(%arg1) {dstElemType = !qElemType} : tensor<1x48x60x60xf16> -> tensor<1x48x60x60x!qElemType>
@@ -262,11 +262,11 @@ module @QuantizationPairMiddleArgPosition {
         return %call2#0, %call2#1, %call2#2 : tensor<1x48x60x60xf16>, tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60xf16>
     }
 
-    // CHECK:       func.func private @function1([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60x!qElemType> {
+    // CHECK:       func.func nested @function1([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60x!qElemType> {
     // CHECK:           [[ADD1:%.+]] = IE.Add([[ARG0]], [[ARG0]])
     // CHECK:           return [[ADD1]]
     // CHECK:       }
-    // CHECK:       func.func private @function2([[ARG0:%.+]]: tensor<1x48x60x60xf16>, [[ARG1:%.+]]: tensor<1x48x60x60x!qElemType>, [[ARG2:%.+]]: tensor<1x48x60x60xf16>)
+    // CHECK:       func.func nested @function2([[ARG0:%.+]]: tensor<1x48x60x60xf16>, [[ARG1:%.+]]: tensor<1x48x60x60x!qElemType>, [[ARG2:%.+]]: tensor<1x48x60x60xf16>)
     // CHECK-SAME:        -> (tensor<1x48x60x60xf16>, tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60xf16>) {
     // CHECK:           [[SOFTMAX1:%.+]] = IE.SoftMax([[ARG0]])
     // CHECK:           [[ADD2:%.+]] = IE.Add([[ARG1]], [[ARG1]])
@@ -288,14 +288,14 @@ module @QuantizationPairMiddleArgPosition {
 
 // CHECK-LABEL: @MultipleQuantizationPairs
 module @MultipleQuantizationPairs {
-    func.func private @function1(%arg0: tensor<1x48x60x60x!qElemType>) -> (tensor<1x48x60x60xf16>, tensor<1x48x60x60xf16>) {
+    func.func nested @function1(%arg0: tensor<1x48x60x60x!qElemType>) -> (tensor<1x48x60x60xf16>, tensor<1x48x60x60xf16>) {
         %add1 = IE.Add(%arg0, %arg0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60x!qElemType>
         %dequant1 = IE.Dequantize(%add1) {dstElemType = f16} : tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60xf16>
         %add2 = IE.Add(%arg0, %arg0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60x!qElemType>
         %dequant2 = IE.Dequantize(%add2) {dstElemType = f16} : tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60xf16>
         return %dequant1, %dequant2 : tensor<1x48x60x60xf16>, tensor<1x48x60x60xf16>
     }
-    func.func private @function2(%arg0: tensor<1x48x60x60xf16>, %arg1: tensor<1x48x60x60xf16>) -> (tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType>) {
+    func.func nested @function2(%arg0: tensor<1x48x60x60xf16>, %arg1: tensor<1x48x60x60xf16>) -> (tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType>) {
         %quant1 = IE.Quantize(%arg0) {dstElemType = !qElemType} : tensor<1x48x60x60xf16> -> tensor<1x48x60x60x!qElemType>
         %add1 = IE.Add(%quant1, %quant1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60x!qElemType>
         %quant2 = IE.Quantize(%arg1) {dstElemType = !qElemType} : tensor<1x48x60x60xf16> -> tensor<1x48x60x60x!qElemType>
@@ -308,12 +308,12 @@ module @MultipleQuantizationPairs {
         return %call_part2#0, %call_part2#1 : tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType>
     }
 
-    // CHECK:       func.func private @function1([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> (tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType>) {
+    // CHECK:       func.func nested @function1([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> (tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType>) {
     // CHECK:           [[ADD1:%.+]] = IE.Add([[ARG0]], [[ARG0]])
     // CHECK:           [[ADD2:%.+]] = IE.Add([[ARG0]], [[ARG0]])
     // CHECK:           return [[ADD1]], [[ADD2]]
     // CHECK:       }
-    // CHECK:       func.func private @function2([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>, [[ARG1:%.+]]: tensor<1x48x60x60x!qElemType>)
+    // CHECK:       func.func nested @function2([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>, [[ARG1:%.+]]: tensor<1x48x60x60x!qElemType>)
     // CHECK-SAME:        -> (tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType>) {
     // CHECK:           [[ADD3:%.+]] = IE.Add([[ARG0]], [[ARG0]])
     // CHECK:           [[ADD4:%.+]] = IE.Add([[ARG1]], [[ARG1]])
@@ -333,13 +333,13 @@ module @MultipleQuantizationPairs {
 
 // CHECK-LABEL: @MultipleQuantUsers
 module @MultipleQuantUsers {
-    func.func private @function1(%arg0: tensor<1x48x60x60x!qElemType>) -> (tensor<1x48x60x60xf16>, tensor<1x48x60x60x!qElemType>) {
+    func.func nested @function1(%arg0: tensor<1x48x60x60x!qElemType>) -> (tensor<1x48x60x60xf16>, tensor<1x48x60x60x!qElemType>) {
         %add1 = IE.Add(%arg0, %arg0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60x!qElemType>
         %add2 = IE.Add(%arg0, %arg0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60x!qElemType>
         %dequant = IE.Dequantize(%add1) {dstElemType = f16} : tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60xf16>
         return %dequant, %add2 : tensor<1x48x60x60xf16>, tensor<1x48x60x60x!qElemType>
     }
-    func.func private @function2(%arg0: tensor<1x48x60x60xf16>, %arg1: tensor<1x48x60x60x!qElemType>)
+    func.func nested @function2(%arg0: tensor<1x48x60x60xf16>, %arg1: tensor<1x48x60x60x!qElemType>)
             -> (tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType>) {
         %quant1 = IE.Quantize(%arg0) {dstElemType = !qElemType} : tensor<1x48x60x60xf16> -> tensor<1x48x60x60x!qElemType>
         %add1 = IE.Add(%quant1, %quant1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60x!qElemType>
@@ -355,12 +355,12 @@ module @MultipleQuantUsers {
         return %call2#0, %call2#1, %call2#2 : tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType>
     }
 
-    // CHECK:       func.func private @function1([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> (tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType>) {
+    // CHECK:       func.func nested @function1([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> (tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType>) {
     // CHECK:           [[ADD1:%.+]] = IE.Add([[ARG0]], [[ARG0]])
     // CHECK:           [[ADD2:%.+]] = IE.Add([[ARG0]], [[ARG0]])
     // CHECK:           return [[ADD1]], [[ADD2]]
     // CHECK:       }
-    // CHECK:       func.func private @function2([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>, [[ARG1:%.+]]: tensor<1x48x60x60x!qElemType>)
+    // CHECK:       func.func nested @function2([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>, [[ARG1:%.+]]: tensor<1x48x60x60x!qElemType>)
     // CHECK-SAME:        -> (tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType>) {
     // CHECK:           [[ADD3:%.+]] = IE.Add([[ARG0]], [[ARG0]])
     // CHECK:           [[ADD4:%.+]] = IE.Add([[ARG0]], [[ARG0]])
@@ -381,13 +381,13 @@ module @MultipleQuantUsers {
 
 // CHECK-LABEL: @DoNotOptimizeMissingQuantizationPair
 module @DoNotOptimizeMissingQuantizationPair {
-    func.func private @function1(%arg0: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60xf16> {
+    func.func nested @function1(%arg0: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60xf16> {
         %add = IE.Add(%arg0, %arg0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60x!qElemType>
         // Dequantize has no Quantize pair in the second function, so it does not get optimized
         %dequant = IE.Dequantize(%add) {dstElemType = f16} : tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60xf16>
         return %dequant : tensor<1x48x60x60xf16>
     }
-    func.func private @function2(%arg0: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16> {
+    func.func nested @function2(%arg0: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16> {
         %add = IE.Add(%arg0, %arg0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60xf16>, tensor<1x48x60x60xf16> -> tensor<1x48x60x60xf16>
         return %add : tensor<1x48x60x60xf16>
     }
@@ -397,12 +397,12 @@ module @DoNotOptimizeMissingQuantizationPair {
         return %call2 : tensor<1x48x60x60xf16>
     }
 
-    // CHECK:  func.func private @function1([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60xf16> {
+    // CHECK:  func.func nested @function1([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60xf16> {
     // CHECK:      [[ADD1:%.+]] = IE.Add([[ARG0]], [[ARG0]])
     // CHECK:      [[DEQUANT:%.+]] = IE.Dequantize([[ADD1]])
     // CHECK:      return [[DEQUANT]]
     // CHECK:  }
-    // CHECK:  func.func private @function2([[ARG0:%.+]]: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16> {
+    // CHECK:  func.func nested @function2([[ARG0:%.+]]: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16> {
     // CHECK:      [[ADD2:%.+]] = IE.Add([[ARG0]], [[ARG0]])
     // CHECK:      return [[ADD2]]
     // CHECK:  }
@@ -417,13 +417,13 @@ module @DoNotOptimizeMissingQuantizationPair {
 
 // CHECK-LABEL: @DoNotOptimizeMissingConversionPair
 module @DoNotOptimizeMissingConversionPair {
-    func.func private @function1(%arg0: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf32> {
+    func.func nested @function1(%arg0: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf32> {
         %add = IE.Add(%arg0, %arg0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60xf16>, tensor<1x48x60x60xf16> -> tensor<1x48x60x60xf16>
         // Convert has no pair in the second function, so it does not get optimized
         %dequant = IE.Convert(%add) {dstElemType = f32} : tensor<1x48x60x60xf16> -> tensor<1x48x60x60xf32>
         return %dequant : tensor<1x48x60x60xf32>
     }
-    func.func private @function2(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
+    func.func nested @function2(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
         %add = IE.Add(%arg0, %arg0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
         return %add : tensor<1x48x60x60xf32>
     }
@@ -433,12 +433,12 @@ module @DoNotOptimizeMissingConversionPair {
         return %call2 : tensor<1x48x60x60xf32>
     }
 
-    // CHECK:  func.func private @function1([[ARG0:%.+]]: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf32> {
+    // CHECK:  func.func nested @function1([[ARG0:%.+]]: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf32> {
     // CHECK:      [[ADD1:%.+]] = IE.Add([[ARG0]], [[ARG0]])
     // CHECK:      [[CONVERT:%.+]] = IE.Convert([[ADD1]])
     // CHECK:      return [[CONVERT]]
     // CHECK:  }
-    // CHECK:  func.func private @function2([[ARG0:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
+    // CHECK:  func.func nested @function2([[ARG0:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
     // CHECK:      [[ADD2:%.+]] = IE.Add([[ARG0]], [[ARG0]])
     // CHECK:      return [[ADD2]]
     // CHECK:  }
@@ -461,7 +461,7 @@ module @RepeatedCalls {
         DataInfo "output" : tensor<1x48x60x60xf16>
     }
 
-    func.func private @function(%arg0: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16> {
+    func.func nested @function(%arg0: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16> {
         %quant = IE.Quantize(%arg0) {dstElemType = !qElemType} : tensor<1x48x60x60xf16> -> tensor<1x48x60x60x!qElemType>
         %add = IE.Add(%quant, %quant) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60x!qElemType>
         %dequant = IE.Dequantize(%add) {dstElemType = f16} : tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60xf16>
@@ -476,7 +476,7 @@ module @RepeatedCalls {
         return %quant : tensor<1x48x60x60x!qElemType>
     }
 
-    // CHECK:  func.func private @function([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60x!qElemType> {
+    // CHECK:  func.func nested @function([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60x!qElemType> {
     // CHECK:      [[ADD:%.+]] = IE.Add([[ARG0]], [[ARG0]])
     // CHECK:      return [[ADD]]
     // CHECK:  }
@@ -499,7 +499,7 @@ module @RepeatedCallsIncompletePairs {
         DataInfo "output" : tensor<1x48x60x60xf16>
     }
 
-    func.func private @function(%arg0: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16> {
+    func.func nested @function(%arg0: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16> {
         %quant = IE.Quantize(%arg0) {dstElemType = !qElemType} : tensor<1x48x60x60xf16> -> tensor<1x48x60x60x!qElemType>
         %add = IE.Add(%quant, %quant) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60x!qElemType>
         %dequant = IE.Dequantize(%add) {dstElemType = f16} : tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60xf16>
@@ -514,7 +514,7 @@ module @RepeatedCallsIncompletePairs {
         return %call2 : tensor<1x48x60x60xf16>
     }
 
-    // CHECK:  func.func private @function([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60x!qElemType> {
+    // CHECK:  func.func nested @function([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60x!qElemType> {
     // CHECK:      [[ADD:%.+]] = IE.Add([[ARG0]], [[ARG0]])
     // CHECK:      return [[ADD]]
     // CHECK:  }
@@ -532,12 +532,12 @@ module @RepeatedCallsIncompletePairs {
 
 // CHECK-LABEL: @RepeatedCallsPairsInsideAndOusideCalls
 module @RepeatedCallsPairsInsideAndOusideCalls {
-    func.func private @function1(%arg0: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60xf16> {
+    func.func nested @function1(%arg0: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60xf16> {
         %add = IE.Add(%arg0, %arg0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60x!qElemType>
         %dequant = IE.Dequantize(%add) {dstElemType = f16} : tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60xf16>
         return %dequant : tensor<1x48x60x60xf16>
     }
-    func.func private @function2(%arg0: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60x!qElemType> {
+    func.func nested @function2(%arg0: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60x!qElemType> {
         %quant = IE.Quantize(%arg0) {dstElemType = !qElemType} : tensor<1x48x60x60xf16> -> tensor<1x48x60x60x!qElemType>
         %add = IE.Add(%quant, %quant) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType> -> tensor<1x48x60x60x!qElemType>
         return %add : tensor<1x48x60x60x!qElemType>
@@ -552,11 +552,11 @@ module @RepeatedCallsPairsInsideAndOusideCalls {
         return %call_fn2, %quant : tensor<1x48x60x60x!qElemType>, tensor<1x48x60x60x!qElemType>
     }
 
-    // CHECK:  func.func private @function1([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60x!qElemType> {
+    // CHECK:  func.func nested @function1([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60x!qElemType> {
     // CHECK:      [[ADD1:%.+]] = IE.Add([[ARG0]], [[ARG0]])
     // CHECK:      return [[ADD1]]
     // CHECK:  }
-    // CHECK:  func.func private @function2([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60x!qElemType> {
+    // CHECK:  func.func nested @function2([[ARG0:%.+]]: tensor<1x48x60x60x!qElemType>) -> tensor<1x48x60x60x!qElemType> {
     // CHECK:      [[ADD2:%.+]] = IE.Add([[ARG0]], [[ARG0]])
     // CHECK:      return [[ADD2]]
     // CHECK:  }
@@ -572,12 +572,12 @@ module @RepeatedCallsPairsInsideAndOusideCalls {
 
 // CHECK-LABEL: @ConstReturnCall
 module @ConstReturnCall {
-    func.func private @function(%arg0: tensor<1x1xf16>) -> tensor<1x1xf16> {
+    func.func nested @function(%arg0: tensor<1x1xf16>) -> tensor<1x1xf16> {
         %cst = const.Declare tensor<1x1xf16> = dense<1.000000e+00> : tensor<1x1xf32>, [#const.CastElemType<f16>]
         return %cst : tensor<1x1xf16>
     }
 
-    // CHECK:  func.func private @function([[ARG0:%.+]]: tensor<1x1xf16>) -> tensor<1x1xf16> {
+    // CHECK:  func.func nested @function([[ARG0:%.+]]: tensor<1x1xf16>) -> tensor<1x1xf16> {
     // CHECK:      [[CST:%.+]] = const.Declare tensor<1x1xf16> = dense<1.000000e+00> : tensor<1x1xf32>, [#const.CastElemType<f16>]
     // CHECK:      return [[CST]]
     // CHECK:  }

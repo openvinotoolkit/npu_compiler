@@ -9,8 +9,8 @@
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @FuseSubViewIntoSETableOp
-// CHECK-SAME: ([[ARG_0:%[^:]+]]: memref<1x1x5x9xi32, #NHWC>)
-func.func @FuseSubViewIntoSETableOp(%arg0 : memref<1x1x5x9xi32, #NHWC>) -> memref<1x1x5x9xi32, #NHWC> {
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: memref<1x1x5x9xi32, {order = #NHWC}>)
+func.func @FuseSubViewIntoSETableOp(%arg0 : memref<1x1x5x9xi32, {order = #NHWC}>) -> memref<1x1x5x9xi32, {order = #NHWC}> {
     %se_table = VPUIP.StorageElementTable {
                     dataElemType = f16,
                     dataShape = [1, 64, 4, 4],
@@ -20,17 +20,17 @@ func.func @FuseSubViewIntoSETableOp(%arg0 : memref<1x1x5x9xi32, #NHWC>) -> memre
                                                 offsets = [0, 0, 0, 0],
                                                 sizes = [1, 64, 9, 9]>,
                     seDepth = 2 : i64, seSize = [32, 32]}
-                -> memref<1x2x9x9xi32, #NHWC>
+                -> memref<1x2x9x9xi32, {order = #NHWC}>
     // Tile over H and C
     %se_table_slice = VPUIP.SubView %se_table [0, 0, 0, 0] [1, 1, 5, 9] :
-                        memref<1x2x9x9xi32, #NHWC> to
+                        memref<1x2x9x9xi32, {order = #NHWC}> to
                         memref<1x1x5x9xi32, {order = #NHWC, strides = [162, 1, 18, 2]}>
     %2 = VPUIP.Copy
         inputs(%se_table_slice : memref<1x1x5x9xi32, {order = #NHWC, strides = [162, 1, 18, 2]}>)
-        outputs(%arg0 : memref<1x1x5x9xi32, #NHWC>)
-        -> memref<1x1x5x9xi32, #NHWC>
+        outputs(%arg0 : memref<1x1x5x9xi32, {order = #NHWC}>)
+        -> memref<1x1x5x9xi32, {order = #NHWC}>
 
-    return %2 : memref<1x1x5x9xi32, #NHWC>
+    return %2 : memref<1x1x5x9xi32, {order = #NHWC}>
 
     // CHECK: [[SE_TABLE:%.+]] = VPUIP.StorageElementTable {
     // CHECK-SAME:                     dataElemType = f16,
@@ -42,8 +42,8 @@ func.func @FuseSubViewIntoSETableOp(%arg0 : memref<1x1x5x9xi32, #NHWC>) -> memre
     // CHECK-SAME:                                                 sizes = [1, 32, 5, 9]>,
     // CHECK-SAME:                     seDepth = 1 : i64,
     // CHECK-SAME:                     seSize = [32]}
-    // CHECK-SAME:                     -> memref<1x1x5x9xi32, #NHWC>
+    // CHECK-SAME:                     -> memref<1x1x5x9xi32, {order = #NHWC}>
 
-    // CHECK: [[COPY_RESULT:%.+]] = VPUIP.Copy inputs([[SE_TABLE]] : memref<1x1x5x9xi32, #NHWC>) outputs([[ARG_0]] : memref<1x1x5x9xi32, #NHWC>) -> memref<1x1x5x9xi32, #NHWC>
-    // CHECK: return [[COPY_RESULT]] : memref<1x1x5x9xi32, #NHWC>
+    // CHECK: [[COPY_RESULT:%.+]] = VPUIP.Copy inputs([[SE_TABLE]] : memref<1x1x5x9xi32, {order = #NHWC}>) outputs([[ARG_0]] : memref<1x1x5x9xi32, {order = #NHWC}>) -> memref<1x1x5x9xi32, {order = #NHWC}>
+    // CHECK: return [[COPY_RESULT]] : memref<1x1x5x9xi32, {order = #NHWC}>
 }

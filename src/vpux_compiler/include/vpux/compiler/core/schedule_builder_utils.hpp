@@ -20,8 +20,11 @@
 
 namespace vpux {
 
-// It is beneficial to have at least this many operations in a loop to consider it for loop-based scheduling
-static constexpr const size_t MIN_LOOP_OPS = 5;
+// It is beneficial to have at least this many iterations in a loop to consider it for loop-based scheduling
+static constexpr size_t MIN_TILING_LOOP_OPS = 5;
+static constexpr size_t MIN_VF_LOOP_OPS = 2;
+// Only consider vf loops when there are at least this many compute ops in each loop body
+static constexpr size_t MIN_VF_LOOP_BODY_COMPUTE_OPS = 2;
 
 enum class AllocationType { COMPUTE = 0, DATA_IN = 1, DATA_OUT = 2 };
 inline const char* toString(AllocationType state) {
@@ -180,7 +183,7 @@ struct ComputeRegion {
 
     void printFormat(llvm::raw_ostream& os) const {
         os << "ComputeRegion {\n"
-           << ", size : " << size;
+           << "  size : " << size;
         os << ", dependencies: [ ";
         for (size_t dep : dependencies) {
             os << dep << " ";

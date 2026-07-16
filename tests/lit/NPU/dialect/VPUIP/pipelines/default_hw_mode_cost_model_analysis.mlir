@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: env OV_NPU_LOG_LEVEL=LOG_DEBUG vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --mlir-elide-elementsattrs-if-larger 8 --default-hw-mode-vpuip="function-outlining='naive'" %s 2>&1 | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
+// RUN: env OV_NPU_LOG_LEVEL=LOG_DEBUG vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW" --mlir-elide-elementsattrs-if-larger 8 --default-hw-mode-vpuip="function-outlining='naive'" %s 2>&1 | FileCheck %s
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
 !MemRef = memref<1x3x62x62xf16>
 
@@ -21,7 +21,7 @@ module @ChainCalls {
     } outputsInfo : {
         DataInfo "output" : tensor<1x3x62x62xf16>
     }
-    func.func private @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
+    func.func nested @foo(%in: !MemRef, %out: !MemRef) -> !MemRef {
         %0 = VPUIP.Copy inputs(%in: !MemRef) outputs(%out: !MemRef) -> !MemRef
         return %0 : !MemRef
     }

@@ -138,6 +138,17 @@ double VPU::computeScale(mlir::Operation* operation) {
                 avgPoolOp.getStaticScaleAttr() != nullptr ? avgPoolOp.getStaticScaleAttr().getValueAsDouble() : 1.0;
         return computeAvgPoolQuantScale(inputElemType, outputElemType, kernelSize) * staticScale;
     }
+    if (auto maxPoolOp = mlir::dyn_cast<IE::MaxPoolOp>(operation)) {
+        VPUX_THROW_WHEN(
+                inputElemType != outputElemType && (mlir::isa<mlir::quant::QuantizedType>(inputElemType) ||
+                                                    mlir::isa<mlir::quant::QuantizedType>(outputElemType)),
+                "Quantization-agnostic operation (MaxPool) has different quantized input ({0}) and output ({1}) types.",
+                inputElemType, outputElemType);
+        if (const auto staticScale = maxPoolOp.getStaticScale()) {
+            return staticScale->convertToDouble();
+        }
+        return 1.0;
+    }
     return computeQuantScale(inputElemType, outputElemType);
 }
 

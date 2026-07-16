@@ -616,7 +616,7 @@ private:
                                                               ArrayRef(funcsInfo[targetIdx][sliceIdx].outputTypes));
                 auto func =
                         builder.create<mlir::func::FuncOp>(funcLoc, funcsInfo[targetIdx][sliceIdx].funcName, funcType);
-                func.setPrivate();
+                func.setNested();
 
                 auto builder = mlir::OpBuilder::atBlockEnd(func.addEntryBlock());
 

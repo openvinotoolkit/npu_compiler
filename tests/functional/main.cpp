@@ -59,7 +59,7 @@ int main(int argc, char** argv, char** envp) {
         }
     }
 
-    if (targetDevice != "NPU" && targetDevice != "IMD") {
+    if (targetDevice != "NPU") {
         targetDevice = "NPU";
         std::cout << "\nTarget device was not set or it is not recognized. Using NPU by default.\n";
     }
@@ -73,8 +73,8 @@ int main(int argc, char** argv, char** envp) {
     const bool dryRun = ::testing::GTEST_FLAG(list_tests) || ::testing::internal::g_help_flag;
 
     if (!dryRun) {
-        if (targetDevice != "IMD") {
-            // IMD is not set. Check if device available, exit if not found.
+        {
+            // Check if device available, exit if not found.
             std::vector<std::string> availableDevices;
             const auto core = ov::test::utils::PluginCache::get().core();
             if (core != nullptr) {
@@ -103,7 +103,7 @@ int main(int argc, char** argv, char** envp) {
                   << "'; Full device name: '" << full << "'" << std::endl;
     }
 
-    std::string dTest = ::testing::internal::GTEST_FLAG(internal_run_death_test);
+    std::string dTest = ::testing::GTEST_FLAG(internal_run_death_test);
     if (dTest.empty()) {
         std::cout << oss.str() << std::endl;
     } else {

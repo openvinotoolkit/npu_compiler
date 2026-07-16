@@ -34,7 +34,6 @@ add_npu_library(npu_compiler_core
         npu_compiler_dialect_ie
         npu_compiler_dialect_ie_utils
         npu_compiler_dialect_vpu_interfaces
-        npu_compiler_dialect_vpu_transforms
         npu_compiler_dialect_vpuip_transforms
         npu_compiler_dialect_vpuip_utils
         npu_compiler_dialect_vpumi37xx

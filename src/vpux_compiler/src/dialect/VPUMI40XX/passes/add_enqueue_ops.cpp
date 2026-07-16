@@ -618,8 +618,6 @@ SmallVector<VPURegMapped::EnqueueOp> getEnqueueOpsOrder(SmallVector<VPUMI40XX::C
 
 void AddEnqueueOpsPass::safeRunOnFunc() {
     auto netFunc = getOperation();
-    auto module = netFunc->getParentOfType<mlir::ModuleOp>();
-
     auto mpi = VPUMI40XX::getMPI(netFunc);
     auto builder = mlir::OpBuilder(mpi.getOperation());
 
@@ -657,12 +655,7 @@ void AddEnqueueOpsPass::safeRunOnFunc() {
     // After inserting enqueue ops for each FIFO in the IR, enqueue ops need to be ordered
     // as there is only 1 enqueue ops (WorkItem task) list that will be processed by VPU-FW
     auto enquOpsOrder = getEnqueueOpsOrder(barriers, _log);
-    if (enquOpsOrder.empty()) {
-        _log.warning("Cannot set enqueue ops order");
-        config::setWorkloadManagementStatus(module, WorkloadManagementStatus::FAILED);
-        signalPassFailure();
-        return;
-    }
+    VPUX_THROW_WHEN(enquOpsOrder.empty(), "getEnqueueOpsOrder failed");
 
     // Update enqueue ops order in IR
     for (auto& enqu : enquOpsOrder) {
@@ -679,17 +672,13 @@ void AddEnqueueOpsPass::safeRunOnFunc() {
     // Verify enqueue ops can be enqueued at given barriers
     if (mlir::failed(verifyEnqueueBarrierIsNotBlockedByFutureTask(mpi, enquOps, barriers, lastDmaWithNoEnqueue,
                                                                   tilesCount, _log))) {
-        config::setWorkloadManagementStatus(module, WorkloadManagementStatus::FAILED);
-        signalPassFailure();
-        return;
+        VPUX_THROW("verifyEnqueueBarrierIsNotBlockedByFutureTask failed");
     }
 
     // Check if enqueues order for given HW FIFO is not enqueueing tasks
     // for this FIFO out of order - task N needs to be enqueued before task N+1
     if (mlir::failed(verifyEnqueueOpsOrderIsAlignedWithPerFifoTaskOrder(enquOps, _log))) {
-        config::setWorkloadManagementStatus(module, WorkloadManagementStatus::FAILED);
-        signalPassFailure();
-        return;
+        VPUX_THROW("verifyEnqueueOpsOrderIsAlignedWithPerFifoTaskOrder failed");
     }
 }
 

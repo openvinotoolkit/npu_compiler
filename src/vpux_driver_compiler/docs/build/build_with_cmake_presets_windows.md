@@ -39,7 +39,7 @@ mklink %OPENVINO_HOME%\CMakePresets.json %NPU_PLUGIN_HOME%\CMakePresets.json
 cmake --preset cid-windows
 
 cd build_%CONFIG%
-cmake --build . --target npu_driver_compiler compilerTest profilingTest vpuxCompilerL0Test loaderTest --parallel %NUMBER_OF_PROCESSORS%
+cmake --build . --target openvino_intel_npu_compiler openvino_intel_npu_compiler_loader compilerTest profilingTest vpuxCompilerL0Test loaderTest --parallel %NUMBER_OF_PROCESSORS%
 
 @REM Optional, compress and pack all CiD targets
 cpack -V -D CPACK_COMPONENTS_ALL=CiD -D CPACK_CMAKE_GENERATOR=Ninja -D CPACK_PACKAGE_FILE_NAME=%CONFIG% -G "ZIP"
@@ -84,7 +84,7 @@ The build options for the `cid-windows` preset can be found [here](../../../../C
 
 ```bat
 cd build_%CONFIG%
-ninja npu_driver_compiler compilerTest profilingTest vpuxCompilerL0Test loaderTest -j %NUMBER_OF_PROCESSORS%
+ninja openvino_intel_npu_compiler openvino_intel_npu_compiler_loader compilerTest profilingTest vpuxCompilerL0Test loaderTest -j %NUMBER_OF_PROCESSORS%
 ```
 </details>
 

@@ -353,3 +353,117 @@ func.func @ConvWithSwishPostOpAndBias(%arg0: tensor<1x3x224x224x!qElemType>) -> 
     // CHECK: [[QUANT:%.+]] = IE.Quantize([[CONV]]) {dstElemType = !qElemType1}
     // CHECK: return [[QUANT]] : tensor<1x4x112x112x!qElemType1>
 }
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 1.1534313725490195:128>
+
+// CHECK-LABEL: @ConvertConvWithLeakyRelu
+// CHECK-SAME:     [[ARG_0:%[^:]+]]: tensor<1x16x3x3xf16>
+func.func @ConvertConvWithLeakyRelu(%arg0: tensor<1x16x3x3xf16>) -> tensor<1x16x3x3xf16> {
+    %1 = IE.Quantize(%arg0) {
+      dstElemType = !qElemType
+    } : tensor<1x16x3x3xf16> -> tensor<1x16x3x3x!qElemType>
+
+    %2 = IE.Dequantize(%1) {
+      dstElemType = f16
+    } : tensor<1x16x3x3x!qElemType> -> tensor<1x16x3x3xf16>
+
+    %WEIGHTS = const.Declare tensor<16x16x1x1x!qElemType> = dense<1.0> : tensor<16x16x1x1xf16>, [
+        #const.CastElemType<ui8>, #const.CastElemType<!qElemType>
+    ]
+
+    %3 = IE.Dequantize(%WEIGHTS) {
+        dstElemType = f16
+    } : tensor<16x16x1x1x!qElemType> -> tensor<16x16x1x1xf16>
+
+    %4 = IE.Convolution(%2, %3) {
+        dilations = [1, 1],
+        pads_begin = [0, 0],
+        pads_end = [0, 0],
+        strides = [1, 1],
+        post_op = #IE.LeakyRelu<negative_slope = 2.500000e-01 : f64>
+    } : tensor<1x16x3x3xf16>, tensor<16x16x1x1xf16> -> tensor<1x16x3x3xf16>
+
+    return %4 : tensor<1x16x3x3xf16>
+
+    // CHECK-DAG: [[WEIGHTS:%.+]] = const.Declare tensor<16x16x1x1x!qElemType> =
+    // CHECK-SAME:  dense<1.000000e+00> : tensor<16x16x1x1xf16>, [
+    // CHECK-SAME:      #const.CastElemType<ui8>,
+    // CHECK-SAME:      #const.CastElemType<!qElemType>
+    // CHECK-SAME:  ]
+
+    // CHECK: [[QUANT:%.+]] = IE.Quantize([[ARG_0]]) {
+    // CHECK-SAME:      dstElemType = !qElemType
+    // CHECK-SAME:  } : tensor<1x16x3x3xf16> -> tensor<1x16x3x3x!qElemType>
+
+    // CHECK-NOT: IE.Dequantize([[QUANT]])
+
+    // CHECK: [[CONV:%.+]] = IE.Convolution([[QUANT]], [[WEIGHTS]]) {
+    // CHECK-SAME:      dilations = [1, 1],
+    // CHECK-SAME:      pads_begin = [0, 0],
+    // CHECK-SAME:      pads_end = [0, 0],
+    // CHECK-SAME:      post_op = #IE.LeakyRelu<negative_slope = 2.500000e-01 : f64>,
+    // CHECK-SAME:      strides = [1, 1]
+    // CHECK-SAME:  } : tensor<1x16x3x3x!qElemType>, tensor<16x16x1x1x!qElemType> -> tensor<1x16x3x3xf16>
+
+    // CHECK: return [[CONV]]
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 1.1534313725490195:128>
+
+// CHECK-LABEL: @ConvertConvWithLeakyReluConsumer
+// CHECK-SAME:     [[ARG_0:%[^:]+]]: tensor<1x16x3x3xf16>
+func.func @ConvertConvWithLeakyReluConsumer(%arg0: tensor<1x16x3x3xf16>) -> tensor<1x16x3x3xf16> {
+    %1 = IE.Quantize(%arg0) {
+      dstElemType = !qElemType
+    } : tensor<1x16x3x3xf16> -> tensor<1x16x3x3x!qElemType>
+
+    %2 = IE.Dequantize(%1) {
+      dstElemType = f16
+    } : tensor<1x16x3x3x!qElemType> -> tensor<1x16x3x3xf16>
+
+    %WEIGHTS = const.Declare tensor<16x16x1x1x!qElemType> = dense<1.0> : tensor<16x16x1x1xf16>, [
+        #const.CastElemType<ui8>, #const.CastElemType<!qElemType>
+    ]
+
+    %3 = IE.Dequantize(%WEIGHTS) {
+        dstElemType = f16
+    } : tensor<16x16x1x1x!qElemType> -> tensor<16x16x1x1xf16>
+
+    %4 = IE.Convolution(%2, %3) {
+        dilations = [1, 1],
+        pads_begin = [0, 0],
+        pads_end = [0, 0],
+        strides = [1, 1]
+    } : tensor<1x16x3x3xf16>, tensor<16x16x1x1xf16> -> tensor<1x16x3x3xf16>
+
+    %5 = IE.LeakyRelu(%4) {negative_slope = 2.500000e-01 : f64} : tensor<1x16x3x3xf16> -> tensor<1x16x3x3xf16>
+
+    return %5 : tensor<1x16x3x3xf16>
+
+    // CHECK-DAG: [[WEIGHTS:%.+]] = const.Declare tensor<16x16x1x1x!qElemType> =
+    // CHECK-SAME:  dense<1.000000e+00> : tensor<16x16x1x1xf16>, [
+    // CHECK-SAME:      #const.CastElemType<ui8>,
+    // CHECK-SAME:      #const.CastElemType<!qElemType>
+    // CHECK-SAME:  ]
+
+    // CHECK: [[QUANT:%.+]] = IE.Quantize([[ARG_0]]) {
+    // CHECK-SAME:      dstElemType = !qElemType
+    // CHECK-SAME:  } : tensor<1x16x3x3xf16> -> tensor<1x16x3x3x!qElemType>
+
+    // CHECK-NOT: IE.Dequantize([[QUANT]])
+
+    // CHECK: [[CONV:%.+]] = IE.Convolution([[QUANT]], [[WEIGHTS]]) {
+    // CHECK-SAME:      dilations = [1, 1],
+    // CHECK-SAME:      pads_begin = [0, 0],
+    // CHECK-SAME:      pads_end = [0, 0],
+    // CHECK-SAME:      strides = [1, 1]
+    // CHECK-SAME:  } : tensor<1x16x3x3x!qElemType>, tensor<16x16x1x1x!qElemType> -> tensor<1x16x3x3xf16>
+
+    // CHECK: [[LEAKY:%.+]] = IE.LeakyRelu([[CONV]]) {negative_slope = 2.500000e-01 : f64} : tensor<1x16x3x3xf16> -> tensor<1x16x3x3xf16>
+
+    // CHECK: return [[LEAKY]]
+}

@@ -108,8 +108,8 @@ module @TwoFunctions {
         DataInfo "output" : tensor<1x3x64x64xf16>
     }
 
-    // CHECK: func.func private @foo1([[ARG0:%.+]]: memref<1x3x64x64xf16, @DDR>, [[ARG1:%.+]]: memref<1x3x64x64xf16, @DDR>)
-    func.func private @foo1(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
+    // CHECK: func.func nested @foo1([[ARG0:%.+]]: memref<1x3x64x64xf16, @DDR>, [[ARG1:%.+]]: memref<1x3x64x64xf16, @DDR>)
+    func.func nested @foo1(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
         // tmp buffer
         %0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x3x64x64xf16, [@CMX_NN, 0]>
 
@@ -139,8 +139,8 @@ module @TwoFunctions {
         // CHECK: return [[ARG1]] : memref<1x3x64x64xf16, @DDR>
     }
 
-    // CHECK: func.func private @foo2([[ARG0:%.+]]: memref<1x3x64x64xf16, @DDR>, [[ARG1:%.+]]: memref<1x3x64x64xf16, @DDR>)
-    func.func private @foo2(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
+    // CHECK: func.func nested @foo2([[ARG0:%.+]]: memref<1x3x64x64xf16, @DDR>, [[ARG1:%.+]]: memref<1x3x64x64xf16, @DDR>)
+    func.func nested @foo2(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
         // tmp buffer
         %0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x3x64x64xf16, [@CMX_NN, 0]>
 
@@ -212,8 +212,8 @@ module @ThreeFunctions {
         DataInfo "output2" : tensor<1x4x10x12xf16>
     }
 
-    // CHECK: func.func private @foo1([[ARG0:%.+]]: memref<1x8x10x12xf16, {order = #NCHW, strides = [1200, 120, 12, 1]}, @DDR>, [[ARG1:%.+]]: memref<1x6x10x12xf16, @DDR>, [[ARG2:%.+]]: memref<1x4x10x12xf16, @DDR>)
-    func.func private @foo1(%arg0: memref<1x8x10x12xf16, {order = #NCHW, strides = [1200, 120, 12, 1]}, @DDR>, %arg1: memref<1x6x10x12xf16, @DDR>, %arg2: memref<1x4x10x12xf16, @DDR>)
+    // CHECK: func.func nested @foo1([[ARG0:%.+]]: memref<1x8x10x12xf16, {order = #NCHW, strides = [1200, 120, 12, 1]}, @DDR>, [[ARG1:%.+]]: memref<1x6x10x12xf16, @DDR>, [[ARG2:%.+]]: memref<1x4x10x12xf16, @DDR>)
+    func.func nested @foo1(%arg0: memref<1x8x10x12xf16, {order = #NCHW, strides = [1200, 120, 12, 1]}, @DDR>, %arg1: memref<1x6x10x12xf16, @DDR>, %arg2: memref<1x4x10x12xf16, @DDR>)
                         -> (memref<1x6x10x12xf16, @DDR>, memref<1x4x10x12xf16, @DDR>) {
         %0 = VPUIP.SubView %arg0 [0, 1, 0, 0] [1, 6, 10, 12] : memref<1x8x10x12xf16, {order = #NCHW, strides = [1200, 120, 12, 1]}, @DDR> to memref<1x6x10x12xf16, {order = #NCHW, strides = [1200, 120, 12, 1]}, @DDR>
         %1 = VPUIP.SubView %arg0 [0, 2, 0, 0] [1, 4, 10, 12] : memref<1x8x10x12xf16, {order = #NCHW, strides = [1200, 120, 12, 1]}, @DDR> to memref<1x4x10x12xf16, {order = #NCHW, strides = [1200, 120, 12, 1]}, @DDR>
@@ -244,8 +244,8 @@ module @ThreeFunctions {
         // CHECK: return [[ARG1]], [[ARG2]] : memref<1x6x10x12xf16, @DDR>, memref<1x4x10x12xf16, @DDR>
     }
 
-    // CHECK: func.func private @foo2([[ARG0:%.+]]: memref<1x6x10x12xf16, @DDR>, [[ARG1:%.+]]: memref<1x4x10x12xf16, @DDR>, [[ARG2:%.+]]: memref<1x2x10x12xf16, @DDR>, [[ARG3:%.+]]: memref<1x2x10x12xf16, @DDR>)
-    func.func private @foo2(%arg0: memref<1x6x10x12xf16, @DDR>, %arg1: memref<1x4x10x12xf16, @DDR>, %arg2: memref<1x2x10x12xf16, @DDR>, %arg3: memref<1x2x10x12xf16, @DDR>) -> (memref<1x2x10x12xf16, @DDR>, memref<1x2x10x12xf16, @DDR>) {
+    // CHECK: func.func nested @foo2([[ARG0:%.+]]: memref<1x6x10x12xf16, @DDR>, [[ARG1:%.+]]: memref<1x4x10x12xf16, @DDR>, [[ARG2:%.+]]: memref<1x2x10x12xf16, @DDR>, [[ARG3:%.+]]: memref<1x2x10x12xf16, @DDR>)
+    func.func nested @foo2(%arg0: memref<1x6x10x12xf16, @DDR>, %arg1: memref<1x4x10x12xf16, @DDR>, %arg2: memref<1x2x10x12xf16, @DDR>, %arg3: memref<1x2x10x12xf16, @DDR>) -> (memref<1x2x10x12xf16, @DDR>, memref<1x2x10x12xf16, @DDR>) {
         %0 = VPUIP.SubView %arg0 [0, 1, 0, 0] [1, 2, 10, 12] : memref<1x6x10x12xf16, @DDR> to memref<1x2x10x12xf16, {order = #NCHW, strides = [720, 120, 12, 1]}, @DDR>
         %1 = VPUIP.SubView %arg1 [0, 1, 0, 0] [1, 2, 10, 12] : memref<1x4x10x12xf16, @DDR> to memref<1x2x10x12xf16, {order = #NCHW, strides = [480, 120, 12, 1]}, @DDR>
 
@@ -274,8 +274,8 @@ module @ThreeFunctions {
         // CHECK: return [[ARG2]], [[ARG3]] : memref<1x2x10x12xf16, @DDR>, memref<1x2x10x12xf16, @DDR>
     }
 
-    // CHECK: func.func private @foo3([[ARG0:%.+]]: memref<1x2x10x12xf16, @DDR>, [[ARG1:%.+]]: memref<1x2x10x12xf16, @DDR>, [[ARG2:%.+]]: memref<1x3x10x12xf16, @DDR>)
-    func.func private @foo3(%arg0: memref<1x2x10x12xf16, @DDR>, %arg1: memref<1x2x10x12xf16, @DDR>, %arg2: memref<1x3x10x12xf16, @DDR>) -> memref<1x3x10x12xf16, @DDR> {
+    // CHECK: func.func nested @foo3([[ARG0:%.+]]: memref<1x2x10x12xf16, @DDR>, [[ARG1:%.+]]: memref<1x2x10x12xf16, @DDR>, [[ARG2:%.+]]: memref<1x3x10x12xf16, @DDR>)
+    func.func nested @foo3(%arg0: memref<1x2x10x12xf16, @DDR>, %arg1: memref<1x2x10x12xf16, @DDR>, %arg2: memref<1x3x10x12xf16, @DDR>) -> memref<1x3x10x12xf16, @DDR> {
         %0 = VPUIP.SubView %arg2 [0, 0, 0, 0] [1, 2, 10, 12] : memref<1x3x10x12xf16, @DDR> to memref<1x2x10x12xf16, {order = #NCHW, strides = [360, 120, 12, 1]}, @DDR>
 
         %1 = VPUIP.SubView %arg1 [0, 1, 0, 0] [1, 1, 10, 12] : memref<1x2x10x12xf16, @DDR> to memref<1x1x10x12xf16, {order = #NCHW, strides = [240, 120, 12, 1]}, @DDR>
@@ -439,8 +439,8 @@ module @NestedFunctionsNetworkInputOutput {
         DataInfo "output" : tensor<1x3x64x64xf16>
     }
 
-    // CHECK: func.func private @foo2([[ARG0:%.+]]: memref<1x3x64x64xf16, @DDR>, [[ARG1:%.+]]: memref<1x3x64x64xf16, @DDR>)
-    func.func private @foo2(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
+    // CHECK: func.func nested @foo2([[ARG0:%.+]]: memref<1x3x64x64xf16, @DDR>, [[ARG1:%.+]]: memref<1x3x64x64xf16, @DDR>)
+    func.func nested @foo2(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
         // tmp buffer
         %0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x3x64x64xf16, [@CMX_NN, 0]>
 
@@ -469,8 +469,8 @@ module @NestedFunctionsNetworkInputOutput {
         // CHECK: return [[ARG1]] : memref<1x3x64x64xf16, @DDR>
     }
 
-    // CHECK: func.func private @foo1([[ARG0:%.+]]: memref<1x3x64x64xf16, @DDR>, [[ARG1:%.+]]: memref<1x3x64x64xf16, @DDR>)
-    func.func private @foo1(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
+    // CHECK: func.func nested @foo1([[ARG0:%.+]]: memref<1x3x64x64xf16, @DDR>, [[ARG1:%.+]]: memref<1x3x64x64xf16, @DDR>)
+    func.func nested @foo1(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
         VPURT.Task {
             %0 = func.call @foo2(%arg0, %arg1) : (memref<1x3x64x64xf16, @DDR>, memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR>
         }
@@ -514,8 +514,8 @@ module @NestedFunctionsDDR {
         DataInfo "output" : tensor<1x3x64x64xf16>
     }
 
-    // CHECK: func.func private @foo2([[ARG0:%.+]]: memref<1x3x64x64xf16, @DDR>, [[ARG1:%.+]]: memref<1x3x64x64xf16, @DDR>)
-    func.func private @foo2(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
+    // CHECK: func.func nested @foo2([[ARG0:%.+]]: memref<1x3x64x64xf16, @DDR>, [[ARG1:%.+]]: memref<1x3x64x64xf16, @DDR>)
+    func.func nested @foo2(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
         // tmp buffer
         %0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x3x64x64xf16, [@CMX_NN, 0]>
 
@@ -544,8 +544,8 @@ module @NestedFunctionsDDR {
         // CHECK: return [[ARG1]] : memref<1x3x64x64xf16, @DDR>
     }
 
-    // CHECK: func.func private @foo1([[ARG0:%.+]]: memref<1x3x64x64xf16, @DDR>, [[ARG1:%.+]]: memref<1x3x64x64xf16, @DDR>)
-    func.func private @foo1(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
+    // CHECK: func.func nested @foo1([[ARG0:%.+]]: memref<1x3x64x64xf16, @DDR>, [[ARG1:%.+]]: memref<1x3x64x64xf16, @DDR>)
+    func.func nested @foo1(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
         VPURT.Task {
             %0 = func.call @foo2(%arg0, %arg1) : (memref<1x3x64x64xf16, @DDR>, memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR>
         }
@@ -610,8 +610,8 @@ module @NestedFunctionsMiddleAllocateBuffers {
         DataInfo "output" : tensor<1x3x64x64xf16>
     }
 
-    // CHECK: func.func private @foo2([[ARG0:%.+]]: memref<1x3x64x64xf16, @DDR>, [[ARG1:%.+]]: memref<1x3x64x64xf16, @DDR>)
-    func.func private @foo2(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
+    // CHECK: func.func nested @foo2([[ARG0:%.+]]: memref<1x3x64x64xf16, @DDR>, [[ARG1:%.+]]: memref<1x3x64x64xf16, @DDR>)
+    func.func nested @foo2(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
         // tmp buffer
         %0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x3x64x64xf16, [@CMX_NN, 0]>
 
@@ -640,8 +640,8 @@ module @NestedFunctionsMiddleAllocateBuffers {
         // CHECK: return [[ARG1]] : memref<1x3x64x64xf16, @DDR>
     }
 
-    // CHECK: func.func private @foo1([[ARG0:%.+]]: memref<1x3x64x64xf16, @DDR>, [[ARG1:%.+]]: memref<1x3x64x64xf16, @DDR>)
-    func.func private @foo1(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
+    // CHECK: func.func nested @foo1([[ARG0:%.+]]: memref<1x3x64x64xf16, @DDR>, [[ARG1:%.+]]: memref<1x3x64x64xf16, @DDR>)
+    func.func nested @foo1(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
         %0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
         %1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
         %2 = VPURT.DeclareBuffer <DDR> <73728> -> memref<1x3x64x64xf16, @DDR>
@@ -729,8 +729,8 @@ module @NestedFunctionsWithViewOps {
         DataInfo "output" : tensor<1x8x32x64xf16>
     }
 
-    // CHECK: func.func private @foo2([[ARG0:%.+]]: memref<1x2x64x64xf16, {order = #NCHW, strides = [16384, 4096, 64, 1]}, @DDR>, [[ARG1:%.+]]: memref<1x2x64x64xf16, {order = #NCHW, strides = [16384, 4096, 64, 1]}, @DDR>)
-    func.func private @foo2(%arg0: memref<1x2x64x64xf16, {order = #NCHW, strides = [16384, 4096, 64, 1]}, @DDR>, %arg1: memref<1x2x64x64xf16, {order = #NCHW, strides = [16384, 4096, 64, 1]}, @DDR>) -> memref<1x2x64x64xf16, {order = #NCHW, strides = [16384, 4096, 64, 1]}, @DDR> {
+    // CHECK: func.func nested @foo2([[ARG0:%.+]]: memref<1x2x64x64xf16, {order = #NCHW, strides = [16384, 4096, 64, 1]}, @DDR>, [[ARG1:%.+]]: memref<1x2x64x64xf16, {order = #NCHW, strides = [16384, 4096, 64, 1]}, @DDR>)
+    func.func nested @foo2(%arg0: memref<1x2x64x64xf16, {order = #NCHW, strides = [16384, 4096, 64, 1]}, @DDR>, %arg1: memref<1x2x64x64xf16, {order = #NCHW, strides = [16384, 4096, 64, 1]}, @DDR>) -> memref<1x2x64x64xf16, {order = #NCHW, strides = [16384, 4096, 64, 1]}, @DDR> {
         // tmp buffer
         %0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x2x64x64xf16, {order = #NCHW, strides = [16384, 4096, 64, 1]}, [@CMX_NN, 0]>
 
@@ -765,8 +765,8 @@ module @NestedFunctionsWithViewOps {
         // CHECK: return [[ARG1]] : memref<1x2x64x64xf16, {order = #NCHW, strides = [16384, 4096, 64, 1]}, @DDR>
     }
 
-    // CHECK: func.func private @foo1([[ARG0:%.+]]: memref<1x3x64x64xf16, {order = #NCHW, strides = [16384, 4096, 64, 1]}, @DDR>, [[ARG1:%.+]]: memref<1x8x32x64xf16, @DDR>)
-    func.func private @foo1(%arg0: memref<1x3x64x64xf16, {order = #NCHW, strides = [16384, 4096, 64, 1]}, @DDR>, %arg1: memref<1x8x32x64xf16, @DDR>) -> memref<1x8x32x64xf16, @DDR> {
+    // CHECK: func.func nested @foo1([[ARG0:%.+]]: memref<1x3x64x64xf16, {order = #NCHW, strides = [16384, 4096, 64, 1]}, @DDR>, [[ARG1:%.+]]: memref<1x8x32x64xf16, @DDR>)
+    func.func nested @foo1(%arg0: memref<1x3x64x64xf16, {order = #NCHW, strides = [16384, 4096, 64, 1]}, @DDR>, %arg1: memref<1x8x32x64xf16, @DDR>) -> memref<1x8x32x64xf16, @DDR> {
         %0 = VPUIP.SubView %arg0 [0, 0, 0, 0] [1, 2, 64, 64] : memref<1x3x64x64xf16, {order = #NCHW, strides = [16384, 4096, 64, 1]}, @DDR> to memref<1x2x64x64xf16, {order = #NCHW, strides = [16384, 4096, 64, 1]}, @DDR>
         %1 = VPUIP.GenericReshape inputs(%arg1 : memref<1x8x32x64xf16, @DDR>) -> memref<1x4x64x64xf16, @DDR>
         %2 = VPUIP.SubView %1 [0, 0, 0, 0] [1, 2, 64, 64] : memref<1x4x64x64xf16, @DDR> to memref<1x2x64x64xf16, {order = #NCHW, strides = [16384, 4096, 64, 1]}, @DDR>

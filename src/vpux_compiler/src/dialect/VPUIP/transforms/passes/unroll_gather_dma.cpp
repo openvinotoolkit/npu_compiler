@@ -6,8 +6,10 @@
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/gather_dma_constants.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/dma_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/unroll_dma_analysis.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
@@ -48,6 +50,10 @@ private:
     mlir::MLIRContext* _ctx;
     int64_t _dmaPortCount;
     mlir::FlatSymbolRefAttr _cmxNameAttr;
+    // note: only works because we create new pattern
+    // rewriter for every function and we don't run in multi threaded
+    // context. In general pattern rewriters shouldn't hold state.
+    mutable uint64_t _gatherDmaUnrollIndex = 0;
 };
 
 mlir::LogicalResult GatherDMARewriter::matchAndRewrite(VPUIP::GatherDMAOp gatherDmaOp,
@@ -125,36 +131,21 @@ mlir::LogicalResult GatherDMARewriter::matchAndRewrite(VPUIP::GatherDMAOp gather
     VPUX_THROW_WHEN(inputBuffers.size() != outputBuffers.size(), "Size of input/output buffers list must match");
     const auto numClusters = inputBuffers.size();
 
-    auto getUnpairedCluster = [](size_t numClusters, size_t dmaPortCount) -> SmallVector<size_t> {
-        VPUX_THROW_WHEN(numClusters == 0 || dmaPortCount == 0, "Invalid numClusters or dmaPortCount");
-        SmallVector<size_t> unpairedClusters;
-        auto start = (numClusters / dmaPortCount) * dmaPortCount;
-        for (size_t clusterId = start; clusterId < numClusters; ++clusterId) {
-            unpairedClusters.push_back(clusterId);
-        }
-        return unpairedClusters;
-    };
-    auto unpairedClusters = getUnpairedCluster(numClusters, static_cast<size_t>(_dmaPortCount));
     int64_t dmaPort = 0;
+    const uint64_t unrollIdx = _gatherDmaUnrollIndex++;
 
     rewriter.setInsertionPointAfter(vpurtTask);
+
     for (size_t clusterId = 0; clusterId < numClusters; ++clusterId) {
         const auto newLoc = appendLoc(gatherDmaOp->getLoc(), "cluster_{0}", clusterId);
         auto newGatherDMAOp = VPURT::wrapIntoTaskOp<VPUIP::GatherDMAOp>(
                 rewriter, vpurtTask.getWaitBarriers(), vpurtTask.getUpdateBarriers(), newLoc, inputBuffers[clusterId],
                 indicesBuffers[clusterId], outputBuffers[clusterId], gatherDmaOp.getElementSize(),
                 gatherDmaOp.getPadding(), dmaPort);
-        dmaPort = (dmaPort + 1) % _dmaPortCount;
-        if (std::find(unpairedClusters.begin(), unpairedClusters.end(), static_cast<size_t>(clusterId)) !=
-            unpairedClusters.end()) {
-            auto indices = indicesBuffers[clusterId];
-            const auto indicesType = mlir::cast<vpux::NDTypeInterface>(indices.getType());
-            const auto maybeTileDim = vpux::getHighestNonTrivialDim(indicesType.getShape(), indicesType.getDimsOrder());
-            if (maybeTileDim.has_value() &&
-                indicesType.getShape()[maybeTileDim.value()] % vpux::VPU::INDICES_ALIGNMENT == 0) {
-                newGatherDMAOp.setSplitCandidate(true);
-            }
+        if (numClusters % _dmaPortCount != 0) {
+            newGatherDMAOp->setAttr(VPUIP::UNROLL_IDX, getIntAttr(rewriter, unrollIdx));
         }
+        dmaPort = (dmaPort + 1) % _dmaPortCount;
         _log.nest().trace("Insert new newGatherDMAOp: '{0}'", newGatherDMAOp);
     }
     rewriter.eraseOp(vpurtTask);

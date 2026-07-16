@@ -30,7 +30,6 @@ TEST_F(VPUXBackendsUnitTests, notStopSearchingIfBackendThrow) {
     options->add<intel_npu::CACHE_DIR>();
     options->add<intel_npu::LOADED_FROM_CACHE>();
     options->add<intel_npu::BATCH_MODE>();
-    options->add<intel_npu::EXCLUSIVE_ASYNC_REQUESTS>();
     options->add<intel_npu::PROFILING_TYPE>();
     options->add<intel_npu::MODEL_PRIORITY>();
     options->add<intel_npu::CREATE_EXECUTOR>();
@@ -71,7 +70,6 @@ TEST_F(VPUXBackendsUnitTests, notStopSearchingIfBackendNotExists) {
     options->add<intel_npu::CACHE_DIR>();
     options->add<intel_npu::LOADED_FROM_CACHE>();
     options->add<intel_npu::BATCH_MODE>();
-    options->add<intel_npu::EXCLUSIVE_ASYNC_REQUESTS>();
     options->add<intel_npu::PROFILING_TYPE>();
     options->add<intel_npu::MODEL_PRIORITY>();
     options->add<intel_npu::CREATE_EXECUTOR>();
@@ -220,13 +218,11 @@ TEST_F(VPUXBackendsUnitTests, getCompilationPlatformByPlatform) {
 
     std::string compilationPlatform3720 = backends->getCompilationPlatform(ov::intel_npu::Platform::NPU3720, "");
     std::string compilationPlatform4000 = backends->getCompilationPlatform(ov::intel_npu::Platform::NPU4000, "");
-    std::string compilationPlatform5000 = backends->getCompilationPlatform(ov::intel_npu::Platform::NPU5000, "");
     std::string compilationPlatform5010 = backends->getCompilationPlatform(ov::intel_npu::Platform::NPU5010, "");
     std::string compilationPlatform5020 = backends->getCompilationPlatform(ov::intel_npu::Platform::NPU5020, "");
 
     ASSERT_EQ("3720", compilationPlatform3720);
     ASSERT_EQ("4000", compilationPlatform4000);
-    ASSERT_EQ("5000", compilationPlatform5000);
     ASSERT_EQ("5010", compilationPlatform5010);
     ASSERT_EQ("5020", compilationPlatform5020);
 }
@@ -242,8 +238,6 @@ TEST_F(VPUXBackendsUnitTests, getCompilationPlatformByDeviceId) {
             backends->getCompilationPlatform(ov::intel_npu::Platform::AUTO_DETECT, "3720");
     std::string compilationPlatform4000 =
             backends->getCompilationPlatform(ov::intel_npu::Platform::AUTO_DETECT, "4000");
-    std::string compilationPlatform5000 =
-            backends->getCompilationPlatform(ov::intel_npu::Platform::AUTO_DETECT, "5000");
     std::string compilationPlatform5010 =
             backends->getCompilationPlatform(ov::intel_npu::Platform::AUTO_DETECT, "5010");
     std::string compilationPlatform5020 =
@@ -251,7 +245,6 @@ TEST_F(VPUXBackendsUnitTests, getCompilationPlatformByDeviceId) {
 
     ASSERT_EQ("3720", compilationPlatform3720);
     ASSERT_EQ("4000", compilationPlatform4000);
-    ASSERT_EQ("5000", compilationPlatform5000);
     ASSERT_EQ("5010", compilationPlatform5010);
     ASSERT_EQ("5020", compilationPlatform5020);
 }

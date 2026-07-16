@@ -577,9 +577,9 @@ mlir::LogicalResult ConvertGroupConvToConvPass::GroupConvToSingleConvConverter::
     }
 
     rewriter.replaceOpWithNewOp<IE::ConvolutionOp>(
-            origOp, origOp.getInput(), newWeights, origOp.getBias(), /*scale*/ nullptr, origOp.getStrides(),
-            origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getDilations(), nullptr, nullptr, nullptr,
-            origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+            origOp, origOp.getInput(), newWeights, origOp.getBias(), /*scale*/ nullptr, /*zero_points*/ nullptr,
+            origOp.getStrides(), origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getDilations(), nullptr, nullptr,
+            nullptr, origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
 
     return mlir::success();
 }
@@ -698,9 +698,9 @@ mlir::LogicalResult ConvertGroupConvToConvPass::GroupConvToMultiConvConverter::m
 
         // New conv
         auto newConvLoc = appendLoc(origOp->getLoc(), "ConvertGroupConv_{0}", sliceIdx);
-        auto convOp = rewriter.create<IE::ConvolutionOp>(newConvLoc, inputSlice, weightsSlice, biasSlice, nullptr,
-                                                         origOp.getStrides(), origOp.getPadsBegin(),
-                                                         origOp.getPadsEnd(), origOp.getDilations());
+        auto convOp = rewriter.create<IE::ConvolutionOp>(
+                newConvLoc, inputSlice, weightsSlice, biasSlice, nullptr, /*zero_points*/ nullptr, origOp.getStrides(),
+                origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getDilations());
         slices.push_back(convOp);
     }
 

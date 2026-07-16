@@ -7,6 +7,7 @@
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
 #include "vpux/compiler/core/interfaces/dialect_cache.hpp"
+#include "vpux/compiler/core/types/quantile_float/types.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
@@ -178,7 +179,6 @@ VPUNN::VPUDevice vpux::VPU::getVPUDeviceType(config::Platform platform) {
         return VPUNN::VPUDevice::VPU_2_7;
     case config::Platform::NPU4000:
         return VPUNN::VPUDevice::VPU_4_0;
-    case config::Platform::NPU5000:
     case config::Platform::NPU5010:
         return VPUNN::VPUDevice::NPU_5_0;
     case config::Platform::NPU5020:
@@ -204,8 +204,7 @@ VPUNN::VPUDevice vpux::VPU::getVPUDeviceType(config::ArchKind archKind) {
 
 VPUNN::VPUDevice vpux::VPU::getVPUDeviceType(mlir::Operation* op) {
     auto platform = config::getPlatform(op);
-    auto archKind = config::getArch(op);
-    return platform.has_value() ? vpux::VPU::getVPUDeviceType(platform.value()) : vpux::VPU::getVPUDeviceType(archKind);
+    return vpux::VPU::getVPUDeviceType(platform);
 }
 
 static bool isVPUNNSupportedElementType(mlir::Type type) {
@@ -264,6 +263,8 @@ std::optional<VPUNN::DataType> vpux::VPU::getVPUNNElementType(mlir::Type type) {
         return VPUNN::DataType::BF8;
     } else if (mlir::isa<mlir::Float8E4M3FNType>(type)) {
         return VPUNN::DataType::HF8;
+    } else if (mlir::isa<type::QuantileType>(type)) {
+        return VPUNN::DataType::INT4;
     }
 
     // Specifics needed for Shave
@@ -280,7 +281,7 @@ bool vpux::VPU::isVPUNNSupportedElementType(mlir::Type type, [[maybe_unused]] co
     return ::isVPUNNSupportedElementType(type);
 }
 
-VPUNN::Layout vpux::VPU::getVPUNNLayout(vpux::DimsOrder vpuxLayout) {
+VPUNN::Layout vpux::VPU::getVPUNNLayout(const vpux::DimsOrder& vpuxLayout) {
     if (vpuxLayout == vpux::DimsOrder::NHWC || vpuxLayout == vpux::DimsOrder::GNHWC) {
         return VPUNN::Layout::ZXY;
     } else if (vpuxLayout == vpux::DimsOrder::NWHC) {
@@ -301,7 +302,7 @@ VPUNN::Layout vpux::VPU::getVPUNNLayout(vpux::DimsOrder vpuxLayout) {
     return VPUNN::Layout::ZXY;
 }
 
-VPUNN::VPUTensor vpux::VPU::getVPUTensor(ShapeRef shape, mlir::Type elemType, DimsOrder layout) {
+VPUNN::VPUTensor vpux::VPU::getVPUTensor(ShapeRef shape, mlir::Type elemType, const DimsOrder& layout) {
     const auto nnType = VPU::getVPUNNElementType(elemType);
     VPUX_THROW_UNLESS(nnType.has_value(), "Unsupported data type: '{0}'", elemType);
 
@@ -733,6 +734,88 @@ std::vector<VPUNN::DPULayer> vpux::VPU::getPerClusterDPULayers(VPU::NCEOpInterfa
     return vpunnLayers;
 }
 
+std::vector<VPUNN::SHAVEWorkload> vpux::VPU::getPerClusterShaveWorkloads(
+        VPU::SWOpInterface swOp, const VPUIP::ShaveWorkloadCostParams& params, Logger log,
+        std::vector<std::pair<NDTypeInterface, TensorDistributionMap>> tileTypes) {
+    const auto numClusters = params.numTiles;
+
+    const auto getPerClusterShape = [&](const VPU::DistributionInfo& distributedInfo, size_t inputIndex = 0,
+                                        bool isOutput = false) -> SmallVector<Shape> {
+        // For output tensor, compute shape is required to get correct shapes for computation
+        // For input tensor, memory shape is required to ignore HALO region
+        SmallVector<Shape> shapes;
+        if (isOutput) {
+            for (auto shape : distributedInfo.getComputeShapes()) {
+                shapes.push_back(Shape(shape));
+            }
+        } else {
+            for (auto shape : distributedInfo.getMemoryShapes()) {
+                shapes.push_back(Shape(shape));
+            }
+        }
+        if (shapes.empty()) {
+            return isOutput ? SmallVector(numClusters, params.outputShapes[0])
+                            : SmallVector(numClusters, params.inputShapes[inputIndex]);
+        }
+        return shapes;
+    };
+
+    SmallVector<SmallVector<Shape>> inputsPerClusterShapes;
+    SmallVector<SmallVector<Shape>> outputsPerClusterShapes;
+
+    for (const auto& tileTypeIdx : irange(tileTypes.size())) {
+        const auto& tileType = tileTypes[tileTypeIdx];
+        if (tileTypeIdx < tileTypes.size() - 1) {
+            // input shapes
+            if (tileType.second.empty()) {
+                // TODO E#216175: detect how many cluster used by op
+                const auto shape = Shape(tileType.first.getShape().raw());
+                inputsPerClusterShapes.push_back(SmallVector(numClusters, shape));
+            } else {
+                for (const auto& [_, distribution] : tileType.second) {
+                    inputsPerClusterShapes.push_back(getPerClusterShape(distribution, tileTypeIdx, false));
+                }
+            }
+        } else {
+            // output shapes
+            if (tileType.second.empty()) {
+                const auto shape = Shape(tileType.first.getShape().raw());
+                outputsPerClusterShapes.push_back(SmallVector(numClusters, shape));
+            } else {
+                for (const auto& [_, distribution] : tileType.second) {
+                    outputsPerClusterShapes.push_back(getPerClusterShape(distribution, tileTypeIdx, true));
+                }
+            }
+        }
+    }
+
+    log.trace("Split op {0} into {1} clusters", swOp->getName(), numClusters);
+
+    std::vector<VPUNN::SHAVEWorkload> vpunnLayers;
+
+    for (auto clusterIdx : irange(numClusters)) {
+        std::vector<VPUNN::VPUTensor> outputTensors;
+        std::vector<VPUNN::VPUTensor> actInputTensors;
+
+        for (size_t i = 0; i < outputsPerClusterShapes.size(); i++) {
+            const auto& outType = outputsPerClusterShapes[i][clusterIdx];
+            outputTensors.push_back(VPU::getVPUTensor(outType, params.outDataTypes[i], params.outOrders[i]));
+        }
+
+        for (size_t i = 0; i < inputsPerClusterShapes.size(); i++) {
+            const auto& inType = inputsPerClusterShapes[i][clusterIdx];
+            actInputTensors.push_back(VPU::getVPUTensor(inType, params.inDataTypes[i], params.inOrders[i]));
+        }
+
+        auto vpunnLayer = getVPUNNSWKernelOp(swOp, std::move(outputTensors), std::move(actInputTensors));
+        if (vpunnLayer) {
+            vpunnLayers.push_back(std::move(*vpunnLayer));
+        }
+    }
+
+    return vpunnLayers;
+}
+
 std::vector<VPUNN::SHAVEWorkload> vpux::VPU::getPerClusterShaveWorkloads(VPU::SWOpInterface swOp,
                                                                          const VPUIP::ShaveWorkloadCostParams& params,
                                                                          Logger log) {
@@ -990,6 +1073,11 @@ VPUNN::DPUWorkload vpux::VPU::getDPUWorkload(const VPUIP::WorkloadCostParams& ti
     return vpunnDPUWorkload;
 }
 
+Shape vpux::VPU::stripGroupDim(ShapeRef s) {
+    VPUX_THROW_UNLESS(s.size() == 5, "Expect 5D shape, but got {0}D", s.size());
+    return Shape({s[DimsGroups5D::Act::N], s[DimsGroups5D::Act::C], s[DimsGroups5D::Act::H], s[DimsGroups5D::Act::W]});
+}
+
 VPUIP::WorkloadCostParams vpux::VPU::getWorkloadCostParam(VPU::NCEOpInterface nceOp, config::ArchKind arch,
                                                           int64_t numDPU, int64_t numTiles,
                                                           std::optional<VPU::MultiClusterStrategy> mcStrategy) {
@@ -1021,9 +1109,17 @@ VPUIP::WorkloadCostParams vpux::VPU::getWorkloadCostParam(VPU::NCEOpInterface nc
     params.numTiles = numTiles;
     params.arch = arch;
     params.vpuDevice = vpuDevice;
+    // preODUShape holds the shape the DPU actually computed: equals nceOutShape when no ODU
+    // transform is configured, otherwise the spatial/channel-inverted pre-transform shape.
+    const auto nceOutShape = vpux::getShape(nceOp->getResult(0));
+    const auto oduScales = VPU::getODUScaling(nceOp.getOperation());
+    const auto preODUShapeResult = VPU::invertODUScaling(oduScales, SmallVector<int64_t>(nceOutShape.raw()));
+    VPUX_THROW_UNLESS(mlir::succeeded(preODUShapeResult), "Failed to invert ODU scaling for pre-ODU shape");
+    const auto preODUShape = Shape(preODUShapeResult.value());
     params.fullInputShape = inputShape.raw();
     params.inputShape = inputShape.raw();
     params.outputShape = outputShape.raw();
+    params.preODUShape = preODUShape;
     params.padInfo = VPU::toPadInfo(pads);
     params.kernelSize = nceOp.getKernelSizeVal();
     params.kernelStride = nceOp.getStridesVal();
@@ -1060,7 +1156,7 @@ VPUIP::WorkloadCostParams vpux::VPU::getWorkloadCostParam(VPU::NCEOpInterface nc
             params.layerStrategy = strategy.value();
         } else if (hasDistributedTypesIO(op)) {
             // It shows this is a cluster tiling op and its MC strategy attribute has been removed
-            // We need judge it from the input/ output distributed mode
+            // We need evaluate it from the input/ output distributed mode
             auto inputType = mlir::cast<vpux::VPU::DistributedTypeInterface>((*op->getOperands().begin()).getType());
             auto outputType = mlir::cast<vpux::VPU::DistributedTypeInterface>((*op->getResults().begin()).getType());
             auto distributedInput =
@@ -1180,7 +1276,7 @@ VPUIP::ShaveWorkloadCostParams vpux::VPU::getShaveWorkloadCostParam(VPU::SWOpInt
             params.layerStrategy = strategy.value();
         } else if (hasDistributedTypesIO(op)) {
             // It shows this is a cluster tiling op and its MC strategy attribute has been removed
-            // We need judge it from the input/ output distributed mode
+            // We need evaluate it from the input/ output distributed mode
             auto inputType = mlir::cast<vpux::VPU::DistributedTypeInterface>((*op->getOperands().begin()).getType());
             auto outputType = mlir::cast<vpux::VPU::DistributedTypeInterface>((*op->getResults().begin()).getType());
             auto distributedInput =

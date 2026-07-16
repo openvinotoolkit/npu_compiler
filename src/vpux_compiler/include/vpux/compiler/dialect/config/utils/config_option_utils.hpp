@@ -36,11 +36,6 @@ bool hasAutoPaddingIDU(mlir::ModuleOp);
 constexpr StringRef FP16_COMPRESSED_CONV = "config.FP16CompressedConv";
 bool hasFP16CompressedConv(mlir::Operation* op);
 
-// Max Kernel Size
-constexpr StringRef MAX_KERNEL_SIZE = "config.MaxKernelSize";
-bool hasMaxKernelSize(mlir::Operation* op);
-int64_t getMaxKernelSize(mlir::Operation* op);
-
 // Reduce Operation Support
 constexpr StringRef REDUCE_SUPPORTED = "config.ReduceSupported";
 bool isReduceOpSupportedOnNCE(mlir::Operation* op);
@@ -63,18 +58,18 @@ bool hasEnableExtraStaticShapeOps(mlir::ModuleOp module);
 constexpr StringRef FRAGMENTATION_AVOID_RATIO_PIPELINING_LARGE_WEIGHTS =
         "config.FragmentationAvoidRatioPipeliningLargeWeights";
 
-// Workload Management Status
-constexpr StringRef WORKLOAD_MANAGEMENT_STATUS = "config.WorkloadManagementStatus";
-WorkloadManagementStatus getWorkloadManagementStatus(mlir::ModuleOp module);
-void setWorkloadManagementStatus(mlir::ModuleOp module, WorkloadManagementStatus value);
+// Workload Management Mode
+constexpr StringRef WORKLOAD_MANAGEMENT_MODE = "config.WorkloadManagementMode";
+WorkloadManagementMode getWorkloadManagementMode(mlir::ModuleOp module);
+void setWorkloadManagementMode(mlir::ModuleOp module, WorkloadManagementMode value);
 
 // Weights Dynamic Dequantization
 constexpr StringRef ENABLE_WEIGHTS_DYNAMIC_DEQUANTIZATION = "config.EnableWeightsDynamicDequantization";
 bool hasEnableWeightsDynamicDequantization(mlir::ModuleOp module);
 
 // Workload Management Constraints
-constexpr StringRef BARR_MAX_VARIANT_SUM = "config.BarrierMaxVariantSum";
-constexpr StringRef BARR_MAX_VARIANT_COUNT = "config.BarrierMaxVariantCount";
+
+constexpr StringRef BARR_MAX_SLOT_COUNT = "config.BarrierMaxSlotCount";
 constexpr StringRef METADATA_MAX_VARIANT_COUNT = "config.MetadataMaxVariantCount";
 constexpr StringRef METADATA_MAX_INVARIANT_COUNT = "config.MetadataMaxInvariantCount";
 constexpr StringRef METADATA_MAX_KERNEL_INVOCATION_COUNT = "config.MetadataMaxKernelInvocationCount";
@@ -110,11 +105,18 @@ bool isWeightsTableReuseEnabled(mlir::Operation* op);
 // SHAVE Engine FIFO
 constexpr StringRef USE_DEDICATED_FIFO_PER_SHAVE_ENGINE = "config.UseDedicatedFifoPerShaveEngine";
 bool isFifoPerShaveEngineEnabled(mlir::Operation* op);
-bool hasSupportForFifoPerShaveEngine(config::ArchKind arch, bool enableWorkloadManagement);
+bool hasSupportForFifoPerShaveEngine(config::ArchKind arch);
 
 // SPRLUT Configurations
 constexpr StringRef SPRLUT_ENABLED = "config.SprLUTEnabled";
 bool isSprLUTEnabled(mlir::Operation* op);
+
+// Enable SoftmaxMaskAware and configure the FP16 minimum-threshold adjustment.
+constexpr StringRef SOFTMAX_MASK_AWARE = "config.EnableSoftmaxMaskAware";
+constexpr StringRef SOFTMAX_MASK_AWARE_THRESHOLD = "config.SoftmaxMaskAwareThreshold";
+bool isSoftmaxMaskAwareEnabled(mlir::Operation* op);
+double getSoftmaxMaskAwareThreshold(mlir::Operation* op);
+bool isBarrierFifoDummyEntrySupported(config::ArchKind arch);
 
 }  // namespace config
 }  // namespace vpux

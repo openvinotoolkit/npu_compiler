@@ -14,14 +14,14 @@ module @Gather attributes {config.platform = #config.platform<NPU4000>, config.c
       stack_configuration: [4096, 4096, 4096, 4096]
 
     module @VPU.SW {
-    func.func private @builtin_Gather(%input : memref<*xf16>, %output : memref<*xf16>)
+    func.func nested @builtin_Gather(%input : memref<*xf16>, %output : memref<*xf16>)
         attributes {
-            VPU.kernel_code = "single_shave_gather.cpp",
-            VPU.kernel_entry = "single_shave_gather",
+            VPU.kernel_code = "gather.cpp",
+            VPU.kernel_entry = "gather",
             VPU.task_type = @COMPUTE
         }
 
-    func.func private @runtime()
+    func.func nested @runtime()
         attributes {
             VPU.kernel_code = "nnActEntry"
         }

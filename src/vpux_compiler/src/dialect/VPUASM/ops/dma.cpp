@@ -19,7 +19,7 @@ vpux::ELF::SectionFlagsAttr vpux::VPUASM::NNDMAOp::getPredefinedMemoryAccessors(
     return ELF::SectionFlagsAttr::SHF_EXECINSTR | ELF::SectionFlagsAttr::VPU_SHF_PROC_DMA;
 }
 
-vpux::ELF::SectionFlagsAttr vpux::VPUASM::NNDMAOp::getMemoryAccessingProc() {
+ELF::SectionFlagsAttr vpux::VPUASM::NNDMAOp::getMemoryAccessingProcForSection(mlir::StringAttr) {
     return ELF::SectionFlagsAttr::VPU_SHF_PROC_DMA;
 }
 

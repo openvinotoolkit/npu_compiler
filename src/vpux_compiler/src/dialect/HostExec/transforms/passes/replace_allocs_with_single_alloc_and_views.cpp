@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/HostExec/IR/dialect.hpp"
 #include "vpux/compiler/utils/hw_settings.hpp"
 #include "vpux/compiler/utils/passes.hpp"
+#include "vpux/compiler/utils/types.hpp"
 
 #include <llvm/ADT/STLExtras.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
@@ -80,7 +81,6 @@ void ReplaceAllocsWithSingleAllocAndViewsPass::safeRunOnFunc() {
     } else {
         rewriter.setInsertionPoint(parentOfFirstAllocToReplace);
     }
-
     for (const auto& dynDim : allocDynamicSizes) {
         for (auto dim : dynDim) {
             // Do not move the dim operation if it is already in the correct place: before parentOfFirstAllocToReplace
@@ -96,7 +96,7 @@ void ReplaceAllocsWithSingleAllocAndViewsPass::safeRunOnFunc() {
 
     SmallVector<mlir::Value> offsets;
     SmallVector<mlir::Value> sizes;
-
+    _log.debug("Found allocs to replace: {0}", allocsToReplace.size());
     for (size_t i = 0; i < allocsToReplace.size(); ++i) {
         mlir::Value size = nullptr;
         for (size_t d = 0, dynIdx = 0; d < allocShapes[i].size(); ++d) {
@@ -131,6 +131,7 @@ void ReplaceAllocsWithSingleAllocAndViewsPass::safeRunOnFunc() {
         return;
     }
 
+    _log.trace("Offsets: {0}, sizes: {1}, allocsToReplace: {2}", offsets.size(), sizes.size(), allocsToReplace.size());
     assert(offsets.size() == sizes.size() && sizes.size() == allocsToReplace.size() &&
            "Offsets, sizes and allocsToReplace should have the same size");
 
@@ -139,7 +140,7 @@ void ReplaceAllocsWithSingleAllocAndViewsPass::safeRunOnFunc() {
         totalSize = rewriter.create<mlir::arith::AddIOp>(loc, totalSize, sizes[i]);
     }
 
-    auto scratchBufferType = mlir::MemRefType::get({mlir::ShapedType::kDynamic}, rewriter.getIntegerType(8));
+    auto scratchBufferType = vpux::getMemRefType({mlir::ShapedType::kDynamic}, rewriter.getIntegerType(8));
     // align to DEFAULT_CMX_ALIGNMENT (64) as it is done for DDR scratch buffer on NPU
     mlir::Value scratchBufferAlloc = rewriter.create<mlir::memref::AllocOp>(
             loc, scratchBufferType, totalSize, mlir::ValueRange{}, rewriter.getI64IntegerAttr(DEFAULT_CMX_ALIGNMENT));

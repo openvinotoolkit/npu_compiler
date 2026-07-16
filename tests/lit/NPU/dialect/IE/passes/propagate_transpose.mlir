@@ -589,3 +589,76 @@ func.func @NotSwapWithRMS(%arg0 : tensor<1x256x24x64xf16>) -> tensor<1x256x64x24
     // CHECK:        [[RMS:%.+]] = IE.RMS([[TRANSPOSE]], [[CST]]) {eps = 1.0132789611816406E-6 : f64} : tensor<1x256x64x24xf16>, tensor<1x1x1x24xf16> -> tensor<1x256x64x24xf16>
     // CHECK:        return [[RMS]] : tensor<1x256x64x24xf16>
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @NoMoveTransposeThroughScatterUpdateNoPostTranspose
+// CHECK-SAME:      ([[INPUT:%arg[0-9]]]: tensor<1x4x8x16xf16>, [[INDICES:%arg[0-9]]]: tensor<2xsi32>, [[UPDATES:%arg[0-9]]]: tensor<1x2x16x4xf16>)
+func.func @NoMoveTransposeThroughScatterUpdateNoPostTranspose(%arg0: tensor<1x4x8x16xf16>, %arg1: tensor<2xsi32>, %arg2: tensor<1x2x16x4xf16>) -> tensor<1x8x16x4xf16> {
+    %0 = IE.Transpose(%arg0) {order_value = #NHWC} : tensor<1x4x8x16xf16> -> tensor<1x8x16x4xf16>
+    %1 = IE.ScatterUpdate(%0, %arg1, %arg2) {axis_value = 1 : i64} : tensor<1x8x16x4xf16>, tensor<2xsi32>, tensor<1x2x16x4xf16> -> tensor<1x8x16x4xf16>
+    return %1 : tensor<1x8x16x4xf16>
+
+    // CHECK:       [[TRANSPOSE:%.+]] = IE.Transpose([[INPUT]]) {order_value = #NHWC} : tensor<1x4x8x16xf16> -> tensor<1x8x16x4xf16>
+    // CHECK:       [[SCATTER:%.+]] = IE.ScatterUpdate([[TRANSPOSE]], [[INDICES]], [[UPDATES]]) {axis_value = 1 : i64} : tensor<1x8x16x4xf16>, tensor<2xsi32>, tensor<1x2x16x4xf16> -> tensor<1x8x16x4xf16>
+    // CHECK:       return [[SCATTER]] : tensor<1x8x16x4xf16>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @NoMoveTransposeThroughScatterUpdateNonInversePost
+// CHECK-SAME:      ([[INPUT:%arg[0-9]]]: tensor<1x4x8x16xf16>, [[INDICES:%arg[0-9]]]: tensor<2xsi32>, [[UPDATES:%arg[0-9]]]: tensor<1x2x16x4xf16>)
+func.func @NoMoveTransposeThroughScatterUpdateNonInversePost(%arg0: tensor<1x4x8x16xf16>, %arg1: tensor<2xsi32>, %arg2: tensor<1x2x16x4xf16>) -> tensor<1x16x4x8xf16> {
+    %0 = IE.Transpose(%arg0) {order_value = #NHWC} : tensor<1x4x8x16xf16> -> tensor<1x8x16x4xf16>
+    %1 = IE.ScatterUpdate(%0, %arg1, %arg2) {axis_value = 1 : i64} : tensor<1x8x16x4xf16>, tensor<2xsi32>, tensor<1x2x16x4xf16> -> tensor<1x8x16x4xf16>
+    %2 = IE.Transpose(%1) {order_value = #NHWC} : tensor<1x8x16x4xf16> -> tensor<1x16x4x8xf16>
+    return %2 : tensor<1x16x4x8xf16>
+
+    // CHECK:       [[TRANSPOSE0:%.+]] = IE.Transpose([[INPUT]]) {order_value = #NHWC} : tensor<1x4x8x16xf16> -> tensor<1x8x16x4xf16>
+    // CHECK:       [[SCATTER:%.+]] = IE.ScatterUpdate([[TRANSPOSE0]], [[INDICES]], [[UPDATES]]) {axis_value = 1 : i64} : tensor<1x8x16x4xf16>, tensor<2xsi32>, tensor<1x2x16x4xf16> -> tensor<1x8x16x4xf16>
+    // CHECK:       [[TRANSPOSE1:%.+]] = IE.Transpose([[SCATTER]]) {order_value = #NHWC} : tensor<1x8x16x4xf16> -> tensor<1x16x4x8xf16>
+    // CHECK:       return [[TRANSPOSE1]] : tensor<1x16x4x8xf16>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+
+// CHECK-LABEL: @NoMoveTransposeThroughScatterUpdatePreTransposeMultipleUses
+// CHECK-SAME:      ([[INPUT:%arg[0-9]]]: tensor<1x4x8x16xf16>, [[INDICES:%arg[0-9]]]: tensor<2xsi32>, [[UPDATES:%arg[0-9]]]: tensor<1x2x16x4xf16>)
+func.func @NoMoveTransposeThroughScatterUpdatePreTransposeMultipleUses(%arg0: tensor<1x4x8x16xf16>, %arg1: tensor<2xsi32>, %arg2: tensor<1x2x16x4xf16>) -> (tensor<1x4x8x16xf16>, tensor<1x8x16x4xf16>) {
+    %0 = IE.Transpose(%arg0) {order_value = #NHWC} : tensor<1x4x8x16xf16> -> tensor<1x8x16x4xf16>
+    %1 = IE.ScatterUpdate(%0, %arg1, %arg2) {axis_value = 1 : i64} : tensor<1x8x16x4xf16>, tensor<2xsi32>, tensor<1x2x16x4xf16> -> tensor<1x8x16x4xf16>
+    %2 = IE.Transpose(%1) {order_value = #NWCH} : tensor<1x8x16x4xf16> -> tensor<1x4x8x16xf16>
+    return %2, %0 : tensor<1x4x8x16xf16>, tensor<1x8x16x4xf16>
+
+    // CHECK:       [[TRANSPOSE0:%.+]] = IE.Transpose([[INPUT]]) {order_value = #NHWC} : tensor<1x4x8x16xf16> -> tensor<1x8x16x4xf16>
+    // CHECK:       [[SCATTER:%.+]] = IE.ScatterUpdate([[TRANSPOSE0]], [[INDICES]], [[UPDATES]]) {axis_value = 1 : i64} : tensor<1x8x16x4xf16>, tensor<2xsi32>, tensor<1x2x16x4xf16> -> tensor<1x8x16x4xf16>
+    // CHECK:       [[TRANSPOSE1:%.+]] = IE.Transpose([[SCATTER]]) {order_value = #NWCH} : tensor<1x8x16x4xf16> -> tensor<1x4x8x16xf16>
+    // CHECK:       return [[TRANSPOSE1]], [[TRANSPOSE0]] : tensor<1x4x8x16xf16>, tensor<1x8x16x4xf16>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+
+// CHECK-LABEL: @NoMoveTransposeThroughScatterUpdateOutOfRangeAxis
+// CHECK-SAME:      ([[INPUT:%arg[0-9]]]: tensor<1x4x8x16xf16>, [[INDICES:%arg[0-9]]]: tensor<2xsi32>, [[UPDATES:%arg[0-9]]]: tensor<1x2x16x4xf16>)
+func.func @NoMoveTransposeThroughScatterUpdateOutOfRangeAxis(%arg0: tensor<1x4x8x16xf16>, %arg1: tensor<2xsi32>, %arg2: tensor<1x2x16x4xf16>) -> tensor<1x4x8x16xf16> {
+    %0 = IE.Transpose(%arg0) {order_value = #NHWC} : tensor<1x4x8x16xf16> -> tensor<1x8x16x4xf16>
+    %1 = IE.ScatterUpdate(%0, %arg1, %arg2) {axis_value = -5 : i64} : tensor<1x8x16x4xf16>, tensor<2xsi32>, tensor<1x2x16x4xf16> -> tensor<1x8x16x4xf16>
+    %2 = IE.Transpose(%1) {order_value = #NWCH} : tensor<1x8x16x4xf16> -> tensor<1x4x8x16xf16>
+    return %2 : tensor<1x4x8x16xf16>
+
+    // axis_value = -5 normalizes to -5 + 4 = -1, still out of range — no transform.
+    // CHECK:       [[TRANSPOSE0:%.+]] = IE.Transpose([[INPUT]]) {order_value = #NHWC} : tensor<1x4x8x16xf16> -> tensor<1x8x16x4xf16>
+    // CHECK:       [[SCATTER:%.+]] = IE.ScatterUpdate([[TRANSPOSE0]], [[INDICES]], [[UPDATES]]) {axis_value = -5 : i64} : tensor<1x8x16x4xf16>, tensor<2xsi32>, tensor<1x2x16x4xf16> -> tensor<1x8x16x4xf16>
+    // CHECK:       [[TRANSPOSE1:%.+]] = IE.Transpose([[SCATTER]]) {order_value = #NWCH} : tensor<1x8x16x4xf16> -> tensor<1x4x8x16xf16>
+    // CHECK:       return [[TRANSPOSE1]] : tensor<1x4x8x16xf16>
+}

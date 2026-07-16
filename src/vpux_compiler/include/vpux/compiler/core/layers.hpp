@@ -14,277 +14,289 @@ namespace vpux {
 // Dims3D
 //
 
-struct Dims3D final {
-    // Matmul3d activations
+namespace Dims3D {
 
-    struct Act final {
-        static const Dim B;
-        static const Dim H;
-        static const Dim IC;
+// Matmul3d activations
 
-        static constexpr size_t numSpatialDims = 2;
+namespace Act {
+inline constexpr Dim B(0);
+inline constexpr Dim H(1);
+inline constexpr Dim IC(2);
 
-        static Dim getSpatialDim(size_t index) {
-            VPUX_THROW_UNLESS(index < 1, "Dims3D::Act: Wrong spatial dimension index '{0}'", index);
-            return Dim(index + 1);
-        }
-    };
+inline constexpr size_t numSpatialDims = 1;
 
-    // Matmul3d filter
+inline Dim getSpatialDim(size_t index) {
+    VPUX_THROW_UNLESS(index < 1, "Dims3D::Act: Wrong spatial dimension index '{0}'", index);
+    return Dim(index + 1);
+}
+}  // namespace Act
 
-    struct Filter final {
-        static const Dim B;
-        static const Dim IC;
-        static const Dim OC;
+// Matmul3d filter
 
-        static constexpr size_t numSpatialDims = 2;
+namespace Filter {
+inline constexpr Dim B(0);
+inline constexpr Dim IC(1);
+inline constexpr Dim OC(2);
 
-        static Dim getSpatialDim(size_t index) {
-            VPUX_THROW_UNLESS(index < 1, "Dims3D::Filter: Wrong spatial dimension index '{0}'", index);
-            return Dim(index + 1);
-        }
-    };
+inline constexpr size_t numSpatialDims = 1;
 
-    // Matmul3d output
+inline Dim getSpatialDim(size_t index) {
+    VPUX_THROW_UNLESS(index < 1, "Dims3D::Filter: Wrong spatial dimension index '{0}'", index);
+    return Dim(index + 1);
+}
+}  // namespace Filter
 
-    struct Output final {
-        static const Dim B;
-        static const Dim H;
-        static const Dim OC;
-    };
-};
+// Matmul3d output
+
+namespace Output {
+inline constexpr Dim B(0);
+inline constexpr Dim H(1);
+inline constexpr Dim OC(2);
+}  // namespace Output
+
+}  // namespace Dims3D
 
 //
 // Dims4D
 //
 
-struct Dims4D final {
-    // Convolution2D/Pooling2D activations
+namespace Dims4D {
 
-    struct Act final {
-        static const Dim N;
-        static const Dim C;
-        static const Dim H;
-        static const Dim W;
+// Convolution2D/Pooling2D activations
 
-        static constexpr size_t numSpatialDims = 2;
+namespace Act {
+inline constexpr Dim N(0);
+inline constexpr Dim C(1);
+inline constexpr Dim H(2);
+inline constexpr Dim W(3);
 
-        static Dim getSpatialDim(size_t index) {
-            VPUX_THROW_UNLESS(index < 2, "Dims4D::Act: Wrong spatial dimension index '{0}'", index);
-            return Dim(index + 2);
-        }
-    };
+inline constexpr size_t numDims = 4;
+inline constexpr size_t numSpatialDims = 2;
 
-    // Convolution2D filter
+inline Dim getSpatialDim(size_t index) {
+    VPUX_THROW_UNLESS(index < 2, "Dims4D::Act: Wrong spatial dimension index '{0}'", index);
+    return Dim(index + 2);
+}
+}  // namespace Act
 
-    struct Filter final {
-        static const Dim OC;
-        static const Dim IC;
-        static const Dim KY;
-        static const Dim KX;
+// Convolution2D filter
 
-        static constexpr size_t numSpatialDims = 2;
+namespace Filter {
+inline constexpr Dim OC(0);
+inline constexpr Dim IC(1);
+inline constexpr Dim KY(2);
+inline constexpr Dim KX(3);
 
-        static Dim getSpatialDim(size_t index) {
-            VPUX_THROW_UNLESS(index < 2, "Dims4D::Filter: Wrong spatial dimension index '{0}'", index);
-            return Dim(index + 2);
-        }
-    };
+inline constexpr size_t numSpatialDims = 2;
 
-    // Pooling2D kernel
+inline Dim getSpatialDim(size_t index) {
+    VPUX_THROW_UNLESS(index < 2, "Dims4D::Filter: Wrong spatial dimension index '{0}'", index);
+    return Dim(index + 2);
+}
+}  // namespace Filter
 
-    struct Kernel final {
-        static const Dim Y;
-        static const Dim X;
-    };
+// Pooling2D kernel
 
-    // Convolution2D/Pooling2D strides
+namespace Kernel {
+inline constexpr Dim Y(0);
+inline constexpr Dim X(1);
+}  // namespace Kernel
 
-    struct Strides final {
-        static const Dim Y;
-        static const Dim X;
-    };
+// Convolution2D/Pooling2D strides
 
-    // Convolution2D dilations
+namespace Strides {
+inline constexpr Dim Y(0);
+inline constexpr Dim X(1);
+}  // namespace Strides
 
-    struct Dilation final {
-        static const Dim Y;
-        static const Dim X;
-    };
+// Convolution2D dilations
 
-    // Convolution2D/Pooling2D paddings
+namespace Dilation {
+inline constexpr Dim Y(0);
+inline constexpr Dim X(1);
+}  // namespace Dilation
 
-    struct PadsBegin final {
-        static const Dim Top;
-        static const Dim Left;
-    };
-    struct PadsEnd final {
-        static const Dim Bottom;
-        static const Dim Right;
-    };
+// Convolution2D/Pooling2D paddings
 
-    // TransposedConvolution2D output paddings
+namespace PadsBegin {
+inline constexpr Dim Top(0);
+inline constexpr Dim Left(1);
+}  // namespace PadsBegin
 
-    struct PadsOutput final {
-        static const Dim Y;
-        static const Dim X;
-    };
-};
+namespace PadsEnd {
+inline constexpr Dim Bottom(0);
+inline constexpr Dim Right(1);
+}  // namespace PadsEnd
+
+// TransposedConvolution2D output paddings
+
+namespace PadsOutput {
+inline constexpr Dim Y(0);
+inline constexpr Dim X(1);
+}  // namespace PadsOutput
+
+}  // namespace Dims4D
 
 //
 // Dims5D
 //
 
-struct Dims5D final {
-    // Convolution3D/Pooling3D activations
+namespace Dims5D {
 
-    struct Act final {
-        static const Dim N;
-        static const Dim C;
-        static const Dim D;
-        static const Dim H;
-        static const Dim W;
+// Convolution3D/Pooling3D activations
 
-        static constexpr size_t numSpatialDims = 3;
+namespace Act {
+inline constexpr Dim N(0);
+inline constexpr Dim C(1);
+inline constexpr Dim D(2);
+inline constexpr Dim H(3);
+inline constexpr Dim W(4);
 
-        static Dim getSpatialDim(size_t index) {
-            VPUX_THROW_UNLESS(index < 3, "Dims5D::Act: Wrong spatial dimension index '{0}'", index);
-            return Dim(index + 2);
-        }
-    };
+inline constexpr size_t numSpatialDims = 3;
 
-    // Convolution3D filter
+inline Dim getSpatialDim(size_t index) {
+    VPUX_THROW_UNLESS(index < 3, "Dims5D::Act: Wrong spatial dimension index '{0}'", index);
+    return Dim(index + 2);
+}
+}  // namespace Act
 
-    struct Filter final {
-        static const Dim OC;
-        static const Dim IC;
-        static const Dim KZ;
-        static const Dim KY;
-        static const Dim KX;
+// Convolution3D filter
 
-        static constexpr size_t numSpatialDims = 3;
+namespace Filter {
+inline constexpr Dim OC(0);
+inline constexpr Dim IC(1);
+inline constexpr Dim KZ(2);
+inline constexpr Dim KY(3);
+inline constexpr Dim KX(4);
 
-        static Dim getSpatialDim(size_t index) {
-            VPUX_THROW_UNLESS(index < 3, "Dims5D::Filter: Wrong spatial dimension index '{0}'", index);
-            return Dim(index + 2);
-        }
-    };
+inline constexpr size_t numSpatialDims = 3;
 
-    // Pooling3D kernel
+inline Dim getSpatialDim(size_t index) {
+    VPUX_THROW_UNLESS(index < 3, "Dims5D::Filter: Wrong spatial dimension index '{0}'", index);
+    return Dim(index + 2);
+}
+}  // namespace Filter
 
-    struct Kernel final {
-        static const Dim Z;
-        static const Dim Y;
-        static const Dim X;
-    };
+// Pooling3D kernel
 
-    // Convolution3D/Pooling3D strides
+namespace Kernel {
+inline constexpr Dim Z(0);
+inline constexpr Dim Y(1);
+inline constexpr Dim X(2);
+}  // namespace Kernel
 
-    struct Strides final {
-        static const Dim Z;
-        static const Dim Y;
-        static const Dim X;
-    };
+// Convolution3D/Pooling3D strides
 
-    // Convolution3D dilations
+namespace Strides {
+inline constexpr Dim Z(0);
+inline constexpr Dim Y(1);
+inline constexpr Dim X(2);
+}  // namespace Strides
 
-    struct Dilation final {
-        static const Dim Z;
-        static const Dim Y;
-        static const Dim X;
-    };
+// Convolution3D dilations
 
-    // Convolution3D/Pooling3D paddings
-    // refer to openvino/src/frontends/paddle/src/op/pad3d.cpp
-    struct PadsBegin final {
-        static const Dim Front;
-        static const Dim Top;
-        static const Dim Left;
-    };
-    struct PadsEnd final {
-        static const Dim Back;
-        static const Dim Bottom;
-        static const Dim Right;
-    };
+namespace Dilation {
+inline constexpr Dim Z(0);
+inline constexpr Dim Y(1);
+inline constexpr Dim X(2);
+}  // namespace Dilation
 
-    // TransposedConvolution3D output paddings
+// Convolution3D/Pooling3D paddings
+// refer to openvino/src/frontends/paddle/src/op/pad3d.cpp
+namespace PadsBegin {
+inline constexpr Dim Front(0);
+inline constexpr Dim Top(1);
+inline constexpr Dim Left(2);
+}  // namespace PadsBegin
 
-    struct PadsOutput final {
-        static const Dim Z;
-        static const Dim Y;
-        static const Dim X;
-    };
-};
+namespace PadsEnd {
+inline constexpr Dim Back(0);
+inline constexpr Dim Bottom(1);
+inline constexpr Dim Right(2);
+}  // namespace PadsEnd
+
+// TransposedConvolution3D output paddings
+
+namespace PadsOutput {
+inline constexpr Dim Z(0);
+inline constexpr Dim Y(1);
+inline constexpr Dim X(2);
+}  // namespace PadsOutput
+
+}  // namespace Dims5D
 
 // Layer itself is 2D, but several layers are grouped without sharing weights
-struct DimsGroups5D final {
-    // Grouped layer activations
-    struct Act final {
-        static const Dim G;
-        static const Dim N;
-        static const Dim C;
-        static const Dim H;
-        static const Dim W;
+namespace DimsGroups5D {
 
-        static constexpr size_t numDims = 5;
-        static constexpr size_t numSpatialDims = 2;
+// Grouped layer activations
+namespace Act {
+inline constexpr Dim G(0);
+inline constexpr Dim N(1);
+inline constexpr Dim C(2);
+inline constexpr Dim H(3);
+inline constexpr Dim W(4);
 
-        static Dim getSpatialDim(size_t index) {
-            VPUX_THROW_UNLESS(index < 2, "DimsGroups5D::Act: Wrong spatial dimension index '{0}'", index);
-            return Dim(index + 3);
-        }
-    };
+inline constexpr size_t numDims = 5;
+inline constexpr size_t numSpatialDims = 2;
 
-    // Grouped layer filter
-    struct Filter final {
-        static const Dim G;
-        static const Dim OC;
-        static const Dim IC;
-        static const Dim KY;
-        static const Dim KX;
+inline Dim getSpatialDim(size_t index) {
+    VPUX_THROW_UNLESS(index < 2, "DimsGroups5D::Act: Wrong spatial dimension index '{0}'", index);
+    return Dim(index + 3);
+}
+}  // namespace Act
 
-        static constexpr size_t numDims = 5;
-        static constexpr size_t numSpatialDims = 2;
+// Grouped layer filter
+namespace Filter {
+inline constexpr Dim G(0);
+inline constexpr Dim OC(1);
+inline constexpr Dim IC(2);
+inline constexpr Dim KY(3);
+inline constexpr Dim KX(4);
 
-        static Dim getSpatialDim(size_t index) {
-            VPUX_THROW_UNLESS(index < 2, "DimsGroups5D::Filter: Wrong spatial dimension index '{0}'", index);
-            return Dim(index + 3);
-        }
-    };
+inline constexpr size_t numDims = 5;
+inline constexpr size_t numSpatialDims = 2;
 
-    // Grouped layer kernel
-    struct Kernel final {
-        static const Dim Y;
-        static const Dim X;
-    };
+inline Dim getSpatialDim(size_t index) {
+    VPUX_THROW_UNLESS(index < 2, "DimsGroups5D::Filter: Wrong spatial dimension index '{0}'", index);
+    return Dim(index + 3);
+}
+}  // namespace Filter
 
-    // Grouped layer strides
-    struct Strides final {
-        static const Dim Y;
-        static const Dim X;
-    };
+// Grouped layer kernel
+namespace Kernel {
+inline constexpr Dim Y(0);
+inline constexpr Dim X(1);
+}  // namespace Kernel
 
-    // Grouped layer dilations
-    struct Dilation final {
-        static const Dim Y;
-        static const Dim X;
-    };
+// Grouped layer strides
+namespace Strides {
+inline constexpr Dim Y(0);
+inline constexpr Dim X(1);
+}  // namespace Strides
 
-    // Grouped layer paddings
-    struct PadsBegin final {
-        static const Dim Top;
-        static const Dim Left;
-    };
-    struct PadsEnd final {
-        static const Dim Bottom;
-        static const Dim Right;
-    };
+// Grouped layer dilations
+namespace Dilation {
+inline constexpr Dim Y(0);
+inline constexpr Dim X(1);
+}  // namespace Dilation
 
-    // Grouped layer output paddings
-    struct PadsOutput final {
-        static const Dim Y;
-        static const Dim X;
-    };
-};
+// Grouped layer paddings
+namespace PadsBegin {
+inline constexpr Dim Top(0);
+inline constexpr Dim Left(1);
+}  // namespace PadsBegin
+
+namespace PadsEnd {
+inline constexpr Dim Bottom(0);
+inline constexpr Dim Right(1);
+}  // namespace PadsEnd
+
+// Grouped layer output paddings
+namespace PadsOutput {
+inline constexpr Dim Y(0);
+inline constexpr Dim X(1);
+}  // namespace PadsOutput
+
+}  // namespace DimsGroups5D
 
 }  // namespace vpux

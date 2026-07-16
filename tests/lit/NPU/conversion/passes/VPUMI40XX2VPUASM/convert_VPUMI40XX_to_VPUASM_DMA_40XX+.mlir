@@ -22,7 +22,7 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
   }
   VPUASM.ProfilingBindings profilingDeclarations : {
   }
-  func.func private @nndma_0d_to_0d() {
+  func.func nested @nndma_0d_to_0d() {
     %0 = VPUMI40XX.DeclareTaskBuffer <DMA> -> !VPURegMapped.Index<0:0:0>
     %1 = VPURT.DeclareBuffer <NetworkInput> [0] <0> {swizzlingKey = 0 : i64} -> memref<f16, @DDR>
     %2 = VPURT.DeclareBuffer <NetworkOutput> [0] <884868> {swizzlingKey = 0 : i64} -> memref<f16, @DDR>
@@ -60,7 +60,7 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
   }
   VPUASM.ProfilingBindings profilingDeclarations : {
   }
-  func.func private @nndma_1d_to_1d() {
+  func.func nested @nndma_1d_to_1d() {
     %0 = VPUMI40XX.DeclareTaskBuffer <DMA> -> !VPURegMapped.Index<0:0:0>
     %1 = VPURT.DeclareBuffer <NetworkInput> [0] <0> {swizzlingKey = 0 : i64} -> memref<1x84x90x53xf16, {order = #NHWC}, @DDR>
     %2 = VPURT.DeclareBuffer <NetworkOutput> [0] <884868> {swizzlingKey = 0 : i64} -> memref<1x84x90x53xf16, {order = #NHWC}, @DDR>
@@ -98,7 +98,7 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
   }
   VPUASM.ProfilingBindings profilingDeclarations : {
   }
-  func.func private @nndma_1d_to_3d() {
+  func.func nested @nndma_1d_to_3d() {
     %0 = VPUMI40XX.DeclareTaskBuffer <DMA> -> !VPURegMapped.Index<0:0:0>
     %1 = VPURT.DeclareBuffer <NetworkInput> [0] <0> {swizzlingKey = 0 : i64} -> memref<1x84x90x53xf16, {order = #NHWC}, @DDR>
     %2 = VPURT.DeclareBuffer <NetworkOutput> [0] <884868> {swizzlingKey = 0 : i64} -> memref<1x84x90x53xf16, {order = #NHWC, strides = [10368000, 1, 57600, 180]}, @DDR>
@@ -136,7 +136,7 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
   }
   VPUASM.ProfilingBindings profilingDeclarations : {
   }
-  func.func private @nndma_2d_to_3d() {
+  func.func nested @nndma_2d_to_3d() {
     %0 = VPUMI40XX.DeclareTaskBuffer <DMA> -> !VPURegMapped.Index<0:0:0>
     %1 = VPURT.DeclareBuffer <NetworkInput> [0] <0> {swizzlingKey = 0 : i64} -> memref<1x84x90x53xf16, {order = #NHWC, strides = [457920, 1, 5088, 96]}, @DDR>
     %2 = VPURT.DeclareBuffer <NetworkOutput> [0] <884868> {swizzlingKey = 0 : i64} -> memref<1x84x90x53xf16, {order = #NHWC, strides = [10368000, 1, 57600, 180]}, @DDR>
@@ -174,7 +174,7 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
   }
   VPUASM.ProfilingBindings profilingDeclarations : {
   }
-  func.func private @nndma_2d_to_3d_with_single_shape() {
+  func.func nested @nndma_2d_to_3d_with_single_shape() {
     %0 = VPUMI40XX.DeclareTaskBuffer <DMA> -> !VPURegMapped.Index<0:0:0>
     %1 = VPURT.DeclareBuffer <NetworkInput> [0] <0> {swizzlingKey = 0 : i64} -> memref<1x3x1x232xf16, {order = #NCHW, strides = [155904, 51968, 232, 1]}, @DDR>
     %2 = VPURT.DeclareBuffer <NetworkOutput> [0] <884868> {swizzlingKey = 0 : i64} -> memref<1x3x1x232xf16, {order = #NCHW, strides = [167040, 55680, 240, 1]}, @DDR>
@@ -212,7 +212,7 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
   }
   VPUASM.ProfilingBindings profilingDeclarations : {
   }
-  func.func private @nndma_3d_to_2d() {
+  func.func nested @nndma_3d_to_2d() {
     %0 = VPUMI40XX.DeclareTaskBuffer <DMA> -> !VPURegMapped.Index<0:0:0>
     %1 = VPURT.DeclareBuffer <NetworkInput> [0] <0> {swizzlingKey = 0 : i64} -> memref<1x84x90x53xf16, {order = #NHWC, strides = [10368000, 1, 57600, 180]}, @DDR>
     %2 = VPURT.DeclareBuffer <NetworkOutput> [0] <20368000> {swizzlingKey = 0 : i64} -> memref<1x84x90x53xf16, {order = #NHWC, strides = [457920, 1, 5088, 96]}, @DDR>
@@ -250,7 +250,7 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
   }
   VPUASM.ProfilingBindings profilingDeclarations : {
   }
-  func.func private @nndma_3d_to_2d_with_single_shape() {
+  func.func nested @nndma_3d_to_2d_with_single_shape() {
     %0 = VPUMI40XX.DeclareTaskBuffer <DMA> -> !VPURegMapped.Index<0:0:0>
     %1 = VPURT.DeclareBuffer <NetworkInput> [0] <20368000> {swizzlingKey = 0 : i64} -> memref<1x3x1x232xf16, {order = #NCHW, strides = [167040, 55680, 240, 1]}, @DDR>
     %2 = VPURT.DeclareBuffer <NetworkOutput> [0] <0> {swizzlingKey = 0 : i64} -> memref<1x3x1x232xf16, {order = #NCHW, strides = [155904, 51968, 232, 1]}, @DDR>
@@ -288,7 +288,7 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
   }
   VPUASM.ProfilingBindings profilingDeclarations : {
   }
-  func.func private @nndma_3d_to_1d() {
+  func.func nested @nndma_3d_to_1d() {
     %0 = VPUMI40XX.DeclareTaskBuffer <DMA> -> !VPURegMapped.Index<0:0:0>
     %1 = VPURT.DeclareBuffer <NetworkOutput> [0] <884868> {swizzlingKey = 0 : i64} -> memref<1x84x90x53xf16, {order = #NHWC, strides = [10368000, 1, 57600, 180]}, @DDR>
     %2 = VPURT.DeclareBuffer <NetworkInput> [0] <0> {swizzlingKey = 0 : i64} -> memref<1x84x90x53xf16, {order = #NHWC}, @DDR>
@@ -328,7 +328,7 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
   }
   VPUASM.ProfilingBindings profilingDeclarations : {
   }
-  func.func private @nndma_2d_to_3d_input_stride_on_the_highest_dim() {
+  func.func nested @nndma_2d_to_3d_input_stride_on_the_highest_dim() {
     %0 = VPUMI40XX.DeclareTaskBuffer <DMA> -> !VPURegMapped.Index<0:0:0>
     %1 = VPURT.DeclareBuffer <NetworkInput> [0] <512> {swizzlingKey = 0 : i64} -> memref<1x512x23x20x!qElemType, {order = #NHWC, strides = [471040, 1, 10240, 512]}, @DDR>
     %2 = VPURT.DeclareBuffer <NetworkOutput> [0] <11345920> {swizzlingKey = 0 : i64} -> memref<1x512x23x20x!qElemType, {order = #NHWC, strides = [2826240, 1, 61440, 1024]}, @DDR>
@@ -369,7 +369,7 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
   }
   VPUASM.ProfilingBindings profilingDeclarations : {
   }
-  func.func private @nndma_3d_to_2d_output_stride_on_the_highest_dim() {
+  func.func nested @nndma_3d_to_2d_output_stride_on_the_highest_dim() {
     %0 = VPUMI40XX.DeclareTaskBuffer <DMA> -> !VPURegMapped.Index<0:0:0>
     %1 = VPURT.DeclareBuffer <NetworkInput> [0] <512> {swizzlingKey = 0 : i64} -> memref<1x512x23x20x!qElemType, {order = #NHWC, strides = [2826240, 1, 61440, 1024]}, @DDR>
     %2 = VPURT.DeclareBuffer <NetworkOutput> [0] <11345920> {swizzlingKey = 0 : i64} -> memref<1x512x23x20x!qElemType, {order = #NHWC, strides = [471040, 1, 10240, 512]}, @DDR>
@@ -410,7 +410,7 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
   }
   VPUASM.ProfilingBindings profilingDeclarations : {
   }
-  func.func private @nndma_nf4() {
+  func.func nested @nndma_nf4() {
     %0 = VPUMI40XX.DeclareTaskBuffer <DMA> -> !VPURegMapped.Index<0:0:0>
     %1 = VPURT.DeclareBuffer <NetworkInput> [0] <0> {swizzlingKey = 0 : i64} -> memref<1x84x90x53x!quantileType, {order = #NHWC}, @DDR>
     %2 = VPURT.DeclareBuffer <NetworkOutput> [0] <884868> {swizzlingKey = 0 : i64} -> memref<1x84x90x53x!quantileType, {order = #NHWC}, @DDR>
@@ -448,7 +448,7 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
   }
   VPUASM.ProfilingBindings profilingDeclarations : {
   }
-  func.func private @dma_writing_to_register() {
+  func.func nested @dma_writing_to_register() {
     %cst = const.Declare memref<1024xui8> = dense<1> : tensor<1024xui8>
     %reg_out = VPURT.DeclareBuffer <Register> <788594688> -> memref<1024xui8, @Register>
 
@@ -487,14 +487,14 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
     DataInfo "output" : tensor<1x3x4x5xf16>
   }
   VPUASM.InputBindings inputDeclarations : {
-    VPUASM.DeclareBuffer @input_buffDecl !VPUASM.Buffer< "NetworkInput"[0] <0> : memref<1x3x4x5xf32, {order = #NCHW}, @DDR> :  swizzling(0)>
+    VPUASM.DeclareBuffer @input_buffDecl !VPUASM.Buffer< "NetworkInput"[0] <0> : memref<1x3x4x5xf32, @DDR> :  swizzling(0)>
   }
   VPUASM.OutputBindings outputDeclarations : {
     VPUASM.DeclareBuffer @output_buffDecl !VPUASM.Buffer< "NetworkOutput"[0] <0> : memref<1x3x4x5xf16, {order = #NCHW, strides = [288, 96, 16, 1]}, @DDR> :  swizzling(0)>
   }
   VPUASM.ProfilingBindings profilingDeclarations : {
   }
-  func.func private @nndma_f32tof16() {
+  func.func nested @nndma_f32tof16() {
     %0 = VPUMI40XX.DeclareTaskBuffer <DMA> -> !VPURegMapped.Index<0:0:0>
     %1 = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x4x5xf32, @DDR>
     %2 = VPURT.DeclareBuffer <NetworkOutput> [0] <0> {swizzlingKey = 0 : i64} -> memref<1x3x4x5xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, strides = [288, 96, 16, 1]}, @DDR>

@@ -15,10 +15,10 @@ func.func @TileWithSOKTiling(%arg0 : tensor<1x32x30x30xf16, {order = #NHWC}>)->t
     %weights_table = const.Declare tensor<768x1x1x4xsi32> = dense<1> :
             tensor<768x1x1x4xsi32>
 
-    %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) {
+    %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) rawFilterShape [768, 32, 7, 7] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         ppe = #VPU.PPEStub<>,
         pad = #VPU.Padding<left = 3 : i64, right = 3 : i64, top = 3 : i64, bottom = 3 : i64>,
-        rawFilterShape = [ 768, 32, 7, 7 ], strides = [ 1, 1 ]
+         strides = [ 1, 1 ]
     } : tensor<1x32x30x30xf16, {order = #NHWC}>, tensor<768x32x7x7xf16, {order = #NHWC}>, tensor<768x1x1x4xsi32> ->tensor<1x768x30x30xf16, {order = #NHWC}>
 
     return %0 : tensor<1x768x30x30xf16, {order = #NHWC}>
@@ -28,10 +28,9 @@ func.func @TileWithSOKTiling(%arg0 : tensor<1x32x30x30xf16, {order = #NHWC}>)->t
     // CHECK-DAG:       [[WEIGHTS_TABLE:%.+]] = const.Declare tensor<768x1x1x4xsi32> = dense<1>
     // CHECK-SAME:          : tensor<768x1x1x4xsi32>
 
-    // CHECK:       [[CONV1:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS]], [[WEIGHTS_TABLE]])
+    // CHECK:       [[CONV1:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [768, 32, 7, 7]
     // CHECK-SAME:          multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>
     // CHECK-SAME:          pad = #VPU.Padding<left = 3 : i64, right = 3 : i64, top = 3 : i64, bottom = 3 : i64>
-    // CHECK-SAME:          rawFilterShape = [768, 32, 7, 7],
     // CHECK-SAME:          strides = [1, 1],
     // CHECK-SAME:          tilingStrategy = [1, 1, 2, 1]}
     // CHECK-SAME:        -> tensor<1x768x30x30xf16, {order = #NHWC}>

@@ -26,18 +26,18 @@
     num_clusters = 4
 }>
 
-!Input_DDR = memref<1x32x16x16xf32, #NHWC, @DDR>
-!Output_DDR = memref<1x32x16x16xf16, #NHWC, @DDR>
+!Input_DDR = memref<1x32x16x16xf32, {order = #NHWC}, @DDR>
+!Output_DDR = memref<1x32x16x16xf16, {order = #NHWC}, @DDR>
 
 VPURT.SW.Runtime entryPoint: @VPU.SW::@runtime stack_configuration: [4096, 4096, 4096, 4096]
 
 module @VPU.SW  {
-    func.func private @builtin_Convert(!InputDistributed, !OutputDistributed) attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert"}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_Convert(!InputDistributed, !OutputDistributed) attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
 // CHECK-LABEL: @ParsePrintDistributedBufferConvertDMA
-// CHECK-SAME: ([[ARG_0:%[^:]+]]: memref<1x32x16x16xf32, #NHWC, @DDR>)
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: memref<1x32x16x16xf32, {order = #NHWC}, @DDR>)
 func.func @ParsePrintDistributedBufferConvertDMA(%input: !Input_DDR) -> !Output_DDR {
     %input_cmx = VPURT.AllocDistributed -> !InputDistributed
     %t0 = async.execute
@@ -74,7 +74,7 @@ func.func @ParsePrintDistributedBufferConvertDMA(%input: !Input_DDR) -> !Output_
     //CHECK-SAME:                           pads = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, strides = [1, 1], num_clusters = 4 : i64}>
     //CHECK:        async.execute attributes {VPUIP.executor = @DMA_NN, VPUIP.num_units = 1 : i64, "async-deps-index" = 0 : i64} {
     //CHECK:              VPUIP.ConvertDMA
-    //CHECK-SAME:                          inputs([[ARG_0]] : memref<1x32x16x16xf32, #NHWC, @DDR>
+    //CHECK-SAME:                          inputs([[ARG_0]] : memref<1x32x16x16xf32, {order = #NHWC}, @DDR>
     //CHECK-SAME:                          outputs([[INPUT_CMX]] : !VPUIP.DistributedBuffer
     //CHECK:              async.yield
     //CHECK:        }
@@ -89,14 +89,14 @@ func.func @ParsePrintDistributedBufferConvertDMA(%input: !Input_DDR) -> !Output_
     //CHECK:              async.yield
     //CHECK:        }
 
-    //CHECK:        [[OUTPUT:%.+]] = memref.alloc() : memref<1x32x16x16xf16, #NHWC, @DDR>
+    //CHECK:        [[OUTPUT:%.+]] = memref.alloc() : memref<1x32x16x16xf16, {order = #NHWC}, @DDR>
     //CHECK:        async.execute attributes {VPUIP.executor = @DMA_NN, VPUIP.num_units = 1 : i64, "async-deps-index" = 0 : i64} {
     //CHECK:              VPUIP.ConvertDMA
     //CHECK-SAME:                          inputs([[OUTPUT_CMX]] : !VPUIP.DistributedBuffer
-    //CHECK-SAME:                          outputs([[OUTPUT]] : memref<1x32x16x16xf16, #NHWC, @DDR>
+    //CHECK-SAME:                          outputs([[OUTPUT]] : memref<1x32x16x16xf16, {order = #NHWC}, @DDR>
     //CHECK:              async.yield
     //CHECK:        }
-    //CHECK:        return [[OUTPUT]] : memref<1x32x16x16xf16, #NHWC, @DDR>
+    //CHECK:        return [[OUTPUT]] : memref<1x32x16x16xf16, {order = #NHWC}, @DDR>
 }
 
 // -----

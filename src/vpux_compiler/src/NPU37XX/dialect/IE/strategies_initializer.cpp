@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/NPU37XX/dialect/IE/strategies_initializer.hpp"
+#include "vpux/compiler/NPU37XX/dialect/IE/impl/channel_axis_reduction_with_dpu_parent_checker.hpp"
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/convert_quantize_ops_to_nce_ops_strategy.hpp"
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/convert_to_mixed_precision_strategy.hpp"
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/d2s_to_transposed_conv_verifier.hpp"
@@ -13,6 +14,7 @@
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/fuse_quantized_ops_strategy.hpp"
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/initial_low_precision_transformations_pipeline_strategy.hpp"
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/map_bilinear_interpolate_on_dpu_strategy.hpp"
+#include "vpux/compiler/NPU37XX/dialect/IE/impl/propagate_and_fuse_quantize_dequantize_strategy.hpp"
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/weights_dequantize_to_fakequantize_strategy.hpp"
 #include "vpux/compiler/dialect/IE/interfaces/strategies.hpp"
 
@@ -66,6 +68,11 @@ class StrategyFactory37XX : public IE::StrategyFactory {
         return std::make_unique<arch37xx::ConvertToMixedPrecisionStrategy>(enableFloatInQuantWeightsMixedMode);
     }
 
+    std::unique_ptr<IPropagateAndFuseQuantizeDequantizeStrategy> getPropagateAndFuseQuantizeDequantizeStrategy(
+            const bool seOpsEnabled) override {
+        return std::make_unique<arch37xx::PropagateAndFuseQuantizeDequantizeStrategy>(seOpsEnabled);
+    }
+
     std::unique_ptr<D2SToTransposedConvVerifierBase> getD2SToTransposedConvVerifier() override {
         return std::make_unique<IE::arch37xx::D2SToTransposedConvVerifier>();
     }
@@ -77,6 +84,11 @@ class StrategyFactory37XX : public IE::StrategyFactory {
     std::unique_ptr<IDynamicRewriterStrategy> getInitialLowPrecisionTransformationsPipelineStrategy(
             mlir::func::FuncOp func, bool /*enableDynamicQuantizationForStaticCase*/) override {
         return std::make_unique<IE::arch37xx::InitialLowPrecisionTransformationsPipelineStrategy>(func);
+    }
+
+    std::unique_ptr<ChannelAxisReductionWithDPUParentCheckerBase> getChannelAxisReductionWithDPUParentChecker(
+            bool /*enableFuseReduceMinMaxToDpu*/) override {
+        return std::make_unique<IE::arch37xx::ChannelAxisReductionWithDPUParentChecker>();
     }
 };
 }  // namespace vpux::IE

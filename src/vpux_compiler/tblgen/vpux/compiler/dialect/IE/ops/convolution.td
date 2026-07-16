@@ -10,6 +10,7 @@ include "vpux/compiler/dialect/IE/ops/base.td"
 include "vpux/compiler/dialect/IE/ops_interfaces.td"
 include "vpux/compiler/dialect/IE/attributes.td"
 include "vpux/compiler/dialect/core/ops_interfaces.td"
+include "vpux/compiler/dialect/core/types.td"
 
 include "mlir/Dialect/Quant/IR/QuantBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
@@ -19,7 +20,7 @@ def IE_ConvolutionOp :
             "Convolution",
             [
                 AttrSizedOperandSegments,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
                 DeclareOpInterfaceMethods<StaticShapeOpInterface>
             ]
         > {
@@ -27,9 +28,10 @@ def IE_ConvolutionOp :
 
     let arguments = (ins
         RankedTensorOf<[F16, F32, F64, quant_QuantizedType, SI32]>:$input,
-        RankedTensorOf<[F16, F32, F64, quant_QuantizedType, SI32]>:$filter,
+        RankedTensorOf<[AnyInteger, F16, F32, F64, vpux_QuantileType, quant_QuantizedType]>:$filter,
         Optional<RankedTensorOf<[F16, F32, F64, SI32]>>:$bias,
-        Optional<RankedTensorOf<[F32, F8E8M0FNU, F8E5M2, F8E4M3FN]>>:$scale,
+        Optional<RankedTensorOf<[F16, F32, F8E8M0FNU, F8E5M2, F8E4M3FN]>>:$scale,
+        Optional<RankedTensorOf<[AnyInteger, F8E4M3FN, F8E5M2, F4E2M1FN]>>:$zero_points,
 
         I64ArrayAttr:$strides,
         I64ArrayAttr:$pads_begin,
@@ -53,11 +55,13 @@ def IE_ConvolutionOp :
             $filter
             (`,` $bias^)?
             (`,` $scale^)?
+            (`,` $zero_points^)?
         `)`
         attr-dict `:` type(operands) `->` type(results)
     }];
 
     let hasCanonicalizer = 1;
+    let hasVerifier = 1;
 
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_MIXED_PRECISION, IE_TypeComparisonMode_ALLOW_DIFFERENT_QUANT];
     let builders = [
@@ -83,6 +87,7 @@ def IE_ConvolutionOp :
             "::mlir::Value":$filter,
             "::mlir::Value":$bias,
             "::mlir::Value":$scale,
+            "::mlir::Value":$zero_points,
             "::mlir::ArrayAttr":$strides,
             "::mlir::ArrayAttr":$pads_begin,
             "::mlir::ArrayAttr":$pads_end,
@@ -94,6 +99,7 @@ def IE_ConvolutionOp :
             "::mlir::Value":$filter,
             "::mlir::Value":$bias,
             "::mlir::Value":$scale,
+            "::mlir::Value":$zero_points,
             "::mlir::ArrayAttr":$strides,
             "::mlir::ArrayAttr":$pads_begin,
             "::mlir::ArrayAttr":$pads_end,
@@ -182,7 +188,7 @@ def IE_FullyConnectedOp :
         IE_LayerOp<
             "FullyConnected",
             [
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
                 DeclareOpInterfaceMethods<StaticShapeOpInterface>
             ]
         > {
@@ -351,7 +357,7 @@ def IE_MatMulOp :
         IE_LayerOp<
             "MatMul",
             [
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
                 DeclareOpInterfaceMethods<StaticShapeOpInterface>
             ]
         > {
@@ -374,7 +380,7 @@ def IE_MatMulOp :
 
     let hasCanonicalizer = 1;
 
-    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_MIXED_PRECISION];
+    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_MIXED_PRECISION, IE_TypeComparisonMode_ALLOW_DIFFERENT_QUANT];
 
     let builders = [
         OpBuilder<(ins

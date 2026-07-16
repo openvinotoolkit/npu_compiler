@@ -9,9 +9,11 @@
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPU/transforms/factories/dpu_variant_invariant_constraint.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
+#include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/dma_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/reshape_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
@@ -27,26 +29,26 @@
 #include "vpux/compiler/dialect/core/IR/memref_attr.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/dma_limits.hpp"
+#include "vpux/compiler/utils/platform_resources.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/types.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
 #include <mlir/IR/Operation.h>
+#include <mlir/IR/Types.h>
 #include <mlir/Support/LLVM.h>
 
 using namespace vpux;
 
 uint32_t vpux::VPUIP::getDPUProfMaxBufferSize(config::ArchKind arch) {
-    switch (arch) {
-    case config::ArchKind::NPU37XX:
-    case config::ArchKind::NPU40XX:
+    if (arch == config::ArchKind::NPU37XX || arch == config::ArchKind::NPU40XX) {
         return HW_DPU_PROFILING_MAX_BUFFER_SIZE;  // Up to 64 DPU Tasks in single CMX DPU profiling buffer instance
-    case config::ArchKind::NPU50XX:
-        return HW_DPU_PROFILING_MAX_BUFFER_SIZE_50XX;
-    default:
-        VPUX_THROW("Unable to get DPUProfMaxBufferSize for arch {0}", arch);
     }
+    if (arch >= config::ArchKind::NPU50XX) {
+        return HW_DPU_PROFILING_MAX_BUFFER_SIZE_50XX;
+    }
+    VPUX_THROW("Unable to get DPUProfMaxBufferSize for arch {0}", arch);
 }
 
 uint16_t vpux::VPUIP::getProfWorkloadSize(mlir::ModuleOp module) {
@@ -60,18 +62,6 @@ uint16_t vpux::VPUIP::getProfWorkloadSize(mlir::ModuleOp module) {
         break;
     }
     return profilingWorkloadSize;
-}
-
-//
-// Compile time info
-//
-
-bool vpux::VPUIP::hasMaxKernelSize(mlir::Operation* op) {
-    return config::hasMaxKernelSize(op);
-}
-
-int64_t vpux::VPUIP::getMaxKernelSize(mlir::Operation* op) {
-    return config::getMaxKernelSize(op);
 }
 
 //
@@ -113,58 +103,44 @@ int64_t vpux::VPUIP::getNumTilesUsed(mlir::ModuleOp module) {
     return tileOp.getCount();
 }
 
-int64_t getMaxBarriersPerTile(config::ArchKind arch, mlir::Operation* op = nullptr) {
-    std::ignore = op;
-    // Returns the HW limit on number of barriers per tile/cluster
-    switch (arch) {
-    case config::ArchKind::NPU37XX:
-        return 32;
-    case config::ArchKind::NPU40XX:
-    case config::ArchKind::NPU50XX:
-        return 16;
-    default:
-        VPUX_THROW("Unable to get MaxBarriersPerTile for arch {0}", arch);
-    }
+int64_t getMaxBarriersPerTile(config::Platform platform, [[maybe_unused]] mlir::Operation* op = nullptr) {
+    // Returns the HW limit on number of barriers per tile/cluster.
+    const auto hwMax = static_cast<int64_t>(VPU::getPlatformCapabilities(platform).barriersPerTile);
+    return hwMax;
 }
 
 int64_t vpux::VPUIP::getNumAvailableBarriers(mlir::Operation* parentOp) {
     auto module = getModuleOp(parentOp);
 
-    const auto arch = config::getArch(parentOp);
+    const auto platform = config::getPlatform(parentOp);
     const auto tileCount = VPUIP::getNumTilesUsed(module);
-    const auto barriersPerTile = getMaxBarriersPerTile(arch, parentOp);
+    const auto barriersPerTile = getMaxBarriersPerTile(platform, parentOp);
 
     return barriersPerTile * tileCount;
 }
 
 // We distinguish the two runtime barrier constraints:
-// 1) maxVariantCount
-//    - Strictly equal producers <= maxVariantCount / 2 && consumers <= maxVariantCount / 2
-// 2) maxVariantSum
-//    - producers + consumers <= MaxVariantSum
-size_t vpux::VPUIP::getBarrierMaxVariantCount(mlir::Operation* parentOp) {
-    return config::getConstraint(parentOp, config::BARR_MAX_VARIANT_COUNT);
+// 1) maxSlotCount
+//    - Strictly equal producers < maxSlotCount && consumers < maxSlotCount
+// 2) maxSlotSum
+//    - producers + consumers <= MaxSlotSum
+size_t vpux::VPUIP::getBarrierMaxSlotCount(mlir::Operation* parentOp) {
+    return config::getConstraint(parentOp, config::BARR_MAX_SLOT_COUNT);
 }
 
-// Return runtime max sum limit for producers and consumers
-// To assure producers + consumers <= maxVariantSum for each barrier
-// Note: this is a new limit, initially introduced by 40XX
-//   We assure this condition by ->
-//>    IF producers + consumers <= MaxVariantSum
-//>      noSplit and return
-//>    ELSE
-//>      splitProducersAndConsumers with MaxVariantSum/2 variants batch size
-//   The variants sum check can decrease new barriers overhead by barrier split
-// TODO: E#107973: allow uneven split to further decrease barrier number
-size_t vpux::VPUIP::getBarrierMaxVariantSum(mlir::Operation* parentOp) {
-    return config::getConstraint(parentOp, config::BARR_MAX_VARIANT_SUM);
+size_t vpux::VPUIP::getAvailableSlots(mlir::Operation* parentOp, size_t maxAvailableSlots) {
+    auto arch = config::getArch(parentOp);
+    auto wlmFlag = !config::isArchVPUX3XXX(arch);
+
+    auto divideSlots = wlmFlag ? (maxAvailableSlots - 1) : (maxAvailableSlots / 2);
+
+    return divideSlots;
 }
 
-size_t vpux::VPUIP::getAvailableSlots(size_t maxSlotsSum, size_t maxAvailableSlots) {
-    // divide max available slots equally for producers and consumers to a barrier
-    // for a unified solution for all architectures
-    // TODO: E#107973: allow a unequal/uneven barrier slots assignment
-    return std::min(maxSlotsSum, maxAvailableSlots) / 2;
+size_t vpux::VPUIP::getMaxNumberOfDpuVariantsPerInvariant(mlir::Operation* parentOp) {
+    auto arch = config::getArch(parentOp);
+    auto dpuVariantInvariantConstraint = vpux::VPU::getDPUVariantInvariantConstraint(arch);
+    return dpuVariantInvariantConstraint.getMaxNumberOfDpuVariantsPerInvariant();
 }
 
 int64_t vpux::VPUIP::getNumberOfIndependentDmaQueues(mlir::Operation* parentOp) {
@@ -245,9 +221,8 @@ mlir::Value getAlignedConstWeights(mlir::OpBuilder& builder, mlir::Location loc,
     const auto flatWeightChannelsCount = flatWeightShape[Dims4D::Filter::IC];
     const auto alignedWeightShape = SmallVector<int64_t>{OC, flatWeightChannelsCount + padding, 1, 1};
     const auto origFilterType = mlir::cast<vpux::NDTypeInterface>(weightsConst.getOutput().getType());
-    const auto outAllocType = mlir::cast<vpux::NDTypeInterface>(
-            mlir::MemRefType::get(alignedWeightShape, origFilterType.getElementType()));
-    const auto outAllocTypeNHWC = outAllocType.changeDimsOrder(DimsOrder::NHWC);
+    const auto outAllocTypeNHWC = mlir::cast<vpux::NDTypeInterface>(
+            vpux::getMemRefType(ShapeRef(alignedWeightShape), origFilterType.getElementType(), DimsOrder::NHWC));
     auto alignedWeightsOp = builder.create<Const::DeclareOp>(loc, outAllocTypeNHWC, std::move(nhwcWeightsContentAttr));
 
     return alignedWeightsOp.getOutput();
@@ -274,21 +249,18 @@ mlir::Value getAlignedNonConstWeights(mlir::OpBuilder& builder, mlir::Location l
     const auto OC = flatWeightShape[Dims4D::Filter::OC];
     const auto flatWeightChannelsCount = flatWeightShape[Dims4D::Filter::IC];
     const auto alignedWeightShape = SmallVector<int64_t>{OC, flatWeightChannelsCount + padding, 1, 1};
-    const auto outShapedType = mlir::cast<vpux::NDTypeInterface>(
-            mlir::MemRefType::get(alignedWeightShape, origFilterType.getElementType()));
-    const auto outAllocType = outShapedType.changeDimsOrder(DimsOrder::NCHW);
+    const auto outAllocType = mlir::cast<vpux::NDTypeInterface>(
+            vpux::getMemRefType(ShapeRef(alignedWeightShape), origFilterType.getElementType(), DimsOrder::NCHW));
 
     const auto padShape = SmallVector<int64_t>{OC, padding, 1, 1};
-    const auto padShapedType =
+    const auto padType =
             mlir::cast<vpux::NDTypeInterface>(mlir::RankedTensorType::get(padShape, origFilterType.getElementType()));
-    const auto padType = padShapedType.changeDimsOrder(DimsOrder::NCHW);
     const auto padAttr =
             Const::createConstContent(mlir::cast<mlir::RankedTensorType>(padType), ArrayRef(vpux::type::float16(0.f)));
 
     const auto padAllocType =
-            mlir::cast<vpux::NDTypeInterface>(mlir::MemRefType::get(padShape, origFilterType.getElementType()));
-    const auto padAllocTypeNHWC = padAllocType.changeDimsOrder(DimsOrder::NCHW);
-    auto paddedTensor = builder.create<Const::DeclareOp>(loc, padAllocTypeNHWC, Const::ContentAttr::get(padAttr));
+            mlir::cast<vpux::NDTypeInterface>(vpux::getMemRefType(ShapeRef(padShape), origFilterType.getElementType()));
+    auto paddedTensor = builder.create<Const::DeclareOp>(loc, padAllocType, Const::ContentAttr::get(padAttr));
 
     // Step 4: Concatenate flat NCHW input with padding.
     auto subViewAlloc = builder.create<mlir::memref::AllocOp>(loc, mlir::cast<mlir::MemRefType>(outAllocType));
@@ -739,13 +711,12 @@ SmallVector<mlir::Value> getPerClusterSWBuffers(mlir::MLIRContext* ctx, mlir::Lo
 }
 
 SmallVector<mlir::Value> duplicateOperand(mlir::Value operand, int64_t tileCount) {
-    auto declBuff = operand.getDefiningOp<VPURT::DeclareBufferOp>();
-    VPUX_THROW_UNLESS(declBuff != nullptr, "Can't get buffer offset for operand: {0}", operand);
-    SmallVector<mlir::Value> perClusterBuffers(tileCount);
-    for (int64_t clusterId = 0; clusterId < tileCount; clusterId++) {
-        perClusterBuffers[clusterId] = declBuff;
-    }
-    return perClusterBuffers;
+    // IoDma operands that stay in DDR are shared across all clusters without
+    // per-cluster offset adjustment. Valid sources: DeclareBufferOp (DDR alloc)
+    // and Const::DeclareOp (precomputed coordinate/lambda tables).
+    VPUX_THROW_UNLESS(operand.getDefiningOp<VPURT::DeclareBufferOp>() || operand.getDefiningOp<Const::DeclareOp>(),
+                      "Unexpected DDR operand for IoDma duplication: {0}", operand);
+    return SmallVector<mlir::Value>(tileCount, operand);
 }
 
 }  // namespace
@@ -1547,9 +1518,9 @@ int64_t vpux::VPUIP::getSpecificAxisFromAttr(mlir::ArrayAttr attr) {
 }
 
 mlir::FailureOr<int64_t> vpux::VPUIP::getDistributedOutTilingAxisAfterShapeChanged(ShapeRef inputShape,
-                                                                                   DimsOrder inputOrder,
+                                                                                   const DimsOrder& inputOrder,
                                                                                    ShapeRef outputShape,
-                                                                                   DimsOrder outputOrder,
+                                                                                   const DimsOrder& outputOrder,
                                                                                    int64_t inAxis, Logger log) {
     // Take below case as an example:
     // 1. Back infer d1 through GenericReshape, the mapped dimension is d2 (size = 7).
@@ -1607,8 +1578,8 @@ mlir::FailureOr<int64_t> vpux::VPUIP::getDistributedOutTilingAxisAfterShapeChang
 
 mlir::FailureOr<int64_t> vpux::VPUIP::getDistributedOutTilingAxisAfterShapeChanged(vpux::NDTypeInterface inputType,
                                                                                    ShapeRef outputShape,
-                                                                                   DimsOrder outOrder, int64_t inAxis,
-                                                                                   Logger log) {
+                                                                                   const DimsOrder& outOrder,
+                                                                                   int64_t inAxis, Logger log) {
     auto outAxisOpt = getDistributedOutTilingAxisAfterShapeChanged(inputType.getShape(), inputType.getDimsOrder(),
                                                                    outputShape, outOrder, inAxis, log);
     if (mlir::failed(outAxisOpt)) {
@@ -1635,13 +1606,10 @@ mlir::FailureOr<int64_t> vpux::VPUIP::getDistributedOutTilingAxisAfterShapeChang
 // This function would reture mlir::failure() if can not find IO axes mapping successfully.
 // Return {-1, -1} to indicate there's no numTiles and alignment attributes in distribution.
 mlir::FailureOr<std::pair<int64_t, int64_t>> vpux::VPUIP::getDistributedAxesMappingAfterShapeChanged(
-        vpux::NDTypeInterface reshapeInType, vpux::NDTypeInterface reshapeOutType,
+        vpux::NDTypeInterface reshapeInType, ShapeRef outShape, const DimsOrder& outOrder,
         VPU::DistributionInfoAttr copyInDistribution, Logger log) {
-    if (reshapeOutType == nullptr) {
-        return mlir::failure();
-    }
-
-    auto numTilesAxis = getSpecificAxisFromAttr(copyInDistribution.getNumTiles());
+    auto numTiles = copyInDistribution.getNumTiles();
+    auto numTilesAxis = getSpecificAxisFromAttr(numTiles);
     auto alignmentAxis = getSpecificAxisFromAttr(copyInDistribution.getAlignment());
     if (numTilesAxis != -1 && alignmentAxis != -1 && numTilesAxis != alignmentAxis) {
         log.trace("Unexpected numTilesAxis {0} and alignmentAxis {1} in distribution {2}", numTilesAxis, alignmentAxis,
@@ -1659,9 +1627,17 @@ mlir::FailureOr<std::pair<int64_t, int64_t>> vpux::VPUIP::getDistributedAxesMapp
         return std::pair(numTilesAxis, alignmentAxis);
     }
 
-    auto outAxisOpt = getDistributedOutTilingAxisAfterShapeChanged(reshapeInType, reshapeOutType.getShape(),
-                                                                   reshapeOutType.getDimsOrder(), inAxis, log);
+    auto outAxisOpt = getDistributedOutTilingAxisAfterShapeChanged(reshapeInType, outShape, outOrder, inAxis, log);
     if (mlir::failed(outAxisOpt)) {
+        const auto inOrder = reshapeInType.getDimsOrder();
+        const auto inMemShape = reshapeInType.getMemShape();
+        const auto outMemShape = outOrder.toMemoryOrder(outShape);
+        const auto inMemDim = inOrder.toMemDim(Dim(inAxis));
+        if (inMemShape.size() == outMemShape.size() &&
+            std::equal(inMemShape.begin(), inMemShape.begin() + inMemDim.ind(), outMemShape.begin())) {
+            return std::make_pair(inAxis, inAxis);
+        }
+
         return mlir::failure();
     }
 
@@ -1852,7 +1828,7 @@ namespace {
 bool hasShapeChangeAttr(const Const::ContentAttr& content) {
     const auto transformations = content.getTransformations();
     for (auto transform : transformations) {
-        if (mlir::isa<vpux::Const::TransposeAttr, vpux::Const::ReshapeAttr>(transform)) {
+        if (mlir::isa<vpux::Const::TransposeAttr, vpux::Const::ReshapeAttr, vpux::Const::ConcatAttr>(transform)) {
             return true;
         }
     }
@@ -2161,7 +2137,7 @@ std::optional<vpux::Dim> vpux::VPUIP::getCopyDMATilingDim(mlir::Operation* op) {
     return std::nullopt;
 }
 
-int64_t giveFirstNonOneDimIndex(DimsOrder order, ShapeRef shape, int64_t firstStridingDim) {
+int64_t giveFirstNonOneDimIndex(const DimsOrder& order, ShapeRef shape, int64_t firstStridingDim) {
     int i = 1;
     const auto memShape = order.toMemoryOrder(shape);
     while (firstStridingDim > i && memShape[MemDim(firstStridingDim - i)] == 1) {
@@ -2287,6 +2263,16 @@ bool VPUIP::isOpOnlySplitOnDim(VPUIP::SubViewOp op, Dim dim) {
     return dimsDifference == dim.ind();
 }
 
+mlir::Type returnNonViewLikeType(mlir::Value value) {
+    auto operandType = value.getType();
+    auto viewLikeOp = value.getDefiningOp<mlir::ViewLikeOpInterface>();
+    while (viewLikeOp != nullptr) {
+        operandType = viewLikeOp.getViewSource().getType();
+        viewLikeOp = viewLikeOp.getViewSource().getDefiningOp<mlir::ViewLikeOpInterface>();
+    }
+    return operandType;
+}
+
 // For NCEClusterTask in VPUIP dialect, input and parentInput are both the operand for the task, we may
 // calculate the size twice, so here we need to skip the already calculated operand. There is one more
 // thing need to pay attention. In 37XX after unrolling, we can have parentInput != input, in this case
@@ -2306,18 +2292,17 @@ Byte VPUIP::getRequiredCMXSize(mlir::Operation* op) {
         for (const auto& operand : op->getOperands()) {
             if (isCMXUsed(operand) &&
                 std::find(countedOperands.begin(), countedOperands.end(), operand) == countedOperands.end()) {
-                operandTypes.push_back(mlir::dyn_cast<vpux::NDTypeInterface>(operand.getType()));
+                operandTypes.push_back(mlir::dyn_cast<vpux::NDTypeInterface>(returnNonViewLikeType(operand)));
                 countedOperands.push_back(operand);
             }
         }
     } else {
         for (const auto& operand : op->getOperands()) {
             if (isCMXUsed(operand)) {
-                operandTypes.push_back(mlir::dyn_cast<vpux::NDTypeInterface>(operand.getType()));
+                operandTypes.push_back(mlir::dyn_cast<vpux::NDTypeInterface>(returnNonViewLikeType(operand)));
             }
         }
     }
-
     return VPU::getRequiredCMXSize(operandTypes);
 }
 
@@ -2537,9 +2522,8 @@ mlir::Value VPUIP::createDummyBuffer(mlir::OpBuilder& builder, mlir::Operation* 
     const auto symbolAttr =
             (memKind == VPU::MemoryKind::DDR ? vpux::IndexedSymbolAttr::get(ctx, stringifyEnum(memKind))
                                              : vpux::IndexedSymbolAttr::get(ctx, stringifyEnum(memKind), 0));
-    const auto layout = DimsOrder::NCHW.toAffineMap(ctx);
 
-    const auto zeroBufferMemref = mlir::MemRefType::get({0, 0, 0, 0}, builder.getI32Type(), layout, symbolAttr);
+    const auto zeroBufferMemref = vpux::getMemRefType({0, 0, 0, 0}, builder.getI32Type(), DimsOrder::NCHW, symbolAttr);
 
     const auto sectionAttr = VPURT::BufferSectionAttr::get(builder.getContext(), VPURT::getBufferSection(memKind));
     const mlir::ArrayAttr sectionIndexAttr =
@@ -2552,15 +2536,18 @@ mlir::Value VPUIP::createDummyBuffer(mlir::OpBuilder& builder, mlir::Operation* 
 
 VPURT::TaskOp VPUIP::createSyncDMA(mlir::OpBuilder& builder, mlir::Value input, mlir::Value output, int port,
                                    mlir::ValueRange waitBarriers, mlir::ValueRange updateBarriers,
-                                   llvm::StringRef opName) {
+                                   llvm::StringRef opName, mlir::IntegerAttr logicalTask) {
     auto ctx = builder.getContext();
     auto syncDmaLoc = mlir::NameLoc::get(mlir::StringAttr::get(ctx, opName));
     auto portAttr = vpux::getIntAttr(ctx, port);
 
-    auto syncDMATask = VPURT::wrapIntoTaskOp<VPUIP::SyncDMAOp>(
-            builder, waitBarriers, updateBarriers, syncDmaLoc, input, output, portAttr,
-            /*isOutOfOrder*/ false, /*isCritical*/ false, /*dmaHwpId*/ nullptr,
-            /*dmaProfilingMetaData*/ nullptr);
+    auto syncDMATask = VPURT::wrapIntoTaskOp<VPUIP::SyncDMAOp>(builder, waitBarriers, updateBarriers, syncDmaLoc, input,
+                                                               output, portAttr,
+                                                               /*isOutOfOrder*/ false, /*isCritical*/ false,
+                                                               /*dmaHwpId*/ nullptr, /*dmaProfilingMetaData*/ nullptr);
+    if (logicalTask != nullptr) {
+        syncDMATask->setAttr(VPUIP::LOGICAL_TASK_INDEX_ATTR_NAME, logicalTask);
+    }
     return syncDMATask->getParentOfType<VPURT::TaskOp>();
 }
 
@@ -2745,8 +2732,8 @@ vpux::NDTypeInterface VPUIP::splitNDTypeDimWithBlockSize(vpux::NDTypeInterface n
 
     auto dimOrderMap = mlir::AffineMap::getPermutationMap(dimOrderVec, context);
 
-    auto result = mlir::MemRefType::get(mlir::SmallVector<int64_t>(shapeVec.raw()), ndType.getElementType(),
-                                        dimOrderMap, ndType.getMemSpace());
+    auto result = vpux::getMemRefType(shapeVec, ndType.getElementType(), DimsOrder::fromAffineMap(dimOrderMap),
+                                      ndType.getMemSpace());
 
     auto newNdType = mlir::cast<vpux::NDTypeInterface>(result).changeStrides(stridesVec);
 
@@ -3095,4 +3082,19 @@ mlir::SmallVector<mlir::Value> vpux::VPUIP::getInputsSanitized(VPUIP::LayerOpInt
     }
 
     return inputs;
+}
+
+bool vpux::VPUIP::hasOneDistinctUser(mlir::Operation* op) {
+    auto users = op->getUsers();
+    if (users.empty()) {
+        return false;
+    }
+
+    mlir::Operation* firstUser = *users.begin();
+    for (auto user : users) {
+        if (user != firstUser) {
+            return false;
+        }
+    }
+    return true;
 }

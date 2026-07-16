@@ -37,10 +37,6 @@ fi
 echo "PATH_TESTS=$PATH_TESTS"
 echo "PATH_LIT_TOOL=$PATH_LIT_TOOL"
 
-CMD_NPU37XX_TESTS="python3 $PATH_LIT_TOOL --param arch=NPU37XX $PATH_TESTS/NPU"
-CMD_NPU40XX_TESTS="python3 $PATH_LIT_TOOL --param arch=NPU40XX $PATH_TESTS/NPU"
-CMD_NPU50XX_TESTS="python3 $PATH_LIT_TOOL --param arch=NPU50XX $PATH_TESTS/NPU"
-
 CMD_NPU3720_TESTS="python3 $PATH_LIT_TOOL --param platform=NPU3720 $PATH_TESTS/NPU"
 CMD_NPU4000_TESTS="python3 $PATH_LIT_TOOL --param platform=NPU4000 $PATH_TESTS/NPU"
 CMD_NPU5010_TESTS="python3 $PATH_LIT_TOOL --param platform=NPU5010 $PATH_TESTS/NPU"
@@ -48,16 +44,6 @@ CMD_NPU5020_TESTS="python3 $PATH_LIT_TOOL --param platform=NPU5020 $PATH_TESTS/N
 
 EXIT_CODE=0
 
-echo ""
-echo "Executing tests on NPU37XX architecture: $CMD_NPU37XX_TESTS"
-eval "$CMD_NPU37XX_TESTS"; EXIT_CODE=$(($EXIT_CODE + $?))
-echo ""
-echo "Executing tests on NPU40XX architecture: $CMD_NPU40XX_TESTS"
-eval "$CMD_NPU40XX_TESTS"; EXIT_CODE=$(($EXIT_CODE + $?))
-echo ""
-echo "Executing tests on NPU50XX architecture: $CMD_NPU50XX_TESTS"
-eval "$CMD_NPU50XX_TESTS"; EXIT_CODE=$(($EXIT_CODE + $?))
-echo ""
 echo ""
 echo "Executing tests on NPU3720 platform: $CMD_NPU3720_TESTS"
 eval "$CMD_NPU3720_TESTS"; EXIT_CODE=$(($EXIT_CODE + $?))

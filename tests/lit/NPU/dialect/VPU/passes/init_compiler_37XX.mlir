@@ -10,11 +10,9 @@
 module @test {
 
 // CHECK-DAG:    {{  }}config.PipelineOptions @Options {
-// CHECK-DAG:    {{    }}config.Option @config.BarrierMaxVariantSum : 256
-// CHECK-DAG:    {{    }}config.Option @config.BarrierMaxVariantCount : 256
+// CHECK-DAG:    {{    }}config.Option @config.BarrierMaxSlotCount : 256
 // CHECK-DAG:    {{    }}config.Option @config.AutoPaddingODU : false
 // CHECK-DAG:    {{    }}config.Option @config.AutoPaddingIDU : false
-// CHECK-DAG:    {{    }}config.Option @config.MaxKernelSize : 11
 // CHECK-DAG:    {{    }}config.Option @config.FragmentationAvoidRatioPipeliningLargeWeights : 4.500000e-01 : f32
 
 // CHECK-DAG:    {{  }}}
@@ -24,7 +22,6 @@ module @test {
 // CHECK-DAG:    {{    }}config.ExecutorResource 2 of @SHAVE_ACT
 // CHECK-DAG:    {{    }}config.ExecutorResource 1 of @SHAVE_NN
 // CHECK-DAG:    {{    }}config.ExecutorResource 1 of @DPU
-// CHECK-DAG:    {{    }}config.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware
 // CHECK-DAG:    {{    }}config.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
 // CHECK-DAG:    {{  }}config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 8 : i64, config.derateFactor = 6.000000e-01 : f64}
 

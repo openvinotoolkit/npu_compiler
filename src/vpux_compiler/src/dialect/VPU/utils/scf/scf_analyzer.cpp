@@ -407,7 +407,7 @@ SmallVector<InputRange> ScfAnalysisInfo::getIterationSpace(ArrayRef<mlir::scf::F
     SmallVector<InputRange> inputRange;
     for (auto forOp : forOpChain) {
         auto blockArg = forOp.getInductionVar();
-        auto [low, high, step] = analysis.getForOpParams(forOp);
+        auto [low, high, step] = analysis.getLoopBoundsAndStep(forOp);
 
         if (forOp->hasAttr(UPPERBOUND_ATTR)) {
             high = forOp->getAttrOfType<mlir::IntegerAttr>(UPPERBOUND_ATTR).getInt();

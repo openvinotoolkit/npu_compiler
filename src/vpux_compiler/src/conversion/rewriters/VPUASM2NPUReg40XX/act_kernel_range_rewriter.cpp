@@ -9,6 +9,7 @@
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 
+using namespace vpux;
 using namespace NPUReg40XX;
 using namespace NPUReg40XX::Descriptors;
 

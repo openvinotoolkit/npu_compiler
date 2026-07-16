@@ -14,47 +14,47 @@ DataInfo "input_0" : tensor<1x64x16x16xf16>
 DataInfo "output_0" : tensor<1x64x8x8xf16>
 }
 
-func.func private @maxpool_f16_f16(%arg0: memref<1x64x16x16xf16, #NHWC, @DDR>, %arg1: memref<1x64x8x8xf16, #NHWC, @DDR>) -> memref<1x64x8x8xf16, #NHWC, @DDR> {
+func.func nested @maxpool_f16_f16(%arg0: memref<1x64x16x16xf16, {order = #NHWC}, @DDR>, %arg1: memref<1x64x8x8xf16, {order = #NHWC}, @DDR>) -> memref<1x64x8x8xf16, {order = #NHWC}, @DDR> {
   %0 = VPURT.ConfigureBarrier<0> -> !VPURT.Barrier
   %1 = VPURT.ConfigureBarrier<1> -> !VPURT.Barrier
 
-  %cst = const.Declare memref<64x1x1x4xsi32, #NHWC, @DDR> = dense<1> : tensor<64x1x1x4xsi32>, [#const.Reorder<#NHWC>]
-  %cst_0 = const.Declare memref<1x1x1x16xui8, #NHWC, @DDR> = dense<[[[[3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]]]> : tensor<1x1x1x16xui8>, [#const.Reorder<#NHWC>]
+  %cst = const.Declare memref<64x1x1x4xsi32, {order = #NHWC}, @DDR> = dense<1> : tensor<64x1x1x4xsi32>, [#const.Reorder<#NHWC>]
+  %cst_0 = const.Declare memref<1x1x1x16xui8, {order = #NHWC}, @DDR> = dense<[[[[3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]]]> : tensor<1x1x1x16xui8>, [#const.Reorder<#NHWC>]
 
-  %2 = VPURT.DeclareBuffer <CMX_NN> [0] <8192> -> memref<1x64x16x16xf16, #NHWC, [@CMX_NN, 0]>
-  %3 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x64x8x8xf16, #NHWC, [@CMX_NN, 0]>
-  %4 = VPURT.DeclareBuffer <CMX_NN> [0] <8192> -> memref<1x64x16x16xf16, #NHWC, [@CMX_NN, 0]>
-  %5 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x64x8x8xf16, #NHWC, [@CMX_NN, 0]>
-  %6 = VPURT.DeclareBuffer <CMX_NN> [0] <40960> -> memref<1x1x1x16xui8, #NHWC, [@CMX_NN, 0]>
-  %7 = VPURT.DeclareBuffer <CMX_NN> [0] <40976> -> memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>
+  %2 = VPURT.DeclareBuffer <CMX_NN> [0] <8192> -> memref<1x64x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
+  %3 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x64x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]>
+  %4 = VPURT.DeclareBuffer <CMX_NN> [0] <8192> -> memref<1x64x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
+  %5 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x64x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]>
+  %6 = VPURT.DeclareBuffer <CMX_NN> [0] <40960> -> memref<1x1x1x16xui8, {order = #NHWC}, [@CMX_NN, 0]>
+  %7 = VPURT.DeclareBuffer <CMX_NN> [0] <40976> -> memref<64x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>
 
   VPURT.Task updates(%0 : !VPURT.Barrier) {
-      %8 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%arg0 : memref<1x64x16x16xf16, #NHWC, @DDR>) outputs(%2 : memref<1x64x16x16xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x16x16xf16, #NHWC, [@CMX_NN, 0]>
+      %8 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%arg0 : memref<1x64x16x16xf16, {order = #NHWC}, @DDR>) outputs(%2 : memref<1x64x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
   }
   VPURT.Task updates(%0 : !VPURT.Barrier) {
-      %8 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst_0 : memref<1x1x1x16xui8, #NHWC, @DDR>) outputs(%6 : memref<1x1x1x16xui8, #NHWC, [@CMX_NN, 0]>) -> memref<1x1x1x16xui8, #NHWC, [@CMX_NN, 0]>
+      %8 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst_0 : memref<1x1x1x16xui8, {order = #NHWC}, @DDR>) outputs(%6 : memref<1x1x1x16xui8, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x1x1x16xui8, {order = #NHWC}, [@CMX_NN, 0]>
   }
   VPURT.Task updates(%0 : !VPURT.Barrier) {
-      %8 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst : memref<64x1x1x4xsi32, #NHWC, @DDR>) outputs(%7 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) -> memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>
+      %8 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst : memref<64x1x1x4xsi32, {order = #NHWC}, @DDR>) outputs(%7 : memref<64x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<64x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>
   }
   VPURT.Task waits(%0 : !VPURT.Barrier) updates(%1 : !VPURT.Barrier) {
       %8 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>}
-     <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [2, 2], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<MAXPOOL>}> input(%2 : memref<1x64x16x16xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%7 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) parent_input(%4 : memref<1x64x16x16xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%5 : memref<1x64x8x8xf16, #NHWC, [@CMX_NN, 0]>) outputs(%3 : memref<1x64x8x8xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x8x8xf16, #NHWC, [@CMX_NN, 0]> variants : {
+     <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [2, 2], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<MAXPOOL>}> input(%2 : memref<1x64x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%7 : memref<64x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%4 : memref<1x64x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%5 : memref<1x64x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%3 : memref<1x64x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
       DPUTask {inStart = [0, 0, 0], inEnd = [15, 15, 15], outEnd = [7, 7, 63], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0]}
       } PPE : {
       PPETask {ppe = #VPU.PPEStub<>}
       }
   }
   VPURT.Task waits(%1 : !VPURT.Barrier) {
-      %8 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%3 : memref<1x64x8x8xf16, #NHWC, [@CMX_NN, 0]>) outputs(%arg1 : memref<1x64x8x8xf16, #NHWC, @DDR>) -> memref<1x64x8x8xf16, #NHWC, @DDR>
+      %8 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%3 : memref<1x64x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%arg1 : memref<1x64x8x8xf16, {order = #NHWC}, @DDR>) -> memref<1x64x8x8xf16, {order = #NHWC}, @DDR>
   }
-  return %arg1 : memref<1x64x8x8xf16, #NHWC, @DDR>
+  return %arg1 : memref<1x64x8x8xf16, {order = #NHWC}, @DDR>
 }
 }
 
 
-//CHECK-LABEL: func.func private @maxpool_f16_f16
-//CHECK-SAME: [[ARG_0:%[^:]+]]: memref<1x64x16x16xf16, #NHWC, @DDR>
+//CHECK-LABEL: func.func nested @maxpool_f16_f16
+//CHECK-SAME: [[ARG_0:%[^:]+]]: memref<1x64x16x16xf16, {order = #NHWC}, @DDR>
 
 //CHECK: [[BARRIER0:%.+]] = VPUMI40XX.ConfigureBarrier <{consumer_count = 1 : ui8, producer_count = 3 : ui8}> <0, -1> -> !VPURegMapped.Index<0:0:0>
 //CHECK: [[BARRIER1:%.+]] = VPUMI40XX.ConfigureBarrier <{consumer_count = 1 : ui8, producer_count = 1 : ui8}> <1, -1> -> !VPURegMapped.Index<0:0:1>
@@ -66,7 +66,7 @@ func.func private @maxpool_f16_f16(%arg0: memref<1x64x16x16xf16, #NHWC, @DDR>, %
 //CHECK: [[WEIGHT_TABLE:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <40976> -> [[TYPE_WEIGHT_TABLE:.+]]
 
 //CHECK-NOT: VPURT.Task
-//CHECK: VPUMI40XX.NNDMA{{.+}}inputs([[ARG_0]] : memref<1x64x16x16xf16, #NHWC, @DDR>) outputs([[INPUT]] : [[TYPE_INPUT]]) updates([[BARRIER0]] : !VPURegMapped.Index<0:0:0>)
+//CHECK: VPUMI40XX.NNDMA{{.+}}inputs([[ARG_0]] : memref<1x64x16x16xf16, {order = #NHWC}, @DDR>) outputs([[INPUT]] : [[TYPE_INPUT]]) updates([[BARRIER0]] : !VPURegMapped.Index<0:0:0>)
 
 //CHECK-NOT: VPURT.Task
 //CHECK: VPUMI40XX.NNDMA{{.+}}inputs([[CST_WEIGHT_TABLE]] : [[TYPE_CST_WEIGHT_TABLE]]) outputs([[WEIGHT_TABLE]] : [[TYPE_WEIGHT_TABLE]])
@@ -96,7 +96,7 @@ module @mainModule {
     DataInfo "output_1" : tensor<1x64x18x56xi1>
   }
 
-  func.func private @maxpool_f16_f16_two_outputs(%arg0: memref<1x64x38x112xf16, {order = #NHWC, strides = [802816, 1, 7168, 64]}, @DDR>,
+  func.func nested @maxpool_f16_f16_two_outputs(%arg0: memref<1x64x38x112xf16, {order = #NHWC, strides = [802816, 1, 7168, 64]}, @DDR>,
                                      %arg1: memref<1x64x18x56xf16, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>,
                                      %arg2: memref<1x64x18x56xi1, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>) ->
       (memref<1x64x18x56xf16, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>,
@@ -119,22 +119,22 @@ module @mainModule {
     %bar_15 = VPURT.ConfigureBarrier<10> -> !VPURT.Barrier
 
     %cst_0 = const.Declare memref<256x1x1x4xsi32> = dense<1> : tensor<256x1x1x4xsi32>
-    %cst_1 = const.Declare memref<256x64x1x1xf16, #NHWC> = dense<1.000000e+00> : tensor<256x64x1x1xf16, {order = #NHWC}>
+    %cst_1 = const.Declare memref<256x64x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<256x64x1x1xf16, {order = #NHWC}>
     %cst_2 = const.Declare memref<1x1x1x1040xui8> = dense<1> : tensor<1x1x1x1040xui8>
     %cst_3 = const.Declare memref<1x1x1x1040xui8> = dense<1> : tensor<1x1x1x1040xui8>
 
-    %0 = VPURT.DeclareBuffer <CMX_NN> [0] <654912> -> memref<1x64x38x112xf16, #NHWC, [@CMX_NN, 0]>
-    %1 = VPURT.DeclareBuffer <CMX_NN> [0] <512> -> memref<1x64x19x56xf16, #NHWC, [@CMX_NN, 0]>
-    %2 = VPURT.DeclareBuffer <CMX_NN> [0] <136704> -> memref<1x64x19x56xi1, #NHWC, [@CMX_NN, 0]>
-    %3 = VPURT.DeclareBuffer <CMX_NN> [0] <289920> -> memref<1x64x39x112xf16, #NHWC, [@CMX_NN, 0]>
-    %4 = VPURT.DeclareBuffer <CMX_NN> [0] <145216> -> memref<1x64x19x56xf16, #NHWC, [@CMX_NN, 0]>
-    %5 = VPURT.DeclareBuffer <CMX_NN> [0] <281408> -> memref<1x64x19x56xi1, #NHWC, [@CMX_NN, 0]>
+    %0 = VPURT.DeclareBuffer <CMX_NN> [0] <654912> -> memref<1x64x38x112xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %1 = VPURT.DeclareBuffer <CMX_NN> [0] <512> -> memref<1x64x19x56xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %2 = VPURT.DeclareBuffer <CMX_NN> [0] <136704> -> memref<1x64x19x56xi1, {order = #NHWC}, [@CMX_NN, 0]>
+    %3 = VPURT.DeclareBuffer <CMX_NN> [0] <289920> -> memref<1x64x39x112xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %4 = VPURT.DeclareBuffer <CMX_NN> [0] <145216> -> memref<1x64x19x56xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %5 = VPURT.DeclareBuffer <CMX_NN> [0] <281408> -> memref<1x64x19x56xi1, {order = #NHWC}, [@CMX_NN, 0]>
     %6 = VPURT.DeclareBuffer <CMX_NN> [0] <849024> -> memref<1x1x1x1040xui8, [@CMX_NN, 0]>
-    %7 = VPURT.DeclareBuffer <CMX_NN> [0] <850112> -> memref<1x64x37x112xf16, #NHWC, [@CMX_NN, 0]>
-    %8 = VPURT.DeclareBuffer <CMX_NN> [0] <512> -> memref<1x64x18x56xf16, #NHWC, [@CMX_NN, 0]>
-    %9 = VPURT.DeclareBuffer <CMX_NN> [0] <129536> -> memref<1x64x18x56xi1, #NHWC, [@CMX_NN, 0]>
+    %7 = VPURT.DeclareBuffer <CMX_NN> [0] <850112> -> memref<1x64x37x112xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %8 = VPURT.DeclareBuffer <CMX_NN> [0] <512> -> memref<1x64x18x56xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %9 = VPURT.DeclareBuffer <CMX_NN> [0] <129536> -> memref<1x64x18x56xi1, {order = #NHWC}, [@CMX_NN, 0]>
     %10 = VPURT.DeclareBuffer <CMX_NN> [0] <1380544> -> memref<1x1x1x1040xui8, [@CMX_NN, 0]>
-    %11 = VPURT.DeclareBuffer <CMX_NN> [0] <289920> -> memref<256x64x1x1xf16, #NHWC, [@CMX_NN, 0]>
+    %11 = VPURT.DeclareBuffer <CMX_NN> [0] <289920> -> memref<256x64x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %12 = VPURT.DeclareBuffer <CMX_NN> [0] <137600> -> memref<256x1x1x4xsi32, [@CMX_NN, 0]>
     %13 = VPURT.DeclareBuffer <CMX_NN> [0] <653824> -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
     %14 = VPURT.DeclareBuffer <CMX_NN> [0] <654848> -> memref<1x1x1x16xui8, [@CMX_NN, 0]>
@@ -150,7 +150,7 @@ module @mainModule {
     %24 = VPURT.DeclareBuffer <DDR> <2015552> -> memref<1x64x19x56xi1, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>
 
     VPURT.Task waits(%bar_0 : !VPURT.Barrier) updates(%bar_1 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
-      %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%arg0 : memref<1x64x38x112xf16, {order = #NHWC, strides = [802816, 1, 7168, 64]}, @DDR>) outputs(%0 : memref<1x64x38x112xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x38x112xf16, #NHWC, [@CMX_NN, 0]>
+      %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%arg0 : memref<1x64x38x112xf16, {order = #NHWC, strides = [802816, 1, 7168, 64]}, @DDR>) outputs(%0 : memref<1x64x38x112xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x38x112xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
     VPURT.Task waits(%bar_1 : !VPURT.Barrier) updates(%bar_2 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
       %25:2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967400 : i64, resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>}
@@ -161,13 +161,13 @@ module @mainModule {
         output_se_size = 64 : i64,
         task_type = #VPUIP.nce_task_type<MAXPOOL>
       }>
-      input(%0 : memref<1x64x38x112xf16, #NHWC, [@CMX_NN, 0]>)
+      input(%0 : memref<1x64x38x112xf16, {order = #NHWC}, [@CMX_NN, 0]>)
       weight_table(%13 : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
-      parent_input(%0 : memref<1x64x38x112xf16, #NHWC, [@CMX_NN, 0]>)
-      parent_output(%1 : memref<1x64x19x56xf16, #NHWC, [@CMX_NN, 0]>)
-      parent_output_sparsity_map(%2 : memref<1x64x19x56xi1, #NHWC, [@CMX_NN, 0]>)
-      outputs(%1 : memref<1x64x19x56xf16, #NHWC, [@CMX_NN, 0]>)
-      output_sparsity_map(%2 : memref<1x64x19x56xi1, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x19x56xf16, #NHWC, [@CMX_NN, 0]>, memref<1x64x19x56xi1, #NHWC, [@CMX_NN, 0]>
+      parent_input(%0 : memref<1x64x38x112xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+      parent_output(%1 : memref<1x64x19x56xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+      parent_output_sparsity_map(%2 : memref<1x64x19x56xi1, {order = #NHWC}, [@CMX_NN, 0]>)
+      outputs(%1 : memref<1x64x19x56xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+      output_sparsity_map(%2 : memref<1x64x19x56xi1, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x19x56xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x64x19x56xi1, {order = #NHWC}, [@CMX_NN, 0]>
       variants : {
         DPUTask {inEnd = [111, 37, 63], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [55, 18, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>}
       }
@@ -176,19 +176,19 @@ module @mainModule {
       }
     }
     VPURT.Task waits(%bar_2 : !VPURT.Barrier) updates(%bar_3 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
-      %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%1 : memref<1x64x19x56xf16, #NHWC, [@CMX_NN, 0]>) outputs(%15 : memref<1x64x19x56xf16, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>) -> memref<1x64x19x56xf16, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>
+      %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%1 : memref<1x64x19x56xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%15 : memref<1x64x19x56xf16, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>) -> memref<1x64x19x56xf16, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>
     }
     VPURT.Task waits(%bar_3 : !VPURT.Barrier) updates(%bar_4 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
-      %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%2 : memref<1x64x19x56xi1, #NHWC, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x19x56xi1, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>) -> memref<1x64x19x56xi1, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>
+      %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%2 : memref<1x64x19x56xi1, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x19x56xi1, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>) -> memref<1x64x19x56xi1, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>
     }
     VPURT.Task waits(%bar_4 : !VPURT.Barrier) updates(%bar_5 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
       %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst_3 : memref<1x1x1x1040xui8>) outputs(%6 : memref<1x1x1x1040xui8, [@CMX_NN, 0]>) -> memref<1x1x1x1040xui8, [@CMX_NN, 0]>
     }
     VPURT.Task waits(%bar_5 : !VPURT.Barrier) updates(%bar_6 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
-      %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%17 : memref<1x64x39x112xf16, {order = #NHWC, strides = [802816, 1, 7168, 64]}, @DDR>) outputs(%3 : memref<1x64x39x112xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x39x112xf16, #NHWC, [@CMX_NN, 0]>
+      %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%17 : memref<1x64x39x112xf16, {order = #NHWC, strides = [802816, 1, 7168, 64]}, @DDR>) outputs(%3 : memref<1x64x39x112xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x39x112xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
     VPURT.Task waits(%bar_6 : !VPURT.Barrier) updates(%bar_7 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
-      %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%18 : memref<1x64x37x112xf16, {order = #NHWC, strides = [802816, 1, 7168, 64]}, @DDR>) outputs(%7 : memref<1x64x37x112xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x37x112xf16, #NHWC, [@CMX_NN, 0]>
+      %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%18 : memref<1x64x37x112xf16, {order = #NHWC, strides = [802816, 1, 7168, 64]}, @DDR>) outputs(%7 : memref<1x64x37x112xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x37x112xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
     VPURT.Task waits(%bar_6 : !VPURT.Barrier) updates(%bar_8, %bar_9 : !VPURT.Barrier, !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
       %25:2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967400 : i64 , resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>}
@@ -199,13 +199,13 @@ module @mainModule {
         output_se_size = 64 : i64,
         task_type = #VPUIP.nce_task_type<MAXPOOL>
       }>
-      input(%3 : memref<1x64x39x112xf16, #NHWC, [@CMX_NN, 0]>)
+      input(%3 : memref<1x64x39x112xf16, {order = #NHWC}, [@CMX_NN, 0]>)
       weight_table(%19 : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
-      parent_input(%3 : memref<1x64x39x112xf16, #NHWC, [@CMX_NN, 0]>)
-      parent_output(%4 : memref<1x64x19x56xf16, #NHWC, [@CMX_NN, 0]>)
-      parent_output_sparsity_map(%5 : memref<1x64x19x56xi1, #NHWC, [@CMX_NN, 0]>)
-      outputs(%4 : memref<1x64x19x56xf16, #NHWC, [@CMX_NN, 0]>)
-      output_sparsity_map(%5 : memref<1x64x19x56xi1, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x19x56xf16, #NHWC, [@CMX_NN, 0]>, memref<1x64x19x56xi1, #NHWC, [@CMX_NN, 0]>
+      parent_input(%3 : memref<1x64x39x112xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+      parent_output(%4 : memref<1x64x19x56xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+      parent_output_sparsity_map(%5 : memref<1x64x19x56xi1, {order = #NHWC}, [@CMX_NN, 0]>)
+      outputs(%4 : memref<1x64x19x56xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+      output_sparsity_map(%5 : memref<1x64x19x56xi1, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x19x56xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x64x19x56xi1, {order = #NHWC}, [@CMX_NN, 0]>
       variants : {
         DPUTask {inEnd = [111, 38, 63], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [55, 18, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
       } PPE : {
@@ -216,7 +216,7 @@ module @mainModule {
       %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst_2 : memref<1x1x1x1040xui8>) outputs(%10 : memref<1x1x1x1040xui8, [@CMX_NN, 0]>) -> memref<1x1x1x1040xui8, [@CMX_NN, 0]>
     }
     VPURT.Task waits(%bar_8 : !VPURT.Barrier) updates(%bar_10 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
-      %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%4 : memref<1x64x19x56xf16, #NHWC, [@CMX_NN, 0]>) outputs(%21 : memref<1x64x19x56xf16, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>) -> memref<1x64x19x56xf16, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>
+      %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%4 : memref<1x64x19x56xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%21 : memref<1x64x19x56xf16, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>) -> memref<1x64x19x56xf16, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>
     }
     VPURT.Task waits(%bar_9 : !VPURT.Barrier) updates(%bar_11 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
       %25:2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967400 : i64, resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>}
@@ -227,13 +227,13 @@ module @mainModule {
         output_se_size = 64 : i64,
         task_type = #VPUIP.nce_task_type<MAXPOOL>
       }>
-      input(%7 : memref<1x64x37x112xf16, #NHWC, [@CMX_NN, 0]>)
+      input(%7 : memref<1x64x37x112xf16, {order = #NHWC}, [@CMX_NN, 0]>)
       weight_table(%22 : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
-      parent_input(%7 : memref<1x64x37x112xf16, #NHWC, [@CMX_NN, 0]>)
-      parent_output(%8 : memref<1x64x18x56xf16, #NHWC, [@CMX_NN, 0]>)
-      parent_output_sparsity_map(%9 : memref<1x64x18x56xi1, #NHWC, [@CMX_NN, 0]>)
-      outputs(%8 : memref<1x64x18x56xf16, #NHWC, [@CMX_NN, 0]>)
-      output_sparsity_map(%9 : memref<1x64x18x56xi1, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x18x56xf16, #NHWC, [@CMX_NN, 0]>, memref<1x64x18x56xi1, #NHWC, [@CMX_NN, 0]>
+      parent_input(%7 : memref<1x64x37x112xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+      parent_output(%8 : memref<1x64x18x56xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+      parent_output_sparsity_map(%9 : memref<1x64x18x56xi1, {order = #NHWC}, [@CMX_NN, 0]>)
+      outputs(%8 : memref<1x64x18x56xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+      output_sparsity_map(%9 : memref<1x64x18x56xi1, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x18x56xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x64x18x56xi1, {order = #NHWC}, [@CMX_NN, 0]>
       variants : {
         DPUTask {inEnd = [111, 36, 63], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [55, 17, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
       } PPE : {
@@ -241,25 +241,25 @@ module @mainModule {
       }
     }
     VPURT.Task waits(%bar_10 : !VPURT.Barrier) updates(%bar_12 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
-      %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%5 : memref<1x64x19x56xi1, #NHWC, [@CMX_NN, 0]>) outputs(%24 : memref<1x64x19x56xi1, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>) -> memref<1x64x19x56xi1, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>
+      %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%5 : memref<1x64x19x56xi1, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%24 : memref<1x64x19x56xi1, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>) -> memref<1x64x19x56xi1, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>
     }
     VPURT.Task waits(%bar_12 : !VPURT.Barrier) updates(%bar_13 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
-      %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst_1 : memref<256x64x1x1xf16, #NHWC>) outputs(%11 : memref<256x64x1x1xf16, #NHWC, [@CMX_NN, 0]>) -> memref<256x64x1x1xf16, #NHWC, [@CMX_NN, 0]>
+      %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst_1 : memref<256x64x1x1xf16, {order = #NHWC}>) outputs(%11 : memref<256x64x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<256x64x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
     VPURT.Task waits(%bar_13 : !VPURT.Barrier) updates(%bar_11 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
       %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst_0 : memref<256x1x1x4xsi32>) outputs(%12 : memref<256x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<256x1x1x4xsi32, [@CMX_NN, 0]>
     }
     VPURT.Task waits(%bar_11 : !VPURT.Barrier) updates(%bar_14 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
-      %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%8 : memref<1x64x18x56xf16, #NHWC, [@CMX_NN, 0]>) outputs(%arg1 : memref<1x64x18x56xf16, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>) -> memref<1x64x18x56xf16, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>
+      %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%8 : memref<1x64x18x56xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%arg1 : memref<1x64x18x56xf16, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>) -> memref<1x64x18x56xf16, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>
     }
     VPURT.Task waits(%bar_14 : !VPURT.Barrier) updates(%bar_15 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
-      %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%9 : memref<1x64x18x56xi1, #NHWC, [@CMX_NN, 0]>) outputs(%arg2 : memref<1x64x18x56xi1, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>) -> memref<1x64x18x56xi1, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>
+      %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%9 : memref<1x64x18x56xi1, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%arg2 : memref<1x64x18x56xi1, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>) -> memref<1x64x18x56xi1, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>
     }
     return %arg1, %arg2 : memref<1x64x18x56xf16, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>, memref<1x64x18x56xi1, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>
   }
 }
 
-// CHECK: func.func private @maxpool_f16_f16_two_outputs
+// CHECK: func.func nested @maxpool_f16_f16_two_outputs
 // CHECK: VPUMI40XX.ConfigureBarrier <{consumer_count = 1 : ui8, producer_count = 0 : ui8}> <15, -1> -> !VPURegMapped.Index<0:0:0>
 // CHECK: VPUMI40XX.ConfigureBarrier <{consumer_count = 1 : ui8, producer_count = 1 : ui8}> <14, -1> -> !VPURegMapped.Index<0:0:1>
 // CHECK: VPUMI40XX.ConfigureBarrier <{consumer_count = 1 : ui8, producer_count = 1 : ui8}> <12, -1> -> !VPURegMapped.Index<0:0:2>

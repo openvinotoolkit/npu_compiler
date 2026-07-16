@@ -582,26 +582,35 @@ SmallVector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>> getRequiredO
     const auto& nextTileTypes = VPU::getTileDistributions(origOp, nextTile, strategy);
     auto isWeightPrefetch = curTile.axis[Dims4D::Act::C] > 1;
 
+    auto requiredTileType = getReduceOutputType(origOp, curTileTypes[1]);
     if (isOutputPipeliningEnabled(origOp)) {
-        return {curTileTypes[0],  curTileTypes[1],  curTileTypes[2],
-                nextTileTypes[0], nextTileTypes[1], nextTileTypes[2]};
+        requiredTileType.insert(requiredTileType.end(), {curTileTypes[0], curTileTypes[1], curTileTypes[2],
+                                                         nextTileTypes[0], nextTileTypes[1], nextTileTypes[2]});
+        return requiredTileType;
     }
 
     if (isOutputPipeliningMinFragmentationEnabled(origOp)) {
-        return {curTileTypes[0], curTileTypes[1], curTileTypes[2],
-                isWeightPrefetch ? nextTileTypes[1] : nextTileTypes[0], nextTileTypes[2]};
+        requiredTileType.insert(requiredTileType.end(),
+                                {curTileTypes[0], curTileTypes[1], curTileTypes[2],
+                                 isWeightPrefetch ? nextTileTypes[1] : nextTileTypes[0], nextTileTypes[2]});
+        return requiredTileType;
     }
 
     const auto groupTiling = curTile.axis.size() == DimsGroups5D::Act::numDims;
     if (groupTiling && curTile.axis[DimsGroups5D::Act::G] > 1) {
-        return {curTileTypes[0], curTileTypes[1], curTileTypes[2], nextTileTypes[0], nextTileTypes[1]};
+        requiredTileType.insert(requiredTileType.end(), {curTileTypes[0], curTileTypes[1], curTileTypes[2],
+                                                         nextTileTypes[0], nextTileTypes[1]});
+        return requiredTileType;
     }
 
     if (isNestedTiling(tiling)) {
         auto unrollSpatialFirst = isSpatialFirstNestedTiling(origOp, curTile.axis);
         isWeightPrefetch = unrollSpatialFirst;
     }
-    return {curTileTypes[0], curTileTypes[1], curTileTypes[2], isWeightPrefetch ? nextTileTypes[1] : nextTileTypes[0]};
+
+    requiredTileType.insert(requiredTileType.end(), {curTileTypes[0], curTileTypes[1], curTileTypes[2],
+                                                     isWeightPrefetch ? nextTileTypes[1] : nextTileTypes[0]});
+    return requiredTileType;
 }
 
 SmallVector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>> getRequiredOperandsForPipelining(
@@ -687,8 +696,9 @@ mlir::LogicalResult verifyPipeliningCMXConvBased(ConcreteOp origOp, const Output
                                                                       : FRAGMENTATION_AVOID_RATIO_MAX_PIPELINING))));
     Byte requiredCMX = Byte(0);
 
-    requiredCMX = VPU::getRequiredCMXSizeForNCEOps(getRequiredOperandsForPipelining(origOp, tiling),
+    requiredCMX = VPU::getRequiredCMXSizeForNCEOps(origOp, getRequiredOperandsForPipelining(origOp, tiling),
                                                    getRequiredChannelSizeForPipelining(origOp, tiling));
+
     if (requiredCMX > cmxWithFragmentationRatio) {
         log.trace("[{0}] CMX memory is not enough for prefetch pipeline, available '{1}', required '{2}'",
                   origOp->getLoc(), cmxWithFragmentationRatio, requiredCMX);
@@ -770,7 +780,11 @@ SmallVector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>> getRequiredO
     auto strategy = origOp.getMultiClusterStrategy();
     const auto& curTileTypes = VPU::getTileDistributions(origOp, curTile, strategy);
     const auto& nextTileTypes = VPU::getTileDistributions(origOp, nextTile, strategy);
-    return {curTileTypes[0], curTileTypes[1], nextTileTypes[0]};
+
+    auto requiredTileType = getReduceOutputType(origOp, curTileTypes[1]);
+    requiredTileType.insert(requiredTileType.end(), {curTileTypes[0], curTileTypes[1], nextTileTypes[0]});
+
+    return requiredTileType;
 }
 
 SmallVector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>> getRequiredOperandsForPipelining(
@@ -923,7 +937,7 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyPipeliningCMX(VPU::NCEMaxPo
                                                                       : FRAGMENTATION_AVOID_RATIO_MAX_PIPELINING))));
     Byte requiredCMX = Byte(0);
 
-    requiredCMX = VPU::getRequiredCMXSizeForNCEOps(getRequiredOperandsForPipelining(origOp, tiling),
+    requiredCMX = VPU::getRequiredCMXSizeForNCEOps(origOp, getRequiredOperandsForPipelining(origOp, tiling),
                                                    getRequiredChannelSizeForPipelining(origOp, tiling));
     if (requiredCMX > cmxWithFragmentationRatio) {
         log.trace(" [{0}] CMX memory is not enough for prefetch pipeline, available '{1}', required '{2}'",
@@ -966,7 +980,7 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyPipeliningCMX(VPU::NCEAvera
                                                                       ? FRAGMENTATION_AVOID_RATIO_MIN_PIPELINING
                                                                       : FRAGMENTATION_AVOID_RATIO_MAX_PIPELINING))));
     Byte requiredCMX = Byte(0);
-    requiredCMX = VPU::getRequiredCMXSizeForNCEOps(getRequiredOperandsForPipelining(origOp, tiling),
+    requiredCMX = VPU::getRequiredCMXSizeForNCEOps(origOp, getRequiredOperandsForPipelining(origOp, tiling),
                                                    getRequiredChannelSizeForPipelining(origOp, tiling));
     if (requiredCMX > cmxWithFragmentationRatio) {
         log.trace("[{0}] CMX memory is not enough for prefetch pipeline, available '{1}', required '{2}'",
@@ -1071,7 +1085,7 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyPipeliningCMX(VPU::NCEDepth
                                                                       : FRAGMENTATION_AVOID_RATIO_MAX_PIPELINING))));
     Byte requiredCMX = Byte(0);
 
-    requiredCMX = VPU::getRequiredCMXSizeForNCEOps(getRequiredOperandsForPipelining(origOp, tiling),
+    requiredCMX = VPU::getRequiredCMXSizeForNCEOps(origOp, getRequiredOperandsForPipelining(origOp, tiling),
                                                    getRequiredChannelSizeForPipelining(origOp, tiling));
 
     if (requiredCMX > cmxWithFragmentationRatio) {
@@ -1117,7 +1131,7 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyEltwisePipeliningCMX(mlir::
 
     Byte requiredCMX = Byte(0);
 
-    requiredCMX = VPU::getRequiredCMXSizeForNCEOps({getRequiredOperandsForPipelining(op, tiling)}, 0);
+    requiredCMX = VPU::getRequiredCMXSizeForNCEOps(op, {getRequiredOperandsForPipelining(op, tiling)}, 0);
     if (requiredCMX > cmxSize) {
         log.trace("[{0}] CMX memory is not enough for prefetch pipeline, available '{1}', required '{2}'", op->getLoc(),
                   cmxSize, requiredCMX);
@@ -1180,7 +1194,7 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyPrefetchCMX(mlir::Operation
         return mlir::failure();
     }
     auto module = op->getParentOfType<mlir::ModuleOp>();
-    const auto cmxSize = getCMXSizeForTiling(module);
+    auto cmxWithFragmentationRatio = VPU::getTotalCMXFragmentationAwareSize(module);
 
     // Calculate the CMX memory required by the last tile of parent Op
     auto lastParentTile = parentTiling.back();
@@ -1189,8 +1203,6 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyPrefetchCMX(mlir::Operation
     // Calculate the CMX memory required by the first tile of current op to prefetch
     auto firstPrefetchTile = tiling.back();
     auto cmxRequiredToPrefetch = VPU::getRequiredCMXForWeight(op, firstPrefetchTile);
-    auto cmxWithFragmentationRatio =
-            Byte(static_cast<int64_t>(std::ceil(static_cast<double>(cmxSize.count()) * FRAGMENTATION_AVOID_RATIO)));
 
     if (cmxRequiredByParent + cmxRequiredToPrefetch > cmxWithFragmentationRatio) {
         log.trace("[{0}] CMX memory is not enough for prefetch pipeline, available '{1}', required '{2}', required by "

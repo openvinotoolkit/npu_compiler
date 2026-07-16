@@ -212,7 +212,7 @@ VPURT.SW.Runtime
 module @VPU.SW {
     // The declaration should match C++ params structure in decomposed form.
     // `memref` will be translated to `MemRefData`, while raw scalars will be translated as is.
-    func.func private @builtin_mvn(%input : memref<*xf16>, %output : memref<*xf16>,
+    func.func nested @builtin_mvn(%input : memref<*xf16>, %output : memref<*xf16>,
     %across_channels : i64,
     %normalize: i64,
     %eps : f32
@@ -223,7 +223,7 @@ module @VPU.SW {
 
     // The declaration should match C++ params structure in decomposed form.
     // `memref` will be translated to `MemRefData`, while raw scalars will be translated as is.
-    func.func private @builtin_clamp(%input : memref<*xf16>, %output : memref<*xf16>, %min : f16, %max : f16)
+    func.func nested @builtin_clamp(%input : memref<*xf16>, %output : memref<*xf16>, %min : f16, %max : f16)
         attributes {
             VPU.kernel_code = "activation_clamp.cpp",
             VPU.kernel_entry = "activation_clamp"
@@ -231,7 +231,7 @@ module @VPU.SW {
 
 
     // management kernel definition
-    func.func private @runtime()
+    func.func nested @runtime()
         attributes {
             VPU.kernel_code = "nnActEntry"
         }
@@ -360,9 +360,9 @@ module @DumpOpsStatisticsTest {
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!Input = memref<1x32x3x3xf16, #NHWC, @CMX_NN>
-!Weights = memref<32x32x1x1xf16, #NHWC, @CMX_NN>
-!Output = memref<1x32x3x3xf16, #NHWC, @CMX_NN>
+!Input = memref<1x32x3x3xf16, {order = #NHWC}, @CMX_NN>
+!Weights = memref<32x32x1x1xf16, {order = #NHWC}, @CMX_NN>
+!Output = memref<1x32x3x3xf16, {order = #NHWC}, @CMX_NN>
 
 func.func @testSCLModeConvNumOfOps(%input: !Input, %weights: !Weights, %out: !Output) -> !Output {
     %sclConv = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
@@ -400,17 +400,17 @@ func.func @testSCLModeConvNumOfOps(%input: !Input, %weights: !Weights, %out: !Ou
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!ConvInput = memref<1x32x3x3xf16, #NHWC, @CMX_NN>
-!ConvWeights = memref<32x32x3x3xf16, #NHWC, @CMX_NN>
-!ConvOutput = memref<1x32x3x3xf16, #NHWC, @CMX_NN>
+!ConvInput = memref<1x32x3x3xf16, {order = #NHWC}, @CMX_NN>
+!ConvWeights = memref<32x32x3x3xf16, {order = #NHWC}, @CMX_NN>
+!ConvOutput = memref<1x32x3x3xf16, {order = #NHWC}, @CMX_NN>
 
-!DwInput = memref<1x16x3x3xf16, #NHWC, @CMX_NN>
-!DwWeights = memref<16x32x1x1xf16, #NHWC, @CMX_NN>
-!DwOutput = memref<1x32x3x3xf16, #NHWC, @CMX_NN>
+!DwInput = memref<1x16x3x3xf16, {order = #NHWC}, @CMX_NN>
+!DwWeights = memref<16x32x1x1xf16, {order = #NHWC}, @CMX_NN>
+!DwOutput = memref<1x32x3x3xf16, {order = #NHWC}, @CMX_NN>
 
-!OtherInput = memref<1x16x3x3xf16, #NHWC, @CMX_NN>
-!OtherWeights = memref<16x16x1x1xf16, #NHWC, @CMX_NN>
-!OtherOutput = memref<1x16x3x3xf16, #NHWC, @CMX_NN>
+!OtherInput = memref<1x16x3x3xf16, {order = #NHWC}, @CMX_NN>
+!OtherWeights = memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>
+!OtherOutput = memref<1x16x3x3xf16, {order = #NHWC}, @CMX_NN>
 
 func.func @testMpeModesAllOps(%convInput: !ConvInput, %convWeights : !ConvWeights, %convOutput : !ConvOutput, %dwInput : !DwInput, %dwWeights : !DwWeights, %dwOutput : !DwOutput, %otherInput : !OtherInput, %otherWeights : !OtherWeights,%otherOutput : !OtherOutput) -> !OtherOutput {
 

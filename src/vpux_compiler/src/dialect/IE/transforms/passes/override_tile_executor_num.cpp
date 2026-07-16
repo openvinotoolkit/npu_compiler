@@ -67,7 +67,7 @@ void OverrideTileExecutorNumPass::safeRunOnModule() {
 
     auto module = getOperation();
 
-    VPUX_THROW_UNLESS(config::hasTileExecutor(module), "Expected module to have 'IE::TileResourceOp'.");
+    VPUX_THROW_UNLESS(config::hasTileExecutor(module), "Expected module to have 'config::ResourcesOp'.");
 
     auto tileOp = config::getTileExecutor(module);
     const auto origTileCount = static_cast<DebatchedCallOpData::ValueType>(tileOp.getCount());
@@ -115,9 +115,9 @@ void OverrideTileExecutorNumPass::safeRunOnModule() {
         // Set 'count' to 'tilesPerBatch'
         tileOp.setCount(static_cast<int64_t>(origTileCount / singleBatchNum));
 
-        _log.nest(2).debug(
-                "Updated 'TileResourceOp' tile count from old: {0}, to new: {1} - based on batch request count: {2}",
-                origTileCount, tileOp.getCount(), singleBatchNum);
+        _log.nest(2).debug("Updated 'config::ResourcesOp' tile count from old: {0}, to new: {1} - based on batch "
+                           "request count: {2}",
+                           origTileCount, tileOp.getCount(), singleBatchNum);
     } else if (overrideToTilesPerBatchMode == "revert") {
         module.walk([&](mlir::func::CallOp callOp) {
             if (DebatchedCallOpAttributeView::hasAvailableTilesAttr(callOp)) {
@@ -140,7 +140,7 @@ void OverrideTileExecutorNumPass::safeRunOnModule() {
         // Reset 'count' to 'available_tiles'
         tileOp.setCount(static_cast<int64_t>(valuesToCheck[0]));
 
-        _log.nest(2).debug("Reverted 'TileResourceOp' tile count from old: {0}, to new: {1}", origTileCount,
+        _log.nest(2).debug("Reverted 'config::ResourcesOp' tile count from old: {0}, to new: {1}", origTileCount,
                            tileOp.getCount());
     }
 }

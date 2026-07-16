@@ -53,7 +53,8 @@ public:
     BarrierPagesSplitHandler(BarrierInfoTest& barrierInfoTest,
                              std::map<VPURT::TaskQueueType, SmallVector<uint32_t>>& taskQueueTypeMap, size_t pageSize,
                              size_t barrierFifoDepth = 1, size_t numClusters = 1,
-                             const SmallVector<size_t>& shvTasksWithDpu = {}, Logger log = Logger::global());
+                             const SmallVector<size_t>& shvTasksWithDpu = {},
+                             const SmallVector<size_t>& shvTasksWithDma = {}, Logger log = Logger::global());
 
     // Reconfigure barrier FIFO depth. Meant to be used in case of LIT tests
     void reconfigureBarrierFifoDepth(size_t barrierFifoDepth);
@@ -170,6 +171,7 @@ public:
     SmallVector<std::optional<size_t>> getAndLegalizeEnqueueBarrierData();
 
 private:
+    void initializePageSplitData();
     size_t getBarrierPage(size_t barInd);
     SmallVector<size_t> getFirstBoundaryTasksForPage(size_t pageInd);
     SmallVector<size_t> getLastBoundaryTasksForPage(size_t pageInd);
@@ -230,7 +232,7 @@ private:
 
     SmallVector<mlir::DenseMap<VPURT::TaskQueueType, std::pair<size_t, size_t>>> getFirstAndLastDmaOfTypePerPage();
 
-    void findShvTasksWithDpu(size_t numClusters);
+    void findShvTasksWithDpuOrDma(mlir::func::FuncOp func);
 
     SmallVector<size_t> getBarrierPidPrevUsageVec(BarrierInfo::TaskSet& barriers);
 
@@ -238,6 +240,25 @@ private:
     // In case of DPU it is number of DPU variant
     // In case of SHV it is number of SHV kernel run ops
     size_t getNumberOfWorkloads(size_t taskInd);
+
+    bool isDpuEnqueueDelayNeededAfterShvWithDpu(
+            size_t taskInd, VPURT::TaskQueueType queueType,
+            DenseMap<VPURT::TaskQueueType, size_t>& shvTasksWithDpuVecStartIndPerQueue, size_t shvTasksWithDpuVecInd,
+            std::map<VPURT::TaskQueueType, SmallVector<EnqueueDmaData>>& enqDmaDataVecPerQueue);
+
+    void createInitialDelayDpuEnqueueAfterShvWithDpu(
+            size_t taskInd, VPURT::TaskQueueType queueType, bool wasDpuAlreadyDelayed, size_t taskWorkloadStartIdx,
+            size_t taskWorkloadEndIdx, size_t shvTasksWithDpuVecInd,
+            std::map<VPURT::TaskQueueType, SmallVector<EnqueueDmaData>>& enqDmaDataVecPerQueue);
+
+    void updateDelayedDpuEnqPositionToNotImpactEnqOfPrevDpu(
+            size_t taskInd, VPURT::TaskQueueType queueType, const VPURT::TaskQueueType& enqueueDmaQueueType,
+            const DenseMap<VPURT::TaskQueueType, std::optional<size_t>>& previousTaskIndOptPerQueue,
+            std::map<VPURT::TaskQueueType, SmallVector<EnqueueDmaData>>& enqDmaDataVecPerQueue);
+
+    void updateDpuEnqPositionToAccountForSyncTask(
+            size_t taskInd, VPURT::TaskQueueType queueType, const VPURT::TaskQueueType& enqueueDmaQueueType,
+            std::map<VPURT::TaskQueueType, SmallVector<EnqueueDmaData>>& enqDmaDataVecPerQueue);
 
     SmallVector<size_t> _barrierToPageAssignment;
 
@@ -287,6 +308,10 @@ private:
     // DPU submitted by SHV is not blocked in the DPU FIFO
     mlir::DenseMap<size_t, SmallVector<size_t>> _shvTasksWithDpuPerTile;
 
+    // Store information about SHV tasks which can submit DMAs as this needs
+    // to be taken into account
+    mlir::DenseMap<size_t, mlir::DenseSet<size_t>> _shvTasksWithDmaPerTile;
+
     // Store information about task control map that will be initialized through
     // barrierInfo for given control graph split block index
     std::optional<size_t> _blockIdxOfTaskControlMap;
@@ -295,6 +320,8 @@ private:
     // Flag indicating if number of workloads should be retrieved from
     // TaskOp. In case of UnitTest to be set to "false" to remove dependency on IR
     bool _getNumberOfWorkloadsFromTaskOpFlag = true;
+
+    bool _legalizationMode = false;
 
     Logger _log;
 };

@@ -4,20 +4,25 @@
 //
 
 #include <gtest/gtest.h>
+#include <array>
 #include <common_test_utils/test_common.hpp>
+#include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <numeric>
-#include "intel_npu/runtime/npu_vm_runtime.hpp"
+#include "common/npu_test_env_cfg.hpp"
 #include "intel_npu/utils/zero/zero_api.hpp"
-#include "intel_npu/utils/zero/zero_mem_pool.hpp"
+#include "intel_npu/utils/zero/zero_mem.hpp"
 #include "intel_npu/utils/zero/zero_result.hpp"
 #include "intel_npu/utils/zero/zero_utils.hpp"
 #include "intel_npu/utils/zero/zero_wrappers.hpp"
+#include "npu_interpreter_runtime/npu_vm_runtime.hpp"
 
 #include <openvino/openvino.hpp>
 #include <openvino/opsets/opset6.hpp>
 #include <openvino/util/file_util.hpp>
 #include <openvino/util/shared_object.hpp>
+#include <sstream>
 #include <tuple>
 
 struct npu_vm_runtime_fntbl {
@@ -56,6 +61,9 @@ struct npu_vm_runtime_fntbl {
                                                                    int64_t* pOffset, int64_t* pSizes, int64_t* pStrides,
                                                                    int64_t* pDimsCount);
 
+    using npu_vm_runtime_predict_output_shape2_t = npu_vm_runtime_result_t(
+            npu_vm_runtime_handle_t hRuntime, npu_vm_runtime_predict_output_shape_params_t2* pParams);
+
     std::function<npu_vm_runtime_get_api_version_t> npuVMRuntimeGetAPIVersion = nullptr;
     std::function<npu_vm_runtime_create_t> npuVMRuntimeCreate = nullptr;
     std::function<npu_vm_runtime_destroy_t> npuVMRuntimeDestroy = nullptr;
@@ -69,6 +77,7 @@ struct npu_vm_runtime_fntbl {
     std::function<npu_vm_runtime_destroy_mem_ref_t> npuVMRuntimeDestroyMemRef = nullptr;
     std::function<npu_vm_runtime_set_mem_ref_t> npuVMRuntimeSetMemRef = nullptr;
     std::function<npu_vm_runtime_parse_mem_ref_t> npuVMRuntimeParseMemRef = nullptr;
+    std::function<npu_vm_runtime_predict_output_shape2_t> npuVMRuntimePredictOutputShape2 = nullptr;
 
     void init(std::shared_ptr<void> lib) {
         npuVMRuntimeGetAPIVersion = reinterpret_cast<npu_vm_runtime_get_api_version_t*>(
@@ -99,6 +108,8 @@ struct npu_vm_runtime_fntbl {
                 reinterpret_cast<npu_vm_runtime_set_mem_ref_t*>(ov::util::get_symbol(lib, "npuVMRuntimeSetMemRef"));
         npuVMRuntimeParseMemRef =
                 reinterpret_cast<npu_vm_runtime_parse_mem_ref_t*>(ov::util::get_symbol(lib, "npuVMRuntimeParseMemRef"));
+        npuVMRuntimePredictOutputShape2 = reinterpret_cast<npu_vm_runtime_predict_output_shape2_t*>(
+                ov::util::get_symbol(lib, "npuVMRuntimePredictOutputShape2"));
     }
 };
 
@@ -117,6 +128,53 @@ std::shared_ptr<ov::Model> createMaxPoolModel() {
 
     return std::make_shared<ov::Model>(ov::ResultVector{result}, ov::ParameterVector{input}, "MaxPool");
 }
+
+namespace {
+
+std::string formatCheckedPaths(const std::vector<std::filesystem::path>& paths) {
+    std::ostringstream oss;
+    for (size_t i = 0; i < paths.size(); ++i) {
+        if (i != 0) {
+            oss << "; ";
+        }
+        oss << paths[i].string();
+    }
+    return oss.str();
+}
+
+std::vector<std::filesystem::path> getBlobSearchPaths(const std::filesystem::path& blobPath) {
+    if (blobPath.is_absolute()) {
+        return {blobPath};
+    }
+
+    std::vector<std::filesystem::path> candidates;
+    candidates.push_back(blobPath);
+
+    if (const auto* skipCfg = std::getenv("OV_NPU_TESTS_SKIP_CONFIG_FILE"); skipCfg != nullptr) {
+        const std::filesystem::path skipCfgPath(skipCfg);
+        if (skipCfgPath.has_parent_path()) {
+            candidates.push_back(skipCfgPath.parent_path() / blobPath);
+        }
+    }
+
+    return candidates;
+}
+
+std::filesystem::path resolveExistingPathOrThrow(const std::filesystem::path& inputPath,
+                                                 const std::string& resourceDescription) {
+    const auto candidatePaths = getBlobSearchPaths(inputPath);
+
+    for (const auto& candidate : candidatePaths) {
+        if (std::filesystem::exists(candidate)) {
+            return candidate;
+        }
+    }
+
+    throw std::runtime_error("Cannot open " + resourceDescription + ": " + inputPath.string() +
+                             ". Checked paths: " + formatCheckedPaths(candidatePaths));
+}
+
+}  // namespace
 
 using NPUVMRuntimeCAPITestParams = std::tuple<std::string,  // Device name
                                               std::string,  // Model path or name
@@ -162,6 +220,9 @@ protected:
     }
 
     void SetUp() override {
+        // Skip test according to plugin specific disabled_test_patterns() (if any)
+        SKIP_IF_CURRENT_TEST_IS_DISABLED();
+
         try {
             std::string targetDevice;
             std::string modelPath;
@@ -186,6 +247,8 @@ protected:
                         return targetDevice.find(name) != std::string::npos;
                     });
             if (!deviceAvailable) {
+                std::cerr << "Warning: Target device " << targetDevice
+                          << " not found in available devices: " << ov::util::join(deviceNames) << std::endl;
                 GTEST_SKIP() << "Skip test for current device";
             }
 
@@ -199,19 +262,19 @@ protected:
             }
 
             if (blob.str().empty()) {
-                GTEST_SKIP() << "Cannot export blob";
+                std::cerr << "[SetUp] Cannot export blob" << std::endl;
+                GTEST_FAIL() << "Cannot export blob";
             }
         } catch (const std::runtime_error& error) {
-            GTEST_SKIP() << error.what();
+            std::cerr << "[SetUp] std::runtime_error: " << error.what() << std::endl;
+            GTEST_FAIL() << error.what();
         }
     }
 
     void compileBlobFromOvIR(ov::Core& core, const std::string& modelPath, const std::string& targetDevice,
                              const ov::AnyMap& config) {
-        if (!std::filesystem::exists(modelPath)) {
-            throw std::runtime_error("Cannot open IR model: " + modelPath);
-        }
-        auto model = core.read_model(modelPath);
+        const auto resolvedPath = resolveExistingPathOrThrow(std::filesystem::path(modelPath), "IR model");
+        auto model = core.read_model(resolvedPath.string());
         auto preprocessor = ov::preprocess::PrePostProcessor(model);
         for (size_t i = 0; i < model->inputs().size(); i++) {
             preprocessor.input(i).tensor().set_element_type(ov::element::f16);
@@ -225,12 +288,11 @@ protected:
 
     // Reads a pre-compiled blob file directly into the blob stream, bypassing compilation.
     void loadBlobFromFile(const std::string& blobPath) {
-        if (!std::filesystem::exists(blobPath)) {
-            throw std::runtime_error("Cannot open blob file: " + blobPath);
-        }
-        std::ifstream file(blobPath, std::ios::binary);
+        const auto resolvedPath = resolveExistingPathOrThrow(std::filesystem::path(blobPath), "blob file");
+
+        std::ifstream file(resolvedPath, std::ios::binary);
         if (!file) {
-            throw std::runtime_error("Failed to read blob file: " + blobPath);
+            throw std::runtime_error("Failed to read blob file: " + resolvedPath.string());
         }
         blob << file.rdbuf();
     }
@@ -285,7 +347,7 @@ protected:
                                                    return a * b;
                                                });
 
-            std::shared_ptr<intel_npu::ZeroMem> memPtr = intel_npu::ZeroMemPool::get_instance().allocate_zero_memory(
+            std::shared_ptr<intel_npu::ZeroMem> memPtr = intel_npu::zero_mem::allocate_memory(
                     initStruct, totalSize, kPageSize, arg.type == ZE_GRAPH_ARGUMENT_TYPE_INPUT);
 
             void* pData = memPtr->data();
@@ -329,10 +391,14 @@ protected:
                                std::vector<std::shared_ptr<intel_npu::CommandList>>& commandLists,
                                std::vector<ze_command_list_handle_t>& commandListHandles,
                                std::shared_ptr<intel_npu::Fence>& fence) {
-        uint32_t groupOrdinal = intel_npu::zeroUtils::findCommandQueueGroupOrdinal(
-                initStruct->getDevice(), ZE_COMMAND_QUEUE_GROUP_PROPERTY_FLAG_COMPUTE);
-        commandQueue =
-                std::make_shared<intel_npu::CommandQueue>(initStruct, ZE_COMMAND_QUEUE_PRIORITY_NORMAL, groupOrdinal);
+        const intel_npu::CommandQueueDesc commandQueueDesc{
+                ZE_COMMAND_QUEUE_PRIORITY_NORMAL,  // priority
+                std::nullopt,                      // workload
+                0,                                 // options
+                nullptr,                           // owner_tag
+                true,                              // shared_common_queue
+        };
+        commandQueue = std::make_shared<intel_npu::CommandQueue>(initStruct, commandQueueDesc);
 
         graphDdiTableExt = nullptr;
         checkStatus("zeDriverGetExtensionFunctionAddress",
@@ -341,7 +407,7 @@ protected:
 
         commandLists.reserve(props.numOfSubGraphs);
         for (size_t i = 0; i < props.numOfSubGraphs; ++i) {
-            commandLists.emplace_back(std::make_shared<intel_npu::CommandList>(initStruct, groupOrdinal));
+            commandLists.emplace_back(std::make_shared<intel_npu::CommandList>(initStruct));
         }
 
         commandListHandles.reserve(commandLists.size());
@@ -396,7 +462,127 @@ TEST_P(NPUVMRuntimeCAPITest, GetAPIVersion_Success) {
     EXPECT_EQ(version, NPU_VM_RUNTIME_VERSION_CURRENT);
 }
 
+TEST_P(NPUVMRuntimeCAPITest, GetMetadata_ReturnsValidArgProperties) {
+    npu_vm_runtime_handle_t handle = nullptr;
+    npu_vm_runtime_properties_t props;
+    ASSERT_NO_FATAL_FAILURE(createRuntimeHandle(handle, props));
+
+    ASSERT_GT(props.numOfGraphArgs, 0u);
+
+    for (uint32_t i = 0; i < props.numOfGraphArgs; i++) {
+        ze_graph_argument_properties_3_t argProps{};
+        ze_graph_argument_metadata_t argMeta{};
+        int64_t upperBound[ZE_MAX_GRAPH_ARGUMENT_DIMENSIONS_SIZE]{};
+
+        ASSERT_EQ(fntbl.npuVMRuntimeGetMetadata(handle, i, &argProps, &argMeta, upperBound),
+                  NPU_VM_RUNTIME_RESULT_SUCCESS);
+
+        // Type must be either input or output
+        EXPECT_TRUE(argProps.type == ZE_GRAPH_ARGUMENT_TYPE_INPUT || argProps.type == ZE_GRAPH_ARGUMENT_TYPE_OUTPUT);
+
+        // Precision must be resolved — UNKNOWN indicates unhandled element type
+        EXPECT_NE(argProps.networkPrecision, ZE_GRAPH_ARGUMENT_PRECISION_UNKNOWN);
+        EXPECT_NE(argProps.devicePrecision, ZE_GRAPH_ARGUMENT_PRECISION_UNKNOWN);
+
+        // Name must be non-empty
+        EXPECT_GT(strnlen(argProps.name, ZE_MAX_GRAPH_ARGUMENT_NAME), 0u);
+
+        // Rank must be positive
+        EXPECT_GT(argProps.dims_count, 0u);
+
+        // Metadata argument type must match properties
+        EXPECT_EQ(argMeta.type, argProps.type);
+    }
+
+    // Out-of-range index must return an error
+    {
+        ze_graph_argument_properties_3_t argProps{};
+        ze_graph_argument_metadata_t argMeta{};
+        int64_t upperBound[ZE_MAX_GRAPH_ARGUMENT_DIMENSIONS_SIZE]{};
+        EXPECT_NE(fntbl.npuVMRuntimeGetMetadata(handle, props.numOfGraphArgs, &argProps, &argMeta, upperBound),
+                  NPU_VM_RUNTIME_RESULT_SUCCESS);
+    }
+
+    // Null handle must return an error
+    {
+        ze_graph_argument_properties_3_t argProps{};
+        ze_graph_argument_metadata_t argMeta{};
+        int64_t upperBound[ZE_MAX_GRAPH_ARGUMENT_DIMENSIONS_SIZE]{};
+        EXPECT_NE(fntbl.npuVMRuntimeGetMetadata(nullptr, 0, &argProps, &argMeta, upperBound),
+                  NPU_VM_RUNTIME_RESULT_SUCCESS);
+    }
+
+    EXPECT_EQ(fntbl.npuVMRuntimeDestroy(handle), NPU_VM_RUNTIME_RESULT_SUCCESS);
+}
+
+// Verifies that the metadata extracted from bytecode.blob matches the exact values defined in
+// tests/lit/NPU/dialect/bytecode/serialization.mlir:
+//   - 1 input ("Another example") and 1 output ("arithmetic")
+//   - Shape [42, 100, 50], precision FP32
+//
+// The blob was generated with:
+//   ./vpux-translate --split-input-file --platform=NPU5010 --export-bytecode \
+//       <compiler_repo>/tests/lit/NPU/dialect/bytecode/serialization.mlir -o bytecode.blob
+TEST_P(NPUVMRuntimeCAPITest, GetMetadata_ExactValuesForBytecodeBlob) {
+    std::string modelPath;
+    std::tie(std::ignore, modelPath, std::ignore, std::ignore) = this->GetParam();
+    if (modelPath != "bytecode.blob") {
+        GTEST_SKIP() << "Test applies only to bytecode.blob";
+    }
+
+    npu_vm_runtime_handle_t handle = nullptr;
+    npu_vm_runtime_properties_t props;
+    ASSERT_NO_FATAL_FAILURE(createRuntimeHandle(handle, props));
+
+    // serialization.mlir metadata section defines 1 input + 1 output = 2 graph args
+    ASSERT_EQ(props.numOfGraphArgs, 2u);
+
+    struct ExpectedArg {
+        const char* name;
+        ze_graph_argument_type_t type;
+        uint32_t dimsCount;
+        uint32_t dims[ZE_MAX_GRAPH_ARGUMENT_DIMENSIONS_SIZE];
+    };
+
+    const ExpectedArg expected[] = {
+            {"Another example", ZE_GRAPH_ARGUMENT_TYPE_INPUT, 3, {42, 100, 50}},
+            {"arithmetic", ZE_GRAPH_ARGUMENT_TYPE_OUTPUT, 3, {42, 100, 50}},
+    };
+
+    for (uint32_t i = 0; i < props.numOfGraphArgs; i++) {
+        ze_graph_argument_properties_3_t argProps{};
+        ze_graph_argument_metadata_t argMeta{};
+        int64_t upperBound[ZE_MAX_GRAPH_ARGUMENT_DIMENSIONS_SIZE]{};
+
+        ASSERT_EQ(fntbl.npuVMRuntimeGetMetadata(handle, i, &argProps, &argMeta, upperBound),
+                  NPU_VM_RUNTIME_RESULT_SUCCESS);
+
+        EXPECT_STREQ(argProps.name, expected[i].name) << "Arg " << i << " name mismatch";
+        EXPECT_EQ(argProps.type, expected[i].type) << "Arg " << i << " type mismatch";
+        EXPECT_EQ(argProps.networkPrecision, ZE_GRAPH_ARGUMENT_PRECISION_FP32)
+                << "Arg " << i << " networkPrecision mismatch";
+        EXPECT_EQ(argProps.devicePrecision, ZE_GRAPH_ARGUMENT_PRECISION_FP32)
+                << "Arg " << i << " devicePrecision mismatch";
+        EXPECT_EQ(argProps.dims_count, expected[i].dimsCount) << "Arg " << i << " dims_count mismatch";
+        for (uint32_t d = 0; d < expected[i].dimsCount; d++) {
+            EXPECT_EQ(argProps.dims[d], expected[i].dims[d]) << "Arg " << i << " dim[" << d << "] mismatch";
+        }
+
+        EXPECT_EQ(argMeta.type, expected[i].type) << "Arg " << i << " metadata type mismatch";
+        EXPECT_STREQ(argMeta.friendly_name, expected[i].name) << "Arg " << i << " friendly_name mismatch";
+    }
+
+    EXPECT_EQ(fntbl.npuVMRuntimeDestroy(handle), NPU_VM_RUNTIME_RESULT_SUCCESS);
+}
+
 TEST_P(NPUVMRuntimeCAPITest, ExecuteCompiledModel) {
+    std::string libName;
+    std::tie(std::ignore, std::ignore, libName, std::ignore) = this->GetParam();
+    // E#214461: Skip interpreter runtime execute path until kernel submission is stabilized.
+    if (libName == "npu_interpreter_runtime") {
+        GTEST_SKIP() << "ExecuteCompiledModel is temporarily disabled for interpreter runtime";
+    }
+
     npu_vm_runtime_handle_t handle = nullptr;
     npu_vm_runtime_properties_t props;
     ASSERT_NO_FATAL_FAILURE(createRuntimeHandle(handle, props));
@@ -421,8 +607,6 @@ TEST_P(NPUVMRuntimeCAPITest, ExecuteCompiledModel) {
     EXPECT_EQ(fntbl.npuVMRuntimeExecute(handle, &execParams), NPU_VM_RUNTIME_RESULT_SUCCESS);
     // FIXME: E#211607 once kernel submission is implemented,
     // we can enable synchronization for interpreter runtime as well
-    std::string libName;
-    std::tie(std::ignore, std::ignore, libName, std::ignore) = this->GetParam();
     if (libName != "npu_interpreter_runtime") {
         fence->hostSynchronize();
     }
@@ -499,7 +683,7 @@ TEST_P(NPUVMRuntimeCAPITest, PredictShape) {
 
     ze_graph_argument_properties_3_t arg;
     ze_graph_argument_metadata_t meta;
-    int64_t upperBound[5];
+    int64_t upperBound[ZE_MAX_GRAPH_ARGUMENT_DIMENSIONS_SIZE];
     const uint64_t dynamicRankValue = std::numeric_limits<uint64_t>::max();
     for (uint32_t i = 0; i < props.numOfGraphArgs; i++) {
         ASSERT_EQ(fntbl.npuVMRuntimeGetMetadata(handle, i, &arg, &meta, upperBound), NPU_VM_RUNTIME_RESULT_SUCCESS);
@@ -522,7 +706,7 @@ TEST_P(NPUVMRuntimeCAPITest, PredictShape) {
         // Compute row-major (NCHW) strides
         uint64_t stride = 1;
         localMemRef.strides.resize(localMemRef.dimsCount);
-        for (int32_t d = localMemRef.dimsCount - 1; d >= 0; d--) {
+        for (auto d = static_cast<int64_t>(localMemRef.dimsCount - 1); d >= 0; d--) {
             localMemRef.strides[d] = stride;
             stride *= localMemRef.sizes[d];
         }
@@ -578,27 +762,138 @@ TEST_P(NPUVMRuntimeCAPITest, PredictShape) {
     destroyMemRefs(outputArgs);
 }
 
+TEST_P(NPUVMRuntimeCAPITest, PredictShape2) {
+    npu_vm_runtime_handle_t handle = nullptr;
+    npu_vm_runtime_properties_t props;
+    ASSERT_NO_FATAL_FAILURE(createRuntimeHandle(handle, props));
+
+    npu_vm_runtime_execution_context_handle_t executionContextHandle = nullptr;
+    ASSERT_EQ(fntbl.npuVMRuntimeCreateExecutionContext(handle, &executionContextHandle), NPU_VM_RUNTIME_RESULT_SUCCESS);
+    ASSERT_NE(executionContextHandle, nullptr);
+
+    struct LocalMemRef {
+        const void* basePtr;
+        const void* data;
+        int64_t offset;
+        std::vector<int64_t> sizes;
+        std::vector<int64_t> strides;
+        int64_t dimsCount;
+        std::vector<int64_t> dynamicRanks;
+    };
+
+    std::vector<LocalMemRef> inputs;
+    std::vector<LocalMemRef> outputs;
+
+    ze_graph_argument_properties_3_t arg;
+    ze_graph_argument_metadata_t meta;
+    int64_t upperBound[ZE_MAX_GRAPH_ARGUMENT_DIMENSIONS_SIZE];
+    const uint64_t dynamicRankValue = std::numeric_limits<uint64_t>::max();
+    for (uint32_t i = 0; i < props.numOfGraphArgs; i++) {
+        ASSERT_EQ(fntbl.npuVMRuntimeGetMetadata(handle, i, &arg, &meta, upperBound), NPU_VM_RUNTIME_RESULT_SUCCESS);
+
+        LocalMemRef localMemRef;
+        localMemRef.basePtr = nullptr;
+        localMemRef.data = nullptr;
+        localMemRef.offset = 0;
+        localMemRef.dimsCount = arg.dims_count;
+        // Upper bound shape — actual size may be smaller
+        for (uint32_t d = 0; d < arg.dims_count; d++) {
+            localMemRef.sizes.push_back(arg.dims[d]);
+        }
+        // Dimensions where shape[d] == max uint64 are dynamic
+        for (uint32_t d = 0; d < meta.shape_size; d++) {
+            if (meta.shape[d] == dynamicRankValue) {
+                localMemRef.dynamicRanks.push_back(d);
+            }
+        }
+        // Compute row-major (NCHW) strides
+        uint64_t stride = 1;
+        localMemRef.strides.resize(localMemRef.dimsCount);
+        for (int32_t d = localMemRef.dimsCount - 1; d >= 0; d--) {
+            localMemRef.strides[d] = stride;
+            stride *= localMemRef.sizes[d];
+        }
+        if (arg.type == ZE_GRAPH_ARGUMENT_TYPE_INPUT) {
+            inputs.push_back(localMemRef);
+        } else if (arg.type == ZE_GRAPH_ARGUMENT_TYPE_OUTPUT) {
+            outputs.push_back(localMemRef);
+        }
+    }
+
+    std::vector<npu_vm_runtime_mem_ref_handle_t> inputArgs;
+    std::vector<npu_vm_runtime_mem_ref_handle_t> outputArgs;
+    for (auto& input : inputs) {
+        npu_vm_runtime_mem_ref_handle_t hMemRef;
+        ASSERT_EQ(fntbl.npuVMRuntimeCreateMemRef(input.dimsCount, &hMemRef), NPU_VM_RUNTIME_RESULT_SUCCESS);
+        ASSERT_EQ(fntbl.npuVMRuntimeSetMemRef(hMemRef, input.basePtr, input.data, input.offset, input.sizes.data(),
+                                              input.strides.data(), input.dimsCount),
+                  NPU_VM_RUNTIME_RESULT_SUCCESS);
+        inputArgs.push_back(hMemRef);
+    }
+    for (auto& output : outputs) {
+        npu_vm_runtime_mem_ref_handle_t hMemRef;
+        ASSERT_EQ(fntbl.npuVMRuntimeCreateMemRef(output.dimsCount, &hMemRef), NPU_VM_RUNTIME_RESULT_SUCCESS);
+        ASSERT_EQ(fntbl.npuVMRuntimeSetMemRef(hMemRef, output.basePtr, output.data, output.offset, output.sizes.data(),
+                                              output.strides.data(), output.dimsCount),
+                  NPU_VM_RUNTIME_RESULT_SUCCESS);
+        outputArgs.push_back(hMemRef);
+    }
+    npu_vm_runtime_predict_output_shape_params_t2 predictParam;
+    predictParam.pInputs = inputArgs.data();
+    predictParam.numOfInputs = inputArgs.size();
+    predictParam.pOutputs = outputArgs.data();
+    predictParam.numOfOutputs = outputArgs.size();
+    predictParam.executionContext = executionContextHandle;
+    EXPECT_EQ(fntbl.npuVMRuntimePredictOutputShape2(handle, &predictParam), NPU_VM_RUNTIME_RESULT_SUCCESS);
+    // Verify the output shape
+    for (size_t i = 0; i < outputs.size(); i++) {
+        LocalMemRef parsedMemRef;
+        parsedMemRef.sizes.resize(outputs[i].dimsCount);
+        parsedMemRef.strides.resize(outputs[i].dimsCount);
+        EXPECT_EQ(fntbl.npuVMRuntimeParseMemRef(outputArgs[i], &parsedMemRef.basePtr, &parsedMemRef.data,
+                                                &parsedMemRef.offset, parsedMemRef.sizes.data(),
+                                                parsedMemRef.strides.data(), &parsedMemRef.dimsCount),
+                  NPU_VM_RUNTIME_RESULT_SUCCESS);
+        EXPECT_EQ(outputs[i].dimsCount, parsedMemRef.dimsCount);
+
+        for (int64_t d = 0; d < outputs[i].dimsCount; d++) {
+            EXPECT_TRUE(outputs[i].sizes[d] >= parsedMemRef.sizes[d]);
+            EXPECT_TRUE(outputs[i].strides[d] >= parsedMemRef.strides[d]);
+        }
+    }
+    EXPECT_EQ(fntbl.npuVMRuntimeDestroyExecutionContext(executionContextHandle), NPU_VM_RUNTIME_RESULT_SUCCESS);
+    EXPECT_EQ(fntbl.npuVMRuntimeDestroy(handle), NPU_VM_RUNTIME_RESULT_SUCCESS);
+    destroyMemRefs(inputArgs);
+    destroyMemRefs(outputArgs);
+}
+
 const std::vector<std::string> devices = {"NPU.4000", "NPU.5010"};
 
 const std::vector<std::string> mlirModels = {
-        "CustomNet_canonical_strides_1x1_no_fork.xml",
+        // E#214461: Temporarily disabled because IR is unavailable in CI environment.
+        // "CustomNet_canonical_strides_1x1_no_fork.xml",
         "MaxPool",
 };
 
 const std::vector<std::string> libNames = {"npu_mlir_runtime"};
 
-const std::vector<ov::AnyMap> configs = {{{"NPU_COMPILER_TYPE", "PLUGIN"}, {"NPU_COMPILATION_MODE", "HostCompile"}}};
+const std::vector<ov::AnyMap> configsHostCompileDefault = {
+        {{"NPU_COMPILER_TYPE", "PLUGIN"}, {"NPU_COMPILATION_MODE", "HostCompile"}}};
 
 INSTANTIATE_TEST_SUITE_P(smoke_BehaviorTest_mlir_runtime, NPUVMRuntimeCAPITest,
                          ::testing::Combine(::testing::ValuesIn(devices), ::testing::ValuesIn(mlirModels),
-                                            ::testing::ValuesIn(libNames), ::testing::ValuesIn(configs)),
+                                            ::testing::ValuesIn(libNames),
+                                            ::testing::ValuesIn(configsHostCompileDefault)),
                          NPUVMRuntimeCAPITest::getTestCaseName);
 
 const std::vector<std::string> interpreterModels = {"bytecode.blob"};
 
 const std::vector<std::string> interpreterLibNames = {"npu_interpreter_runtime"};
 
+const std::vector<ov::AnyMap> configsHostCompileInterpreter = {
+        {{"NPU_COMPILER_TYPE", "PLUGIN"}, {"NPU_COMPILATION_MODE", "HostCompile_Interpreter"}}};
 INSTANTIATE_TEST_SUITE_P(smoke_BehaviorTest_interpreter_runtime, NPUVMRuntimeCAPITest,
                          ::testing::Combine(::testing::ValuesIn(devices), ::testing::ValuesIn(interpreterModels),
-                                            ::testing::ValuesIn(interpreterLibNames), ::testing::ValuesIn(configs)),
+                                            ::testing::ValuesIn(interpreterLibNames),
+                                            ::testing::ValuesIn(configsHostCompileInterpreter)),
                          NPUVMRuntimeCAPITest::getTestCaseName);

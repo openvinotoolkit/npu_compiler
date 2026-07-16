@@ -487,8 +487,8 @@ TEST_P(CompilationTestModel, NPU4000) {
     Run();
 }
 
-TEST_P(CompilationTestModel, NPU5000) {
-    SetPlatform("VPU5000");
+TEST_P(CompilationTestModel, NPU5010) {
+    SetPlatform("VPU5010");
     Run();
 }
 

@@ -7,7 +7,7 @@
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
-#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
+#include "vpux/compiler/dialect/config/constraints.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
@@ -38,7 +38,7 @@ bool shouldConvertReduceMinOp(IE::ReduceMinOp op) {
         return false;
     }
 
-    const auto maxKernelSize = config::getMaxKernelSize(op);
+    const auto maxKernelSize = config::getNPUConstraints(op->getContext()).maxKernelSize;
     return (getShape(op->getResult(0)).totalSize() == 1) && (inputTotalSize > std::pow(maxKernelSize, 2));
 }
 

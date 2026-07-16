@@ -220,28 +220,29 @@ void VPUIP::arch37xx::ClusterSWRewriter::matchAndRewrite(VPUIP::SwKernelOp swTas
     if (isDynamic) {
         {
             auto fullInputShapes = swTask.getDynamicInputShapes();
-            VPUX_THROW_UNLESS(fullInputShapes.size() == 1, "Only one dynamic input shape is supported");
-            auto currBuffs =
-                    VPUIP::getPerClusterSWMemoryBuffers(_ctx, loc, "dynamicInputShapes", swTask, fullInputShapes[0],
-                                                        OperandType::input, numClusters, builder, _log,
-                                                        /*allowDiscontinuousBuffers*/ false);
-            for (int64_t clusterId = 0; clusterId < numClusters; ++clusterId) {
-                swKernelInputDynamicShapes[clusterId].push_back(currBuffs[clusterId]);
+            VPUX_THROW_UNLESS(fullInputShapes.size() <= 1, "Multiple dynamic input shape case is not supported");
+            if (!fullInputShapes.empty()) {
+                auto currBuffs = VPUIP::getPerClusterSWMemoryBuffers(
+                        _ctx, loc, "dynamicInputShapes", swTask, fullInputShapes[0], OperandType::input, numClusters,
+                        builder, _log, /*allowDiscontinuousBuffers*/ false);
+                for (int64_t clusterId = 0; clusterId < numClusters; ++clusterId) {
+                    swKernelInputDynamicShapes[clusterId].push_back(currBuffs[clusterId]);
+                }
             }
         }
 
         {
             auto fullOutputShapes = swTask.getDynamicOutputShapeBuffs();
-            VPUX_THROW_UNLESS(fullOutputShapes.size() == 1, "Only one dynamic output shape is supported");
-            auto currBuffs = VPUIP::getPerClusterSWMemoryBuffers(_ctx, loc, "dynamicOutputShapesBuffs", swTask,
-                                                                 fullOutputShapes[0], OperandType::output, numClusters,
-                                                                 builder, _log,
-                                                                 /*allowDiscontinuousBuffers*/ false);
-            for (int64_t clusterId = 0; clusterId < numClusters; ++clusterId) {
-                swKernelOutputDynamicShapes[clusterId].push_back(currBuffs[clusterId]);
+            VPUX_THROW_UNLESS(fullOutputShapes.size() <= 1, "Multiple dynamic output shape case is not supported");
+            if (!fullOutputShapes.empty()) {
+                auto currBuffs = VPUIP::getPerClusterSWMemoryBuffers(
+                        _ctx, loc, "dynamicOutputShapesBuffs", swTask, fullOutputShapes[0], OperandType::output,
+                        numClusters, builder, _log, /*allowDiscontinuousBuffers*/ false);
+                for (int64_t clusterId = 0; clusterId < numClusters; ++clusterId) {
+                    swKernelOutputDynamicShapes[clusterId].push_back(currBuffs[clusterId]);
+                }
             }
         }
-
         auto fullInputShapesMap = swTask.getDynamicInputShapesMap().value_or(ArrayRef<int32_t>());
         auto fullOutputShapesMap = swTask.getDynamicOutputShapesMap().value_or(ArrayRef<int32_t>());
 
@@ -279,7 +280,7 @@ void VPUIP::arch37xx::ClusterSWRewriter::matchAndRewrite(VPUIP::SwKernelOp swTas
             inputTypes.push_back(type);
         }
 
-        VPUIP::createRuntimeKernelDefinition(_module, _log.nest(), config::getArch(swTask.getOperation()));
+        VPUIP::createRuntimeKernelDefinition(_module, _log.nest());
 
         auto module = swTask->getParentOfType<mlir::ModuleOp>();
         auto kernelFunc = module.lookupSymbol<mlir::func::FuncOp>(swTask.getKernelFunctionAttr());
@@ -377,13 +378,13 @@ void VPUIP::arch37xx::ClusterNCERewriter::getInputBuffers(
     parentInputSETable = SmallVector<mlir::Value>(numClusters, nceTask.getInputStorageElementTable());
 }
 
-void VPUIP::arch37xx::ClusterNCERewriter::getOutputBuffers(SmallVector<mlir::Value>& parentOutputBuffs,
-                                                           SmallVector<mlir::Value>& outputBuffs,
-                                                           SmallVector<mlir::Value>& parentOutputSparsityMap,
-                                                           SmallVector<mlir::Value>& outputSparsityMapBuffs,
-                                                           SmallVector<SmallVector<mlir::Value>>& /*outputItiBuffs*/,
-                                                           mlir::Location loc, VPUIP::NCEClusterTaskOp nceTask,
-                                                           const int64_t numClusters, mlir::OpBuilder& builder) const {
+void VPUIP::arch37xx::ClusterNCERewriter::getOutputBuffers(
+        SmallVector<mlir::Value>& parentOutputBuffs, SmallVector<mlir::Value>& outputBuffs,
+        SmallVector<mlir::Value>& parentOutputSparsityMap, SmallVector<mlir::Value>& outputSparsityMapBuffs,
+        SmallVector<SmallVector<mlir::Value>>& /*outputItiBuffs*/, SmallVector<mlir::Value>& maxPerXyBuffs,
+        SmallVector<mlir::Value>& minPerXyBuffs, SmallVector<SmallVector<mlir::Value>>& /*minMaxPerTensorBuffs*/,
+        mlir::Location loc, VPUIP::NCEClusterTaskOp nceTask, const int64_t numClusters,
+        mlir::OpBuilder& builder) const {
     auto parentInputType = mlir::cast<vpux::VPUIP::DistributedBufferType>((*nceTask.getInputs().begin()).getType());
     auto parentOutputType = mlir::cast<vpux::VPUIP::DistributedBufferType>((*nceTask.getOutputs().begin()).getType());
 
@@ -414,6 +415,9 @@ void VPUIP::arch37xx::ClusterNCERewriter::getOutputBuffers(SmallVector<mlir::Val
         // for SEG SOK parent output buffers = output buffers
         parentOutputBuffs = outputBuffs;
     }
+
+    maxPerXyBuffs = SmallVector<mlir::Value>(numClusters, nullptr);
+    minPerXyBuffs = SmallVector<mlir::Value>(numClusters, nullptr);
 }
 
 bool VPUIP::arch37xx::ClusterNCERewriter::isSegmentedNCETask(VPUIP::DistributedBufferType inputType) const {

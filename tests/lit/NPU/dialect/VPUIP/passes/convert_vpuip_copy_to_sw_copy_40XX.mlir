@@ -16,8 +16,8 @@
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
 module @VPU.SW {
-    func.func private @builtin_Copy(memref<*xui4, @DDR>, memref<*xui4, @DDR>) attributes {VPU.kernel_code = "copy.cpp", VPU.kernel_entry = "copy", VPU.task_type = @COMPUTE}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_Copy(memref<*xui4, @DDR>, memref<*xui4, @DDR>) attributes {VPU.kernel_code = "copy.cpp", VPU.kernel_entry = "copy", VPU.task_type = @COMPUTE}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
 // CHECK-LABEL: @ConvertVPUIPCopyToSWCopyCaseInputStrided
@@ -58,8 +58,8 @@ func.func @ConvertVPUIPCopyToSWCopyCaseInputStrided(%orig_input: !DDR_u4_full, %
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096]
   module @VPU.SW {
-    func.func private @builtin_Copy(memref<*xui4, @DDR>, memref<*xui4, @DDR>) attributes {VPU.kernel_code = "copy.cpp", VPU.kernel_entry = "copy", VPU.task_type = @COMPUTE}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_Copy(memref<*xui4, @DDR>, memref<*xui4, @DDR>) attributes {VPU.kernel_code = "copy.cpp", VPU.kernel_entry = "copy", VPU.task_type = @COMPUTE}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 
 // CHECK-LABEL: @ConvertVPUIPCopyToSWCopyCaseOutputStrided
@@ -90,4 +90,36 @@ func.func @ConvertVPUIPCopyToSWCopyCaseOutputStrided(%orig_input: !DDR_u4, %orig
 
   // CHECK: [[LAST_COPY:%.+]] = VPUIP.Copy inputs([[BUFFER_3]] : memref<1x2x3x6xui4, @DDR>) outputs([[OUTPUT]] : memref<1x2x3x6xui4, @DDR>) -> memref<1x2x3x6xui4, @DDR>
   // CHECK: return [[LAST_COPY]] : memref<1x2x3x6xui4, @DDR>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!DDR_u4_6 = memref<1x2x3x6xui4, @DDR>
+!DDR_u4_full_12 = memref<1x2x3x12xui4, @DDR>
+!DDR_with_strides_u4_6 = memref<1x2x3x6xui4, {order = #NCHW, strides = [72, 36, 12, 1]}, @DDR>
+
+// CHECK-LABEL: @ConvertVPUIPCopyNotConvertedByteAlignedDims
+// CHECK-SAME:  ([[INPUT:%.+]]: memref<1x2x3x12xui4, @DDR>, [[OUTPUT:%.+]]: memref<1x2x3x6xui4, @DDR>)
+func.func @ConvertVPUIPCopyNotConvertedByteAlignedDims(%orig_input: !DDR_u4_full_12, %orig_output: !DDR_u4_6) -> !DDR_u4_6 {
+    %buffer_0 = VPURT.DeclareBuffer <DDR> <0> -> !DDR_u4_full_12
+    %buffer_1 = VPURT.DeclareBuffer <DDR> <0> -> !DDR_with_strides_u4_6
+    %buffer_2 = VPURT.DeclareBuffer <DDR> <0> -> !DDR_u4_6
+
+    %vpuip_copy_0 = VPUIP.Copy inputs(%orig_input : !DDR_u4_full_12) outputs(%buffer_0 : !DDR_u4_full_12) -> !DDR_u4_full_12
+    %vpuip_copy_1 = VPUIP.Copy inputs(%buffer_1 : !DDR_with_strides_u4_6) outputs(%buffer_2 : !DDR_u4_6) -> !DDR_u4_6
+    %vpuip_copy_2 = VPUIP.Copy inputs(%buffer_2 : !DDR_u4_6) outputs(%orig_output : !DDR_u4_6) -> !DDR_u4_6
+
+    return %vpuip_copy_2 : !DDR_u4_6
+
+  // CHECK: [[BUFFER_0:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<1x2x3x12xui4, @DDR>
+  // CHECK: [[BUFFER_1:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<1x2x3x6xui4, {order = #NCHW, strides = [72, 36, 12, 1]}, @DDR>
+  // CHECK: [[BUFFER_2:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<1x2x3x6xui4, @DDR>
+  // CHECK: VPUIP.Copy inputs([[INPUT]] : memref<1x2x3x12xui4, @DDR>) outputs([[BUFFER_0]] : memref<1x2x3x12xui4, @DDR>)
+  // CHECK-NOT: VPUIP.SW.Kernel
+  // CHECK: VPUIP.Copy inputs([[BUFFER_1]] : memref<1x2x3x6xui4, {order = #NCHW, strides = [72, 36, 12, 1]}, @DDR>) outputs([[BUFFER_2]] : memref<1x2x3x6xui4, @DDR>)
+  // CHECK-NOT: VPUIP.SW.Kernel
+  // CHECK: VPUIP.Copy inputs([[BUFFER_2]] : memref<1x2x3x6xui4, @DDR>) outputs([[OUTPUT]] : memref<1x2x3x6xui4, @DDR>)
+  // CHECK: return
 }

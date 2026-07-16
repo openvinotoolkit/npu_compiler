@@ -16,8 +16,8 @@ module @AsyncRegionOutliningThroughDDR {
   } outputsInfo : {
     DataInfo "output1" : tensor<1x32x256x128xf16>
   }
-  func.func @main(%arg0: memref<1x32x256x256xf16, #NHWC, @DDR>, %arg1: memref<1x32x256x256xf16, #NHWC, @DDR>, %arg2: memref<1x32x256x128xf16, #NHWC, @DDR>) -> memref<1x32x256x128xf16, #NHWC, @DDR> {
-    %alloc = memref.alloc() : memref<1x32x256x256xf16, #NHWC, @DDR>
+  func.func @main(%arg0: memref<1x32x256x256xf16, {order = #NHWC}, @DDR>, %arg1: memref<1x32x256x256xf16, {order = #NHWC}, @DDR>, %arg2: memref<1x32x256x128xf16, {order = #NHWC}, @DDR>) -> memref<1x32x256x128xf16, {order = #NHWC}, @DDR> {
+    %alloc = memref.alloc() : memref<1x32x256x256xf16, {order = #NHWC}, @DDR>
     %0 = VPURT.AllocDistributed -> !DistributedBufferType0
     %1 = VPURT.AllocDistributed -> !DistributedBufferType0
     %2 = VPURT.AllocDistributed -> !DistributedBufferType0
@@ -25,12 +25,12 @@ module @AsyncRegionOutliningThroughDDR {
     %4 = VPURT.AllocDistributed -> !DistributedBufferType1
     // Input DDR -> CMX
     %token, %bodyResults = async.execute -> !async.value<!DistributedBufferType0> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 0 : i64} {
-      %6 = VPUIP.NNDMA inputs(%arg0 : memref<1x32x256x256xf16, #NHWC, @DDR>) outputs(%0 : !DistributedBufferType0) -> !DistributedBufferType0
+      %6 = VPUIP.NNDMA inputs(%arg0 : memref<1x32x256x256xf16, {order = #NHWC}, @DDR>) outputs(%0 : !DistributedBufferType0) -> !DistributedBufferType0
       async.yield %6 : !DistributedBufferType0
     }
     // Input DDR -> CMX
     %token_0, %bodyResults_1 = async.execute -> !async.value<!DistributedBufferType0> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 1 : i64} {
-      %6 = VPUIP.NNDMA inputs(%arg1 : memref<1x32x256x256xf16, #NHWC, @DDR>) outputs(%1 : !DistributedBufferType0) -> !DistributedBufferType0
+      %6 = VPUIP.NNDMA inputs(%arg1 : memref<1x32x256x256xf16, {order = #NHWC}, @DDR>) outputs(%1 : !DistributedBufferType0) -> !DistributedBufferType0
       async.yield %6 : !DistributedBufferType0
     }
     // NCE Op with CMX output
@@ -47,13 +47,13 @@ module @AsyncRegionOutliningThroughDDR {
       async.yield %7 : !DistributedBufferType0
     }
     // NCE output CMX -> DDR
-    %token_4, %bodyResults_5 = async.execute [%token_2] (%bodyResults_3 as %arg3: !async.value<!DistributedBufferType0>) -> !async.value<memref<1x32x256x256xf16, #NHWC, @DDR>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 3 : i64} {
-      %6 = VPUIP.NNDMA inputs(%arg3 : !DistributedBufferType0) outputs(%alloc : memref<1x32x256x256xf16, #NHWC, @DDR>) -> memref<1x32x256x256xf16, #NHWC, @DDR>
-      async.yield %6 : memref<1x32x256x256xf16, #NHWC, @DDR>
+    %token_4, %bodyResults_5 = async.execute [%token_2] (%bodyResults_3 as %arg3: !async.value<!DistributedBufferType0>) -> !async.value<memref<1x32x256x256xf16, {order = #NHWC}, @DDR>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 3 : i64} {
+      %6 = VPUIP.NNDMA inputs(%arg3 : !DistributedBufferType0) outputs(%alloc : memref<1x32x256x256xf16, {order = #NHWC}, @DDR>) -> memref<1x32x256x256xf16, {order = #NHWC}, @DDR>
+      async.yield %6 : memref<1x32x256x256xf16, {order = #NHWC}, @DDR>
     }
     // Input DDR -> CMX
-    %token_6, %bodyResults_7 = async.execute [%token_2, %token_4] (%bodyResults_5 as %arg3: !async.value<memref<1x32x256x256xf16, #NHWC, @DDR>>) -> !async.value<!DistributedBufferType1> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 4 : i64} {
-      %6 = VPUIP.SubView %arg3 [0, 0, 0, 0] [1, 32, 256, 128] : memref<1x32x256x256xf16, #NHWC, @DDR> to memref<1x32x256x128xf16, {order = #NHWC, strides = [2097152, 1, 8192, 32]}, @DDR>
+    %token_6, %bodyResults_7 = async.execute [%token_2, %token_4] (%bodyResults_5 as %arg3: !async.value<memref<1x32x256x256xf16, {order = #NHWC}, @DDR>>) -> !async.value<!DistributedBufferType1> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 4 : i64} {
+      %6 = VPUIP.SubView %arg3 [0, 0, 0, 0] [1, 32, 256, 128] : memref<1x32x256x256xf16, {order = #NHWC}, @DDR> to memref<1x32x256x128xf16, {order = #NHWC, strides = [2097152, 1, 8192, 32]}, @DDR>
       %7 = VPUIP.NNDMA inputs(%6 : memref<1x32x256x128xf16, {order = #NHWC, strides = [2097152, 1, 8192, 32]}, @DDR>) outputs(%3 : !DistributedBufferType1) -> !DistributedBufferType1
       async.yield %7 : !DistributedBufferType1
     }
@@ -70,12 +70,12 @@ module @AsyncRegionOutliningThroughDDR {
       async.yield %6 : !DistributedBufferType1
     }
     // NCE output CMX -> DDR
-    %token_10, %bodyResults_11 = async.execute [%token_8] (%bodyResults_9 as %arg3: !async.value<!DistributedBufferType1>) -> !async.value<memref<1x32x256x128xf16, #NHWC, @DDR>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 6 : i64} {
-      %6 = VPUIP.NNDMA inputs(%arg3 : !DistributedBufferType1) outputs(%arg2 : memref<1x32x256x128xf16, #NHWC, @DDR>) -> memref<1x32x256x128xf16, #NHWC, @DDR>
-      async.yield %6 : memref<1x32x256x128xf16, #NHWC, @DDR>
+    %token_10, %bodyResults_11 = async.execute [%token_8] (%bodyResults_9 as %arg3: !async.value<!DistributedBufferType1>) -> !async.value<memref<1x32x256x128xf16, {order = #NHWC}, @DDR>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 6 : i64} {
+      %6 = VPUIP.NNDMA inputs(%arg3 : !DistributedBufferType1) outputs(%arg2 : memref<1x32x256x128xf16, {order = #NHWC}, @DDR>) -> memref<1x32x256x128xf16, {order = #NHWC}, @DDR>
+      async.yield %6 : memref<1x32x256x128xf16, {order = #NHWC}, @DDR>
     }
-    %5 = async.await %bodyResults_11 : !async.value<memref<1x32x256x128xf16, #NHWC, @DDR>>
-    return %5 : memref<1x32x256x128xf16, #NHWC, @DDR>
+    %5 = async.await %bodyResults_11 : !async.value<memref<1x32x256x128xf16, {order = #NHWC}, @DDR>>
+    return %5 : memref<1x32x256x128xf16, {order = #NHWC}, @DDR>
   }
 
 }
@@ -86,8 +86,8 @@ module @AsyncRegionOutliningThroughDDR {
 //CHECK: DataInfo "input1" : tensor<1x32x256x256xf16>
 //CHECK: DataInfo "output1" : tensor<1x32x256x128xf16>
 
-//CHECK:  func.func private @main_async_region1([[ARG0:%.+]]: memref<1x32x256x256xf16, #NHWC, @DDR>, [[ARG1:%.+]]: memref<1x32x256x256xf16, #NHWC, @DDR>, [[ARG2:%.+]]: memref<1x32x256x256xf16, #NHWC, @DDR>) -> memref<1x32x256x256xf16, #NHWC, @DDR> {
-//CHECK:     [[func_output_buffer:%.+]] = memref.alloc() : memref<1x32x256x256xf16, #NHWC, @DDR>
+//CHECK:  func.func nested @main_async_region1([[ARG0:%.+]]: memref<1x32x256x256xf16, {order = #NHWC}, @DDR>, [[ARG1:%.+]]: memref<1x32x256x256xf16, {order = #NHWC}, @DDR>, [[ARG2:%.+]]: memref<1x32x256x256xf16, {order = #NHWC}, @DDR>) -> memref<1x32x256x256xf16, {order = #NHWC}, @DDR> {
+//CHECK:     [[func_output_buffer:%.+]] = memref.alloc() : memref<1x32x256x256xf16, {order = #NHWC}, @DDR>
 //CHECK:     [[input_buffer_0:%.+]] = VPURT.AllocDistributed
 //CHECK:     [[input_buffer_1:%.+]] = VPURT.AllocDistributed
 //CHECK:     [[output_buffer:%.+]] = VPURT.AllocDistributed
@@ -133,14 +133,14 @@ module @AsyncRegionOutliningThroughDDR {
 //CHECK:       async.yield [[NNDMA]]
 //CHECK:     }
 
-//CHECK:     [[func_output:%.+]] = async.await [[bodyResults_7]] : !async.value<memref<1x32x256x256xf16, #NHWC, @DDR>>
+//CHECK:     [[func_output:%.+]] = async.await [[bodyResults_7]] : !async.value<memref<1x32x256x256xf16, {order = #NHWC}, @DDR>>
 //CHECK:     return [[func_output]]
 
-//CHECK:   func.func private @main_async_region2([[ARG0:%.+]]: memref<1x32x256x256xf16, #NHWC, @DDR>, [[ARG1:%.+]]: memref<1x32x256x128xf16, #NHWC, @DDR>)
-//CHECK-SAME:   -> memref<1x32x256x128xf16, #NHWC, @DDR> {
+//CHECK:   func.func nested @main_async_region2([[ARG0:%.+]]: memref<1x32x256x256xf16, {order = #NHWC}, @DDR>, [[ARG1:%.+]]: memref<1x32x256x128xf16, {order = #NHWC}, @DDR>)
+//CHECK-SAME:   -> memref<1x32x256x128xf16, {order = #NHWC}, @DDR> {
 //CHECK:     [[NCE_INPUT:%.+]] = VPURT.AllocDistributed
 //CHECK:     [[NCE_OUTPUT_CMX:%.+]] = VPURT.AllocDistributed
-//CHECK:     [[NCE_OUTPUT_DDR:%.+]] = memref.alloc() : memref<1x32x256x128xf16, #NHWC, @DDR>
+//CHECK:     [[NCE_OUTPUT_DDR:%.+]] = memref.alloc() : memref<1x32x256x128xf16, {order = #NHWC}, @DDR>
 
 //CHECK:     [[token:%.+]], [[bodyResults:%.+]] = async.execute
 //CHECK:       [[SUBVIEW:%.+]] = VPUIP.SubView [[ARG0]] [0, 0, 0, 0] [1, 32, 256, 128]
@@ -176,21 +176,21 @@ module @AsyncRegionOutliningThroughDDR {
 //CHECK:     [[func_output:%.+]] = async.await [[bodyResults_5]]
 //CHECK:     return [[func_output]]
 
-//CHECK:  func.func @main([[ARG0:%.+]]: memref<1x32x256x256xf16, #NHWC, @DDR>, [[ARG1:%.+]]: memref<1x32x256x256xf16, #NHWC, @DDR>, [[ARG2:%.+]]: memref<1x32x256x128xf16, #NHWC, @DDR>) -> memref<1x32x256x128xf16, #NHWC, @DDR> {
-//CHECK:    [[FUNC1_OUTPUT_BUFFER:%.+]] = memref.alloc() : memref<1x32x256x256xf16, #NHWC, @DDR>
-//CHECK:    [[FUNC2_OUTPUT_BUFFER:%.+]] = memref.alloc() : memref<1x32x256x128xf16, #NHWC, @DDR>
+//CHECK:  func.func @main([[ARG0:%.+]]: memref<1x32x256x256xf16, {order = #NHWC}, @DDR>, [[ARG1:%.+]]: memref<1x32x256x256xf16, {order = #NHWC}, @DDR>, [[ARG2:%.+]]: memref<1x32x256x128xf16, {order = #NHWC}, @DDR>) -> memref<1x32x256x128xf16, {order = #NHWC}, @DDR> {
+//CHECK:    [[FUNC1_OUTPUT_BUFFER:%.+]] = memref.alloc() : memref<1x32x256x256xf16, {order = #NHWC}, @DDR>
+//CHECK:    [[FUNC2_OUTPUT_BUFFER:%.+]] = memref.alloc() : memref<1x32x256x128xf16, {order = #NHWC}, @DDR>
 //CHECK:    [[SPILL_READ_DMA:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x32x256x128xf16, #NHWC, @CMX_NN
-//CHECK:    [[token:%.+]], [[bodyResults:%.+]] = async.execute -> !async.value<memref<1x32x256x256xf16, #NHWC, @DDR>> attributes {VPUIP.executor = @NCE, "async-deps-index" = 0 : i64} {
-//CHECK:      [[FUNC_RES:%.+]] = func.call @main_async_region1([[ARG0]], [[ARG1]], [[FUNC1_OUTPUT_BUFFER]]) : (memref<1x32x256x256xf16, #NHWC, @DDR>, memref<1x32x256x256xf16, #NHWC, @DDR>, memref<1x32x256x256xf16, #NHWC, @DDR>) -> memref<1x32x256x256xf16, #NHWC, @DDR>
-//CHECK:      async.yield [[FUNC_RES]] : memref<1x32x256x256xf16, #NHWC, @DDR>
+//CHECK:    [[token:%.+]], [[bodyResults:%.+]] = async.execute -> !async.value<memref<1x32x256x256xf16, {order = #NHWC}, @DDR>> attributes {VPUIP.executor = @NCE, "async-deps-index" = 0 : i64} {
+//CHECK:      [[FUNC_RES:%.+]] = func.call @main_async_region1([[ARG0]], [[ARG1]], [[FUNC1_OUTPUT_BUFFER]]) : (memref<1x32x256x256xf16, {order = #NHWC}, @DDR>, memref<1x32x256x256xf16, {order = #NHWC}, @DDR>, memref<1x32x256x256xf16, {order = #NHWC}, @DDR>) -> memref<1x32x256x256xf16, {order = #NHWC}, @DDR>
+//CHECK:      async.yield [[FUNC_RES]] : memref<1x32x256x256xf16, {order = #NHWC}, @DDR>
 //CHECK:    }
 
-//CHECK:    [[token_1:%.+]], [[bodyResults_2:%.+]] = async.execute [[[token]]] ([[bodyResults]] as [[ARG3:%[^:]+]]: !async.value<memref<1x32x256x256xf16, #NHWC, @DDR>>) -> !async.value<memref<1x32x256x128xf16, #NHWC, @DDR>>
+//CHECK:    [[token_1:%.+]], [[bodyResults_2:%.+]] = async.execute [[[token]]] ([[bodyResults]] as [[ARG3:%[^:]+]]: !async.value<memref<1x32x256x256xf16, {order = #NHWC}, @DDR>>) -> !async.value<memref<1x32x256x128xf16, {order = #NHWC}, @DDR>>
 //CHECK-SAME:     attributes {VPUIP.executor = @NCE, "async-deps-index" = 1 : i64} {
-//CHECK:      [[FUNC_RES:%.+]] = func.call @main_async_region2([[ARG3]], [[FUNC2_OUTPUT_BUFFER]]) : (memref<1x32x256x256xf16, #NHWC, @DDR>, memref<1x32x256x128xf16, #NHWC, @DDR>) -> memref<1x32x256x128xf16, #NHWC, @DDR>
-//CHECK:      async.yield [[FUNC_RES]] : memref<1x32x256x128xf16, #NHWC, @DDR>
+//CHECK:      [[FUNC_RES:%.+]] = func.call @main_async_region2([[ARG3]], [[FUNC2_OUTPUT_BUFFER]]) : (memref<1x32x256x256xf16, {order = #NHWC}, @DDR>, memref<1x32x256x128xf16, {order = #NHWC}, @DDR>) -> memref<1x32x256x128xf16, {order = #NHWC}, @DDR>
+//CHECK:      async.yield [[FUNC_RES]] : memref<1x32x256x128xf16, {order = #NHWC}, @DDR>
 //CHECK:    }
-//CHECK:   [[token_3:%.+]], [[bodyResults_4:%.+]] = async.execute [[[token_1]]] ([[bodyResults_2]] as [[ARG3:%[^:]+]]: !async.value<memref<1x32x256x128xf16, #NHWC, @DDR>>) -> !async.value<!VPUIP.DistributedBuffer<1x32x256x128xf16, #NHWC, @CMX_NN
+//CHECK:   [[token_3:%.+]], [[bodyResults_4:%.+]] = async.execute [[[token_1]]] ([[bodyResults_2]] as [[ARG3:%[^:]+]]: !async.value<memref<1x32x256x128xf16, {order = #NHWC}, @DDR>>) -> !async.value<!VPUIP.DistributedBuffer<1x32x256x128xf16, #NHWC, @CMX_NN
 //CHECK:      [[NNDMA:%.+]] = VPUIP.NNDMA
 //CHECK-SAME:                  inputs([[ARG3]]
 //CHECK-SAME:                  outputs([[SPILL_READ_DMA]]
@@ -200,11 +200,11 @@ module @AsyncRegionOutliningThroughDDR {
 //CHECK:      [[NNDMA:%.+]] = VPUIP.NNDMA
 //CHECK-SAME:                  inputs([[ARG3]]
 //CHECK-SAME:                  outputs([[ARG2]]
-//CHECK:      async.yield [[NNDMA]] : memref<1x32x256x128xf16, #NHWC, @DDR>
+//CHECK:      async.yield [[NNDMA]] : memref<1x32x256x128xf16, {order = #NHWC}, @DDR>
 //CHECK:    }
 
-//CHECK:    [[FUNC_OUTPUT:%.+]] = async.await [[bodyResults_6]] : !async.value<memref<1x32x256x128xf16, #NHWC, @DDR>>
-//CHECK:    return [[FUNC_OUTPUT]] : memref<1x32x256x128xf16, #NHWC, @DDR>
+//CHECK:    [[FUNC_OUTPUT:%.+]] = async.await [[bodyResults_6]] : !async.value<memref<1x32x256x128xf16, {order = #NHWC}, @DDR>>
+//CHECK:    return [[FUNC_OUTPUT]] : memref<1x32x256x128xf16, {order = #NHWC}, @DDR>
 //CHECK:  }
 
 // -----
@@ -217,13 +217,13 @@ module @DoNotSplitDueToLessOpsThanMinOpsInBlock {
   } outputsInfo : {
     DataInfo "output" : tensor<1x32x256x256xf16>
   }
-  func.func @main(%arg0: memref<1x32x256x256xf16, #NHWC, @DDR>, %arg1: memref<1x32x256x256xf16, #NHWC, @DDR>) -> memref<1x32x256x256xf16, #NHWC, @DDR> {
-    %token, %bodyResults = async.execute -> !async.value<memref<1x32x256x256xf16, #NHWC, @DDR>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 0 : i64} {
-      %6 = VPUIP.NNDMA inputs(%arg0 : memref<1x32x256x256xf16, #NHWC, @DDR>) outputs(%arg1 : memref<1x32x256x256xf16, #NHWC, @DDR>) -> memref<1x32x256x256xf16, #NHWC, @DDR>
-      async.yield %6 : memref<1x32x256x256xf16, #NHWC, @DDR>
+  func.func @main(%arg0: memref<1x32x256x256xf16, {order = #NHWC}, @DDR>, %arg1: memref<1x32x256x256xf16, {order = #NHWC}, @DDR>) -> memref<1x32x256x256xf16, {order = #NHWC}, @DDR> {
+    %token, %bodyResults = async.execute -> !async.value<memref<1x32x256x256xf16, {order = #NHWC}, @DDR>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 0 : i64} {
+      %6 = VPUIP.NNDMA inputs(%arg0 : memref<1x32x256x256xf16, {order = #NHWC}, @DDR>) outputs(%arg1 : memref<1x32x256x256xf16, {order = #NHWC}, @DDR>) -> memref<1x32x256x256xf16, {order = #NHWC}, @DDR>
+      async.yield %6 : memref<1x32x256x256xf16, {order = #NHWC}, @DDR>
     }
-    %0 = async.await %bodyResults : !async.value<memref<1x32x256x256xf16, #NHWC, @DDR>>
-    return %0 : memref<1x32x256x256xf16, #NHWC, @DDR>
+    %0 = async.await %bodyResults : !async.value<memref<1x32x256x256xf16, {order = #NHWC}, @DDR>>
+    return %0 : memref<1x32x256x256xf16, {order = #NHWC}, @DDR>
   }
 }
 
@@ -232,8 +232,8 @@ module @DoNotSplitDueToLessOpsThanMinOpsInBlock {
 //CHECK: DataInfo "input" : tensor<1x32x256x256xf16>
 //CHECK: DataInfo "output" : tensor<1x32x256x256xf16>
 
-//CHECK-NOT: func.func private @main_async_region
+//CHECK-NOT: func.func nested @main_async_region
 
-//CHECK: func.func @main([[ARG0:%.+]]: memref<1x32x256x256xf16, #NHWC, @DDR>, [[ARG1:%.+]]: memref<1x32x256x256xf16, #NHWC, @DDR>) -> memref<1x32x256x256xf16, #NHWC, @DDR> {
+//CHECK: func.func @main([[ARG0:%.+]]: memref<1x32x256x256xf16, {order = #NHWC}, @DDR>, [[ARG1:%.+]]: memref<1x32x256x256xf16, {order = #NHWC}, @DDR>) -> memref<1x32x256x256xf16, {order = #NHWC}, @DDR> {
 //CHECK-NOT: func.call @main_async_region
 //CHECK: return

@@ -60,27 +60,6 @@ private:
     Logger _log;
 };
 
-// Allocate coordinate and lambda buffers for InterpolateDMA.
-// The SHAVE kernel computes actual coordinate values at runtime from scales.
-// This pass pre-allocates zero-filled buffers sized to the upper-bound output shape.
-class AllocateSAPCoordinateBuffers final : public mlir::OpRewritePattern<VPU::InterpolateDMAOp> {
-public:
-    AllocateSAPCoordinateBuffers(mlir::MLIRContext* ctx, Logger log)
-            : mlir::OpRewritePattern<VPU::InterpolateDMAOp>(ctx), _log(std::move(log)) {
-        setDebugName("AllocateSAPCoordinateBuffers");
-    }
-
-public:
-    mlir::LogicalResult matchAndRewrite(VPU::InterpolateDMAOp sapOp, mlir::PatternRewriter& rewriter) const final;
-
-private:
-    template <typename ValueType>
-    mlir::Value createConstBuffer(VPU::InterpolateDMAOp sapOp, mlir::PatternRewriter& rewriter, mlir::Location loc,
-                                  mlir::RankedTensorType type, ArrayRef<ValueType> values) const;
-
-    Logger _log;
-};
-
 const float ZERO_FIVE = 0.5;
 
 float mapCoordHalfPixel(int x, float scale, int64_t, int64_t) {
@@ -209,8 +188,28 @@ mlir::LogicalResult ComputeInterpolateCoordinates::matchAndRewrite(VPU::Interpol
     const auto innermostAxisInitialOutputDim = initialOutputShape[innermostAxis];
     const auto innermostAxisInputOffset = checked_cast<float>(initialInputOffset[innermostAxis]);
     const auto innermostAxisOutputOffset = checked_cast<int>(initialOutputOffset[innermostAxis]);
-    const auto scale =
-            static_cast<float>(innermostAxisInitialOutputDim) / static_cast<float>(innermostAxisInitialInputDim);
+    // Detect SCF/VF tiling by comparing initial_input_dims_attr against actual tensor shape.
+    // When tiling splits the op, initial dims differ from actual (tile) shape and scales_attr
+    // holds tile-local ratio (wrong); use global dims ratio. When no tiling occurred,
+    // initial dims == actual shape and scales_attr holds the user-specified scale (authoritative).
+    const bool isTiled = (initialInputShape != to_small_vector(inShape));
+    float scale;
+    const auto calcMode = interpolateAttr.getShapeCalcMode();
+    const auto scalesResult = IE::extractFPVector(loc, interpolateOp.getScales(), interpolateOp.getScalesAttrAttr());
+    if (!isTiled && calcMode != nullptr && calcMode.getValue() == IE::InterpolateCalcMode::SCALES &&
+        mlir::succeeded(scalesResult)) {
+        const auto& axes = axesResult.value();
+        size_t axisIdx = 0;
+        for (size_t i = 0; i < axes.size(); i++) {
+            if (axes[i] == innermostAxis) {
+                axisIdx = i;
+                break;
+            }
+        }
+        scale = static_cast<float>(scalesResult.value()[axisIdx]);
+    } else {
+        scale = static_cast<float>(innermostAxisInitialOutputDim) / static_cast<float>(innermostAxisInitialInputDim);
+    }
 
     const auto coordinatesSize = IE::getInterpCoordinatesSize(interpolateOp.getOutput(), innermostAxis);
     const auto lambdasSize = IE::getInterpLambdasSize(interpolateOp.getOutput(), innermostAxis);
@@ -256,59 +255,6 @@ mlir::LogicalResult ComputeInterpolateCoordinates::matchAndRewrite(VPU::Interpol
     return mlir::success();
 }
 
-template <typename ValueType>
-mlir::Value AllocateSAPCoordinateBuffers::createConstBuffer(VPU::InterpolateDMAOp /*sapOp*/,
-                                                            mlir::PatternRewriter& rewriter, mlir::Location loc,
-                                                            mlir::RankedTensorType type,
-                                                            ArrayRef<ValueType> values) const {
-    return Const::createConst(rewriter, loc, type, values);
-}
-
-mlir::LogicalResult AllocateSAPCoordinateBuffers::matchAndRewrite(VPU::InterpolateDMAOp sapOp,
-                                                                  mlir::PatternRewriter& rewriter) const {
-    if (sapOp.getCoordinates() != nullptr && sapOp.getLambdas() != nullptr) {
-        return mlir::failure();
-    }
-
-    const auto interpolateMode = sapOp.getAttr().getMode().getValue();
-    if (interpolateMode != IE::InterpolateMode::LINEAR && interpolateMode != IE::InterpolateMode::LINEAR_ONNX) {
-        return mlir::failure();
-    }
-
-    const auto loc = sapOp.getLoc();
-    const auto ctx = sapOp.getContext();
-
-    // Upper-bound output shape resolves dynamic dims to their bounds
-    const auto outBoundedShape = getBoundedShape(sapOp.getOutput());
-    const auto axesVal = parseIntArrayAttr<int64_t>(sapOp.getAxesAttrAttr());
-
-    VPUX_THROW_WHEN(axesVal.size() < 2, "InterpolateDMA requires at least 2 axes, got {0}", axesVal.size());
-
-    const int64_t maxDimH = outBoundedShape[Dim(axesVal[axesVal.size() - 2])];
-    const int64_t maxDimW = outBoundedShape[Dim(axesVal[axesVal.size() - 1])];
-
-    // SHAVE kernel buffer layout: coordsH[OH] ++ coordsW[OW], lambdasH[OH*2] ++ lambdasW[OW*2]
-    const int64_t coordsSize = maxDimH + maxDimW;
-    const int64_t lambdasSize = coordsSize * 2;
-
-    // Zero-filled buffers; the SHAVE kernel overwrites them at runtime
-    std::vector<int32_t> coordsVec(coordsSize, 0);
-    std::vector<type::float16> lambdasVec(lambdasSize, type::float16(0.0f));
-
-    const auto coordsConstType = mlir::RankedTensorType::get({1, 1, 1, coordsSize}, getSInt32Type(ctx));
-    const auto coordsConst = createConstBuffer(sapOp, rewriter, loc, coordsConstType, ArrayRef(coordsVec));
-
-    const auto lambdasConstType = mlir::RankedTensorType::get({1, 1, 1, lambdasSize}, mlir::Float16Type::get(ctx));
-    const auto lambdasConst = createConstBuffer(sapOp, rewriter, loc, lambdasConstType, ArrayRef(lambdasVec));
-
-    rewriter.modifyOpInPlace(sapOp, [&] {
-        sapOp.getCoordinatesMutable().assign(coordsConst);
-        sapOp.getLambdasMutable().assign(lambdasConst);
-    });
-
-    return mlir::success();
-}
-
 class ComputeInterpolateCoordinatesPass final :
         public VPU::impl::ComputeInterpolateCoordinatesBase<ComputeInterpolateCoordinatesPass> {
 public:
@@ -342,7 +288,6 @@ void ComputeInterpolateCoordinatesPass::safeRunOnFunc() {
 
     mlir::RewritePatternSet greedyPatterns(&ctx);
     greedyPatterns.add<ComputeInterpolateCoordinates>(&ctx, _enableExplicitDistributionInfoAttr, _log);
-    greedyPatterns.add<AllocateSAPCoordinateBuffers>(&ctx, _log);
     collectOpsAndApplyPatterns(func, std::move(greedyPatterns));
 }
 

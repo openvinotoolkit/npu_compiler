@@ -9,7 +9,7 @@
 #include <memory>
 
 namespace vpux::config {
-enum class ArchKind : uint64_t;
+enum class Platform : uint64_t;
 }
 
 namespace vpux {
@@ -29,6 +29,6 @@ public:
 // createPipelineRegistry
 //
 
-std::unique_ptr<IPipelineRegistry> createPipelineRegistry(config::ArchKind archKind);
+std::unique_ptr<IPipelineRegistry> createPipelineRegistry(config::Platform platform);
 
 }  // namespace vpux

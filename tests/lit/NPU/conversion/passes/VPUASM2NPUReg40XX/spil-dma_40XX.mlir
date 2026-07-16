@@ -17,10 +17,10 @@ module @OneDMAWithoutAttributes attributes {config.platform = #config.platform<N
     DataInfo "output_1" : tensor<33312xf16>
   }
   VPUASM.InputBindings inputDeclarations : {
-    VPUASM.DeclareBuffer @input_0_buffDecl !VPUASM.Buffer< "NetworkInput"[0] <0> : memref<1x16x32x32xf16, #NHWC, @DDR> :  swizzling(0)>
+    VPUASM.DeclareBuffer @input_0_buffDecl !VPUASM.Buffer< "NetworkInput"[0] <0> : memref<1x16x32x32xf16, {order = #NHWC}, @DDR> :  swizzling(0)>
   }
   VPUASM.OutputBindings outputDeclarations : {
-    VPUASM.DeclareBuffer @output_0_buffDecl !VPUASM.Buffer< "NetworkOutput"[0] <0> : memref<1x16x32x32xf16, #NHWC, @DDR> :  swizzling(0)>
+    VPUASM.DeclareBuffer @output_0_buffDecl !VPUASM.Buffer< "NetworkOutput"[0] <0> : memref<1x16x32x32xf16, {order = #NHWC}, @DDR> :  swizzling(0)>
     VPUASM.DeclareBuffer @output_1_buffDecl !VPUASM.Buffer< "NetworkOutput"[1] <0> : memref<33312xf16, @DDR> :  swizzling(0)>
   }
   VPUASM.ProfilingBindings profilingDeclarations : {
@@ -28,10 +28,10 @@ module @OneDMAWithoutAttributes attributes {config.platform = #config.platform<N
   func.func @main() {
     ELF.Main {
       ELF.CreateLogicalSection @io.NetworkInput0 aligned(1) secType(SHT_NOBITS) secFlags(VPU_SHF_USERINPUT) secLocation(<NetworkInput>) {
-        VPUASM.DeclareBuffer @DeclareBuffer0 !VPUASM.Buffer< "NetworkInput"[0] <0> : memref<1x16x32x32xf16, #NHWC, @DDR> :  swizzling(0)>
+        VPUASM.DeclareBuffer @DeclareBuffer0 !VPUASM.Buffer< "NetworkInput"[0] <0> : memref<1x16x32x32xf16, {order = #NHWC}, @DDR> :  swizzling(0)>
       }
       ELF.CreateLogicalSection @io.NetworkOutput0 aligned(1) secType(SHT_NOBITS) secFlags(VPU_SHF_USEROUTPUT) secLocation(<NetworkOutput>) {
-        VPUASM.DeclareBuffer @DeclareBuffer1 !VPUASM.Buffer< "NetworkOutput"[0] <0> : memref<1x16x32x32xf16, #NHWC, @DDR> :  swizzling(0)>
+        VPUASM.DeclareBuffer @DeclareBuffer1 !VPUASM.Buffer< "NetworkOutput"[0] <0> : memref<1x16x32x32xf16, {order = #NHWC}, @DDR> :  swizzling(0)>
       }
       ELF.CreateLogicalSection @io.NetworkOutput1 aligned(1) secType(SHT_NOBITS) secFlags(VPU_SHF_USEROUTPUT) secLocation(<NetworkOutput>) {
         VPUASM.DeclareBuffer @DeclareBuffer2 !VPUASM.Buffer< "NetworkOutput"[1] <0> : memref<33312xf16, @DDR> :  swizzling(0)>
@@ -45,9 +45,9 @@ module @OneDMAWithoutAttributes attributes {config.platform = #config.platform<N
         VPUASM.DeclareTaskBuffer @DeclareTaskBuffer_DMA_0_1_1 idx(!VPURegMapped.Index<0:1:1>) <DMA> {elfMemOffsetAttrKey = 224 : ui64}
       }
       ELF.CreateLogicalSection @buffer.CMX_NN.0 aligned(64) secType(SHT_PROGBITS) secFlags("SHF_NONE") secLocation(<CMX_NN>) {
-        VPUASM.DeclareBuffer @DeclareBuffer3 !VPUASM.Buffer< "CMX_NN"[0] <0> : memref<1x16x32x32xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
+        VPUASM.DeclareBuffer @DeclareBuffer3 !VPUASM.Buffer< "CMX_NN"[0] <0> : memref<1x16x32x32xf16, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
         VPUASM.DeclareBuffer @DeclareBuffer4 !VPUASM.Buffer< "CMX_NN"[0] <1474528> : memref<32xui8, [@CMX_NN, 0]> :  swizzling(0)>
-        VPUASM.DeclareBuffer @DeclareBuffer5 !VPUASM.Buffer< "CMX_NN"[0] <32768> : memref<1x16x32x32xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
+        VPUASM.DeclareBuffer @DeclareBuffer5 !VPUASM.Buffer< "CMX_NN"[0] <32768> : memref<1x16x32x32xf16, {order = #NHWC}, [@CMX_NN, 0]> :  swizzling(0)>
       }
       ELF.CreateSection @program.barrier aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
         VPUASM.ConfigureBarrier @ConfigureBarrier0 idx(!VPURegMapped.Index<0:0:0>) (0) => (-1) counts(1 : 1) {elfMemOffsetAttrKey = 0 : ui64}
@@ -57,7 +57,7 @@ module @OneDMAWithoutAttributes attributes {config.platform = #config.platform<N
       ELF.CreateSection @task.dma.0.0 aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
         VPUASM.NNDMA @NNDMA_0_0_0 idx(!VPURegMapped.Index<0:0:0>) taskLocation(@program.DMA.cmx.0.0::@DeclareTaskBuffer_DMA_0_0_0) links(@program.DMA.cmx.0.0::@DeclareTaskBuffer_DMA_0_0_1)
           input(@io.NetworkInput0::@DeclareBuffer0) outputs([@buffer.CMX_NN.0::@DeclareBuffer3])
-          waits([]) updates([0 : ui8]) start_after(1) clean_after(0)
+          waits([]) updates([0 : ui16]) start_after(1) clean_after(0)
           dma_descriptor(#VPUIP.DMADescriptorAttr<numPlanes = 0 : i4, len = 0 : i4, srcWidth = 0 : i4, srcStride = 0 : i4, srcPlaneStride = 0 : i4, dstWidth = 0 : i4, dstStride = 0 : i4, dstPlaneStride = 0 : i4>)
           acceleration_mode(<DISABLE>) {elfMemOffsetAttrKey = 0 : ui64}
         // CHECK-NOT:   VPUASM.NNDMA
@@ -66,7 +66,7 @@ module @OneDMAWithoutAttributes attributes {config.platform = #config.platform<N
 
         VPUASM.NNDMA @NNDMA_0_0_1 idx(!VPURegMapped.Index<0:0:1>) taskLocation(@program.DMA.cmx.0.0::@DeclareTaskBuffer_DMA_0_0_1)
           input(@io.NetworkOutput1::@DeclareBuffer2) outputs([@buffer.CMX_NN.0::@DeclareBuffer5])
-          waits([1 : ui8]) updates([2 : ui8]) start_after(3) clean_after(0)
+          waits([1 : ui16]) updates([2 : ui16]) start_after(3) clean_after(0)
           dma_descriptor(#VPUIP.DMADescriptorAttr<numPlanes = 0 : i4, len = 0 : i4, srcWidth = 0 : i4, srcStride = 0 : i4, srcPlaneStride = 0 : i4, dstWidth = 0 : i4, dstStride = 0 : i4, dstPlaneStride = 0 : i4>)
           acceleration_mode(<DECOMPRESSION>) act_compression_size_entry(@buffer.CMX_NN.0::@DeclareBuffer4)
           {elfMemOffsetAttrKey = 224 : ui64}
@@ -81,7 +81,7 @@ module @OneDMAWithoutAttributes attributes {config.platform = #config.platform<N
       ELF.CreateSection @task.dma.0.1 aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
         VPUASM.NNDMA @NNDMA_0_1_0 idx(!VPURegMapped.Index<0:1:0>) taskLocation(@program.DMA.cmx.0.1::@DeclareTaskBuffer_DMA_0_1_0) links(@program.DMA.cmx.0.1::@DeclareTaskBuffer_DMA_0_1_1)
           input(@buffer.CMX_NN.0::@DeclareBuffer3) outputs([@io.NetworkOutput1::@DeclareBuffer2])
-          waits([0 : ui8]) updates([1 : ui8]) start_after(2)  clean_after(0)
+          waits([0 : ui16]) updates([1 : ui16]) start_after(2)  clean_after(0)
           dma_descriptor(#VPUIP.DMADescriptorAttr<numPlanes = 0 : i4, len = 0 : i4, srcWidth = 0 : i4, srcStride = 0 : i4, srcPlaneStride = 0 : i4, dstWidth = 0 : i4, dstStride = 0 : i4, dstPlaneStride = 0 : i4>)
           acceleration_mode(<COMPRESSION>) act_compression_size_entry(@buffer.CMX_NN.0::@DeclareBuffer4)
           {elfMemOffsetAttrKey = 0 : ui64}
@@ -95,7 +95,7 @@ module @OneDMAWithoutAttributes attributes {config.platform = #config.platform<N
 
         VPUASM.NNDMA @NNDMA_0_1_1 idx(!VPURegMapped.Index<0:1:1>) taskLocation(@program.DMA.cmx.0.1::@DeclareTaskBuffer_DMA_0_1_1)
           input(@buffer.CMX_NN.0::@DeclareBuffer5) outputs([@io.NetworkOutput0::@DeclareBuffer1])
-          waits([2 : ui8]) updates([]) start_after(3) clean_after(0)
+          waits([2 : ui16]) updates([]) start_after(3) clean_after(0)
           dma_descriptor(#VPUIP.DMADescriptorAttr<numPlanes = 0 : i4, len = 0 : i4, srcWidth = 0 : i4, srcStride = 0 : i4, srcPlaneStride = 0 : i4, dstWidth = 0 : i4, dstStride = 0 : i4, dstPlaneStride = 0 : i4>)
           acceleration_mode(<DISABLE>) {elfMemOffsetAttrKey = 224 : ui64}
         // CHECK-NOT:   VPUASM.NNDMA

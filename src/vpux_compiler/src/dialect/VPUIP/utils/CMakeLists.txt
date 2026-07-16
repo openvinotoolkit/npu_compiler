@@ -30,7 +30,8 @@ add_npu_library(${TARGET_NAME}
         npu_compiler_dialect_ie
         npu_compiler_dialect_ie_utils
         npu_compiler_dialect_net
-        npu_compiler_dialect_vpu_transforms
+        npu_compiler_dialect_vpu_interfaces
+        npu_compiler_dialect_shave
 )
 
 ov_add_version_defines(${VPUX_COMPILER_VERSION_FILE} ${TARGET_NAME})

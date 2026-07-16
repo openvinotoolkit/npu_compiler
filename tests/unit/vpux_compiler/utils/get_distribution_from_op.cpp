@@ -21,6 +21,7 @@
 
 #include "common/utils.hpp"
 
+#include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/MLIRContext.h>
 #include <mlir/Parser/Parser.h>
 #include <mlir/Pass/PassManager.h>
@@ -71,11 +72,11 @@ TEST_F(MLIR_GetDistributedTypeFromOpSOKAlignmentTest, SWOpSOKAlignmentDuringTili
                 %cst1 = const.Declare tensor<144x1x1x4xsi32> = dense<1> : tensor<144x1x1x4xsi32>
                 %cst2 = const.Declare tensor<144x16x1x1xf16, {order = #NHWC}>
                    = dense<1.0> : tensor<144x16x1x1xf16, {order = #NHWC}>
-                %0 = VPU.NCE.Convolution(%arg0, %cst0, %cst1) {
+                %0 = VPU.NCE.Convolution(%arg0, %cst0, %cst1) rawFilterShape [144, 144, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    rawFilterShape = [144, 144, 1, 1],
+
                     strides = [1, 1]}
                         : tensor<1x144x16x16xf16, {order = #NHWC}>, tensor<144x144x1x1xf16, {order = #NHWC}>, tensor<144x1x1x4xsi32> -> tensor<1x144x16x16xf16, {order = #NHWC}>
                 %1 = VPU.MVN(%0) {
@@ -84,11 +85,11 @@ TEST_F(MLIR_GetDistributedTypeFromOpSOKAlignmentTest, SWOpSOKAlignmentDuringTili
                     normalize_variance = true}
                         : tensor<1x144x16x16xf16, {order = #NHWC}>
                         -> tensor<1x144x16x16xf16, {order = #NHWC}>
-                %2 = VPU.NCE.DepthConvolution(%1, %cst2, %cst1) {
+                %2 = VPU.NCE.DepthConvolution(%1, %cst2, %cst1) rawFilterShape [144, 1, 1, 1] {
                     multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    rawFilterShape = [144, 1, 1, 1],
+
                     strides = [1, 1]}
                         -> tensor<1x144x16x16xf16, {order = #NHWC}>
                 return %2 : tensor<1x144x16x16xf16, {order = #NHWC}>
@@ -198,11 +199,11 @@ TEST_F(MLIR_GetDistributedTypeFromOpSOKAlignmentTest, SWOpSOKAlignmentAfterSlice
                 %cst0 = const.Declare tensor<128x128x1x1xf16, {order = #NHWC}>
                    = dense<1.0> : tensor<128x128x1x1xf16, {order = #NHWC}>
                 %cst1 = const.Declare tensor<128x1x1x4xsi32> = dense<1> : tensor<128x1x1x4xsi32>
-                %0 = VPU.NCE.Convolution(%arg0, %cst0, %cst1) {
+                %0 = VPU.NCE.Convolution(%arg0, %cst0, %cst1) rawFilterShape [128, 128, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    rawFilterShape = [128, 128, 1, 1],
+
                     strides = [1, 1]}
                         : tensor<1x128x16x16xf16, {order = #NHWC}>, tensor<128x128x1x1xf16, {order = #NHWC}>, tensor<128x1x1x4xsi32> -> tensor<1x128x16x16xf16, {order = #NHWC}>
                 %1 = VPU.Slice %0 [0, 0, 0, 0] [1, 64, 16, 16]
@@ -272,11 +273,11 @@ TEST_F(MLIR_GetDistributedTypeFromOpSOKAlignmentTest, SWOpSOKAlignmentAfterSlice
                 %cst0 = const.Declare tensor<160x160x1x1xf16, {order = #NHWC}>
                    = dense<1.0> : tensor<160x160x1x1xf16, {order = #NHWC}>
                 %cst1 = const.Declare tensor<160x1x1x4xsi32> = dense<1> : tensor<160x1x1x4xsi32>
-                %0 = VPU.NCE.Convolution(%arg0, %cst0, %cst1) {
+                %0 = VPU.NCE.Convolution(%arg0, %cst0, %cst1) rawFilterShape [160, 160, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    rawFilterShape = [160, 160, 1, 1],
+
                     strides = [1, 1]}
                         : tensor<1x160x16x16xf16, {order = #NHWC}>, tensor<160x160x1x1xf16, {order = #NHWC}>, tensor<160x1x1x4xsi32> -> tensor<1x160x16x16xf16, {order = #NHWC}>
                 %1 = VPU.Slice %0 [0, 0, 0, 0] [1, 144, 16, 16]
@@ -358,7 +359,7 @@ TEST_P(GetDistributedTypeFromSOKOpTests, SplitOverChannelsDistribution) {
     const vpux::VPU::DistributionMode expectedDistribution = params.expectedDistribution;
 
     auto registry = vpux::createDialectRegistry();
-    auto interfacesRegistry = vpux::createInterfacesRegistry(vpux::config::ArchKind::NPU37XX);
+    auto interfacesRegistry = vpux::createInterfacesRegistry(vpux::config::Platform::NPU3720);
     interfacesRegistry->registerInterfaces(registry);
 
     mlir::MLIRContext ctx(registry);
@@ -422,11 +423,11 @@ std::vector<DistributedTypeFromSOKOpParams> verticalFusionWrappingParams = {
                                      %cst1 as %arg3: tensor<144x1x1x4xsi32>) attributes {tilingStrategy = [1, 1, 2,
                                      1]}
                 -> tensor<1x144x16x16xf16, {order = #NHWC}> {
-                %0 = VPU.NCE.Convolution(%arg1, %arg2, %arg3) {
+                %0 = VPU.NCE.Convolution(%arg1, %arg2, %arg3) rawFilterShape [144, 144, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    rawFilterShape = [144, 144, 1, 1],
+
                     strides = [1, 1]}
                         : tensor<1x144x16x16xf16, {order = #NHWC}>, tensor<144x144x1x1xf16, {order = #NHWC}>, tensor<144x1x1x4xsi32> -> tensor<1x144x16x16xf16, {order = #NHWC}>
                 VPU.Yield %0
@@ -460,11 +461,11 @@ std::vector<DistributedTypeFromSOKOpParams> verticalFusionWrappingParams = {
                                      %cst1 as %arg3: tensor<144x1x1x4xsi32>) attributes {tilingStrategy = [1, 1, 2,
                                      1]}
                 -> tensor<1x144x16x16xf16, {order = #NHWC}> {
-                %0 = VPU.NCE.Convolution(%arg1, %arg2, %arg3) {
+                %0 = VPU.NCE.Convolution(%arg1, %arg2, %arg3) rawFilterShape [144, 144, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    rawFilterShape = [144, 144, 1, 1],
+
                     strides = [1, 1]}
                         : tensor<1x144x16x16xf16, {order = #NHWC}>, tensor<144x144x1x1xf16, {order = #NHWC}>, tensor<144x1x1x4xsi32> -> tensor<1x144x16x16xf16, {order = #NHWC}>
                 VPU.Yield %0
@@ -497,20 +498,20 @@ std::vector<DistributedTypeFromSOKOpParams> verticalFusionWrappingParams = {
                     %cst as %arg2: tensor<12288x2048x1x1x!qElemType, {order = #NHWC}>,
                     %cst_0 as %arg3: tensor<12288x1x1x4xsi32>)
                     attributes {tilingStrategy = [1, 8, 1, 1]} -> tensor<1x12288x1x1xf16, {order = #NHWC}> {
-                %1 = VPU.NCE.Convolution(%arg1, %arg2, %arg3) {
+                %1 = VPU.NCE.Convolution(%arg1, %arg2, %arg3) rawFilterShape [12288, 2048, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                     ppe = #VPU.PPEStub<>,
-                    rawFilterShape = [12288, 2048, 1, 1], strides = [1, 1]} :
+                     strides = [1, 1]} :
                     tensor<1x2048x1x1xf16, {order = #NHWC}>, tensor<12288x2048x1x1x!qElemType, {order = #NHWC}>,
                     tensor<12288x1x1x4xsi32> -> tensor<1x12288x1x1xf16, {order = #NHWC}>
                 VPU.Yield %1
             }
-            %2 = VPU.NCE.Convolution(%arg0, %cst, %cst_0) {
+            %2 = VPU.NCE.Convolution(%arg0, %cst, %cst_0) rawFilterShape [12288, 2048, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 ppe = #VPU.PPEStub<>,
-                rawFilterShape = [12288, 2048, 1, 1], strides = [1, 1], tilingStrategy = [1, 8, 1, 1]} :
+                 strides = [1, 1], tilingStrategy = [1, 8, 1, 1]} :
                 tensor<1x2048x1x1xf16, {order = #NHWC}>, tensor<12288x2048x1x1x!qElemType, {order = #NHWC}>,
                 tensor<12288x1x1x4xsi32> -> tensor<1x12288x1x1xf16, {order = #NHWC}>
             return %0, %2 : tensor<1x12288x1x1xf16, {order = #NHWC}>, tensor<1x12288x1x1xf16, {order = #NHWC}>
@@ -787,7 +788,7 @@ TEST_F(MLIR_GetDistributedTypeFromDepthwiseOpTest, MaxPoolOpWithODUPermuteToNCXX
             func.func @main(%arg0: tensor<1x3136x4x32xf16, {order = #NHWC}>) -> tensor<1x128x784x4xf16, {order = #NHWC}> {
                 %cst = const.Declare tensor<128x1x1x4xsi32> = dense<10> : tensor<128x1x1x4xsi32>
                 %cst_0 = const.Declare tensor<128x128x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<128x128x1x1xf16, {order = #NHWC}>
-                %0 = VPU.NCE.MaxPool(%arg0) {
+                %0 = VPU.NCE.MaxPool(%arg0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     kernel_size = [1, 1],
                     multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
                     ppe = #VPU.PPEStub<>,
@@ -795,11 +796,11 @@ TEST_F(MLIR_GetDistributedTypeFromDepthwiseOpTest, MaxPoolOpWithODUPermuteToNCXX
                 } -> tensor<1x3136x4x32xf16>
                 %1 = VPU.AffineReshape(%0) {dim_mapping = [[0], [1], [1], [2, 3]], shape_value = [1, 784, 4, 128]} : tensor<1x3136x4x32xf16> -> tensor<1x784x4x128xf16>
                 %2 = VPU.PermuteCast(%1) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x784x4x128xf16> -> tensor<1x128x784x4xf16, {order = #NHWC}>
-                %3 = VPU.NCE.Convolution(%2, %cst_0, %cst) {
+                %3 = VPU.NCE.Convolution(%2, %cst_0, %cst) rawFilterShape [128, 128, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    rawFilterShape = [128, 128, 1, 1],
+
                     strides = [1, 1]
                 } : tensor<1x128x784x4xf16, {order = #NHWC}>, tensor<128x128x1x1xf16, {order = #NHWC}>, tensor<128x1x1x4xsi32> -> tensor<1x128x784x4xf16, {order = #NHWC}>
                 return %3 : tensor<1x128x784x4xf16, {order = #NHWC}>
@@ -863,11 +864,11 @@ TEST_F(MLIR_SegmentedInputCompatibleVFSiblingTest, VFSiblingWithSOKFirstConsumer
                         -> tensor<1x144x16x16xf16, {order = #NHWC}>
 
                 // Direct sibling: DWConv with SOK (the op under test)
-                %dwconv = VPU.NCE.DepthConvolution(%mvn, %cst_wt, %cst_wtable) {
+                %dwconv = VPU.NCE.DepthConvolution(%mvn, %cst_wt, %cst_wtable) rawFilterShape [144, 1, 1, 1] {
                     multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    rawFilterShape = [144, 1, 1, 1],
+
                     strides = [1, 1]}
                         -> tensor<1x144x16x16xf16, {order = #NHWC}>
 
@@ -880,19 +881,19 @@ TEST_F(MLIR_SegmentedInputCompatibleVFSiblingTest, VFSiblingWithSOKFirstConsumer
                 ) attributes {tilingStrategy = [1, 1, 2, 1]}
                     -> tensor<1x144x16x16xf16> {
                     // First consumer of the shared input: SOK DWConv
-                    %inner_dw = VPU.NCE.DepthConvolution(%arg1, %arg2, %arg3) {
+                    %inner_dw = VPU.NCE.DepthConvolution(%arg1, %arg2, %arg3) rawFilterShape [144, 1, 1, 1] {
                         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
                         ppe = #VPU.PPEStub<>,
                         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                        rawFilterShape = [144, 1, 1, 1],
+
                         strides = [1, 1]}
                             -> tensor<1x144x16x16xf16, {order = #NHWC}>
                     // Last op: SOH Conv (different strategy)
-                    %inner_conv = VPU.NCE.Convolution(%inner_dw, %arg4, %arg3) {
+                    %inner_conv = VPU.NCE.Convolution(%inner_dw, %arg4, %arg3) rawFilterShape [144, 144, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                         ppe = #VPU.PPEStub<>,
                         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                        rawFilterShape = [144, 144, 1, 1],
+
                         strides = [1, 1]}
                             : tensor<1x144x16x16xf16, {order = #NHWC}>, tensor<144x144x1x1xf16, {order = #NHWC}>, tensor<144x1x1x4xsi32>
                             -> tensor<1x144x16x16xf16>
@@ -956,11 +957,11 @@ TEST_F(MLIR_SegmentedInputCompatibleVFSiblingTest, VFSiblingWithIncompatibleFirs
                         -> tensor<1x144x16x16xf16, {order = #NHWC}>
 
                 // Direct sibling: DWConv with SOK (the op under test)
-                %dwconv = VPU.NCE.DepthConvolution(%mvn, %cst_wt, %cst_wtable) {
+                %dwconv = VPU.NCE.DepthConvolution(%mvn, %cst_wt, %cst_wtable) rawFilterShape [144, 1, 1, 1] {
                     multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    rawFilterShape = [144, 1, 1, 1],
+
                     strides = [1, 1]}
                         -> tensor<1x144x16x16xf16, {order = #NHWC}>
 
@@ -972,11 +973,11 @@ TEST_F(MLIR_SegmentedInputCompatibleVFSiblingTest, VFSiblingWithIncompatibleFirs
                 ) attributes {tilingStrategy = [1, 1, 2, 1]}
                     -> tensor<1x144x16x16xf16> {
                     // Conv requires full input channels — NOT compatible with segmented input
-                    %inner_conv = VPU.NCE.Convolution(%arg1, %arg2, %arg3) {
+                    %inner_conv = VPU.NCE.Convolution(%arg1, %arg2, %arg3) rawFilterShape [144, 144, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                         ppe = #VPU.PPEStub<>,
                         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                        rawFilterShape = [144, 144, 1, 1],
+
                         strides = [1, 1]}
                             : tensor<1x144x16x16xf16, {order = #NHWC}>, tensor<144x144x1x1xf16, {order = #NHWC}>, tensor<144x1x1x4xsi32>
                             -> tensor<1x144x16x16xf16>
@@ -1006,3 +1007,7 @@ TEST_F(MLIR_SegmentedInputCompatibleVFSiblingTest, VFSiblingWithIncompatibleFirs
     // Should return false because VF sibling's first consumer is Conv (needs full input)
     EXPECT_FALSE(VPU::isSegmentedInputCompatible(targetDWConv.getOperation()));
 }
+
+// =============================================================================
+// Tests for VPU::getDistributedOutputType (main output and reduce output)
+// =============================================================================

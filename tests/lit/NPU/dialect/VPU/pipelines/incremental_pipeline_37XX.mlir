@@ -10,13 +10,14 @@
 // CHECK-LABEL: @MaxpoolIncrementalPipelineCheck
 // CHECK-SAME: ([[ARG_0:%[^:]+]]: tensor<1x16x1x4xf16, {order = #NHWC}>)
 func.func @MaxpoolIncrementalPipelineCheck(%arg0: tensor<1x16x1x4xf16, {order = #NHWC}>) -> tensor<1x16x1x4xf16, {order = #NHWC}> {
-    %0 = VPU.NCE.MaxPool(%arg0) { kernel_size = [1, 1], pad =  #VPU.Padding<bottom = 0, left = 0, right = 0, top = 0>, ppe = #VPU.PPEStub<>, strides = [1, 1]} -> tensor<1x16x1x4xf16, {order = #NHWC}>
+    %0 = VPU.NCE.MaxPool(%arg0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,  kernel_size = [1, 1], pad =  #VPU.Padding<bottom = 0, left = 0, right = 0, top = 0>, ppe = #VPU.PPEStub<>, strides = [1, 1]} -> tensor<1x16x1x4xf16, {order = #NHWC}>
     return %0 : tensor<1x16x1x4xf16, {order = #NHWC}>
 }
 
     //CHECK: [[OP0:%.+]] = VPU.Copy([[ARG_0]]) {out_mem_space = @CMX_NN}
     //CHECK-SAME:         -> !VPU.DistributedTensor<1x16x1x4xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
-    //CHECK: [[OP1:%.+]] = VPU.NCE.MaxPool([[OP0]]) {kernel_size = [1, 1], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, strides = [1, 1]}
+    //CHECK: [[OP1:%.+]] = VPU.NCE.MaxPool([[OP0]]) {kernel_size = [1, 1], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
+    // CHECK-SAME:        strides = [1, 1]}
     //CHECK-SAME:         -> !VPU.DistributedTensor<1x16x1x4xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
 
     //CHECK: [[OUT:%.+]] = VPU.Copy([[OP1]])
@@ -35,7 +36,7 @@ func.func @MaxpoolIncrementalPipelineCheck(%arg0: tensor<1x16x1x4xf16, {order = 
 func.func @ConvIncrementalPipeline(%arg0: tensor<1x64x28x28xf16, {order = #NHWC}>) -> tensor<1x80x28x28xf16, {order = #NHWC}> {
     %cst = const.Declare tensor<80x1x1x4xsi32> = dense<10> : tensor<80x1x1x4xsi32>
     %cst_0 = const.Declare tensor<80x64x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<80x64x3x3xf16>, [#const.Reorder<#NHWC>]
-    %0 = VPU.NCE.Convolution(%arg0, %cst_0, %cst) {pad =  #VPU.Padding<bottom = 1 : i64, left = 1 : i64, right = 1 : i64, top = 1 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [80, 64, 3, 3], strides = [1, 1]} : tensor<1x64x28x28xf16, {order = #NHWC}>, tensor<80x64x3x3xf16, {order = #NHWC}>, tensor<80x1x1x4xsi32> -> tensor<1x80x28x28xf16, {order = #NHWC}>
+    %0 = VPU.NCE.Convolution(%arg0, %cst_0, %cst) rawFilterShape [80, 64, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, pad =  #VPU.Padding<bottom = 1 : i64, left = 1 : i64, right = 1 : i64, top = 1 : i64>, ppe = #VPU.PPEStub<>,  strides = [1, 1]} : tensor<1x64x28x28xf16, {order = #NHWC}>, tensor<80x64x3x3xf16, {order = #NHWC}>, tensor<80x1x1x4xsi32> -> tensor<1x80x28x28xf16, {order = #NHWC}>
     return %0 : tensor<1x80x28x28xf16, {order = #NHWC}>
 
 
@@ -51,7 +52,8 @@ func.func @ConvIncrementalPipeline(%arg0: tensor<1x64x28x28xf16, {order = #NHWC}
     //CHECK: [[OP2:%.+]] = VPU.Copy([[CONST]]) {out_mem_space = @CMX_NN}
     //CHECK-SAME:   -> !VPU.DistributedTensor<80x1x1x4xsi32, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
 
-    //CHECK: [[OP3:%.+]] = VPU.NCE.Convolution([[OP0]], [[OP1]], [[OP2]]) {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [80, 64, 3, 3], strides = [1, 1]}
+    //CHECK: [[OP3:%.+]] = VPU.NCE.Convolution([[OP0]], [[OP1]], [[OP2]]) rawFilterShape [80, 64, 3, 3] {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, 
+    // CHECK-SAME:  strides = [1, 1]}
     //CHECK-SAME:   -> !VPU.DistributedTensor<1x80x28x28xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
     //CHECK: [[OP4:%.+]] = VPU.Copy([[OP3]])
     //CHECK-SAME:   : !VPU.DistributedTensor<1x80x28x28xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
@@ -101,10 +103,9 @@ func.func @NCEPermuteIncrementalPipeline(%arg0: tensor<1x3x64x64xf16>) -> tensor
             {dstElemType = !qElemType, dstOrder = #NHWC, expandedChannels = 4 : i64, ppe = #VPU.PPEStub<>}
     -> tensor<1x4x64x64x!qElemType, {order = #NHWC}>
 
-    %compress_conv = VPU.NCE.CompressConvolution(%nce_permute, %weights, %wt)
-            {cm_sp_pattern = 1 : i64,
+    %compress_conv = VPU.NCE.CompressConvolution(%nce_permute, %weights, %wt) rawFilterShape [16, 1, 3, 3] {cm_sp_pattern = 1 : i64,
             pad = #VPU.Padding<left = 0 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>,
-            rawFilterShape = [16, 1, 3, 3], strides = [2, 2]}
+             strides = [2, 2]}
     -> tensor<1x16x32x32x!qElemType, {order = #NHWC}>
 
     return %compress_conv : tensor<1x16x32x32x!qElemType, {order = #NHWC}>
@@ -135,9 +136,9 @@ func.func @NCEPermuteIncrementalPipeline(%arg0: tensor<1x3x64x64xf16>) -> tensor
     //CHECK:        [[WT_CMX:%.+]] = VPU.Copy([[WT]]) {out_mem_space = @CMX_NN}
     //CHECK-SAME:           -> !VPU.DistributedTensor<16x1x1x4xsi32, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
 
-    //CHECK:        [[COMPRESS_CONV:%.+]] = VPU.NCE.CompressConvolution([[COPY_TO_CMX]], [[WEIGHTS_CMX]], [[WT_CMX]])
+    //CHECK:        [[COMPRESS_CONV:%.+]] = VPU.NCE.CompressConvolution([[COPY_TO_CMX]], [[WEIGHTS_CMX]], [[WT_CMX]]) rawFilterShape [16, 1, 3, 3]
     //CHECK-SAME:           {cm_sp_pattern = 1 : i64, pad = #VPU.Padding<left = 0 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64>,
-    //CHECK-SAME:           ppe = #VPU.PPEStub<>, rawFilterShape = [16, 1, 3, 3], strides = [2, 2]}
+    //CHECK-SAME:           ppe = #VPU.PPEStub<>, strides = [2, 2]}
     //CHECK-SAME:           -> !VPU.DistributedTensor<1x16x32x32x!qElemType, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
 
     //CHECK:        [[OUT:%.+]] = VPU.Copy([[COMPRESS_CONV]])
@@ -156,7 +157,7 @@ func.func @NCEPermuteIncrementalPipeline(%arg0: tensor<1x3x64x64xf16>) -> tensor
 func.func @ConvTanHIncrementalPipeline(%arg0: tensor<1x64x28x28xf16, {order = #NHWC}>) -> tensor<1x80x28x28xf16, {order = #NHWC}> {
     %cst = const.Declare tensor<80x1x1x4xsi32> = dense<10> : tensor<80x1x1x4xsi32>
     %cst_0 = const.Declare tensor<80x64x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<80x64x3x3xf16>, [#const.Reorder<#NHWC>]
-    %0 = VPU.NCE.Convolution(%arg0, %cst_0, %cst) {pad =  #VPU.Padding<bottom = 1 : i64, left = 1 : i64, right = 1 : i64, top = 1 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [80, 64, 3, 3], strides = [1, 1]} : tensor<1x64x28x28xf16, {order = #NHWC}>, tensor<80x64x3x3xf16, {order = #NHWC}>, tensor<80x1x1x4xsi32> -> tensor<1x80x28x28xf16, {order = #NHWC}>
+    %0 = VPU.NCE.Convolution(%arg0, %cst_0, %cst) rawFilterShape [80, 64, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, pad =  #VPU.Padding<bottom = 1 : i64, left = 1 : i64, right = 1 : i64, top = 1 : i64>, ppe = #VPU.PPEStub<>,  strides = [1, 1]} : tensor<1x64x28x28xf16, {order = #NHWC}>, tensor<80x64x3x3xf16, {order = #NHWC}>, tensor<80x1x1x4xsi32> -> tensor<1x80x28x28xf16, {order = #NHWC}>
     %1 = VPU.Tanh(%0) : tensor<1x80x28x28xf16, {order = #NHWC}> -> tensor<1x80x28x28xf16, {order = #NHWC}>
     return %1 : tensor<1x80x28x28xf16, {order = #NHWC}>
 
@@ -172,7 +173,8 @@ func.func @ConvTanHIncrementalPipeline(%arg0: tensor<1x64x28x28xf16, {order = #N
     //CHECK: [[OP2:%.+]] = VPU.Copy([[CONST]]) {out_mem_space = @CMX_NN}
     //CHECK-SAME:       -> !VPU.DistributedTensor<80x1x1x4xsi32, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
 
-    //CHECK: [[OP3:%.+]] = VPU.NCE.Convolution([[OP0]], [[OP1]], [[OP2]]) {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [80, 64, 3, 3], strides = [1, 1]}
+    //CHECK: [[OP3:%.+]] = VPU.NCE.Convolution([[OP0]], [[OP1]], [[OP2]]) rawFilterShape [80, 64, 3, 3] {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, 
+    // CHECK-SAME:      strides = [1, 1]}
     //CHECK-SAME:       -> !VPU.DistributedTensor<1x80x28x28xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
 
     //CHECK: [[OP4:%.+]] = VPU.Copy([[OP3]])

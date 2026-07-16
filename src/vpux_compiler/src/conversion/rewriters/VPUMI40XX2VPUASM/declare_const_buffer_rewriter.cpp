@@ -5,15 +5,9 @@
 
 #include "vpux/compiler/conversion/rewriters/VPUMI40XX2VPUASM/declare_const_buffer_rewriter.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
-#include "vpux/compiler/dialect/const/dialect.hpp"
 
 namespace vpux {
 namespace vpumi40xx2vpuasm {
-
-llvm::SmallVector<mlir::FlatSymbolRefAttr> DeclareConstBufferRewriter::getSymbolicNames(Const::DeclareOp op,
-                                                                                        size_t counter) {
-    return createSymbolicName(op, /* taskTypeString */ std::nullopt, counter);
-}
 
 mlir::FailureOr<SymbolizationResult> DeclareConstBufferRewriter::symbolize(
         Const::DeclareOp op, SymbolMapper&, mlir::ConversionPatternRewriter& rewriter) const {

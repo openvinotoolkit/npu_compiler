@@ -16,10 +16,10 @@
 func.func @ConvToNCEWeightsAsInputs(%input: tensor<1x16x16x16xf16, {order = #NHWC}>,
                         %weights: tensor<16x16x1x1x!qElemType, {order = #NHWC}>,
                         %scale: tensor<16x1x1x1xf16, {order = #NHWC}>) -> tensor<1x16x16x16xf16, {order = #NHWC}> {
-    %zp = const.Declare tensor<1x16x1x1xi4, {order = #NHWC}> = dense<8.0> : tensor<1x16x1x1xf16, {order = #NHWC}>,
-            [#const.CastElemType<i4>]
+    %zp = const.Declare tensor<1x16x1x1xsi4, {order = #NHWC}> = dense<8.0> : tensor<1x16x1x1xf16, {order = #NHWC}>,
+            [#const.CastElemType<si4>]
     %dynamic_dequant = IE.DynamicDequantize(%weights, %scale, %zp) {dstElemType = f16} :
-        tensor<16x16x1x1x!qElemType, {order = #NHWC}>, tensor<16x1x1x1xf16, {order = #NHWC}>, tensor<1x16x1x1xi4, {order = #NHWC}> -> tensor<16x16x1x1xf16, {order = #NHWC}>
+        tensor<16x16x1x1x!qElemType, {order = #NHWC}>, tensor<16x1x1x1xf16, {order = #NHWC}>, tensor<1x16x1x1xsi4, {order = #NHWC}> -> tensor<16x16x1x1xf16, {order = #NHWC}>
 
     %conv = IE.Convolution(%input, %dynamic_dequant) {
             dilations = [1, 1],
@@ -41,12 +41,12 @@ func.func @ConvToNCEWeightsAsInputs(%input: tensor<1x16x16x16xf16, {order = #NHW
     // CHECK:   [[WT:%.+]] = VPU.PopulateWeightTable([[SCALE]]) {base = 0 : i64, step = 0 : i64}
     // CHECK-SAME:     : tensor<16x1x1x1xf16, {order = #NHWC}> -> tensor<16x1x1x4xsi32, {order = #NHWC}>
 
-    // CHECK:   [[CONV:%.+]] = VPU.NCE.Convolution([[INPUT]], [[LAYOUT_CAST]], [[WT]])
+    // CHECK:   [[CONV:%.+]] = VPU.NCE.Convolution([[INPUT]], [[LAYOUT_CAST]], [[WT]]) rawFilterShape [16, 16, 1, 1] {
     // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
     // CHECK-SAME:      ppe = #VPU.PPEInt<mode = <LPRELU>,
     // CHECK-SAME:        clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
     // CHECK-SAME:        lrelu_mult = 1638 : i64, lrelu_shift = 14 : i64, fp_prelu_alpha = 0.10000000149011612 : f64>,
-    // CHECK-SAME:      rawFilterShape = [16, 16, 1, 1], strides = [1, 1]}
+    // CHECK-SAME:        strides = [1, 1]}
     // CHECK-SAME:      -> tensor<1x16x16x16xf16, {order = #NHWC}>
 
     // CHECK:   return [[CONV]] : tensor<1x16x16x16xf16, {order = #NHWC}>

@@ -40,19 +40,9 @@ public:
         Base::initLogger(log, Base::getArgumentName());
         Base::copyOptionValuesFrom(initCompilerOptions);
 
-        const auto statusFromInitCompiler = initCompilerOptions.workloadManagementEnable
-                                                    ? WorkloadManagementStatus::ENABLED
-                                                    : WorkloadManagementStatus::DISABLED;
-
-        _log.debug("Overriding the default value {0} of the 'workloadManagementStatus' field. Setting value {1} "
-                   "of the InitCompilerOptions.",
-                   workloadManagementStatus, statusFromInitCompiler);
-        workloadManagementStatus = statusFromInitCompiler;
-
-        if (initCompilerOptions.workloadManagementBarrierProgrammingMode.hasValue()) {
-            _workloadManagementBarrierProgrammingMode = initCompilerOptions.workloadManagementBarrierProgrammingMode;
+        if (initCompilerOptions.workloadManagementMode.hasValue()) {
+            _workloadManagementMode = initCompilerOptions.workloadManagementMode;
         }
-
         initializeFromOptions();
     }
 
@@ -61,15 +51,13 @@ private:
             StringRef options, llvm::function_ref<mlir::LogicalResult(const llvm::Twine&)> errorHandler) final;
     void safeRunOnModule() final;
 
-private:
     // Initialize fields from pass options
     void initializeFromOptions();
 
-private:
     bool _allowCustomValues = false;
     bool _enableSwFifoPerShave = false;
-    WorkloadManagementBarrierProgrammingMode _workloadManagementBarrierProgrammingMode =
-            WorkloadManagementBarrierProgrammingMode::ALL_BARRIER_DMAS_SCHEDULED_4K;
+
+    WorkloadManagementMode _workloadManagementMode = WorkloadManagementMode::FWLM_V1_PAGES;
 };
 
 template <typename T>
@@ -144,30 +132,17 @@ void SetupNpuConstraintPass::safeRunOnModule() {
             mlir::OpBuilder::atBlockBegin(&pipelineOptionsOp.getOptions().front(), optionsBuilder.getListener());
 
     auto arch = config::getArch(getOperation());
-    if (config::isArchVPUX3XXX(arch)) {
-        // E-179084: long-term plan is to manage NPU2.7 WLM disabled externally to the pass
-        // via InitCompilerOptions argument
-        // note: WLM enabled on NPU2.7 may silently be ignored and work in some of the cases
-        // but also may lead to unexpected compilation failures
-        workloadManagementStatus = WorkloadManagementStatus::DISABLED;
-    }
-
-    bool isWlmEnabled = workloadManagementStatus == WorkloadManagementStatus::ENABLED;
-    if (_enableSwFifoPerShave && !config::hasSupportForFifoPerShaveEngine(arch, isWlmEnabled)) {
+    if (_enableSwFifoPerShave && !config::hasSupportForFifoPerShaveEngine(arch)) {
         // if dedicated SHAVE FIFOs are not, or cannot be supported, the feature will be disabled. For convenience, this
         // will be reflected in the IR in pipeline options section, as the value will be accessed by multiple passes.
         _enableSwFifoPerShave = false;
         _log.info("Dedicated FIFOs per SHAVE engine were requested but are currently not supported by the architecture "
-                  "({0}) or WLM ({1}) settings. The feature will not be enabled.",
-                  arch, workloadManagementStatus);
+                  "({0}). The feature will not be enabled.",
+                  arch);
     }
 
-    VPUX_THROW_WHEN(
-            pipelineOptionsOp.lookupSymbol<config::OptionOp>(config::WORKLOAD_MANAGEMENT_STATUS) && !_allowCustomValues,
-            "Workload Management Status is already defined, probably you run '--init-compiler' twice");
-
-    if (!pipelineOptionsOp.lookupSymbol<config::OptionOp>(config::WORKLOAD_MANAGEMENT_STATUS)) {
-        config::setWorkloadManagementStatus(moduleOp, workloadManagementStatus);
+    if (!pipelineOptionsOp.lookupSymbol<config::OptionOp>(config::WORKLOAD_MANAGEMENT_MODE)) {
+        config::setWorkloadManagementMode(moduleOp, _workloadManagementMode);
     }
 
     addConstraint(optionsBuilder, pipelineOptionsOp, config::USE_DEDICATED_FIFO_PER_SHAVE_ENGINE, _enableSwFifoPerShave,
@@ -176,18 +151,10 @@ void SetupNpuConstraintPass::safeRunOnModule() {
     auto supportsSwFifoPerShave = config::getConstraint<bool>(moduleOp, config::USE_DEDICATED_FIFO_PER_SHAVE_ENGINE);
     _log.info("Support for FIFO per each SHAVE engine enabled: {0}", supportsSwFifoPerShave);
 
-    auto useWlmBarrierConfig = workloadManagementStatus == WorkloadManagementStatus::ENABLED;
-    // Disable WLM barrier configuration as it requires more adjustments in the code to be done in E#155846
-    // Currently enabling this breaks compilation for some models.
-    useWlmBarrierConfig = false;
+    auto perBarrierSlotConstraint = vpux::VPU::getPerBarrierSlotConstraint();
+    auto barrSlotCount = static_cast<unsigned>(perBarrierSlotConstraint.getPerBarrierMaxSlotCount());
 
-    auto perBarrierVariantConstraint = vpux::VPU::getPerBarrierVariantConstraint(arch, useWlmBarrierConfig);
-    auto barrVariantSum = static_cast<unsigned>(perBarrierVariantConstraint.getPerBarrierMaxVariantSum());
-    auto barrVariantCount = static_cast<unsigned>(perBarrierVariantConstraint.getPerBarrierMaxVariantCount());
-
-    addConstraint(optionsBuilder, pipelineOptionsOp, config::BARR_MAX_VARIANT_SUM, barrVariantSum, _allowCustomValues);
-    addConstraint(optionsBuilder, pipelineOptionsOp, config::BARR_MAX_VARIANT_COUNT, barrVariantCount,
-                  _allowCustomValues);
+    addConstraint(optionsBuilder, pipelineOptionsOp, config::BARR_MAX_SLOT_COUNT, barrSlotCount, _allowCustomValues);
 
     auto regConfig = vpux::VPU::getRegisterConfig(arch, moduleOp);
 

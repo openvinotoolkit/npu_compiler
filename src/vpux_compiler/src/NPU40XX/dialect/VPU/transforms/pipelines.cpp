@@ -22,7 +22,8 @@ void vpux::VPU::arch40xx::buildIncrementalPipeline(mlir::OpPassManager& pm, cons
     pm.addPass(VPU::createDecomposeMVNPass(log));
 
     pm.addPass(VPU::createMultiClusterStrategyAssignmentPass(options.enablePrefetching, options.opTilingCacheThreshold,
-                                                             options.mcOptimizationScope, log));
+                                                             options.mcOptimizationScope,
+                                                             options.enableTilingFullSearchSpace, log));
     pm.addPass(VPU::createConvertNCEInterpolateToDWPass(log));
     pm.addPass(VPU::createManualStrategyUtilsPass(options.writeStrategyToJson, writeStrategyDefaultFileLocation,
                                                   options.readStrategyFromJson, readStrategyDefaultFileLocation,
@@ -33,8 +34,9 @@ void vpux::VPU::arch40xx::buildIncrementalPipeline(mlir::OpPassManager& pm, cons
 
     pm.addPass(VPU::createEnsureNCEOpsSizeRequirementsPass(/*enableOutputEnsurance=*/true,
                                                            /*enableDequantWeightEnsuranceBeforeStrategy=*/false,
-                                                           /*skipConvOC=*/"SKIP_NONE",
-                                                           /*skipEltwiseOC=*/"SKIP_NONE", log));
+                                                           /*skipConvOC=*/SkipOCMode::SKIP_NONE,
+                                                           /*skipEltwiseOC=*/SkipOCMode::SKIP_NONE,
+                                                           /*enableSplitChannelForDynamicDequantize=*/false, log));
     pm.addPass(VPU::createOptimizeConcatPass(/*optimizeOnlyOuterConcat*/ false,
                                              /*disablePassOnEntryFunctionForHostCompile=*/false, log));
 
@@ -42,7 +44,8 @@ void vpux::VPU::arch40xx::buildIncrementalPipeline(mlir::OpPassManager& pm, cons
 
     if (options.enableScfComputeOpsOutlining) {
         VPU::buildScfComputeOpsOutliningPipeline(pm, options.loopUnrollFactor, options.enableProfiling,
-                                                 options.enableCascadedUnrolling, options.enableAutoUnrolling, log);
+                                                 options.enableCascadedUnrolling, options.autoUnrollingMode,
+                                                 options.enableWeightsExtraction, log);
     }
 
     auto& nestedPm = options.enableScfComputeOpsOutlining ? pm.nest<mlir::ModuleOp>() : pm;
@@ -114,8 +117,9 @@ void vpux::VPU::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
 
     pm.addPass(VPU::createEnsureNCEOpsSizeRequirementsPass(options.enableOutputEnsurance,
                                                            options.enableDequantWeightEnsuranceBeforeStrategy,
-                                                           /*skipConvOC=*/"SKIP_NONE",
-                                                           /*skipEltwiseOC=*/"SKIP_NONE", log));
+                                                           /*skipConvOC=*/SkipOCMode::SKIP_NONE,
+                                                           /*skipEltwiseOC=*/SkipOCMode::SKIP_NONE,
+                                                           /*enableSplitChannelForDynamicDequantize=*/false, log));
     pm.addPass(VPU::createOptimizeConcatPass(/*optimizeOnlyOuterConcat*/ false,
                                              /*disablePassOnEntryFunctionForHostCompile=*/false, log));
     if (options.enableWeightsSparsity) {

@@ -24,7 +24,7 @@ class ExperimentalDetectronROIFeatureExtractorLayerTestCommon :
     }
 
     void configure_model() override {
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp16";
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp";
     }
 };
 
@@ -99,6 +99,9 @@ const std::vector<std::vector<InputShape>> inputShapesConfig1 = {
         static_shapes_to_test_representation({{100, 4}, {1, 2, 10, 10}}),
 
 };
+
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ExperimentalDetectronROIFeatureExtractorLayerTest);
 
 INSTANTIATE_TEST_SUITE_P(smoke_ExperimentalROIExtractor, ExperimentalDetectronROIFeatureExtractorLayerTestCommon,
                          ::testing::Combine(::testing::ValuesIn(inputShapesConfig0), ::testing::ValuesIn(outputSize),

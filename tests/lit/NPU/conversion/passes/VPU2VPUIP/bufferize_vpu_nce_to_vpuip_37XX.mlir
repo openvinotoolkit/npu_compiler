@@ -14,10 +14,10 @@ func.func @SuperdenseNCEConvolution(%arg0: tensor<1x16x15x15xf16, {mem_space = @
                      %arg1: tensor<16x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>,
                      %arg2: tensor<16x1x1x4xsi32, {mem_space = @CMX_NN, order = #NHWC}>
                      ) -> tensor<1x16x15x15xf16, {mem_space = @CMX_NN, order = #NCHW}> {
-    %0 = VPU.NCE.Convolution(%arg0, %arg1, %arg2) {
+    %0 = VPU.NCE.Convolution(%arg0, %arg1, %arg2) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
-        rawFilterShape = [16, 16, 1, 1],
+
         strides = [1, 1]
     } : tensor<1x16x15x15xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<16x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<16x1x1x4xsi32, {mem_space = @CMX_NN, order = #NHWC}> -> tensor<1x16x15x15xf16, {mem_space = @CMX_NN, order = #NCHW}> {
         VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 15, 15] pad [0, 0, 0, 13] #VPU.mpe_mode<CUBOID_16x16>
@@ -40,7 +40,7 @@ func.func @SuperdenseNCEConvolution(%arg0: tensor<1x16x15x15xf16, {mem_space = @
 func.func @SuperdenseNCEMaxPool(%arg0: tensor<1x16x15x15xf16, {mem_space = @CMX_NN, order = #NHWC}>,
                  %arg1: tensor<16x1x1x4xsi32, {mem_space = @CMX_NN, order = #NHWC}>
                  ) -> tensor<1x16x15x15xf16, {mem_space = @CMX_NN, order = #NCHW}> {
-    %0 = VPU.NCE.MaxPool(%arg0, %arg1) {
+    %0 = VPU.NCE.MaxPool(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         kernel_size = [1, 1],
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
@@ -178,8 +178,8 @@ func.func @InterpolateNearest(
                 offsets = [0, 0, 0, 0],
                 sizes = [1, 64, 10, 20]>>
 
-    %task = VPU.NCE.Interpolate(%input_cmx, %arg1, %arg2) {
-        rawFilterShape = [64, 64, 1, 1],
+    %task = VPU.NCE.Interpolate(%input_cmx, %arg1, %arg2) rawFilterShape [64, 64, 1, 1] {
+
         strides = [1, 1],
         mode = #VPU.nce_interpolate_mode<NEAREST>,
         scales_attr = [2, 2],
@@ -262,8 +262,8 @@ func.func @InterpolateBilinear(
                 offsets = [0, 0, 0, 0],
                 sizes = [1, 64, 11, 21]>>
 
-    %task = VPU.NCE.Interpolate(%input_cmx, %arg1, %arg2) {
-        rawFilterShape = [64, 64, 2, 2],
+    %task = VPU.NCE.Interpolate(%input_cmx, %arg1, %arg2) rawFilterShape [64, 64, 2, 2] {
+
         ppe = #VPU.PPEStub<>,
         strides = [1, 1],
         mode = #VPU.nce_interpolate_mode<BILINEAR>,

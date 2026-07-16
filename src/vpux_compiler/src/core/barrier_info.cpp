@@ -147,7 +147,8 @@ std::optional<size_t> vpux::BarrierInfo::getPrevTaskOnQueue(size_t taskInd, VPUR
     VPUX_THROW_UNLESS(getNumOfTasks() > taskInd, "Task index '{0}' out of range", taskInd);
     VPUX_THROW_WHEN(_taskQueueTypeMap.empty(), "Task queue map not initialized");
     VPUX_THROW_WHEN(_taskQueueTypeMap.find(taskQueueType) == _taskQueueTypeMap.end(),
-                    "Task queue map not initialized for executor of task {0}", taskInd);
+                    "Task queue map not initialized for executor {0}:{1}", stringifyEnum(taskQueueType.type),
+                    taskQueueType.id);
 
     const auto& taskBitVec = _taskQueueTypeMap.at(taskQueueType);
 
@@ -159,7 +160,8 @@ std::optional<size_t> vpux::BarrierInfo::getNextTaskOnQueue(size_t taskInd, VPUR
     VPUX_THROW_UNLESS(getNumOfTasks() > taskInd, "Task index '{0}' out of range", taskInd);
     VPUX_THROW_WHEN(_taskQueueTypeMap.empty(), "Task queue map not initialized");
     VPUX_THROW_WHEN(_taskQueueTypeMap.find(taskQueueType) == _taskQueueTypeMap.end(),
-                    "Task queue map not initialized for executor of task {0}", taskInd);
+                    "Task queue map not initialized for executor {0}:{1}", stringifyEnum(taskQueueType.type),
+                    taskQueueType.id);
 
     const auto& taskBitVec = _taskQueueTypeMap.at(taskQueueType);
 
@@ -175,7 +177,8 @@ std::optional<size_t> vpux::BarrierInfo::getPrevTaskOnQueueWithWaitBar(size_t ta
     VPUX_THROW_UNLESS(getNumOfTasks() > taskInd, "Task index '{0}' out of range", taskInd);
     VPUX_THROW_WHEN(_taskQueueTypeMap.empty(), "Task queue map not initialized");
     VPUX_THROW_WHEN(_taskQueueTypeMap.find(taskQueueType) == _taskQueueTypeMap.end(),
-                    "Task queue map not initialized for executor of task {0}", taskInd);
+                    "Task queue map not initialized for executor {0}:{1}", stringifyEnum(taskQueueType.type),
+                    taskQueueType.id);
 
     const auto& taskBitVec = _taskQueueTypeMap.at(taskQueueType);
 
@@ -199,7 +202,8 @@ std::optional<size_t> vpux::BarrierInfo::getNextTaskOnQueueWithUpdateBar(size_t 
     VPUX_THROW_UNLESS(getNumOfTasks() > taskInd, "Task index '{0}' out of range", taskInd);
     VPUX_THROW_WHEN(_taskQueueTypeMap.empty(), "Task queue map not initialized");
     VPUX_THROW_WHEN(_taskQueueTypeMap.find(taskQueueType) == _taskQueueTypeMap.end(),
-                    "Task queue map not initialized for executor of task {0}", taskInd);
+                    "Task queue map not initialized for executor {0}:{1}", stringifyEnum(taskQueueType.type),
+                    taskQueueType.id);
 
     const auto& taskBitVec = _taskQueueTypeMap.at(taskQueueType);
 
@@ -485,8 +489,8 @@ size_t vpux::BarrierInfo::getNumOfBarrierOps() const {
     return _allBarrierOps.size();
 }
 
-size_t vpux::BarrierInfo::getBarrierMaxVariantSum() const {
-    return VPUIP::getBarrierMaxVariantSum(_func);
+size_t vpux::BarrierInfo::getBarrierMaxSlotCount() const {
+    return VPUIP::getBarrierMaxSlotCount(_func);
 }
 
 //
@@ -640,6 +644,7 @@ bool vpux::BarrierInfo::canBarProducersControlBarConsumers(const TaskSet& produc
 
 void vpux::BarrierInfo::buildBarrierMaps(mlir::func::FuncOp func) {
     _log.trace("Collect initial producer maps");
+    auto nestedLog = _log.nest();
 
     for (auto& op : func.getOps()) {
         if (auto taskOp = mlir::dyn_cast<VPURT::TaskOp>(op)) {
@@ -649,55 +654,61 @@ void vpux::BarrierInfo::buildBarrierMaps(mlir::func::FuncOp func) {
         }
     }
 
-    _log.nest().trace("There are '{0}' VPURT::TaskOp", getNumOfTasks());
-    _log.nest().trace("There are '{0}' VPURT::BarrierOpInterface", _allBarrierOps.size());
+    nestedLog.trace("There are '{0}' VPURT::TaskOp", getNumOfTasks());
+    nestedLog.trace("There are '{0}' VPURT::BarrierOpInterface", _allBarrierOps.size());
 
-    // resize barrier maps
+    // create task and barrier maps
     _taskWaitBarriers = SmallVector<TaskSet>(getNumOfTasks(), {});
     _taskUpdateBarriers = SmallVector<TaskSet>(getNumOfTasks(), {});
     _barrierConsumerMap = SmallVector<TaskSet>(_allBarrierOps.size(), {});
     _barrierProducerMap = SmallVector<TaskSet>(_allBarrierOps.size(), {});
 
-    // set index to task ops and barrier ops
+    // assign an index to barrier ops and check that all barrier users are TaskOps
+    for (const auto& p : _allBarrierOps | indexed) {
+        auto barrierOp = p.value();
+        barrierOp.setBarrierIndex(p.index());
+
+        nestedLog.trace("Found 'VPURT::BarrierOpInterface' Operation at '{0}'", barrierOp->getLoc());
+
+        const auto barrier = barrierOp.getBarrier();
+        VPUX_THROW_WHEN(barrier == nullptr, "BarrierOpInterface '{0}' has no barrier.", barrierOp);
+
+        // ensure all barrier users are TaskOps
+        for (auto* user : barrier.getUsers()) {
+            VPUX_THROW_WHEN(mlir::dyn_cast<VPURT::TaskOp>(user) == nullptr,
+                            "Got non-TaskOp barrier user '{0}' at '{1}'", user->getName().getStringRef(),
+                            user->getLoc());
+        }
+    }
+
+    // assign an index to task ops and detect sync tasks to fill _syncTasksIds
     for (const auto& p : _allTaskOps | indexed) {
-        p.value().getProperties().setTaskIndex(p.index());
-        if (p.value()->hasAttr(_syncTaskAttrName)) {
+        auto taskOp = p.value();
+        taskOp.getProperties().setTaskIndex(p.index());
+        if (taskOp->hasAttr(_syncTaskAttrName)) {
             _syncTasksIds.push_back(p.index());
         }
     }
 
+    // build block map if control graph split is detected
     if (!_syncTasksIds.empty()) {
         buildTaskBlockMap();
-        if (_log.isActive(LogLevel::Trace)) {
+        if (nestedLog.isActive(LogLevel::Trace)) {
             // Check block sizes
             size_t firstBlockSize = _syncTasksIds[0] + 1;
             for (size_t i = 1; i < _syncTasksIds.size(); i++) {
                 size_t nextBlockSize = _syncTasksIds[i] - _syncTasksIds[i - 1];
                 if (nextBlockSize != firstBlockSize) {
-                    _log.trace("Inferred first block size is '{0}', block '{1}' has {2} tasks", firstBlockSize, i,
-                               nextBlockSize);
+                    nestedLog.trace("Inferred first block size is '{0}', block '{1}' has {2} tasks", firstBlockSize, i,
+                                    nextBlockSize);
                 }
             }
         }
     }
 
-    for (const auto& p : _allBarrierOps | indexed) {
-        p.value().setBarrierIndex(p.index());
-    }
-
-    for (auto& op : func.getOps()) {
-        if (auto taskOp = mlir::dyn_cast<VPURT::TaskOp>(op)) {
-            addTaskOp(taskOp);
-        } else if (auto barrierOp = mlir::dyn_cast<VPURT::BarrierOpInterface>(op)) {
-            _log.nest().trace("Found 'VPURT::BarrierOpInterface' Operation at '{0}'", op.getLoc());
-            VPUX_THROW_WHEN(barrierOp.getBarrier() == nullptr, "BarrierOpInterface '{0}' has no barrier.", barrierOp);
-
-            // ensure all barrier users are TaskOps
-            for (auto* user : barrierOp.getBarrier().getUsers()) {
-                VPUX_THROW_WHEN(mlir::dyn_cast<VPURT::TaskOp>(user) == nullptr, "Got non-TaskOp Operation at '{0}'",
-                                op.getLoc());
-            }
-        }
+    // fill barriers map of TaskOps after indices are assigned and optional block map is built
+    for (auto taskOp : _allTaskOps) {
+        addTaskOp(taskOp);
     }
 }
 
@@ -946,52 +957,70 @@ void vpux::BarrierInfo::resetBarrier(size_t barrierInd) {
     _barrierConsumerMap[barrierInd].clear();
 }
 
-// Function that will perform split of a control graph with sync points
-// present on boundaries of such split
-// Example:
-//  number of all task: 1200
-//  requested split size: 500
+// Function that performs control-graph split using caller-provided sync points.
 //
-// Graph will be split into 3 blocks with tasks indexes
-// being placed in blocks in following way
+// Example:
+//  number of all tasks: 1200
+//  provided sync points: [499, 999]
+//
+// Graph will be split into 3 blocks with task indexes:
 //  block 0:    0 -  499
 //  block 1:  500 -  999
 //  block 2: 1000 - 1199
-// Tasks with indexes 499 and 999 are sync points
-// meaning that if there was any dependency previously present between blocks
-// it will be modified to go through this sync point, example:
+//
+// Meaning that if there was any dependency previously present between blocks,
+// it will be modified to go through the corresponding sync point, for example:
 //  old dependency:   200 -> Bar -> 600
 //  new dependencies: 200 -> newBar1 -> 499  and  499 -> newBar1 -> 600
 //
-// Goal of this split it to enable faster and less memory hungry optimizations
-// on control graph as they can be done within single block between sync tasks
+// Goal of this split is to enable faster and less memory-hungry optimizations
+// on control graph, as they can be done within a single block between sync tasks.
 // For this example optimization can be done in 3 ranges: 0 - 499, 499 - 999, 999 - 1199
-void vpux::BarrierInfo::splitControlGraphToBlocks(const size_t blockSize) {
-    VPUX_THROW_WHEN(blockSize < 2, "Minimal block size is 2, requested size - {1}", blockSize);
-    VPUX_THROW_WHEN(!_syncTasksIds.empty(),
-                    "Partitioning on control graph was already performed, size - {0}, requested size - {1}",
-                    _syncTasksIds[0] + 1, blockSize);
+void vpux::BarrierInfo::splitControlGraphToBlocks(const SmallVector<size_t>& syncPointTaskIndices) {
+    VPUX_THROW_WHEN(!_syncTasksIds.empty(), "Partitioning on control graph was already performed, current size - {0}",
+                    _syncTasksIds[0] + 1);
 
     auto tasksSize = getNumOfTasks();
-    if (blockSize >= tasksSize) {
-        _log.trace("Not enough tasks to perform split, requested split size - '{0}', num of tasks - '{1}'", blockSize,
-                   tasksSize);
-        return;
+    for (size_t i = 0; i < syncPointTaskIndices.size(); i++) {
+        const auto syncTaskInd = syncPointTaskIndices[i];
+        VPUX_THROW_WHEN(syncTaskInd >= tasksSize - 1,
+                        "Sync task index '{0}' is invalid for task count '{1}' (last task cannot be sync)", syncTaskInd,
+                        tasksSize);
+        if (i > 0) {
+            VPUX_THROW_WHEN(syncPointTaskIndices[i - 1] >= syncTaskInd,
+                            "Sync points must be strictly increasing: prev '{0}', current '{1}'",
+                            syncPointTaskIndices[i - 1], syncTaskInd);
+        }
     }
 
-    size_t numOfBlocks = tasksSize / blockSize;
-    if (tasksSize % blockSize > 0) {
-        numOfBlocks++;
-    }
+    const size_t numOfBlocks = syncPointTaskIndices.size() + 1;
+    auto getTaskBlockInd = [&](size_t taskInd) {
+        return static_cast<size_t>(std::lower_bound(syncPointTaskIndices.begin(), syncPointTaskIndices.end(), taskInd) -
+                                   syncPointTaskIndices.begin());
+    };
+
+    auto getSyncTaskForBlock = [&](size_t blockInd) -> std::optional<size_t> {
+        if (blockInd >= syncPointTaskIndices.size()) {
+            return std::nullopt;
+        }
+        return syncPointTaskIndices[blockInd];
+    };
+
+    auto getPrevSyncTaskForBlock = [&](size_t blockInd) -> std::optional<size_t> {
+        if (blockInd == 0 || blockInd - 1 >= syncPointTaskIndices.size()) {
+            return std::nullopt;
+        }
+        return syncPointTaskIndices[blockInd - 1];
+    };
+
     auto isSyncPoint = [&](size_t taskIdx) {  // use local version of the method as the graph split is not finished.
         if (taskIdx == getNumOfTasks() - 1) {
             return false;
         }
-        return (taskIdx + 1) % blockSize == 0;
+        return std::binary_search(syncPointTaskIndices.begin(), syncPointTaskIndices.end(), taskIdx);
     };
 
-    _log.trace("Split control graph: num of task - '{0}', blocks size - '{1}', number of blocks - '{2}'", tasksSize,
-               blockSize, numOfBlocks);
+    _log.trace("Split control graph: num of task - '{0}', number of blocks - '{1}'", tasksSize, numOfBlocks);
 
     auto barriersCount = _allBarrierOps.size();
     std::map<size_t, std::pair<size_t, size_t>> syncTaskWaitAndUpdateBarrierIndMap;
@@ -1003,11 +1032,12 @@ void vpux::BarrierInfo::splitControlGraphToBlocks(const size_t blockSize) {
     // If those new barriers are redundant, could have been combined with other existing barrier
     // or need a split because of large number of producer/consumers they will be optimized/processed
     // by follow-up passes
-    for (size_t blockInd = 1; blockInd < numOfBlocks; blockInd++) {
-        size_t syncTaskInd = blockInd * blockSize - 1;
+    for (size_t syncOrdinal = 0; syncOrdinal < syncPointTaskIndices.size(); syncOrdinal++) {
+        size_t syncTaskInd = syncPointTaskIndices[syncOrdinal];
 
         auto syncTaskOp = getTaskOpAtIndex(syncTaskInd);
-        auto insertionOp = getTaskOpAtIndex((blockInd - 1) * blockSize);
+        const auto blockStartTaskInd = (syncOrdinal == 0) ? 0 : syncPointTaskIndices[syncOrdinal - 1] + 1;
+        auto insertionOp = getTaskOpAtIndex(blockStartTaskInd);
 
         mlir::OpBuilder builder(insertionOp);
         //      |<-----syncWaitBar
@@ -1041,14 +1071,15 @@ void vpux::BarrierInfo::splitControlGraphToBlocks(const size_t blockSize) {
     // If they will not have barriers assigned their position might be shifted
     // with respect to sync task during barrier legalization steps in follow-up passes
     for (size_t taskInd = 0; taskInd < tasksSize; taskInd++) {
-        size_t taskBlockInd = taskInd / blockSize;
+        size_t taskBlockInd = getTaskBlockInd(taskInd);
         auto taskUpdateBarriers = _taskUpdateBarriers[taskInd];
-        size_t syncTaskInd = taskBlockInd * blockSize + blockSize - 1;
+        const auto syncTaskIndOpt = getSyncTaskForBlock(taskBlockInd);
+        const auto syncTaskInd = syncTaskIndOpt.value_or(tasksSize);
 
         // If task does not update any barrier store this information for each queue
         // and when moving to next block add a link to sync task. When encountering sync
         // task add connection from those ops to this sync task
-        if (taskBlockInd < numOfBlocks - 1) {
+        if (syncTaskIndOpt.has_value()) {
             if (taskInd == syncTaskInd) {
                 auto syncTaskWaitBarInd = syncTaskWaitAndUpdateBarrierIndMap[syncTaskInd].first;
                 for (const auto& queueListTaskPair : lastTaskWithNoUpdateBarForQueueInBlockMap) {
@@ -1078,7 +1109,10 @@ void vpux::BarrierInfo::splitControlGraphToBlocks(const size_t blockSize) {
         // and destroy assumption about how graph got split
         if (taskBlockInd > 0) {
             if (taskInd == syncTaskInd || taskInd == tasksSize - 1) {
-                size_t prevSyncTaskInd = taskBlockInd * blockSize - 1;
+                const auto prevSyncTaskIndOpt = getPrevSyncTaskForBlock(taskBlockInd);
+                VPUX_THROW_WHEN(!prevSyncTaskIndOpt.has_value(), "Missing previous sync task for block '{0}'",
+                                taskBlockInd);
+                size_t prevSyncTaskInd = prevSyncTaskIndOpt.value();
                 auto prevSyncTaskUpdateBarInd = syncTaskWaitAndUpdateBarrierIndMap[prevSyncTaskInd].second;
                 for (const auto& queueListTaskPair : firstTaskWithNoWaitBarForQueueInBlockMap) {
                     // Create new connection
@@ -1138,14 +1172,14 @@ void vpux::BarrierInfo::splitControlGraphToBlocks(const size_t blockSize) {
         // and store them based on blockId
         std::map<size_t, TaskSet> barProdBlockTasksMap;
         for (const auto& taskInd : _barrierProducerMap[barInd]) {
-            size_t taskBlockInd = taskInd / blockSize;
+            size_t taskBlockInd = getTaskBlockInd(taskInd);
             blocksSet.insert(taskBlockInd);
             barProdBlockTasksMap[taskBlockInd].insert(taskInd);
         }
 
         std::map<size_t, TaskSet> barConsBlockTasksMap;
         for (const auto& taskInd : _barrierConsumerMap[barInd]) {
-            size_t taskBlockInd = taskInd / blockSize;
+            size_t taskBlockInd = getTaskBlockInd(taskInd);
             blocksSet.insert(taskBlockInd);
             barConsBlockTasksMap[taskBlockInd].insert(taskInd);
         }
@@ -1211,8 +1245,9 @@ void vpux::BarrierInfo::splitControlGraphToBlocks(const size_t blockSize) {
                 //                |                                |
                 //    5c <--------|         5c <-------------------|
                 //
-                size_t nextSyncTaskInd = blockId * blockSize - 1 + blockSize;
-                if (nextSyncTaskInd < tasksSize) {
+                const auto nextSyncTaskIndOpt = getSyncTaskForBlock(blockId);
+                if (nextSyncTaskIndOpt.has_value()) {
+                    size_t nextSyncTaskInd = nextSyncTaskIndOpt.value();
                     size_t syncTaskWaitBarInd = syncTaskWaitAndUpdateBarrierIndMap[nextSyncTaskInd].first;
 
                     _log.nest(2).trace("Add producers of sync bar {0} for tasks from block {1}", syncTaskWaitBarInd,
@@ -1246,7 +1281,9 @@ void vpux::BarrierInfo::splitControlGraphToBlocks(const size_t blockSize) {
                 addConsumers(newBarInd, barConsBlockTasksMap[blockId]);
             }
 
-            size_t syncTaskInd = blockId * blockSize - 1;
+            const auto syncTaskIndOpt = getPrevSyncTaskForBlock(blockId);
+            VPUX_THROW_WHEN(!syncTaskIndOpt.has_value(), "Missing previous sync task for block '{0}'", blockId);
+            size_t syncTaskInd = syncTaskIndOpt.value();
             size_t syncTaskUpdBarInd = syncTaskWaitAndUpdateBarrierIndMap[syncTaskInd].second;
 
             //    0p -------------->|         0p --------------->|
@@ -1296,7 +1333,11 @@ void vpux::BarrierInfo::splitControlGraphToBlocks(const size_t blockSize) {
             removeConsumers(barInd, barConsBlockTasksPair.second);
         }
 
-        size_t barSyncTaskInd = barBlockId * blockSize + blockSize - 1;
+        const auto barSyncTaskIndOpt = getSyncTaskForBlock(barBlockId);
+        if (!barSyncTaskIndOpt.has_value()) {
+            continue;
+        }
+        size_t barSyncTaskInd = barSyncTaskIndOpt.value();
 
         // Sync task should be a consumer of this barrier, but only when
         // it was not the earliest producer
@@ -1328,7 +1369,10 @@ void vpux::BarrierInfo::splitControlGraphToBlocks(const size_t blockSize) {
             if (barConsBlockTasksPair.first == barBlockId) {
                 continue;
             }
-            size_t syncTaskInd = barConsBlockTasksPair.first * blockSize - 1;
+            const auto syncTaskIndOpt = getPrevSyncTaskForBlock(barConsBlockTasksPair.first);
+            VPUX_THROW_WHEN(!syncTaskIndOpt.has_value(), "Missing previous sync task for block '{0}'",
+                            barConsBlockTasksPair.first);
+            size_t syncTaskInd = syncTaskIndOpt.value();
             size_t syncTaskUpdBarInd = syncTaskWaitAndUpdateBarrierIndMap[syncTaskInd].second;
 
             //    0p ------------------->|     0p ------------------>|
@@ -1361,9 +1405,9 @@ void vpux::BarrierInfo::splitControlGraphToBlocks(const size_t blockSize) {
     // Add explicit dependency between sync tasks
     // If it is not needed because it was already represented implicitly by other
     // dependencies it will be removed by follow-up passes
-    for (size_t blockInd = 2; blockInd < numOfBlocks; blockInd++) {
-        size_t syncTaskInd = (blockInd - 1) * blockSize - 1;
-        size_t nextSyncTaskInd = blockInd * blockSize - 1;
+    for (size_t syncOrdinal = 1; syncOrdinal < syncPointTaskIndices.size(); syncOrdinal++) {
+        size_t syncTaskInd = syncPointTaskIndices[syncOrdinal - 1];
+        size_t nextSyncTaskInd = syncPointTaskIndices[syncOrdinal];
 
         // Create new connection
         // syncTaskInd -> syncTaskUpdateBarInd -> nextSyncTaskInd
@@ -1383,11 +1427,12 @@ void vpux::BarrierInfo::splitControlGraphToBlocks(const size_t blockSize) {
         if (_barrierConsumerMap[barInd].empty() && !_barrierProducerMap[barInd].empty()) {
             _log.trace("Empty consumers for bar - {0}", barInd);
             for (auto taskInd : _barrierProducerMap[barInd]) {
-                size_t taskBlockInd = taskInd / blockSize;
-                size_t syncTaskInd = taskBlockInd * blockSize + blockSize - 1;
-                if (syncTaskInd >= tasksSize) {
+                size_t taskBlockInd = getTaskBlockInd(taskInd);
+                const auto syncTaskIndOpt = getSyncTaskForBlock(taskBlockInd);
+                if (!syncTaskIndOpt.has_value()) {
                     continue;
                 }
+                size_t syncTaskInd = syncTaskIndOpt.value();
 
                 if (taskInd != syncTaskInd) {
                     // Create new connection
@@ -1424,8 +1469,8 @@ void vpux::BarrierInfo::splitControlGraphToBlocks(const size_t blockSize) {
     // STEP 7
     // Put dedicated attribute on sync tasks for follow-up passes so that
     // they are aware of the split and can take advantage of it (e.g. perform optimizeBarriers in parts)
-    for (size_t blockInd = 1; blockInd < numOfBlocks; blockInd++) {
-        size_t syncTaskInd = blockInd * blockSize - 1;
+    for (size_t syncOrdinal = 0; syncOrdinal < syncPointTaskIndices.size(); syncOrdinal++) {
+        size_t syncTaskInd = syncPointTaskIndices[syncOrdinal];
         auto syncTaskOp = getTaskOpAtIndex(syncTaskInd);
         syncTaskOp->setAttr(_syncTaskAttrName, mlir::UnitAttr::get(syncTaskOp->getContext()));
     }
@@ -2363,7 +2408,7 @@ void vpux::BarrierInfo::optimizeBarriersWithSameProducers(size_t blockIdx, bool 
     VPUX_THROW_WHEN(barriersRangeVec.back() > maxBarrierIndex,
                     "Invalid barrier index for upper limit of barrier range optimization");
 
-    const auto maxVariantCount = getBarrierMaxVariantSum();
+    const auto maxSlotCount = getBarrierMaxSlotCount();
 
     auto addFunc = [&](size_t sum, size_t taskInd) {
         return sum + getNumOfSlotsUsedByTask(getTaskOpAtIndex(taskInd));
@@ -2382,7 +2427,7 @@ void vpux::BarrierInfo::optimizeBarriersWithSameProducers(size_t blockIdx, bool 
         // Use set operation to remove duplicated consumers
         llvm::set_union(consumers, _barrierConsumerMap[bar2]);
         slotCount = std::accumulate(consumers.begin(), consumers.end(), slotCount, addFunc);
-        return slotCount <= maxVariantCount;
+        return slotCount <= maxSlotCount;
     };
 
     // copy barrier map onto vector for quicker comparisons between different producer sets
@@ -2415,260 +2460,8 @@ void vpux::BarrierInfo::optimizeBarriersWithSameProducers(size_t blockIdx, bool 
     _log = _log.unnest();
 }
 
-bool vpux::BarrierInfo::canMergeBarriersForTasks(const BarrierInfo::TaskSet& producers, size_t availableSlots) {
-    size_t producerSlotCount = 0;
-    for (const auto& producerInd : producers) {
-        producerSlotCount += getNumOfSlotsUsedByTask(getTaskOpAtIndex(producerInd));
-
-        if (producerSlotCount > availableSlots) {
-            // exceeding producer slot count
-            return false;
-        }
-    }
-
-    return true;
-}
-
 void vpux::BarrierInfo::enableUnevenVariantSplit() {
     _enableUnevenVariantSplit = true;
-}
-
-// modify barriers for task such that it is driven by a single wait barrier by merging parallel wait barriers
-// or linearizing the producers of parallel wait barriers
-bool vpux::BarrierInfo::eliminateParallelWaitBarriers(size_t taskInd, size_t availableSlots,
-                                                      bool considerTaskExecutorType) {
-    const auto waitBarriers = getWaitBarriers(taskInd);  // parallel wait barriers
-    auto log = _log.nest();
-
-    auto getBarriersProducerTasks = [&](const BarrierInfo::TaskSet& waitBarriers) {
-        BarrierInfo::TaskSet newBarrierProducers;
-        for (auto& waitBarrierInd : waitBarriers) {
-            // merge all producers
-            const auto& barrierProducers = getBarrierProducers(waitBarrierInd);
-            llvm::set_union(newBarrierProducers, barrierProducers);
-        }
-
-        return newBarrierProducers;
-    };
-
-    auto getBarriersConsumerTasks = [&](const BarrierInfo::TaskSet& parallelWaitBarriers) {
-        BarrierInfo::TaskSet parallelConsumers;
-        for (auto& waitBarrier : parallelWaitBarriers) {
-            llvm::set_union(parallelConsumers, getBarrierConsumers(waitBarrier));
-        }
-        return parallelConsumers;
-    };
-
-    BarrierInfo::TaskSet parallelConsumers = getBarriersConsumerTasks(waitBarriers);
-
-    auto getBarriersConsumerTasksWithWaitBarriers = [&](const BarrierInfo::TaskSet& waitBarriers,
-                                                        size_t availableSlotsForConsumer) {
-        // select consumers from within parallelConsumers with given waitBarriers
-        BarrierInfo::TaskSet parallelConsumersSameWaitBarriers;
-        size_t parallelConsumerSlotCount = 0;
-
-        for (auto& consumer : parallelConsumers) {
-            if (waitBarriers != getWaitBarriers(consumer)) {
-                continue;
-            }
-
-            parallelConsumerSlotCount += getNumOfSlotsUsedByTask(getTaskOpAtIndex(consumer));
-            if (parallelConsumerSlotCount > availableSlotsForConsumer) {
-                break;
-            }
-
-            parallelConsumersSameWaitBarriers.insert(consumer);
-        }
-
-        return parallelConsumersSameWaitBarriers;
-    };
-
-    auto unlinkTaskFromParallelBarriers = [&](const BarrierInfo::TaskSet& tasks,
-                                              const BarrierInfo::TaskSet& waitBarriers) {
-        // remove consumer task from parallel barriers
-        for (auto& waitBarrierInd : waitBarriers) {
-            const auto barrierConsumers = getBarrierConsumers(waitBarrierInd);
-            const auto waitBarrier = getBarrierOpAtIndex(waitBarrierInd);
-
-            // remove link from parallel barriers
-            if (barrierConsumers.size() == tasks.size()) {
-                // if only consumer, barrier can be reset
-                resetBarrier(waitBarrier);
-            } else {
-                for (auto& taskInd : tasks) {
-                    removeConsumer(waitBarrier, taskInd);
-                }
-            }
-        }
-    };
-
-    log.trace("Got '{0}' parallel wait barriers for task '{1}'", waitBarriers.size(), taskInd);
-
-    auto availableSlotsForConsumer = availableSlots;
-    const auto totalSlots = 2 * availableSlots;  // by default the slots are evenly divided for producer and consumer
-    auto parallelProducers = getBarriersProducerTasks(waitBarriers);
-    size_t parallelProducerSlotCount = 0;
-    for (auto& producer : parallelProducers) {
-        parallelProducerSlotCount += getNumOfSlotsUsedByTask(getTaskOpAtIndex(producer));
-    }
-    // make full use of the total slots
-    // originally the slots are evenly split for producers and consumers,
-    // e.g., 64 slots in total, 32 for producer and 32 for consumer
-    // when the producer exceeds 32 the excess producers are linearized, leading to DPU stalls
-    // try to distribute more slots for producer or consumer and check the feasibility
-    if (_enableUnevenVariantSplit && (parallelProducerSlotCount < totalSlots)) {
-        // check if every consumer could fit consumer-slots
-        // if false, use equal slots for producer and consumer (original logic)
-        // else, assign slots for producer and use the remaining slots for consumer
-        const bool everyConsumerFitProvidedSlots = llvm::all_of(parallelConsumers, [&](auto consumer) {
-            return waitBarriers != getWaitBarriers(consumer) ||
-                   getNumOfSlotsUsedByTask(getTaskOpAtIndex(consumer)) <= totalSlots - parallelProducerSlotCount;
-        });
-        if (everyConsumerFitProvidedSlots) {
-            availableSlotsForConsumer = totalSlots - parallelProducerSlotCount;
-        }
-    }
-
-    auto parallelConsumersToMerge = getBarriersConsumerTasksWithWaitBarriers(waitBarriers, availableSlotsForConsumer);
-    VPUX_THROW_WHEN(parallelConsumersToMerge.empty(), "parallel consumers are empty");
-
-    // check if total slot count required by parallelProducers <= available slots for producers
-    if (canMergeBarriersForTasks(parallelProducers, totalSlots - availableSlotsForConsumer)) {
-        log.nest().trace("Can merge '{0}' parallel producers for task '{1}'", parallelProducers.size(), taskInd);
-        mergeLegalParallelProducers(taskInd, parallelProducers, parallelConsumersToMerge);
-    } else {
-        log.nest().trace("Have to linearize '{0}' parallel producers for task '{1}'", parallelProducers.size(),
-                         taskInd);
-        linearizeLegalParallelProducers(taskInd, parallelProducers, parallelConsumersToMerge, availableSlots,
-                                        considerTaskExecutorType);
-    }
-
-    for (auto& id : parallelConsumersToMerge) {
-        log.trace("Unlink parallel barriers from task '{0}'", id);
-    }
-    unlinkTaskFromParallelBarriers(parallelConsumersToMerge, waitBarriers);
-    log.trace("Task '{0}' now has one wait barrier", taskInd);
-    return true;
-}
-
-SmallVector<BarrierInfo::TaskSet> BarrierInfo::createProducerBatches(const BarrierInfo::TaskSet& waitBarriers,
-                                                                     size_t availableSlots,
-                                                                     bool considerTaskExecutorType) {
-    // try to create batches of producers using existing barriers if producers satisfy order constraint
-    SmallVector<BarrierInfo::TaskSet> legalBatches;
-
-    auto prevLastUserInd = std::numeric_limits<size_t>::max();  // last user index in the previous batch
-    for (auto& waitBarrierInd : waitBarriers) {
-        const auto& barrierProducers = getBarrierProducers(waitBarrierInd);
-        if (legalBatches.empty()) {
-            prevLastUserInd = VPURT::getMaxEntry(barrierProducers);
-            legalBatches =
-                    canMergeBarriersForTasks(barrierProducers, availableSlots)
-                            ? SmallVector<BarrierInfo::TaskSet>{barrierProducers}
-                            : createLegalVariantBatches(barrierProducers, availableSlots, considerTaskExecutorType);
-            continue;
-        }
-
-        const auto firstUserInd = VPURT::getMinEntry(barrierProducers);
-        if (prevLastUserInd >= firstUserInd) {
-            // producers do not satisfy order constraint
-            return SmallVector<BarrierInfo::TaskSet>{};
-        }
-
-        prevLastUserInd = VPURT::getMaxEntry(barrierProducers);
-        auto currentBatchPlusBarrierProducers = legalBatches.back();
-        llvm::set_union(currentBatchPlusBarrierProducers, barrierProducers);
-
-        if (canMergeBarriersForTasks(currentBatchPlusBarrierProducers, availableSlots)) {
-            // can add to the same batch
-            legalBatches.back() = std::move(currentBatchPlusBarrierProducers);
-        } else {
-            // possible improvement: if the entire batch doesn't fit, consider filling-in the last batch with a portion
-            // of tasks from barrierProducers (E140023).
-            // Need to create a new batch
-            if (canMergeBarriersForTasks(barrierProducers, availableSlots)) {
-                legalBatches.push_back(barrierProducers);
-            } else {
-                legalBatches.append(
-                        createLegalVariantBatches(barrierProducers, availableSlots, considerTaskExecutorType));
-            }
-        }
-    }
-
-    return legalBatches;
-}
-
-/*
-    Linearize wait barriers if task wait barrier count > 1 by linearizing legal batches of parallel wait barriers
-
-        x..xn    y..ym             x..xn
-          |        |              /     \
-        Bar0     Bar1     -->   Bar0     Bar1
-       /    \   /    \           |        |
-    u..ui   o..oj   a..ak      u..ui    y..ym
-                                       /     \
-                                     Bar2   Bar3
-                                      |      |
-                                    o..oj   a..ak
-*/
-void vpux::BarrierInfo::linearizeLegalParallelProducers(size_t taskInd, const BarrierInfo::TaskSet& parallelProducers,
-                                                        const BarrierInfo::TaskSet& parallelConsumers,
-                                                        size_t availableSlots, bool considerTaskExecutorType) {
-    // create legal batches of barrier producers
-    auto legalBatches = createProducerBatches(getWaitBarriers(taskInd), availableSlots, considerTaskExecutorType);
-    if (legalBatches.empty()) {
-        // create new batches of producers that satisfy order constraint
-        legalBatches = createLegalVariantBatches(parallelProducers, availableSlots, considerTaskExecutorType);
-    }
-
-    // last batch is the current task
-    BarrierInfo::TaskSet nextBatch = parallelConsumers;
-    auto taskOp = getTaskOpAtIndex(taskInd);
-    mlir::OpBuilder builder(taskOp);
-
-    // create a new barrier between batches
-    for (const auto& batch : legalBatches | reversed) {
-        auto newBarrier = builder.create<VPURT::DeclareVirtualBarrierOp>(taskOp.getLoc());
-        addNewBarrier(newBarrier);
-
-        for (auto& barrierProducer : batch) {
-            addProducer(newBarrier, barrierProducer);
-        }
-
-        for (auto& barrierConsumer : nextBatch) {
-            addConsumer(newBarrier, barrierConsumer);
-        }
-
-        nextBatch = batch;
-    }
-}
-
-// merge wait barriers if task wait barrier count > 1 by
-// creating a new barrier replacing parallel wait barriers
-/*
-        x..xn    y..ym             x..xn    y..ym
-          |        |              /    \   /    \
-        Bar0     Bar1     -->   Bar0    Bar1    Bar2
-       /    \   /    \           |       |       |
-    u..ui   o..oj   a..ak      u..ui   o..oj   a..ak
-*/
-void vpux::BarrierInfo::mergeLegalParallelProducers(size_t taskInd, const BarrierInfo::TaskSet& parallelProducers,
-                                                    const BarrierInfo::TaskSet& parallelConsumers) {
-    // create a new barrier for all parallel producers
-    auto taskOp = getTaskOpAtIndex(taskInd);
-    mlir::OpBuilder builder(taskOp);
-    auto newBarrier = builder.create<VPURT::DeclareVirtualBarrierOp>(taskOp.getLoc());
-    addNewBarrier(newBarrier);
-
-    // add all legal producers to new barrier
-    for (auto& barrierProducer : parallelProducers) {
-        addProducer(newBarrier, barrierProducer);
-    }
-
-    // add all parallel consumers with same wait barriers
-    for (auto& consumer : parallelConsumers) {
-        addConsumer(newBarrier, consumer);
-    }
 }
 
 void vpux::BarrierInfo::shareWaitAndUpdateBarriers(size_t availableSlots) {
@@ -2890,53 +2683,6 @@ unsigned vpux::BarrierInfo::removeBarrierDependenciesImpliedByFIFO() {
     removeTemporaryBarriers(_barrierConsumerMap, /* producerMap */ false);
     _fifoDependencies.clear();
     return removedDepsCount;
-}
-
-// iteratively merge parallel wait barriers
-bool vpux::BarrierInfo::ensureTasksDrivenBySingleBarrier(size_t availableSlots, bool mergeWaitBarriersIteratively,
-                                                         bool considerTaskExecutorType) {
-    auto getTasksWithParallelWaitBarriers = [&]() {
-        BarrierInfo::TaskSet tasksWithParallelWaitBarriers;
-        for (size_t taskInd = 0; taskInd < getNumOfTasks(); taskInd++) {
-            if (getWaitBarriers(taskInd).size() >= 2) {
-                tasksWithParallelWaitBarriers.insert(taskInd);
-            }
-        }
-        return tasksWithParallelWaitBarriers;
-    };
-
-    bool modifiedIR = false;
-    auto tasksWithParallelWaitBarriers = getTasksWithParallelWaitBarriers();
-    size_t iteration = 0;
-    while (tasksWithParallelWaitBarriers.size() > 0) {
-        _log.trace("Encountered {0} tasks with more than one wait barrier in iteration {1}",
-                   tasksWithParallelWaitBarriers.size(), iteration);
-
-        // Reverse "for" loop over tasks would reduce the required number of iterations, but
-        // the schedule may not be exactly equivalent (E140023).
-        _func->walk([&](VPURT::TaskOp taskOp) {
-            const auto taskInd = getIndex(taskOp);
-            if (getWaitBarriers(taskInd).size() < 2) {
-                // valid configuration
-                return;
-            }
-
-            modifiedIR |= eliminateParallelWaitBarriers(taskInd, availableSlots, considerTaskExecutorType);
-        });
-
-        auto tasksWithParallelWaitBarriersPrevIt = tasksWithParallelWaitBarriers;
-        tasksWithParallelWaitBarriers = getTasksWithParallelWaitBarriers();
-        VPUX_THROW_UNLESS(tasksWithParallelWaitBarriers != tasksWithParallelWaitBarriersPrevIt,
-                          "Merging parallel wait barriers encountered an identical batch of tasks as in previous "
-                          "iteration. Cannot enforce single wait barrier per task.");
-        iteration++;
-
-        if (!mergeWaitBarriersIteratively) {
-            break;
-        }
-    }
-
-    return modifiedIR;
 }
 
 bool vpux::BarrierInfo::inRange(const size_t low, const size_t high, const size_t val) const {
@@ -3725,7 +3471,7 @@ size_t vpux::BarrierInfoTest::getNumOfTasks() const {
                     _taskUpdateBarriers.size());  // BarrierInfoTest class may operate without input funcOp
 }
 
-size_t vpux::BarrierInfoTest::getBarrierMaxVariantSum() const {
+size_t vpux::BarrierInfoTest::getBarrierMaxSlotCount() const {
     return _maxVariantCountPerBarrier;
 }
 

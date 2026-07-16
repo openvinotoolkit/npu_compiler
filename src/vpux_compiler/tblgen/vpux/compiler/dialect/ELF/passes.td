@@ -142,6 +142,11 @@ def UpdateELFSectionFlags : PassBase<"update-ELF-section-flags", "vpux::ModulePa
 
     let constructor = "vpux::ELF::createUpdateELFSectionFlagsPass()";
 
+    let options = [
+        Option<"enableShaveDDRAccess", "enable-shave-ddr-access", "bool", "true",
+               "Enable SHAVE processor DDR access flag updates for ELF sections">
+    ];
+
     let dependentDialects = [
         "vpux::ELF::ELFDialect"
     ];
@@ -266,6 +271,11 @@ def FinalizeSkipDmaChains : PassBase<"finalize-skip-dma-chains", "vpux::Function
 
         4. Patch Fetch DMAs:
            - Connects Fetch DMAs to the correct Skip DMA descriptors for data prefetching.
+
+        Note: Each skipDescId is used to locate its corresponding release DMA descriptor.
+        The reservation for release descriptors is fixed by the implementation.
+        The pass reserves maxNumReleaseDesc * 8 bytes, which corresponds to 4 release
+        descriptors at 8 bytes per descriptor, regardless of the number of skipDescIds.
     }];
 
     let constructor = "vpux::ELF::createFinalizeSkipDmaChainsPass()";

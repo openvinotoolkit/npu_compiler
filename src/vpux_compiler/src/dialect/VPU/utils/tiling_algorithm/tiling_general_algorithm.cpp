@@ -33,7 +33,7 @@ mlir::LogicalResult TilingGeneralAlgorithm::applyTiling(mlir::Operation* operati
 }
 
 SmallVector<mlir::Operation*> TilingGeneralAlgorithm::applySCFTilingAndFusion(mlir::Operation*, mlir::RewriterBase&,
-                                                                              Logger) {
+                                                                              const MergeConfiguration&, Logger) {
     // TODO E-172818 move VF general algorithm here
     return {};
 }

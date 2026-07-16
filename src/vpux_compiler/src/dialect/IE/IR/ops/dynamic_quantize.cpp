@@ -8,6 +8,41 @@
 
 using namespace vpux;
 
+namespace {
+
+mlir::LogicalResult verifyBroadcastCompatible(mlir::Operation* op, mlir::ArrayRef<int64_t> inputShape,
+                                              mlir::Value tensor, llvm::StringRef tensorName) {
+    if (tensor == nullptr) {
+        return mlir::success();
+    }
+
+    const auto tensorShape = to_small_vector(mlir::cast<mlir::ShapedType>(tensor.getType()).getShape());
+    if (tensorShape.size() > inputShape.size()) {
+        return errorAt(op, "{0} tensor has rank greater than input tensor.", tensorName);
+    }
+
+    auto inputIt = inputShape.rbegin();
+    auto tensorIt = tensorShape.rbegin();
+    for (; tensorIt != tensorShape.rend(); ++tensorIt, ++inputIt) {
+        if (*tensorIt > 1 && *tensorIt != *inputIt) {
+            return errorAt(op, "{0} tensor is not broadcast-compatible with input tensor.", tensorName);
+        }
+    }
+
+    return mlir::success();
+}
+
+bool hasSameShape(mlir::Value lhs, mlir::Value rhs) {
+    if (lhs == nullptr || rhs == nullptr) {
+        return true;
+    }
+
+    return mlir::cast<mlir::ShapedType>(lhs.getType()).getShape() ==
+           mlir::cast<mlir::ShapedType>(rhs.getType()).getShape();
+}
+
+}  // namespace
+
 mlir::LogicalResult vpux::IE::DynamicQuantizeOp::inferReturnTypeComponents(
         mlir::MLIRContext* ctx, std::optional<mlir::Location> optLoc, mlir::ValueShapeRange operands,
         mlir::DictionaryAttr attrs, mlir::OpaqueProperties prop, mlir::RegionRange,
@@ -22,40 +57,62 @@ mlir::LogicalResult vpux::IE::DynamicQuantizeOp::inferReturnTypeComponents(
     auto scaleOrZpShape = SmallVector<int64_t>{1};
     if (quantize.getMin() != nullptr && quantize.getMax() != nullptr) {
         const auto minType = mlir::cast<mlir::ShapedType>(quantize.getMin().getType());
-        scaleOrZpShape = SmallVector<int64_t>(minType.getRank(), 1);
+        scaleOrZpShape = to_small_vector(minType.getShape());
     }
 
     const auto inType = mlir::cast<mlir::ShapedType>(quantize.getInput().getType());
-    auto ui8Type = mlir::IntegerType::get(ctx, 8, mlir::IntegerType::SignednessSemantics::Unsigned);
-    inferredReturnShapes.emplace_back(inType.getShape(), ui8Type);
+    const auto quantizedElemType = quantize.getDstElemType();
+    inferredReturnShapes.emplace_back(inType.getShape(), quantizedElemType);
     inferredReturnShapes.emplace_back(scaleOrZpShape, inType.getElementType());
-    inferredReturnShapes.emplace_back(scaleOrZpShape, ui8Type);
+    inferredReturnShapes.emplace_back(scaleOrZpShape, quantizedElemType);
 
     return mlir::success();
 }
 
 mlir::LogicalResult vpux::IE::DynamicQuantizeOp::verify() {
-    const auto isShapeSizeOne = [](mlir::Value tensor) {
-        if (tensor == nullptr) {
-            return true;
-        }
-        return getShape(tensor).totalSize() == 1;
-    };
+    const auto inputShape = to_small_vector(mlir::cast<mlir::ShapedType>(getInput().getType()).getShape());
 
-    if (!isShapeSizeOne(getMin())) {
-        return errorAt(getLoc(), "The min input doesn't have a single element");
+    if (mlir::failed(verifyBroadcastCompatible(*this, inputShape, getMin(), "Min"))) {
+        return mlir::failure();
     }
 
-    if (!isShapeSizeOne(getMax())) {
-        return errorAt(getLoc(), "The max input doesn't have a single element");
+    if (mlir::failed(verifyBroadcastCompatible(*this, inputShape, getMax(), "Max"))) {
+        return mlir::failure();
     }
 
-    if (!isShapeSizeOne(getScale())) {
-        return errorAt(getLoc(), "The scale output doesn't have a single element");
+    if (mlir::failed(verifyBroadcastCompatible(*this, inputShape, getScale(), "Scale"))) {
+        return mlir::failure();
     }
 
-    if (!isShapeSizeOne(getZeroPoint())) {
-        return errorAt(getLoc(), "The zero-point output doesn't have a single element");
+    if (mlir::failed(verifyBroadcastCompatible(*this, inputShape, getZeroPoint(), "ZeroPoint"))) {
+        return mlir::failure();
+    }
+
+    if (!hasSameShape(getMin(), getMax())) {
+        return errorAt(*this, "Min and max tensors must have the same shape.");
+    }
+
+    if (!hasSameShape(getScale(), getZeroPoint())) {
+        return errorAt(*this, "Scale and zero-point tensors must have the same shape.");
+    }
+
+    if (getMin() != nullptr && getScale() != nullptr && !hasSameShape(getMin(), getScale())) {
+        return errorAt(*this, "Scale tensor must have the same shape as min/max tensors.");
+    }
+
+    const auto dstElemType = getDstElemType();
+    if (!dstElemType.isInteger(8)) {
+        return errorAt(*this, "dstElemType must be an 8-bit integer type, got {0}.", dstElemType);
+    }
+
+    const auto outputElemType = mlir::cast<mlir::ShapedType>(getOutput().getType()).getElementType();
+    if (outputElemType != dstElemType) {
+        return errorAt(*this, "Output element type {0} must match dstElemType {1}.", outputElemType, dstElemType);
+    }
+
+    const auto zpElemType = mlir::cast<mlir::ShapedType>(getZeroPoint().getType()).getElementType();
+    if (zpElemType != dstElemType) {
+        return errorAt(*this, "Zero-point element type {0} must match dstElemType {1}.", zpElemType, dstElemType);
     }
 
     return mlir::success();

@@ -15,7 +15,6 @@ module @double_m2i attributes {config.compilationMode = #config.compilation_mode
     config.Option @config.MetadataMaxKernelInvocationCount : 64
     config.Option @config.MetadataMaxKernelRangeCount : 64
     config.Option @config.MetadataMaxMediaCount : 4
-    config.Option @config.MaxKernelSize : 11
   }
 
   config.Resources {activity_factor = 0.000000e+00 : f64} 3 of @NCE at 1.700000e+03 MHz {
@@ -27,7 +26,6 @@ module @double_m2i attributes {config.compilationMode = #config.compilation_mode
         config.MemoryResource 64 bytes of @CMX_NN offset 512 loc(#loc)
       } loc(#loc)
     } loc(#loc)
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware loc(#loc)
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64} loc(#loc)
     config.ExecutorResource 2 of @SHAVE_ACT loc(#loc)
     config.ExecutorResource 1 of @DPU loc(#loc)

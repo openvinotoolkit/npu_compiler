@@ -16,8 +16,10 @@
 #include "vpux/compiler/NPU40XX/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPUIP/IR/ops_interfaces.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPUIPDPU/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 
 #include "vpux/compiler/ShaveCodeGen/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/Shave/IR/ops_interfaces.hpp"
 
 namespace vpux {
 
@@ -32,6 +34,8 @@ void InterfacesRegistry40XX::registerInterfaces(mlir::DialectRegistry& registry)
     IE::arch37xx::registerMPEEngineInfoOpInterfaces(registry);
     // NB: arch37xx::SEOpModel can be re-used for 40XX
     IE::arch37xx::registerSEOpInterfaces(registry);
+    // NB: arch37xx::AlignedChannelsOpModel can be re-used for 40XX
+    IE::arch37xx::registerAlignedChannelsOpInterfaces(registry);
     // NB: arch37xx::LayerWithPostOpModel can be re-used for 40XX
     VPU::arch37xx::registerLayerWithPostOpModelInterface(registry);
     // NB: arch37xx::LayoutInfo can be re-used for 40XX
@@ -46,8 +50,6 @@ void InterfacesRegistry40XX::registerInterfaces(mlir::DialectRegistry& registry)
     VPU::arch40xx::registerClusterBroadcastingOpInterfaces(registry);
     // NB: arch40xx::registerSCFTilingOpsInterfaces uses its own logic
     VPU::arch40xx::registerSCFTilingOpsInterfaces(registry);
-    // NB: arch37xx::AlignedChannelsOpModel can be re-used for 40XX
-    VPUIP::arch37xx::registerAlignedChannelsOpInterfaces(registry);
     // NB: arch40xx::AlignedWorkloadChannelsOp uses itself logic
     VPUIP::arch40xx::registerAlignedWorkloadChannelsOpInterfaces(registry);
     // NB: arch40xx::BufferizableOp uses its own logic
@@ -59,7 +61,12 @@ void InterfacesRegistry40XX::registerInterfaces(mlir::DialectRegistry& registry)
     // NB: arch37xx::ICostModelUtilsInterface can be re-used for 40XX
     VPU::arch37xx::registerICostModelUtilsInterface(registry);
     VPU::arch37xx::registerSWTilingInfoOpInterface(registry);
+    // NB: arch37xx::PPECapability can be re-used for 40XX (bias stored as int32)
+    VPU::arch37xx::registerPPECapabilityInterface(registry);
     ShaveCodeGen::registerShaveCodeGenOpInterfaces(registry);
+    Shave::registerShaveOpInterfaces(registry);
+    VPU::arch40xx::registerLayerWithDmaInterface(registry);
+    VPU::registerAlignedChannelsOpInterfacesVPU(registry);
 }
 
 }  // namespace vpux

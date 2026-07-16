@@ -8,7 +8,7 @@
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module @StaticEltwiseNHWC {
-    func.func private @main_func0(%arg0: tensor<1x16x90x1000xf16, {order = #NHWC}>,
+    func.func nested @main_func0(%arg0: tensor<1x16x90x1000xf16, {order = #NHWC}>,
                                   %arg1: tensor<1x16x90x1000xf16, {order = #NHWC}>) -> tensor<1x16x90x1000xf16, {order = #NHWC}> {
         %0 = VPU.NCE.Eltwise(%arg0, %arg1) {
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
@@ -38,7 +38,7 @@ module @StaticEltwiseNHWC {
 // CHECK: #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @StaticEltwiseNHWC
-// CHECK: func.func private @main_func0
+// CHECK: func.func nested @main_func0
 // CHECK-SAME: ({{.+}}: tensor<1x90x1000x16xf16>, {{.+}}: tensor<1x90x1000x16xf16>) -> tensor<1x90x1000x16xf16>
 // CHECK: Core.ReinterpretCast{{.+}} : tensor<1x90x1000x16xf16> -> tensor<1x16x90x1000xf16, {order = #NHWC}>
 // CHECK: Core.ReinterpretCast{{.+}} : tensor<1x90x1000x16xf16> -> tensor<1x16x90x1000xf16, {order = #NHWC}>
@@ -61,7 +61,7 @@ module @StaticEltwiseNHWC {
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 module @StaticEltwiseMultipleOps {
-    func.func private @main_func0(%arg0: tensor<1x16x90x1000xf16, {order = #NHWC}>, %arg1: tensor<1x16x90x1000xf16, {order = #NHWC}>)
+    func.func nested @main_func0(%arg0: tensor<1x16x90x1000xf16, {order = #NHWC}>, %arg1: tensor<1x16x90x1000xf16, {order = #NHWC}>)
         -> tensor<1x16x90x1000xf16, {order = #NCHW}> {
         %0 = VPU.NCE.Eltwise(%arg0, %arg1) {
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
@@ -101,7 +101,7 @@ module @StaticEltwiseMultipleOps {
 // CHECK: #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @StaticEltwiseMultipleOps
-// CHECK: func.func private @main_func0([[ARG0:%.+]]: tensor<1x90x1000x16xf16>, [[ARG1:%.+]]: tensor<1x90x1000x16xf16>)
+// CHECK: func.func nested @main_func0([[ARG0:%.+]]: tensor<1x90x1000x16xf16>, [[ARG1:%.+]]: tensor<1x90x1000x16xf16>)
 // CHECK-DAG: [[CAST0:%.+]] = Core.ReinterpretCast([[ARG0]]) : tensor<1x90x1000x16xf16> -> tensor<1x16x90x1000xf16, {order = #NHWC}>
 // CHECK-DAG: [[CAST1:%.+]] = Core.ReinterpretCast([[ARG1]]) : tensor<1x90x1000x16xf16> -> tensor<1x16x90x1000xf16, {order = #NHWC}>
 // CHECK:     [[ADD0:%.+]] = VPU.NCE.Eltwise([[CAST0]], [[CAST1]])
@@ -119,7 +119,7 @@ module @StaticEltwiseMultipleOps {
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 module @StaticEltwiseNCHW {
-    func.func private @main_func0(%arg0: tensor<1x16x90x1000xf16, {order = #NCHW}>) -> tensor<1x16x90x1000xf16, {order = #NCHW}> {
+    func.func nested @main_func0(%arg0: tensor<1x16x90x1000xf16, {order = #NCHW}>) -> tensor<1x16x90x1000xf16, {order = #NCHW}> {
         %0 = VPU.ReLU(%arg0) : tensor<1x16x90x1000xf16, {order = #NCHW}> -> tensor<1x16x90x1000xf16, {order = #NCHW}>
         return %0 : tensor<1x16x90x1000xf16, {order = #NCHW}>
     }
@@ -136,7 +136,7 @@ module @StaticEltwiseNCHW {
 // CHECK: #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 // CHECK-LABEL: @StaticEltwiseNCHW
-// CHECK: func.func private @main_func0({{.+}}: tensor<1x16x90x1000xf16>)
+// CHECK: func.func nested @main_func0({{.+}}: tensor<1x16x90x1000xf16>)
 // CHECK:     Core.ReinterpretCast{{.+}} : tensor<1x16x90x1000xf16> -> tensor<1x16x90x1000xf16, {order = #NCHW}>
 // CHECK:     VPU.ReLU
 // CHECK:     Core.ReinterpretCast{{.+}} : tensor<1x16x90x1000xf16, {order = #NCHW}> -> tensor<1x16x90x1000xf16>
@@ -153,7 +153,7 @@ module @StaticEltwiseNCHW {
 
 // Check combined case with dynamic shapes + bounds and NHWC layout
 module @DynamicBoundedEltwiseNHWC {
-  func.func private @main_func0(%arg0: tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>,
+  func.func nested @main_func0(%arg0: tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>,
                                  %arg1: tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>)
                                   -> tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}> {
     %0 = VPU.NCE.Eltwise(%arg0, %arg1) {is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.000000e+00], fp_prelu_alpha = 1.000000e+00 : f64>} -> tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>
@@ -184,7 +184,7 @@ module @DynamicBoundedEltwiseNHWC {
 //  and not part of the main function or compute function signature.
 
 // CHECK-LABEL: @DynamicBoundedEltwiseNHWC
-// CHECK: func.func private @main_func0(
+// CHECK: func.func nested @main_func0(
 // CHECK-SAME:  [[ARG0:%.+]]: tensor<1x256x?x16xf16>,
 // CHECK-SAME:  [[ARG1:%.+]]: tensor<1x256x?x16xf16>)
 // CHECK-DAG:   Core.ReinterpretCast([[ARG0]]) : tensor<1x256x?x16xf16> -> tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>
@@ -253,7 +253,7 @@ func.func @TensorDimForDynamicDimWHCN(%arg0: tensor<1x16x256x?xf16, {bounds = #c
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @StaticQuantizedNHWC {
-    func.func private @main_func0(%arg0: tensor<1x16x90x1000x!qElemType, {order = #NHWC}>,
+    func.func nested @main_func0(%arg0: tensor<1x16x90x1000x!qElemType, {order = #NHWC}>,
                                   %arg1: tensor<1x16x90x1000x!qElemType, {order = #NHWC}>)
                                   -> tensor<1x16x90x1000x!qElemType, {order = #NHWC}> {
         %0 = VPU.NCE.Eltwise(%arg0, %arg1) {
@@ -285,7 +285,7 @@ module @StaticQuantizedNHWC {
 }
 
 // CHECK-LABEL: @StaticQuantizedNHWC
-// CHECK: func.func private @main_func0([[ARG0:%.+]]: tensor<1x90x1000x16xi8>, [[ARG1:%.+]]: tensor<1x90x1000x16xi8>) -> tensor<1x90x1000x16xi8>
+// CHECK: func.func nested @main_func0([[ARG0:%.+]]: tensor<1x90x1000x16xi8>, [[ARG1:%.+]]: tensor<1x90x1000x16xi8>) -> tensor<1x90x1000x16xi8>
 // CHECK-DAG:   [[CAST0:%.+]] = Core.ReinterpretCast([[ARG1]]) : tensor<1x90x1000x16xi8> -> tensor<1x16x90x1000x!qElemType, {order = #NHWC}>
 // CHECK-DAG:   [[CAST1:%.+]] = Core.ReinterpretCast([[ARG0]]) : tensor<1x90x1000x16xi8> -> tensor<1x16x90x1000x!qElemType, {order = #NHWC}>
 // CHECK:       [[ELTWISE:%.+]] = VPU.NCE.Eltwise([[CAST1]], [[CAST0]]) {{.*}} -> tensor<1x16x90x1000x!qElemType, {order = #NHWC}>

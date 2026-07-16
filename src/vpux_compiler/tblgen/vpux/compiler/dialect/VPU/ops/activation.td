@@ -16,21 +16,38 @@ def VPU_EluOp :
             "Elu",
             [
                 VPU_TilingBuilderOpInterface,
-                VPU_EltwiseOp
+                VPU_EltwiseOp,
+                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "Elu VPU layer";
 
     let arguments = (ins
-        RankedTensorOf<[F16, F32]>:$input,
-
-        F64Attr:$x
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$input,
+        F64Attr:$x,
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
-
 
     let results = (outs
-        RankedTensorOf<[F16, F32]>:$output
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$output
     );
+
+    let extraClassDeclaration = [{
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+    }] # baseExtraClassDeclaration;
+
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::Value":$input,
+            "::mlir::FloatAttr":$x
+        )>
+    ];
+
+    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 }
 
 def VPU_GeluOp :
@@ -41,6 +58,7 @@ def VPU_GeluOp :
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
                 VPU_EltwiseOp
             ]
         > {
@@ -71,6 +89,8 @@ def VPU_HardSigmoidOp :
                 DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
                 VPU_EltwiseOp
             ]
         > {
@@ -110,18 +130,36 @@ def VPU_HSigmoidOp :
             "HSigmoid",
             [
                 VPU_TilingBuilderOpInterface,
-                VPU_EltwiseOp
+                VPU_EltwiseOp,
+                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "HSigmoid VPU layer";
 
     let arguments = (ins
-        RankedTensorOf<[F16, F32]>:$input
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$input,
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
     let results = (outs
-        RankedTensorOf<[F16, F32]>:$output
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$output
     );
+
+    let extraClassDeclaration = [{
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+    }] # baseExtraClassDeclaration;
+
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::Value":$input
+        )>
+    ];
+
+    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 }
 
 def VPU_HSwishOp :
@@ -131,7 +169,9 @@ def VPU_HSwishOp :
                 VPU_TilingBuilderOpInterface,
                 VPU_EltwiseOp,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "HSwish VPU layer";
@@ -159,20 +199,38 @@ def VPU_LeakyReluOp :
             "LeakyRelu",
             [
                 VPU_TilingBuilderOpInterface,
-                VPU_EltwiseOp
+                VPU_EltwiseOp,
+                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "LeakyRelu VPU layer";
 
     let arguments = (ins
-        RankedTensorOf<[F16, F32]>:$input,
-
-        F64Attr:$negative_slope
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$input,
+        F64Attr:$negative_slope,
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
     let results = (outs
-        RankedTensorOf<[F16, F32]>:$output
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$output
     );
+
+    let extraClassDeclaration = [{
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+    }] # baseExtraClassDeclaration;
+
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::Value":$input,
+            "::mlir::FloatAttr":$negative_slope
+        )>
+    ];
+
+    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 }
 
 def VPU_LogSoftmaxOp :
@@ -221,7 +279,8 @@ def VPU_MishOp :
                 VPU_EltwiseOp,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
-                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>
+                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "Mish VPU layer";
@@ -255,7 +314,8 @@ def VPU_PReluOp :
                 VPU_EltwiseOp,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
-                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>
+                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "PRelu VPU layer";
@@ -296,18 +356,19 @@ def VPU_ReLUOp :
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
                 VPU_EltwiseOp
             ]
         > {
     let summary = "ReLU VPU layer";
 
     let arguments = (ins
-        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$input,
+        AnyTypeOf<[RankedTensorOf<[F16, F32, SI8, SI16, SI32]>, VPU_DistributedTensor]>:$input,
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
     let results = (outs
-        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$output
+        AnyTypeOf<[RankedTensorOf<[F16, F32, SI8, SI16, SI32]>, VPU_DistributedTensor]>:$output
     );
 
     let builders = [
@@ -332,20 +393,40 @@ def VPU_SeluOp :
             "Selu",
             [
                 VPU_TilingBuilderOpInterface,
-                VPU_EltwiseOp
+                VPU_EltwiseOp,
+                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "Selu VPU layer";
 
     let arguments = (ins
-        RankedTensorOf<[F16, F32]>:$input,
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$input,
         F64Attr:$alpha_value,
-        F64Attr:$lambda_value
+        F64Attr:$lambda_value,
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
     let results = (outs
-        RankedTensorOf<[F16, F32]>:$output
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$output
     );
+
+    let extraClassDeclaration = [{
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+    }] # baseExtraClassDeclaration;
+
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::Value":$input,
+            "::mlir::FloatAttr":$alpha_value,
+            "::mlir::FloatAttr":$lambda_value
+        )>
+    ];
+
+    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 }
 
 def VPU_SigmoidOp :
@@ -356,7 +437,8 @@ def VPU_SigmoidOp :
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
                 VPU_EltwiseOp,
-                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>
+                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "Sigmoid VPU layer";
@@ -393,22 +475,46 @@ def VPU_SoftMaxOp :
                 DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
-                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>
+                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "SoftMax VPU layer";
 
+    let description = [{
+        Computes the softmax function along the specified axis.
+
+        The optional `max` operand allows passing a precomputed per-slice maximum,
+        enabling the original Softmax to be decomposed into:
+          1. A ReduceMax that produces `max` (shape = input with axis dim set to 1).
+          2. This op consuming both `input` and `max`.
+
+        This decomposition allows the ReduceMax to be fused into a parent DPU task.
+        When `max` is absent the op behaves identically to the original single-input Softmax.
+
+        Constraints on `max` (verified at construction time):
+          - Same rank as `input`.
+          - Size 1 on the softmax axis dimension.
+          - Same size as `input` on all other dimensions.
+    }];
+
     let arguments = (ins
         AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$input,
+        // Optional precomputed maximum over the softmax axis (keep_dims=true).
+        // Shape: same as $input with the axis dimension reduced to 1.
+        Optional<AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>>:$max,
         IntAttr:$axisInd,
         OptionalAttr<IntAttr>:$padSize,
         OptionalAttr<TypeAttr>:$dstElemType,
+        UnitAttr:$maskAware,
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
     let results = (outs
         AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$output
     );
+
+    let hasVerifier = 1;
 
     let extraClassDeclaration = [{
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
@@ -423,9 +529,11 @@ def VPU_SoftMaxOp :
     let builders = [
         OpBuilder<(ins
             "::mlir::Value":$input,
+            "::std::optional<::mlir::Value>":$max,
             "::mlir::IntegerAttr":$axisInd,
             "::mlir::IntegerAttr":$padSize,
-            "::mlir::TypeAttr":$dstElemType
+            "::mlir::TypeAttr":$dstElemType,
+            CArg<"::mlir::UnitAttr", "{}">:$maskAware
         )>
     ];
 
@@ -440,7 +548,8 @@ def VPU_SoftPlusOp :
                 VPU_EltwiseOp,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
-                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>
+                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "SoftPlus VPU layer";
@@ -497,7 +606,8 @@ def VPU_SwishOp :
                 VPU_EltwiseOp,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
-                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>
+                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "Swish VPU layer";

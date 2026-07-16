@@ -8,6 +8,8 @@
 #include "vpux/compiler/dialect/IE/utils/matmul.hpp"
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 
+#include <mlir/IR/AffineMap.h>
+
 namespace vpux {
 namespace IE {
 
@@ -25,10 +27,7 @@ bool checkMatMul(IE::MatMulOp origOp) {
         return false;
     }
 
-    static const auto N = Dims4D::Act::N;
-    static const auto C = Dims4D::Act::C;
-    static const auto H = Dims4D::Act::H;
-    static const auto W = Dims4D::Act::W;
+    using namespace Dims4D::Act;
 
     // Right now it's expected to be the case when transposeA = false and transposeB = true
     if (!IE::isMatmulWithRHSTransposition(origOp)) {
@@ -48,10 +47,30 @@ bool checkMatMul(IE::MatMulOp origOp) {
     return res;
 }
 
-bool checkTranspose(IE::TransposeOp transposeOp) {
-    // TransposeOp should only transpose 4D spatial dims
-    const auto transposePerm = DimsOrder::fromAffineMap(transposeOp.getOrderValue().value());
-    return transposePerm == DimsOrder::NCWH;
+bool checkSwapLast2DimsTranspose(IE::TransposeOp transposeOp) {
+    if (transposeOp == nullptr) {
+        return false;
+    }
+    const auto orderAttr = transposeOp.getOrderValue();
+    if (!orderAttr.has_value()) {
+        return false;
+    }
+    const auto affineMap = orderAttr.value();
+    const unsigned rank = affineMap.getNumDims();
+    if (rank < 2 || affineMap.getNumResults() != rank) {
+        return false;
+    }
+    for (unsigned i = 0; i < rank; ++i) {
+        const auto dimExpr = mlir::dyn_cast<mlir::AffineDimExpr>(affineMap.getResult(i));
+        if (!dimExpr) {
+            return false;
+        }
+        const unsigned expected = (i == rank - 2) ? rank - 1 : (i == rank - 1) ? rank - 2 : i;
+        if (dimExpr.getPosition() != expected) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool checkAffineReshape(IE::AffineReshapeOp affineReshapeOp) {
@@ -96,30 +115,50 @@ bool checkBroadCast(IE::BroadcastOp broadcastOp) {
 }
 
 bool shouldShrinkMatmulGroups(IE::MatMulOp matmulOp) {
-    auto rhs = matmulOp.getInput2();
+    return matchShrinkMatmulGroupsPattern(matmulOp).has_value();
+}
+
+std::optional<MatchedShrinkPattern> matchShrinkMatmulGroupsPattern(IE::MatMulOp matmulOp) {
     if (!checkMatMul(matmulOp)) {
-        return false;
+        return std::nullopt;
     }
+
+    auto rhs = matmulOp.getInput2();
+
+    // Walk from rhs: peel optional outer Transpose, then AffineReshape.
     IE::AffineReshapeOp reshapeOp = nullptr;
-    auto transposeOp = rhs.getDefiningOp<IE::TransposeOp>();
-    if (transposeOp == nullptr) {
+    IE::TransposeOp outerTransposeOp = rhs.getDefiningOp<IE::TransposeOp>();
+    if (outerTransposeOp == nullptr) {
         reshapeOp = rhs.getDefiningOp<IE::AffineReshapeOp>();
     } else {
-        if (!checkTranspose(transposeOp)) {
-            return false;
+        if (!checkSwapLast2DimsTranspose(outerTransposeOp)) {
+            return std::nullopt;
         }
-        reshapeOp = transposeOp.getInput().getDefiningOp<IE::AffineReshapeOp>();
+        reshapeOp = outerTransposeOp.getInput().getDefiningOp<IE::AffineReshapeOp>();
     }
 
     if (!checkAffineReshape(reshapeOp)) {
-        return false;
+        return std::nullopt;
     }
 
-    auto broadCastOp = reshapeOp.getInput().getDefiningOp<IE::BroadcastOp>();
-    if (!checkBroadCast(broadCastOp)) {
-        return false;
+    // Walk from AffineReshape input: peel optional inner Transpose, then BroadcastOp.
+    IE::TransposeOp innerTransposeOp = nullptr;
+    IE::BroadcastOp broadCastOp = reshapeOp.getInput().getDefiningOp<IE::BroadcastOp>();
+    if (broadCastOp == nullptr) {
+        innerTransposeOp = reshapeOp.getInput().getDefiningOp<IE::TransposeOp>();
+        if (innerTransposeOp != nullptr) {
+            if (!checkSwapLast2DimsTranspose(innerTransposeOp)) {
+                return std::nullopt;
+            }
+            broadCastOp = innerTransposeOp.getInput().getDefiningOp<IE::BroadcastOp>();
+        }
     }
-    return true;
+
+    if (!checkBroadCast(broadCastOp)) {
+        return std::nullopt;
+    }
+
+    return MatchedShrinkPattern{broadCastOp, innerTransposeOp, reshapeOp, outerTransposeOp};
 }
 
 }  // namespace IE

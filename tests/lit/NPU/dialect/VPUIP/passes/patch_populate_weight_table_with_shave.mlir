@@ -12,25 +12,25 @@
 !qElemType = !quant.uniform<i4:f16, 0.0057189941406250002>
 
 module @VPU.SW {
-    func.func private @builtin_PopulateWeightTable(memref<*xsi32, @CMX_NN>, i64, i64)
+    func.func nested @builtin_PopulateWeightTable(memref<*xsi32, @CMX_NN>, i64, i64)
             attributes {VPU.kernel_code = "populate_weight_table.cpp",
                         VPU.kernel_entry = "populate_weight_table", VPU.task_type = @COMPUTE}
-    func.func private @builtin_Convert(memref<*xf32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>)
+    func.func nested @builtin_Convert(memref<*xf32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>)
             attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert", VPU.task_type = @COMPUTE}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 
 // CHECK-LABEL: @PatchSWKernelSingleCluster
 // CHECK-SAME:     , [[SCALE_ARG:%.+]]: memref<416x1x1x4xf16, [@CMX_NN, 0]>
 func.func @PatchSWKernelSingleCluster(%arg0: memref<1x1x2048xf32, @DDR>, %scale: memref<416x1x1x4xf16, [@CMX_NN, 0]>)
-           -> memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]> {
+           -> memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]> {
     %0 = VPURT.DeclareBuffer <CMX_NN> [0] <856064> -> memref<1x1x1x2048xf32, [@CMX_NN, 0]>
     %1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1x1x2048xf16, [@CMX_NN, 0]>
     %2 = VPURT.DeclareBuffer <CMX_NN> [0] <864256> -> memref<416x1x1x4xsi32, [@CMX_NN, 0]>
-    %3 = VPURT.DeclareBuffer <CMX_NN> [0] <4096> -> memref<416x2048x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>
-    %4 = VPURT.DeclareBuffer <CMX_NN> [0] <856064> -> memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]>
+    %3 = VPURT.DeclareBuffer <CMX_NN> [0] <4096> -> memref<416x2048x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
+    %4 = VPURT.DeclareBuffer <CMX_NN> [0] <856064> -> memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
-    %cst = const.Declare memref<416x2048x1x1x!qElemType, #NHWC> = dense<1.0> : tensor<416x2048x1x1xf16>,
+    %cst = const.Declare memref<416x2048x1x1x!qElemType, {order = #NHWC}> = dense<1.0> : tensor<416x2048x1x1xf16>,
         [#const.CastElemType<si4>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
 
     %token, %bodyResults = async.execute -> !async.value<memref<1x1x1x2048xf32, [@CMX_NN, 0]>>
@@ -47,11 +47,11 @@ func.func @PatchSWKernelSingleCluster(%arg0: memref<1x1x2048xf32, @DDR>, %scale:
       }
       async.yield %results : memref<1x1x1x2048xf16, [@CMX_NN, 0]>
     }
-    %token_6, %bodyResults_7 = async.execute [%token] -> !async.value<memref<416x2048x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>>
+    %token_6, %bodyResults_7 = async.execute [%token] -> !async.value<memref<416x2048x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>>
             attributes {VPUIP.executor = @DMA_NN, VPUIP.executorIdx = [0], "async-deps-index" = 2 : i64, cycleBegin = 819 : i64, cycleCost = 164704 : i64, cycleEnd = 165522 : i64} {
-      %21 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst : memref<416x2048x1x1x!qElemType, #NHWC>) outputs(%3 : memref<416x2048x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>)
-        -> memref<416x2048x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>
-      async.yield %21 : memref<416x2048x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>
+      %21 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst : memref<416x2048x1x1x!qElemType, {order = #NHWC}>) outputs(%3 : memref<416x2048x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
+        -> memref<416x2048x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
+      async.yield %21 : memref<416x2048x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
     %token_8, %bodyResults_9:2 = async.execute -> (!async.value<memref<208x1x1x4xsi32, [@CMX_NN, 0]>>, !async.value<memref<208x1x1x4xsi32, [@CMX_NN, 0]>>)
@@ -70,33 +70,33 @@ func.func @PatchSWKernelSingleCluster(%arg0: memref<1x1x2048xf32, @DDR>, %scale:
     %token_12, %bodyResults_13 = async.execute [%token_4, %token_6, %token_8] (%bodyResults_5 as %arg2: !async.value<memref<1x1x1x2048xf16, [@CMX_NN, 0]>>,
                 %bodyResults_9#0 as %arg3: !async.value<memref<208x1x1x4xsi32, [@CMX_NN, 0]>>,
                 %bodyResults_9#1 as %arg4: !async.value<memref<208x1x1x4xsi32, [@CMX_NN, 0]>>,
-                %bodyResults_7 as %arg5: !async.value<memref<416x2048x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>>)
-                -> !async.value<memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]>>
+                %bodyResults_7 as %arg5: !async.value<memref<416x2048x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>>)
+                -> !async.value<memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>>
                 attributes {VPUIP.executor = @DPU, "async-deps-index" = 5 : i64, cycleBegin = 165522 : i64, cycleCost = 1 : i64, cycleEnd = 165523 : i64} {
       %21 = VPUIP.GenericReshape inputs(%arg2 : memref<1x1x1x2048xf16, [@CMX_NN, 0]>) -> memref<1x2048x1x1xf16, [@CMX_NN, 0]>
-      %22 = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC} inputs(%21 : memref<1x2048x1x1xf16, [@CMX_NN, 0]>) -> memref<1x2048x1x1xf16, #NHWC, [@CMX_NN, 0]>
+      %22 = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC} inputs(%21 : memref<1x2048x1x1xf16, [@CMX_NN, 0]>) -> memref<1x2048x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
       %23 = VPUIP.ConcatView inputs(%arg3, %arg4 : memref<208x1x1x4xsi32, [@CMX_NN, 0]>, memref<208x1x1x4xsi32, [@CMX_NN, 0]>)
         outputs(%2 : memref<416x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<416x1x1x4xsi32, [@CMX_NN, 0]>
       %24 = VPUIP.NCEClusterTask {populateWeightTable = true, minimumHardwareExecutionCost = 4294967295 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>}
            <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
-            input(%22 : memref<1x2048x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-            weights(%arg5 : memref<416x2048x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>)
+            input(%22 : memref<1x2048x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            weights(%arg5 : memref<416x2048x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
             weight_table(%23 : memref<416x1x1x4xsi32, [@CMX_NN, 0]>)
-            parent_input(%22 : memref<1x2048x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-            parent_output(%4 : memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-            outputs(%4 : memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-            -> memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]> variants : {
+            parent_input(%22 : memref<1x2048x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            parent_output(%4 : memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            outputs(%4 : memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            -> memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
         DPUTask {mpe_mode = #VPU.mpe_mode<CUBOID_4x16>, outEnd = [0, 0, 415], outStart = [0, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
       } PPE : {
         PPETask {ppe = #VPU.PPEStub<>}
       }
-      async.yield %24 : memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]>
+      async.yield %24 : memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
-    %result = async.await %bodyResults_13 : !async.value<memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]>>
+    %result = async.await %bodyResults_13 : !async.value<memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>>
 
-    return %result : memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]>
+    return %result : memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
 
     // CHECK:       [[IN_BUF:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <864256> -> memref<416x1x1x4xsi32, [@CMX_NN, 0]>
@@ -126,29 +126,29 @@ func.func @PatchSWKernelSingleCluster(%arg0: memref<1x1x2048xf32, @DDR>, %scale:
 !qElemType = !quant.uniform<i4:f16, 0.0057189941406250002>
 
 module @VPU.SW {
-    func.func private @builtin_PopulateWeightTable(memref<*xsi32, @CMX_NN>, i64, i64)
+    func.func nested @builtin_PopulateWeightTable(memref<*xsi32, @CMX_NN>, i64, i64)
             attributes {VPU.kernel_code = "populate_weight_table.cpp",
                         VPU.kernel_entry = "populate_weight_table", VPU.task_type = @COMPUTE}
-    func.func private @builtin_Convert(memref<*xf32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>)
+    func.func nested @builtin_Convert(memref<*xf32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>)
             attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert", VPU.task_type = @COMPUTE}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 
 // CHECK-LABEL: @PatchSWKernelSingleClusterWithDMASpill
 // CHECK-SAME:      , [[SCALE_ARG:%.+]]: memref<416x1x1x4xf16, [@CMX_NN, 0]>
 func.func @PatchSWKernelSingleClusterWithDMASpill(%arg0: memref<1x1x2048xf32, @DDR>, %scale: memref<416x1x1x4xf16, [@CMX_NN, 0]>)
-           -> memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]> {
+           -> memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]> {
     %0 = VPURT.DeclareBuffer <CMX_NN> [0] <856064> -> memref<1x1x1x2048xf32, [@CMX_NN, 0]>
     %1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1x1x2048xf16, [@CMX_NN, 0]>
     %2 = VPURT.DeclareBuffer <CMX_NN> [0] <864256> -> memref<416x1x1x4xsi32, [@CMX_NN, 0]>
-    %3 = VPURT.DeclareBuffer <CMX_NN> [0] <4096> -> memref<416x2048x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>
-    %4 = VPURT.DeclareBuffer <CMX_NN> [0] <856064> -> memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]>
+    %3 = VPURT.DeclareBuffer <CMX_NN> [0] <4096> -> memref<416x2048x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
+    %4 = VPURT.DeclareBuffer <CMX_NN> [0] <856064> -> memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %5 = VPURT.DeclareBuffer <DDR> <0> -> memref<208x1x1x4xsi32, @DDR>
     %6 = VPURT.DeclareBuffer <DDR> <832> -> memref<208x1x1x4xsi32, @DDR>
     %7 = VPURT.DeclareBuffer <CMX_NN> [0] <2048> -> memref<208x1x1x4xsi32, [@CMX_NN, 0]>
     %8 = VPURT.DeclareBuffer <CMX_NN> [0] <2880> -> memref<208x1x1x4xsi32, [@CMX_NN, 0]>
 
-    %cst = const.Declare memref<416x2048x1x1x!qElemType, #NHWC> = dense<1.0> : tensor<416x2048x1x1xf16>,
+    %cst = const.Declare memref<416x2048x1x1x!qElemType, {order = #NHWC}> = dense<1.0> : tensor<416x2048x1x1xf16>,
         [#const.CastElemType<si4>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
 
     %token, %bodyResults = async.execute -> !async.value<memref<1x1x1x2048xf32, [@CMX_NN, 0]>>
@@ -165,11 +165,11 @@ func.func @PatchSWKernelSingleClusterWithDMASpill(%arg0: memref<1x1x2048xf32, @D
       }
       async.yield %results : memref<1x1x1x2048xf16, [@CMX_NN, 0]>
     }
-    %token_6, %bodyResults_7 = async.execute [%token] -> !async.value<memref<416x2048x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>>
+    %token_6, %bodyResults_7 = async.execute [%token] -> !async.value<memref<416x2048x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>>
             attributes {VPUIP.executor = @DMA_NN, VPUIP.executorIdx = [0], "async-deps-index" = 2 : i64, cycleBegin = 819 : i64, cycleCost = 164704 : i64, cycleEnd = 165522 : i64} {
-      %21 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst : memref<416x2048x1x1x!qElemType, #NHWC>) outputs(%3 : memref<416x2048x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>)
-        -> memref<416x2048x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>
-      async.yield %21 : memref<416x2048x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>
+      %21 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst : memref<416x2048x1x1x!qElemType, {order = #NHWC}>) outputs(%3 : memref<416x2048x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
+        -> memref<416x2048x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
+      async.yield %21 : memref<416x2048x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     }
     %token_8, %bodyResults_9:2 = async.execute -> (!async.value<memref<208x1x1x4xsi32, [@CMX_NN, 0]>>, !async.value<memref<208x1x1x4xsi32, [@CMX_NN, 0]>>)
             attributes {VPUIP.executor = @SHAVE_ACT, "async-deps-index" = 3 : i64, cycleBegin = 820 : i64, cycleCost = 1 : i64, cycleEnd = 821 : i64} {
@@ -211,33 +211,33 @@ func.func @PatchSWKernelSingleClusterWithDMASpill(%arg0: memref<1x1x2048xf32, @D
     %token_14, %bodyResults_15 = async.execute [%token_4, %token_6, %token_12] (%bodyResults_5 as %arg2: !async.value<memref<1x1x1x2048xf16, [@CMX_NN, 0]>>,
                 %bodyResults_13#0 as %arg3: !async.value<memref<208x1x1x4xsi32, [@CMX_NN, 0]>>,
                 %bodyResults_13#1 as %arg4: !async.value<memref<208x1x1x4xsi32, [@CMX_NN, 0]>>,
-                %bodyResults_7 as %arg5: !async.value<memref<416x2048x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>>)
-                -> !async.value<memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]>>
+                %bodyResults_7 as %arg5: !async.value<memref<416x2048x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>>)
+                -> !async.value<memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>>
                 attributes {VPUIP.executor = @DPU, "async-deps-index" = 5 : i64, cycleBegin = 165522 : i64, cycleCost = 1 : i64, cycleEnd = 165523 : i64} {
       %21 = VPUIP.GenericReshape inputs(%arg2 : memref<1x1x1x2048xf16, [@CMX_NN, 0]>) -> memref<1x2048x1x1xf16, [@CMX_NN, 0]>
-      %22 = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC} inputs(%21 : memref<1x2048x1x1xf16, [@CMX_NN, 0]>) -> memref<1x2048x1x1xf16, #NHWC, [@CMX_NN, 0]>
+      %22 = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC} inputs(%21 : memref<1x2048x1x1xf16, [@CMX_NN, 0]>) -> memref<1x2048x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
       %23 = VPUIP.ConcatView inputs(%arg3, %arg4 : memref<208x1x1x4xsi32, [@CMX_NN, 0]>, memref<208x1x1x4xsi32, [@CMX_NN, 0]>)
         outputs(%2 : memref<416x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<416x1x1x4xsi32, [@CMX_NN, 0]>
       %24 = VPUIP.NCEClusterTask {populateWeightTable = true, minimumHardwareExecutionCost = 4294967295 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>}
            <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
-            input(%22 : memref<1x2048x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-            weights(%arg5 : memref<416x2048x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>)
+            input(%22 : memref<1x2048x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            weights(%arg5 : memref<416x2048x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
             weight_table(%23 : memref<416x1x1x4xsi32, [@CMX_NN, 0]>)
-            parent_input(%22 : memref<1x2048x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-            parent_output(%4 : memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-            outputs(%4 : memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-            -> memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]> variants : {
+            parent_input(%22 : memref<1x2048x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            parent_output(%4 : memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            outputs(%4 : memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            -> memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
         DPUTask {mpe_mode = #VPU.mpe_mode<CUBOID_4x16>, outEnd = [0, 0, 415], outStart = [0, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
       } PPE : {
         PPETask {ppe = #VPU.PPEStub<>}
       }
-      async.yield %24 : memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]>
+      async.yield %24 : memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
-    %result = async.await %bodyResults_15 : !async.value<memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]>>
+    %result = async.await %bodyResults_15 : !async.value<memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>>
 
-    return %result : memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]>
+    return %result : memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     // CHECK:       [[IN_BUF:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <864256> -> memref<416x1x1x4xsi32, [@CMX_NN, 0]>
 
@@ -299,12 +299,12 @@ func.func @PatchSWKernelSingleClusterWithDMASpill(%arg0: memref<1x1x2048xf32, @D
       alignment = [1, 16, 1, 1]}>
 
 module @VPU.SW {
-    func.func private @builtin_PopulateWeightTable(memref<*xsi32, @CMX_NN>, i64, i64)
+    func.func nested @builtin_PopulateWeightTable(memref<*xsi32, @CMX_NN>, i64, i64)
             attributes {VPU.kernel_code = "populate_weight_table.cpp",
                         VPU.kernel_entry = "populate_weight_table", VPU.task_type = @COMPUTE}
-    func.func private @builtin_Convert(memref<*xf32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>)
+    func.func nested @builtin_Convert(memref<*xf32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>)
             attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert", VPU.task_type = @COMPUTE}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
 // CHECK-LABEL: @PatchSWKernelModeSegmented
@@ -318,7 +318,7 @@ func.func @PatchSWKernelModeSegmented(%arg0: memref<1x1x4096xf32, @DDR>, %scale:
     %4 = VPURT.DeclareBuffer <CMX_NN> <1081344> -> !ConvOutputDistributed
 
 
-    %cst_2 = const.Declare memref<1024x4096x1x1x!qElemType, #NHWC> = dense<1.0> : tensor<1024x4096x1x1xf16>,
+    %cst_2 = const.Declare memref<1024x4096x1x1x!qElemType, {order = #NHWC}> = dense<1.0> : tensor<1024x4096x1x1xf16>,
               [#const.CastElemType<si4>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
 
 
@@ -370,7 +370,7 @@ func.func @PatchSWKernelModeSegmented(%arg0: memref<1x1x4096xf32, @DDR>, %scale:
     %token_9, %bodyResults_10 = async.execute -> !async.value<!WeightsDistributed>
                   attributes {VPUIP.executor = @DMA_NN, VPUIP.executorIdx = [0, 1], "async-deps-index" = 4 : i64,
                   cycleBegin = 2072 : i64, cycleCost = 458697 : i64, cycleEnd = 460769 : i64} {
-      %18 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst_2 : memref<1024x4096x1x1x!qElemType, #NHWC>) outputs(%2 : !WeightsDistributed)
+      %18 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst_2 : memref<1024x4096x1x1x!qElemType, {order = #NHWC}>) outputs(%2 : !WeightsDistributed)
             -> !WeightsDistributed
       async.yield %18 : !WeightsDistributed
     }
@@ -461,24 +461,24 @@ func.func @PatchSWKernelModeSegmented(%arg0: memref<1x1x4096xf32, @DDR>, %scale:
 !qElemType = !quant.uniform<i4:f16, 0.0057189941406250002>
 
 module @VPU.SW {
-    func.func private @builtin_PopulateWeightTable(memref<*xsi32, @CMX_NN>, i64, i64)
+    func.func nested @builtin_PopulateWeightTable(memref<*xsi32, @CMX_NN>, i64, i64)
             attributes {VPU.kernel_code = "populate_weight_table.cpp",
                         VPU.kernel_entry = "populate_weight_table", VPU.task_type = @COMPUTE}
-    func.func private @builtin_Convert(memref<*xf32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>)
+    func.func nested @builtin_Convert(memref<*xf32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>)
             attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert", VPU.task_type = @COMPUTE}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 // CHECK-LABEL: @DoNotPatchSWKernelWhenZeroOffset
 // CHECK-SAME:      , [[SCALE_ARG:%.+]]: memref<416x1x1x4xf16, [@CMX_NN, 0]>
 func.func @DoNotPatchSWKernelWhenZeroOffset(%arg0: memref<1x1x2048xf32, @DDR>, %scale: memref<416x1x1x4xf16, [@CMX_NN, 0]>)
-           -> memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]> {
+           -> memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]> {
     %0 = VPURT.DeclareBuffer <CMX_NN> [0] <856064> -> memref<1x1x1x2048xf32, [@CMX_NN, 0]>
     %1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1x1x2048xf16, [@CMX_NN, 0]>
     %2 = VPURT.DeclareBuffer <CMX_NN> [0] <864256> -> memref<416x1x1x4xsi32, [@CMX_NN, 0]>
-    %3 = VPURT.DeclareBuffer <CMX_NN> [0] <4096> -> memref<416x2048x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>
-    %4 = VPURT.DeclareBuffer <CMX_NN> [0] <856064> -> memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]>
+    %3 = VPURT.DeclareBuffer <CMX_NN> [0] <4096> -> memref<416x2048x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
+    %4 = VPURT.DeclareBuffer <CMX_NN> [0] <856064> -> memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
-    %cst = const.Declare memref<416x2048x1x1x!qElemType, #NHWC> = dense<1.0> : tensor<416x2048x1x1xf16>,
+    %cst = const.Declare memref<416x2048x1x1x!qElemType, {order = #NHWC}> = dense<1.0> : tensor<416x2048x1x1xf16>,
         [#const.CastElemType<si4>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
 
     %token, %bodyResults = async.execute -> !async.value<memref<1x1x1x2048xf32, [@CMX_NN, 0]>>
@@ -495,11 +495,11 @@ func.func @DoNotPatchSWKernelWhenZeroOffset(%arg0: memref<1x1x2048xf32, @DDR>, %
       }
       async.yield %results : memref<1x1x1x2048xf16, [@CMX_NN, 0]>
     }
-    %token_6, %bodyResults_7 = async.execute [%token] -> !async.value<memref<416x2048x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>>
+    %token_6, %bodyResults_7 = async.execute [%token] -> !async.value<memref<416x2048x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>>
             attributes {VPUIP.executor = @DMA_NN, VPUIP.executorIdx = [0], "async-deps-index" = 2 : i64, cycleBegin = 819 : i64, cycleCost = 164704 : i64, cycleEnd = 165522 : i64} {
-      %21 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst : memref<416x2048x1x1x!qElemType, #NHWC>) outputs(%3 : memref<416x2048x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>)
-        -> memref<416x2048x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>
-      async.yield %21 : memref<416x2048x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>
+      %21 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst : memref<416x2048x1x1x!qElemType, {order = #NHWC}>) outputs(%3 : memref<416x2048x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
+        -> memref<416x2048x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
+      async.yield %21 : memref<416x2048x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
     %token_8, %bodyResults_9:2 = async.execute -> (!async.value<memref<208x1x1x4xsi32, [@CMX_NN, 0]>>, !async.value<memref<208x1x1x4xsi32, [@CMX_NN, 0]>>)
@@ -518,33 +518,33 @@ func.func @DoNotPatchSWKernelWhenZeroOffset(%arg0: memref<1x1x2048xf32, @DDR>, %
     %token_12, %bodyResults_13 = async.execute [%token_4, %token_6, %token_8] (%bodyResults_5 as %arg2: !async.value<memref<1x1x1x2048xf16, [@CMX_NN, 0]>>,
                 %bodyResults_9#0 as %arg3: !async.value<memref<208x1x1x4xsi32, [@CMX_NN, 0]>>,
                 %bodyResults_9#1 as %arg4: !async.value<memref<208x1x1x4xsi32, [@CMX_NN, 0]>>,
-                %bodyResults_7 as %arg5: !async.value<memref<416x2048x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>>)
-                -> !async.value<memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]>>
+                %bodyResults_7 as %arg5: !async.value<memref<416x2048x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>>)
+                -> !async.value<memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>>
                 attributes {VPUIP.executor = @DPU, "async-deps-index" = 5 : i64, cycleBegin = 165522 : i64, cycleCost = 1 : i64, cycleEnd = 165523 : i64} {
       %21 = VPUIP.GenericReshape inputs(%arg2 : memref<1x1x1x2048xf16, [@CMX_NN, 0]>) -> memref<1x2048x1x1xf16, [@CMX_NN, 0]>
-      %22 = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC} inputs(%21 : memref<1x2048x1x1xf16, [@CMX_NN, 0]>) -> memref<1x2048x1x1xf16, #NHWC, [@CMX_NN, 0]>
+      %22 = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC} inputs(%21 : memref<1x2048x1x1xf16, [@CMX_NN, 0]>) -> memref<1x2048x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
       %23 = VPUIP.ConcatView inputs(%arg3, %arg4 : memref<208x1x1x4xsi32, [@CMX_NN, 0]>, memref<208x1x1x4xsi32, [@CMX_NN, 0]>)
         outputs(%2 : memref<416x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<416x1x1x4xsi32, [@CMX_NN, 0]>
       %24 = VPUIP.NCEClusterTask {populateWeightTable = true, minimumHardwareExecutionCost = 4294967295 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>}
            <{is_zero_offset_weights_table, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
-            input(%22 : memref<1x2048x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-            weights(%arg5 : memref<416x2048x1x1x!qElemType, #NHWC, [@CMX_NN, 0]>)
+            input(%22 : memref<1x2048x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            weights(%arg5 : memref<416x2048x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
             weight_table(%23 : memref<416x1x1x4xsi32, [@CMX_NN, 0]>)
-            parent_input(%22 : memref<1x2048x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-            parent_output(%4 : memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-            outputs(%4 : memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-            -> memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]> variants : {
+            parent_input(%22 : memref<1x2048x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            parent_output(%4 : memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            outputs(%4 : memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            -> memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
         DPUTask {mpe_mode = #VPU.mpe_mode<CUBOID_4x16>, outEnd = [0, 0, 415], outStart = [0, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
       } PPE : {
         PPETask {ppe = #VPU.PPEStub<>}
       }
-      async.yield %24 : memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]>
+      async.yield %24 : memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
-    %result = async.await %bodyResults_13 : !async.value<memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]>>
+    %result = async.await %bodyResults_13 : !async.value<memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>>
 
-    return %result : memref<1x416x1x1xf16, #NHWC, [@CMX_NN, 0]>
+    return %result : memref<1x416x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     // CHECK:       [[IN_BUF:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <864256> -> memref<416x1x1x4xsi32, [@CMX_NN, 0]>
 

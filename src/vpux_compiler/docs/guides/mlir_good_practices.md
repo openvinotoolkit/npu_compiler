@@ -214,3 +214,33 @@ succeed and thus would rewrite the code to `X`.
 rewriters could have different operations involved and have only partial
 overlaps (e.g. `A -> B -> C -> B` with one rewriter starting at `B` and finding
 `C -> B` and another starting at `B` and finding `A -> B -> C`).
+
+---
+
+## Symbol Visibility
+
+MLIR documentation regarding symbol visibility modes can be found [here](https://mlir.llvm.org/docs/SymbolsAndSymbolTables/#symbol-visibility).
+
+**General rule**: default visibility of a symbol should be _nested_ or _public_, but not _private_. The reason is that using _private_ visibility mode as the default might lead to incorrect IR. Given VPUx doesn't generally model external references, _nested_ should be preferred over _public_. Example:
+
+```mlir
+module {
+  module @VPU.SW {
+    // A symbol with private visibility, such as @private_func,
+    // can be referenced only within the scope of the parent SymbolTable operation (VPU.SW)
+    func.func private @private_func()
+    func.func nested @nested_func()
+
+    // @private_func can be referenced here
+    // @nested_func can be referenced here
+  }
+
+  // @main has public visibility
+  func.func @main() {
+    // @VPU.SW::@private_func cannot be referenced here
+    // @VPU.SW::@nested_func can be referenced here
+  }
+}
+```
+
+Note: starting with LLVM 22, symbol visibility is verified by the MLIR verifier.

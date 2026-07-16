@@ -781,7 +781,72 @@ void FeasibleMemorySchedulerSpilling::optimizeDataOpsSpills(FeasibleMemorySchedu
         }
     }
 
+    mlir::DenseMap<mlir::Value, SmallVector<size_t>> rootBufferToProducerOpIndexes;
+    const auto getProducerOpIndexesForRoot = [&](mlir::Value rootBuffer) -> const SmallVector<size_t>& {
+        if (!rootBufferToProducerOpIndexes.empty()) {
+            return rootBufferToProducerOpIndexes[rootBuffer];
+        }
+
+        // build map for the first call
+        for (size_t schedOpIdx = 0; schedOpIdx < scheduledOps.size(); schedOpIdx++) {
+            const auto& schedOp = scheduledOps[schedOpIdx];
+            if (!schedOp.hasActiveOutputResource()) {
+                continue;
+            }
+
+            for (size_t resourceIdx = 0; resourceIdx < schedOp.numOfOutputResources(); resourceIdx++) {
+                if (!schedOp.isActiveOutputResource(resourceIdx)) {
+                    continue;
+                }
+
+                const auto producerRootBuffer = _aliasInfo.getRoot(schedOp.getOutputBuffer(resourceIdx));
+                rootBufferToProducerOpIndexes[producerRootBuffer].push_back(schedOpIdx);
+            }
+        }
+        return rootBufferToProducerOpIndexes[rootBuffer];
+    };
+
+    // Skip spill optimization when the root buffer has another producer scheduled before the current spill write.
+    // Optimizing in this case can extend the root-buffer liveness and cause CMX overlaps.
+    // [E223030] This spilling optimization needs more analysis
+    // Simply removing the spilling producers may not be optimal. For example:
+    //     ProducerOp1(cycle a) -> ProducerOp2 (cycle b) -> SpillWrite (cycle c) -> SpillRead (cycle d)
+    //   If the above pattern is optimized to:
+    //     (cycle a) -> (cycle b)  -> (cycle c) -> ProducerOp1 (cycle d) -> ProducerOp2 (cycle e)
+    //   Case 1. When the duration from cycle a ~ cycle c is occupied by another compute op, the total duration is
+    //   extended to `e`.
+    //   Case 2. When the duration from cycle a ~ c is not occupied, then ProducerOp1 starts earlier
+    //   because of less spilling.
+    // Only case 2 has performance improvement, case 1 can cause regression.
+    // Therefore such scheduling is not always better.
     SmallVector<size_t> operationIndexesToRemove;
+    const auto hasEarlierProducerForRoot = [&](size_t spillWriteOpIdx, mlir::Value buffer) {
+        const auto rootBuffer = _aliasInfo.getRoot(buffer);
+        const auto producerOp = scheduledOps[spillWriteOpIdx].op_;
+        const auto& producerOpIndexes = getProducerOpIndexesForRoot(rootBuffer);
+        VPUX_THROW_WHEN(producerOpIndexes.empty(), "No producer found for buffer '{0}'", rootBuffer);
+
+        for (const auto schedOpIdx : producerOpIndexes) {
+            // If the producer op is the same as the current data op or is scheduled after the spill write op,
+            // The spilling optimization still works.
+            if (schedOpIdx >= spillWriteOpIdx) {
+                continue;
+            }
+
+            const auto& schedOp = scheduledOps[schedOpIdx];
+            if (schedOp.op_ == producerOp) {
+                continue;
+            }
+
+            _log.nest(2).trace(
+                    "Skip spill optimization for op '{0}' because op '{1}' also produces the same root buffer",
+                    producerOp, schedOp.op_);
+            return true;
+        }
+
+        return false;
+    };
+
     // Check if between original op / spillRead and spillWrite buffer
     // from dataOp is used by any operation
     _log.trace("Check on possible removal of spills of data operations:");
@@ -851,6 +916,11 @@ void FeasibleMemorySchedulerSpilling::optimizeDataOpsSpills(FeasibleMemorySchedu
             }
 
             auto isBufferUsed = isBufferUsedAsArgument || isBufferUsedAsResult;
+            // Skip spill optimization if another producer of the same root buffer is scheduled before the spill write.
+            // Optimizing in this case can extend root-buffer liveness and may cause CMX overlaps / scheduling failures.
+            if (hasEarlierProducerForRoot(nextSpillWriteOpIndex, buffer)) {
+                continue;
+            }
 
             // If buffer was not used by any operation in between then given read-write pair is not needed
             // This can happen if scheduler prefetched dataOp which got immediately spilled
@@ -1254,7 +1324,8 @@ mlir::async::ExecuteOp FeasibleMemorySchedulerSpilling::insertSpillWriteDmaOp(ml
     // Create new AsyncExecOp
     builder.setInsertionPointAfter(insertAfterExecOp);
     auto spillWriteExecOp = builder.create<mlir::async::ExecuteOp>(spillWriteNameLoc, newBufferResult.getType(),
-                                                                   std::nullopt, std::nullopt);
+                                                                   /* dependencies */ mlir::ValueRange{},
+                                                                   /* operands */ mlir::ValueRange{});
 
     VPUIP::NNDMAOp spillWriteDmaOp;
 
@@ -1433,7 +1504,8 @@ mlir::async::ExecuteOp FeasibleMemorySchedulerSpilling::insertSpillReadDmaOp(mli
     // Create new AsyncExecOp in correct place
     builder.setInsertionPointAfter(insertAfterExecOp);
     auto spillReadExecOp = builder.create<mlir::async::ExecuteOp>(spillReadNameLoc, newBufferResult.getType(),
-                                                                  std::nullopt, std::nullopt);
+                                                                  /* dependencies */ mlir::ValueRange{},
+                                                                  /* operands */ mlir::ValueRange{});
 
     // Update operands of new AsyncExecOp to contain result of AsyncExecOp of spillWrite
     spillReadExecOp.getBodyOperandsMutable().append(spillWriteResult);

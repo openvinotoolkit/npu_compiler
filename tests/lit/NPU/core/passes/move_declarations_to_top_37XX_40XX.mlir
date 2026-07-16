@@ -8,7 +8,7 @@
 
 
 module @VPU.SW {
-    func.func private @builtin_Add(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>) attributes {
+    func.func nested @builtin_Add(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>) attributes {
         VPU.kernel_code = "eltwise_add.cpp", VPU.kernel_entry = "eltwise_add", VPU.task_type = @COMPUTE
     }
 }

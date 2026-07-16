@@ -5,6 +5,7 @@
 
 #include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/IR/Operation.h>
+#include <mlir/Pass/AnalysisManager.h>
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
@@ -16,8 +17,11 @@
 #include "vpux/compiler/dialect/VPU/utils/concat_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
+#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -36,6 +40,49 @@ using namespace vpux;
 using namespace VPU;
 
 namespace {
+
+//
+// VFLoopAnalysis
+//
+// Pre-computes VF loop membership for all ops in a block.
+// Maps (vfIdx, vfTileIdx) -> list of NCE/SW ops, built once per block
+// to avoid repeated O(#ops_in_block) scans for each ConcatOp.
+//
+
+class VFLoopAnalysis {
+public:
+    MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(VFLoopAnalysis)
+
+    using VFTileMap = DenseMap<int64_t, SmallVector<mlir::Operation*>>;
+
+    explicit VFLoopAnalysis(mlir::Operation* op) {
+        auto funcOp = mlir::cast<mlir::func::FuncOp>(op);
+        for (auto& blockOp : funcOp.getBody().front()) {
+            auto vfIdxAttr = blockOp.getAttrOfType<mlir::IntegerAttr>(VF_LOOP_INDEX_ATTR_NAME);
+            auto vfTileIdxAttr = blockOp.getAttrOfType<mlir::IntegerAttr>(VF_LOOP_TILE_INDEX_ATTR_NAME);
+            if (vfIdxAttr == nullptr || vfTileIdxAttr == nullptr) {
+                continue;
+            }
+            if (mlir::isa<VPU::NCEOpInterface, VPU::SWOpInterface>(blockOp)) {
+                _vfOps[vfIdxAttr.getInt()][vfTileIdxAttr.getInt()].push_back(&blockOp);
+            }
+        }
+    }
+
+    // Return the tile map for a given VF loop index, or nullptr if not found.
+    const VFTileMap* getTilesForVFLoop(int64_t vfIdx) const {
+        auto it = _vfOps.find(vfIdx);
+        return it != _vfOps.end() ? &it->second : nullptr;
+    }
+
+    // Always recompute when the pass does not explicitly preserve this analysis.
+    bool isInvalidated(const mlir::AnalysisManager::PreservedAnalyses&) {
+        return true;
+    }
+
+private:
+    DenseMap<int64_t, VFTileMap> _vfOps;
+};
 
 unsigned getIndexOfInput(mlir::Operation* endOp, mlir::Operation* sourceOp) {
     // Get the input index of an endOp which is from the sourceOp
@@ -212,8 +259,9 @@ struct InputConcatPart final : public NceBasedPart {
 
 class InputConcatPattern {
 public:
-    InputConcatPattern(VPU::ConcatOp concat, ArrayRef<InputConcatPart> inputParts, Logger log)
-            : _concat(concat), _inputParts(inputParts.begin(), inputParts.end()), _log(log) {
+    InputConcatPattern(VPU::ConcatOp concat, ArrayRef<InputConcatPart> inputParts, const VFLoopAnalysis& vfAnalysis,
+                       Logger log)
+            : _concat(concat), _inputParts(inputParts.begin(), inputParts.end()), _vfAnalysis(vfAnalysis), _log(log) {
         VPUX_THROW_WHEN(_inputParts.empty(), "Pattern have to have inputs");
     }
 
@@ -227,11 +275,14 @@ public:
 private:
     VPU::ConcatOp _concat;
     SmallVector<InputConcatPart> _inputParts;
+    const VFLoopAnalysis& _vfAnalysis;
     Logger _log;
 
 private:
     size_t getConcatSize();
     bool concatFitsInCMX(size_t cmxSize);
+    bool areAllInputsFromSameVFLoop() const;
+    bool vfParentsFitInCMX(size_t cmxSize, const VFLoopAnalysis::VFTileMap& vfTiles);
     bool inputsHaveNotOnlyCopiesUsers();
     bool insertNCEOperation();
     bool isMemConsistentPerCluster();
@@ -509,6 +560,127 @@ bool InputConcatPattern::concatFitsInCMX(size_t cmxSize) {
     _log.trace("Concat size '{0}'", (concatSize + maxUserSize));
     // return concat size smaller than CMX size
     return (concatSize + maxUserSize) <= cmxSize;
+}
+
+bool InputConcatPattern::areAllInputsFromSameVFLoop() const {
+    auto allFromVF = llvm::all_of(_inputParts, [](const InputConcatPart& part) {
+        auto nceOp = part.nceOp;
+        return nceOp != nullptr &&
+               (nceOp->hasAttr(VF_LOOP_INDEX_ATTR_NAME) && nceOp->hasAttr(VF_LOOP_TILE_INDEX_ATTR_NAME));
+    });
+    if (!allFromVF) {
+        return false;
+    }
+
+    auto vfIdx = _inputParts.front().nceOp->getAttrOfType<mlir::IntegerAttr>(VF_LOOP_INDEX_ATTR_NAME).getInt();
+    return llvm::all_of(_inputParts, [vfIdx](const InputConcatPart& part) {
+        auto nceOp = part.nceOp;
+        return nceOp->getAttrOfType<mlir::IntegerAttr>(VF_LOOP_INDEX_ATTR_NAME).getInt() == vfIdx;
+    });
+}
+
+bool InputConcatPattern::vfParentsFitInCMX(size_t cmxSize, const VFLoopAnalysis::VFTileMap& vfTiles) {
+    const auto concatOutputBytes = getConcatSize();
+    size_t sharedWeightsBytes = 0;
+    size_t maxSwOpBytes = 0;
+    size_t maxNceOpBytes = 0;
+
+    auto vfIdx = _inputParts.front().nceOp->getAttrOfType<mlir::IntegerAttr>(VF_LOOP_INDEX_ATTR_NAME).getInt();
+    const auto calcNceOpBytesWithoutWeights = [&](VPU::NCEOpInterface op) {
+        llvm::DenseSet<mlir::Value> operands(op->getOperands().begin(), op->getOperands().end());
+        size_t bytes = 0;
+        for (auto input : operands) {
+            if (input != op.getWeightsOperand()) {
+                bytes += getSize(mlir::cast<NDTypeInterface>(input.getType()));
+            }
+        }
+        auto isInPlaceOp = op->hasAttr(VPU::isInPlace);
+        auto isConcatInput = llvm::any_of(op->getUsers(), [&](mlir::Operation* user) {
+            if (mlir::isa_and_nonnull<VPU::CopyOp>(user) && user->hasOneUse()) {
+                return *user->user_begin() == _concat.getOperation();
+            }
+            return false;
+        });
+        if (!isInPlaceOp && !isConcatInput) {
+            bytes += getSize(mlir::cast<NDTypeInterface>(op->getResult(0).getType()));
+        }
+
+        return bytes;
+    };
+    const auto calcSWOpBytes = [&](VPU::SWOpInterface op) {
+        llvm::DenseSet<mlir::Value> operands(op->getOperands().begin(), op->getOperands().end());
+        size_t bytes = 0;
+        for (auto input : operands) {
+            bytes += getSize(mlir::cast<NDTypeInterface>(input.getType()));
+        }
+        auto isConcatInput = llvm::any_of(op->getUsers(), [&](mlir::Operation* user) {
+            if (mlir::isa_and_nonnull<VPU::CopyOp>(user) && user->hasOneUse()) {
+                return *user->user_begin() == _concat.getOperation();
+            }
+            return false;
+        });
+        if (!isConcatInput) {
+            bytes += getSize(mlir::cast<NDTypeInterface>(op->getResult(0).getType()));
+        }
+
+        return bytes;
+    };
+
+    const auto getTileMaxBytes = [&](auto& tileOps) {
+        size_t tileMax = 0;
+        for (auto op : tileOps) {
+            if (auto tileNceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op)) {
+                tileMax = std::max(tileMax, calcNceOpBytesWithoutWeights(tileNceOp));
+            } else {
+                auto tileSwOp = mlir::cast<VPU::SWOpInterface>(op);
+                tileMax = std::max(tileMax, calcSWOpBytes(tileSwOp));
+            }
+        }
+        return tileMax;
+    };
+    auto findParentBypassViewAndCopyOps = [](mlir::Value operand) {
+        auto parent = operand.getDefiningOp();
+        while (parent != nullptr && (isPureViewOp(parent) || mlir::isa<VPU::CopyOp>(parent))) {
+            parent = parent->getOperand(0).getDefiningOp();
+        }
+
+        return parent;
+    };
+
+    for (auto op : vfTiles.begin()->second) {
+        if (auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op)) {
+            if (auto weights = nceOp.getWeightsOperand()) {
+                // Exclude weights produced in the same VF region from sharedWeightsBytes. Such weights are VF-local and
+                // are accounted through per-tile SW/NCE memory.
+                auto parentOp = findParentBypassViewAndCopyOps(weights);
+                if (parentOp != nullptr && parentOp->hasAttr(VF_LOOP_INDEX_ATTR_NAME)) {
+                    auto parentVFIdx = parentOp->getAttrOfType<mlir::IntegerAttr>(VF_LOOP_INDEX_ATTR_NAME).getInt();
+                    if (parentVFIdx == vfIdx) {
+                        continue;
+                    }
+                }
+                sharedWeightsBytes += getSize(mlir::cast<NDTypeInterface>(weights.getType()));
+            }
+        }
+    }
+
+    for (const auto& item : vfTiles) {
+        auto swOps = item.second | filtered([](auto op) {
+                         return mlir::isa<VPU::SWOpInterface>(op);
+                     });
+        maxSwOpBytes = std::max(maxSwOpBytes, getTileMaxBytes(swOps));
+
+        auto nceOps = item.second | filtered([](auto op) {
+                          return mlir::isa<VPU::NCEOpInterface>(op);
+                      });
+        maxNceOpBytes = std::max(maxNceOpBytes, getTileMaxBytes(nceOps));
+    }
+
+    const auto peakUseBytes = concatOutputBytes + sharedWeightsBytes + maxNceOpBytes + maxSwOpBytes;
+    _log.trace("VF CMX check: concatOut={0}, sharedWeights={1}, maxNceOp={2}, maxSwOp={3}, total={4}, cmxSize={5}",
+               concatOutputBytes, sharedWeightsBytes, maxNceOpBytes, maxSwOpBytes, peakUseBytes, cmxSize);
+
+    return peakUseBytes <= cmxSize;
 }
 
 bool isSupportedAndBeneficialToInsertNCEOp(InputConcatPart concatPart) {
@@ -832,6 +1004,25 @@ bool InputConcatPattern::inputPatternCanBeCMXed(size_t cmxSize) {
     if (!isMemConsistentPerCluster()) {
         _log.trace("Memory is inconsistent on each cluster");
         return false;
+    }
+
+    if (areAllInputsFromSameVFLoop()) {
+        auto vfIdx = _inputParts.front().nceOp->getAttrOfType<mlir::IntegerAttr>(VF_LOOP_INDEX_ATTR_NAME).getInt();
+        const auto* vfTiles = _vfAnalysis.getTilesForVFLoop(vfIdx);
+        if (vfTiles == nullptr) {
+            _log.trace("VF tile includes non-nce op; skipping verifying memory check due to complexity of "
+                       "analysis for {0}",
+                       _concat.getLoc());
+            return false;
+        }
+
+        if (!vfParentsFitInCMX(cmxSize, *vfTiles)) {
+            _log.trace("VF CMX requirement failed: shared weights + tiled input + concat output exceed CMX for {0}",
+                       _concat.getLoc());
+            return false;
+        }
+
+        _log.trace("VF CMX requirement passed for {0}", _concat.getLoc());
     }
 
     // assert that the concat will fit in CMX
@@ -1168,6 +1359,10 @@ mlir::FailureOr<InputConcatPattern> CMXConcatPass::getInputPattern(VPU::ConcatOp
             return mlir::failure();
         }
 
+        if (parentNCEOp->hasAttr(VF_LOOP_INDEX_ATTR_NAME) || parentNCEOp->hasAttr(VF_LOOP_TILE_INDEX_ATTR_NAME)) {
+            logNest.trace("Parent NCE op is part of a VF pattern; defer CMX decision to VF-specific checks");
+        }
+
         if (nceInputs.contains(input)) {
             return mlir::failure();
         }
@@ -1184,7 +1379,7 @@ mlir::FailureOr<InputConcatPattern> CMXConcatPass::getInputPattern(VPU::ConcatOp
         return mlir::failure();
     }
 
-    return InputConcatPattern(concat, inputParts, _log.nest(2));
+    return InputConcatPattern(concat, inputParts, getAnalysis<VFLoopAnalysis>(), _log.nest(2));
 }
 
 mlir::FailureOr<OutputConcatPattern> CMXConcatPass::getOutputPattern(VPU::ConcatOp concat) {

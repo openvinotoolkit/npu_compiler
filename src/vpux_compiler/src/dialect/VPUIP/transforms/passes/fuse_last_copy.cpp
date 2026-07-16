@@ -196,6 +196,19 @@ void fuseLastCopy(VPUIP::CopyOp copyOp, const AliasesInfo& aliasesInfo, Logger l
         }
 
         newOutput = copyOp.getOutputBuff();
+
+        // When the output block argument is device-info-free (null memspace) but sourceRoot
+        // carries an explicit memory space (e.g. @DDR in HostCompile kernels), bridge the
+        // difference with a ReinterpretCast of the output buffer
+        if (newBuffer.getType() != sourceRoot.getType()) {
+            if (mlir::cast<NDTypeInterface>(newBuffer.getType()).getMemSpace() != nullptr) {
+                nestedLogger.trace("Cannot fuse: unexpected type mismatch between source root and output buffer");
+                return;
+            }
+            mlir::OpBuilder builder(sourceRoot.getDefiningOp());
+            newBuffer = builder.create<Core::ReinterpretCastOp>(copyOp->getLoc(), sourceRoot.getType(), newBuffer)
+                                .getResult();
+        }
     }
 
     // Function outputs have to be an alias of the output buffer

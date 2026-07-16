@@ -39,7 +39,7 @@ bool doesVectorContainSubVector(ArrayRef<int64_t> vec, ArrayRef<int64_t> subVec)
 }
 
 bool areReshapedAxesPermutedIntegratedly(const SmallVector<SmallVector<int64_t>>& dimMapping,
-                                         ArrayRef<int64_t> permAxis, DimsOrder permInOrder,
+                                         ArrayRef<int64_t> permAxis, const DimsOrder& permInOrder,
                                          vpux::MemShapeRef memShapeRef) {
     SmallVector<SmallVector<int64_t>> splitAxesVec;
 
@@ -113,7 +113,7 @@ bool isSplitOutAxis(SmallVector<SmallVector<int64_t>> dimMapping, int64_t outAxi
 }
 
 mlir::AffineMap calculateNewPermutation(SmallVector<SmallVector<int64_t>>& dimMapping, ArrayRef<int64_t> origPermVec,
-                                        DimsOrder affineReshapeInOrder, DimsOrder affineReshapeOutOrder,
+                                        const DimsOrder& affineReshapeInOrder, const DimsOrder& affineReshapeOutOrder,
                                         vpux::MemShapeRef inMemShapeRef, vpux::MemShapeRef outMemShapeRef, Logger log,
                                         mlir::MLIRContext* ctx) {
     SmallVector<int64_t> inAxesVec;

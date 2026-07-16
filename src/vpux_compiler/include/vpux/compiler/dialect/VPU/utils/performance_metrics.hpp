@@ -26,7 +26,7 @@ uint32_t getNumEntries();
 double getProfClk();
 const SmallVector<float>& getBWScales();
 SmallVector<SmallVector<uint64_t>> getBWTicks(mlir::ModuleOp module);
-double getActivityFactor(config::ExecutorKind execKind, mlir::ModuleOp module, config::ComputeResourceOpInterface res);
+double getActivityFactor(config::ExecutorKind execKind, config::ComputeResourceOpInterface res);
 
 }  // namespace VPU
 }  // namespace vpux

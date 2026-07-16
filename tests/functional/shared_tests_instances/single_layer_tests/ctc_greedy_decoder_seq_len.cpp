@@ -14,6 +14,9 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(CTCGreedyDecoderSeqLenLayerTest);
+
 // OpenVino CTCGreedyDecoderSeqLenLayerTest from OpenVino test infrastructire doesn't allow to create CTCDecoderSeqLen
 // layer without blankIndex input so we have to create our own test class which allows to do so
 typedef std::tuple<ov::Shape,           // Input shape

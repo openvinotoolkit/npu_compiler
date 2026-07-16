@@ -124,6 +124,7 @@ def VPU_NCEConvolutionOp :
             "NCE.Convolution",
             [
                 AttrSizedOperandSegments,
+                AttrSizedResultSegments,
                 NoRegionArguments,
                 NoTerminator,
                 SingleBlock,
@@ -137,14 +138,14 @@ def VPU_NCEConvolutionOp :
                                                                      "getDistributedTypeForOpOperand"]>,
                 DeclareOpInterfaceMethods<VPU_SparseOpInterface>,
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "NCE version of Convolution layer";
 
     let arguments = (ins
         AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$input,
-        AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$filter,
+        AnyTypeOf<[4DTensorOf<[AnyInteger, F16, BF16, vpux_QuantileType, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$filter,
         Optional<AnyTypeOf<[4DTensorOf<[SI32]>, VPU_DistributedTensor]>>:$weightsTable,
         Optional<AnyTypeOf<[4DTensorOf<[SI32]>, VPU_DistributedTensor]>>:$weight_table_data_ptr,
         Optional<AnyTypeOf<[4DTensorOf<[SI32]>, VPU_DistributedTensor]>>:$weight_table_sp_ptr,
@@ -158,22 +159,28 @@ def VPU_NCEConvolutionOp :
         VPU_PPEAttrInterface:$ppe,
         OptionalAttr<VPU_MPEEngineAttrInterface>:$mpe_engine,
 
-        ConfinedAttr<I64ArrayAttr, [ArrayCount<4>]>:$rawFilterShape,
+        Variadic<Index>:$rawFilterShape,
+        DenseI64ArrayAttr:$static_raw_filter_shape,
 
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy,
         OptionalAttr<I64ArrayAttr>:$output_padding,
-        OptionalAttr<I64ArrayAttr>:$input_padding
+        OptionalAttr<I64ArrayAttr>:$input_padding,
+        OptionalAttr<I64ArrayAttr>:$axes_value
+
     );
 
     let results = (outs
-        AnyTypeOf<[4DTensorOf<[F16, BF16, F32, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$output
+        AnyTypeOf<[4DTensorOf<[F16, BF16, F32, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$output,
+        Optional<AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>>:$reduce_xy_max,
+        Optional<AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>>:$reduce_xy_min,
+        Optional<AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>>:$reduce_tensor_min_max
     );
 
     let regions = (region
         AnyRegion:$workloads
     );
 
-    let assemblyFormat = [{
+   let assemblyFormat = [{
         `(`
             $input `,`
             $filter
@@ -184,6 +191,7 @@ def VPU_NCEConvolutionOp :
             (`,` $weight_table_bias^)?
             (`,` $weight_zero_points^)?
         `)`
+        `rawFilterShape` custom<DynamicIndexList>($rawFilterShape, $static_raw_filter_shape)
         attr-dict `:` type(operands) `->` type(results)
         custom<OptionalRegion>($workloads)
     }];
@@ -201,6 +209,9 @@ def VPU_NCEConvolutionOp :
         vpux::Shape inferAlignedFilterShape(vpux::NDTypeInterface input, vpux::NDTypeInterface output, vpux::NDTypeInterface filter);
 
         DimArr restrictedFusionAxes();
+
+        SmallVector<mlir::OpFoldResult> getMixedRawFilterShape();
+        SmallVector<int64_t> getConstRawFilterShape();
 
         static mlir::LogicalResult verifyKernel(IE::ConvolutionOp origOp, Logger log = Logger::global());
         static mlir::LogicalResult verifyKernel(IE::TransposedConvolutionOp origOp, Logger log = Logger::global());
@@ -220,6 +231,7 @@ def VPU_NCEMatMulOp :
             "NCE.MatMul",
             [
                 AttrSizedOperandSegments,
+                AttrSizedResultSegments,
                 NoRegionArguments,
                 NoTerminator,
                 SingleBlock,
@@ -229,7 +241,8 @@ def VPU_NCEMatMulOp :
                                                                      "isOperationSplitOverKernelCompatible",
                                                                      "doesLayerFitIntoCMX",
                                                                      "doesLayerChangeOutputAlignmentFitIntoCMX",
-                                                                     "getDistributedTypeForOpOperand"]>
+                                                                     "getDistributedTypeForOpOperand"]>,
+                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>
             ]
         > {
     let summary = "NCE version of MatMul executed on DPU";
@@ -302,13 +315,19 @@ def VPU_NCEMatMulOp :
 
         VPU_PPEAttrInterface:$ppe,
         OptionalAttr<VPU_MPEEngineAttrInterface>:$mpe_engine,
-        ConfinedAttr<I64ArrayAttr, [ArrayCount<5>]>:$rawFilterShape,
+        Variadic<Index>:$rawFilterShape,
+        DenseI64ArrayAttr:$static_raw_filter_shape,
 
-        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy,
+        OptionalAttr<I64ArrayAttr>:$axes_value
+
     );
 
     let results = (outs
-        AnyTypeOf<[5DTensorOf<[F16, BF16, F32, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$output
+        AnyTypeOf<[5DTensorOf<[F16, BF16, F32, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$output,
+        Optional<AnyTypeOf<[5DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>>:$reduce_xy_max,
+        Optional<AnyTypeOf<[5DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>>:$reduce_xy_min,
+        Optional<AnyTypeOf<[5DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>>:$reduce_tensor_min_max
     );
 
     let regions = (region
@@ -326,6 +345,7 @@ def VPU_NCEMatMulOp :
             (`,` $weight_table_bias^ `` custom<OptionalTypes>(type($weight_table_bias)))?
             (`,` $weight_zero_points^ `` custom<OptionalTypes>(type($weight_zero_points)))?
         `)`
+        `rawFilterShape` custom<DynamicIndexList>($rawFilterShape, $static_raw_filter_shape)
         attr-dict
         custom<OptionalTypes>(type($input), type($weights)) ``
         `->` type(results)
@@ -342,6 +362,9 @@ def VPU_NCEMatMulOp :
 
         bool fitIntoCMX(vpux::NDTypeInterface input, vpux::NDTypeInterface filter, vpux::NDTypeInterface output, Byte reservedMem);
         bool fitIntoCMX(vpux::NDTypeInterface input, vpux::NDTypeInterface filter, vpux::NDTypeInterface output);
+
+        SmallVector<mlir::OpFoldResult> getMixedRawFilterShape();
+        SmallVector<int64_t> getConstRawFilterShape();
 
         static mlir::LogicalResult verifyKernel(IE::MatMulOp origOp);
     }] # baseExtraClassDeclaration;
@@ -372,7 +395,7 @@ def VPU_NCEDepthConvolutionOp :
                                                                      "getDistributedTypeForOpOperand"]>,
                 DeclareOpInterfaceMethods<VPU_SparseOpInterface>,
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "NCE version of Depthwise Convolution layer";
@@ -393,7 +416,8 @@ def VPU_NCEDepthConvolutionOp :
         VPU_PPEAttrInterface:$ppe,
         OptionalAttr<VPU_MPEEngineAttrInterface>:$mpe_engine,
 
-        ConfinedAttr<I64ArrayAttr, [ArrayCount<4>]>:$rawFilterShape,
+        Variadic<Index>:$rawFilterShape,
+        DenseI64ArrayAttr:$static_raw_filter_shape,
 
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy,
         OptionalAttr<I64ArrayAttr>:$output_padding,
@@ -419,6 +443,7 @@ def VPU_NCEDepthConvolutionOp :
             (`,` $weight_table_bias^ `` custom<OptionalTypes>(type($weight_table_bias)))?
             (`,` $weight_zero_points^ `` custom<OptionalTypes>(type($weight_zero_points)))?
         `)`
+        `rawFilterShape` custom<DynamicIndexList>($rawFilterShape, $static_raw_filter_shape)
         attr-dict
         custom<OptionalTypes>(type($input), type($filter)) ``
         `->` type(results)
@@ -443,6 +468,9 @@ def VPU_NCEDepthConvolutionOp :
                                                   vpux::NDTypeInterface inputType, vpux::NDTypeInterface filterType,
                                                   vpux::NDTypeInterface outputType, mlir::ArrayAttr kernelStrides,
                                                   Logger log = Logger::global());
+
+        SmallVector<mlir::OpFoldResult> getMixedRawFilterShape();
+        SmallVector<int64_t> getConstRawFilterShape();
     }] # baseExtraClassDeclaration;
 
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_MIXED_PRECISION, IE_TypeComparisonMode_ALLOW_DIFFERENT_QUANT,
@@ -467,7 +495,7 @@ def VPU_NCECompressConvolutionOp :
                                                                      "getDistributedTypeForOpOperand"]>,
                 DeclareOpInterfaceMethods<VPU_SparseOpInterface>,
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
 ]
         > {
     let summary = "NCE version of Compressed Convolution layer";
@@ -488,7 +516,8 @@ def VPU_NCECompressConvolutionOp :
         VPU_PPEAttrInterface:$ppe,
         OptionalAttr<VPU_MPEEngineAttrInterface>:$mpe_engine,
 
-        ConfinedAttr<I64ArrayAttr, [ArrayCount<4>]>:$rawFilterShape,
+        Variadic<Index>:$rawFilterShape,
+        DenseI64ArrayAttr:$static_raw_filter_shape,
 
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy,
         IntAttr:$cm_sp_pattern,
@@ -506,6 +535,7 @@ def VPU_NCECompressConvolutionOp :
 
     let assemblyFormat = [{
         `(` $input `,` $filter `,` $weightsTable `)`
+        `rawFilterShape` custom<DynamicIndexList>($rawFilterShape, $static_raw_filter_shape)
         attr-dict
         custom<OptionalTypes>(type($input), type($filter), type($weightsTable)) ``
         `->` type(results)
@@ -523,6 +553,9 @@ def VPU_NCECompressConvolutionOp :
 
         static bool isSupported(vpux::IE::ConvolutionOp origOp, vpux::LogCb logCb, bool checkLayout = false,
                                 bool checkChannelAlignment = false);
+
+        SmallVector<mlir::OpFoldResult> getMixedRawFilterShape();
+        SmallVector<int64_t> getConstRawFilterShape();
     }] # baseExtraClassDeclaration;
 
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_MIXED_PRECISION, IE_TypeComparisonMode_ALLOW_DIFFERENT_QUANT,
@@ -534,6 +567,8 @@ def VPU_NCEMaxPoolOp :
         VPU_LayerOp<
             "NCE.MaxPool",
             [
+                AttrSizedOperandSegments,
+                AttrSizedResultSegments,
                 NoRegionArguments,
                 NoTerminator,
                 SingleBlock,
@@ -547,7 +582,7 @@ def VPU_NCEMaxPoolOp :
                                                                      "getDistributedTypeForOpOperand"]>,
                 DeclareOpInterfaceMethods<VPU_SparseOpInterface>,
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "NCE version of MaxPool layer";
@@ -555,6 +590,8 @@ def VPU_NCEMaxPoolOp :
     let arguments = (ins
         AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$input,
         Optional<AnyTypeOf<[4DTensorOf<[SI32]>, VPU_DistributedTensor]>>:$weightsTable,
+        Optional<AnyTypeOf<[4DTensorOf<[F32, F8E8M0FNU, F8E5M2, F8E4M3FN]>, VPU_DistributedTensor]>>:$weight_table_scale,
+        Optional<AnyTypeOf<[4DTensorOf<[F32]>, VPU_DistributedTensor]>>:$weight_table_bias,
 
         ConfinedAttr<I64ArrayAttr, [ArrayCount<2>]>:$kernel_size,
         ConfinedAttr<I64ArrayAttr, [ArrayCount<2>]>:$strides,
@@ -566,11 +603,15 @@ def VPU_NCEMaxPoolOp :
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy,
         OptionalAttr<I64ArrayAttr>:$output_padding,
         OptionalAttr<I64ArrayAttr>:$input_padding,
-        OptionalAttr<VPU_S2DD2SConfigAttr>:$s2dd2s_config
+        OptionalAttr<VPU_S2DD2SConfigAttr>:$s2dd2s_config,
+        OptionalAttr<I64ArrayAttr>:$axes_value
     );
 
     let results = (outs
-        AnyTypeOf<[4DTensorOf<[F16, BF16, F32, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$output
+        AnyTypeOf<[4DTensorOf<[F16, BF16, F32, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$output,
+        Optional<AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>>:$reduce_xy_max,
+        Optional<AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>>:$reduce_xy_min,
+        Optional<AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>>:$reduce_tensor_min_max
     );
 
     let regions = (region
@@ -580,6 +621,8 @@ def VPU_NCEMaxPoolOp :
     let assemblyFormat = [{
         `(` $input
             (`,` $weightsTable^ custom<OptionalTypes>(type($weightsTable)) ``)?
+            (`,` $weight_table_scale^ `` custom<OptionalTypes>(type($weight_table_scale)))?
+            (`,` $weight_table_bias^ `` custom<OptionalTypes>(type($weight_table_bias)))?
         `)`
         attr-dict
         custom<OptionalTypes>(type($input)) ``
@@ -622,7 +665,7 @@ def VPU_NCEAveragePoolOp :
                                                                      "getDistributedTypeForOpOperand"]>,
                 DeclareOpInterfaceMethods<VPU_SparseOpInterface>,
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "NCE version of AveragePool layer";
@@ -675,13 +718,6 @@ def VPU_NCEAveragePoolOp :
                                 bool checkChannelAlignment = false);
 
         static mlir::LogicalResult verifyKernel(IE::AvgPoolOp origOp, Logger log = Logger::global());
-
-        // NCEAveragePoolOp only has scale/bias tables
-        // adding these functions in order to remain compatible with any template that expects these methods to exist when handling weight tables
-        mlir::Value getWeightsTable() { return nullptr; }
-        mlir::Value getWeightTableDataPtr() { return nullptr; }
-        mlir::Value getWeightTableSpPtr() { return nullptr; }
-        mlir::Value getWeightZeroPoints() { return nullptr; }
     }] # baseExtraClassDeclaration;
 
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_MIXED_PRECISION, IE_TypeComparisonMode_ALLOW_DIFFERENT_QUANT,
@@ -693,6 +729,7 @@ def VPU_NCEEltwiseOp :
         VPU_LayerOp<
             "NCE.Eltwise",
             [
+                AttrSizedOperandSegments,
                 NoRegionArguments,
                 NoTerminator,
                 SingleBlock,
@@ -705,7 +742,7 @@ def VPU_NCEEltwiseOp :
                                                                      "getDistributedTypeForOpOperand"]>,
                 DeclareOpInterfaceMethods<VPU_SparseOpInterface>,
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "NCE version of Eltwise layer";
@@ -713,6 +750,8 @@ def VPU_NCEEltwiseOp :
     let arguments = (ins
         AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$input1,
         AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$input2,
+        Optional<AnyTypeOf<[4DTensorOf<[F32, F8E8M0FNU, F8E5M2, F8E4M3FN]>, VPU_DistributedTensor]>>:$weight_table_scale,
+        Optional<AnyTypeOf<[4DTensorOf<[F32]>, VPU_DistributedTensor]>>:$weight_table_bias,
 
         VPU_EltwiseTypeAttr:$op_type,
 
@@ -734,7 +773,12 @@ def VPU_NCEEltwiseOp :
     );
 
     let assemblyFormat = [{
-        `(` $input1 `,` $input2 `)`
+        `(`
+            $input1
+            `,` $input2
+            (`,` $weight_table_scale^ `` custom<OptionalTypes>(type($weight_table_scale)))?
+            (`,` $weight_table_bias^ `` custom<OptionalTypes>(type($weight_table_bias)))?
+        `)`
         attr-dict
         custom<OptionalTypes>(type($input1), type($input2)) ``
         `->` type(results)
@@ -783,7 +827,7 @@ def VPU_NCEReduceOp :
                                                                      "doesLayerChangeOutputAlignmentFitIntoCMX",
                                                                      "getDistributedTypeForOpOperand"]>,
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "NCE version of Reduce layer";
@@ -847,7 +891,7 @@ def VPU_NCEPermuteOp :
                                                                  "isOperationSplitOverKernelCompatible",
                                                                  "getDistributedTypeForOpOperand"]>,
             DeclareOpInterfaceMethods<VPU_SparseOpInterface>,
-            DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+            DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
         ]
         > {
     let summary = "More abstract version of combined NCE Permute and Quantization layers";
@@ -935,8 +979,9 @@ def VPU_NCEInterpolateOp :
 
         VPU_PPEAttrInterface:$ppe,
         OptionalAttr<VPU_MPEEngineAttrInterface>:$mpe_engine,
-        
-        ConfinedAttr<I64ArrayAttr, [ArrayCount<4>]>:$rawFilterShape,
+
+        Variadic<Index>:$rawFilterShape,
+        DenseI64ArrayAttr:$static_raw_filter_shape,
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy,
         OptionalAttr<VPU_NCEInterpolateModeAttr>:$mode
     );
@@ -950,7 +995,7 @@ def VPU_NCEInterpolateOp :
     );
 
     let assemblyFormat = [{
-        `(` $input
+       `(` $input
             (`,` $weights^ `` custom<OptionalTypes>(type($weights)))?
             (`,` $weightsTable^ `` custom<OptionalTypes>(type($weightsTable)))?
             (`,` $weight_table_data_ptr^ `` custom<OptionalTypes>(type($weight_table_data_ptr)))?
@@ -959,6 +1004,7 @@ def VPU_NCEInterpolateOp :
             (`,` $weight_table_bias^ `` custom<OptionalTypes>(type($weight_table_bias)))?
             (`,` $weight_zero_points^ `` custom<OptionalTypes>(type($weight_zero_points)))?
         `)`
+        `rawFilterShape` custom<DynamicIndexList>($rawFilterShape, $static_raw_filter_shape)
         attr-dict
         custom<OptionalTypes>(type($input)) ``
         `->` type(results)
@@ -968,6 +1014,9 @@ def VPU_NCEInterpolateOp :
     let hasVerifier = 1;
 
     let extraClassDeclaration = [{
+        SmallVector<mlir::OpFoldResult> getMixedRawFilterShape();
+        SmallVector<int64_t> getConstRawFilterShape();
+
         static mlir::LogicalResult verifyKernel(IE::InterpolateOp origOp, Logger log = Logger::global());
 
         bool fitIntoCMX(vpux::NDTypeInterface input, vpux::NDTypeInterface filter, vpux::NDTypeInterface output, Byte reservedMem);
@@ -1111,26 +1160,29 @@ def VPU_ZeroPointTableOp :
         The operation is populated by CreateNewWeightTablesData pass.
 
         Arguments:
-        - weightsElemType: The element type of the weights tensor (e.g., !quant.uniform<i8:f16:0 ... >).
-          This determines the format and size of zero-point values in the table.
+        - zero_points: Tensor of per-channel zero-point values used for quantization.
         - workloadSizes: Optional array of channel counts extracted from each workload in the
           associated NCE operation. Used to properly size and align the zero-point table entries.
         - zeroPointTableData: Optional array containing the generated zero-point table data.
     }];
 
     let arguments = (ins
-        TypeAttr:$weightsElemType,
+        RankedTensorOf<[AnyInteger, F8E4M3FN, F8E5M2, F4E2M1FN]>:$zero_points,
         OptionalAttr<I64ArrayAttr>:$workloadSizes,
         OptionalAttr<I64ArrayAttr>:$zeroPointTableData
     );
 
     let results = (outs
-        AnyTypeOf<[4DTensorOf<[I8]>, VPU_DistributedTensor]>:$output
+        AnyTypeOf<[4DTensorOf<[I8]>, 5DTensorOf<[I8]>, VPU_DistributedTensor]>:$output
     );
 
     let assemblyFormat = [{
-        attr-dict `->` type(results)
+        `(`$zero_points`)`
+        attr-dict `:` type(operands)
+        `->` type(results)
     }];
+
+    let hasVerifier = 1;
 }
 
 def VPU_DataPointerTableOp :
@@ -1144,10 +1196,18 @@ def VPU_DataPointerTableOp :
         This operation creates a data-pointer table that will be converted to a constant in VPUIP dialect.
         It holds the data-pointer values and metadata needed to generate
         the actual data-pointer table data based on workload information.
+
+        The operation is populated by CreateNewWeightTablesData pass.
+
+        Arguments:
+        - zero_points: Optional tensor of per-channel zero-point values used for quantization.
+        - workloadSizes: Optional array of channel counts extracted from each workload in the
+          associated NCE operation. Used to properly size and align the data-pointer table entries.
+        - dataPointerTableData: Optional array containing the generated data-pointer table data.
     }];
 
     let arguments = (ins
-        TypeAttr:$weightsElemType,
+        Optional<RankedTensorOf<[AnyInteger, F8E4M3FN, F8E5M2, F4E2M1FN]>>:$zero_points,
         OptionalAttr<I64ArrayAttr>:$workloadSizes,
         OptionalAttr<I64ArrayAttr>:$dataPointerTableData
     );
@@ -1157,8 +1217,12 @@ def VPU_DataPointerTableOp :
     );
 
     let assemblyFormat = [{
-        attr-dict `->` type(results)
+        (`(`$zero_points^`)` `:` type($zero_points))?
+        attr-dict
+        `->` type(results)
     }];
+
+    let hasVerifier = 1;
 }
 
 #endif

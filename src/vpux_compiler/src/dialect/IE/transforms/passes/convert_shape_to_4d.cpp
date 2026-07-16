@@ -32,6 +32,8 @@
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+#include <llvm/ADT/SmallSet.h>
+
 namespace vpux::IE {
 #define GEN_PASS_DECL_CONVERTSHAPETO4D
 #define GEN_PASS_DEF_CONVERTSHAPETO4D
@@ -1270,7 +1272,8 @@ mlir::LogicalResult RMSOpConverter::matchAndRewrite(IE::RMSOp origOp, OpAdaptor,
             rewriter.createOrFold<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_in"), origOp.getInput(), newInShapeAttr);
     const auto gammaReshape = rewriter.createOrFold<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_gamma"),
                                                                    origOp.getGamma(), newGammaShapeAttr);
-    auto newRMSOp = rewriter.create<IE::RMSOp>(origOp->getLoc(), inReshape, gammaReshape, origOp.getEpsAttr());
+    auto newRMSOp = rewriter.create<IE::RMSOp>(origOp->getLoc(), inReshape, gammaReshape, origOp.getEpsAttr(),
+                                               origOp.getConditionalEpsAttr());
     auto outReshape = rewriter.replaceOpWithNewOp<IE::ReshapeOp>(origOp, newRMSOp.getOutput(), outShapeAttr);
     extendOpLoc(outReshape, "reshape_out");
 
@@ -2044,17 +2047,12 @@ mlir::LogicalResult RollConverter::matchAndRewrite(IE::RollOp origOp, OpAdaptor,
     _log.trace("[{0}] Found '{1}' Operation '{2}'", getDebugName(), origOp->getName(), origOp->getLoc());
     const auto ctx = rewriter.getContext();
     const auto dataRank = static_cast<int64_t>(getShape(origOp.getData()).size());
-    if (dataRank > TARGET_TENSOR_DIM) {
-        _log.trace("cannot convert RollOp with rank > TARGET_TENSOR_DIM");
-        return mlir::failure();
-    }
 
-    // For dataRank < TARGET_TENSOR_DIM, we expand the shape of data to 4D by
-    // adding trivial axes from the left side, e.g., (X,Y) to (1,1,X,Y).
-    // Then, the axes and shift values (already converted to positive) will be adjust for keep accurate.
+    // Resolve shift/axes early so axes can drive both expand (rank < 4) and squeeze (rank > 4) paths.
     const auto origType = mlir::cast<vpux::NDTypeInterface>(origOp.getData().getType());
     auto shiftAndAxesOrFail =
-            IE::getShiftAndAxesForRollOp(origOp.getLoc(), origOp.getShift(), origOp.getAxes(), origType.getShape());
+            IE::getShiftAndAxesForRollOp(origOp.getLoc(), origOp.getShift(), origOp.getAxes(), origType.getShape(),
+                                         /*adjustSpatial=*/false);
     if (mlir::failed(shiftAndAxesOrFail)) {
         _log.trace("cannot convert RollOp without shift and axes");
         return mlir::failure();
@@ -2067,24 +2065,50 @@ mlir::LogicalResult RollConverter::matchAndRewrite(IE::RollOp origOp, OpAdaptor,
         return mlir::failure();
     }
 
-    // create reshaped data input
-    int64_t expandDimNum = TARGET_TENSOR_DIM - dataRank;
-    const auto dataInput = origOp.getData();
-    const auto dataInputType = mlir::cast<vpux::NDTypeInterface>(dataInput.getType());
-    SmallVector<int64_t> dataInputShape = to_small_vector(dataInputType.getShape());
+    SmallVector<int64_t> dataInputShape = to_small_vector(origType.getShape());
     SmallVector<int64_t> newDataInputShape;
-    newDataInputShape.append(dataInputShape.begin(), dataInputShape.end());
-    for (int64_t i = 0; i < expandDimNum; i++) {
-        newDataInputShape.insert(newDataInputShape.begin(), 1);
+
+    if (dataRank > TARGET_TENSOR_DIM) {
+        // For dataRank > TARGET_TENSOR_DIM, squeeze size-1 dims that are not referenced by axes
+        // until reaching 4D. Axes and the surrounding ranks are remapped accordingly.
+        // E.g., data=(1,8,56,56,128), axes=(1,2,3) -> data=(8,56,56,128), axes=(0,1,2).
+        llvm::SmallSet<int64_t, 4> axesSet(axes.begin(), axes.end());
+        SmallVector<int64_t> oldToNew(dataRank, -1);
+        const int64_t dimsToDrop = dataRank - TARGET_TENSOR_DIM;
+        int64_t dropped = 0;
+        for (int64_t i = 0; i < dataRank; ++i) {
+            if (dropped < dimsToDrop && dataInputShape[i] == 1 && !axesSet.contains(i)) {
+                ++dropped;
+                continue;
+            }
+            oldToNew[i] = static_cast<int64_t>(newDataInputShape.size());
+            newDataInputShape.push_back(dataInputShape[i]);
+        }
+        if (static_cast<int64_t>(newDataInputShape.size()) != TARGET_TENSOR_DIM) {
+            _log.trace("cannot convert RollOp with rank > TARGET_TENSOR_DIM: not enough trivial non-axes dims");
+            return mlir::failure();
+        }
+        for (size_t i = 0; i < axes.size(); ++i) {
+            axes[i] = oldToNew[axes[i]];
+        }
+    } else {
+        // For dataRank < TARGET_TENSOR_DIM, we expand the shape of data to 4D by
+        // adding trivial axes from the left side, e.g., (X,Y) to (1,1,X,Y).
+        // Then, the axes and shift values (already converted to positive) will be adjust for keep accurate.
+        const int64_t expandDimNum = TARGET_TENSOR_DIM - dataRank;
+        for (int64_t i = 0; i < expandDimNum; ++i) {
+            newDataInputShape.push_back(1);
+        }
+        newDataInputShape.append(dataInputShape.begin(), dataInputShape.end());
+        for (size_t i = 0; i < axes.size(); ++i) {
+            axes[i] += expandDimNum;
+        }
     }
+
+    // create reshaped data input
     const auto newDataInputShapeAttr = getIntArrayAttr(ctx, newDataInputShape);
     auto dataInputReshape = rewriter.createOrFold<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_data"), origOp.getData(),
                                                                  newDataInputShapeAttr);
-
-    // adjust the axes value to the new data shape
-    for (size_t i = 0; i < axes.size(); i++) {
-        axes[i] += expandDimNum;
-    }
 
     // create new shift and axes inputs
     const auto si32Type = mlir::IntegerType::get(ctx, 32, mlir::IntegerType::Signed);
@@ -2581,7 +2605,8 @@ mlir::LogicalResult SoftmaxConverter::matchAndRewrite(IE::SoftMaxOp origOp, OpAd
             rewriter.createOrFold<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_in"), origOp.getInput(), newInputShapeAttr);
 
     auto newSoftmaxOp =
-            rewriter.create<IE::SoftMaxOp>(origOp->getLoc(), inputReshape, axisAttr, origOp.getPadSizeAttr());
+            rewriter.create<IE::SoftMaxOp>(origOp->getLoc(), inputReshape, axisAttr, origOp.getPadSizeAttr(),
+                                           origOp.getDstElemTypeAttr(), origOp.getMaskAwareAttr());
 
     const auto outputShapeAttr = getIntArrayAttr(getContext(), getShape(origOp.getOutput()));
     auto outReshape = rewriter.replaceOpWithNewOp<IE::ReshapeOp>(origOp, newSoftmaxOp.getOutput(), outputShapeAttr);
@@ -3888,11 +3913,11 @@ void ConvertShapeTo4DPass::safeRunOnFunc() {
             auto inputType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType());
             auto inputShape = inputType.getShape();
             if (inputShape.size() < 4) {
-                return typeConverter.isLegal(op);
+                return typeConverter.isLegal(op.getOperation());
             }
             return true;
         }
-        return typeConverter.isLegal(op);
+        return typeConverter.isLegal(op.getOperation());
     };
 
     // TODO: E#-171827 Ideally we want to use `isLegalOp` also for quantized ops, but for now we don't modify per-tensor
@@ -4136,13 +4161,40 @@ void ConvertShapeTo4DPass::safeRunOnFunc() {
 
     const auto isLegalRollOp = [&](IE::RollOp op) {
         // The purpose of converting RollOp to 4D is to enable Multi Cluster execution here.
-        // Currently we only support case whose dataRank == TARGET_TENSOR_DIM
+        // Roll ops with rank == TARGET_TENSOR_DIM are legal as-is. Lower-rank ops are converted
+        // by left-padding unit dims; higher-rank ops are converted by squeezing size-1 dims that
+        // are not referenced by axes (see RollConverter). When such a squeeze is not possible the
+        // op is conservatively kept legal to avoid a legalization failure.
         const auto dataRank = static_cast<int64_t>(getShape(op.getData()).size());
         const auto shiftRank = static_cast<int64_t>(getShape(op.getShift()).size());
         const auto axesRank = static_cast<int64_t>(getShape(op.getAxes()).size());
 
-        // If the rank of data/shift/axes are all TARGET_TENSOR_DIM, the op is legal
-        return (dataRank == TARGET_TENSOR_DIM && shiftRank == TARGET_TENSOR_DIM && axesRank == TARGET_TENSOR_DIM);
+        if (dataRank == TARGET_TENSOR_DIM && shiftRank == TARGET_TENSOR_DIM && axesRank == TARGET_TENSOR_DIM) {
+            return true;
+        }
+
+        if (dataRank > TARGET_TENSOR_DIM) {
+            auto shiftAndAxesOrFail =
+                    IE::getShiftAndAxesForRollOp(op.getLoc(), op.getShift(), op.getAxes(),
+                                                 mlir::cast<vpux::NDTypeInterface>(op.getData().getType()).getShape(),
+                                                 /*adjustSpatial=*/false);
+            if (mlir::failed(shiftAndAxesOrFail)) {
+                return true;
+            }
+            const auto& axes = shiftAndAxesOrFail.value().axes;
+            llvm::SmallSet<int64_t, 4> axesSet(axes.begin(), axes.end());
+            const auto inShape = getShape(op.getData());
+            int64_t squeezable = 0;
+            for (int64_t i = 0; i < dataRank; ++i) {
+                if (inShape[Dim(i)] == 1 && !axesSet.contains(i)) {
+                    ++squeezable;
+                }
+            }
+            // Cannot reach 4D by squeezing -> keep legal to avoid conversion failure.
+            return (dataRank - squeezable) > TARGET_TENSOR_DIM;
+        }
+
+        return false;
     };
 
     const auto isLegalTileOp = [](IE::TileOp op) {
@@ -4328,6 +4380,7 @@ void ConvertShapeTo4DPass::safeRunOnFunc() {
     target.addDynamicallyLegalOp<IE::QuantizeOp>(isLegalOp);
     target.addDynamicallyLegalOp<IE::DequantizeOp>(isLegalOp);
     target.addDynamicallyLegalOp<IE::QuantizeCastOp>(isLegalQuantOp);
+    target.addDynamicallyLegalOp<IE::RoPEOp>(isLegalOp);
     target.addDynamicallyLegalOp<IE::NormalizeL2Op>(isLegalNormalizeL2Op);
     target.addDynamicallyLegalOp<IE::CumSumOp>(isLegalCumSumOp);
     target.addDynamicallyLegalOp<IE::PadOp>(isLegalPadOp);
@@ -4403,6 +4456,7 @@ void ConvertShapeTo4DPass::safeRunOnFunc() {
     patterns.add<GenericConverter<IE::QuantizeCastOp>>(typeConverter, &ctx, _log);
     patterns.add<GenericConverter<IE::QuantizeOp>>(typeConverter, &ctx, _log);
     patterns.add<GenericConverter<IE::DequantizeOp>>(typeConverter, &ctx, _log);
+    patterns.add<GenericConverter<IE::RoPEOp>>(typeConverter, &ctx, _log);
     patterns.add<GenericConverter<IE::FlashSDPAOp>>(typeConverter, &ctx, _log);
 
     patterns.add<GatherConverter>(typeConverter, &ctx, _log);

@@ -14,12 +14,12 @@ DataInfo "input_0" : tensor<1x64x16x16xf16>
 DataInfo "output_0" : tensor<1x64x8x8xf16>
 }
 
-func.func private @maxpool_f16_f16(%arg0: memref<1x64x16x16xf16, #NHWC, @DDR>, %arg1: memref<1x64x8x8xf16, #NHWC, @DDR>) -> memref<1x64x8x8xf16, #NHWC, @DDR> {
-  %input = VPURT.DeclareBuffer <CMX_NN> [0] <8192> -> memref<1x64x16x16xf16, #NHWC, [@CMX_NN, 0]>
-  %output = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x64x8x8xf16, #NHWC, [@CMX_NN, 0]>
-  %parent_input = VPURT.DeclareBuffer <CMX_NN> [0] <8192> -> memref<1x64x16x16xf16, #NHWC, [@CMX_NN, 0]>
-  %parent_output = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x64x8x8xf16, #NHWC, [@CMX_NN, 0]>
-  %weight_table = VPURT.DeclareBuffer <CMX_NN> [0] <40976> -> memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>
+func.func nested @maxpool_f16_f16(%arg0: memref<1x64x16x16xf16, {order = #NHWC}, @DDR>, %arg1: memref<1x64x8x8xf16, {order = #NHWC}, @DDR>) -> memref<1x64x8x8xf16, {order = #NHWC}, @DDR> {
+  %input = VPURT.DeclareBuffer <CMX_NN> [0] <8192> -> memref<1x64x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
+  %output = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x64x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]>
+  %parent_input = VPURT.DeclareBuffer <CMX_NN> [0] <8192> -> memref<1x64x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
+  %parent_output = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x64x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]>
+  %weight_table = VPURT.DeclareBuffer <CMX_NN> [0] <40976> -> memref<64x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>
 
   VPURT.Task {
       %8 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
@@ -27,16 +27,16 @@ func.func private @maxpool_f16_f16(%arg0: memref<1x64x16x16xf16, #NHWC, @DDR>, %
             kernel_size = [2, 2],
             kernel_strides = [2, 2],
             task_type = #VPUIP.nce_task_type<MAXPOOL>}>
-          input(%input : memref<1x64x16x16xf16, #NHWC, [@CMX_NN, 0]>)
-          weight_table(%weight_table : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>)
-          parent_input(%parent_input : memref<1x64x16x16xf16, #NHWC, [@CMX_NN, 0]>)
-          parent_output(%parent_output : memref<1x64x8x8xf16, #NHWC, [@CMX_NN, 0]>)
-          outputs(%output : memref<1x64x8x8xf16, #NHWC, [@CMX_NN, 0]>)
-        -> memref<1x64x8x8xf16, #NHWC, [@CMX_NN, 0]> variants : {
+          input(%input : memref<1x64x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+          weight_table(%weight_table : memref<64x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>)
+          parent_input(%parent_input : memref<1x64x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+          parent_output(%parent_output : memref<1x64x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+          outputs(%output : memref<1x64x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+        -> memref<1x64x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
       DPUTask {outEnd = [7, 7, 63], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0]}
       } PPE : { PPETask {ppe = #VPU.PPEStub<>} }
   }
-  return %arg1 : memref<1x64x8x8xf16, #NHWC, @DDR>
+  return %arg1 : memref<1x64x8x8xf16, {order = #NHWC}, @DDR>
 }
 }
 

@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 using namespace vpux;
 
@@ -25,6 +26,12 @@ mlir::LogicalResult vpux::VPU::MVN1NormalizeOp::inferReturnTypes(
     const auto inType = op.getInput().getType();
     inferredReturnTypes.push_back(inType);
 
+    return mlir::success();
+}
+
+mlir::LogicalResult vpux::VPU::MVN1NormalizeOp::reifyResultShapes(
+        mlir::OpBuilder& builder, mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    reifiedReturnShapes.emplace_back(reifyTrivialTensor(builder, getInput(), getLoc()));
     return mlir::success();
 }
 

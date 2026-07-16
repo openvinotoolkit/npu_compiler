@@ -53,7 +53,9 @@ std::unique_ptr<mlir::Pass> createSerializeELFToBinaryPass(Logger log = Logger::
 std::unique_ptr<mlir::Pass> createConvertToLLVMUMDCallsPass(
         bool enablePipelinedCmdListRecording = vpux::HostExec::defaultEnablePipelinedCmdListRecording,
         Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createPrepareHostFuncForAsyncExecutionPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createInlineMainBatchingCallsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createPrepareHostFuncForAsyncExecutionPass(bool removeReturnValues = true,
+                                                                       Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createOptimizeMemRefCopiesPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createReplaceAllocsWithSingleAllocAndViewsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSerializeNetworkMetadataPass(Logger log = Logger::global());
@@ -61,9 +63,11 @@ std::unique_ptr<mlir::Pass> createExtractReturnShapesPass(Logger log = Logger::g
 std::unique_ptr<mlir::Pass> createOutlineDimOperationsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createGenerateExecutionContextFuncsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createWrapFuncCallPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createPropagateDynamicShapesPass(Logger log = Logger::global());
 
 void buildHostExecPipeline(mlir::OpPassManager& pm, bool enablePipelinedCmdListRecording,
                            Logger log = Logger::global());
+void buildOutputShapePredictPipeline(mlir::OpPassManager& pm, Logger log = Logger::global());
 void buildBytecodeBackendPipeline(mlir::OpPassManager& pm, Logger log = Logger::global());
 
 //

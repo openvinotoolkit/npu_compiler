@@ -89,8 +89,8 @@ MultiClusterPerAxisTileDMARewriter::MultiClusterPerAxisTileDMARewriter(mlir::MLI
                                                                        bool useDMADescriptorAttr, Logger log)
         : mlir::OpRewritePattern<VPUIP::PerAxisTileDMAOp>(ctx),
           _dmaPortCount(dmaPortCount),
-          _log(log),
-          _useDMADescriptorAttr(useDMADescriptorAttr) {
+          _useDMADescriptorAttr(useDMADescriptorAttr),
+          _log(std::move(log)) {
     setDebugName("MultiClusterPerAxisTileDMARewriter");
 }
 

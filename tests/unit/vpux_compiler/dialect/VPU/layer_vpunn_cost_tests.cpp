@@ -9,9 +9,12 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/layer_vpunn_cost.hpp"
+#include "vpux/compiler/dialect/VPU/utils/multi_cluster_strategy_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/sibling_ops_analysis.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
@@ -26,11 +29,13 @@
 
 #include <gtest/gtest.h>
 
-using vpux::config::ArchKind;
-using vpux::VPU::MultiClusterStrategy;
 using namespace vpux;
+using namespace vpux::VPU;
+using config::Platform;
 
 using MLIR_VPU_LayerVPUNNCost = vpux::VPU::arch37xx::UnitTest;
+
+namespace {
 
 VPU::StrategyCost getSWVPUNNCost(std::shared_ptr<VPUNN::SHAVEWorkload> vpunnLayer, mlir::ModuleOp module,
                                  VPU::MultiClusterStrategy mcStrategy) {
@@ -85,6 +90,8 @@ VPUNN::CyclesInterfaceType getWeightsDMACost(VPU::NCEOpInterface nceOp, mlir::Mo
     return checked_cast<VPUNN::CyclesInterfaceType>(getDMACost(weightsType, vpuDevice, vpunnCostModel, numDMAPorts));
 }
 
+}  // namespace
+
 TEST_F(MLIR_VPU_LayerVPUNNCost, DPU_LayerCost) {
     constexpr llvm::StringLiteral inputIR = R"(
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -92,10 +99,10 @@ TEST_F(MLIR_VPU_LayerVPUNNCost, DPU_LayerCost) {
 #loc0 = loc(unknown)
     module @main {
         func.func @main(%arg0: tensor<1x16x16x16xf16, {order = #NHWC}>, %wt: tensor<16x1x1x4xsi32>, %weights: tensor<16x16x1x1xf16, {order = #NHWC}>) -> tensor<1x16x16x16xf16, {order = #NHWC}> {
-        %1 = VPU.NCE.Convolution(%arg0, %weights, %wt) {
+        %1 = VPU.NCE.Convolution(%arg0, %weights, %wt) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                rawFilterShape = [16, 16, 1, 1],
+
                 strides = [1, 1]
             } : tensor<1x16x16x16xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x16x16xf16, {order = #NHWC}> loc(fused["Conv_100", "t_Convolution"])
 
@@ -109,10 +116,11 @@ TEST_F(MLIR_VPU_LayerVPUNNCost, DPU_LayerCost) {
     auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
     ASSERT_TRUE(func != nullptr);
 
-    const auto archKind = ArchKind::NPU37XX;
+    const auto platform = Platform::NPU3720;
+    const auto archKind = config::getArch(platform);
 
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    auto initCompilerOptions = VPU::InitCompilerOptions(archKind, config::CompilationMode::DefaultHW);
+    auto initCompilerOptions = VPU::InitCompilerOptions(platform, config::CompilationMode::DefaultHW);
 
     VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
 
@@ -170,10 +178,8 @@ TEST_F(MLIR_VPU_LayerVPUNNCost, SWKernel_LayerCost) {
     auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
     ASSERT_TRUE(func != nullptr);
 
-    const auto archKind = ArchKind::NPU37XX;
-
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    auto initCompilerOptions = VPU::InitCompilerOptions(archKind, config::CompilationMode::DefaultHW);
+    auto initCompilerOptions = VPU::InitCompilerOptions(Platform::NPU3720, config::CompilationMode::DefaultHW);
 
     VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
 
@@ -224,7 +230,7 @@ TEST_F(MLIR_VPU_LayerVPUNNCost, SWKernel_SimpleCost) {
     ASSERT_TRUE(func != nullptr);
 
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    auto initCompilerOptions = VPU::InitCompilerOptions(ArchKind::NPU37XX, config::CompilationMode::DefaultHW);
+    auto initCompilerOptions = VPU::InitCompilerOptions(Platform::NPU3720, config::CompilationMode::DefaultHW);
 
     VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
 
@@ -247,10 +253,10 @@ TEST_F(MLIR_VPU_LayerVPUNNCost, DMA_Cost) {
 #loc0 = loc(unknown)
     module @main {
         func.func @main(%arg0: tensor<1x16x16x16xf16, {order = #NHWC}>, %wt: tensor<16x1x1x4xsi32>, %weights: tensor<16x16x1x1xf16, {order = #NHWC}>) -> tensor<1x16x16x16xf16, {order = #NHWC}> {
-        %1 = VPU.NCE.Convolution(%arg0, %weights, %wt) {
+        %1 = VPU.NCE.Convolution(%arg0, %weights, %wt) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                rawFilterShape = [16, 16, 1, 1],
+
                 strides = [1, 1]
             } : tensor<1x16x16x16xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x16x16xf16, {order = #NHWC}> loc(fused["Conv_100", "t_Convolution"])
         %2 = VPU.MaxPool(%1) {
@@ -272,10 +278,8 @@ TEST_F(MLIR_VPU_LayerVPUNNCost, DMA_Cost) {
     auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
     ASSERT_TRUE(func != nullptr);
 
-    const auto archKind = ArchKind::NPU37XX;
-
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    auto initCompilerOptions = VPU::InitCompilerOptions(archKind, config::CompilationMode::DefaultHW);
+    auto initCompilerOptions = VPU::InitCompilerOptions(Platform::NPU3720, config::CompilationMode::DefaultHW);
 
     VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
 
@@ -292,7 +296,7 @@ TEST_F(MLIR_VPU_LayerVPUNNCost, DMA_Cost) {
         auto spillWriteCostPerTile = layerCost.getSpillingWriteCostsForAllTiles(convOp.getOperation(),
                                                                                 VPU::MultiClusterStrategy::Clustering);
         auto spillWriteCosts = std::accumulate(spillWriteCostPerTile.begin(), spillWriteCostPerTile.end(), 0);
-        auto spillRefCost = getDMACost(mlir::cast<vpux::NDTypeInterface>(convOp.getResult().getType()), vpuDevice,
+        auto spillRefCost = getDMACost(mlir::cast<vpux::NDTypeInterface>(convOp.getResult(0).getType()), vpuDevice,
                                        vpunnCostFunction->get_TheoreticalDMA_cost_model_shared(), dmaPorts);
 
         EXPECT_EQ(spillWriteCosts, spillRefCost);
@@ -321,3 +325,7 @@ TEST_F(MLIR_VPU_LayerVPUNNCost, DMA_Cost) {
                   spillRefCost);
     });
 }
+
+// ---------------------------------------------------------------------------
+// LayerCostModel::hasSpilling tests
+// ---------------------------------------------------------------------------

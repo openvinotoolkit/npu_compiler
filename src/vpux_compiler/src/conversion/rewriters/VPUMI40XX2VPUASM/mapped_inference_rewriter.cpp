@@ -15,11 +15,6 @@
 namespace vpux {
 namespace vpumi40xx2vpuasm {
 
-llvm::SmallVector<mlir::FlatSymbolRefAttr> MappedInferenceRewriter::getSymbolicNames(VPUMI40XX::MappedInferenceOp,
-                                                                                     size_t) {
-    return {mlir::FlatSymbolRefAttr::get(getContext(), "MappedInference")};
-}
-
 mlir::FailureOr<SymbolizationResult> MappedInferenceRewriter::symbolize(
         VPUMI40XX::MappedInferenceOp op, SymbolMapper& mapper, mlir::ConversionPatternRewriter& rewriter) const {
     // Original name before mapper update
@@ -50,35 +45,34 @@ mlir::FailureOr<SymbolizationResult> MappedInferenceRewriter::symbolize(
 
 mlir::StringAttr MappedInferenceRewriter::getManagedMappedInferenceSymbolName(mlir::MLIRContext* ctx,
                                                                               mlir::StringAttr symName) {
-    return mlir::StringAttr::get(ctx, symName.str() + std::string("_managed"));
+    return mlir::StringAttr::get(ctx, (llvm::Twine(symName.getValue()) + "_managed").str());
 }
 
 VPUASM::MappedInferenceOp MappedInferenceRewriter::symbolizeMappedInference(
         VPUMI40XX::MappedInferenceOp op, mlir::StringAttr symName, mlir::ConversionPatternRewriter& rewriter) const {
     mlir::MLIRContext* ctx = rewriter.getContext();
 
-    llvm::SmallVector<llvm::SmallVector<mlir::Attribute>> dmas(op.getDmaTasks().size());
-    for (auto tileDmas : llvm::enumerate(op.getDmaTasks())) {
-        dmas[tileDmas.index()].resize(tileDmas.value().size());
-        for (auto dma : llvm::enumerate(tileDmas.value())) {
-            auto dmaName = findSym(dma.value());
-
-            dmas[tileDmas.index()][dma.index()] = dmaName;
+    SmallVector<mlir::Attribute> dmasAttrVec;
+    dmasAttrVec.reserve(op.getDmaTasks().size());
+    for (auto tileDmas : op.getDmaTasks()) {
+        SmallVector<mlir::Attribute> tileSyms;
+        tileSyms.reserve(tileDmas.size());
+        for (auto dma : tileDmas) {
+            tileSyms.push_back(findSym(dma));
         }
+        dmasAttrVec.push_back(mlir::ArrayAttr::get(ctx, tileSyms));
     }
 
-    llvm::SmallVector<mlir::Attribute> invariantTasks(op.getInvariantTasks().size());
-    for (auto invariantTask : llvm::enumerate(op.getInvariantTasks())) {
-        auto invariantTaskName = findSym(invariantTask.value());
-
-        invariantTasks[invariantTask.index()] = invariantTaskName;
+    llvm::SmallVector<mlir::Attribute> invariantTasks;
+    invariantTasks.reserve(op.getInvariantTasks().size());
+    for (auto invariantTask : op.getInvariantTasks()) {
+        invariantTasks.push_back(findSym(invariantTask));
     }
 
-    llvm::SmallVector<mlir::Attribute> variantTasks(op.getVariantTasks().size());
-    for (auto variantTask : llvm::enumerate(op.getVariantTasks())) {
-        auto variantTaskName = findSym(variantTask.value());
-
-        variantTasks[variantTask.index()] = variantTaskName;
+    llvm::SmallVector<mlir::Attribute> variantTasks;
+    variantTasks.reserve(op.getVariantTasks().size());
+    for (auto variantTask : op.getVariantTasks()) {
+        variantTasks.push_back(findSym(variantTask));
     }
 
     // ActKernelRanges and ActKernelInvocations attributes are 2-D arrays containing respective counts for each tile and
@@ -91,15 +85,15 @@ VPUASM::MappedInferenceOp MappedInferenceRewriter::symbolizeMappedInference(
     // this point of compilation as WLM flow uses ManagedMappedInference structure.
 
     mlir::SmallVector<int64_t> rangeCount(op.getActKernelRangesCount().size(), 0);
-    for (auto actKernRangeCountPerTile : llvm::enumerate(op.getActKernelRangesCount())) {
-        auto countsPerTile = parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(actKernRangeCountPerTile.value()));
-        rangeCount[actKernRangeCountPerTile.index()] = countsPerTile[0];
+    for (auto [tileIdx, countPerTile] : llvm::enumerate(op.getActKernelRangesCount())) {
+        const auto perTileAttr = mlir::cast<mlir::ArrayAttr>(countPerTile);
+        rangeCount[tileIdx] = mlir::cast<mlir::IntegerAttr>(perTileAttr[0]).getInt();
     }
 
     mlir::SmallVector<int64_t> invoCount(op.getActKernelInvocationsCount().size(), 0);
-    for (auto actKernInvoCountPerTile : llvm::enumerate(op.getActKernelInvocationsCount())) {
-        auto countsPerTile = parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(actKernInvoCountPerTile.value()));
-        invoCount[actKernInvoCountPerTile.index()] = countsPerTile[0];
+    for (auto [tileIdx, countPerTile] : llvm::enumerate(op.getActKernelInvocationsCount())) {
+        const auto perTileAttr = mlir::cast<mlir::ArrayAttr>(countPerTile);
+        invoCount[tileIdx] = mlir::cast<mlir::IntegerAttr>(perTileAttr[0]).getInt();
     }
 
     llvm::SmallVector<mlir::Attribute> actKernelRanges;
@@ -118,17 +112,13 @@ VPUASM::MappedInferenceOp MappedInferenceRewriter::symbolizeMappedInference(
         }
     }
 
-    llvm::SmallVector<mlir::Attribute> actShaveStacks(op.getActShaveStacks().size());
-    for (auto actShaveStack : llvm::enumerate(op.getActShaveStacks())) {
-        actShaveStacks[actShaveStack.index()] = findSym(actShaveStack.value());
+    llvm::SmallVector<mlir::Attribute> actShaveStacks;
+    actShaveStacks.reserve(op.getActShaveStacks().size());
+    for (auto actShaveStack : op.getActShaveStacks()) {
+        actShaveStacks.push_back(findSym(actShaveStack));
     }
 
-    SmallVector<mlir::Attribute> dmasAttrVec;
-    for (const auto& dma : dmas) {
-        dmasAttrVec.push_back(mlir::ArrayAttr::get(ctx, dma));
-    }
-
-    mlir::ArrayAttr dmasAttr = dmasAttrVec.size() ? mlir::ArrayAttr::get(ctx, dmasAttrVec) : nullptr;
+    mlir::ArrayAttr dmasAttr = dmasAttrVec.empty() ? nullptr : mlir::ArrayAttr::get(ctx, dmasAttrVec);
     mlir::ArrayAttr invariantTasksAttr = invariantTasks.size() ? mlir::ArrayAttr::get(ctx, invariantTasks) : nullptr;
     mlir::ArrayAttr variantTasksAttr = variantTasks.size() ? mlir::ArrayAttr::get(ctx, variantTasks) : nullptr;
     mlir::ArrayAttr actKernelRangesAttr = actKernelRanges.size() ? mlir::ArrayAttr::get(ctx, actKernelRanges) : nullptr;
@@ -167,14 +157,18 @@ void MappedInferenceRewriter::symbolizeManagedMappedInference(VPUMI40XX::MappedI
     auto tileOp = config::getTileExecutor(moduleOp);
     auto tileCount = static_cast<size_t>(tileOp.getCount());
 
-    auto nnrtConfigSymName =
-            mlir::StringAttr::get(rewriter.getContext(), symName.str() + std::string("_nnrtConfigManaged"));
+    auto nnrtConfigSymName = mlir::StringAttr::get(ctx, (llvm::Twine(symName.getValue()) + "_nnrtConfigManaged").str());
     auto nnRtConfigSymRef = mlir::FlatSymbolRefAttr::get(nnrtConfigSymName);
-    bool isActKernelInvocation = op.getActKernelInvocationsCount() ? true : false;
+    auto isActKernelInvocations = llvm::any_of(op.getActKernelInvocationsCount(), [](mlir::Attribute tileAttr) {
+        return llvm::any_of(mlir::cast<mlir::ArrayAttr>(tileAttr), [](mlir::Attribute countAttr) {
+            return mlir::cast<mlir::IntegerAttr>(countAttr).getInt() > 0;
+        });
+    });
 
-    llvm::SmallVector<mlir::Attribute> actShaveStacks(op.getActShaveStacks().size());
-    for (auto actShaveStack : llvm::enumerate(op.getActShaveStacks())) {
-        actShaveStacks[actShaveStack.index()] = findSym(actShaveStack.value());
+    llvm::SmallVector<mlir::Attribute> actShaveStacks;
+    actShaveStacks.reserve(op.getActShaveStacks().size());
+    for (auto actShaveStack : op.getActShaveStacks()) {
+        actShaveStacks.push_back(findSym(actShaveStack));
     }
 
     mlir::SymbolRefAttr fullStackFramesSectionName = nullptr;
@@ -182,7 +176,7 @@ void MappedInferenceRewriter::symbolizeManagedMappedInference(VPUMI40XX::MappedI
     const size_t defaultStacksNum = 2;
     auto shvPerTile = static_cast<size_t>(tileOp.getSubExecutor(config::ExecutorKind::SHAVE_ACT).getCount());
     if (shvPerTile > defaultStacksNum) {
-        auto stackFramesSymName = mlir::StringAttr::get(ctx, symName.str() + std::string("_stackFrames"));
+        auto stackFramesSymName = mlir::StringAttr::get(ctx, (llvm::Twine(symName.getValue()) + "_stackFrames").str());
         // If shave stack frames are in CMX, get hardcoded addresses, else if shave stack frames are in DDR
         // allocate empty array of proper size, actual addresses are patched by per-entry relocations.
         auto addresses = actShaveStacks.size() ? SmallVector<uint32_t>(actShaveStacks.size(), 0)
@@ -203,29 +197,24 @@ void MappedInferenceRewriter::symbolizeManagedMappedInference(VPUMI40XX::MappedI
     mlir::SymbolRefAttr mappedInferenceVersion =
             op.getMappedInferenceVersion() ? findSym(op.getMappedInferenceVersion()) : nullptr;
 
-    auto nnRtConfig = rewriter.create<VPUASM::NNrtConfigOp>(op.getLoc(), nnrtConfigSymName, isActKernelInvocation,
+    auto nnRtConfig = rewriter.create<VPUASM::NNrtConfigOp>(op.getLoc(), nnrtConfigSymName, isActKernelInvocations,
                                                             actShaveRtAttr, actShaveStacksAttr,
                                                             fullStackFramesSectionName, dmaHwpBase, workpointCfg);
     auto fullNNRtConfigSectionName = moveOpToSection(nnRtConfig.getOperation(), *_sectionMap, rewriter);
     assert(fullNNRtConfigSectionName != nullptr);
 
-    llvm::SmallVector<llvm::SmallVector<mlir::Attribute>> managedDmas;
-    for (auto tileDmas : llvm::enumerate(op.getDmaTasks())) {
-        auto& newList = managedDmas.emplace_back();
-        for (auto dma : llvm::enumerate(tileDmas.value())) {
-            auto dmaTask = mlir::cast<VPUMI40XX::NNDMAOp>(dma.value().getDefiningOp());
+    SmallVector<mlir::Attribute> managedDmasAttrVec;
+    managedDmasAttrVec.reserve(op.getDmaTasks().size());
+    for (auto tileDmas : op.getDmaTasks()) {
+        SmallVector<mlir::Attribute> tileSyms;
+        for (auto dma : tileDmas) {
+            auto dmaTask = mlir::cast<VPUMI40XX::NNDMAOp>(dma.getDefiningOp());
             if (!dmaTask.getTaskLink().has_value()) {
                 continue;
             }
-
-            auto dmaName = findSym(dma.value());
-            newList.push_back(dmaName);
+            tileSyms.push_back(findSym(dma));
         }
-    }
-
-    SmallVector<mlir::Attribute> managedDmasAttrVec;
-    for (const auto& dma : managedDmas) {
-        managedDmasAttrVec.push_back(mlir::ArrayAttr::get(ctx, dma));
+        managedDmasAttrVec.push_back(mlir::ArrayAttr::get(ctx, tileSyms));
     }
     auto managedDmasAttr = mlir::ArrayAttr::get(ctx, managedDmasAttrVec);
 
@@ -233,14 +222,8 @@ void MappedInferenceRewriter::symbolizeManagedMappedInference(VPUMI40XX::MappedI
     auto workItemCount = op.getWorkItemCount().value_or(0);
     auto workItems = workItemCount ? findSym(op.getWorkItemTasks()) : nullAttr;
 
-    auto bootstrapBarriersCount = 0;
-    if (op.getBootstrapBarriersCount().has_value()) {
-        bootstrapBarriersCount = op.getBootstrapBarriersCount().value();
-    }
-    auto finalBarrierId = 0;
-    if (op.getFinalBarrierId().has_value()) {
-        finalBarrierId = op.getFinalBarrierId().value();
-    }
+    auto bootstrapBarriersCount = checked_cast<int>(op.getBootstrapBarriersCount().value_or(0));
+    auto finalBarrierId = checked_cast<int>(op.getFinalBarrierId().value_or(0));
 
     auto bootstrapWorkItemTasksCount = op.getBootstrapWorkItemsCount().value_or(0);
     mlir::SymbolRefAttr bootstrapBarriers = op.getBootstrapBarriers() ? findSym(op.getBootstrapBarriers()) : nullptr;
@@ -254,15 +237,15 @@ void MappedInferenceRewriter::symbolizeManagedMappedInference(VPUMI40XX::MappedI
         media_used = fillBits(1);
     }
     uint8_t dpu_used = fillBits(tileCount);
-    auto dmaCount = parseIntArrayOfArrayAttr<int64_t>(op.getDmaCount());
-
     uint8_t activeDmaDDR = 0;
     uint8_t activeDMACMX = 0;
-    for (auto dmaTileIndex : irange(dmaCount.size())) {
-        if (dmaCount[dmaTileIndex][static_cast<size_t>(VPUMI40XX::DmaNnSrcType::DDR)] > 0) {
+    for (auto dmaTile : op.getDmaCount()) {
+        auto dmaTileArr = mlir::cast<mlir::ArrayAttr>(dmaTile);
+        if (mlir::cast<mlir::IntegerAttr>(dmaTileArr[static_cast<size_t>(VPUMI40XX::DmaNnSrcType::DDR)]).getInt() > 0) {
             activeDmaDDR++;
         }
-        if (dmaCount[dmaTileIndex][static_cast<size_t>(VPUMI40XX::DmaNnSrcType::CMX_NN)] > 0) {
+        if (mlir::cast<mlir::IntegerAttr>(dmaTileArr[static_cast<size_t>(VPUMI40XX::DmaNnSrcType::CMX_NN)]).getInt() >
+            0) {
             activeDMACMX++;
         }
     }
@@ -270,11 +253,10 @@ void MappedInferenceRewriter::symbolizeManagedMappedInference(VPUMI40XX::MappedI
     uint8_t dma_from_ddr_used = fillBits(activeDmaDDR);
     uint8_t dma_from_cmx_used = fillBits(activeDMACMX);
 
-    auto actKernelRangesCountVec = parseIntArrayOfArrayAttr<int64_t>(op.getActKernelRangesCount());
     uint8_t activeShaves = 0;
-    for (const auto& rangeCountPerTile : actKernelRangesCountVec) {
-        for (const auto& rangeCountPerList : rangeCountPerTile) {
-            if (rangeCountPerList > 0) {
+    for (auto countPerTile : op.getActKernelRangesCount()) {
+        for (auto countPerShave : mlir::cast<mlir::ArrayAttr>(countPerTile)) {
+            if (mlir::cast<mlir::IntegerAttr>(countPerShave).getInt() > 0) {
                 activeShaves++;
             }
         }

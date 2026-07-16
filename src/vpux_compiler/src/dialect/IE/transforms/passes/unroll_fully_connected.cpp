@@ -367,6 +367,7 @@ bool isBeneficialToUseReduceSumForAccumulate(IE::FullyConnectedOp origOp) {
 
 bool UnrollFullyConnected::isUnrollingBeneficial(IE::FullyConnectedOp origOp, mlir::ValueRange concatInputs) const {
     auto nestedLog = _log.nest();
+
     const auto fcInputShape = getShape(origOp.getInput());
     if (auto fqParent = concatInputs.front().getDefiningOp<IE::FakeQuantizeOp>()) {
         const auto levels = fqParent.getLevels();
@@ -381,6 +382,13 @@ bool UnrollFullyConnected::isUnrollingBeneficial(IE::FullyConnectedOp origOp, ml
         if (levels.value() > MAX_QUANT_LEVELS) {
             nestedLog.trace("Quantized element type has more than 4bits.");
             return false;
+        }
+
+        // U2 weights (levels=4) is always beneficial.
+        constexpr int64_t U2_QUANT_LEVELS = 4;
+        if (levels.value() == U2_QUANT_LEVELS) {
+            nestedLog.trace("Weights have U2 subbyte type (levels=4), unrolling is always beneficial.");
+            return true;
         }
     }
 
@@ -462,7 +470,7 @@ mlir::LogicalResult UnrollFullyConnected::matchAndRewrite(IE::FullyConnectedOp o
     }
 
     if (!isUnrollingBeneficial(origOp, matMulInputs)) {
-        _log.debug("Performance-wise it is better not to unroll FullyConnectedOp at loc: {0}; will be run in float16 "
+        _log.debug("Performance-wise it is better not to unroll FullyConnectedOp at loc: {0}; will be run in float16"
                    "precision",
                    opLoc);
         return mlir::failure();

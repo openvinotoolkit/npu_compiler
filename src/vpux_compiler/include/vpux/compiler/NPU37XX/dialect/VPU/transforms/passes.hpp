@@ -34,6 +34,10 @@ struct DefaultHWOptions : public VPU::DefaultHWOptionsDialectBase, virtual vpux:
     StrOption actSparsityProfile{*this, "act-sparsity-profile", llvm::cl::desc("Activation sparsity profile"),
                                  llvm::cl::init("S0")};
 
+    BoolOption enableTilingFullSearchSpace{*this, "enable-tiling-full-search-space",
+                                           llvm::cl::desc("Enable full search space for tiling"),
+                                           llvm::cl::init(false)};
+
     BoolOption enableVPUNNCostForTiling{*this, "enable-vpunn-cost-for-tiling",
                                         llvm::cl::desc("Use VPUNN cost model to get the best tiling strategy"),
                                         llvm::cl::init(true)};

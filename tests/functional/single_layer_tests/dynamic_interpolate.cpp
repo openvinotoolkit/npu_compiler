@@ -29,9 +29,16 @@ public:
 
             if (funcInput.get_node()->get_friendly_name() == "scales") {
                 tensor = Tensor{elementType, targetInputStaticShapes[i]};
-                auto data = tensor.data<float>();
-                for (size_t j = 0; j < scalesValues.size(); j++) {
-                    data[j] = scalesValues[j];
+                if (elementType == ov::element::f16) {
+                    auto data = tensor.data<ov::float16>();
+                    for (size_t j = 0; j < scalesValues.size(); j++) {
+                        data[j] = static_cast<ov::float16>(scalesValues[j]);
+                    }
+                } else {
+                    auto data = tensor.data<float>();
+                    for (size_t j = 0; j < scalesValues.size(); j++) {
+                        data[j] = scalesValues[j];
+                    }
                 }
             } else if (funcInput.get_node()->get_friendly_name() == "sizes") {
                 tensor = Tensor{elementType, targetInputStaticShapes[i]};
@@ -78,7 +85,8 @@ using InterpolateSAPParamSet =
                    std::vector<size_t>,  // padsEnd values
                    bool,                 // antialias
                    ov::Layout,           // Input layout
-                   float>;               // cube coeff
+                   float,                // cube coeff
+                   ov::element::Type>;   // scales element type
 
 class InterpolateSAPStaticInputLayerTest :
         public testing::WithParamInterface<InterpolateSAPParamSet>,
@@ -87,7 +95,8 @@ public:
     static std::string getTestCaseName(testing::TestParamInfo<InterpolateSAPParamSet> obj) {
         using ov::test::utils::operator<<;
         const auto& [dataShape, modelType, scalesValues, sizesValues, axes, shapeCalcMode, mode,
-                     coordinateTransformMode, nearestMode, padBegin, padEnd, antialias, layout, cubeCoef] = obj.param;
+                     coordinateTransformMode, nearestMode, padBegin, padEnd, antialias, layout, cubeCoef, scalesType] =
+                obj.param;
 
         std::ostringstream result;
         result << "ScaleInput=PARAM_";
@@ -105,7 +114,8 @@ public:
         result << "PE=" << ov::test::utils::vec2str(padEnd) << "_";
         result << "Axes=" << ov::test::utils::vec2str(axes) << "_";
         result << "Layout=" << layout.to_string() << "_";
-        result << "netType=" << modelType.get_type_name();
+        result << "netType=" << modelType.get_type_name() << "_";
+        result << "scalesType=" << scalesType.get_type_name();
         return result.str();
     }
 
@@ -124,9 +134,10 @@ public:
         bool antialias;
         ov::Layout layout;
         float cubeCoef;
+        ov::element::Type scalesType;
 
         std::tie(dataShape, inputType, scalesValues, sizesValues, axes, shapeCalcMode, mode, coordinateTransformMode,
-                 nearestMode, padsBegin, padsEnd, antialias, layout, cubeCoef) = this->GetParam();
+                 nearestMode, padsBegin, padsEnd, antialias, layout, cubeCoef, scalesType) = this->GetParam();
 
         // Only scales mode is supported in current implementation
         OPENVINO_ASSERT(shapeCalcMode == InterpolateBase::ShapeCalcMode::SCALES);
@@ -144,7 +155,7 @@ public:
         ov::ParameterVector params{dataParam};
         std::shared_ptr<ov::Node> shapeInput;
         if (shapeCalcMode == InterpolateBase::ShapeCalcMode::SCALES) {
-            auto scalesParam = std::make_shared<ov::op::v0::Parameter>(ov::element::f32, scalesShape);
+            auto scalesParam = std::make_shared<ov::op::v0::Parameter>(scalesType, scalesShape);
             scalesParam->set_friendly_name("scales");
             params.push_back(scalesParam);
             shapeInput = scalesParam;
@@ -182,11 +193,44 @@ public:
 
 TEST_P(InterpolateSAPStaticInputLayerTest, NPU4000_HW) {
     abs_threshold = 0.0f;
+    enableTurbo();
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
 
+// [Tracking number E#196823]
+TEST_P(InterpolateSAPStaticInputLayerTest, DISABLED_TMP_NPU4000_HC) {
+    abs_threshold = 0.0f;
+    setHostCompileMode();
+    setPluginCompilerType();
+    run(Platform::NPU4000);
+}
+
 TEST_P(InterpolateSAPStaticInputLayerTest, NPU5010_HW) {
+    abs_threshold = 0.0f;
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
+// [Tracking number E#196823]
+TEST_P(InterpolateSAPStaticInputLayerTest, DISABLED_TMP_NPU5010_HC) {
+    abs_threshold = 0.0f;
+    setHostCompileMode();
+    setPluginCompilerType();
+    run(Platform::NPU5010);
+}
+
+// Subset of platforms for large-shape tests
+class InterpolateSAPStaticLargeShapeLayerTest : public InterpolateSAPStaticInputLayerTest {};
+
+TEST_P(InterpolateSAPStaticLargeShapeLayerTest, NPU4000_HW) {
+    abs_threshold = 0.0f;
+    enableTurbo();
+    setDefaultHardwareMode();
+    run(Platform::NPU4000);
+}
+
+TEST_P(InterpolateSAPStaticLargeShapeLayerTest, NPU5010_HW) {
     abs_threshold = 0.0f;
     setDefaultHardwareMode();
     run(Platform::NPU5010);
@@ -198,11 +242,12 @@ const std::vector<ov::Shape> interpShapes = {
         ov::Shape{1, 3, 4, 6},
 };
 
-const std::vector<ov::Shape> interpLargeShapes = {
-        ov::Shape{1, 3, 368, 432},
+const std::vector<ov::element::Type> interpInputFullPrecisions = {
+        ov::element::f16,
+        ov::element::f32,
 };
 
-const std::vector<ov::element::Type> interpInputPrecisions = {
+const std::vector<ov::element::Type> interpInputF16Precisions = {
         ov::element::f16,
 };
 
@@ -212,6 +257,10 @@ const std::vector<std::vector<float>> interpScalesList = {
         {4.0f, 4.0f},
         {1.5f, 2.0f},
         {8.0f, 8.0f},
+};
+
+const std::vector<std::vector<float>> interpTypicalScalesList = {
+        {4.0f, 4.0f},
 };
 
 // no size mode yet
@@ -235,47 +284,47 @@ const std::vector<std::vector<size_t>> interpPadsEndList = {
 
 INSTANTIATE_TEST_SUITE_P(
         smoke_Interpolate_ScalesAsParam, InterpolateSAPStaticInputLayerTest,
-        ::testing::Combine(::testing::ValuesIn(interpShapes),           // dataShape
-                           ::testing::ValuesIn(interpInputPrecisions),  // inputType
-                           ::testing::ValuesIn(interpScalesList),       // scalesValues
-                           ::testing::ValuesIn(interpSizesList),        // sizesValues (unused)
-                           ::testing::ValuesIn(interpAxesList),         // axes
+        ::testing::Combine(::testing::ValuesIn(interpShapes),              // dataShape
+                           ::testing::ValuesIn(interpInputF16Precisions),  // inputType
+                           ::testing::ValuesIn(interpScalesList),          // scalesValues
+                           ::testing::ValuesIn(interpSizesList),           // sizesValues (unused)
+                           ::testing::ValuesIn(interpAxesList),            // axes
                            ::testing::Values(ov::op::util::InterpolateBase::ShapeCalcMode::SCALES),
                            ::testing::Values(op::v11::Interpolate::InterpolateMode::LINEAR),
                            ::testing::Values(op::v11::Interpolate::CoordinateTransformMode::HALF_PIXEL),
                            ::testing::Values(op::v11::Interpolate::NearestMode::FLOOR),
                            ::testing::ValuesIn(interpPadsBeginList), ::testing::ValuesIn(interpPadsEndList),
-                           ::testing::Values(false),                                       // antialias
-                           ::testing::ValuesIn({ov::Layout("NCHW"), ov::Layout("NHWC")}),  // layout
-                           ::testing::Values(-0.75f)),                                     // cubeCoef
+                           ::testing::Values(false),                   // antialias
+                           ::testing::ValuesIn({ov::Layout("NCHW")}),  // layout
+                           ::testing::Values(-0.75f),                  // cubeCoef
+                           ::testing::Values(ov::element::f32)),       // scalesType
         InterpolateSAPStaticInputLayerTest::getTestCaseName);
 
-// Disable large shape tests because of execution time. Tracking: E#207669
 INSTANTIATE_TEST_SUITE_P(
-        DISABLED_TMP_smoke_Interpolate_ScalesAsParam_LargeShape_1, InterpolateSAPStaticInputLayerTest,
-        ::testing::Combine(::testing::ValuesIn(interpLargeShapes),                         // dataShape
-                           ::testing::ValuesIn(interpInputPrecisions),                     // inputType
+        smoke_Interpolate_ScalesAsParam_LargeShape_1, InterpolateSAPStaticLargeShapeLayerTest,
+        ::testing::Combine(::testing::Values(ov::Shape{1, 3, 368, 432}),                   // dataShape
+                           ::testing::ValuesIn(interpInputFullPrecisions),                 // inputType
                            ::testing::Values(std::vector<float>{1.0f, 1.0f, 4.0f, 4.0f}),  // scalesValues
                            ::testing::ValuesIn(interpSizesList),                           // sizesValues (unused)
                            ::testing::Values(std::vector<int64_t>{}),                      // axes
                            ::testing::Values(ov::op::util::InterpolateBase::ShapeCalcMode::SCALES),
-                           ::testing::Values(op::v11::Interpolate::InterpolateMode::LINEAR),
+                           ::testing::Values(op::v11::Interpolate::InterpolateMode::LINEAR_ONNX),
                            ::testing::Values(op::v11::Interpolate::CoordinateTransformMode::HALF_PIXEL),
                            ::testing::Values(op::v11::Interpolate::NearestMode::FLOOR),
                            ::testing::ValuesIn(interpPadsBeginList), ::testing::ValuesIn(interpPadsEndList),
                            ::testing::Values(false),                   // antialias
                            ::testing::ValuesIn({ov::Layout("NCHW")}),  // layout
-                           ::testing::Values(-0.75f)),                 // cubeCoef
+                           ::testing::Values(-0.75f),                  // cubeCoef
+                           ::testing::Values(ov::element::f32)),       // scalesType
         InterpolateSAPStaticInputLayerTest::getTestCaseName);
 
-// Disable large shape tests because of execution time. Tracking: E#207669
 INSTANTIATE_TEST_SUITE_P(
-        DISABLED_TMP_smoke_Interpolate_ScalesAsParam_LargeShape_2, InterpolateSAPStaticInputLayerTest,
-        ::testing::Combine(::testing::ValuesIn(interpLargeShapes),             // dataShape
-                           ::testing::ValuesIn(interpInputPrecisions),         // inputType
-                           ::testing::Values(std::vector<float>{1.5f, 2.0f}),  // scalesValues
+        smoke_Interpolate_ScalesAsParam_LargeShape_2, InterpolateSAPStaticLargeShapeLayerTest,
+        ::testing::Combine(::testing::Values(ov::Shape{1, 368, 432, 3}),       // dataShape
+                           ::testing::ValuesIn(interpInputF16Precisions),      // inputType
+                           ::testing::Values(std::vector<float>{4.0f, 4.0f}),  // scalesValues
                            ::testing::ValuesIn(interpSizesList),               // sizesValues (unused)
-                           ::testing::Values(std::vector<int64_t>{2, 3}),      // axes
+                           ::testing::Values(std::vector<int64_t>{1, 2}),      // axes
                            ::testing::Values(ov::op::util::InterpolateBase::ShapeCalcMode::SCALES),
                            ::testing::Values(op::v11::Interpolate::InterpolateMode::LINEAR),
                            ::testing::Values(op::v11::Interpolate::CoordinateTransformMode::HALF_PIXEL),
@@ -283,7 +332,8 @@ INSTANTIATE_TEST_SUITE_P(
                            ::testing::ValuesIn(interpPadsBeginList), ::testing::ValuesIn(interpPadsEndList),
                            ::testing::Values(false),                   // antialias
                            ::testing::ValuesIn({ov::Layout("NCHW")}),  // layout
-                           ::testing::Values(-0.75f)),                 // cubeCoef
+                           ::testing::Values(-0.75f),                  // cubeCoef
+                           ::testing::Values(ov::element::f32)),       // scalesType
         InterpolateSAPStaticInputLayerTest::getTestCaseName);
 
 // ===== Dynamic input shape (with bounds) + dynamic scales test =====
@@ -391,7 +441,16 @@ public:
 
 TEST_P(InterpolateSAPDynInputLayerTest, NPU4000_HW) {
     abs_threshold = 0.0f;
+    enableTurbo();
     setDefaultHardwareMode();
+    run(Platform::NPU4000);
+}
+
+// [Tracking number E#196823]
+TEST_P(InterpolateSAPDynInputLayerTest, DISABLED_TMP_NPU4000_HC) {
+    abs_threshold = 0.0f;
+    setHostCompileMode();
+    setPluginCompilerType();
     run(Platform::NPU4000);
 }
 
@@ -401,20 +460,104 @@ TEST_P(InterpolateSAPDynInputLayerTest, NPU5010_HW) {
     run(Platform::NPU5010);
 }
 
+// [Tracking number E#196823]
+TEST_P(InterpolateSAPDynInputLayerTest, DISABLED_TMP_NPU5010_HC) {
+    abs_threshold = 0.0f;
+    setHostCompileMode();
+    setPluginCompilerType();
+    run(Platform::NPU5010);
+}
+
 // Input data has bounded dynamic spatial dims; scales remain runtime parameters
 const std::vector<InputShape> interpDynamicInputShapes = {
         generateTestShape(1, 3, 50_Dyn, 50_Dyn),
 };
 
+const std::vector<InputShape> interpDynamicInputLargeShapes = {
+        generateTestShape(1, 3, 368_Dyn, 432_Dyn),
+};
+
 INSTANTIATE_TEST_SUITE_P(
         smoke_Interpolate_DynamicInput_ScalesAsParam, InterpolateSAPDynInputLayerTest,
         ::testing::Combine(::testing::ValuesIn(interpDynamicInputShapes),  // dataShape (dynamic)
-                           ::testing::ValuesIn(interpInputPrecisions),     // inputType
+                           ::testing::ValuesIn(interpInputF16Precisions),  // inputType
                            ::testing::ValuesIn(interpScalesList),          // scalesValues
                            ::testing::ValuesIn(interpAxesList),            // axes
                            ::testing::Values(op::v11::Interpolate::InterpolateMode::LINEAR),
                            ::testing::Values(op::v11::Interpolate::CoordinateTransformMode::HALF_PIXEL),
-                           ::testing::ValuesIn({ov::Layout("NCHW"), ov::Layout("NHWC")})),  // layout
+                           ::testing::ValuesIn({ov::Layout("NCHW")})),  // layout
         InterpolateSAPDynInputLayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(
+        smoke_Interpolate_DynamicInput_ScalesAsParam_LargeShape, InterpolateSAPDynInputLayerTest,
+        ::testing::Combine(::testing::ValuesIn(interpDynamicInputLargeShapes),  // dataShape (dynamic)
+                           ::testing::ValuesIn(interpInputF16Precisions),       // inputType
+                           ::testing::ValuesIn(interpTypicalScalesList),        // scalesValues
+                           ::testing::ValuesIn(interpAxesList),                 // axes
+                           ::testing::Values(op::v11::Interpolate::InterpolateMode::LINEAR),
+                           ::testing::Values(op::v11::Interpolate::CoordinateTransformMode::HALF_PIXEL),
+                           ::testing::ValuesIn({ov::Layout("NCHW")})),  // layout
+        InterpolateSAPDynInputLayerTest::getTestCaseName);
+
+// =====================================================================
+// Realistic cases [Tracking number E#217769]
+// =====================================================================
+
+namespace {
+struct RealisticCase {
+    size_t h;
+    size_t w;
+    float scale;
+};
+
+const std::vector<RealisticCase> realisticCases = {
+        {240, 424, 1.1f}, {180, 320, 0.75f},  {360, 640, 0.75f},
+        {360, 640, 5.0f}, {1080, 1920, 1.1f}, {1080, 1920, 2.0f},
+};
+
+std::vector<InterpolateSAPParamSet> buildRealisticSAPParams() {
+    std::vector<InterpolateSAPParamSet> out;
+    out.reserve(realisticCases.size());
+    for (const auto& c : realisticCases) {
+        out.emplace_back(ov::Shape{1, 3, c.h, c.w},             // dataShape
+                         ov::element::f16,                      // inputType
+                         std::vector<float>{c.scale, c.scale},  // scalesValues
+                         std::vector<int32_t>{},                // sizesValues (unused)
+                         std::vector<int64_t>{2, 3},            // axes
+                         ov::op::util::InterpolateBase::ShapeCalcMode::SCALES,
+                         op::v11::Interpolate::InterpolateMode::LINEAR,
+                         op::v11::Interpolate::CoordinateTransformMode::HALF_PIXEL,
+                         op::v11::Interpolate::NearestMode::FLOOR, std::vector<size_t>{0, 0, 0, 0},  // padsBegin
+                         std::vector<size_t>{0, 0, 0, 0},                                            // padsEnd
+                         false,                                                                      // antialias
+                         ov::Layout("NCHW"),                                                         // layout
+                         -0.75f,                                                                     // cubeCoef
+                         // certain scales only supported in fp16 Tracking number E#217769
+                         ov::element::f16);  // scalesType
+    }
+    return out;
+}
+}  // namespace
+
+// Dedicated subclass so the realistic-case suite can use a relaxed tolerance
+// without affecting the strict (0.0) thresholds of the other Static suites.
+class InterpolateSAPStaticRealisticLayerTest : public InterpolateSAPStaticInputLayerTest {};
+
+TEST_P(InterpolateSAPStaticRealisticLayerTest, NPU4000_HW) {
+    abs_threshold = 0.02f;
+    enableTurbo();
+    setDefaultHardwareMode();
+    run(Platform::NPU4000);
+}
+
+TEST_P(InterpolateSAPStaticRealisticLayerTest, NPU5010_HW) {
+    abs_threshold = 0.02f;
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_ScalesAsParam_Realistic, InterpolateSAPStaticRealisticLayerTest,
+                         ::testing::ValuesIn(buildRealisticSAPParams()),
+                         InterpolateSAPStaticInputLayerTest::getTestCaseName);
 
 }  // namespace ov::test

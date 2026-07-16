@@ -94,10 +94,12 @@ mlir::LogicalResult VerticalFusionUnrollRewriter::matchAndRewrite(VPU::VerticalF
             }
         }
 
-        mapper.map(op.getResult(0), clonedOp->getResult(0));
+        for (auto resultIdx = 0U; resultIdx < op.getNumResults(); ++resultIdx) {
+            mapper.map(op.getResult(resultIdx), clonedOp->getResult(resultIdx));
+        }
     }
 
-    rewriter.replaceOp(vfOp, clonedOp->getResult(0));
+    rewriter.replaceOp(vfOp, clonedOp->getResults());
 
     return mlir::success();
 }

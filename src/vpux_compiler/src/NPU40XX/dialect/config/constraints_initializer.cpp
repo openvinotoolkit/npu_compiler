@@ -4,12 +4,13 @@
 //
 
 #include "vpux/compiler/NPU40XX/dialect/config/constraints_initializer.hpp"
+#include "vpux/compiler/NPU37XX/dialect/config/constraints.hpp"
 #include "vpux/compiler/NPU40XX/dialect/config/constraints.hpp"
 #include "vpux/compiler/dialect/config/constraints.hpp"
 
 using namespace vpux;
 
-void config::ConstraintsInitializer40XX::initialize(mlir::MLIRContext* context, PlatformOrArch) {
+void config::ConstraintsInitializer40XX::initialize(mlir::MLIRContext* context) {
     NPUConstraints constraints;
 
     constraints.frequencyTable.base = arch40xx::FREQ_BASE;
@@ -20,6 +21,8 @@ void config::ConstraintsInitializer40XX::initialize(mlir::MLIRContext* context, 
 
     constraints.baseElfAbiVersion = config::Version(1, 2, 2);
     constraints.dynamicStridesMinElfAbiVersion = config::Version(1, 3, 0);
+
+    constraints.maxKernelSize = arch37xx::DPU_MAX_KERNEL_SIZE;
 
     setNPUConstraints(context, constraints);
 }

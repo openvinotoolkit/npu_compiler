@@ -1,5 +1,8 @@
 Change Log:
 -----------
+VPUXCompilerL0 7.8.0:
+  - Add vclAllocatedExecutableCreate4 and vclExecutableGetCompatibilityString
+
 VPUXCompilerL0 7.7.0:
   - Add support for vclAllocatedExecutableCreate3
 

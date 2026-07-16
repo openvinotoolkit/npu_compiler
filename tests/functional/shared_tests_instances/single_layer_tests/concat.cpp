@@ -11,6 +11,10 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ConcatLayerTest);
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ConcatStringLayerTest);
+
 class ConcatLayerTestCommon : public ConcatLayerTest, virtual public VpuOv2LayerTest {};
 class ConcatSubByteCopyLayerTest : public ConcatLayerTestCommon {};
 

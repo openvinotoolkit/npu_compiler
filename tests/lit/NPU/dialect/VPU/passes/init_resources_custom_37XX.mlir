@@ -30,7 +30,6 @@ module @executors {
 // CHECK-DAG:    {{    }}config.ExecutorResource 1 of @DPU
 // CHECK-DAG:    {{    }}config.ExecutorResource 2 of @SHAVE_ACT
 // CHECK-DAG:    {{    }}config.ExecutorResource 1 of @SHAVE_NN
-// CHECK-DAG:    {{    }}config.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware
 // CHECK-DAG:    {{    }}config.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
 // CHECK-DAG:    {{  }}config.Resources 1 of @global {
 // CHECK-DAG:    {{    }}config.ExecutorResource 5 of @DMA_NN
@@ -42,7 +41,6 @@ module @executors {
 // CHECK: module @memory attributes {config.compilationMode = #config.compilation_mode<DefaultHW>, config.platform = #config.platform<NPU3720>, config.revisionID = #config.revision_id<REVISION_NONE>}
 module @memory {
     config.Resources 2 of @NCE at 1.300000e+03 MHz {
-        config.MemoryResource 5 bytes of @CMX_NN_FragmentationAware
         config.MemoryResource 10000 bytes of @CMX_NN {config.bandwidth = 10 : i64, config.derateFactor = 2.0 : f64}
     }
     config.Resources 1 of @global {
@@ -54,7 +52,6 @@ module @memory {
 // CHECK-DAG:    {{    }}config.ExecutorResource 2 of @SHAVE_ACT
 // CHECK-DAG:    {{    }}config.ExecutorResource 1 of @SHAVE_NN
 // CHECK-DAG:    {{    }}config.ExecutorResource 1 of @DPU
-// CHECK-DAG:    {{    }}config.MemoryResource 5 bytes of @CMX_NN_FragmentationAware
 // CHECK-DAG:    {{    }}config.MemoryResource 10000 bytes of @CMX_NN {config.bandwidth = 10 : i64, config.derateFactor = 2.000000e+00 : f64}
 // CHECK-DAG:    {{  }}config.Resources 1 of @global {
 // CHECK-DAG:    {{    }}config.ExecutorResource 2 of @DMA_NN

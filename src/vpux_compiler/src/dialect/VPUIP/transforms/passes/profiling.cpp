@@ -86,7 +86,7 @@ void ActShaveProfilingPass::safeRunOnModule() {
 
     // Declare and create additional output from network
     const unsigned outputDdrSize = profiler.getRequiredDdrMemory();
-    const auto outputResultDdr = mlir::MemRefType::get({outputDdrSize}, getUInt32Type(ctx));
+    const auto outputResultDdr = vpux::getMemRefType({static_cast<int64_t>(outputDdrSize)}, getUInt32Type(ctx));
     auto profilingResult =
             addNewProfilingOutput(ctx, netFunc, netInfo, outputResultDdr, profiling::ExecutorType::ACTSHAVE);
 
@@ -172,7 +172,7 @@ void GroupProfilingBuffersPass::safeRunOnModule() {
     // Create and add new combined profiling output to the user info
     //
     auto newOutputResult =
-            mlir::MemRefType::get({static_cast<int64_t>(totalSize / sizeof(uint32_t))}, getUInt32Type(ctx));
+            vpux::getMemRefType({static_cast<int64_t>(totalSize / sizeof(uint32_t))}, getUInt32Type(ctx));
     auto newOutputShapedType = mlir::cast<vpux::NDTypeInterface>(newOutputResult);
     auto outputUserResult = getTensorType(newOutputShapedType.getShape(), newOutputShapedType.getElementType(),
                                           newOutputShapedType.getDimsOrder(), nullptr);

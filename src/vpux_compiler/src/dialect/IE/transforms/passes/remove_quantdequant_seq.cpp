@@ -134,6 +134,31 @@ void RemoveQuantDequantSeqPass::safeRunOnFunc() {
             return;
         }
 
+        // Safety check: ensure multi-result ops in the chain don't have results with users
+        // outside the current transformation chain
+        llvm::SmallPtrSet<mlir::Operation*, 16> chainOpsSet;
+        for (const auto& chainOps : nestedInterReturnTypesOps) {
+            chainOpsSet.insert(chainOps.begin(), chainOps.end());
+        }
+        chainOpsSet.insert(concatOp.getOperation());
+        chainOpsSet.insert(consumerOps.begin(), consumerOps.end());
+        chainOpsSet.insert(dequantizeOp);
+
+        for (auto* op : chainOpsSet) {
+            if (op->getNumResults() <= 1) {
+                continue;
+            }
+            for (auto result : op->getResults()) {
+                for (auto* user : result.getUsers()) {
+                    if (!chainOpsSet.contains(user)) {
+                        _log.trace("Skip concat pattern at {0}: multi-result op '{1}' at {2} has external user",
+                                   concatOp->getLoc(), op->getName(), op->getLoc());
+                        return;
+                    }
+                }
+            }
+        }
+
         // Skip QuantizeOp by linking to above op
         for (auto [operand, quantOp] : quantizeOps) {
             operand->set(quantOp->getOperand(0));
@@ -189,9 +214,13 @@ void RemoveQuantDequantSeqPass::safeRunOnFunc() {
                 }
 
                 if (mlir::isa_and_nonnull<IE::InterpolateOp>(user)) {
-                    _log.trace("Found Interpolate user {0} at {1}, stop pattern searching", user->getName(),
-                               user->getLoc());
-                    return;
+                    auto seOp = mlir::dyn_cast<IE::SEOpInterface>(user);
+                    if (seOp && seOp.isSupported(emptyLogCb)) {
+                        _log.trace("Found Interpolate user {0} at {1} that can be mapped to SE, stop pattern "
+                                   "searching",
+                                   user->getName(), user->getLoc());
+                        return;
+                    }
                 }
 
                 if (mlir::isa_and_nonnull<IE::ElemTypeInfoOpInterface>(user)) {

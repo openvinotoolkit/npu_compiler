@@ -10,6 +10,8 @@
 
 #include <mlir/IR/OpDefinition.h>
 
+#include "vpux/compiler/utils/symbolization.hpp"
+
 namespace vpux {
 namespace VPUMI40XX {
 

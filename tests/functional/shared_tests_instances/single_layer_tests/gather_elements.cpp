@@ -13,6 +13,9 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(GatherElementsLayerTest);
+
 // [E#177479] GatherElements operator is limited to positive indices as it does not support negative indices at this
 // time
 class GatherElementsLayerTestCommon : public GatherElementsLayerTest, virtual public VpuOv2LayerTest {
@@ -113,5 +116,19 @@ INSTANTIATE_TEST_SUITE_P(smoke_precommit_GatherElements_set2, GatherElementsLaye
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_GatherElements_set3, GatherElementsLayerTestCommon,
                          GatherElements_PRECOMMIT_set3, GatherElementsLayerTestCommon::getTestCaseName);
+
+// GatherElementsFlatConverter coverage: same-shape data/indices with trailing unit dim,
+const std::vector<std::vector<ov::Shape>> iShapesFlatConverter = {{{1, 128, 512, 1}}};
+const std::vector<int> axes_flat_converter = {2};
+const std::vector<ov::element::Type> iPrecisionsFlatConverter = {ov::element::i32, ov::element::i64};
+
+const auto GatherElements_FlatConverter =
+        ::testing::Combine(testing::ValuesIn({static_shapes_to_test_representation(iShapesFlatConverter[0])}),
+                           testing::Values(ov::Shape{1, 128, 512, 1}), testing::ValuesIn(axes_flat_converter),
+                           testing::ValuesIn(dPrecisions), testing::ValuesIn(iPrecisionsFlatConverter),
+                           testing::Values(test_utils::TARGET_DEVICE));
+
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_GatherElements_FlatConverter, GatherElementsLayerTestCommon,
+                         GatherElements_FlatConverter, GatherElementsLayerTestCommon::getTestCaseName);
 
 }  // namespace

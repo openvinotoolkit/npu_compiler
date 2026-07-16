@@ -5,9 +5,13 @@
 
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 
 #include "vpux/compiler/core/layers.hpp"
@@ -17,6 +21,7 @@
 
 #include <llvm/ADT/SetOperations.h>
 #include <llvm/ADT/TypeSwitch.h>
+#include <mlir/IR/AffineExpr.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
 namespace vpux::VPU {
@@ -207,9 +212,9 @@ bool DistributedInputTypeRewriter::fitIntoCMX(VPU::NCEOpInterface origOp, VPU::D
 // memory shape so that it covers the output on every cluster. This optimization leverages
 // NCE ODU halo capability to reduce intermediate copies.
 //
-// Currently restricted to ops that share the same VF loop layer index
-// (vf_loop_layer_index attribute). Cross-layer and non-VF subgraphs are skipped.
-// TODO: E#211950 — lift the VF-only restriction once the cross-layer performance regression is root-caused and fixed.
+// Currently restricted to ops that share the same VF loop tile index
+// (vf_loop_tile_index attribute). Cross-VF-tile and non-VF subgraphs are skipped.
+// TODO: E#211950 — lift the VF-only restriction once the cross-VF-tile performance regression is root-caused and fixed.
 //
 //    CopyOp (parentCopy)                   CopyOp (parentCopy) [updated input type]
 //          |                                      |
@@ -250,37 +255,37 @@ mlir::LogicalResult HaloAssistedSliceOptimization::matchAndRewrite(VPU::SliceOp 
         return matchFailed(_log, rewriter, sliceOp, "User is not CopyOp at '{0}'", sliceOp.getLoc());
     }
 
-    // Temporary scope guard: apply halo-assisted optimization only inside one VF region layer.
-    // Compare vf_loop_layer_index between parentCopy producer and all userCopy consumers.
+    // Temporary scope guard: apply halo-assisted optimization only inside one VF region tile.
+    // Compare vf_loop_tile_index between parentCopy producer and all userCopy consumers.
     auto parentProducerOp = parentCopy.getInput().getDefiningOp();
     if (parentProducerOp == nullptr) {
         return matchFailed(_log, rewriter, sliceOp, "Parent CopyOp input is not defined by an op at '{0}'",
                            sliceOp.getLoc());
     }
 
-    auto parentVFLoopLayerIndex = parentProducerOp->getAttr(VF_LOOP_LAYER_INDEX_ATTR_NAME);
-    if (parentVFLoopLayerIndex == nullptr) {
+    auto parentVFLoopTileIndex = parentProducerOp->getAttr(VF_LOOP_TILE_INDEX_ATTR_NAME);
+    if (parentVFLoopTileIndex == nullptr) {
         return matchFailed(_log, rewriter, sliceOp, "Parent producer op does not have '{0}' attr at '{1}'",
-                           VF_LOOP_LAYER_INDEX_ATTR_NAME, parentProducerOp->getLoc());
+                           VF_LOOP_TILE_INDEX_ATTR_NAME, parentProducerOp->getLoc());
     }
 
     if (userCopy.getResult().use_empty()) {
         return matchFailed(_log, rewriter, sliceOp, "userCopy has no users at '{0}'", userCopy.getLoc());
     }
 
-    // All consumers must stay in the same VF layer as parentProducerOp.
-    // If any consumer is outside the layer, skip to avoid cross-region rewrites.
+    // All consumers must stay in the same VF tile as parentProducerOp.
+    // If any consumer is outside the tile, skip to avoid cross-tile rewrites.
     for (auto* userOp : userCopy.getResult().getUsers()) {
-        auto userVFLoopLayerIndex = userOp->getAttr(VF_LOOP_LAYER_INDEX_ATTR_NAME);
-        if (userVFLoopLayerIndex == nullptr) {
+        auto userVFLoopTileIndex = userOp->getAttr(VF_LOOP_TILE_INDEX_ATTR_NAME);
+        if (userVFLoopTileIndex == nullptr) {
             return matchFailed(_log, rewriter, sliceOp, "userCopy user op does not have '{0}' attr at '{1}'",
-                               VF_LOOP_LAYER_INDEX_ATTR_NAME, userOp->getLoc());
+                               VF_LOOP_TILE_INDEX_ATTR_NAME, userOp->getLoc());
         }
 
-        if (userVFLoopLayerIndex != parentVFLoopLayerIndex) {
+        if (userVFLoopTileIndex != parentVFLoopTileIndex) {
             return matchFailed(
                     _log, rewriter, sliceOp, "'{0}' mismatch between parent producer '{1}' and user '{2}' at '{3}'",
-                    VF_LOOP_LAYER_INDEX_ATTR_NAME, parentVFLoopLayerIndex, userVFLoopLayerIndex, sliceOp.getLoc());
+                    VF_LOOP_TILE_INDEX_ATTR_NAME, parentVFLoopTileIndex, userVFLoopTileIndex, sliceOp.getLoc());
         }
     }
 
@@ -600,6 +605,296 @@ mlir::LogicalResult HaloAssistedSliceOptimization::matchAndRewrite(VPU::SliceOp 
 }
 
 //
+// DynamicDequantWeightsTypeRewriter
+//
+class DynamicDequantWeightsTypeRewriter final : public mlir::OpRewritePattern<VPU::NCEConvolutionOp> {
+public:
+    DynamicDequantWeightsTypeRewriter(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<VPU::NCEConvolutionOp>(ctx), _log(log) {
+        this->setDebugName("DynamicDequantWeightsTypeRewriter");
+    }
+
+private:
+    mlir::LogicalResult matchAndRewrite(VPU::NCEConvolutionOp convOp, mlir::PatternRewriter& rewriter) const final;
+
+    VPU::DistributedTensorType createAlignedType(VPU::DistributedTensorType baseType, ArrayRef<int64_t> numTiles,
+                                                 ArrayRef<int64_t> alignment, int64_t numClusters,
+                                                 bool uniformDistributedSegments) const;
+    std::optional<int64_t> getMemPermuteInputAxis(VPU::MemPermuteOp memPermuteOp, int64_t outputAxis) const;
+
+private:
+    Logger _log;
+};
+
+VPU::DistributedTensorType DynamicDequantWeightsTypeRewriter::createAlignedType(VPU::DistributedTensorType baseType,
+                                                                                ArrayRef<int64_t> numTiles,
+                                                                                ArrayRef<int64_t> alignment,
+                                                                                int64_t numClusters,
+                                                                                bool uniformDistributedSegments) const {
+    const auto distribution = VPU::getNonOverlappedDistributedNative(
+            baseType.getShape(), VPU::DistributionMode::SEGMENTED, numTiles, numClusters, alignment,
+            uniformDistributedSegments, baseType.getElementType());
+    const auto distributionAttr = VPU::DistributionInfo::getAttrFromClass(baseType.getContext(), distribution);
+
+    return mlir::cast<VPU::DistributedTensorType>(
+            baseType.changeShapeForExplicitDistribution(baseType.getShape(), distributionAttr));
+}
+
+std::optional<int64_t> DynamicDequantWeightsTypeRewriter::getMemPermuteInputAxis(VPU::MemPermuteOp memPermuteOp,
+                                                                                 int64_t outputAxis) const {
+    const auto memPerm = memPermuteOp.getMemPerm();
+    if (outputAxis >= static_cast<int64_t>(memPerm.getNumResults())) {
+        return std::nullopt;
+    }
+
+    const auto dimExpr = mlir::dyn_cast<mlir::AffineDimExpr>(memPerm.getResult(outputAxis));
+    if (dimExpr == nullptr) {
+        return std::nullopt;
+    }
+
+    return dimExpr.getPosition();
+}
+
+mlir::LogicalResult DynamicDequantWeightsTypeRewriter::matchAndRewrite(VPU::NCEConvolutionOp convOp,
+                                                                       mlir::PatternRewriter& rewriter) const {
+    _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), convOp->getName(), convOp.getLoc());
+
+    auto filterCopy = convOp.getFilter().getDefiningOp<VPU::CopyOp>();
+    if (filterCopy == nullptr) {
+        return matchFailed(_log, rewriter, convOp, "Filter is not from CopyOp at '{0}'", convOp.getLoc());
+    }
+
+    auto filterDistType = mlir::dyn_cast<VPU::DistributedTensorType>(filterCopy.getResult().getType());
+    if (filterDistType == nullptr) {
+        return matchFailed(_log, rewriter, filterCopy, "Filter copy output is not distributed at '{0}'",
+                           filterCopy.getLoc());
+    }
+
+    const auto filterDistribution = VPU::DistributionInfo::getClassFromAttr(filterDistType.getDistribution());
+    if (filterDistribution.getDistributionMode() != VPU::DistributionMode::SEGMENTED) {
+        return matchFailed(_log, rewriter, filterCopy, "Filter distribution is not SEGMENTED at '{0}'",
+                           filterCopy.getLoc());
+    }
+
+    const auto filterNumTiles = SmallVector<int64_t>(filterDistribution.getNumTiles());
+    const auto filterAlignment = SmallVector<int64_t>(filterDistribution.getAlignment());
+    if (filterNumTiles.empty() || filterAlignment.empty()) {
+        return matchFailed(_log, rewriter, filterCopy, "Filter distribution has no tiling or alignment at '{0}'",
+                           filterCopy.getLoc());
+    }
+
+    const auto filterAxis = VPU::getDistributedTilingAxis(filterNumTiles);
+    if (filterAxis < 0 || filterAxis >= static_cast<int64_t>(filterAlignment.size())) {
+        return matchFailed(_log, rewriter, filterCopy, "Filter tiling axis is invalid at '{0}'", filterCopy.getLoc());
+    }
+
+    auto permuteCast = filterCopy.getInput().getDefiningOp<VPU::PermuteCastOp>();
+    if (permuteCast == nullptr) {
+        return matchFailed(_log, rewriter, filterCopy, "Filter copy input is not PermuteCastOp at '{0}'",
+                           filterCopy.getLoc());
+    }
+
+    auto affineReshape = permuteCast.getInput().getDefiningOp<VPU::AffineReshapeOp>();
+    if (affineReshape == nullptr) {
+        return matchFailed(_log, rewriter, permuteCast, "PermuteCast input is not AffineReshapeOp at '{0}'",
+                           permuteCast.getLoc());
+    }
+
+    auto dynamicDequantToDenseCopy = affineReshape.getInput().getDefiningOp<VPU::CopyOp>();
+    if (dynamicDequantToDenseCopy == nullptr) {
+        return matchFailed(_log, rewriter, affineReshape, "AffineReshape input is not CopyOp at '{0}'",
+                           affineReshape.getLoc());
+    }
+
+    auto dynamicDequant = dynamicDequantToDenseCopy.getInput().getDefiningOp<VPU::DynamicDequantizeOp>();
+    if (dynamicDequant == nullptr) {
+        return matchFailed(_log, rewriter, dynamicDequantToDenseCopy,
+                           "AffineReshape input copy source is not DynamicDequantizeOp at '{0}'",
+                           dynamicDequantToDenseCopy.getLoc());
+    }
+
+    auto dequantInputCopy = dynamicDequant.getInput().getDefiningOp<VPU::CopyOp>();
+    auto memPermuteToDenseCopy =
+            dequantInputCopy != nullptr ? dequantInputCopy.getInput().getDefiningOp<VPU::CopyOp>() : nullptr;
+    auto memPermute = memPermuteToDenseCopy != nullptr
+                              ? memPermuteToDenseCopy.getInput().getDefiningOp<VPU::MemPermuteOp>()
+                              : nullptr;
+    if (dequantInputCopy == nullptr || memPermuteToDenseCopy == nullptr || memPermute == nullptr) {
+        return matchFailed(_log, rewriter, dynamicDequant,
+                           "DynamicDequantize input is not fed by MemPermute through CopyOps at '{0}'",
+                           dynamicDequant.getLoc());
+    }
+
+    auto memPermuteInputCopy = memPermute.getInput().getDefiningOp<VPU::CopyOp>();
+    if (memPermuteInputCopy == nullptr) {
+        return matchFailed(_log, rewriter, memPermute, "MemPermute input is not CopyOp at '{0}'", memPermute.getLoc());
+    }
+
+    auto dequantInputDistType = mlir::dyn_cast<VPU::DistributedTensorType>(dynamicDequant.getInput().getType());
+    auto dequantScaleDistType = mlir::dyn_cast<VPU::DistributedTensorType>(dynamicDequant.getScale().getType());
+
+    auto dequantOutputDistType = mlir::dyn_cast<VPU::DistributedTensorType>(dynamicDequant.getOutput().getType());
+    auto memPermuteInputDistType = mlir::dyn_cast<VPU::DistributedTensorType>(memPermute.getInput().getType());
+    auto memPermuteOutputDistType = mlir::dyn_cast<VPU::DistributedTensorType>(memPermute.getOutput().getType());
+
+    const auto isSegmentedDistType = [](VPU::DistributedTensorType type) {
+        return type != nullptr && type.getDistribution().getMode().getValue() == VPU::DistributionMode::SEGMENTED;
+    };
+
+    if (!isSegmentedDistType(dequantInputDistType) || !isSegmentedDistType(dequantScaleDistType) ||
+        !isSegmentedDistType(dequantOutputDistType) || !isSegmentedDistType(memPermuteInputDistType) ||
+        !isSegmentedDistType(memPermuteOutputDistType)) {
+        return matchFailed(_log, rewriter, dynamicDequant,
+                           "Expected SEGMENTED distributed types in weights chain at '{0}'", dynamicDequant.getLoc());
+    }
+    VPU::DistributedTensorType dequantZeroPointDistType = nullptr;
+    if (dynamicDequant.getZp() != nullptr) {
+        dequantZeroPointDistType = mlir::dyn_cast<VPU::DistributedTensorType>(dynamicDequant.getZp().getType());
+        if (!isSegmentedDistType(dequantZeroPointDistType)) {
+            return matchFailed(_log, rewriter, dynamicDequant,
+                               "Expected SEGMENTED distributed type for DynamicDequantize zero point at '{0}'",
+                               dynamicDequant.getLoc());
+        }
+    }
+
+    const auto permuteCastInputNumTiles = permuteCast.backInferTilingStrategy(filterNumTiles);
+    const auto dequantNumTiles = affineReshape.backInferTilingStrategy(permuteCastInputNumTiles);
+    const auto dequantAxis = VPU::getDistributedTilingAxis(dequantNumTiles);
+    if (dequantAxis < 0 || dequantAxis >= static_cast<int64_t>(dequantNumTiles.size())) {
+        return matchFailed(_log, rewriter, dynamicDequant, "Cannot infer DynamicDequantize tiling axis at '{0}'",
+                           dynamicDequant.getLoc());
+    }
+
+    SmallVector<int64_t> dequantAlignment(dequantNumTiles.size(), 1);
+    dequantAlignment[dequantAxis] = filterAlignment[filterAxis];
+
+    SmallVector<int64_t> memPermuteInputNumTiles(dequantNumTiles.size(), 1);
+    SmallVector<int64_t> memPermuteInputAlignment(dequantNumTiles.size(), 1);
+    const auto memPermuteInputAxis = getMemPermuteInputAxis(memPermute, dequantAxis);
+    if (!memPermuteInputAxis.has_value() ||
+        memPermuteInputAxis.value() >= static_cast<int64_t>(dequantNumTiles.size())) {
+        return matchFailed(_log, rewriter, memPermute, "Cannot infer MemPermute input tiling axis at '{0}'",
+                           memPermute.getLoc());
+    }
+    memPermuteInputNumTiles[memPermuteInputAxis.value()] = dequantNumTiles[dequantAxis];
+    memPermuteInputAlignment[memPermuteInputAxis.value()] = dequantAlignment[dequantAxis];
+
+    const auto newDequantInputType =
+            createAlignedType(dequantInputDistType, dequantNumTiles, dequantAlignment,
+                              filterDistribution.getNumClusters(), filterDistribution.hasUniformDistributedSegments());
+    const auto newDequantScaleType =
+            createAlignedType(dequantScaleDistType, dequantNumTiles, dequantAlignment,
+                              filterDistribution.getNumClusters(), filterDistribution.hasUniformDistributedSegments());
+    const auto newDequantOutputType =
+            createAlignedType(dequantOutputDistType, dequantNumTiles, dequantAlignment,
+                              filterDistribution.getNumClusters(), filterDistribution.hasUniformDistributedSegments());
+    VPU::DistributedTensorType newDequantZeroPointType = nullptr;
+    if (dequantZeroPointDistType != nullptr) {
+        newDequantZeroPointType = createAlignedType(dequantZeroPointDistType, dequantNumTiles, dequantAlignment,
+                                                    filterDistribution.getNumClusters(),
+                                                    filterDistribution.hasUniformDistributedSegments());
+    }
+    const auto newMemPermuteInputType =
+            createAlignedType(memPermuteInputDistType, memPermuteInputNumTiles, memPermuteInputAlignment,
+                              filterDistribution.getNumClusters(), filterDistribution.hasUniformDistributedSegments());
+    const auto newMemPermuteOutputType =
+            createAlignedType(memPermuteOutputDistType, dequantNumTiles, dequantAlignment,
+                              filterDistribution.getNumClusters(), filterDistribution.hasUniformDistributedSegments());
+    const auto affineReshapeOutputOrder =
+            mlir::cast<vpux::NDTypeInterface>(affineReshape.getOutput().getType()).getDimsOrder();
+    const auto newAffineReshapeOutputType =
+            mlir::cast<VPU::DistributedTensorType>(filterDistType.changeDimsOrder(affineReshapeOutputOrder));
+    const auto newPermuteCastOutputType = filterDistType;
+
+    if (dequantInputDistType == newDequantInputType && dequantScaleDistType == newDequantScaleType &&
+        dequantOutputDistType == newDequantOutputType && memPermuteInputDistType == newMemPermuteInputType &&
+        (dequantZeroPointDistType == nullptr || dequantZeroPointDistType == newDequantZeroPointType) &&
+        memPermuteOutputDistType == newMemPermuteOutputType &&
+        dynamicDequantToDenseCopy.getResult().getType() == newDequantOutputType &&
+        affineReshape.getOutput().getType() == newAffineReshapeOutputType &&
+        permuteCast.getOutput().getType() == newPermuteCastOutputType) {
+        return matchFailed(_log, rewriter, dynamicDequant, "Distributed types are already aligned at '{0}'",
+                           dynamicDequant.getLoc());
+    }
+
+    auto dequantScaleCopy = dynamicDequant.getScale().getDefiningOp<VPU::CopyOp>();
+    if (dequantScaleCopy == nullptr) {
+        return matchFailed(_log, rewriter, dynamicDequant, "DynamicDequantize scale is not from CopyOp at '{0}'",
+                           dynamicDequant.getLoc());
+    }
+
+    VPU::CopyOp dequantZeroPointCopy = nullptr;
+    if (dynamicDequant.getZp() != nullptr) {
+        dequantZeroPointCopy = dynamicDequant.getZp().getDefiningOp<VPU::CopyOp>();
+        if (dequantZeroPointCopy == nullptr) {
+            return matchFailed(_log, rewriter, dynamicDequant,
+                               "DynamicDequantize zero point is not from CopyOp at '{0}'", dynamicDequant.getLoc());
+        }
+    }
+
+    if (!memPermute.fitIntoCMX(
+                SmallVector<vpux::NDTypeInterface>{mlir::cast<vpux::NDTypeInterface>(newMemPermuteInputType),
+                                                   mlir::cast<vpux::NDTypeInterface>(newMemPermuteOutputType)})) {
+        return matchFailed(_log, rewriter, memPermute, "Aligned MemPermute types do not fit into CMX at '{0}'",
+                           memPermute.getLoc());
+    }
+    SmallVector<vpux::NDTypeInterface> dequantBuffers{mlir::cast<vpux::NDTypeInterface>(newDequantInputType),
+                                                      mlir::cast<vpux::NDTypeInterface>(newDequantScaleType),
+                                                      mlir::cast<vpux::NDTypeInterface>(newDequantOutputType)};
+    if (dequantZeroPointDistType != nullptr) {
+        dequantBuffers.push_back(mlir::cast<vpux::NDTypeInterface>(newDequantZeroPointType));
+    }
+    if (!dynamicDequant.fitIntoCMX(dequantBuffers)) {
+        return matchFailed(_log, rewriter, dynamicDequant,
+                           "Aligned DynamicDequantize types do not fit into CMX at '{0}'", dynamicDequant.getLoc());
+    }
+
+    _log.trace("Align dynamic dequantized weights distribution around '{0}' using filter distribution '{1}'",
+               convOp.getLoc(), filterDistType);
+
+    rewriter.startOpModification(memPermuteInputCopy);
+    memPermuteInputCopy.getResult().setType(newMemPermuteInputType);
+    rewriter.finalizeOpModification(memPermuteInputCopy);
+
+    rewriter.startOpModification(memPermute);
+    memPermute.getOutput().setType(newMemPermuteOutputType);
+    rewriter.finalizeOpModification(memPermute);
+
+    rewriter.startOpModification(dequantInputCopy);
+    dequantInputCopy.getResult().setType(newDequantInputType);
+    rewriter.finalizeOpModification(dequantInputCopy);
+
+    rewriter.startOpModification(dequantScaleCopy);
+    dequantScaleCopy.getResult().setType(newDequantScaleType);
+    rewriter.finalizeOpModification(dequantScaleCopy);
+
+    if (dequantZeroPointCopy != nullptr) {
+        rewriter.startOpModification(dequantZeroPointCopy);
+        dequantZeroPointCopy.getResult().setType(newDequantZeroPointType);
+        rewriter.finalizeOpModification(dequantZeroPointCopy);
+    }
+
+    rewriter.startOpModification(dynamicDequant);
+    dynamicDequant.getOutput().setType(newDequantOutputType);
+    rewriter.finalizeOpModification(dynamicDequant);
+
+    rewriter.startOpModification(dynamicDequantToDenseCopy);
+    dynamicDequantToDenseCopy.setOutMemSpaceAttr(newDequantOutputType.getMemSpace());
+    dynamicDequantToDenseCopy.getResult().setType(newDequantOutputType);
+    rewriter.finalizeOpModification(dynamicDequantToDenseCopy);
+
+    rewriter.startOpModification(affineReshape);
+    affineReshape.getOutput().setType(newAffineReshapeOutputType);
+    rewriter.finalizeOpModification(affineReshape);
+
+    rewriter.startOpModification(permuteCast);
+    permuteCast.getOutput().setType(newPermuteCastOutputType);
+    rewriter.finalizeOpModification(permuteCast);
+
+    return mlir::success();
+}
+
+//
 // AdjustDistributedTensorAroundOpsPass
 //
 
@@ -628,6 +923,10 @@ void AdjustDistributedTensorAroundOpsPass::safeRunOnFunc() {
         slicePatterns.add<HaloAssistedSliceOptimization>(&ctx, _log);
         collectOpsAndApplyPatterns(func, std::move(slicePatterns));
     }
+
+    mlir::RewritePatternSet dequantWeightPatterns(&ctx);
+    dequantWeightPatterns.add<DynamicDequantWeightsTypeRewriter>(&ctx, _log);
+    collectOpsAndApplyPatterns(func, std::move(dequantWeightPatterns));
 
     // DistributedInputTypeRewriter runs after HaloAssistedSliceOptimization so that the
     // per-cluster distributed types produced by the halo rewrite are already settled before

@@ -74,6 +74,8 @@ bool satisfiesOptimizedMemPermute(config::ArchKind arch, NDTypeInterface inType,
 bool isBeneficialForUsingPermuteDMA(config::ArchKind arch, NDTypeInterface inType, NDTypeInterface outType,
                                     mlir::AffineMap memPerm, int64_t dmaPortCount, vpux::Logger log);
 
+bool isBeneficialForFusingWeightsPermutation(config::ArchKind arch, mlir::Operation* op);
+
 bool isMemPermSwKernel(VPUIP::SwKernelOp swKernelTask);
 
 // Replace DepthToSpace with DMA
@@ -109,7 +111,8 @@ SmallVector<vpux::Shape> getPerAxisTileDMASubShapes(config::ArchKind arch, vpux:
 bool doesSWLayerFitIntoCMX(mlir::Operation* op, vpux::Logger log);
 bool isLegalConvertToDMA(mlir::Operation* op, vpux::Logger log, bool checkCMXSize = true);
 bool isLegalAndBeneficialConvertToDMA(mlir::Operation* op, vpux::Logger log = Logger::global());
-vpux::NDTypeInterface changeShapeWithMemShape(vpux::NDTypeInterface* type, vpux::ShapeRef newMemShape, DimsOrder order);
+vpux::NDTypeInterface changeShapeWithMemShape(vpux::NDTypeInterface* type, vpux::ShapeRef newMemShape,
+                                              const DimsOrder& order);
 VPUIP::DMADescriptorAttr updateNumPlanes(VPUIP::DMADescriptorAttr dmaDescriptor, int64_t numPlane);
 
 VPURT::DeclareBufferOp createNewDeclareBuffer(mlir::PatternRewriter& rewriter, mlir::Operation* insertionPoint,

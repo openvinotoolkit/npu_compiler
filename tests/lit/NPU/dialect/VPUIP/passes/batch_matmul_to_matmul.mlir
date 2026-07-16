@@ -18,15 +18,15 @@ config.Resources 4 of @NCE at 1.850000e+03 MHz {
 }
 
 func.func @main() -> () {
-    %IN = VPURT.DeclareBuffer <CMX_NN> [0] <2112> -> memref<2x1x16x4x1xf16, #GNHWC, [@CMX_NN, 0]>
-    // CHECK:   [[IN_SLICE_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <2112> -> memref<1x16x4x1xf16, #NHWC, [@CMX_NN, 0]>
-    // CHECK:   [[IN_SLICE_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <2240> -> memref<1x16x4x1xf16, #NHWC, [@CMX_NN, 0]>
-    %WEIGHTS = VPURT.DeclareBuffer <CMX_NN> [0] <12864> -> memref<2x32x16x1x1xf16, #GNHWC, [@CMX_NN, 0]>
-    // CHECK:   [[WEIGHTS_SLICE_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <12864> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
-    // CHECK:   [[WEIGHTS_SLICE_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <13888> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
-    %OUT = VPURT.DeclareBuffer <CMX_NN> [0] <1600> -> memref<2x1x32x4x1xf16, #GNHWC, [@CMX_NN, 0]>
-    // CHECK:   [[OUT_SLICE_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1600> -> memref<1x32x4x1xf16, #NHWC, [@CMX_NN, 0]>
-    // CHECK:   [[OUT_SLICE_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1856> -> memref<1x32x4x1xf16, #NHWC, [@CMX_NN, 0]>
+    %IN = VPURT.DeclareBuffer <CMX_NN> [0] <2112> -> memref<2x1x16x4x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>
+    // CHECK:   [[IN_SLICE_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <2112> -> memref<1x16x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    // CHECK:   [[IN_SLICE_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <2240> -> memref<1x16x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %WEIGHTS = VPURT.DeclareBuffer <CMX_NN> [0] <12864> -> memref<2x32x16x1x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>
+    // CHECK:   [[WEIGHTS_SLICE_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <12864> -> memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    // CHECK:   [[WEIGHTS_SLICE_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <13888> -> memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %OUT = VPURT.DeclareBuffer <CMX_NN> [0] <1600> -> memref<2x1x32x4x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>
+    // CHECK:   [[OUT_SLICE_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1600> -> memref<1x32x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    // CHECK:   [[OUT_SLICE_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1856> -> memref<1x32x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %WEIGHT_TABLE = VPURT.DeclareBuffer <CMX_NN> [0] <576> -> memref<2x32x1x1x4xsi32, [@CMX_NN, 0]>
     // CHECK:   [[WEIGHT_TABLE_SLICE_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <576> -> memref<32x1x1x4xsi32, [@CMX_NN, 0]>
     // CHECK:   [[WEIGHT_TABLE_SLICE_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1088> -> memref<32x1x1x4xsi32, [@CMX_NN, 0]>
@@ -44,13 +44,13 @@ func.func @main() -> () {
             kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>
         }>
-        input(%IN : memref<2x1x16x4x1xf16, #GNHWC, [@CMX_NN, 0]>)
-        weights(%WEIGHTS : memref<2x32x16x1x1xf16, #GNHWC, [@CMX_NN, 0]>)
+        input(%IN : memref<2x1x16x4x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>)
+        weights(%WEIGHTS : memref<2x32x16x1x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>)
         weight_table(%WEIGHT_TABLE : memref<2x32x1x1x4xsi32, [@CMX_NN, 0]>)
-        parent_input(%IN : memref<2x1x16x4x1xf16, #GNHWC, [@CMX_NN, 0]>)
-        parent_output(%OUT : memref<2x1x32x4x1xf16, #GNHWC, [@CMX_NN, 0]>)
-        outputs(%OUT : memref<2x1x32x4x1xf16, #GNHWC, [@CMX_NN, 0]>)
-            -> memref<2x1x32x4x1xf16, #GNHWC, [@CMX_NN, 0]>
+        parent_input(%IN : memref<2x1x16x4x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>)
+        parent_output(%OUT : memref<2x1x32x4x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>)
+        outputs(%OUT : memref<2x1x32x4x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>)
+            -> memref<2x1x32x4x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>
         variants : {
             DPUTask {
                 cluster_id = 0 : i64,
@@ -75,21 +75,21 @@ func.func @main() -> () {
 
     // CHECK:       VPURT.Task updates([[WAIT_BARRIER]] : !VPURT.Barrier) {
     // CHECK:       VPUIP.NCEClusterTask
-    // CHECK-SAME:      input([[IN_SLICE_0]] : memref<1x16x4x1xf16, #NHWC, [@CMX_NN, 0]>)
-    // CHECK-SAME:      weights([[WEIGHTS_SLICE_0]] : memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK-SAME:      input([[IN_SLICE_0]] : memref<1x16x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK-SAME:      weights([[WEIGHTS_SLICE_0]] : memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
     // CHECK-SAME:      weight_table([[WEIGHT_TABLE_SLICE_0]] : memref<32x1x1x4xsi32, [@CMX_NN, 0]>)
-    // CHECK-SAME:      parent_input([[IN_SLICE_0]] : memref<1x16x4x1xf16, #NHWC, [@CMX_NN, 0]>)
-    // CHECK-SAME:      parent_output([[OUT_SLICE_0]] : memref<1x32x4x1xf16, #NHWC, [@CMX_NN, 0]>)
-    // CHECK-SAME:      outputs([[OUT_SLICE_0]] : memref<1x32x4x1xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK-SAME:      parent_input([[IN_SLICE_0]] : memref<1x16x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK-SAME:      parent_output([[OUT_SLICE_0]] : memref<1x32x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK-SAME:      outputs([[OUT_SLICE_0]] : memref<1x32x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
 
     // CHECK:       VPURT.Task updates([[WAIT_BARRIER]] : !VPURT.Barrier) {
     // CHECK:       VPUIP.NCEClusterTask
-    // CHECK-SAME:      input([[IN_SLICE_1]] : memref<1x16x4x1xf16, #NHWC, [@CMX_NN, 0]>)
-    // CHECK-SAME:      weights([[WEIGHTS_SLICE_1]] : memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK-SAME:      input([[IN_SLICE_1]] : memref<1x16x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK-SAME:      weights([[WEIGHTS_SLICE_1]] : memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
     // CHECK-SAME:      weight_table([[WEIGHT_TABLE_SLICE_1]] : memref<32x1x1x4xsi32, [@CMX_NN, 0]>)
-    // CHECK-SAME:      parent_input([[IN_SLICE_1]] : memref<1x16x4x1xf16, #NHWC, [@CMX_NN, 0]>)
-    // CHECK-SAME:      parent_output([[OUT_SLICE_1]] : memref<1x32x4x1xf16, #NHWC, [@CMX_NN, 0]>)
-    // CHECK-SAME:      outputs([[OUT_SLICE_1]] : memref<1x32x4x1xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK-SAME:      parent_input([[IN_SLICE_1]] : memref<1x16x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK-SAME:      parent_output([[OUT_SLICE_1]] : memref<1x32x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK-SAME:      outputs([[OUT_SLICE_1]] : memref<1x32x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
 
     return
 }
@@ -118,15 +118,15 @@ config.Resources 4 of @NCE at 1.850000e+03 MHz {
 }
 
 func.func @main() -> () {
-    %IN = VPURT.DeclareBuffer <CMX_NN> [0] <2112> -> memref<2x1x16x4x1x!qElemType, #GNHWC, [@CMX_NN, 0]>
-    // CHECK:   [[IN_SLICE_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <2112> -> memref<1x16x4x1x[[Q_ELEM_TYPE]], #NHWC, [@CMX_NN, 0]>
-    // CHECK:   [[IN_SLICE_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <2176> -> memref<1x16x4x1x[[Q_ELEM_TYPE]], #NHWC, [@CMX_NN, 0]>
-    %WEIGHT = VPURT.DeclareBuffer <CMX_NN> [0] <12864> -> memref<2x32x16x1x1xf16, #GNHWC, [@CMX_NN, 0]>
-    // CHECK:   [[WEIGHT_SLICE_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <12864> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
-    // CHECK:   [[WEIGHT_SLICE_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <13888> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
-    %OUT = VPURT.DeclareBuffer <CMX_NN> [0] <1600> -> memref<2x1x32x4x1xf16, #GNHWC, [@CMX_NN, 0]>
-    // CHECK:   [[OUT_SLICE_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1600> -> memref<1x32x4x1xf16, #NHWC, [@CMX_NN, 0]>
-    // CHECK:   [[OUT_SLICE_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1856> -> memref<1x32x4x1xf16, #NHWC, [@CMX_NN, 0]>
+    %IN = VPURT.DeclareBuffer <CMX_NN> [0] <2112> -> memref<2x1x16x4x1x!qElemType, {order = #GNHWC}, [@CMX_NN, 0]>
+    // CHECK:   [[IN_SLICE_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <2112> -> memref<1x16x4x1x[[Q_ELEM_TYPE]], {order = #NHWC}, [@CMX_NN, 0]>
+    // CHECK:   [[IN_SLICE_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <2176> -> memref<1x16x4x1x[[Q_ELEM_TYPE]], {order = #NHWC}, [@CMX_NN, 0]>
+    %WEIGHT = VPURT.DeclareBuffer <CMX_NN> [0] <12864> -> memref<2x32x16x1x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>
+    // CHECK:   [[WEIGHT_SLICE_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <12864> -> memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    // CHECK:   [[WEIGHT_SLICE_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <13888> -> memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %OUT = VPURT.DeclareBuffer <CMX_NN> [0] <1600> -> memref<2x1x32x4x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>
+    // CHECK:   [[OUT_SLICE_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1600> -> memref<1x32x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    // CHECK:   [[OUT_SLICE_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1856> -> memref<1x32x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %WEIGHT_TABLE = VPURT.DeclareBuffer <CMX_NN> [0] <576> -> memref<2x32x1x1x4xsi32, [@CMX_NN, 0]>
     // CHECK:   [[WEIGHT_TABLE_SLICE_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <576> -> memref<32x1x1x4xsi32, [@CMX_NN, 0]>
     // CHECK:   [[WEIGHT_TABLE_SLICE_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1088> -> memref<32x1x1x4xsi32, [@CMX_NN, 0]>
@@ -144,13 +144,13 @@ func.func @main() -> () {
             kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>
         }>
-        input(%IN : memref<2x1x16x4x1x!qElemType, #GNHWC, [@CMX_NN, 0]>)
-        weights(%WEIGHT : memref<2x32x16x1x1xf16, #GNHWC, [@CMX_NN, 0]>)
+        input(%IN : memref<2x1x16x4x1x!qElemType, {order = #GNHWC}, [@CMX_NN, 0]>)
+        weights(%WEIGHT : memref<2x32x16x1x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>)
         weight_table(%WEIGHT_TABLE : memref<2x32x1x1x4xsi32, [@CMX_NN, 0]>)
-        parent_input(%IN : memref<2x1x16x4x1x!qElemType, #GNHWC, [@CMX_NN, 0]>)
-        parent_output(%OUT : memref<2x1x32x4x1xf16, #GNHWC, [@CMX_NN, 0]>)
-        outputs(%OUT : memref<2x1x32x4x1xf16, #GNHWC, [@CMX_NN, 0]>)
-            -> memref<2x1x32x4x1xf16, #GNHWC, [@CMX_NN, 0]>
+        parent_input(%IN : memref<2x1x16x4x1x!qElemType, {order = #GNHWC}, [@CMX_NN, 0]>)
+        parent_output(%OUT : memref<2x1x32x4x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>)
+        outputs(%OUT : memref<2x1x32x4x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>)
+            -> memref<2x1x32x4x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>
         variants : {
             DPUTask {
                 cluster_id = 0 : i64,
@@ -175,21 +175,21 @@ func.func @main() -> () {
 
     // CHECK:       VPURT.Task updates([[WAIT_BARRIER]] : !VPURT.Barrier) {
     // CHECK:       VPUIP.NCEClusterTask
-    // CHECK-SAME:      input([[IN_SLICE_0]] : memref<1x16x4x1x[[Q_ELEM_TYPE]], #NHWC, [@CMX_NN, 0]>)
-    // CHECK-SAME:      weights([[WEIGHTS_SLICE_0]] : memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK-SAME:      input([[IN_SLICE_0]] : memref<1x16x4x1x[[Q_ELEM_TYPE]], {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK-SAME:      weights([[WEIGHTS_SLICE_0]] : memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
     // CHECK-SAME:      weight_table([[WEIGHT_TABLE_SLICE_0]] : memref<32x1x1x4xsi32, [@CMX_NN, 0]>)
-    // CHECK-SAME:      parent_input([[IN_SLICE_0]] : memref<1x16x4x1x[[Q_ELEM_TYPE]], #NHWC, [@CMX_NN, 0]>)
-    // CHECK-SAME:      parent_output([[OUT_SLICE_0]] : memref<1x32x4x1xf16, #NHWC, [@CMX_NN, 0]>)
-    // CHECK-SAME:      outputs([[OUT_SLICE_0]] : memref<1x32x4x1xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK-SAME:      parent_input([[IN_SLICE_0]] : memref<1x16x4x1x[[Q_ELEM_TYPE]], {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK-SAME:      parent_output([[OUT_SLICE_0]] : memref<1x32x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK-SAME:      outputs([[OUT_SLICE_0]] : memref<1x32x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
 
     // CHECK:       VPURT.Task updates([[WAIT_BARRIER]] : !VPURT.Barrier) {
     // CHECK:       VPUIP.NCEClusterTask
-    // CHECK-SAME:      input([[IN_SLICE_1]] : memref<1x16x4x1x[[Q_ELEM_TYPE]], #NHWC, [@CMX_NN, 0]>)
-    // CHECK-SAME:      weights([[WEIGHTS_SLICE_1]] : memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK-SAME:      input([[IN_SLICE_1]] : memref<1x16x4x1x[[Q_ELEM_TYPE]], {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK-SAME:      weights([[WEIGHTS_SLICE_1]] : memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
     // CHECK-SAME:      weight_table([[WEIGHT_TABLE_SLICE_1]] : memref<32x1x1x4xsi32, [@CMX_NN, 0]>)
-    // CHECK-SAME:      parent_input([[IN_SLICE_1]] : memref<1x16x4x1x[[Q_ELEM_TYPE]], #NHWC, [@CMX_NN, 0]>)
-    // CHECK-SAME:      parent_output([[OUT_SLICE_1]] : memref<1x32x4x1xf16, #NHWC, [@CMX_NN, 0]>)
-    // CHECK-SAME:      outputs([[OUT_SLICE_1]] : memref<1x32x4x1xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK-SAME:      parent_input([[IN_SLICE_1]] : memref<1x16x4x1x[[Q_ELEM_TYPE]], {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK-SAME:      parent_output([[OUT_SLICE_1]] : memref<1x32x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK-SAME:      outputs([[OUT_SLICE_1]] : memref<1x32x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
 
     return
 }
@@ -210,12 +210,12 @@ config.Resources 4 of @NCE at 1.850000e+03 MHz {
 }
 
 func.func @main() -> () {
-    %IN = VPURT.DeclareBuffer <CMX_NN> [0] <2112> -> memref<1x1x16x4x1xf16, #GNHWC, [@CMX_NN, 0]>
-    // CHECK:   [[IN:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <2112> -> memref<1x16x4x1xf16, #NHWC, [@CMX_NN, 0]>
-    %WEIGHTS = VPURT.DeclareBuffer <CMX_NN> [0] <12864> -> memref<1x32x16x1x1xf16, #GNHWC, [@CMX_NN, 0]>
-    // CHECK:   [[WEIGHTS:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <12864> -> memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
-    %OUT = VPURT.DeclareBuffer <CMX_NN> [0] <1600> -> memref<1x1x32x4x1xf16, #GNHWC, [@CMX_NN, 0]>
-    // CHECK:   [[OUT:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1600> -> memref<1x32x4x1xf16, #NHWC, [@CMX_NN, 0]>
+    %IN = VPURT.DeclareBuffer <CMX_NN> [0] <2112> -> memref<1x1x16x4x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>
+    // CHECK:   [[IN:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <2112> -> memref<1x16x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %WEIGHTS = VPURT.DeclareBuffer <CMX_NN> [0] <12864> -> memref<1x32x16x1x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>
+    // CHECK:   [[WEIGHTS:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <12864> -> memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %OUT = VPURT.DeclareBuffer <CMX_NN> [0] <1600> -> memref<1x1x32x4x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>
+    // CHECK:   [[OUT:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1600> -> memref<1x32x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %WEIGHT_TABLE = VPURT.DeclareBuffer <CMX_NN> [0] <576> -> memref<1x32x1x1x4xsi32, [@CMX_NN, 0]>
     // CHECK:   [[WEIGHT_TABLE:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <576> -> memref<32x1x1x4xsi32, [@CMX_NN, 0]>
     %WAIT_BARRIER = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
@@ -232,13 +232,13 @@ func.func @main() -> () {
             kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>
         }>
-        input(%IN : memref<1x1x16x4x1xf16, #GNHWC, [@CMX_NN, 0]>)
-        weights(%WEIGHTS : memref<1x32x16x1x1xf16, #GNHWC, [@CMX_NN, 0]>)
+        input(%IN : memref<1x1x16x4x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>)
+        weights(%WEIGHTS : memref<1x32x16x1x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>)
         weight_table(%WEIGHT_TABLE : memref<1x32x1x1x4xsi32, [@CMX_NN, 0]>)
-        parent_input(%IN : memref<1x1x16x4x1xf16, #GNHWC, [@CMX_NN, 0]>)
-        parent_output(%OUT : memref<1x1x32x4x1xf16, #GNHWC, [@CMX_NN, 0]>)
-        outputs(%OUT : memref<1x1x32x4x1xf16, #GNHWC, [@CMX_NN, 0]>)
-            -> memref<1x1x32x4x1xf16, #GNHWC, [@CMX_NN, 0]>
+        parent_input(%IN : memref<1x1x16x4x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>)
+        parent_output(%OUT : memref<1x1x32x4x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>)
+        outputs(%OUT : memref<1x1x32x4x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>)
+            -> memref<1x1x32x4x1xf16, {order = #GNHWC}, [@CMX_NN, 0]>
         variants : {
             DPUTask {
                 cluster_id = 0 : i64,
@@ -263,12 +263,12 @@ func.func @main() -> () {
 
     // CHECK:       VPURT.Task updates([[WAIT_BARRIER]] : !VPURT.Barrier) {
     // CHECK:       VPUIP.NCEClusterTask
-    // CHECK-SAME:      input([[IN]] : memref<1x16x4x1xf16, #NHWC, [@CMX_NN, 0]>)
-    // CHECK-SAME:      weights([[WEIGHTS]] : memref<32x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK-SAME:      input([[IN]] : memref<1x16x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK-SAME:      weights([[WEIGHTS]] : memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
     // CHECK-SAME:      weight_table([[WEIGHT_TABLE]] : memref<32x1x1x4xsi32, [@CMX_NN, 0]>)
-    // CHECK-SAME:      parent_input([[IN]] : memref<1x16x4x1xf16, #NHWC, [@CMX_NN, 0]>)
-    // CHECK-SAME:      parent_output([[OUT]] : memref<1x32x4x1xf16, #NHWC, [@CMX_NN, 0]>)
-    // CHECK-SAME:      outputs([[OUT]] : memref<1x32x4x1xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK-SAME:      parent_input([[IN]] : memref<1x16x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK-SAME:      parent_output([[OUT]] : memref<1x32x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK-SAME:      outputs([[OUT]] : memref<1x32x4x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
 
     return
 }

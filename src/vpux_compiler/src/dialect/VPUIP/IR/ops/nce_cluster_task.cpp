@@ -153,6 +153,37 @@ void vpux::VPUIP::NCEClusterTaskOp::build(
         VPU::EltwiseTypeAttr eltwiseType, VPUIP::SparsityConfigAttr sparsityConfig,
         vpux::VPUIP::DynamicScaleConfigAttr dynamicScaleConfig, vpux::VPUIP::LocalRegionAttr localRegion,
         vpux::VPU::S2DD2SConfigAttr s2dd2sConfig) {
+    build(builder, state, input, input_sparsity_map, input_storage_element_table, weights, weights_sparsity_map,
+          weight_table, weight_table_data_ptr, weight_table_sp_ptr, weight_table_scale, weight_table_bias,
+          /*weight_table_alpha=*/nullptr, weight_zero_points, spr_lookup_table, pallet_lookup_table, parent_input,
+          parent_input_sparsity_map, parent_input_storage_element_table, parent_output, parent_output_sparsity_map,
+          output_ITI_buff, output_buff, output_sparsity_map_buff, profiling_data, dynamic_sequence_length,
+          max_per_xy_buff, min_per_xy_buff, min_max_per_tensor_buff, task_type, kernel_size, kernel_strides,
+          kernel_padding, is_continued, cm_sp_pattern, is_segmented, out_channel_offset, input_channels_compression,
+          is_zero_offset_weights_table, is_superdense, is_inplace, input_se_size, output_se_size, isPermuteQuantize,
+          isSmallKernelOptimized, mpeEngineAttr, eltwiseType, sparsityConfig, dynamicScaleConfig, localRegion,
+          s2dd2sConfig);
+}
+
+void vpux::VPUIP::NCEClusterTaskOp::build(
+        mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input, mlir::Value input_sparsity_map,
+        mlir::Value input_storage_element_table, mlir::Value weights, mlir::Value weights_sparsity_map,
+        mlir::Value weight_table, mlir::Value weight_table_data_ptr, mlir::Value weight_table_sp_ptr,
+        mlir::Value weight_table_scale, mlir::Value weight_table_bias, mlir::Value weight_table_alpha,
+        mlir::Value weight_zero_points, mlir::Value spr_lookup_table, mlir::Value pallet_lookup_table,
+        mlir::Value parent_input, mlir::Value parent_input_sparsity_map, mlir::Value parent_input_storage_element_table,
+        mlir::Value parent_output, mlir::Value parent_output_sparsity_map, mlir::ValueRange output_ITI_buff,
+        mlir::Value output_buff, mlir::Value output_sparsity_map_buff, mlir::Value profiling_data,
+        mlir::Value dynamic_sequence_length, mlir::Value max_per_xy_buff, mlir::Value min_per_xy_buff,
+        mlir::ValueRange min_max_per_tensor_buff, vpux::VPUIP::NCETaskType task_type, mlir::ArrayAttr kernel_size,
+        mlir::ArrayAttr kernel_strides, vpux::VPU::PaddingAttr kernel_padding, bool is_continued,
+        mlir::IntegerAttr cm_sp_pattern, bool is_segmented, mlir::IntegerAttr out_channel_offset,
+        bool input_channels_compression, bool is_zero_offset_weights_table, bool is_superdense,
+        mlir::BoolAttr is_inplace, mlir::IntegerAttr input_se_size, mlir::IntegerAttr output_se_size,
+        bool isPermuteQuantize, bool isSmallKernelOptimized, VPU::MPEEngineAttr mpeEngineAttr,
+        VPU::EltwiseTypeAttr eltwiseType, VPUIP::SparsityConfigAttr sparsityConfig,
+        vpux::VPUIP::DynamicScaleConfigAttr dynamicScaleConfig, vpux::VPUIP::LocalRegionAttr localRegion,
+        vpux::VPU::S2DD2SConfigAttr s2dd2sConfig) {
     auto taskTypeAttr = vpux::VPUIP::NCETaskTypeAttr::get(builder.getContext(), task_type);
     mlir::Type outputType = output_buff != nullptr ? output_buff.getType() : nullptr;
     mlir::Type outSparsityMapType = output_sparsity_map_buff != nullptr ? output_sparsity_map_buff.getType() : nullptr;
@@ -164,13 +195,13 @@ void vpux::VPUIP::NCEClusterTaskOp::build(
     build(builder, state, outputType, outSparsityMapType, profilingOutputType, maxPerXYType, minPerXYType,
           minMaxPerTensorType, input, input_sparsity_map, input_storage_element_table, weights, weights_sparsity_map,
           weight_table, weight_table_data_ptr, weight_table_sp_ptr, weight_table_scale, weight_table_bias,
-          weight_zero_points, spr_lookup_table, pallet_lookup_table, parent_input, parent_input_sparsity_map,
-          parent_input_storage_element_table, parent_output, parent_output_sparsity_map, output_ITI_buff, output_buff,
-          output_sparsity_map_buff, profiling_data, dynamic_sequence_length, max_per_xy_buff, min_per_xy_buff,
-          min_max_per_tensor_buff, taskTypeAttr, eltwiseType, kernel_size, kernel_strides, kernel_padding, is_continued,
-          cm_sp_pattern, is_segmented, out_channel_offset, input_channels_compression, is_zero_offset_weights_table,
-          is_superdense, is_inplace, input_se_size, output_se_size, isPermuteQuantize, isSmallKernelOptimized,
-          sparsityConfig,
+          weight_table_alpha, weight_zero_points, spr_lookup_table, pallet_lookup_table, parent_input,
+          parent_input_sparsity_map, parent_input_storage_element_table, parent_output, parent_output_sparsity_map,
+          output_ITI_buff, output_buff, output_sparsity_map_buff, profiling_data, dynamic_sequence_length,
+          max_per_xy_buff, min_per_xy_buff, min_max_per_tensor_buff, taskTypeAttr, eltwiseType, kernel_size,
+          kernel_strides, kernel_padding, is_continued, cm_sp_pattern, is_segmented, out_channel_offset,
+          input_channels_compression, is_zero_offset_weights_table, is_superdense, is_inplace, input_se_size,
+          output_se_size, isPermuteQuantize, isSmallKernelOptimized, sparsityConfig,
           /*profilingMetadata=*/nullptr, mpeEngineAttr, dynamicScaleConfig, localRegion, s2dd2sConfig);
 
     // The auto-generated builders don't populate the regions even if SizedRegion<1> is specified.

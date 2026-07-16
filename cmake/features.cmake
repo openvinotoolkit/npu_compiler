@@ -54,7 +54,6 @@ endif()
 
 ov_option(ENABLE_NPU_LOADER "Enable npu-loader" OFF)
 ov_option(ENABLE_NPU_LSP_SERVER "Enable npu-lsp-server" OFF)
-ov_option(ENABLE_BYTECODE_INTERPRETER "Enable Bytecode interpreter" ON)
 
 get_target_property(ov_linked_libs openvino::runtime IMPORTED_LINK_DEPENDENT_LIBRARIES_RELEASE)
 if(THREADING STREQUAL "TBB" OR THREADING STREQUAL "TBB_AUTO" OR "TBB::tbb" IN_LIST ov_linked_libs)
@@ -82,8 +81,9 @@ ov_option(ENABLE_NPU_MICRO_BENCHMARKS "NPU micro benchmarks" ${ENABLE_NPU_MICRO_
 
 ov_option(ENABLE_CCACHE_FOR_VISUAL_STUDIO "Enable ccache for CMake-generated Visual Studio solution" OFF)
 
-# Enable NPU Execution Engine only for developer build as it is an experimental feature
-ov_dependent_option(ENABLE_NPU_EXECUTION_ENGINE "Enable NPU Execution Engine" ON "ENABLE_DEVELOPER_BUILD" OFF)
+ov_option(ENABLE_NPU_EXECUTION_ENGINE "Enable NPU Execution Engine" ON)
+
+ov_option(ENABLE_UNSUPPRESSED_WARNINGS_FOR_MSVC "Output raw warnings without any specified warning suppressions on MSVC" OFF)
 
 ov_dependent_option(ENABLE_DEP_CHECK "Enable dependency check for source files" OFF "ENABLE_DEVELOPER_BUILD" OFF)
 

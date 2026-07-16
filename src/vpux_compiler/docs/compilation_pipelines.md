@@ -84,17 +84,15 @@ flowchart LR
         O1a --> O2{LogOpt?}
         O2 -->|yes| O2a[LogOpOptPass]
         O2 -->|no| O3
-        O2a --> O3{FlashSDPA?}
-        O3 -->|yes| O3a[ConvertSDPAPass]
-        O3 -->|no| O4
-        O3a --> O4{DynShape?}
-        O4 -->|yes| O4a[DynShapePipeline]
+        O2a --> O3{DynShape?}
+        O3 -->|yes| O3a[DynShapePipeline]
     end
 
     Opt1 --> Core
 
     subgraph Core[Core Transformations]
-        C1[InitialLowPrec] --> C2[InitialTransform]
+        C1[InitialLowPrec] --> C1a[AttentionProcessing]
+        C1a --> C2[InitialTransform]
         C2 --> C3{AdjustPrec?}
         C3 -->|yes| C3a[AdjustPrecPipeline]
         C3 -->|no| C4

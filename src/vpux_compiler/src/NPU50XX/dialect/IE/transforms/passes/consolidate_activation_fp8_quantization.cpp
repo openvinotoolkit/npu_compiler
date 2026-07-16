@@ -123,9 +123,13 @@ public:
         // Create a pair of dummy Quantize->Dequantize operations to ensure the data actually gets converted
         const auto dequantType = mlir::cast<NDTypeInterface>(origOp.getOutput().getType()).getElementType();
         VPUX_THROW_UNLESS(vpux::isFloat8(origOp.getDstType()), "Unexpected data type {0}", origOp.getDstType());
-        const auto minMax = vpux::getLowFpRange(origOp.getDstType());
 
-        const auto qMin = std::get<0>(*minMax), qMax = std::get<1>(*minMax);
+        const auto storageParams = getStorageParams(origOp.getDstType());
+        if (mlir::failed(storageParams)) {
+            return mlir::failure();
+        }
+        const auto [qMin, qMax, _] = *storageParams;
+
         auto quantType =
                 mlir::quant::UniformQuantizedType::get(mlir::quant::QuantizationFlags::Signed, origOp.getDstType(),
                                                        dequantType, /*scales=*/1.0, /*zeroPoints=*/0, qMin, qMax);

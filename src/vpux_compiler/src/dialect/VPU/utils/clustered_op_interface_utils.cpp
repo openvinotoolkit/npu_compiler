@@ -13,6 +13,8 @@
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/multi_cluster_strategy_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/odu_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 
@@ -43,6 +45,20 @@ bool VPU::isOperationSplitOverHeightCompatible(mlir::Operation* op, const vpux::
     auto isSOHCompatible = heightCompatibleCheck(outputShape);
     if (!isSOHCompatible) {
         return false;
+    }
+    // For NCE ops with active ODU transform, also verify the pre-ODU output height is sufficient for SOH.
+    if (mlir::isa<VPU::NCEOpInterface>(op)) {
+        const auto scales = VPU::getODUScaling(op);
+        if (!scales.empty()) {
+            const auto preShapeResult = VPU::invertODUScaling(scales, SmallVector<int64_t>(outputShape.raw()));
+            if (mlir::failed(preShapeResult)) {
+                return false;
+            }
+            const auto preShape = preShapeResult.value();
+            if (!heightCompatibleCheck(ShapeRef(preShape))) {
+                return false;
+            }
+        }
     }
     auto siblingsOpsAnalysis = SiblingOpsAnalysis(op);
     auto offset = ShapeRef(outputTile.offsets);
@@ -183,6 +199,20 @@ bool VPU::isOperationSplitOverWidthCompatible(mlir::Operation* op, ShapeRef outp
     };
 
     auto isSOWCompatible = widthCompatibleCheck(outputShape);
+    // For NCE ops with active ODU transform, also verify the pre-ODU output width is sufficient for SOW.
+    if (mlir::isa<VPU::NCEOpInterface>(op)) {
+        const auto scales = VPU::getODUScaling(op);
+        if (!scales.empty()) {
+            const auto preShapeResult = VPU::invertODUScaling(scales, SmallVector<int64_t>(outputShape.raw()));
+            if (mlir::failed(preShapeResult)) {
+                return false;
+            }
+            const auto preShape = preShapeResult.value();
+            if (!widthCompatibleCheck(ShapeRef(preShape))) {
+                return false;
+            }
+        }
+    }
     if (arch >= config::ArchKind::NPU40XX) {
         // For NPU40XX+, W segmented output needs to have explicit halo regions defined.
         // Thus the applicability of SOW on the current operation is tightly dependent
@@ -238,6 +268,21 @@ bool VPU::isOperationSplitOverKernelCompatible(mlir::Operation* op, ShapeRef out
 
     if (nceOp == nullptr) {
         return true;
+    }
+
+    // For NCE ops with active ODU transform, also verify the pre-ODU channel count is sufficient for SOK.
+    const auto scales = VPU::getODUScaling(op);
+    if (!scales.empty()) {
+        const auto preShapeResult = VPU::invertODUScaling(scales, SmallVector<int64_t>(outputShape.raw()));
+        if (mlir::failed(preShapeResult)) {
+            return false;
+        }
+        const auto preShape = ShapeRef(preShapeResult.value());
+        VPUX_THROW_WHEN(preShape.size() != outputShape.size(),
+                        "Pre-ODU shape rank does not match output shape rank for op {0}", op->getLoc());
+        if (preShape[Dims4D::Act::C] < minChannelSize) {
+            return false;
+        }
     }
 
     // SOK will split the weights over output channels. If the weights are sparse, it is necessary to make sure that
@@ -333,6 +378,10 @@ bool VPU::isOperationSplitOverGroupCompatible(mlir::Operation* op, const vpux::T
             return false;
         }
         const auto groups = outputShape[DimsGroups5D::Act::G];
+        if (mlir::isa<VPU::NCEMatMulOp>(op)) {
+            return (groups > 1);
+        }
+
         return groups >= minimumOutputGroupsForSOG;
     };
 

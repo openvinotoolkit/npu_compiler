@@ -17,8 +17,6 @@ namespace test_utils {
 extern const char* TARGET_DEVICE;
 }
 
-using namespace ov::test::behavior;
-
 namespace ov::test::utils {
 
 /**

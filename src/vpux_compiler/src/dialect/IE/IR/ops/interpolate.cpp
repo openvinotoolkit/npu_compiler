@@ -53,9 +53,15 @@ mlir::LogicalResult vpux::IE::InterpolateOp::inferReturnTypeComponents(
         VPUX_THROW_WHEN(scaleType.getNumElements() != int64_t(axesVal.size()),
                         "Scales input number of elements must match the number of interpolated axes, got {0} and {1}",
                         scaleType.getNumElements(), axesVal.size());
+        // Two trailing spatial axes (H, W) are resized; reject IR that provides fewer axes.
+        if (axesVal.size() < 2) {
+            return errorAt(loc, "Interpolate with scales as parameter requires at least 2 axes, got {0}",
+                           axesVal.size());
+        }
         auto scalesBound = SmallVector<double>(axesVal.size(), 1.0);
-        scalesBound[scalesBound.size() - 1] = INTERPOLATE_SCALES_BOUND;
-        scalesBound[scalesBound.size() - 2] = INTERPOLATE_SCALES_BOUND;
+        const auto spatialScalesBound = getInterpolateScalesBound(inputType);
+        scalesBound[scalesBound.size() - 1] = spatialScalesBound;
+        scalesBound[scalesBound.size() - 2] = spatialScalesBound;
 
         const auto scalesElemType =
                 mlir::cast<vpux::NDTypeInterface>(interpolate.getScales().getType()).getElementType();
@@ -65,16 +71,24 @@ mlir::LogicalResult vpux::IE::InterpolateOp::inferReturnTypeComponents(
                                         mlir::FailureOr<ArrayRef<int64_t>>(mlir::failure()),
                                         ArrayRef<double>(scalesBound), scalesElemType, Logger::global());
 
-        // Interpolated axes are always dynamic (scales are runtime parameters).
-        // Non-interpolated axes preserve the input dynamism characteristics.
+        const auto isVariableAxis = [&](size_t dimIdx) {
+            auto axisIt = llvm::find(axesVal, static_cast<int64_t>(dimIdx));
+            if (axisIt == axesVal.end()) {
+                return false;
+            }
+            const auto scaleIdx = axisIt - axesVal.begin();
+            return scalesBound[scaleIdx] != 1.0;
+        };
+
+        // Interpolated axes with bounded scale != 1.0 are treated as dynamic.
+        // Axes with bounded scale == 1.0 preserve the input static/dynamic characteristics
         auto [outStaticShape, outBounds, outDimMask] = callOnShapeOf(inputType, [&](const auto& inShapeRepr) {
             using ShapeT = std::decay_t<decltype(inShapeRepr)>;
             if constexpr (std::is_same_v<ShapeT, BoundedShape>) {
                 BoundedShape bounded;
                 bounded.reserve(outShapeVec.size());
                 for (size_t i = 0; i < outShapeVec.size(); ++i) {
-                    const bool isInterpolated = llvm::find(axesVal, static_cast<int64_t>(i)) != axesVal.end();
-                    if (isInterpolated || inShapeRepr[Dim(i)].isDynamic()) {
+                    if (isVariableAxis(i) || inShapeRepr[Dim(i)].isDynamic()) {
                         bounded.push_back(BoundedDim(mlir::ShapedType::kDynamic, outShapeVec[i]));
                     } else {
                         bounded.push_back(BoundedDim(outShapeVec[i]));
@@ -85,16 +99,18 @@ mlir::LogicalResult vpux::IE::InterpolateOp::inferReturnTypeComponents(
                 DimsMaskedShape masked;
                 masked.reserve(outShapeVec.size());
                 for (size_t i = 0; i < outShapeVec.size(); ++i) {
-                    const bool isInterpolated = llvm::find(axesVal, static_cast<int64_t>(i)) != axesVal.end();
-                    masked.push_back(MaskedDim(outShapeVec[i], isInterpolated || inShapeRepr[Dim(i)].isDynamic()));
+                    masked.push_back(MaskedDim(outShapeVec[i], isVariableAxis(i) || inShapeRepr[Dim(i)].isDynamic()));
                 }
                 return splitShapeAndRepresentation(masked);
             } else {
-                // Static input — force interpolated axes to bounded dynamic
                 BoundedShape bounded;
                 bounded.reserve(outShapeVec.size());
                 for (size_t i = 0; i < outShapeVec.size(); ++i) {
-                    bounded.push_back(BoundedDim(mlir::ShapedType::kDynamic, outShapeVec[i]));
+                    if (isVariableAxis(i)) {
+                        bounded.push_back(BoundedDim(mlir::ShapedType::kDynamic, outShapeVec[i]));
+                    } else {
+                        bounded.push_back(BoundedDim(outShapeVec[i]));
+                    }
                 }
                 return splitShapeAndRepresentation(bounded);
             }
@@ -212,23 +228,39 @@ mlir::LogicalResult ConvertInputsToAttr::matchAndRewrite(IE::InterpolateOp inter
         }
     }
 
+    // For SCALES mode, preserve original scales (don't use derived output/input ratio).
+    SmallVector<double> finalScalesVal = std::move(scalesVal);  // Default: derived scales for SIZES mode
+
+    const auto calcModeAttr = interpolateOp.getAttr().getShapeCalcMode();
+    if (calcModeAttr != nullptr && calcModeAttr.getValue() == IE::InterpolateCalcMode::SCALES) {
+        // Extract original scales from input operand
+        const auto originalScalesResult =
+                IE::extractFPVector(loc, interpolateOp.getScales(), interpolateOp.getScalesAttr());
+        if (mlir::succeeded(originalScalesResult)) {
+            const auto& originalScales = originalScalesResult.value();
+
+            if (originalScales.size() == axesVal.size()) {
+                // Spatially-indexed scales (per-axis order)
+                finalScalesVal = SmallVector<double>(originalScales.begin(), originalScales.end());
+            } else if (originalScales.size() == static_cast<size_t>(inShape.size())) {
+                // Full-rank scales tensor: extract only the axes that changed
+                finalScalesVal.clear();
+                for (size_t k = 0; k < axesVal.size(); k++) {
+                    finalScalesVal.push_back(originalScales[axesVal[k]]);
+                }
+            }
+        }
+    }
+
     const auto sizesAttr = getIntArrayAttr(interpolateOp.getContext(), sizesVal);
-    const auto scalesAttr = getFPArrayAttr(interpolateOp.getContext(), scalesVal);
+    const auto scalesAttr = getFPArrayAttr(interpolateOp.getContext(), finalScalesVal);
     const auto axesAttr = getIntArrayAttr(interpolateOp.getContext(), axesVal);
 
-    // Convert `shape_calculation_mode` from `Scales` to `Sizes`
-    // After Scales input converted to Scales FPArrayAttr, the original Scale precision will become FP64.
-    // It is possible to calculate the wrong output size, if the original Scale precision is not FP64.
+    // Per OpenVino IR spec, preserve original calc_mode.
+    // If calc_mode=SCALES: downstream passes will use scalesAttr directly (per spec semantics)
+    // If calc_mode=SIZES: downstream passes will derive scales from sizes (per spec semantics)
     auto interpolateAttr = interpolateOp.getAttr();
-    const auto calcModeAttr = interpolateAttr.getShapeCalcMode();
-    if (calcModeAttr != nullptr && calcModeAttr.getValue() == IE::InterpolateCalcMode::SCALES) {
-        const auto newCalcModeAttr =
-                IE::InterpolateCalcModeAttr::get(interpolateOp.getContext(), IE::InterpolateCalcMode::SIZES);
-        interpolateAttr = IE::InterpolateAttr::get(
-                interpolateOp.getContext(), interpolateAttr.getMode(), newCalcModeAttr, interpolateAttr.getCoordMode(),
-                interpolateAttr.getNearestMode(), interpolateAttr.getAntialias(), interpolateAttr.getPadsBegin(),
-                interpolateAttr.getPadsEnd(), interpolateAttr.getCubeCoeff());
-    }
+    // Keep calcModeAttr unchanged—do NOT convert SCALES to SIZES
 
     // rewrite layer
     rewriter.replaceOpWithNewOp<IE::InterpolateOp>(
@@ -328,16 +360,19 @@ mlir::LogicalResult ConvertToNearest::matchAndRewrite(IE::InterpolateOp op, mlir
 mlir::LogicalResult vpux::IE::InterpolateOp::reifyResultShapes(mlir::OpBuilder& builder,
                                                                mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
     auto loc = getLoc();
-
     const auto outputShapedType = mlir::cast<mlir::ShapedType>(getOutput().getType());
+    const auto inputType = mlir::cast<vpux::NDTypeInterface>(getInput().getType());
+    const auto axesVal = IE::getInterpAxesVal(loc, getAxes(), getAxesAttrAttr(), inputType);
 
-    const auto axesResult = IE::extractIntVector(loc, getAxes(), getAxesAttrAttr());
-    if (mlir::failed(axesResult)) {
-        return axesResult;
+    auto scales = getScales();
+    if (scales != nullptr) {
+        if (auto convertOp = scales.getDefiningOp<IE::ConvertOp>()) {
+            scales = convertOp.getInput();
+        }
     }
 
-    return reifyInterpolateResultShape(builder, loc, getInput(), getScales(), getScalesAttr(), axesResult.value(),
-                                       outputShapedType, reifiedReturnShapes);
+    return reifyInterpolateResultShape(builder, loc, getInput(), scales, getScalesAttr(), axesVal, outputShapedType,
+                                       reifiedReturnShapes);
 }
 
 //

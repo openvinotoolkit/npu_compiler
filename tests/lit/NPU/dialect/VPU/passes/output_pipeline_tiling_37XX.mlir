@@ -22,23 +22,22 @@ func.func @IncreaseNumTilesForNCEConv(%input: tensor<1x16x480x320x!qElemType0, {
 
     %weightsTBL = const.Declare tensor<32x1x1x4xsi32> = dense<1> : tensor<32x1x1x4xsi32>
 
-    %conv = VPU.NCE.Convolution(%input, %filter, %weightsTBL) {
+    %conv = VPU.NCE.Convolution(%input, %filter, %weightsTBL) rawFilterShape [32, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
-        rawFilterShape = [32, 16, 1, 1],
+        
         strides = [1, 1],
         tilingStrategy = [1, 1, 3, 1]
     } : tensor<1x16x480x320x!qElemType0, {order = #NHWC}>, !VPU.SparseTensor<data=tensor<32x16x1x1x!qElemType1, {order = #NHWC}>, sparsity_map=tensor<32x1x1x128xi1>, is_weights, #VPU.SparsityCompression<axis = 0 : i64, numElems = dense<0> : tensor<32xi64>, alignment = 16 : i64>>, tensor<32x1x1x4xsi32> -> tensor<1x32x480x320x!qElemType0, {order = #NHWC}>
 
     return %conv : tensor<1x32x480x320x!qElemType0, {order = #NHWC}>
 
-    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution
+    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution{{.*}} rawFilterShape [32, 16, 1, 1]
     // CHECK-SAME:          multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
     // CHECK-SAME:          pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
     // CHECK-SAME:          ppe = #VPU.PPEStub<>,
-    // CHECK-SAME:          rawFilterShape = [32, 16, 1, 1],
-    // CHECK-SAME:          strides = [1, 1],
+    // CHECK-SAME:          resultSegmentSizes = array<i32: 1, 0, 0, 0>, strides = [1, 1],
     // CHECK-NOT:           tilingStrategy = [1, 1, 3, 1]
     // CHECK-SAME:          tilingStrategy = [1, 1, 5, 1]}
     // CHECK-SAME:      -> tensor<1x32x480x320x!qElemType, {order = #NHWC}>
@@ -65,18 +64,18 @@ func.func @NotChangeTilingStrategyForVF(%input: tensor<1x32x135x240xf16, {order 
                               %weightsTable1 as %arg5: tensor<32x1x1x4xsi32>)
             attributes {tilingStrategy = [1, 1, 7, 1]}
             -> tensor<1x32x135x240xf16, {order = #NHWC}> {
-        %conv0 = VPU.NCE.Convolution(%arg1, %arg2, %arg3) {
+        %conv0 = VPU.NCE.Convolution(%arg1, %arg2, %arg3) rawFilterShape [128, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
-            rawFilterShape = [128, 32, 3, 3],
+            
             strides = [1, 1]
             } : tensor<1x32x135x240xf16, {order = #NHWC}>, tensor<128x32x3x3xf16, {order = #NHWC}>, tensor<128x1x1x4xsi32> -> tensor<1x128x135x240xf16, {order = #NHWC}>
-        %conv1 = VPU.NCE.Convolution(%conv0, %arg4, %arg5) {
+        %conv1 = VPU.NCE.Convolution(%conv0, %arg4, %arg5) rawFilterShape [32, 128, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
-            rawFilterShape = [32, 128, 3, 3],
+            
             strides = [1, 1]
             } : tensor<1x128x135x240xf16, {order = #NHWC}>, tensor<32x128x3x3xf16, {order = #NHWC}>, tensor<32x1x1x4xsi32> -> tensor<1x32x135x240xf16, {order = #NHWC}>
         %add = VPU.NCE.Eltwise(%conv1, %arg1) {
@@ -117,11 +116,11 @@ func.func @NotChangeTilingStrategyForUnevenUnrolling(%input: tensor<1x48x771x771
             -> !VPU.SparseTensor<data=tensor<32x48x3x3xf16, {order = #NHWC}>, sparsity_map=tensor<32x1x1x512xi1>, is_weights, #VPU.SparsityCompression<axis = 0 : i64, numElems = dense<0> : tensor<32xi64>, alignment = 16 : i64>>
 
     %weightsTable = const.Declare tensor<32x1x1x4xsi32> = dense<1> : tensor<32x1x1x4xsi32>
-    %conv = VPU.NCE.Convolution(%input, %filter, %weightsTable) {
+    %conv = VPU.NCE.Convolution(%input, %filter, %weightsTable) rawFilterShape [32, 48, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
-        rawFilterShape = [32, 48, 3, 3],
+        
         strides = [1, 1],
         tilingStrategy = [1, 1, 55, 1]
     } : tensor<1x48x771x771xf16, {order = #NHWC}>, !VPU.SparseTensor<data=tensor<32x48x3x3xf16, {order = #NHWC}>, sparsity_map=tensor<32x1x1x512xi1>, is_weights, #VPU.SparsityCompression<axis = 0 : i64, numElems = dense<0> : tensor<32xi64>, alignment = 16 : i64>>, tensor<32x1x1x4xsi32> -> tensor<1x32x769x769xf16, {order = #NHWC}>
@@ -132,12 +131,11 @@ func.func @NotChangeTilingStrategyForUnevenUnrolling(%input: tensor<1x48x771x771
     // CHECK-DAG:   [[WEIGHTS_SM:%.+]] = const.Declare tensor<32x1x1x512xi1>
     // CHECK-DAG:   [[FILTER:%.+]] = VPU.GroupSparseTensor([[WEIGHTS_DATA]], [[WEIGHTS_SM]])
     // CHECK-DAG:   [[WEIGHTS_TABLE:%.+]] = const.Declare tensor<32x1x1x4xsi32>
-    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[ARG_0]], [[FILTER]], [[WEIGHTS_TABLE]]) {
+    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[ARG_0]], [[FILTER]], [[WEIGHTS_TABLE]]) rawFilterShape [32, 48, 3, 3] {
     // CHECK-SAME:          multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
     // CHECK-SAME:          pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
     // CHECK-SAME:          ppe = #VPU.PPEStub<>,
-    // CHECK-SAME:          rawFilterShape = [32, 48, 3, 3],
-    // CHECK-SAME:          strides = [1, 1],
+    // CHECK-SAME:          resultSegmentSizes = array<i32: 1, 0, 0, 0>, strides = [1, 1],
     // CHECK-SAME:          tilingStrategy = [1, 1, 55, 1]}
     // CHECK-SAME:      -> tensor<1x32x769x769xf16, {order = #NHWC}>
 

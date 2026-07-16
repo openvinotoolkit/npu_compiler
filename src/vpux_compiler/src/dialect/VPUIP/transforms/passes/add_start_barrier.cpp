@@ -47,8 +47,9 @@ std::pair<VPURT::TaskOp, VPURT::DeclareVirtualBarrierOp> getFirstDmaAndStartBarr
     // 2. Start barrier can be consumed only by DMA tasks, as those task do not require descriptor
     //    fetching and start barrier will be used as an earliest point for DPU/SHV enqueues
     //
-    // 3. Start barrier consumption cannot depend on DPU/SHV tasks execution as those tasks would be enqueued
-    //    at earliest at start barrier
+    // 3. Start barrier consumption and production cannot depend on DPU/SHV tasks execution. Consumer dependency
+    //    would deadlock since such tasks would be enqueued at earliest at start barrier. Producer dependency
+    //    would mean start barrier itself is gated by a DPU/SHV task, which is not allowed for a start barrier.
     //
     // 4. [Optional] In case of compiler barrier programming, start barrier can't be produced by any other tasks than
     // firstDMA (DMA P0 Channel DDR). It's needed for avoid race condition between service tasks from DMA P0 Channel DDR
@@ -127,6 +128,7 @@ std::pair<VPURT::TaskOp, VPURT::DeclareVirtualBarrierOp> getFirstDmaAndStartBarr
     // Build dependency data for first block. No need to analyze other blocks as blocks with N > 0
     // are guaranteed to be dependant on tasks from block index 0
     auto taskControlMapAndOffset = barrierInfo.buildTaskControlMap(0);
+    std::optional<size_t> blockIdxOfTaskControlMap = 0;
 
     // 3. Check if start barrier candidate does not depend in any way on
     // non DMA tasks (DPU/SHV). If such dependency exists then this is not a start barrier
@@ -143,33 +145,30 @@ std::pair<VPURT::TaskOp, VPURT::DeclareVirtualBarrierOp> getFirstDmaAndStartBarr
             continue;
         }
 
-        // Check if a consumer of start barrier candidate depends on first operation from non-DMA queue
-        // In that case start barrier consumption depenends on non DMA task
-        // This would be a deadlock as such task would be enqueued
-        // at earliest on this start barrier
+        // Check if a consumer or producer of start barrier candidate depends on first operation from non-DMA queue.
+        // - Producer dependency means start barrier programming itself would be gated by a DPU/SHV task,
+        //   which is not allowed for a start barrier.
+        // - Consumer dependency would deadlock: such task would be enqueued at earliest on this start barrier.
         startBarrierCandidatesVec.erase(
-                llvm::remove_if(startBarrierCandidatesVec,
-                                [&](size_t barrierIdx) {
-                                    for (auto barrierConsumerIdx : barrierInfo.getBarrierConsumers(barrierIdx)) {
-                                        if (barrierInfo.getControlGraphBlockIndex(barrierConsumerIdx) > 0) {
-                                            continue;
-                                        }
-
-                                        auto dependencyExistsFromNonDmaTaskToBarrierCandidateConsumer =
-                                                barrierInfo.controlPathExistsBetweenTasksInSameBlock(
-                                                        taskControlMapAndOffset.first,
-                                                        firstTaskOnQueueIdx - taskControlMapAndOffset.second,
-                                                        barrierConsumerIdx - taskControlMapAndOffset.second, false);
-                                        if (dependencyExistsFromNonDmaTaskToBarrierCandidateConsumer) {
-                                            // If given barrier candidate depends on non DMA task then
-                                            // it cannot be treated as start barrier
-                                            log.trace("Start barrier candidate {0} depends on non DMA task",
-                                                      barrierIdx);
-                                            return true;
-                                        }
-                                    }
-                                    return false;
-                                }),
+                llvm::remove_if(
+                        startBarrierCandidatesVec,
+                        [&](size_t barrierIdx) {
+                            if (barrierInfo.isDepFromTaskToBarrier(firstTaskOnQueueIdx, barrierIdx,
+                                                                   taskControlMapAndOffset, blockIdxOfTaskControlMap)) {
+                                log.trace("Start barrier candidate {0} producer depends on non DMA task", barrierIdx);
+                                return true;
+                            }
+                            for (auto barrierConsumerIdx : barrierInfo.getBarrierConsumers(barrierIdx)) {
+                                if (barrierInfo.isDepFromTaskAToTaskB(firstTaskOnQueueIdx, barrierConsumerIdx,
+                                                                      taskControlMapAndOffset,
+                                                                      blockIdxOfTaskControlMap)) {
+                                    log.trace("Start barrier candidate {0} consumer depends on non DMA task",
+                                              barrierIdx);
+                                    return true;
+                                }
+                            }
+                            return false;
+                        }),
                 startBarrierCandidatesVec.end());
     }
 

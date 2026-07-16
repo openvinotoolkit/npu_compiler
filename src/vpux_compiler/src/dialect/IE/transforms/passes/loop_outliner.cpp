@@ -118,7 +118,7 @@ void LoopOutliner::createOutlinedFunction(mlir::MLIRContext* ctx, mlir::func::Fu
     const auto funcLoc = appendLoc(netFunc.getLoc(), "loop_body{0}", targetIdx + 1);
     const auto funcName = printToString("{0}_{1}{2}", netFunc.getName(), "loop_body", targetIdx + 1);
     auto func = builder.create<mlir::func::FuncOp>(funcLoc, funcName, funcType);
-    func.setPrivate();
+    func.setNested();
     auto funcBuilder = mlir::OpBuilder::atBlockEnd(func.addEntryBlock(), &builderLog);
 
     auto bodyModule = &origLoop.getBodyModule();

@@ -30,7 +30,10 @@ namespace vpux {
 
 mlir::quant::QuantizedType createWeightsQuantizedType(mlir::Type weightsElemType, mlir::Type expressedType,
                                                       double scale, int64_t zeroPoint) {
-    const auto [storageMin, storageMax, storageType] = getStorageParams(weightsElemType);
+    const auto storageParams = getStorageParams(weightsElemType);
+    VPUX_THROW_WHEN(mlir::failed(storageParams), "Unsupported quantized element type '{0}'", weightsElemType);
+
+    const auto [storageMin, storageMax, storageType] = *storageParams;
     if (const auto quantileType = mlir::dyn_cast<vpux::type::QuantileType>(weightsElemType)) {
         // Use QuantileType directly as storage type
         // This represents quantile-backed quantization as quant.uniform with QuantileType storage
@@ -49,7 +52,9 @@ mlir::quant::QuantizedType createWeightsQuantizedType(mlir::Type weightsElemType
 mlir::quant::QuantizedType createWeightsQuantizedPerAxisType(mlir::Type weightsElemType, mlir::Type expressedType,
                                                              ArrayRef<double> scales, int64_t zeroPoint,
                                                              Dim quantizedDimension) {
-    const auto [storageMin, storageMax, storageType] = getStorageParams(weightsElemType);
+    const auto storageParams = getStorageParams(weightsElemType);
+    VPUX_THROW_WHEN(mlir::failed(storageParams), "Unsupported quantized element type '{0}'", weightsElemType);
+    const auto [storageMin, storageMax, storageType] = *storageParams;
     if (const auto quantileType = mlir::dyn_cast<vpux::type::QuantileType>(weightsElemType)) {
         // Use QuantileType directly as storage type.
         // This represents quantile-backed quantization as quant.uniform with QuantileType storage
@@ -117,18 +122,25 @@ void WeightsDequantizeRewriter<ConcreteOp>::initialize(mlir::func::FuncOp funcOp
     _enableWeightsDynamicDequantization = config::hasEnableWeightsDynamicDequantization(module);
 }
 
+// Match signed or unsigned integer of the given width, but NOT signless `iN`.
+// Signless integer weights cannot be lowered by createWeightsQuantizedType:
+// getStorageParams() rejects signless for all widths (see utils/quantization.cpp).
+// Contract is covered by test @NotConvertToDequantizeForSignlessType.
+static bool isSignedOrUnsignedIntOfWidth(mlir::Type elemType, unsigned width) {
+    return elemType.isSignedInteger(width) || elemType.isUnsignedInteger(width);
+}
+
 template <typename ConcreteOp>
 bool WeightsDequantizeRewriter<ConcreteOp>::isSupportedInputElemType(mlir::Type elemType) const {
-    return elemType.isSignedInteger(2) || elemType.isUnsignedInteger(2) || elemType.isSignedInteger(4) ||
-           elemType.isUnsignedInteger(4) || elemType.isSignedInteger(8) || elemType.isUnsignedInteger(8) ||
-           elemType.isSignedInteger(16) || elemType.isUnsignedInteger(16) || elemType.isSignlessInteger(16) ||
+    return isSignedOrUnsignedIntOfWidth(elemType, 2) || isSignedOrUnsignedIntOfWidth(elemType, 4) ||
+           isSignedOrUnsignedIntOfWidth(elemType, 8) || isSignedOrUnsignedIntOfWidth(elemType, 16) ||
            isLowFpType(elemType) || mlir::isa_and_nonnull<vpux::type::QuantileType>(elemType);
 }
 
 template <typename ConcreteOp>
 bool WeightsDequantizeRewriter<ConcreteOp>::isSupportedShiftElemType(mlir::Type elemType) const {
-    // The only supported shift data type is U2
-    return elemType.isUnsignedInteger(2);
+    // Supported shift data types: U2/I2, U8/I8.
+    return elemType.isUnsignedInteger(2) || isSignedOrUnsignedIntOfWidth(elemType, 8);
 }
 
 template <typename ConcreteOp>
@@ -192,8 +204,8 @@ mlir::LogicalResult WeightsDequantizeRewriter<ConcreteOp>::staticMatchAndRewrite
             expectedShiftElemType = quantileType.getQuantileType();
         }
         if (!isSupportedShiftElemType(shiftElemType) || shiftElemType != expectedShiftElemType) {
-            _log.trace("Match failed: The supported shift data type is U2, and must be consistent with the weights "
-                       "type.");
+            _log.trace("Match failed: Shift data type {0} is not supported or does not match weights type {1}.",
+                       shiftElemType, expectedShiftElemType);
             return mlir::failure();
         }
     }
@@ -259,8 +271,8 @@ mlir::LogicalResult WeightsDequantizeRewriter<ConcreteOp>::dynamicMatchAndRewrit
             expectedShiftElemType = quantileType.getQuantileType();
         }
         if (!isSupportedShiftElemType(shiftElemType) || shiftElemType != expectedShiftElemType) {
-            _log.trace("Match failed: The supported shift data type is U2, and must be consistent with the weights "
-                       "type.");
+            _log.trace("Match failed: Shift data type {0} is not supported or does not match weights type {1}.",
+                       shiftElemType, expectedShiftElemType);
             return mlir::failure();
         }
     }
@@ -310,42 +322,46 @@ mlir::LogicalResult WeightsDequantizeRewriter<ConcreteOp>::matchAndRewrite(Concr
                                                                            mlir::PatternRewriter& rewriter) const {
     _log.trace("Got {0} at `{1}`.", origOp->getName(), origOp->getLoc());
 
-    // Match the weights dequantize structure once...
-    const auto maybeWdInfo = IE::WeightsDequantizeStructureInfo::create(origOp, _log.nest());
-    if (mlir::failed(maybeWdInfo)) {
-        _log.trace("Failed to match WeightsDequantize structure.");
-        return mlir::failure();
-    }
-    const auto& wdInfo = maybeWdInfo.value();
-    if (!wdInfo.hasScale() && !wdInfo.hasShift()) {
-        // For now we don't want to rewrite single Convert's with no scale or shift. A later pass,
-        // FuseConvertWithQuantize, may handle some of them more efficiently while the remaining ones get converted
-        // to QuantizeCast->Dequantize afterwards.
-        _log.trace("Match failed: Missing both scale and shift.");
-        return mlir::failure();
-    }
-    if (wdInfo.hasScale() && wdInfo.hasShift()) {
-        if (!((wdInfo.getDynamicScale() != nullptr && wdInfo.getDynamicShift() != nullptr) ||
-              (wdInfo.getStaticScale() != nullptr && wdInfo.getStaticShift() != nullptr))) {
-            _log.trace("Match failed: The forms of scale and shift need to be consistent.");
+    const auto users = to_small_vector(origOp->getUsers());
+
+    const auto processUser = [&](mlir::Operation* user) -> mlir::LogicalResult {
+        const auto maybeWdInfo = IE::WeightsDequantizeStructureInfo::create(origOp, _log.nest(), user);
+        if (mlir::failed(maybeWdInfo)) {
+            _log.trace("Failed to match WeightsDequantize structure.");
             return mlir::failure();
         }
-    }
+        const auto& wdInfo = maybeWdInfo.value();
+        if (!wdInfo.hasScale() && !wdInfo.hasShift()) {
+            // For now we don't want to rewrite single Convert's with no scale or shift. A later pass,
+            // FuseConvertWithQuantize, may handle some of them more efficiently while the remaining ones get
+            // converted to QuantizeCast->Dequantize afterwards.
+            _log.trace("Match failed: Missing both scale and shift.");
+            return mlir::failure();
+        }
+        if (wdInfo.hasScale() && wdInfo.hasShift()) {
+            if (!((wdInfo.getDynamicScale() != nullptr && wdInfo.getDynamicShift() != nullptr) ||
+                  (wdInfo.getStaticScale() != nullptr && wdInfo.getStaticShift() != nullptr))) {
+                _log.trace("Match failed: The forms of scale and shift need to be consistent.");
+                return mlir::failure();
+            }
+        }
 
-    auto quantParamsAsInput = wdInfo.getDynamicScale() != nullptr || wdInfo.getDynamicShift() != nullptr;
+        const auto quantParamsAsInput = wdInfo.getDynamicScale() != nullptr || wdInfo.getDynamicShift() != nullptr;
 
-    // Static constants with a per-row embedding pattern are routed through dynamicMatchAndRewrite
-    // to avoid baking per-row scales into a per-axis QuantizeCastOp type that
-    // swap-operation-with-gather would later invalidate.
-    const bool feedsGather =
-            !quantParamsAsInput && mlir::isa<Const::DeclareOp>(origOp) && wdInfo.isI4ConsumedByGather();
+        // Per-axis quantized constant weights feeding a Gather must go through dynamicMatchAndRewrite
+        // so that scale is passed as a value input to DynamicDequantize rather than baked into the
+        // QuantizeCast per-axis type, which would block later swap-operation-with-gather optimizations.
+        const bool feedsGather =
+                !quantParamsAsInput && mlir::isa<Const::DeclareOp>(origOp) && wdInfo.isQuantizedConsumedByGather();
+        if (feedsGather) {
+            return dynamicMatchAndRewrite(wdInfo, origOp, rewriter);
+        }
 
-    if (!quantParamsAsInput && !feedsGather) {
-        return staticMatchAndRewrite(wdInfo, origOp, rewriter);
-    }
+        if (!quantParamsAsInput) {
+            return staticMatchAndRewrite(wdInfo, origOp, rewriter);
+        }
 
-    // Dynamic scale path — reject static constants unless the WD chain feeds a Gather.
-    if (!feedsGather) {
+        // Dynamic scale/shift path.
         if (mlir::isa<Const::DeclareOp>(origOp)) {
             _log.trace("Match failed: Got dynamic scale but weights is a constant.");
             return mlir::failure();
@@ -354,8 +370,18 @@ mlir::LogicalResult WeightsDequantizeRewriter<ConcreteOp>::matchAndRewrite(Concr
             _log.trace("Match failed: Got dynamic scale but dynamic dequantization is disabled.");
             return mlir::failure();
         }
+        return dynamicMatchAndRewrite(wdInfo, origOp, rewriter);
+    };
+
+    bool anySucceeded = false;
+    for (auto* user : users) {
+        const auto result = processUser(user);
+        _log.trace("Consolidation for user {0} {1}.", user, mlir::succeeded(result) ? "succeeded" : "failed");
+        if (mlir::succeeded(result)) {
+            anySucceeded = true;
+        }
     }
-    return dynamicMatchAndRewrite(wdInfo, origOp, rewriter);
+    return mlir::success(anySucceeded);
 }
 
 }  // namespace vpux

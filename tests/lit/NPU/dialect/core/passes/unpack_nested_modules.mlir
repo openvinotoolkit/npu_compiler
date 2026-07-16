@@ -15,11 +15,11 @@ module @NoNesting {
         DataInfo "output" : tensor<2x2xf32>
     }
 
-    func.func private @foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
+    func.func nested @foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
         return %arg : tensor<2x2xf32>
     }
 
-    // CHECK: func.func private @foo([[ARG:%.+]]: tensor<2x2xf32>) -> tensor<2x2xf32>
+    // CHECK: func.func nested @foo([[ARG:%.+]]: tensor<2x2xf32>) -> tensor<2x2xf32>
     // CHECK:   return [[ARG]]
 
     func.func @main(%arg: tensor<2x2xf32>) -> tensor<2x2xf32> {
@@ -82,7 +82,6 @@ module @SimpleNesting {
             DataInfo "out0" : tensor<2x2xf16>
         }
 
-        // Note: non-private function is going to be converted to private
         func.func @foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf16> {
             %out = VPU.Convert(%arg) {dstElemType = f16} : tensor<2x2xf32> -> tensor<2x2xf16>
             return %out : tensor<2x2xf16>
@@ -90,7 +89,7 @@ module @SimpleNesting {
     }
     // CHECK-NOT: module @Nested
 
-    // CHECK: func.func private @foo([[ARG:%.+]]: tensor<2x2xf32>) -> tensor<2x2xf16>
+    // CHECK: func.func nested @foo([[ARG:%.+]]: tensor<2x2xf32>) -> tensor<2x2xf16>
     // CHECK:   [[OUT:%.+]] = VPU.Convert([[ARG]]) {dstElemType = f16}
     // CHECK:   return [[OUT]]
 
@@ -118,12 +117,12 @@ module @MultiNesting {
 
     module @Nested {
         module @Nested2 {
-            func.func private @bar(%arg: tensor<2x2xf16>) -> tensor<2x2xf16> {
+            func.func nested @bar(%arg: tensor<2x2xf16>) -> tensor<2x2xf16> {
                 return %arg : tensor<2x2xf16>
             }
         }
 
-        func.func private @foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf16> {
+        func.func nested @foo(%arg: tensor<2x2xf32>) -> tensor<2x2xf16> {
             %cvt = VPU.Convert(%arg) {dstElemType = f16} : tensor<2x2xf32> -> tensor<2x2xf16>
             %out = Core.NestedCall @Nested2::@bar(%cvt) : (tensor<2x2xf16>) -> tensor<2x2xf16>
             return %out : tensor<2x2xf16>
@@ -132,10 +131,10 @@ module @MultiNesting {
     // CHECK-NOT: module @Nested
     // CHECK-NOT: module @Nested2
 
-    // CHECK: func.func private @bar([[ARG:%.+]]: tensor<2x2xf16>) -> tensor<2x2xf16>
+    // CHECK: func.func nested @bar([[ARG:%.+]]: tensor<2x2xf16>) -> tensor<2x2xf16>
     // CHECK:   return [[ARG]]
 
-    // CHECK: func.func private @foo([[ARG:%.+]]: tensor<2x2xf32>) -> tensor<2x2xf16>
+    // CHECK: func.func nested @foo([[ARG:%.+]]: tensor<2x2xf32>) -> tensor<2x2xf16>
     // CHECK:   [[CVT:%.+]] = VPU.Convert([[ARG]]) {dstElemType = f16}
     // CHECK:   [[OUT:%.+]] = call @bar([[CVT]])
     // CHECK:   return [[OUT]]
@@ -166,23 +165,23 @@ module @SiblingNesting {
 
     module @Nested1 {
         module @special {
-            func.func private @returnArg(%arg: tensor<2x2xf16>) -> tensor<2x2xf16> {
+            func.func nested @returnArg(%arg: tensor<2x2xf16>) -> tensor<2x2xf16> {
                 return %arg : tensor<2x2xf16>
             }
         }
 
-        func.func private @foo1(%arg: tensor<2x2xf16>) -> tensor<2x2xf16> {
+        func.func nested @foo1(%arg: tensor<2x2xf16>) -> tensor<2x2xf16> {
             %out = Core.NestedCall @special::@returnArg(%arg) : (tensor<2x2xf16>) -> tensor<2x2xf16>
             return %out : tensor<2x2xf16>
         }
     }
 
     module @Nested2 {
-        func.func private @foo2(%arg: tensor<2x2xf16>) -> tensor<2x2xf16> {
+        func.func nested @foo2(%arg: tensor<2x2xf16>) -> tensor<2x2xf16> {
             return %arg : tensor<2x2xf16>
         }
 
-        func.func private @somethingElse(%arg: tensor<2x2xf16>) -> tensor<2x2xf16> {
+        func.func nested @somethingElse(%arg: tensor<2x2xf16>) -> tensor<2x2xf16> {
             %out = call @foo2(%arg) : (tensor<2x2xf16>) -> tensor<2x2xf16>
             return %out : tensor<2x2xf16>
         }
@@ -191,17 +190,17 @@ module @SiblingNesting {
     // CHECK-NOT: module @special
     // CHECK-NOT: module @Nested2
 
-    // CHECK: func.func private @returnArg([[ARG:%.+]]: tensor<2x2xf16>) -> tensor<2x2xf16>
+    // CHECK: func.func nested @returnArg([[ARG:%.+]]: tensor<2x2xf16>) -> tensor<2x2xf16>
     // CHECK:   return [[ARG]]
 
-    // CHECK: func.func private @foo1([[ARG:%.+]]: tensor<2x2xf16>) -> tensor<2x2xf16>
+    // CHECK: func.func nested @foo1([[ARG:%.+]]: tensor<2x2xf16>) -> tensor<2x2xf16>
     // CHECK:   [[OUT:%.+]] = call @returnArg([[ARG]])
     // CHECK:   return [[OUT]]
 
-    // CHECK: func.func private @foo2([[ARG:%.+]]: tensor<2x2xf16>) -> tensor<2x2xf16>
+    // CHECK: func.func nested @foo2([[ARG:%.+]]: tensor<2x2xf16>) -> tensor<2x2xf16>
     // CHECK:   return [[ARG]]
 
-    // CHECK: func.func private @somethingElse([[ARG:%.+]]: tensor<2x2xf16>) -> tensor<2x2xf16>
+    // CHECK: func.func nested @somethingElse([[ARG:%.+]]: tensor<2x2xf16>) -> tensor<2x2xf16>
     // CHECK:   [[OUT:%.+]] = call @foo2([[ARG]])
     // CHECK:   return [[OUT]]
 
@@ -233,11 +232,11 @@ module @VPUIP {
     }
 
     module @Module0 {
-        func.func private @foo(%arg0: memref<f16, @DDR>, %arg1: memref<f16, @DDR>) -> memref<f16, @DDR>
+        func.func nested @foo(%arg0: memref<f16, @DDR>, %arg1: memref<f16, @DDR>) -> memref<f16, @DDR>
     }
 
     // CHECK-NOT: module @Module0
-    // CHECK:     func.func private @foo
+    // CHECK:     func.func nested @foo
 
     func.func @main(%arg0: memref<f16, @DDR>, %arg1: memref<f16, @DDR>) -> memref<f16, @DDR> {
     // CHECK: func.func @main

@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
@@ -40,18 +41,34 @@ namespace {
 class ReduceNumTilesForSmallModelsPass final :
         public IE::impl::ReduceNumTilesForSmallModelsPassBase<ReduceNumTilesForSmallModelsPass> {
 public:
-    explicit ReduceNumTilesForSmallModelsPass(Logger log) {
+    explicit ReduceNumTilesForSmallModelsPass(bool enableSDPAContributions, Logger log)
+            : _enableSDPAContributions(enableSDPAContributions) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
+    mlir::LogicalResult initialize(mlir::MLIRContext* ctx) final;
+
 private:
     void safeRunOnModule() final;
+    bool _enableSDPAContributions;
 };
+
+mlir::LogicalResult ReduceNumTilesForSmallModelsPass::initialize(mlir::MLIRContext* ctx) {
+    if (mlir::failed(Base::initialize(ctx))) {
+        return mlir::failure();
+    }
+
+    if (enableSDPAContributions.hasValue()) {
+        _enableSDPAContributions = enableSDPAContributions.getValue();
+    }
+
+    return mlir::success();
+}
 
 void ReduceNumTilesForSmallModelsPass::safeRunOnModule() {
     auto moduleOp = getOperation();
 
-    VPUX_THROW_UNLESS(config::hasTileExecutor(moduleOp), "Expected module to have 'IE::TileResourceOp'.");
+    VPUX_THROW_UNLESS(config::hasTileExecutor(moduleOp), "Expected module to have 'config::ResourcesOp'.");
 
     // Calculate mean of shapes
     llvm::DenseMap<mlir::Operation*, double> averageShapesSizes;
@@ -89,14 +106,27 @@ void ReduceNumTilesForSmallModelsPass::safeRunOnModule() {
     auto multiplyCount = std::count_if(averageShapesSizes.begin(), averageShapesSizes.end(), [](const auto& op) {
         return mlir::isa<IE::MultiplyOp>(op.first);
     });
-    auto multiplyRatio = static_cast<double>(multiplyCount) / averageShapesSizes.size();
+
     auto matMulCount = std::count_if(averageShapesSizes.begin(), averageShapesSizes.end(), [](const auto& op) {
         return mlir::isa<IE::MatMulOp>(op.first);
     });
-    auto matMulRatio = static_cast<double>(matMulCount) / averageShapesSizes.size();
+
     auto softmaxCount = std::count_if(averageShapesSizes.begin(), averageShapesSizes.end(), [](const auto& op) {
         return mlir::isa<IE::SoftMaxOp>(op.first);
     });
+
+    if (_enableSDPAContributions) {
+        const auto sdpaCount = std::count_if(averageShapesSizes.begin(), averageShapesSizes.end(), [](const auto& op) {
+            return mlir::isa<IE::SDPAOp>(op.first);
+        });
+        multiplyCount += sdpaCount;
+        matMulCount += (sdpaCount * 2);
+        softmaxCount += sdpaCount;
+    }
+
+    const auto archKind = config::getArch(moduleOp);
+    auto multiplyRatio = static_cast<double>(multiplyCount) / averageShapesSizes.size();
+    auto matMulRatio = static_cast<double>(matMulCount) / averageShapesSizes.size();
     auto softmaxRatio = static_cast<double>(softmaxCount) / averageShapesSizes.size();
 
     const auto tileCount = VPUIP::getNumTilesUsed(moduleOp);
@@ -109,7 +139,6 @@ void ReduceNumTilesForSmallModelsPass::safeRunOnModule() {
         tileOp.setCount(1);
         _log.info("Tiles number overwritten to {0} for small model", tileOp.getCount());
 
-        auto archKind = config::getArch(moduleOp);
         if (archKind == config::ArchKind::NPU37XX || archKind == config::ArchKind::NPU40XX) {
             // 2 DMAs are not supported for 1T compilation before NPU50XX
             auto numDMAPorts = config::getAvailableExecutor(moduleOp, config::ExecutorKind::DMA_NN);
@@ -126,5 +155,9 @@ void ReduceNumTilesForSmallModelsPass::safeRunOnModule() {
 //
 
 std::unique_ptr<mlir::Pass> vpux::IE::createReduceNumTilesForSmallModelsPass(Logger log) {
-    return std::make_unique<ReduceNumTilesForSmallModelsPass>(log);
+    return std::make_unique<ReduceNumTilesForSmallModelsPass>(/*enableSDPAContributions=*/false, log);
+}
+
+std::unique_ptr<mlir::Pass> vpux::IE::createReduceNumTilesForSmallModelsPass(bool enableSDPAContributions, Logger log) {
+    return std::make_unique<ReduceNumTilesForSmallModelsPass>(enableSDPAContributions, log);
 }

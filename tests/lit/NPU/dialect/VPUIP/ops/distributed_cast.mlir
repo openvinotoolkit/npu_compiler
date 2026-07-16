@@ -16,13 +16,13 @@
 }>
 
 // CHECK-LABEL: @Fold
-// CHECK-SAME: [[ARG_0:%[^:]+]]: memref<1x128x16x16xf16, #NHWC, @CMX_NN>
-func.func @Fold(%arg0: memref<1x128x16x16xf16, #NHWC, @CMX_NN>, %arg1: memref<1x128x16x16xf16, #NHWC, @CMX_NN>) -> memref<1x128x16x16xf16, #NHWC, @CMX_NN> {
-    %0 = builtin.unrealized_conversion_cast %arg0 : memref<1x128x16x16xf16, #NHWC, @CMX_NN> to !DistributedBuffer
+// CHECK-SAME: [[ARG_0:%[^:]+]]: memref<1x128x16x16xf16, {order = #NHWC}, @CMX_NN>
+func.func @Fold(%arg0: memref<1x128x16x16xf16, {order = #NHWC}, @CMX_NN>, %arg1: memref<1x128x16x16xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x128x16x16xf16, {order = #NHWC}, @CMX_NN> {
+    %0 = builtin.unrealized_conversion_cast %arg0 : memref<1x128x16x16xf16, {order = #NHWC}, @CMX_NN> to !DistributedBuffer
     %1 = VPUIP.DistributedCast inputs(%0 : !DistributedBuffer) -> !DistributedBuffer
-    %2 = builtin.unrealized_conversion_cast %1 : !DistributedBuffer to memref<1x128x16x16xf16, #NHWC, @CMX_NN>
-    return %2 : memref<1x128x16x16xf16, #NHWC, @CMX_NN>
+    %2 = builtin.unrealized_conversion_cast %1 : !DistributedBuffer to memref<1x128x16x16xf16, {order = #NHWC}, @CMX_NN>
+    return %2 : memref<1x128x16x16xf16, {order = #NHWC}, @CMX_NN>
 
     // CHECK-NOT:  VPUIP.DistributedCast
-    // CHECK:      return [[ARG_0]] : memref<1x128x16x16xf16, #NHWC, @CMX_NN>
+    // CHECK:      return [[ARG_0]] : memref<1x128x16x16xf16, {order = #NHWC}, @CMX_NN>
 }

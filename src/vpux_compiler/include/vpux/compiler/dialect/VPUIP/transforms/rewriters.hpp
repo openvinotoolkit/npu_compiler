@@ -28,8 +28,7 @@ void registerUngroupSparseBufferRewriters(vpux::RewriterRegistry& registry, Logg
 // OptimizeCopies Pipeline
 //
 
-void registerOptimizeCopiesRewriters(vpux::RewriterRegistry& registry, WorkloadManagementMode workloadManagementMode,
-                                     Logger log = Logger::global());
+void registerOptimizeCopiesRewriters(vpux::RewriterRegistry& registry, Logger log = Logger::global());
 
 void registerOptimizeCopiesSection(vpux::RewriterRegistry& registry);
 

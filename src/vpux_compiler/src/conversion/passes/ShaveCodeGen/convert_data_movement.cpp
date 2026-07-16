@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 
+#include <mlir/Dialect/Quant/IR/Quant.h>
 #include <mlir/IR/AffineMap.h>
 #include <mlir/Transforms/DialectConversion.h>
 
@@ -30,12 +31,6 @@ mlir::LogicalResult IESliceToExtractSlice::matchAndRewrite(IE::SliceOp op, OpAda
                                                            mlir::ConversionPatternRewriter& rewriter) const {
     auto inputNdType = mlir::cast<NDTypeInterface>(op->getOperand(0).getType());
     auto inputRank = inputNdType.getRank();
-    auto outputNdType = mlir::cast<NDTypeInterface>(op->getResult(0).getType());
-
-    auto resultDimsOrder = DimsOrder::fromPermutation(outputNdType.getDimsOrder().toPermutation());
-    auto flatResultShape = resultDimsOrder.toMemoryOrder(outputNdType.getShape()).raw();
-    auto elTy = inputNdType.getElementType();
-    auto flatResultTy = mlir::RankedTensorType::get(flatResultShape, elTy);
     auto inputMemMap = inputNdType.getDimsOrder().toAffineMap(op.getContext());
 
     auto input = adaptor.getOperands()[0];
@@ -47,13 +42,34 @@ mlir::LogicalResult IESliceToExtractSlice::matchAndRewrite(IE::SliceOp op, OpAda
     auto memSliceSizes = mlir::applyPermutationMap<int64_t>(inputMemMap, sliceSizes);
     SmallVector<int64_t> sliceStrides(inputRank, 1);
 
+    auto normalizedOutTy = ShaveCodeGen::normalizeType(op.getResult().getType());
+    auto inputTy = mlir::cast<mlir::RankedTensorType>(input.getType());
+    auto extractResultTy = normalizedOutTy;
+    auto quantType = mlir::dyn_cast<mlir::quant::QuantizedType>(inputTy.getElementType());
+
+    if (quantType) {
+        // Since ExtractSlice cannot change types we need to operate on the storage type.
+        // Create a StorageCast to the storage type, we'll cast this back after the ExtractSlice
+        auto outQuantType = mlir::cast<mlir::quant::QuantizedType>(normalizedOutTy.getElementType());
+        auto storageElemType = outQuantType.getStorageType();
+        auto storageInTy = mlir::RankedTensorType::get(inputTy.getShape(), storageElemType, inputTy.getEncoding());
+        extractResultTy =
+                mlir::RankedTensorType::get(normalizedOutTy.getShape(), storageElemType, normalizedOutTy.getEncoding());
+        input = rewriter.create<mlir::quant::StorageCastOp>(op.getLoc(), storageInTy, input);
+    }
+
     // Build the extract slice op
     auto extractSlice = rewriter.create<mlir::tensor::ExtractSliceOp>(
-            op.getLoc(), mlir::TypeRange{flatResultTy}, input, mlir::ValueRange{}, mlir::ValueRange{},
+            op.getLoc(), mlir::TypeRange{extractResultTy}, input, mlir::ValueRange{}, mlir::ValueRange{},
             mlir::ValueRange{}, memSliceOffsets, memSliceSizes, sliceStrides);
 
-    rewriter.replaceOp(op, extractSlice);
+    mlir::Value result = extractSlice.getResult();
+    if (quantType) {
+        // Recast this back to the output quant type if needed.
+        result = rewriter.create<mlir::quant::StorageCastOp>(op.getLoc(), normalizedOutTy, result).getResult();
+    }
 
+    rewriter.replaceOp(op, result);
     return mlir::success();
 }
 

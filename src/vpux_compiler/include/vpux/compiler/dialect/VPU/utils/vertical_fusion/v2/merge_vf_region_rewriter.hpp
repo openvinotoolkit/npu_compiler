@@ -40,6 +40,8 @@ public:
 protected:
     std::optional<VFCase> findVFCase(VPU::VerticalFusionOp prevOp, VPU::VerticalFusionOp currentOp,
                                      VPU::VerticalFusionOp mergedOp) const override;
+    bool checkVFCostFunction(VPU::VerticalFusionOp prevOp, VPU::VerticalFusionOp currentOp,
+                             VFCase& mergedCase) const override;
     bool canMergeVFOpsWithoutCostCheck(VFCase& mergedCase) const override;
     bool canSkipMergeVF(VFConfig& vfConfig, bool opsNeedTiling) const override;
     VPU::StrategyCost extractVFCost(VFConfig& vfConfig) const override;
@@ -51,8 +53,6 @@ protected:
             const OpWithViewInputs& opToAdjust, VPU::ClusteredOpInterface userOp,
             const DenseMap<VPU::ClusteredOpInterface, VPU::MultiClusterStrategy>& rollbackStrategy) const;
 
-    bool cmxSizeExceedForEltwiseOpWithSwOpUser(VFConfig& currentConfig, ArrayRef<mlir::Operation*> parents,
-                                               Logger log) const;
     std::shared_ptr<IVFScheduling<VFConfig>> detectScenario(VFConfig& vfConfig) const override;
     std::optional<VFCase> findVFTiling(VPU::VerticalFusionOp mergedOp, VPU::VerticalFusionOp prevOp,
                                        VPU::VerticalFusionOp currentOp) const;

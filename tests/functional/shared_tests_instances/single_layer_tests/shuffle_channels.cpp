@@ -9,6 +9,9 @@
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ShuffleChannelsLayerTest);
+
 class ShuffleChannelsLayerTestCommon : public ShuffleChannelsLayerTest, virtual public VpuOv2LayerTest {};
 
 TEST_P(ShuffleChannelsLayerTestCommon, NPU3720_SW) {

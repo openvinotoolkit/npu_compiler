@@ -20,11 +20,11 @@ config.PipelineOptions @Options {
 func.func @ConvMulticlusterSOHOverlapped(%arg0: tensor<1x64x28x28xf16, {order = #NHWC}>) -> tensor<1x3x28x28xf16, {order = #NHWC}> {
     %cst = const.Declare tensor<16x1x1x4xsi32> = dense<10> : tensor<16x1x1x4xsi32>
     %cst_0 = const.Declare tensor<3x64x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<3x64x3x3xf16>, [#const.Reorder<#NHWC>]
-    %0 = VPU.NCE.Convolution(%arg0, %cst_0, %cst) {
+    %0 = VPU.NCE.Convolution(%arg0, %cst_0, %cst) rawFilterShape [3, 64, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
-        rawFilterShape = [3, 64, 3, 3],
+        
         strides = [1, 1]}
       : tensor<1x64x28x28xf16, {order = #NHWC}>, tensor<3x64x3x3xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x3x28x28xf16, {order = #NHWC}>
     return %0 : tensor<1x3x28x28xf16, {order = #NHWC}>
@@ -51,7 +51,8 @@ func.func @ConvMulticlusterSOHOverlapped(%arg0: tensor<1x64x28x28xf16, {order = 
 // CHECK-SAME{LITERAL}:                                                compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
 // CHECK-SAME{LITERAL}:                                                memory_shapes = [[16, 1, 1, 4], [16, 1, 1, 4], [16, 1, 1, 4]],
 // CHECK-SAME{LITERAL}:                                                memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
-// CHECK:               [[CONV:%.+]] = VPU.NCE.Convolution([[IN_CP0]], [[IN_CP1]], [[IN_CP2]]) {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [3, 64, 3, 3], strides = [1, 1]}
+// CHECK:               [[CONV:%.+]] = VPU.NCE.Convolution([[IN_CP0]], [[IN_CP1]], [[IN_CP2]]) rawFilterShape [3, 64, 3, 3] {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK-SAME:                                                         strides = [1, 1]}
 // CHECK-SAME{LITERAL}:                                                -> !VPU.DistributedTensor<1x3x28x28xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
 // CHECK-SAME{LITERAL}:                                                compute_shapes = [[1, 3, 10, 28], [1, 3, 9, 28], [1, 3, 9, 28]],
 // CHECK-SAME{LITERAL}:                                                compute_offsets = [[0, 0, 0, 0], [0, 0, 10, 0], [0, 0, 19, 0]],
@@ -84,11 +85,11 @@ config.PipelineOptions @Options {
 func.func @ConvMulticlusterSOHLargeWeights(%arg0: tensor<1x768x128x4xf16, {order = #NHWC}>) -> tensor<1x1x128x4xf16, {order = #NHWC}> {
     %cst = const.Declare tensor<16x1x1x4xsi32> = dense<10> : tensor<16x1x1x4xsi32>
     %cst_0 = const.Declare tensor<1x768x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<1x768x1x1xf16>, [#const.Reorder<#NHWC>]
-    %0 = VPU.NCE.Convolution(%arg0, %cst_0, %cst) {
+    %0 = VPU.NCE.Convolution(%arg0, %cst_0, %cst) rawFilterShape [1, 768, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
-        rawFilterShape = [1, 768, 1, 1],
+        
         strides = [1, 1]}
       : tensor<1x768x128x4xf16, {order = #NHWC}>, tensor<1x768x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x1x128x4xf16, {order = #NHWC}>
     return %0 : tensor<1x1x128x4xf16, {order = #NHWC}>
@@ -115,7 +116,8 @@ func.func @ConvMulticlusterSOHLargeWeights(%arg0: tensor<1x768x128x4xf16, {order
 // CHECK-SAME{LITERAL}:                                                compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
 // CHECK-SAME{LITERAL}:                                                memory_shapes = [[16, 1, 1, 4], [16, 1, 1, 4], [16, 1, 1, 4]],
 // CHECK-SAME{LITERAL}:                                                memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
-// CHECK:               [[CONV:%.+]] = VPU.NCE.Convolution([[IN_CP0]], [[IN_CP1]], [[IN_CP2]]) {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [1, 768, 1, 1], strides = [1, 1]}
+// CHECK:               [[CONV:%.+]] = VPU.NCE.Convolution([[IN_CP0]], [[IN_CP1]], [[IN_CP2]]) rawFilterShape [1, 768, 1, 1] {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK-SAME:                                                         strides = [1, 1]}
 // CHECK-SAME{LITERAL}:                                                -> !VPU.DistributedTensor<1x1x128x4xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
 // CHECK-SAME{LITERAL}:                                                compute_shapes = [[1, 1, 43, 4], [1, 1, 43, 4], [1, 1, 42, 4]],
 // CHECK-SAME{LITERAL}:                                                compute_offsets = [[0, 0, 0, 0], [0, 0, 43, 0], [0, 0, 86, 0]],
@@ -150,7 +152,7 @@ config.PipelineOptions @Options {
 func.func @DepthConvDistributedTensorSOHOverlapped(%arg0: tensor<1x32x112x112xf16, {order = #NHWC}>) -> tensor<1x3x112x112xf16, {order = #NHWC}> {
     %cst_0 = const.Declare tensor<16x1x1x4xsi32> = dense<10> : tensor<16x1x1x4xsi32>
     %cst_1 = const.Declare tensor<3x16x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<3x16x1x1xf16>, [#const.Reorder<#NHWC>]
-    %0 = VPU.NCE.DepthConvolution(%arg0, %cst_1, %cst_0) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, rawFilterShape = [3, 1, 3, 3], strides = [1, 1]} -> tensor<1x3x112x112xf16, {order = #NHWC}>
+    %0 = VPU.NCE.DepthConvolution(%arg0, %cst_1, %cst_0) rawFilterShape [3, 1, 3, 3] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,  strides = [1, 1]} -> tensor<1x3x112x112xf16, {order = #NHWC}>
     return %0 : tensor<1x3x112x112xf16, {order = #NHWC}>
 
 // CHECK:    [[WEIGHTSTABLE:%.+]]  = const.Declare tensor<16x1x1x4xsi32> = dense<10> : tensor<16x1x1x4xsi32>
@@ -174,7 +176,8 @@ func.func @DepthConvDistributedTensorSOHOverlapped(%arg0: tensor<1x32x112x112xf1
 // CHECK-SAME{LITERAL}:                                                    compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
 // CHECK-SAME{LITERAL}:                                                    memory_shapes = [[16, 1, 1, 4], [16, 1, 1, 4], [16, 1, 1, 4]],
 // CHECK-SAME{LITERAL}:                                                    memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
-// CHECK:               [[DEPTH_CONV:%.+]] = VPU.NCE.DepthConvolution([[IN_CP0]], [[IN_CP1]], [[IN_CP2]]) {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [3, 1, 3, 3], strides = [1, 1]}
+// CHECK:               [[DEPTH_CONV:%.+]] = VPU.NCE.DepthConvolution([[IN_CP0]], [[IN_CP1]], [[IN_CP2]]) rawFilterShape [3, 1, 3, 3] {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK-SAME:                                                             strides = [1, 1]}
 // CHECK-SAME{LITERAL}:                                                    -> !VPU.DistributedTensor<1x3x112x112xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
 // CHECK-SAME{LITERAL}:                                                    compute_shapes = [[1, 3, 38, 112], [1, 3, 37, 112], [1, 3, 37, 112]],
 // CHECK-SAME{LITERAL}:                                                    compute_offsets = [[0, 0, 0, 0], [0, 0, 38, 0], [0, 0, 75, 0]],
@@ -207,7 +210,7 @@ config.PipelineOptions @Options {
 // CHECK-LABEL: @MaxPoolMulticlusterSOHOverlapped
 // CHECK-SAME:    ([[ARG0:%.+]]: tensor<1x16x112x112xf16, {order = #NHWC}>
 func.func @MaxPoolMulticlusterSOHOverlapped(%arg0: tensor<1x16x112x112xf16, {order = #NHWC}>) -> tensor<1x3x112x112xf16, {order = #NHWC}> {
-    %0 = VPU.NCE.MaxPool(%arg0) {
+    %0 = VPU.NCE.MaxPool(%arg0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
@@ -224,7 +227,8 @@ func.func @MaxPoolMulticlusterSOHOverlapped(%arg0: tensor<1x16x112x112xf16, {ord
 // CHECK-SAME{LITERAL}:                                                    compute_offsets = [[0, 0, 0, 0], [0, 0, 38, 0], [0, 0, 75, 0]],
 // CHECK-SAME{LITERAL}:                                                    memory_shapes = [[1, 16, 38, 112], [1, 16, 37, 112], [1, 16, 37, 112]],
 // CHECK-SAME{LITERAL}:                                                    memory_offsets = [[0, 0, 0, 0], [0, 0, 38, 0], [0, 0, 75, 0]]}>
-// CHECK:               [[MAXPOOL:%.+]] = VPU.NCE.MaxPool([[IN_CP0]]) {input_padding = [0, 13, 0, 0], kernel_size = [1, 1], output_padding = [0, 0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, strides = [1, 1]}
+// CHECK:               [[MAXPOOL:%.+]] = VPU.NCE.MaxPool([[IN_CP0]]) {input_padding = [0, 13, 0, 0], kernel_size = [1, 1], output_padding = [0, 0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
+// CHECK-SAME:                                                             strides = [1, 1]}
 // CHECK-SAME{LITERAL}:                                                    -> !VPU.DistributedTensor<1x3x112x112xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
 // CHECK-SAME{LITERAL}:                                                    compute_shapes = [[1, 3, 38, 112], [1, 3, 37, 112], [1, 3, 37, 112]],
 // CHECK-SAME{LITERAL}:                                                    compute_offsets = [[0, 0, 0, 0], [0, 0, 38, 0], [0, 0, 75, 0]],
@@ -442,11 +446,11 @@ config.Resources 3 of @NCE at 1.700000e+03 MHz
 func.func @PermuteMulticlusterSOKWithAlignedParent(%arg0: tensor<1x64x64x64xf16, {order = #NHWC}>) -> tensor<1x64x64x64xf16, {order = #NHWC}> {
     %weights = const.Declare tensor<64x64x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<64x64x1x1xf16>, [#const.Reorder<#NHWC>]
     %weights_table = const.Declare tensor<64x1x1x4xsi32> = dense<10> : tensor<64x1x1x4xsi32>
-    %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) {
+    %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) rawFilterShape [64, 64, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            rawFilterShape = [64, 64, 1, 1], strides = [1, 1]
+             strides = [1, 1]
             } : tensor<1x64x64x64xf16, {order = #NHWC}>, tensor<64x64x1x1xf16, {order = #NHWC}>, tensor<64x1x1x4xsi32> -> tensor<1x64x64x64xf16>
     %1 = VPU.MVN(%0) {
             across_channels = false, eps = 1.0E-4 : f64,
@@ -580,7 +584,6 @@ func.func @ReverseSequenceMulticlusterSplitOverHeight(%arg0: tensor<1x1x48x16xf1
 #NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
 
 config.Resources 3 of @NCE at 2.100000e+03 MHz {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU
@@ -666,7 +669,6 @@ func.func @FlashSDPA_SoH(%arg0: tensor<1x8x64x64xf16>, %arg1: tensor<1x8x32x64xf
 #NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
 
 config.Resources 3 of @NCE at 2.100000e+03 MHz {
-    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU

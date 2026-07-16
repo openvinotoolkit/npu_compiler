@@ -7,11 +7,13 @@
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/core/types/quantile_float/types.hpp"
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
+#include "vpux/compiler/dialect/VPU/interfaces/ppe_capability.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/nce_sparsity_converters.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/types.hpp"
 #include "vpux/utils/core/enums.hpp"
 #include "vpux/utils/core/numeric.hpp"
@@ -53,11 +55,20 @@ llvm::unique_function<ScaleElemType(size_t)> getBiasFunc(mlir::Type inElemType, 
 
     if (isQuant || isQuantInFloatOut) {
         // PPE engages float by-pass in this case. Apply re-scaling.
-        auto rescaledBias = VPU::NCESparsity::getRescaledBias(bias, inElemType, weightsElemType, OC);
-        VPUX_THROW_WHEN(mlir::failed(rescaledBias), "Rescaled bias value is out of range");
+        // Redundant safety net: if the IE-level checkRescaledBiasRange was somehow bypassed
+        // for NPU37XX/40XX (which store bias as int32), this catches the overflow before
+        // arch37xx::getBias fires checked_cast<int32_t>. NPU50XX+ always returns f32 so
+        // checkInt32Range is false for them.
+        const auto* ppeCapability = VPU::tryGetPPECapability(inElemType.getContext());
+        const bool checkInt32Range =
+                !ppeCapability || mlir::isa<mlir::IntegerType>(ppeCapability->getBiasStorageType(inElemType));
+        auto rescaledBiasResult =
+                VPU::NCESparsity::getRescaledBias(bias, inElemType, weightsElemType, OC, checkInt32Range);
+        VPUX_THROW_WHEN(mlir::failed(rescaledBiasResult),
+                        "Rescaled bias value is out of int32 range; fusion should have been blocked at IE level");
+        auto rescaledBias = std::move(rescaledBiasResult.value());
 
-        return [rescaledBiasValue = std::move(rescaledBias.value()), inElemType,
-                biasConverter](size_t oc) -> ScaleElemType {
+        return [rescaledBiasValue = std::move(rescaledBias), inElemType, biasConverter](size_t oc) -> ScaleElemType {
             return std::get<ScaleElemType>(biasConverter(rescaledBiasValue[oc], inElemType));
         };
     } else if (isFloat || isFloatInQuantOut) {
@@ -147,7 +158,7 @@ std::vector<int32_t> vpux::VPU::NCESparsity::getWeightsTable(
     SmallVector<int32_t> weightsPtrs(OC, 0);
     SmallVector<int32_t> sparsityPtrs(OC, 0);
 
-    // Generate aligned offsets for weight and sparsity pointers.
+    // Generate aligned offsets for weight and sparsity-pointers.
     // Note: These are placeholder offsets, not actual memory addresses. The real weight pointers
     // will be calculated in the createRelocateWeightTableForReuse pass after tiling is applied.
     //
@@ -179,7 +190,7 @@ std::vector<int32_t> vpux::VPU::NCESparsity::getWeightsTable(
     VPUX_THROW_WHEN(static_cast<int64_t>(weightsPtrs.size()) != OC,
                     "Weights pointers size {0} different than output channels {1}", weightsPtrs.size(), OC);
     VPUX_THROW_WHEN(static_cast<int64_t>(sparsityPtrs.size()) != OC,
-                    "Sparsity pointers size {0} different than output channels {1}", sparsityPtrs.size(), OC);
+                    "Sparsity-pointers size {0} different than output channels {1}", sparsityPtrs.size(), OC);
 
     auto getMultShift = getMultShiftFunc<int32_t>(inElemType, outElemType, weightsElemType, ppeConverter,
                                                   checked_cast<size_t>(OC), constScale);
@@ -253,6 +264,14 @@ std::vector<float> vpux::VPU::NCESparsity::getBiasTable(mlir::Type inElemType, m
     return biasTableVals;
 }
 
+std::vector<float> vpux::VPU::NCESparsity::getAlphaTable(int64_t OC, mlir::ArrayAttr negativeSlope) {
+    VPUX_THROW_UNLESS(negativeSlope != nullptr, "Cannot create alpha table from a null negative slope attribute");
+    const auto slopes = parseFPArrayAttr<float>(negativeSlope);
+    VPUX_THROW_UNLESS(checked_cast<int64_t>(slopes.size()) == OC,
+                      "Alpha slope count '{0}' does not match output channel count '{1}'", slopes.size(), OC);
+    return std::vector<float>(slopes.begin(), slopes.end());
+}
+
 std::vector<int32_t> vpux::VPU::NCESparsity::patchWeightsTableSparsityPtrs(
         const std::vector<std::int32_t>& weightsTableVals, const int32_t sparsityPtrOffset,
         const int32_t sparsityPtrStep, std::optional<int64_t> origOC) {
@@ -315,7 +334,8 @@ Shape vpux::VPU::NCESparsity::inferWeightsSparsityMapShape(ShapeRef dataShape) {
 
 mlir::FailureOr<SmallVector<double>> vpux::VPU::NCESparsity::getRescaledBias(const Const::ContentAttr& biasAttr,
                                                                              mlir::Type inElemType,
-                                                                             mlir::Type filterElemType, int64_t OC) {
+                                                                             mlir::Type filterElemType, int64_t OC,
+                                                                             bool checkInt32Range) {
     auto inQuantScale = mlir::isa<mlir::quant::QuantizedType>(inElemType) ? extractScalesAndZeroPoints(inElemType).first
                                                                           : SmallVector<double>{1.0};
     auto filterQuantScales = mlir::isa<mlir::quant::QuantizedType>(filterElemType)
@@ -336,10 +356,17 @@ mlir::FailureOr<SmallVector<double>> vpux::VPU::NCESparsity::getRescaledBias(con
     std::transform(biasValueRange.begin(), biasValueRange.begin() + OC, rescaledBias.begin(), rescaledBias.begin(),
                    std::divides<>());
 
-    const auto isValueOutOfRange = llvm::any_of(rescaledBias, [](double newBiasData) {
-        return newBiasData <= std::numeric_limits<int32_t>::min() || newBiasData >= std::numeric_limits<int32_t>::max();
+    // arch37xx::getBias stores the value as checked_cast<int32_t>(std::round(v)); check the
+    // post-rounded value so boundary values that round() can produce are not incorrectly rejected.
+
+    auto isOutOfInt32Range = llvm::any_of(rescaledBias, [](double v) {
+        const double kInt32Min = static_cast<double>(std::numeric_limits<int32_t>::min());
+        const double kInt32Max = static_cast<double>(std::numeric_limits<int32_t>::max());
+        const double r = std::round(v);
+        return r < kInt32Min || r > kInt32Max;
     });
-    if (isValueOutOfRange) {
+
+    if (checkInt32Range && isOutOfInt32Range) {
         return mlir::failure();
     }
     return rescaledBias;
@@ -396,7 +423,7 @@ bool vpux::VPU::NCESparsity::isSparsifiableWeightsOperand(mlir::Value operand) {
     return true;
 }
 
-bool vpux::VPU::NCESparsity::isSuperdenseRequired(const DimsOrder outOrder, const ShapeRef outShape,
+bool vpux::VPU::NCESparsity::isSuperdenseRequired(const DimsOrder& outOrder, const ShapeRef outShape,
                                                   const mlir::Type outElemType) {
     // If the inner-most dimension of output shape is aligned, super-dense mode is not required.
     const auto outputMemShape = outOrder.toMemoryOrder(outShape);
@@ -508,11 +535,11 @@ std::vector<int32_t> vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::comput
     return result;
 }
 
-// zeroPointsKx[index] = value means that the zero point that is at the position "value"
+// zeroPointsKx[index] = value means that the zero-point that is at the position "value"
 // will be mapped to position "index" in the new format
-// for example, zeroPointsK64[3] = 18 means that the zero point that is at position 18
+// for example, zeroPointsK64[3] = 18 means that the zero-point that is at position 18
 // will be mapped to position 3 in the new format
-// Also, these zero points tables will be used to construct statically the tables (named pointersKx) that will correctly
+// Also, these zero-points tables will be used to construct statically the tables (named pointersKx) that will correctly
 // format the data/sparsity-pointer vectors
 std::vector<int32_t> vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::zeroPointsK16 =
         std::vector<int32_t>{0, 2, 1, 3, 4, 6, 5, 7, 8, 10, 9, 11, 12, 14, 13, 15};
@@ -602,8 +629,8 @@ std::vector<int32_t> vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::getPoi
     return pointerTables[k / WEIGHTS_TABLE_SETS_MIN_ALIGNMENT - 1];
 }
 
-int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::getZPTableAlignmentForWorkload(bool isZeroPoint4Bit,
-                                                                                            int32_t workloadSize) {
+int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::getZeroPointTableAlignmentForWorkload(
+        bool isZeroPoint4Bit, int32_t workloadSize) {
     if (isZeroPoint4Bit) {
         return vpux::alignValUp(workloadSize / 2, ZERO_POINT_TABLE_READER_ALIGNMENT);
     } else {
@@ -611,7 +638,7 @@ int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::getZPTableAlignment
     }
 }
 
-int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::getZPTableLogicalAlignmentForWorkload(
+int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::getZeroPointTableLogicalAlignmentForWorkload(
         bool isZeroPoint4Bit, int32_t workloadSize) {
     if (isZeroPoint4Bit) {
         return vpux::alignValUp(workloadSize, ZERO_POINT_TABLE_READER_ALIGNMENT * 2);
@@ -620,7 +647,7 @@ int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::getZPTableLogicalAl
     }
 }
 
-int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::encodePositionInWorkloadInNewZeroPointOnlyTableLayout(
+int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::encodePositionInWorkloadInZeroPointTableLayout(
         int32_t position, int32_t k) {
     auto map = getZeroPointInversePermutationTableByK(k);
     auto oldPosOffset = position - position % ZERO_POINT_TABLE_PATTERN_LENGTH;
@@ -628,7 +655,7 @@ int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::encodePositionInWor
     return newPos;
 }
 
-int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::encodePositionInNewZeroPointOnlyTableLayout(
+int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::encodePositionInZeroPointTableLayout(
         bool isZeroPoint4Bit, int32_t position, std::vector<int32_t> workloads) {
     VPUX_THROW_WHEN(position < 0, "The position has to be valid, i.e. a natural number, not {0}", position);
     VPUX_THROW_WHEN(workloads.size() == 0, "There has to be at least one workload");
@@ -655,7 +682,7 @@ int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::encodePositionInNew
             return INVALID_POSITION_OUT_OF_RANGE;
         }
 
-        workloadOffset += getZPTableLogicalAlignmentForWorkload(isZeroPoint4Bit, workloads[workloadIndex]);
+        workloadOffset += getZeroPointTableLogicalAlignmentForWorkload(isZeroPoint4Bit, workloads[workloadIndex]);
         position -= workloads[workloadIndex];
         workloadIndex += 1;
     }
@@ -670,10 +697,10 @@ int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::encodePositionInNew
         elemsInCurrentGroup = workloads[workloadIndex] % ZERO_POINT_TABLE_PATTERN_LENGTH;
     }
 
-    return workloadOffset + encodePositionInWorkloadInNewZeroPointOnlyTableLayout(position, elemsInCurrentGroup);
+    return workloadOffset + encodePositionInWorkloadInZeroPointTableLayout(position, elemsInCurrentGroup);
 }
 
-int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::decodePositionInWorkloadInNewZeroPointOnlyTableLayout(
+int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::decodePositionInWorkloadInZeroPointTableLayout(
         int32_t position, int32_t k) {
     auto map = getZeroPointTableByK(k);
     auto oldPosOffset = position - position % ZERO_POINT_TABLE_PATTERN_LENGTH;
@@ -681,7 +708,7 @@ int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::decodePositionInWor
     return newPos;
 }
 
-int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::decodePositionInNewZeroPointOnlyTableLayout(
+int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::decodePositionInZeroPointTableLayout(
         bool isZeroPoint4Bit, int32_t position, std::vector<int32_t> workloads) {
     VPUX_THROW_WHEN(position < 0, "The position has to be valid, i.e. a natural number, not {0}", position);
     VPUX_THROW_WHEN(workloads.size() == 0, "There has to be at least one workload");
@@ -700,7 +727,8 @@ int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::decodePositionInNew
     // workloadIndex will be 1
     int32_t workloadOffset = 0;
 
-    int32_t alignedWorkloadSize = getZPTableLogicalAlignmentForWorkload(isZeroPoint4Bit, workloads[workloadIndex]);
+    int32_t alignedWorkloadSize =
+            getZeroPointTableLogicalAlignmentForWorkload(isZeroPoint4Bit, workloads[workloadIndex]);
 
     // compute workloadIndex and workloadOffset, while adjusting position
     while (position >= alignedWorkloadSize) {
@@ -714,7 +742,7 @@ int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::decodePositionInNew
         position -= alignedWorkloadSize;
         workloadIndex += 1;
 
-        alignedWorkloadSize = getZPTableLogicalAlignmentForWorkload(isZeroPoint4Bit, workloads[workloadIndex]);
+        alignedWorkloadSize = getZeroPointTableLogicalAlignmentForWorkload(isZeroPoint4Bit, workloads[workloadIndex]);
     }
 
     // each workload have at least one group, formed by last "workload_size % 128" elements; all other chunks of 128
@@ -732,7 +760,7 @@ int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::decodePositionInNew
         return PADDING_POSITION_INDICATOR;
     }
 
-    return workloadOffset + decodePositionInWorkloadInNewZeroPointOnlyTableLayout(position, elemsInCurrentGroup);
+    return workloadOffset + decodePositionInWorkloadInZeroPointTableLayout(position, elemsInCurrentGroup);
 }
 
 int8_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::extractOneZPFromZPPalletizedByte(int8_t zeroPoint,

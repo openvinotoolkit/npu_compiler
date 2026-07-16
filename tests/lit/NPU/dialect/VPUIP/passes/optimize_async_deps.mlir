@@ -7,7 +7,7 @@
 // REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
 module @VPU.SW {
-    func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {
+    func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {
         VPU.kernel_code = "activation_relu.cpp", VPU.kernel_entry = "activation_relu", VPU.task_type = @COMPUTE
     }
 }
@@ -77,7 +77,7 @@ func.func @LinearGraph(%arg0: memref<10xf16>, %arg1: memref<10xf16>) -> memref<1
 // -----
 
 module @VPU.SW {
-func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {
+func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {
         VPU.kernel_code = "activation_relu.cpp", VPU.kernel_entry = "activation_relu", VPU.task_type = @COMPUTE
     }
 }
@@ -146,7 +146,7 @@ func.func @IndependentBranchesLinearSched(%arg0: memref<10xf16>, %arg1: memref<1
 // -----
 
 module @VPU.SW {
-    func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {
+    func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {
         VPU.kernel_code = "activation_relu.cpp", VPU.kernel_entry = "activation_relu", VPU.task_type = @COMPUTE
     }
 }
@@ -213,7 +213,7 @@ func.func @IndependentBranchesParallelSched(%arg0: memref<10xf16>, %arg1: memref
 // -----
 
 module @VPU.SW {
-    func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {
+    func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {
         VPU.kernel_code = "activation_relu.cpp", VPU.kernel_entry = "activation_relu", VPU.task_type = @COMPUTE
     }
 }
@@ -288,11 +288,11 @@ func.func @TwoOutputs(%arg0: memref<2xf16>, %arg1: memref<2xf16>, %arg2: memref<
 // -----
 
 module @VPU.SW {
-    func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {VPU.kernel_code = "activation_relu.cpp", VPU.kernel_entry = "activation_relu", VPU.task_type = @COMPUTE}
-    func.func private @builtin_sigmoid(%input : memref<*xf16>, %output : memref<*xf16>) attributes {VPU.kernel_code = "activation_relu.cpp", VPU.kernel_entry = "activation_relu", VPU.task_type = @COMPUTE}
-    func.func private @builtin_Tanh(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i1, i1, f64) attributes {VPU.kernel_code = "activation_tanh.cpp", VPU.kernel_entry = "activation_tanh"}
-    func.func private @builtin_exp(memref<*xf16, @CMX_NN>) attributes {VPU.kernel_code = "activation_exp.cpp", VPU.kernel_entry = "activation_exp"}
-    func.func private @builtin_Add(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>) attributes {VPU.kernel_code = "eltwise_add.cpp", VPU.kernel_entry = "eltwise_add", VPU.task_type = @COMPUTE}
+    func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {VPU.kernel_code = "activation_relu.cpp", VPU.kernel_entry = "activation_relu", VPU.task_type = @COMPUTE}
+    func.func nested @builtin_sigmoid(%input : memref<*xf16>, %output : memref<*xf16>) attributes {VPU.kernel_code = "activation_relu.cpp", VPU.kernel_entry = "activation_relu", VPU.task_type = @COMPUTE}
+    func.func nested @builtin_Tanh(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i1, i1, f64) attributes {VPU.kernel_code = "activation_tanh.cpp", VPU.kernel_entry = "activation_tanh"}
+    func.func nested @builtin_exp(memref<*xf16, @CMX_NN>) attributes {VPU.kernel_code = "activation_exp.cpp", VPU.kernel_entry = "activation_exp"}
+    func.func nested @builtin_Add(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>) attributes {VPU.kernel_code = "eltwise_add.cpp", VPU.kernel_entry = "eltwise_add", VPU.task_type = @COMPUTE}
 }
 
 // CHECK-LABEL: @DiamondGraph

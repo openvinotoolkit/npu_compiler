@@ -16,11 +16,13 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <ios>
 #include <iostream>
 #include <limits>
@@ -49,7 +51,8 @@ DEFINE_validator(m, [](const char* flagname, const std::string& value) {
     }
     return true;
 });
-DEFINE_string(d, "", "[Required] The target device for which the model will be compiled (e.g. CPU, NPU, IMD)");
+
+DEFINE_string(d, "", "[Required] The target device for which the model will be compiled (e.g. CPU, NPU)");
 DEFINE_validator(d, [](const char* flagname, const std::string& value) {
     if (value.empty()) {
         std::cerr << "Error: the target device must be provided via the -" << flagname << " argument" << std::endl;
@@ -85,6 +88,7 @@ DEFINE_string(ioml, "",
               "Example: -ioml \"input:NCHW, output:NHWC\".\n"
               "Notice that quotes are required.\n"
               "Overwrites layout from il and ol options for specified layers.");
+DEFINE_bool(pc, false, "[Optional] Print performance counters (per-layer execution statistics) after inference.");
 
 namespace {
 
@@ -294,6 +298,33 @@ using uniformDistribution = typename std::conditional<
         std::is_floating_point<T>::value, std::uniform_real_distribution<T>,
         typename std::conditional<std::is_integral<T>::value, std::uniform_int_distribution<T>, void>::type>::type;
 
+// Fills a sub-byte (u4/i4) tensor with random values.
+// 4-bit types are packed as two nibbles per byte, so tensor.data<T>() is unavailable.
+// The raw byte buffer is filled directly via tensor.data() (void*), with each byte
+// holding two independently sampled 4-bit values: low nibble in bits [3:0], high in [7:4].
+void fillRandom4bit(ov::Tensor& tensor, bool isSigned) {
+    std::mt19937 gen(std::mt19937::default_seed);
+    const size_t byteSize = tensor.get_byte_size();
+    auto* data = static_cast<uint8_t*>(tensor.data());
+    if (isSigned) {
+        // i4: range [-8, 7], stored as 4-bit two's complement
+        std::uniform_int_distribution<int32_t> distribution(-8, 7);
+        for (size_t i = 0; i < byteSize; i++) {
+            const uint8_t lo = static_cast<uint8_t>(distribution(gen)) & 0xF;
+            const uint8_t hi = static_cast<uint8_t>(distribution(gen)) & 0xF;
+            data[i] = static_cast<uint8_t>((hi << 4) | lo);
+        }
+    } else {
+        // u4: range [0, 15]
+        std::uniform_int_distribution<uint32_t> distribution(0, 15);
+        for (size_t i = 0; i < byteSize; i++) {
+            const uint8_t lo = static_cast<uint8_t>(distribution(gen));
+            const uint8_t hi = static_cast<uint8_t>(distribution(gen));
+            data[i] = static_cast<uint8_t>((hi << 4) | lo);
+        }
+    }
+}
+
 template <typename T, typename T2>
 void fillRandom(ov::Tensor& tensor, T randMin = std::numeric_limits<uint8_t>::min(),
                 T randMax = std::numeric_limits<uint8_t>::max()) {
@@ -319,7 +350,9 @@ inline void fillTensorRandom(ov::Tensor tensor) {
         fillRandom<double, double>(tensor);
         break;
     case ov::element::f16:
-        fillRandom<short, short>(tensor);
+        // ov::float16 is the correct pointer-representable type for f16 tensors;
+        // using short/int16_t would be rejected by the OpenVINO tensor verifier.
+        fillRandom<ov::float16, float>(tensor);
         break;
     case ov::element::i32:
         fillRandom<int32_t, int32_t>(tensor);
@@ -336,6 +369,14 @@ inline void fillTensorRandom(ov::Tensor tensor) {
         // uniform_int_distribution<int8_t> is not allowed in the C++17 standard
         // and vs2017/19
         fillRandom<int8_t, int32_t>(tensor, std::numeric_limits<int8_t>::min(), std::numeric_limits<int8_t>::max());
+        break;
+    case ov::element::u4:
+        // u4/i4 are sub-byte types; packed nibble filling is required.
+        fillRandom4bit(tensor, false);
+        break;
+    case ov::element::i4:
+        // u4/i4 are sub-byte types; packed nibble filling is required.
+        fillRandom4bit(tensor, true);
         break;
     case ov::element::u16:
         fillRandom<uint16_t, uint16_t>(tensor);
@@ -429,6 +470,13 @@ int main(int argc, char* argv[]) {
         std::cout << "Parsing configuration file" << std::endl;
         auto configs = parseConfigFile();
 
+        // When performance counters are requested, enable profiling at compile time.
+        // This must be set before compile_model / import_model; without it,
+        // get_profiling_info() returns empty results.
+        if (FLAGS_pc) {
+            configs[ov::enable_profiling.name()] = "YES";
+        }
+
         ov::Core core;
         ov::CompiledModel compiledModel;
         if (modelPrecompiled) {
@@ -453,8 +501,39 @@ int main(int argc, char* argv[]) {
 
         std::cout << "Running inference" << std::endl;
         auto inferRequest = compiledModel.create_infer_request();
-        inferRequest.set_input_tensors(inputTensors);
+        // set_input_tensors() only works for single-input models; use the indexed
+        // overload to support models with an arbitrary number of inputs.
+        for (size_t i = 0; i < inputTensors.size(); i++) {
+            inferRequest.set_input_tensor(i, inputTensors[i]);
+        }
         inferRequest.infer();
+
+        if (FLAGS_pc) {
+            // Print per-layer profiling data: execution status, real wall-clock time,
+            // CPU time (both in microseconds), and the backend execution type.
+            std::cout << "Performance counters:" << std::endl;
+            const auto perfCounts = inferRequest.get_profiling_info();
+            for (const auto& info : perfCounts) {
+                std::cout << std::left << std::setw(60) << info.node_name << " status: " << std::setw(12) <<
+                        [&] {
+                            switch (info.status) {
+                            case ov::ProfilingInfo::Status::EXECUTED:
+                                return "EXECUTED";
+                            case ov::ProfilingInfo::Status::NOT_RUN:
+                                return "NOT_RUN";
+                            case ov::ProfilingInfo::Status::OPTIMIZED_OUT:
+                                return "OPTIMIZED_OUT";
+                            default:
+                                return "UNKNOWN";
+                            }
+                        }()
+                          << " real_time: " << std::setw(10)
+                          << std::chrono::duration_cast<std::chrono::microseconds>(info.real_time).count() << " us"
+                          << " cpu_time: " << std::setw(10)
+                          << std::chrono::duration_cast<std::chrono::microseconds>(info.cpu_time).count() << " us"
+                          << " exec_type: " << info.exec_type << std::endl;
+            }
+        }
 
         std::cout << "Dumping outputs" << std::endl;
         dumpOutputs(FLAGS_o, inferRequest);

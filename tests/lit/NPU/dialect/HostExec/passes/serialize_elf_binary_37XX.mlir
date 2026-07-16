@@ -8,25 +8,6 @@
 
 // CHECK-LABEL: @OneInputOneOutput
 module @OneInputOneOutput attributes {config.compilationMode = #config.compilation_mode<HostCompile>, config.platform = #config.platform<NPU3720>, config.revisionID = #config.revision_id<REVISION_NONE>} {
-  config.PipelineOptions @Options {
-    config.Option @config.FP16CompressedConv : false
-    config.Option @config.ReduceSupported : false
-    config.Option @config.AutoPaddingODU : false
-    config.Option @config.AutoPaddingIDU : false
-    config.Option @config.SprLUTEnabled : false
-    config.Option @config.BarrierMaxVariantSum : 256
-    config.Option @config.BarrierMaxVariantCount : 256
-    config.Option @config.MaxKernelSize : 11
-  }
-  config.Resources 2 of @NCE at 1.300000e+03 MHz {
-    config.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware
-    config.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
-    config.ExecutorResource 2 of @SHAVE_ACT
-    config.ExecutorResource 1 of @SHAVE_NN
-    config.ExecutorResource 1 of @DPU
-  }
-  config.ExecutorResource 2 of @DMA_NN
-  config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 8 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "input" : tensor<1x3x60x60xf16>
   } outputsInfo : {
@@ -135,24 +116,8 @@ module @OneInputOneOutput attributes {config.compilationMode = #config.compilati
       return %arg1 : memref<1x3x60x60xf16, @DDR>
     }
     config.Resources {activity_factor = 0.000000e+00 : f64} 2 of @NCE at 1.300000e+03 MHz {
-      config.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware
       config.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
-      config.ExecutorResource 2 of @SHAVE_ACT
-      config.ExecutorResource 1 of @SHAVE_NN
-      config.ExecutorResource 1 of @DPU
     }
-    config.PipelineOptions @Options {
-      config.Option @config.FP16CompressedConv : false
-      config.Option @config.ReduceSupported : false
-      config.Option @config.AutoPaddingODU : false
-      config.Option @config.AutoPaddingIDU : false
-      config.Option @config.SprLUTEnabled : false
-      config.Option @config.BarrierMaxVariantSum : 256
-      config.Option @config.BarrierMaxVariantCount : 256
-      config.Option @config.MaxKernelSize : 11
-    }
-    config.ExecutorResource 2 of @DMA_NN
-    config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 8 : i64, config.derateFactor = 6.000000e-01 : f64}
   }
   func.func @main(%arg0: memref<1x3x60x60xf16, @DDR>, %arg1: memref<1x3x60x60xf16>) -> memref<1x3x60x60xf16> {
     %alloc = memref.alloc() : memref<1x3x60x60xf16, @DDR>
@@ -164,7 +129,7 @@ module @OneInputOneOutput attributes {config.compilationMode = #config.compilati
   // CHECK:   HostExec.Binary @module0 {
   // CHECK:   HostExec.BinaryData @serialized_dma_copy
   // CHECK-SAME:   <object = "\7FELF\02\01\00\00\00\{{.+}}">
-  // CHECK:   func.func private @dma_copy(memref<1x3x60x60xf16, @DDR>, memref<1x3x60x60xf16, @DDR>) -> memref<1x3x60x60xf16, @DDR>
+  // CHECK:   func.func nested @dma_copy(memref<1x3x60x60xf16, @DDR>, memref<1x3x60x60xf16, @DDR>) -> memref<1x3x60x60xf16, @DDR>
   // CHECK:   }
   // CHECK:   func.func @main([[ARG_0:%[^:]+]]: memref<1x3x60x60xf16, @DDR>, [[ARG_1:%[^:]+]]: memref<1x3x60x60xf16>) -> memref<1x3x60x60xf16> {
   // CHECK:   [[ALLOC:%.+]] = memref.alloc() : memref<1x3x60x60xf16, @DDR>

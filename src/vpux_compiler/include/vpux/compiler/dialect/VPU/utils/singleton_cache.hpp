@@ -6,6 +6,8 @@
 #pragma once
 
 #include "vpux/compiler/dialect/VPU/interfaces/cost_model_factory.hpp"
+#include "vpux/compiler/dialect/VPU/interfaces/cost_model_shave_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/precomputed_strategy_table_cache.hpp"
 
 #include <mlir/IR/DialectInterface.h>
 
@@ -16,6 +18,7 @@ namespace VPU {
 class SingletonCache final : public mlir::DialectInterface::Base<SingletonCache> {
     std::unique_ptr<ICostModelFactory> _costModelFactory;
     std::unique_ptr<CostModelShaveUtil> _shaveCostModelUtils;
+    PrecomputedStrategyTable _ptcTable;
 
 public:
     // required by MLIR's internal type-id infrastructure:
@@ -41,6 +44,10 @@ public:
     void setShaveCostModelUtils(std::unique_ptr<CostModelShaveUtil> shaveCostModelUtils) {
         _shaveCostModelUtils = std::move(shaveCostModelUtils);
     }
+
+    PrecomputedStrategyTable& getPrecomputedStrategyTable() {
+        return _ptcTable;
+    }
 };
 
 /** @brief Sets the cost model factory in the singleton cache for the given MLIR context. */
@@ -54,6 +61,9 @@ void setShaveCostModelUtils(mlir::MLIRContext* context, std::unique_ptr<CostMode
 
 /** @brief Gets the shave cost model utilities from the singleton cache for the given MLIR context. */
 const CostModelShaveUtil& getShaveCostModelUtils(mlir::MLIRContext* context);
+
+/** @brief Gets the per-context precomputed strategy table from the singleton cache. */
+PrecomputedStrategyTable& getPrecomputedStrategyTable(mlir::MLIRContext* context);
 
 }  // namespace VPU
 }  // namespace vpux

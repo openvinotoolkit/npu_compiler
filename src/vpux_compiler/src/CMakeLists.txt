@@ -14,6 +14,28 @@ set(VPU_COMPILER_BIN_INCLUDE_DIR
 set(VPU_COMPILER_PCH_FILE
         "${PROJECT_SOURCE_DIR}/src/vpux_compiler/src/precomp.hpp")
 
+if(ENABLE_FASTER_BUILD)
+        add_library(npu_compiler_pch_base STATIC
+                "${CMAKE_CURRENT_SOURCE_DIR}/npu_compiler_pch_base.cpp")
+        add_dependencies(npu_compiler_pch_base mlir-headers MLIRVPUXIncGenList)
+
+        target_include_directories(npu_compiler_pch_base SYSTEM PRIVATE
+                $<BUILD_INTERFACE:${MLIR_INCLUDE_DIRS}>
+                ${VPU_COMPILER_BIN_INCLUDE_DIR})
+        target_include_directories(npu_compiler_pch_base PRIVATE
+                ${VPU_COMPILER_SRC_INCLUDE_DIR}
+                $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/vpux_utils/include>)
+
+        ov_build_target_faster(npu_compiler_pch_base PCH_HEADER ${VPU_COMPILER_PCH_FILE})
+
+        # on old systems (e.g. Ubuntu 20.04) it is required to explicitly link
+        # to pthread on Linux (std::thread and other components require it). PCH
+        # must also thus link to it, otherwise, there could be a mismatch in
+        # compilation flags.
+        find_package(Threads REQUIRED)
+        target_link_libraries(npu_compiler_pch_base PUBLIC Threads::Threads)
+endif()
+
 add_subdirectory(NPU37XX)
 add_subdirectory(NPU40XX)
 add_subdirectory(NPU50XX)
@@ -37,6 +59,7 @@ add_subdirectory(dialect/VPUMI40XX)
 add_subdirectory(dialect/VPURegMapped)
 add_subdirectory(dialect/VPURT)
 add_subdirectory(dialect/ELF)
+add_subdirectory(dialect/Shave)
 add_subdirectory(NPU37XX/dialect/NPUReg37XX)
 add_subdirectory(NPU37XX/dialect/VPUIPDPU)
 add_subdirectory(NPU40XX/dialect/NPUReg40XX)

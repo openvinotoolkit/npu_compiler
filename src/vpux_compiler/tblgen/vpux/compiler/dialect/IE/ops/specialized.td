@@ -132,38 +132,6 @@ def IE_CGCYieldOp :
     }];
 }
 
-//
-// ExternalKernelOp
-//
-
-def IE_ExternalKernelOp :
-        IE_Op<
-            "ExternalKernel",
-            []
-        > {
-    let summary = "Represents a kernel whose details/implementation are defined externally";
-
-    let arguments = (ins
-        Variadic<AnyRankedTensor>:$inputs,
-        DictionaryAttr:$attrDict,
-        StrAttr:$unique_id,
-        StrAttr:$kernel_path
-    );
-
-    let results = (outs
-        Variadic<AnyRankedTensor>:$outputs
-    );
-
-    let assemblyFormat = [{
-        $unique_id
-        `at_path` `(` $kernel_path `)`
-        (`inputs` `(` $inputs^ `:` type($inputs) `)`)?
-        `attrs` `(` $attrDict `)`
-        attr-dict
-        `->` type(results)
-    }];
-}
-
 def IE_DetectionOutputOp :
         IE_LayerOp<
             "DetectionOutput",
@@ -487,6 +455,7 @@ def IE_OneHotOp :
 
         IntAttr:$axis_attr,
         OptionalAttr<IE_OneHotModeAttr>:$mode,
+        OptionalAttr<BoolAttr>:$rank_expanded,
 
         TypeAttr:$outputType
     );
@@ -571,7 +540,7 @@ def IE_PermuteQuantizeOp :
             "PermuteQuantize",
             [
                 DeclareOpInterfaceMethods<StaticShapeOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine PermuteQuantize layer";

@@ -11,6 +11,9 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(LSTMCellTest);
+
 class LSTMCellLayerTestCommon : public LSTMCellTest, virtual public VpuOv2LayerTest {};
 class LSTM_SCFTilingLayerTest : public LSTMCellLayerTestCommon {
     void configure_model() override {
@@ -89,7 +92,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_precommit_LSTMCellCommon, LSTMCellLayerTestCommon
 
 INSTANTIATE_TEST_SUITE_P(smoke_LSTMCellCommon, LSTMCellLayerTestCommon, lstmCellConfig, LSTMCellTest::getTestCaseName);
 
-INSTANTIATE_TEST_SUITE_P(smoke_precommit_LSTMCell_SCFTiling, LSTM_SCFTilingLayerTest, lstmCellPrecommitConfig,
+INSTANTIATE_TEST_SUITE_P(smoke_LSTMCell_SCFTiling, LSTM_SCFTilingLayerTest, lstmCellPrecommitConfig,
                          LSTMCellTest::getTestCaseName);
 
 }  // namespace

@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
+#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/hash_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/op_tiling_cache.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
@@ -35,6 +36,8 @@ using namespace vpux;
 
 VPUNN::VPUTensor getVPUNNTensor(ShapeRef tensorShape, VPUNN::DataType dataType) {
     // Track E#160854. More generic support for 5D tensors
+    // E#217862. Performance regression due to 5D DMA cost modeling causing worse WLM page split and extra
+    // SHAVE EnqueueDMA ranges
     if (tensorShape.size() >= 4) {
         return VPUNN::VPUTensor({static_cast<unsigned int>(tensorShape[Dims4D::Act::W]),
                                  static_cast<unsigned int>(tensorShape[Dims4D::Act::H]),
@@ -525,6 +528,68 @@ bool extraDMAsRequired(mlir::Value innerOperand) {
                distributionMode == VPU::DistributionMode::OVERLAPPED;
     }
     return false;
+}
+
+// Stride DMA cost is inaccurate by cost model, so use this variable to help correct the cost value
+// TODO: Ticket E#171462, remove this variable when stride DMA cost is accurate by VPUNN cost model
+constexpr double strideDMACorrectionThresholdInBitsV1 = 512;
+constexpr double strideDMACorrectionThresholdInBitsV2 = 1024;
+
+double vpux::getStrideDMACorrectionThresholdByArch(config::ArchKind arch) {
+    // Experimental threshold to correct 50XX DMA cost
+    if (arch == config::ArchKind::NPU50XX) {
+        return strideDMACorrectionThresholdInBitsV2;
+    }
+    return strideDMACorrectionThresholdInBitsV1;
+}
+
+// Apply stride DMA cost correction for a single tile type.
+// Returns true if a correction was applied, false otherwise.
+// TODO: Ticket E#135490, remove this after stride DMA cost is accurate
+bool vpux::applyStrideDMACorrectionForTile(vpux::NDTypeInterface tileType, bool isStridedDMA, uint32_t& cost,
+                                           config::ArchKind arch) {
+    if (!isStridedDMA) {
+        return false;
+    }
+    const auto dimOrder = tileType.getDimsOrder();
+    const auto lowestDim = dimOrder.dimAt(dimOrder.numDims() - 1);
+    const Bit elemSize = tileType.getElemTypeSize();
+    if (auto sparseTensorType = mlir::dyn_cast<vpux::VPU::SparseTensorType>(tileType)) {
+        tileType = mlir::cast<vpux::NDTypeInterface>(sparseTensorType.getData());
+    }
+
+    Bit continuousBitsOnLowestDim;
+    if (auto distributedType = mlir::dyn_cast<vpux::VPU::DistributedTensorType>(tileType)) {
+        continuousBitsOnLowestDim = distributedType.getLargestCompactShape()[lowestDim] * elemSize;
+    } else {
+        continuousBitsOnLowestDim = tileType.getShape()[lowestDim] * elemSize;
+    }
+
+    auto curStrideDMACorrectionThreshold = getStrideDMACorrectionThresholdByArch(arch);
+    if (continuousBitsOnLowestDim.count() < curStrideDMACorrectionThreshold) {
+        auto factor = curStrideDMACorrectionThreshold / continuousBitsOnLowestDim.count();
+        cost = checked_cast<uint32_t>(std::floor(factor * cost));
+    }
+    return true;
+}
+
+// Apply stride DMA cost correction across all tiles.
+bool vpux::correctStrideDMACost(
+        ArrayRef<std::vector<std::pair<vpux::NDTypeInterface, VPU::TensorDistributionMap>>> tilesTypes,
+        const std::function<vpux::NDTypeInterface(
+                ArrayRef<std::pair<vpux::NDTypeInterface, VPU::TensorDistributionMap>>)>& tileTypeGetter,
+        SmallVector<uint32_t>& dmaCost, bool isStridedDMA, config::ArchKind arch) {
+    if (!isStridedDMA) {
+        return false;
+    }
+    VPUX_THROW_WHEN(dmaCost.size() != tilesTypes.size(), "DMA costs size mismatches with tiled types");
+
+    for (auto tileId : irange(tilesTypes.size())) {
+        auto currentTileType = tileTypeGetter(tilesTypes[tileId]);
+        applyStrideDMACorrectionForTile(currentTileType, isStridedDMA, dmaCost[tileId], arch);
+    }
+
+    return true;
 }
 
 size_t vpux::getDMACost(mlir::Value input, mlir::Value output, config::ArchKind archKind, VPUNN::VPUDevice vpuDevice,
@@ -1060,6 +1125,21 @@ std::unique_ptr<VPUNN::SHAVEWorkload> getShaveWorkloadFunction(VPU::SWOpInterfac
     return getShaveWorkloadFunction(operation, std::move(inputTensors), std::move(outputTensors));
 }
 
+namespace {
+size_t correctShaveCost(size_t cost, VPUIP::SwKernelOp swKernelOp, Logger log) {
+    // DynamicDequantize is ~68x faster than VPUNN estimates due to its vectorized implementation.
+    // Divide the cost accordingly until VPUNN is updated to model this kernel accurately.
+    const auto kernelName = swKernelOp.getKernelFunction().getLeafReference().str();
+    if (llvm::StringRef(kernelName).contains("builtin_DynamicDequantize")) {
+        constexpr size_t DYNAMIC_DEQUANTIZE_COST_DIVISOR = 1000;
+        cost = std::max<size_t>(1, cost / DYNAMIC_DEQUANTIZE_COST_DIVISOR);
+        log.trace("Correcting cost for kernel '{0}' by divisor {1}. Original cost: {2}, Corrected cost: {3}",
+                  kernelName, DYNAMIC_DEQUANTIZE_COST_DIVISOR, cost * DYNAMIC_DEQUANTIZE_COST_DIVISOR, cost);
+    }
+    return cost;
+}
+}  // namespace
+
 size_t getShaveActCycleForSwKernelFunc(VPUIP::SwKernelOp swKernelOp, ArrayRef<mlir::Value> inputs,
                                        ArrayRef<mlir::Value> outputs,
                                        const std::shared_ptr<VPUNN::VPUCostModel>& costModel) {
@@ -1083,7 +1163,7 @@ size_t getShaveActCycleForSwKernelFunc(VPUIP::SwKernelOp swKernelOp, ArrayRef<ml
         VPU::printVPUNNWorkloadConfig(*swwl, logCb);
         return 1;
     }
-    return cost;
+    return correctShaveCost(cost, swKernelOp, log);
 }
 
 std::unique_ptr<VPUNN::SHAVEWorkload> vpux::getVPUNNSWKernelOp(VPUIP::SwKernelOp swKernelOp) {
@@ -1280,4 +1360,8 @@ std::string vpux::stringifyVPUNNStrategy(VPUNN::VPUTilingStrategy strategy) {
     } else {
         return "WRONG strategy";
     }
+}
+
+uint64_t vpux::addSaturating(uint64_t a, uint64_t b) {
+    return (a > UINT64_MAX - b) ? UINT64_MAX : a + b;
 }

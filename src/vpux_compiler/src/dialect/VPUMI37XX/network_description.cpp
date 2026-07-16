@@ -14,6 +14,7 @@
 #include "vpux/compiler/dialect/ELFNPU37XX/metadata.hpp"
 #include "vpux/compiler/dialect/HostExec/params.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/network_description.hpp"
+#include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
 
 #include "vpux/compiler/core/attributes/dims_order.hpp"
 
@@ -23,8 +24,8 @@
 #include "vpux/utils/ov/itt.hpp"
 
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
-
 #include <algorithm>
+#include "vpux/compiler/dialect/config/IR/attributes.hpp"
 
 using namespace vpux;
 
@@ -273,29 +274,39 @@ NetworkMetadata vpux::VPUMI37XX::getNetworkMetadata(uint8_t* serializedMetadata,
     return network;
 }
 
-NetworkMetadata vpux::VPUMI37XX::getNetworkMetadata(mlir::ModuleOp module) {
+NetworkMetadata vpux::VPUMI37XX::getHostCompileNetworkMetadata(mlir::ModuleOp module) {
     NetworkMetadata network;
     std::shared_ptr<elf::NetworkMetadata> metadata;
 
-    auto name = mlir::StringRef(vpux::HostExec::HOST_EXEC_NETWORK_METADATA_NAME);
-    auto serializedMetadataGlobalOp = module.lookupSymbol<mlir::LLVM::GlobalOp>(name);
-    VPUX_THROW_UNLESS(serializedMetadataGlobalOp, "metadata is not found in blob");
+    if (config::isHostCompileInterpreterMode(module)) {
+        auto netOps = module.getOps<net::NetworkInfoOp>();
+        if (netOps.begin() != netOps.end()) {
+            metadata = ELFNPU37XX::constructMetadata(module, vpux::Logger::global());
+            ::getNetworkMetadata(metadata, network);
+        } else {
+            VPUX_THROW("NetworkInfoOp is not found in the module");
+        }
+    } else {
+        auto name = mlir::StringRef(vpux::HostExec::HOST_EXEC_NETWORK_METADATA_NAME);
+        auto serializedMetadataGlobalOp = module.lookupSymbol<mlir::LLVM::GlobalOp>(name);
+        VPUX_THROW_UNLESS(serializedMetadataGlobalOp, "metadata is not found in blob");
 
-    mlir::Type globalType = serializedMetadataGlobalOp.getType();
-    auto arrayType = mlir::dyn_cast<mlir::LLVM::LLVMArrayType>(globalType);
-    VPUX_THROW_UNLESS(arrayType, "Invalid metadata type");
-    uint64_t metadataSize = arrayType.getNumElements();
-    auto valueAttr = serializedMetadataGlobalOp.getValueAttr();
+        mlir::Type globalType = serializedMetadataGlobalOp.getType();
+        auto arrayType = mlir::dyn_cast<mlir::LLVM::LLVMArrayType>(globalType);
+        VPUX_THROW_UNLESS(arrayType, "Invalid metadata type");
+        uint64_t metadataSize = arrayType.getNumElements();
+        auto valueAttr = serializedMetadataGlobalOp.getValueAttr();
 
-    if (auto stringAttr = mlir::dyn_cast_or_null<mlir::StringAttr>(valueAttr)) {
-        llvm::StringRef stringRef = stringAttr.getValue();
-        const char* dataPtr = stringRef.data();
-        metadata = elf::MetadataSerialization::deserialize(reinterpret_cast<const uint8_t*>(dataPtr), metadataSize);
+        if (auto stringAttr = mlir::dyn_cast_or_null<mlir::StringAttr>(valueAttr)) {
+            llvm::StringRef stringRef = stringAttr.getValue();
+            const char* dataPtr = stringRef.data();
+            metadata = elf::MetadataSerialization::deserialize(reinterpret_cast<const uint8_t*>(dataPtr), metadataSize);
+        }
+
+        VPUX_THROW_UNLESS(metadata, "metadata is not found in blob");
+
+        ::getNetworkMetadata(metadata, network);
     }
-
-    VPUX_THROW_UNLESS(metadata, "metadata is not found in blob");
-
-    ::getNetworkMetadata(metadata, network);
 
     return network;
 }

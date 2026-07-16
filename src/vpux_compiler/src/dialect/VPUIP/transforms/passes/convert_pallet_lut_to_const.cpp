@@ -106,7 +106,7 @@ mlir::Value PalletLUTConverter::createLookupTableConst(VPUIP::NCEClusterTaskOp n
     auto palletLUTAttr = mlir::DenseElementsAttr::get(palletLUTType, ArrayRef(uint16PalletLUT));
 
     const auto bufferType = vpux::getBufferType(palletLUTType);
-    Const::ContentSetup setup(mlir::cast<mlir::Type>(bufferType));
+    Const::ContentSetup setup(palletLUTAttr, mlir::cast<mlir::Type>(bufferType));
     const auto contentAttr = Const::ContentAttr::get(palletLUTAttr, setup);
     return rewriter.create<Const::DeclareOp>(nceClusterTask->getLoc(), bufferType, contentAttr).getOutput();
 }

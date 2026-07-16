@@ -34,6 +34,10 @@ protected:
     }
 };
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ConvertColorNV12LayerTest);
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ConvertColorI420LayerTest);
+
 class ConvertColorNV12LayerTestCommon : public ConvertColorNV12LayerTest, public ConvertColorYUVLayerTestCommon {};
 class ConvertColorI420LayerTestCommon : public ConvertColorI420LayerTest, public ConvertColorYUVLayerTestCommon {};
 

@@ -346,9 +346,9 @@ mlir::LogicalResult UnrollSDPAPattern::unrollAndRearrangePattern(const SDPAPatte
         }
 
         // Softmax_split operation
-        auto softmaxNewOp =
-                rewriter.create<IE::SoftMaxOp>(appendLoc(softmaxOp->getLoc(), "_softmax_" + std::to_string(i)),
-                                               softmaxInput, softmaxOp.getAxisIndAttr(), nullptr);
+        auto softmaxNewOp = rewriter.create<IE::SoftMaxOp>(
+                appendLoc(softmaxOp->getLoc(), "_softmax_" + std::to_string(i)), softmaxInput,
+                softmaxOp.getAxisIndAttr(), nullptr, softmaxOp.getDstElemTypeAttr(), softmaxOp.getMaskAwareAttr());
 
         mlir::Value matMulVInput = softmaxNewOp.getOutput();
 

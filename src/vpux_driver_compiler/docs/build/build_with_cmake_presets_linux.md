@@ -38,7 +38,7 @@ ln -s ${NPU_PLUGIN_HOME}/CMakePresets.json ${OPENVINO_HOME}/CMakePresets.json
 cmake --preset cid-linux
 
 cd build_${CONFIG}
-cmake --build . --target npu_driver_compiler compilerTest profilingTest vpuxCompilerL0Test loaderTest --parallel $(nproc)
+cmake --build . --target openvino_intel_npu_compiler openvino_intel_npu_compiler_loader compilerTest profilingTest vpuxCompilerL0Test loaderTest --parallel $(nproc)
 
 # Optional, compress and pack all CiD targets
 cpack -V -D CPACK_COMPONENTS_ALL=CiD -D CPACK_CMAKE_GENERATOR=Ninja -D CPACK_PACKAGE_FILE_NAME="${CONFIG}" -G "TGZ"
@@ -83,7 +83,7 @@ The build options for the `cid-linux` preset can be found [here](../../../../CMa
 
 ```sh
 cd build_${CONFIG}
-ninja npu_driver_compiler compilerTest profilingTest vpuxCompilerL0Test loaderTest -j$(nproc)
+ninja openvino_intel_npu_compiler openvino_intel_npu_compiler_loader compilerTest profilingTest vpuxCompilerL0Test loaderTest -j$(nproc)
 ```
 </details>
 

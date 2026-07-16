@@ -71,6 +71,22 @@ private:
         funcOp.walk([&](VPU::NCEOpInterface nceOp) {
             _log.trace("Got {0} at {1}", nceOp->getName(), nceOp->getLoc());
 
+            auto hasDynamicRawFilterShape = [](mlir::Operation* op) -> bool {
+                const auto denseAttr =
+                        mlir::dyn_cast_if_present<mlir::DenseI64ArrayAttr>(op->getAttr("static_raw_filter_shape"));
+                if (!denseAttr) {
+                    return false;
+                }
+                return llvm::any_of(denseAttr.asArrayRef(), [](int64_t val) {
+                    return val == mlir::ShapedType::kDynamic;
+                });
+            };
+
+            if (hasDynamicRawFilterShape(nceOp.getOperation())) {
+                _log.nest().trace("Operation has dynamic raw filter shape, skip transformation.");
+                return;
+            }
+
             const auto hasInputPaddingAttr = nceOp->hasAttr(VPU::INPUT_PADDING_ATTR_NAME);
             const auto hasOutputPaddingAttr = nceOp->hasAttr(VPU::OUTPUT_PADDING_ATTR_NAME);
             if (!hasInputPaddingAttr && !hasOutputPaddingAttr) {
@@ -374,13 +390,13 @@ private:
 
         // Update the raw filter shape attribute
         if (auto op = mlir::dyn_cast<VPU::NCEConvolutionOp>(nceOp.getOperation())) {
-            auto filterShape = parseIntArrayAttr<int64_t>(op.getRawFilterShape());
+            SmallVector<int64_t> filterShape(op.getStaticRawFilterShape().begin(), op.getStaticRawFilterShape().end());
             filterShape[Dims4D::Filter::IC.ind()] = unpaddedInputChannels;
-            op.setRawFilterShapeAttr(getIntArrayAttr(nceOp.getContext(), filterShape));
+            op.setStaticRawFilterShape(filterShape);
         } else if (auto op = mlir::dyn_cast<VPU::NCEDepthConvolutionOp>(nceOp.getOperation())) {
-            auto filterShape = parseIntArrayAttr<int64_t>(op.getRawFilterShape());
+            SmallVector<int64_t> filterShape(op.getStaticRawFilterShape().begin(), op.getStaticRawFilterShape().end());
             filterShape[Dims4D::Filter::IC.ind()] = unpaddedInputChannels;
-            op.setRawFilterShapeAttr(getIntArrayAttr(nceOp.getContext(), filterShape));
+            op.setStaticRawFilterShape(filterShape);
         }
 
         // The weights table must still have its weights pointers updated
@@ -491,13 +507,13 @@ private:
 
         // Update the raw filter shape attribute
         if (auto op = mlir::dyn_cast<VPU::NCEConvolutionOp>(nceOp.getOperation())) {
-            auto filterShape = parseIntArrayAttr<int64_t>(op.getRawFilterShape());
+            SmallVector<int64_t> filterShape(op.getStaticRawFilterShape().begin(), op.getStaticRawFilterShape().end());
             filterShape[Dims4D::Filter::OC.ind()] = unpaddedOutputChannels;
-            op.setRawFilterShapeAttr(getIntArrayAttr(nceOp.getContext(), filterShape));
+            op.setStaticRawFilterShape(filterShape);
         } else if (auto op = mlir::dyn_cast<VPU::NCEDepthConvolutionOp>(nceOp.getOperation())) {
-            auto filterShape = parseIntArrayAttr<int64_t>(op.getRawFilterShape());
+            SmallVector<int64_t> filterShape(op.getStaticRawFilterShape().begin(), op.getStaticRawFilterShape().end());
             filterShape[Dims4D::Filter::OC.ind()] = unpaddedOutputChannels;
-            op.setRawFilterShapeAttr(getIntArrayAttr(nceOp.getContext(), filterShape));
+            op.setStaticRawFilterShape(filterShape);
         }
 
         // The weights table must still remain aligned to 16 channels.

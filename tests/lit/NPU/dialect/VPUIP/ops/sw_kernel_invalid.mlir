@@ -8,7 +8,7 @@
 
 module {
   module @VPU.SW {
-    func.func private @builtin_dummy(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "dummy.cpp", VPU.kernel_entry = "dummy"}
+    func.func nested @builtin_dummy(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "dummy.cpp", VPU.kernel_entry = "dummy"}
   }
   func.func @UseBoundedBufferAsSWKernelInputInvalid_1() -> !VPUIP.BoundedBuffer<data=memref<1x8x384x384xf16>, dynamic_shape=memref<4xsi32>> {
     %alloc_0 = memref.alloc() : memref<1x8x384x384xf16>
@@ -40,7 +40,7 @@ module {
 
 module {
   module @VPU.SW {
-    func.func private @builtin_dummy(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "dummy.cpp", VPU.kernel_entry = "dummy"}
+    func.func nested @builtin_dummy(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "dummy.cpp", VPU.kernel_entry = "dummy"}
   }
   func.func @UseBoundedBufferAsSWKernelInputInvalid_2() -> !VPUIP.BoundedBuffer<data=memref<1x8x384x384xf16>, dynamic_shape=memref<4xsi32>> {
     %alloc_0 = memref.alloc() : memref<1x8x384x384xf16>
@@ -72,7 +72,7 @@ module {
 
 module {
   module @VPU.SW {
-    func.func private @builtin_dummy(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "dummy.cpp", VPU.kernel_entry = "dummy"}
+    func.func nested @builtin_dummy(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "dummy.cpp", VPU.kernel_entry = "dummy"}
   }
   func.func @UseBoundedBufferAsSWKernelInputInvalid_3() -> (memref<1x8x384x384xf16>, memref<4xsi32>) {
     %alloc_0 = memref.alloc() : memref<1x8x384x384xf16>
@@ -104,7 +104,7 @@ module {
 
 module {
   module @VPU.SW {
-    func.func private @builtin_dummy(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "dummy.cpp", VPU.kernel_entry = "dummy"}
+    func.func nested @builtin_dummy(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "dummy.cpp", VPU.kernel_entry = "dummy"}
   }
   func.func @UseBoundedBufferAsSWKernelInputInvalid_4() -> (memref<1x8x384x384xf16>, memref<4xsi32>) {
     %alloc_0 = memref.alloc() : memref<1x8x384x384xf16>
@@ -135,7 +135,7 @@ module {
 
 module {
   module @VPU.SW {
-    func.func private @builtin_dummy(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "dummy.cpp", VPU.kernel_entry = "dummy"}
+    func.func nested @builtin_dummy(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "dummy.cpp", VPU.kernel_entry = "dummy"}
   }
   func.func @UseBoundedBufferAsSWKernelInputInvalid_5() -> (memref<1x8x384x384xf16>, memref<4xsi32>) {
     %alloc_0 = memref.alloc() : memref<1x8x384x384xf16>
@@ -167,7 +167,7 @@ module {
 
 module {
   module @VPU.SW {
-    func.func private @builtin_dummy(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "dummy.cpp", VPU.kernel_entry = "dummy"}
+    func.func nested @builtin_dummy(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "dummy.cpp", VPU.kernel_entry = "dummy"}
   }
   func.func @UseBoundedBufferAsSWKernelInputInvalid_6() -> (memref<1x8x384x384xf16>, memref<4xsi32>) {
     %alloc_0 = memref.alloc() : memref<1x8x384x384xf16>

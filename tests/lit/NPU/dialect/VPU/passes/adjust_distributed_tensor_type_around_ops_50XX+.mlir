@@ -41,7 +41,7 @@
 }>
 
 !HProducerFilter = !VPU.DistributedTensor<
-    64x32x1x1xi8, #NHWC, @CMX_NN, {
+    64x32x1x1xsi8, #NHWC, @CMX_NN, {
     mode = "DUPLICATED",
     num_clusters = 2 : i64,
     uniform_distributed_segments,
@@ -65,7 +65,7 @@
 }>
 
 !HConsumerFilter = !VPU.DistributedTensor<
-    32x64x1x1xi8, #NHWC, @CMX_NN, {
+    32x64x1x1xsi8, #NHWC, @CMX_NN, {
     mode = "DUPLICATED",
     num_clusters = 2 : i64,
     uniform_distributed_segments,
@@ -92,11 +92,11 @@ func.func @HaloAssistedSliceOptimizationHDim(
         %input: !HProducerInput,
         %filter0: !HProducerFilter,
         %filter1: !HConsumerFilter) -> !HConsumerOutput {
-    %conv0 = VPU.NCE.Convolution(%input, %filter0) {
+    %conv0 = VPU.NCE.Convolution(%input, %filter0) rawFilterShape [64, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         ppe = #VPU.PPEStub<>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-        rawFilterShape = [64, 32, 1, 1], strides = [1, 1],
-        vf_loop_layer_index = 0 : i64
+         strides = [1, 1],
+        vf_loop_tile_index = 0 : i64
     } : !HProducerInput, !HProducerFilter -> !HProducerOutputTight
 
     %copy0 = VPU.Copy(%conv0) : !HProducerOutputTight -> tensor<1x64x20x16xi8, {order = #NHWC}>
@@ -107,11 +107,11 @@ func.func @HaloAssistedSliceOptimizationHDim(
     %copy1 = VPU.Copy(%slice) {out_mem_space = @CMX_NN}
         : tensor<1x64x14x16xi8, {order = #NHWC}> -> !HSliceDest
 
-    %conv1 = VPU.NCE.Convolution(%copy1, %filter1) {
+    %conv1 = VPU.NCE.Convolution(%copy1, %filter1) rawFilterShape [32, 64, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         ppe = #VPU.PPEStub<>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-        rawFilterShape = [32, 64, 1, 1], strides = [1, 1],
-        vf_loop_layer_index = 0 : i64
+         strides = [1, 1],
+        vf_loop_tile_index = 0 : i64
     } : !HSliceDest, !HConsumerFilter -> !HConsumerOutput
 
     return %conv1 : !HConsumerOutput
@@ -158,7 +158,7 @@ func.func @HaloAssistedSliceOptimizationHDim(
 }>
 
 !WProducerFilter = !VPU.DistributedTensor<
-    64x64x1x1xi8, #NHWC, @CMX_NN, {
+    64x64x1x1xsi8, #NHWC, @CMX_NN, {
     mode = "DUPLICATED",
     num_clusters = 2 : i64,
     uniform_distributed_segments,
@@ -182,7 +182,7 @@ func.func @HaloAssistedSliceOptimizationHDim(
 }>
 
 !WConsumerFilter = !VPU.DistributedTensor<
-    32x64x1x1xi8, #NHWC, @CMX_NN, {
+    32x64x1x1xsi8, #NHWC, @CMX_NN, {
     mode = "DUPLICATED",
     num_clusters = 2 : i64,
     uniform_distributed_segments,
@@ -209,11 +209,11 @@ func.func @HaloAssistedSliceOptimizationWDim(
         %input: !WProducerInput,
         %filter0: !WProducerFilter,
         %filter1: !WConsumerFilter) -> !WConsumerOutput {
-    %conv0 = VPU.NCE.Convolution(%input, %filter0) {
+    %conv0 = VPU.NCE.Convolution(%input, %filter0) rawFilterShape [64, 64, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         ppe = #VPU.PPEStub<>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-        rawFilterShape = [64, 64, 1, 1], strides = [1, 1],
-        vf_loop_layer_index = 0 : i64
+         strides = [1, 1],
+        vf_loop_tile_index = 0 : i64
     } : !WProducerInput, !WProducerFilter -> !WProducerOutputTight
 
     %copy0 = VPU.Copy(%conv0) : !WProducerOutputTight -> tensor<1x64x20x16xi8, {order = #NHWC}>
@@ -224,11 +224,11 @@ func.func @HaloAssistedSliceOptimizationWDim(
     %copy1 = VPU.Copy(%slice) {out_mem_space = @CMX_NN}
         : tensor<1x64x20x12xi8, {order = #NHWC}> -> !WSliceDest
 
-    %conv1 = VPU.NCE.Convolution(%copy1, %filter1) {
+    %conv1 = VPU.NCE.Convolution(%copy1, %filter1) rawFilterShape [32, 64, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         ppe = #VPU.PPEStub<>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-        rawFilterShape = [32, 64, 1, 1], strides = [1, 1],
-        vf_loop_layer_index = 0 : i64
+         strides = [1, 1],
+        vf_loop_tile_index = 0 : i64
     } : !WSliceDest, !WConsumerFilter -> !WConsumerOutput
 
     return %conv1 : !WConsumerOutput
@@ -243,8 +243,159 @@ func.func @HaloAssistedSliceOptimizationWDim(
 // -----
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-// No vf_loop_layer_index on the producer NCE op.
+!qElemType = !quant.uniform<i4:f16, 1.000000e+00>
+
+!InputDistributed = !VPU.DistributedTensor<
+    1x3072x8x4xf16, #NHWC, @CMX_NN, {
+    mode = "DUPLICATED",
+    num_clusters = 3 : i64,
+    uniform_distributed_segments,
+    compute_shapes = [[1, 3072, 8, 4], [1, 3072, 8, 4], [1, 3072, 8, 4]],
+    compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+    memory_shapes = [[1, 3072, 8, 4], [1, 3072, 8, 4], [1, 3072, 8, 4]],
+    memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
+}>
+
+!MemPermuteInput = !VPU.DistributedTensor<
+    1x24x256x128x!qElemType, #NCHW, @CMX_NN, {
+    mode = "SEGMENTED",
+    num_tiles = [1, 1, 3, 1],
+    num_clusters = 3 : i64,
+    uniform_distributed_segments,
+    compute_shapes = [[1, 24, 86, 128], [1, 24, 85, 128], [1, 24, 85, 128]],
+    compute_offsets = [[0, 0, 0, 0], [0, 0, 86, 0], [0, 0, 171, 0]],
+    memory_shapes = [[1, 24, 86, 128], [1, 24, 85, 128], [1, 24, 85, 128]],
+    memory_offsets = [[0, 0, 0, 0], [0, 0, 86, 0], [0, 0, 171, 0]]
+}>
+
+!DequantInput = !VPU.DistributedTensor<
+    1x256x24x128x!qElemType, #NCHW, @CMX_NN, {
+    mode = "SEGMENTED",
+    num_tiles = [1, 3, 1, 1],
+    num_clusters = 3 : i64,
+    uniform_distributed_segments,
+    compute_shapes = [[1, 86, 24, 128], [1, 85, 24, 128], [1, 85, 24, 128]],
+    compute_offsets = [[0, 0, 0, 0], [0, 86, 0, 0], [0, 171, 0, 0]],
+    memory_shapes = [[1, 86, 24, 128], [1, 85, 24, 128], [1, 85, 24, 128]],
+    memory_offsets = [[0, 0, 0, 0], [0, 86, 0, 0], [0, 171, 0, 0]]
+}>
+
+!DequantScale = !VPU.DistributedTensor<
+    1x256x24x1xf16, #NCHW, @CMX_NN, {
+    mode = "SEGMENTED",
+    num_tiles = [1, 3, 1, 1],
+    num_clusters = 3 : i64,
+    uniform_distributed_segments,
+    compute_shapes = [[1, 86, 24, 1], [1, 85, 24, 1], [1, 85, 24, 1]],
+    compute_offsets = [[0, 0, 0, 0], [0, 86, 0, 0], [0, 171, 0, 0]],
+    memory_shapes = [[1, 86, 24, 1], [1, 85, 24, 1], [1, 85, 24, 1]],
+    memory_offsets = [[0, 0, 0, 0], [0, 86, 0, 0], [0, 171, 0, 0]]
+}>
+
+!DequantOutput = !VPU.DistributedTensor<
+    1x256x24x128xf16, #NCHW, @CMX_NN, {
+    mode = "SEGMENTED",
+    num_tiles = [1, 3, 1, 1],
+    num_clusters = 3 : i64,
+    uniform_distributed_segments,
+    compute_shapes = [[1, 86, 24, 128], [1, 85, 24, 128], [1, 85, 24, 128]],
+    compute_offsets = [[0, 0, 0, 0], [0, 86, 0, 0], [0, 171, 0, 0]],
+    memory_shapes = [[1, 86, 24, 128], [1, 85, 24, 128], [1, 85, 24, 128]],
+    memory_offsets = [[0, 0, 0, 0], [0, 86, 0, 0], [0, 171, 0, 0]]
+}>
+
+!FilterDistributed = !VPU.DistributedTensor<
+    256x3072x1x1xf16, #NHWC, @CMX_NN, {
+    mode = "SEGMENTED",
+    num_tiles = [3, 1, 1, 1],
+    num_clusters = 3 : i64,
+    alignment = [16, 1, 1, 1],
+    uniform_distributed_segments,
+    compute_shapes = [[96, 3072, 1, 1], [80, 3072, 1, 1], [80, 3072, 1, 1]],
+    compute_offsets = [[0, 0, 0, 0], [96, 0, 0, 0], [176, 0, 0, 0]],
+    memory_shapes = [[96, 3072, 1, 1], [80, 3072, 1, 1], [80, 3072, 1, 1]],
+    memory_offsets = [[0, 0, 0, 0], [96, 0, 0, 0], [176, 0, 0, 0]]
+}>
+
+!OutputDistributed = !VPU.DistributedTensor<
+    1x256x8x4xf16, #NHWC, @CMX_NN, {
+    mode = "SEGMENTED",
+    num_tiles = [1, 3, 1, 1],
+    num_clusters = 3 : i64,
+    alignment = [1, 16, 1, 1],
+    uniform_distributed_segments,
+    compute_shapes = [[1, 96, 8, 4], [1, 80, 8, 4], [1, 80, 8, 4]],
+    compute_offsets = [[0, 0, 0, 0], [0, 96, 0, 0], [0, 176, 0, 0]],
+    memory_shapes = [[1, 96, 8, 4], [1, 80, 8, 4], [1, 80, 8, 4]],
+    memory_offsets = [[0, 0, 0, 0], [0, 96, 0, 0], [0, 176, 0, 0]]
+}>
+
+// CHECK-LABEL: @AdjustDynamicDequantizedWeights
+// CHECK-SAME: ([[WEIGHTS:%.+]]: tensor<1x24x256x128x!qElemType>, [[SCALE:%.+]]: tensor<1x256x24x1xf16>, [[ACT:%.+]]: tensor<1x3072x8x4xf16, {order = #NHWC}>)
+func.func @AdjustDynamicDequantizedWeights(
+        %weights: tensor<1x24x256x128x!qElemType>,
+        %scale: tensor<1x256x24x1xf16>,
+    %act: tensor<1x3072x8x4xf16, {order = #NHWC}>) -> !OutputDistributed {
+    %weightsCopy = VPU.Copy(%weights) {out_mem_space = @CMX_NN}
+        : tensor<1x24x256x128x!qElemType> -> !MemPermuteInput
+    %memPermute = VPU.MemPermute(%weightsCopy) {dst_order = #NCHW, mem_perm = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>}
+        : !MemPermuteInput -> !DequantInput
+    %memPermuteCopy = VPU.Copy(%memPermute)
+        : !DequantInput -> tensor<1x256x24x128x!qElemType>
+    %dequantInputCopy = VPU.Copy(%memPermuteCopy) {out_mem_space = @CMX_NN}
+        : tensor<1x256x24x128x!qElemType> -> !DequantInput
+    %scaleCopy = VPU.Copy(%scale) {out_mem_space = @CMX_NN}
+        : tensor<1x256x24x1xf16> -> !DequantScale
+    %dequant = VPU.DynamicDequantize(%dequantInputCopy, %scaleCopy) {dstElemType = f16}
+        : !DequantInput, !DequantScale -> !DequantOutput
+    %dequantCopy = VPU.Copy(%dequant)
+        : !DequantOutput -> tensor<1x256x24x128xf16>
+    %reshape = VPU.AffineReshape(%dequantCopy) {dim_mapping = [[0], [0], [1], [1, 2, 3]], shape_value = [256, 3072, 1, 1]}
+        : tensor<1x256x24x128xf16> -> tensor<256x3072x1x1xf16>
+    %permuteCast = VPU.PermuteCast(%reshape) {dst_order = #NHWC, mem_perm = #NHWC}
+        : tensor<256x3072x1x1xf16> -> tensor<256x3072x1x1xf16, {order = #NHWC}>
+    %filter = VPU.Copy(%permuteCast) {out_mem_space = @CMX_NN}
+        : tensor<256x3072x1x1xf16, {order = #NHWC}> -> !FilterDistributed
+
+    %actCopy = VPU.Copy(%act) {out_mem_space = @CMX_NN}
+        : tensor<1x3072x8x4xf16, {order = #NHWC}> -> !InputDistributed
+    %conv = VPU.NCE.Convolution(%actCopy, %filter) rawFilterShape [256, 3072, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        ppe = #VPU.PPEStub<>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        strides = [1, 1]
+    } : !InputDistributed, !FilterDistributed -> !OutputDistributed
+
+    return %conv : !OutputDistributed
+
+    // CHECK: [[WEIGHTS_COPY:%.+]] = VPU.Copy([[WEIGHTS]]) {out_mem_space = @CMX_NN}
+    // CHECK-SAME{LITERAL}: alignment = [1, 1, 16, 1]
+    // CHECK-SAME{LITERAL}: compute_shapes = [[1, 24, 96, 128], [1, 24, 80, 128], [1, 24, 80, 128]]
+    // CHECK: [[MEM_PERMUTE:%.+]] = VPU.MemPermute([[WEIGHTS_COPY]])
+    // CHECK-SAME{LITERAL}: alignment = [1, 16, 1, 1]
+    // CHECK-SAME{LITERAL}: compute_shapes = [[1, 96, 24, 128], [1, 80, 24, 128], [1, 80, 24, 128]]
+    // CHECK: [[DEQUANT:%.+]] = VPU.DynamicDequantize
+    // CHECK-SAME{LITERAL}: alignment = [1, 16, 1, 1]
+    // CHECK-SAME{LITERAL}: compute_shapes = [[1, 96, 24, 128], [1, 80, 24, 128], [1, 80, 24, 128]]
+    // CHECK: [[DEQUANT_COPY:%.+]] = VPU.Copy([[DEQUANT]]) {out_mem_space = @CMX_NN}
+    // CHECK-SAME: -> !VPU.DistributedTensor<1x256x24x128xf16
+    // CHECK-SAME{LITERAL}: alignment = [1, 16, 1, 1]
+    // CHECK: [[RESHAPE:%.+]] = VPU.AffineReshape([[DEQUANT_COPY]])
+    // CHECK-SAME: -> !VPU.DistributedTensor<256x3072x1x1xf16
+    // CHECK-SAME{LITERAL}: alignment = [16, 1, 1, 1]
+    // CHECK: [[PERMUTE_CAST:%.+]] = VPU.PermuteCast([[RESHAPE]])
+    // CHECK-SAME: -> !VPU.DistributedTensor<256x3072x1x1xf16, #NHWC, @CMX_NN
+    // CHECK-SAME{LITERAL}: alignment = [16, 1, 1, 1]
+    // CHECK: [[FILTER:%.+]] = VPU.Copy([[PERMUTE_CAST]]) {out_mem_space = @CMX_NN}
+    // CHECK: VPU.NCE.Convolution({{%.+}}, [[FILTER]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// No vf_loop_tile_index on the producer NCE op.
 // HaloAssistedSliceOptimization requires this attribute on both producer and consumer ops.
 // Pass must skip; producer output type must remain unchanged (tight memory shapes).
 
@@ -273,7 +424,7 @@ func.func @HaloAssistedSliceOptimizationWDim(
 }>
 
 !NegProducerFilter = !VPU.DistributedTensor<
-    64x32x1x1xi8, #NHWC, @CMX_NN, {
+    64x32x1x1xsi8, #NHWC, @CMX_NN, {
     mode = "DUPLICATED",
     num_clusters = 2 : i64,
     uniform_distributed_segments,
@@ -296,7 +447,7 @@ func.func @HaloAssistedSliceOptimizationWDim(
 }>
 
 !NegConsumerFilter = !VPU.DistributedTensor<
-    32x64x1x1xi8, #NHWC, @CMX_NN, {
+    32x64x1x1xsi8, #NHWC, @CMX_NN, {
     mode = "DUPLICATED",
     num_clusters = 2 : i64,
     uniform_distributed_segments,
@@ -323,11 +474,11 @@ func.func @HaloAssistedSliceSkippedNoVFAttr(
         %input: !NegProducerInput,
         %filter0: !NegProducerFilter,
         %filter1: !NegConsumerFilter) -> !NegConsumerOutput {
-    // Producer has no vf_loop_layer_index — optimization must not fire.
-    %conv0 = VPU.NCE.Convolution(%input, %filter0) {
+    // Producer has no vf_loop_tile_index — optimization must not fire.
+    %conv0 = VPU.NCE.Convolution(%input, %filter0) rawFilterShape [64, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         ppe = #VPU.PPEStub<>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-        rawFilterShape = [64, 32, 1, 1], strides = [1, 1]
+         strides = [1, 1]
     } : !NegProducerInput, !NegProducerFilter -> !NegProducerOutputTight
 
     %copy0 = VPU.Copy(%conv0) : !NegProducerOutputTight -> tensor<1x64x20x16xi8, {order = #NHWC}>
@@ -338,11 +489,11 @@ func.func @HaloAssistedSliceSkippedNoVFAttr(
     %copy1 = VPU.Copy(%slice) {out_mem_space = @CMX_NN}
         : tensor<1x64x14x16xi8, {order = #NHWC}> -> !NegSliceDest
 
-    %conv1 = VPU.NCE.Convolution(%copy1, %filter1) {
+    %conv1 = VPU.NCE.Convolution(%copy1, %filter1) rawFilterShape [32, 64, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         ppe = #VPU.PPEStub<>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-        rawFilterShape = [32, 64, 1, 1], strides = [1, 1],
-        vf_loop_layer_index = 0 : i64
+         strides = [1, 1],
+        vf_loop_tile_index = 0 : i64
     } : !NegSliceDest, !NegConsumerFilter -> !NegConsumerOutput
 
     return %conv1 : !NegConsumerOutput

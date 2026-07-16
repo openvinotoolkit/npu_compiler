@@ -38,7 +38,7 @@ SmallVector<int64_t> getInterpAxesVal(mlir::Location loc, const mlir::Value valu
 
 // Get the innermost axis from `axes` according to the `dimsOrder`.
 // For example, if the `dimsOrder` is NHWC and `axes` are `[1, 2]`, it will return 1.
-mlir::FailureOr<int64_t> getInnermostAxis(mlir::Location loc, DimsOrder dimsOrder, ArrayRef<int64_t> axes);
+mlir::FailureOr<int64_t> getInnermostAxis(mlir::Location loc, const DimsOrder& dimsOrder, ArrayRef<int64_t> axes);
 
 int64_t getInterpCoordinatesSize(mlir::Value output, int64_t innermostAxis);
 int64_t getInterpLambdasSize(mlir::Value output, int64_t innermostAxis);

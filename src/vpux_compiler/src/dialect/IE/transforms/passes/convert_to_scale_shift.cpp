@@ -18,6 +18,7 @@
 #include "vpux/compiler/dialect/VPUIP/interfaces/nce_invariant.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
@@ -70,10 +71,7 @@ struct TransposeInfo {
 
 // Helper function to check if weights need spatial transpose
 std::optional<TransposeInfo> needsSpatialTranspose(ShapeRef weightsShape) {
-    static const auto N = Dims4D::Act::N;
-    static const auto C = Dims4D::Act::C;
-    static const auto H = Dims4D::Act::H;
-    static const auto W = Dims4D::Act::W;
+    using namespace Dims4D::Act;
 
     if (weightsShape.size() != 4 || weightsShape[N] != 1 || weightsShape[C] != 1) {
         return std::nullopt;
@@ -91,10 +89,7 @@ std::optional<TransposeInfo> needsSpatialTranspose(ShapeRef weightsShape) {
 
 // Helper function to compute transposed shape
 SmallVector<int64_t> computeTransposedShape(ShapeRef originalShape, const TransposeInfo& info) {
-    static const auto N = Dims4D::Act::N;
-    static const auto C = Dims4D::Act::C;
-    static const auto H = Dims4D::Act::H;
-    static const auto W = Dims4D::Act::W;
+    using namespace Dims4D::Act;
 
     if (info.isHExpanded) {
         return {originalShape[N], originalShape[H], originalShape[C], originalShape[W]};
@@ -167,10 +162,7 @@ bool checkIfNeedToCloneOpChain(mlir::Operation* chainOp, ShapeRef dataConstOpSha
         bool needsClone = false;
 
         if (userOp->hasAttr("auto_broadcast")) {
-            static const auto N = Dims4D::Act::N;
-            static const auto C = Dims4D::Act::C;
-            static const auto H = Dims4D::Act::H;
-            static const auto W = Dims4D::Act::W;
+            using namespace Dims4D::Act;
 
             auto broadcastType =
                     mlir::dyn_cast<vpux::IE::AutoBroadcastTypeAttr>(userOp->getAttr("auto_broadcast")).getValue();
@@ -202,10 +194,7 @@ mlir::LogicalResult verifyAndBroadcastInput(mlir::Location loc, mlir::Value& inp
                                             mlir::Value activationInput = nullptr,
                                             mlir::Value* transposedActivation = nullptr,
                                             const std::optional<TransposeInfo>& transposeInfoValue = std::nullopt) {
-    static const auto N = Dims4D::Act::N;
-    static const auto C = Dims4D::Act::C;
-    static const auto H = Dims4D::Act::H;
-    static const auto W = Dims4D::Act::W;
+    using namespace Dims4D::Act;
 
     Shape newInputShape(std::move(inputShape));
     Shape newOutputShape(std::move(outputShape));
@@ -392,11 +381,6 @@ mlir::LogicalResult ConvertBiasToScaleShift<BiasTypeOp>::matchAndRewrite(BiasTyp
         return mlir::failure();
     }
 
-    if (mlir::isa<IE::SubtractOp>(biasOp) && !lhsIsActivation) {
-        _log.nest().trace("op {0} activation is not the first input", biasOp->getName());
-        return mlir::failure();
-    }
-
     auto mulOutShape = getShape(biasOp.getOutput());
     auto biasesShape = getShape(biasInput);
 
@@ -406,6 +390,26 @@ mlir::LogicalResult ConvertBiasToScaleShift<BiasTypeOp>::matchAndRewrite(BiasTyp
                 .failed()) {
         _log.nest().trace("op {0} input cannot be broadcast", biasOp->getName());
         return mlir::failure();
+    }
+
+    // Subtract(const, activation) => ScaleShift(activation, scale=-1, bias=const)
+    const bool isReversedSubtract = mlir::isa<IE::SubtractOp>(biasOp) && !lhsIsActivation;
+    if (isReversedSubtract) {
+        if (getShape(biasOp.getInput1()) == getShape(biasOp.getInput2())) {
+            return mlir::failure();
+        }
+
+        // const - activation = activation * (-1) + const => ScaleShift(activation, scale=-1, bias=const)
+        const auto outChannels = mulOutShape[Dims4D::Act::C];
+        const auto elemType = mlir::cast<vpux::NDTypeInterface>(biasOp.getOutput().getType()).getElementType();
+        const auto scaleType = mlir::RankedTensorType::get({1, outChannels, 1, 1}, elemType);
+        SmallVector<float> negOnes(outChannels, -1.0f);
+        auto scaleConst =
+                Const::createFloatConst(rewriter, appendLoc(biasOp.getLoc(), "neg_scale"), scaleType, negOnes);
+
+        _log.nest().trace("replaced reversed Subtract with ScaleShift(scale=-1, bias)");
+        rewriter.replaceOpWithNewOp<IE::ScaleShiftOp>(biasOp, biasOp.getType(), activationInput, scaleConst, newInput);
+        return mlir::success();
     }
 
     findBiasConst = IE::getConstParentOp(newInput);
@@ -442,7 +446,7 @@ mlir::LogicalResult ConvertBiasToScaleShift<BiasTypeOp>::matchAndRewrite(BiasTyp
     return mlir::success();
 }
 
-static bool hasFakeQuantizeConsumer(IE::MultiplyOp mulOp) {
+bool hasFakeQuantizeConsumer(IE::MultiplyOp mulOp) {
     mlir::Value current = mulOp.getOutput();
 
     while (true) {
@@ -468,9 +472,14 @@ static bool hasFakeQuantizeConsumer(IE::MultiplyOp mulOp) {
 //   - output shape is 1xCx1x1 with C > 1 and C-aligned
 //   - not connected to another ScaleShift / Add / Subtract op
 //   - no FakeQuantize consumer (which requires ScaleShift for PPE Quantize fusion)
-static bool isBeneficialToConvertMultiplyToNHWC(ShapeRef outputShape, IE::MultiplyOp mulOp, Logger log) {
-    const auto isOnlyCShape = outputShape[Dim(Dims4D::Act::N)] == 1 && outputShape[Dim(Dims4D::Act::C)] > 1 &&
-                              outputShape[Dim(Dims4D::Act::H)] == 1 && outputShape[Dim(Dims4D::Act::W)] == 1;
+bool isBeneficialToConvertMultiplyToNCEEltwise(ShapeRef outputShape, IE::MultiplyOp mulOp, Logger log) {
+    if (outputShape.size() != 4) {
+        return false;
+    }
+
+    using namespace Dims4D::Act;
+    const auto isOnlyCShape =
+            outputShape[Dim(N)] == 1 && outputShape[Dim(C)] > 1 && outputShape[Dim(H)] == 1 && outputShape[Dim(W)] == 1;
     if (!isOnlyCShape) {
         return false;
     }
@@ -490,7 +499,7 @@ static bool isBeneficialToConvertMultiplyToNHWC(ShapeRef outputShape, IE::Multip
         return false;
     }
 
-    // #E157147: NCEEltwise Multiply cannot fuse a Quantize into the PPE
+    // #E157147: NCEEltwise Multiply currently does not fuse a Quantize op (not enabled)
     // ScaleShift lowers to DWConv, which supports Quantize PPE fusion and avoids an extra NCE op
     // Remove this override once E157147 enables Quantize fusion for NCEEltwise Multiply
     if (hasFakeQuantizeConsumer(mulOp)) {
@@ -530,12 +539,13 @@ protected:
 bool ConvertMultiplyToScaleShift::isBeneficialToConvertMultiplyToScaleShift(ShapeRef activationShape,
                                                                             ShapeRef weightsShape, ShapeRef outputShape,
                                                                             IE::MultiplyOp mulOp) const {
-    if (_enableNCEEltwiseMultiply && isBeneficialToConvertMultiplyToNHWC(outputShape, mulOp, _log)) {
+    using namespace Dims4D::Act;
+    if (_enableNCEEltwiseMultiply && isBeneficialToConvertMultiplyToNCEEltwise(outputShape, mulOp, _log)) {
         _log.trace("Op {0} is more optimal to run on NCEEltwise, don't convert to ScaleShift", mulOp->getLoc());
         return false;
     }
 
-    const int64_t dimCShape = outputShape[Dim(Dims4D::Act::C)];
+    const int64_t dimCShape = outputShape[Dim(C)];
     if (dimCShape <= VPU::NCEInvariant::VPU_DIMENSION_LIMIT) {
         _log.trace("Operations with C dimension <= 8192 can be converted to ScaleShift");
         return true;
@@ -546,10 +556,10 @@ bool ConvertMultiplyToScaleShift::isBeneficialToConvertMultiplyToScaleShift(Shap
         return false;
     }
 
-    // Operations benefit from running on DPU when channel dimension size is less than
-    // 2x(experimental value) the standard limit
+    // Operations benefit from running on DPU when channel dimension size is less than or equal to
+    // 2.2x (experimental value) of the standard limit
     // E-171794 will introduce a comprehensive solution for choosing between different executors
-    constexpr double DPU_BENEFIT_FACTOR = 2;
+    constexpr double DPU_BENEFIT_FACTOR = 2.2;
     const bool isBenefitOnDPU =
             dimCShape <= static_cast<int64_t>(VPU::NCEInvariant::VPU_DIMENSION_LIMIT * DPU_BENEFIT_FACTOR);
     // Operations that do not need to be broadcasted can be decided to execute on DPU(NCEEltwise) or
@@ -589,7 +599,7 @@ mlir::LogicalResult ConvertMultiplyToScaleShift::matchAndRewrite(IE::MultiplyOp 
     // Skip conversion for operations with dynamic shapes in DefaultHW mode
     const auto compilationMode = config::getCompilationMode(mulOp);
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(mulOp.getOutput().getType());
-    if (!outputType.getShape().isStatic() && compilationMode != config::CompilationMode::HostCompile) {
+    if (!outputType.getShape().isStatic() && !config::isHostCompileMode(compilationMode)) {
         _log.trace("op {0} has dynamic dimensions, skipping ScaleShift conversion in {1} mode", mulOp->getName(),
                    compilationMode);
         return mlir::failure();
@@ -687,10 +697,7 @@ mlir::LogicalResult FoldMultiplyHWSplatWeights::matchAndRewrite(IE::MultiplyOp m
     // Handle the below weights shape patterns:
     // <1x1xHx1> isSplat -> <1x1x1x1>
     // <1x1x1xW> isSplat -> <1x1x1x1>
-    static const auto N = Dims4D::Act::N;
-    static const auto C = Dims4D::Act::C;
-    static const auto H = Dims4D::Act::H;
-    static const auto W = Dims4D::Act::W;
+    using namespace Dims4D::Act;
     if (!(weightsShape[N] == 1 && weightsShape[C] == 1 &&
           ((weightsShape[W] == 1 && weightsShape[H] != 1) || (weightsShape[H] == 1 && weightsShape[W] != 1)))) {
         return mlir::failure();
@@ -727,14 +734,14 @@ mlir::LogicalResult FoldMultiplyHWSplatWeights::matchAndRewrite(IE::MultiplyOp m
 }
 
 //
-// ConvertMultiplyToNHWC
+// AdjustMultiplyLayoutToNHWC
 //
 
-class ConvertMultiplyToNHWC : public mlir::OpRewritePattern<IE::MultiplyOp> {
+class AdjustMultiplyLayoutToNHWC : public mlir::OpRewritePattern<IE::MultiplyOp> {
 public:
-    ConvertMultiplyToNHWC(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
+    AdjustMultiplyLayoutToNHWC(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
             : mlir::OpRewritePattern<IE::MultiplyOp>(ctx, benefit), _log(log) {
-        this->setDebugName("ConvertMultiplyToNHWC");
+        this->setDebugName("AdjustMultiplyLayoutToNHWC");
     }
 
     mlir::LogicalResult matchAndRewrite(IE::MultiplyOp mulOp, mlir::PatternRewriter& rewriter) const final;
@@ -744,10 +751,10 @@ protected:
 };
 
 /*
- * Convert Multiply to NHWC to enable lowering it to DPU Eltwise task
+ * Adjust Multiply layout to NHWC to enable lowering it to DPU Eltwise task
  */
-mlir::LogicalResult ConvertMultiplyToNHWC::matchAndRewrite(IE::MultiplyOp mulOp,
-                                                           mlir::PatternRewriter& rewriter) const {
+mlir::LogicalResult AdjustMultiplyLayoutToNHWC::matchAndRewrite(IE::MultiplyOp mulOp,
+                                                                mlir::PatternRewriter& rewriter) const {
     _log.trace("Got op {0} at {1}", mulOp->getName(), mulOp->getLoc());
     auto input1 = mulOp->getOperand(0);
     auto input2 = mulOp->getOperand(1);
@@ -758,7 +765,7 @@ mlir::LogicalResult ConvertMultiplyToNHWC::matchAndRewrite(IE::MultiplyOp mulOp,
     }
 
     auto outputShape = getShape(output);
-    if (!isBeneficialToConvertMultiplyToNHWC(outputShape, mulOp, _log)) {
+    if (!isBeneficialToConvertMultiplyToNCEEltwise(outputShape, mulOp, _log)) {
         return mlir::failure();
     }
 
@@ -792,8 +799,8 @@ mlir::LogicalResult ConvertMultiplyToNHWC::matchAndRewrite(IE::MultiplyOp mulOp,
             rewriter.create<IE::PermuteCastOp>(appendLoc(mulOp->getLoc(), "_output_permute"), newMultiplyOp.getOutput(),
                                                outputDstOrder, outputPermutation);
 
-    rewriter.replaceAllUsesWith(mulOp, outputPermuteCastOp);
-    _log.trace("Converted Multiply to NHWC {0}", mulOp->getLoc());
+    rewriter.replaceOp(mulOp, outputPermuteCastOp.getOutput());
+    _log.trace("Adjusted Multiply layout to NHWC {0}", mulOp->getLoc());
     return mlir::success();
 }
 
@@ -825,7 +832,7 @@ void ConvertToScaleShiftPass::safeRunOnFunc() {
     patterns.add<ConvertBiasToScaleShift<IE::SubtractOp>>(&ctx, benefitLevels[1], _log);
     patterns.add<ConvertMultiplyToScaleShift>(&ctx, benefitLevels[1], enableNCEEltwiseMultiply, _log);
     if (enableNCEEltwiseMultiply) {
-        patterns.add<ConvertMultiplyToNHWC>(&ctx, benefitLevels[2], _log);
+        patterns.add<AdjustMultiplyLayoutToNHWC>(&ctx, benefitLevels[2], _log);
     }
 
     auto func = getOperation();

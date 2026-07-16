@@ -116,10 +116,28 @@ mlir::LogicalResult MatMulRewriter::matchAndRewrite(VPURT::TaskOp vpurtTask, mli
     const auto inputStep = getStep(nceOp.getInput().getType());
     const auto weightsStep = getStep(nceOp.getWeights().getType());
     const auto weightTableStep = nceOp.getWeightTable() == nullptr ? 0 : getStep(nceOp.getWeightTable().getType());
-    const auto scaleTableStep =
-            nceOp.getWeightTableScale() == nullptr ? 0 : getStep(nceOp.getWeightTableScale().getType());
-    const auto biasTableStep =
-            nceOp.getWeightTableBias() == nullptr ? 0 : getStep(nceOp.getWeightTableBias().getType());
+
+    // Scale, bias and zero-point tables are always created with G=1 and are shared across all unrolled MatMul tasks.
+    // Create each 4D buffer once and reuse it instead of slicing per group.
+    const auto checkSharedTableHasSingleGroup = [](mlir::Value table, llvm::StringRef tableName) {
+        if (table == nullptr) {
+            return;
+        }
+        VPUX_THROW_UNLESS(mlir::cast<vpux::NDTypeInterface>(table.getType()).getShape()[DimsGroups5D::Act::G] == 1,
+                          "{0} must have G=1", tableName);
+    };
+    const auto scaleTable = nceOp.getWeightTableScale();
+    const auto biasTable = nceOp.getWeightTableBias();
+    const auto zeroPointTable = nceOp.getWeightZeroPoints();
+    checkSharedTableHasSingleGroup(scaleTable, "Scale table");
+    checkSharedTableHasSingleGroup(biasTable, "Bias table");
+    checkSharedTableHasSingleGroup(zeroPointTable, "Zero-point table");
+
+    auto sharedScaleTable4d = scaleTable != nullptr ? createNewValue(scaleTable, /*step=*/0, rewriter) : nullptr;
+    auto sharedBiasTable4d = biasTable != nullptr ? createNewValue(biasTable, /*step=*/0, rewriter) : nullptr;
+    auto sharedZeroPointTable4d =
+            zeroPointTable != nullptr ? createNewValue(zeroPointTable, /*step=*/0, rewriter) : nullptr;
+
     const auto parentInputStep = getStep(nceOp.getParentInput().getType());
     const auto parentOutputStep = getStep(nceOp.getParentOutput().getType());
     const auto outputProducerStep = getStep(nceOp.getOutputBuff().getType());
@@ -146,12 +164,13 @@ mlir::LogicalResult MatMulRewriter::matchAndRewrite(VPURT::TaskOp vpurtTask, mli
             mapper.map(innerTask.getWeightTable(), weightTableProducer4d);
         }
         if (innerTask.getWeightTableScale() != nullptr) {
-            auto scaleTableProducer4d = createNewValue(innerTask.getWeightTableScale(), scaleTableStep * pos, rewriter);
-            mapper.map(innerTask.getWeightTableScale(), scaleTableProducer4d);
+            mapper.map(innerTask.getWeightTableScale(), sharedScaleTable4d);
         }
         if (innerTask.getWeightTableBias() != nullptr) {
-            auto biasTableProducer4d = createNewValue(innerTask.getWeightTableBias(), biasTableStep * pos, rewriter);
-            mapper.map(innerTask.getWeightTableBias(), biasTableProducer4d);
+            mapper.map(innerTask.getWeightTableBias(), sharedBiasTable4d);
+        }
+        if (innerTask.getWeightZeroPoints() != nullptr) {
+            mapper.map(innerTask.getWeightZeroPoints(), sharedZeroPointTable4d);
         }
         mapper.map(innerTask.getParentInput(), parentInputProducer4d);
         mapper.map(innerTask.getParentOutput(), parentOutputProducer4d);
@@ -199,6 +218,13 @@ mlir::LogicalResult MatMulRewriter::matchAndRewrite(VPURT::TaskOp vpurtTask, mli
         auto biasTableProducer = nceOp.getWeightTableBias().getDefiningOp();
         if (biasTableProducer->use_empty()) {
             rewriter.eraseOp(biasTableProducer);
+        }
+    }
+
+    if (nceOp.getWeightZeroPoints() != nullptr) {
+        auto zeroPointTableProducer = nceOp.getWeightZeroPoints().getDefiningOp();
+        if (zeroPointTableProducer->use_empty()) {
+            rewriter.eraseOp(zeroPointTableProducer);
         }
     }
 

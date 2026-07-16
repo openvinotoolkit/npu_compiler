@@ -473,8 +473,26 @@ func.func @NonMaxSuppression(%in_box_coords: tensor<3x100x4xf16>, %in_box_scores
     %0, %1, %2 = IE.NonMaxSuppression(%in_box_coords, %in_box_scores) {box_encoding = #IE.box_encoding_type<CENTER>, iou_threshold_value = 0.300048828125 : f64, max_output_boxes_per_class_value = 20 : i64, operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>, score_threshold_value = 0.300048828125 : f64, soft_nms_sigma_value = 0.000000e+00 : f64} : tensor<3x100x4xf16>, tensor<3x5x100xf16> -> tensor<300x3xsi32>, tensor<300x3xf16>, tensor<1xsi32>
     return %0, %1, %2 : tensor<300x3xsi32>, tensor<300x3xf16>, tensor<1xsi32>
 
+    // Compile-time-constant thresholds are materialized as single-element fp16 input tensors.
+    // CHECK-DAG: [[IOU:%.+]] = const.Declare tensor<1xf16> = dense<{{.*}}> : tensor<1xf16>
+    // CHECK-DAG: [[SCORE:%.+]] = const.Declare tensor<1xf16> = dense<{{.*}}> : tensor<1xf16>
     // CHECK: [[AUX:%.+]] = VPU.Empty : tensor<1x1x1x1400xui8>
-    // CHECK: [[VAR0:%.+]], [[VAR1:%.+]], [[VAR2:%.+]] = VPU.NonMaxSuppression([[IN_BOX_COORDS]], [[IN_BOX_SCORES]], [[AUX]]) {box_encoding = #IE.box_encoding_type<CENTER>, iou_threshold_value = 0.300048828125 : f64, max_output_boxes_per_class_value = 20 : i64, score_threshold_value = 0.300048828125 : f64, soft_nms_sigma_value = 0.000000e+00 : f64} : tensor<3x100x4xf16>, tensor<3x5x100xf16>, tensor<1x1x1x1400xui8> -> tensor<300x3xsi32>, tensor<300x3xf16>, tensor<1xsi32>
+    // CHECK: [[VAR0:%.+]], [[VAR1:%.+]], [[VAR2:%.+]] = VPU.NonMaxSuppression([[IN_BOX_COORDS]], [[IN_BOX_SCORES]], [[IOU]], [[SCORE]], [[AUX]]) {box_encoding = #IE.box_encoding_type<CENTER>, iou_threshold_value = 0.300048828125 : f64, max_output_boxes_per_class_value = 20 : i64, score_threshold_value = 0.300048828125 : f64, soft_nms_sigma_value = 0.000000e+00 : f64} : tensor<3x100x4xf16>, tensor<3x5x100xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1x1x1x1400xui8> -> tensor<300x3xsi32>, tensor<300x3xf16>, tensor<1xsi32>
+    // CHECK: return [[VAR0:%.+]], [[VAR1:%.+]], [[VAR2:%.+]] : tensor<300x3xsi32>, tensor<300x3xf16>, tensor<1xsi32>
+}
+
+// -----
+
+// CHECK-LABEL: @NonMaxSuppressionRuntimeThresholds
+// CHECK-SAME:  ([[IN_BOX_COORDS:%.+]]: tensor<3x100x4xf16>, [[IN_BOX_SCORES:%.+]]: tensor<3x5x100xf16>, [[IOU:%.+]]: tensor<1xf16>, [[SCORE:%.+]]: tensor<1xf16>)
+func.func @NonMaxSuppressionRuntimeThresholds(%in_box_coords: tensor<3x100x4xf16>, %in_box_scores: tensor<3x5x100xf16>, %iou_threshold: tensor<1xf16>, %score_threshold: tensor<1xf16>) -> (tensor<300x3xsi32>, tensor<300x3xf16>, tensor<1xsi32>) {
+    %0, %1, %2 = IE.NonMaxSuppression(%in_box_coords, %in_box_scores, %iou_threshold, %score_threshold) {box_encoding = #IE.box_encoding_type<CENTER>, iou_threshold_value = 0.000000e+00 : f64, max_output_boxes_per_class_value = 20 : i64, operandSegmentSizes = array<i32: 1, 1, 0, 1, 1, 0>, score_threshold_value = 0.000000e+00 : f64, soft_nms_sigma_value = 0.000000e+00 : f64} : tensor<3x100x4xf16>, tensor<3x5x100xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<300x3xsi32>, tensor<300x3xf16>, tensor<1xsi32>
+    return %0, %1, %2 : tensor<300x3xsi32>, tensor<300x3xf16>, tensor<1xsi32>
+
+    // Runtime threshold operands are forwarded directly to the VPU op (no constants materialized).
+    // CHECK-NOT: const.Declare
+    // CHECK: [[AUX:%.+]] = VPU.Empty : tensor<1x1x1x1400xui8>
+    // CHECK: [[VAR0:%.+]], [[VAR1:%.+]], [[VAR2:%.+]] = VPU.NonMaxSuppression([[IN_BOX_COORDS]], [[IN_BOX_SCORES]], [[IOU]], [[SCORE]], [[AUX]]) {box_encoding = #IE.box_encoding_type<CENTER>, iou_threshold_value = 0.000000e+00 : f64, max_output_boxes_per_class_value = 20 : i64, score_threshold_value = 0.000000e+00 : f64, soft_nms_sigma_value = 0.000000e+00 : f64} : tensor<3x100x4xf16>, tensor<3x5x100xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1x1x1x1400xui8> -> tensor<300x3xsi32>, tensor<300x3xf16>, tensor<1xsi32>
     // CHECK: return [[VAR0:%.+]], [[VAR1:%.+]], [[VAR2:%.+]] : tensor<300x3xsi32>, tensor<300x3xf16>, tensor<1xsi32>
 }
 
@@ -536,6 +554,42 @@ func.func @Tan(%arg0: tensor<1x32x112x112xf16>) -> (tensor<1x32x112x112xf16>) {
 
     // CHECK: [[VAR0:%.+]] = VPU.Tan([[ARG_0]]) : tensor<1x32x112x112xf16> -> tensor<1x32x112x112xf16>
     // CHECK: return [[VAR0]] : tensor<1x32x112x112xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @AbsSI8
+// CHECK:     ([[ARG_0:%.+]]: tensor<1x32x112x112xsi8>)
+func.func @AbsSI8(%arg0: tensor<1x32x112x112xsi8>) -> tensor<1x32x112x112xsi8> {
+    %0 = IE.Abs(%arg0) : tensor<1x32x112x112xsi8> -> tensor<1x32x112x112xsi8>
+    return %0 : tensor<1x32x112x112xsi8>
+
+    // CHECK: [[VAR0:%.+]] = VPU.Abs([[ARG_0]]) : tensor<1x32x112x112xsi8> -> tensor<1x32x112x112xsi8>
+    // CHECK: return [[VAR0]] : tensor<1x32x112x112xsi8>
+}
+
+// -----
+
+// CHECK-LABEL: @AbsSI16
+// CHECK:     ([[ARG_0:%.+]]: tensor<1x32x112x112xsi16>)
+func.func @AbsSI16(%arg0: tensor<1x32x112x112xsi16>) -> tensor<1x32x112x112xsi16> {
+    %0 = IE.Abs(%arg0) : tensor<1x32x112x112xsi16> -> tensor<1x32x112x112xsi16>
+    return %0 : tensor<1x32x112x112xsi16>
+
+    // CHECK: [[VAR0:%.+]] = VPU.Abs([[ARG_0]]) : tensor<1x32x112x112xsi16> -> tensor<1x32x112x112xsi16>
+    // CHECK: return [[VAR0]] : tensor<1x32x112x112xsi16>
+}
+
+// -----
+
+// CHECK-LABEL: @AbsSI32
+// CHECK:     ([[ARG_0:%.+]]: tensor<1x32x112x112xsi32>)
+func.func @AbsSI32(%arg0: tensor<1x32x112x112xsi32>) -> tensor<1x32x112x112xsi32> {
+    %0 = IE.Abs(%arg0) : tensor<1x32x112x112xsi32> -> tensor<1x32x112x112xsi32>
+    return %0 : tensor<1x32x112x112xsi32>
+
+    // CHECK: [[VAR0:%.+]] = VPU.Abs([[ARG_0]]) : tensor<1x32x112x112xsi32> -> tensor<1x32x112x112xsi32>
+    // CHECK: return [[VAR0]] : tensor<1x32x112x112xsi32>
 }
 
 // -----
@@ -652,41 +706,6 @@ func.func @InterpolateQuantized(%arg0: tensor<1x16x3x3x!qElemType>) -> tensor<1x
     // CHECK-SAME:    sizes_attr = [6, 6]}
     // CHECK-SAME:  : tensor<1x16x3x3x!qElemType> -> tensor<1x16x6x6x!qElemType1>
     // CHECK:       return [[VAL0]]
-}
-
-// -----
-#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
-
-// CHECK-LABEL: @InterpolateParameterScalesInput
-// CHECK-SAME: ([[INTERP_INPUT:%.+]]: tensor<1x3x4x6xf16>, [[SCALES:%.+]]: tensor<2xf32>) -> tensor<?x?x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
-func.func @InterpolateParameterScalesInput(%interp_input: tensor<1x3x4x6xf16>, %scales: tensor<2xf32>) -> tensor<?x?x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}> {
-    %scales_0 = IE.AffineReshape(%scales) {dim_mapping = [[0, 1, 2, 3]], shape_value = [1, 1, 1, 2]} : tensor<2xf32> -> tensor<1x1x1x2xf32>
-    %scales_1 = IE.Convert(%scales_0) {dstElemType = f16} : tensor<1x1x1x2xf32> -> tensor<1x1x1x2xf16>
-    %scales_2 = IE.AffineReshape(%scales_1) {dim_mapping = [[0], [0], [0], [0]], shape_value = [2]} : tensor<1x1x1x2xf16> -> tensor<2xf16>
-    %interpolate = IE.Interpolate(%interp_input, %scales_2) {
-        attr = #IE.Interpolate<mode = <LINEAR>,
-                               shape_calc_mode = <SCALES>,
-                               coord_mode = <HALF_PIXEL>,
-                               nearest_mode = <FLOOR>,
-                               antialias = false,
-                               pads_begin = [0, 0, 0, 0],
-                               pads_end = [0, 0, 0, 0],
-                               cube_coeff = -7.500000e-01 : f64>,
-        axes_attr = [2, 3],
-        operandSegmentSizes = array<i32: 1, 0, 1, 0>,
-        sizes_attr = []}
-        : tensor<1x3x4x6xf16>, tensor<2xf16> -> tensor<?x?x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
-    return %interpolate : tensor<?x?x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
-
-    // CHECK: [[SCALES_0:%.+]] = VPU.AffineReshape([[SCALES]])
-    // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1, 2, 3]], shape_value = [1, 1, 1, 2]} : tensor<2xf32> -> tensor<1x1x1x2xf32>
-    // CHECK: [[SCALES_1:%.+]] = VPU.Convert([[SCALES_0]]) {dstElemType = f16} : tensor<1x1x1x2xf32> -> tensor<1x1x1x2xf16>
-    // CHECK: [[SCALES_2:%.+]] = VPU.AffineReshape([[SCALES_1]])
-    // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [0], [0], [0]], shape_value = [2]} : tensor<1x1x1x2xf16> -> tensor<2xf16>
-    // CHECK: [[INTERPOLATE:%.+]] = VPU.InterpolateDMA([[INTERP_INPUT]], [[SCALES_2]])
-    // CHECK-SAME: {attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SCALES>, coord_mode = <HALF_PIXEL>, nearest_mode = <FLOOR>, antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>, axes_attr = [2, 3], operandSegmentSizes = array<i32: 1, 1, 0, 0>}
-    // CHECK-SAME: : tensor<1x3x4x6xf16>, tensor<2xf16> -> tensor<?x?x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
-    // CHECK: return [[INTERPOLATE]]
 }
 
 // -----
@@ -882,16 +901,16 @@ func.func @DoNotConvertConvWithStaticScale(%arg: tensor<1x3x62x62xf32>) -> tenso
 // -----
 
 // CHECK-LABEL: @SelectTest
-// CHECK-SAME:  [[INPUT0:%arg[0-9]]]: tensor<1x1x1x1024xf16>
+// CHECK-SAME:  [[INPUT0:%arg[0-9]]]: tensor<1x1x1x1024xsi32>
 // CHECK-SAME:  [[INPUT1:%arg[0-9]]]: tensor<1x1x1x1xsi32>
 // CHECK-SAME:  [[INPUT2:%arg[0-9]]]: tensor<1x1x1x1024xsi32>
-func.func @SelectTest(%arg0: tensor<1x1x1x1024xf16>, %arg1: tensor<1x1x1x1xsi32>, %arg2: tensor<1x1x1x1024xsi32>) -> tensor<1x1x1x1024xsi32> {
+func.func @SelectTest(%arg0: tensor<1x1x1x1024xsi32>, %arg1: tensor<1x1x1x1xsi32>, %arg2: tensor<1x1x1x1024xsi32>) -> tensor<1x1x1x1024xsi32> {
     %0 = IE.Select(%arg0, %arg1, %arg2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
-                tensor<1x1x1x1024xf16>, tensor<1x1x1x1xsi32>, tensor<1x1x1x1024xsi32> -> tensor<1x1x1x1024xsi32>
+                tensor<1x1x1x1024xsi32>, tensor<1x1x1x1xsi32>, tensor<1x1x1x1024xsi32> -> tensor<1x1x1x1024xsi32>
     return %0 : tensor<1x1x1x1024xsi32>
 
     // CHECK:       [[SELECT:%.+]] = VPU.Select([[INPUT0]], [[INPUT1]], [[INPUT2]]) {
-    // CHECK-SAME:          auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x1024xf16>, tensor<1x1x1x1xsi32>, tensor<1x1x1x1024xsi32> -> tensor<1x1x1x1024xsi32>
+    // CHECK-SAME:          auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x1024xsi32>, tensor<1x1x1x1xsi32>, tensor<1x1x1x1024xsi32> -> tensor<1x1x1x1024xsi32>
     // CHECK:       return [[SELECT]] : tensor<1x1x1x1024xsi32>
 }
 
@@ -1189,13 +1208,13 @@ func.func @DynamicDequantize(%arg0: tensor<1x28x4608x128x!qElemType>, %arg1: ten
 // CHECK-LABEL: @DynamicDequantizeWithZP
 // CHECK-SAME:  [[INPUT:%.+]]: tensor<1x28x4608x128x!qElemType>
 // CHECK-SAME:  [[SCALE:%.+]]: tensor<1x28x4608x1xf16>
-// CHECK-SAME:  [[ZP:%.+]]: tensor<1x28x4608x128xi4>
-func.func @DynamicDequantizeWithZP(%arg0: tensor<1x28x4608x128x!qElemType>, %arg1: tensor<1x28x4608x1xf16>, %arg2: tensor<1x28x4608x128xi4>) ->  tensor<1x28x4608x128xf16> {
-    %0 = IE.DynamicDequantize(%arg0, %arg1, %arg2) {dstElemType = f16} : tensor<1x28x4608x128x!qElemType>, tensor<1x28x4608x1xf16>, tensor<1x28x4608x128xi4> -> tensor<1x28x4608x128xf16>
+// CHECK-SAME:  [[ZP:%.+]]: tensor<1x28x4608x128xsi4>
+func.func @DynamicDequantizeWithZP(%arg0: tensor<1x28x4608x128x!qElemType>, %arg1: tensor<1x28x4608x1xf16>, %arg2: tensor<1x28x4608x128xsi4>) ->  tensor<1x28x4608x128xf16> {
+    %0 = IE.DynamicDequantize(%arg0, %arg1, %arg2) {dstElemType = f16} : tensor<1x28x4608x128x!qElemType>, tensor<1x28x4608x1xf16>, tensor<1x28x4608x128xsi4> -> tensor<1x28x4608x128xf16>
     return %0 :  tensor<1x28x4608x128xf16>
 
     // CHECK-NOT:   IE.DynamicDequantize
-    // CHECK:       VPU.DynamicDequantize([[INPUT]], [[SCALE]], [[ZP]]) {dstElemType = f16} : tensor<1x28x4608x128x!qElemType>, tensor<1x28x4608x1xf16>, tensor<1x28x4608x128xi4> -> tensor<1x28x4608x128xf16>
+    // CHECK:       VPU.DynamicDequantize([[INPUT]], [[SCALE]], [[ZP]]) {dstElemType = f16} : tensor<1x28x4608x128x!qElemType>, tensor<1x28x4608x1xf16>, tensor<1x28x4608x128xsi4> -> tensor<1x28x4608x128xf16>
 }
 
 // -----
@@ -1258,13 +1277,28 @@ func.func @DynamicDataMask(%arg0: tensor<4xsi32>) -> tensor<1x3x32x32xf16> {
 // CHECK-SAME:  [[INPUT0:%.+]]: tensor<1x1x6000x400xf32>, [[INPUT1:%.+]]: tensor<1x1x1x1xf32>, [[INPUT2:%.+]]: tensor<1x1x1x1xf32>
 func.func @DynamicQuantize(%arg0: tensor<1x1x6000x400xf32>, %arg1: tensor<1x1x1x1xf32>, %arg2: tensor<1x1x1x1xf32>)
 -> (tensor<1x1x6000x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>) {
-    %output, %scale, %zero_point = IE.DynamicQuantize(%arg0, %arg1, %arg2) {operandSegmentSizes = array<i32: 1, 1, 1>} : tensor<1x1x6000x400xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x6000x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
+    %output, %scale, %zero_point = IE.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = ui8, operandSegmentSizes = array<i32: 1, 1, 1>} : tensor<1x1x6000x400xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x6000x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
     return %output, %scale, %zero_point : tensor<1x1x6000x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
 
-    // CHECK: [[OUTPUT:%.+]], [[SCALE:%.+]], [[ZP:%.+]] = VPU.DynamicQuantize([[INPUT0]], [[INPUT1]], [[INPUT2]])
+    // CHECK: [[OUTPUT:%.+]], [[SCALE:%.+]], [[ZP:%.+]] = VPU.DynamicQuantize([[INPUT0]], [[INPUT1]], [[INPUT2]]) {dstElemType = ui8}
     // CHECK-SAME: tensor<1x1x6000x400xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>
     // CHECK:      -> tensor<1x1x6000x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
     // CHECK: return [[OUTPUT]], [[SCALE]], [[ZP]] : tensor<1x1x6000x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
+}
+
+// -----
+
+// CHECK-LABEL: @DynamicQuantizeSigned
+// CHECK-SAME:  [[INPUT0:%.+]]: tensor<1x1x6000x400xf32>, [[INPUT1:%.+]]: tensor<1x1x1x1xf32>, [[INPUT2:%.+]]: tensor<1x1x1x1xf32>
+func.func @DynamicQuantizeSigned(%arg0: tensor<1x1x6000x400xf32>, %arg1: tensor<1x1x1x1xf32>, %arg2: tensor<1x1x1x1xf32>)
+-> (tensor<1x1x6000x400xsi8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xsi8>) {
+    %output, %scale, %zero_point = IE.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = si8, operandSegmentSizes = array<i32: 1, 1, 1>} : tensor<1x1x6000x400xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x6000x400xsi8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xsi8>
+    return %output, %scale, %zero_point : tensor<1x1x6000x400xsi8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xsi8>
+
+    // CHECK: [[OUTPUT:%.+]], [[SCALE:%.+]], [[ZP:%.+]] = VPU.DynamicQuantize([[INPUT0]], [[INPUT1]], [[INPUT2]]) {dstElemType = si8}
+    // CHECK-SAME: tensor<1x1x6000x400xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>
+    // CHECK:      -> tensor<1x1x6000x400xsi8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xsi8>
+    // CHECK: return [[OUTPUT]], [[SCALE]], [[ZP]] : tensor<1x1x6000x400xsi8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xsi8>
 }
 
 // -----
@@ -1398,4 +1432,16 @@ func.func @AvgPoolFp32Input(%arg0: tensor<1x1x16x8xf32>) -> tensor<1x1x2x1xf32> 
 
     // CHECK: [[VAR0:%.+]] = VPU.AvgPool([[ARG_0]]) {exclude_pads, kernel_size = [8, 8], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [8, 1]} : tensor<1x1x16x8xf32> -> tensor<1x1x2x1xf32>
     // CHECK: return [[VAR0]] : tensor<1x1x2x1xf32>
+}
+
+// -----
+
+// CHECK-LABEL: @LRN
+// CHECK-SAME:     ([[ARG_0:%.+]]: tensor<1x64x128x128xf16>)
+func.func @LRN(%arg0: tensor<1x64x128x128xf16>) -> tensor<1x64x128x128xf16> {
+    %0 = IE.LRN(%arg0) {alpha = 9.9e-05 : f64, axes_value = [1], beta = 2.000000e+00 : f64, bias = 1.000000e+00 : f64, size = 5 : i64} : tensor<1x64x128x128xf16> -> tensor<1x64x128x128xf16>
+    return %0 : tensor<1x64x128x128xf16>
+
+    // CHECK: [[VAR0:%.+]] = VPU.LRN([[ARG_0]]) {alpha = 9.8999999999999994E-5 : f64, axes = [1], beta = 2.000000e+00 : f64, bias = 1.000000e+00 : f64, size = 5 : i64} : tensor<1x64x128x128xf16> -> tensor<1x64x128x128xf16>
+    // CHECK: return [[VAR0]] : tensor<1x64x128x128xf16>
 }

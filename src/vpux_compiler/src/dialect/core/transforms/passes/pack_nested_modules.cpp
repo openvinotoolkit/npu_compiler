@@ -205,6 +205,7 @@ private:
     void cloneResourcesOps(mlir::OpBuilder& builder, mlir::ModuleOp topModuleOp);
     void createNetInfoForFuncOp(mlir::OpBuilder& builder, mlir::func::FuncOp funcOp, bool enableProfiling = false);
     void nestNetworkInfo(mlir::ModuleOp subModuleOp, net::NetworkInfoOp& netInfo);
+    void removeNetInfoOp(mlir::ModuleOp moduleOp);
 
     void safeRunOnModule() final;
 
@@ -449,8 +450,11 @@ Clusters PackNestedModules::collectClustersFromAttributes() {
             clusterInfo.entryPointFunc = funcOp;
             _log.trace("Function '{0}' designated as entry point for module '{1}'", funcOp.getSymName(), targetModule);
         }
+
+        config::removeFunctionToPackAttribute(funcOp);
     }
 
+    _log.debug("Collected module groups: {0}", moduleGroups.size());
     for (auto& entry : moduleGroups) {
         VPUX_THROW_WHEN(topModuleOp.lookupSymbol<mlir::ModuleOp>(entry.second.moduleName) != nullptr,
                         "Module with name '{0}' already exists. Cannot create a new module for FunctionToPack "
@@ -527,6 +531,7 @@ mlir::ModuleOp PackNestedModules::nestCluster(mlir::OpBuilder& builder, NestedCl
 
 void PackNestedModules::createNetInfoForFuncOp(mlir::OpBuilder& builder, mlir::func::FuncOp funcOp,
                                                bool enableProfiling) {
+    _log.trace("Creating new networkInfo for the function: {0}", funcOp.getName());
     auto netInfo = builder.create<net::NetworkInfoOp>(
             appendLoc(funcOp.getLoc(), "nested_network_info"),
             mlir::FlatSymbolRefAttr::get(funcOp->getContext(), funcOp.getName()), enableProfiling);
@@ -543,12 +548,23 @@ void PackNestedModules::createNetInfoForFuncOp(mlir::OpBuilder& builder, mlir::f
     mlir::StringAttr funcArgDynamicStridesAttrNameAttr = builder.getStringAttr(funcArgDynamicStridesAttrName);
     llvm::StringRef dynamicStridesAttrName = vpux::HostExec::HOST_EXEC_DYNAMIC_STRIDES_ATTR_NAME;
 
+    auto createDataInfoOp = [&](const std::string& name, vpux::NDTypeInterface argType,
+                                vpux::NDTypeInterface netInfoArgType) {
+        mlir::Type newType = buildNetworkInfoType(argType, netInfoArgType);
+        auto dataInfoOp = builder.create<net::DataInfoOp>(appendLoc(funcOp.getLoc(), name), name, newType);
+
+        SmallVector<mlir::Attribute> tensorNamesStringAttrs;
+        tensorNamesStringAttrs.push_back(builder.getStringAttr(name));
+        auto tensorNamesArrayAttr = builder.getArrayAttr(tensorNamesStringAttrs);
+        dataInfoOp.setTensorNamesAttr(tensorNamesArrayAttr);
+        return dataInfoOp;
+    };
+
     for (unsigned i = 0; i < funcType.getNumInputs(); ++i) {
         auto argType = mlir::cast<vpux::NDTypeInterface>(funcType.getInput(i));
         auto netInfoArgType = getInputNetworkInfoType(funcOp, i);
-        mlir::Type newType = buildNetworkInfoType(argType, netInfoArgType);
         auto name = formatv("in_{0}", i).str();
-        auto dataInfoOp = builder.create<net::DataInfoOp>(appendLoc(funcOp.getLoc(), name), name, newType);
+        auto dataInfoOp = createDataInfoOp(name, argType, netInfoArgType);
 
         // If func op has dynamicStrides attribute for arguments then set the same attribute to inputsInfo
         auto dynamicStridesAttr =
@@ -566,9 +582,8 @@ void PackNestedModules::createNetInfoForFuncOp(mlir::OpBuilder& builder, mlir::f
     for (unsigned i = 0; i < funcType.getNumResults(); ++i) {
         auto resType = mlir::cast<vpux::NDTypeInterface>(funcType.getResult(i));
         auto netInfoResType = getOutputNetworkInfoType(funcOp, i);
-        mlir::Type newType = buildNetworkInfoType(resType, netInfoResType);
         auto name = formatv("out_{0}", i).str();
-        auto dataInfoOp = builder.create<net::DataInfoOp>(appendLoc(funcOp.getLoc(), name), name, newType);
+        auto dataInfoOp = createDataInfoOp(name, resType, netInfoResType);
 
         // If func op has dynamicStrides attribute for results then set the same attribute to outputsInfo
         auto dynamicStridesAttr =
@@ -600,6 +615,13 @@ void PackNestedModules::nestNetworkInfo(mlir::ModuleOp subModuleOp, net::Network
     targetOps.splice(targetOps.begin(), netInfo->getBlock()->getOperations(), netInfo->getIterator());
 }
 
+void PackNestedModules::removeNetInfoOp(mlir::ModuleOp moduleOp) {
+    SmallVector<net::NetworkInfoOp> netInfoOps(moduleOp.getOps<net::NetworkInfoOp>());
+    for (auto netInfo : netInfoOps) {
+        netInfo->erase();
+    }
+}
+
 void PackNestedModules::safeRunOnModule() {
     auto topModuleOp = getOperation();
     auto [netInfo, mainFuncOp] = net::getFromModule(topModuleOp);
@@ -608,6 +630,8 @@ void PackNestedModules::safeRunOnModule() {
     auto clusters = collectClustersFromAttributes();
     if (clusters.nestedClusters.empty()) {
         clusters = collectClusters(mainFuncOp);
+        _log.debug("Collected top clusters: {0}, nested clusters: {1}", clusters.topCluster.size(),
+                   clusters.nestedClusters.size());
     }
 
     VPUX_THROW_WHEN(_nestingMode == Core::NestingMode::EntryPoint && clusters.nestedClusters.size() != 1,
@@ -621,6 +645,7 @@ void PackNestedModules::safeRunOnModule() {
     builder.setInsertionPoint(getFirstClusterInsertionPoint(clusters.topCluster));
 
     for (auto&& clusterInfo : clusters.nestedClusters) {
+        _log.trace("Process nested module: {0}", clusterInfo.moduleName);
         mlir::func::FuncOp entryPointFunc = clusterInfo.entryPointFunc;
         Core::NestingMode clusterMode = clusterInfo.mode;
         bool isFunctionToPack = clusterInfo.isFunctionToPack;
@@ -670,6 +695,19 @@ void PackNestedModules::safeRunOnModule() {
 
         // nestCluster invalidates IR so we have to update the insertion point
         builder.setInsertionPointAfter(subModuleOp);
+    }
+    // Get rid of any inconsistencies:
+    // if there are no entryPoint but a module still has NetInfo in topModule, we need to remove it
+    // and vice versa
+    auto topModuleNetInfos = to_small_vector(topModuleOp.getOps<net::NetworkInfoOp>());
+    _log.debug("Check whether the top module has got entry point function after all, netInfos: {0}",
+               topModuleNetInfos.size());
+    if (topModuleNetInfos.size() > 0) {
+        auto netFunc = topModuleOp.lookupSymbol<mlir::func::FuncOp>(topModuleNetInfos.front().getEntryPointAttr());
+        if (netFunc == nullptr) {
+            _log.debug("Remove NetworkInfo section completely as there is no any entry point function");
+            removeNetInfoOp(topModuleOp);
+        }
     }
 }
 

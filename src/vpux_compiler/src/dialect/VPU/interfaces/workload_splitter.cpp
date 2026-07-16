@@ -175,10 +175,12 @@ mlir::DenseSet<int64_t> vpux::VPU::WorkloadSplitter::getWorkloadsChannels(
             auto perClusterShapes = getPerClusterShapesWhenSOK(nceOp);
 
             if (!perClusterShapes.empty()) {
-                auto channels = to_container<mlir::DenseSet<int64_t>>(perClusterShapes |
-                                                                      transformed([](Shape clusterShape) -> int64_t {
-                                                                          return clusterShape[Dims4D::Act::C];
-                                                                      }));
+                // Pass Shape by const-ref: by-value triggers GCC -Wmaybe-uninitialized on the
+                // SmallVector inline-storage tail when the constexpr Dim index is fully inlined.
+                auto channels = to_container<mlir::DenseSet<int64_t>>(
+                        perClusterShapes | transformed([](const Shape& clusterShape) -> int64_t {
+                            return clusterShape[Dims4D::Act::C];
+                        }));
                 workloadsChannels.insert(channels.begin(), channels.end());
             } else {
                 const auto outputType = mlir::cast<vpux::NDTypeInterface>(nceOp.getOperation()->getResult(0).getType());
@@ -202,10 +204,10 @@ SmallVector<int64_t> vpux::VPU::WorkloadSplitter::filterSupportedChannelsBySmall
                                                    return wlSizes[Dims4D::Act::C.ind()];
                                                }));
 
-    const auto maxSlotsSum = VPUIP::getBarrierMaxVariantSum(nceOp);
+    const auto availableVariantsPerInvariant = VPUIP::getMaxNumberOfDpuVariantsPerInvariant(nceOp);
     const auto& strategyFactory = VPU::getVPUStrategyFactory(nceOp->getContext());
     const auto channelsSupportedByKernelOptimization = strategyFactory->getChannelsSupportedByKernelOptimization(
-            workloadsChannels, static_cast<int64_t>(maxSlotsSum));
+            workloadsChannels, static_cast<int64_t>(availableVariantsPerInvariant));
 
     const ArrayRef<int64_t> resultChannels = channelsSupportedByKernelOptimization.empty()
                                                      ? supportedChannels
@@ -361,9 +363,23 @@ mlir::DenseSet<mlir::Operation*> vpux::VPU::WorkloadSplitter::findInvalidDepthwi
         if (!isDepthwiseOp(op)) {
             continue;
         }
+
+        // Workload channel counts are in post-ODU space. The DPU processes pre-ODU channels, so
+        // the supported-channel constraint ({16, 32, 64} for DW ops) must be validated there.
+        // pre_C = post_C * divisor / multiplier (invert of post_C = pre_C * multiplier / divisor).
+        const auto oduScales = VPU::getODUScaling(op);
         const auto workloadsChannels = getWorkloadsChannels({op});
-        const auto invalidChannels = llvm::any_of(workloadsChannels, [&](const int64_t channels) -> bool {
-            return llvm::find(supportedChannels, channels) == supportedChannels.end();
+        const auto invalidChannels = llvm::any_of(workloadsChannels, [&](const int64_t outCh) -> bool {
+            int64_t preCh = outCh;
+            if (!oduScales.empty()) {
+                const auto& cScale = oduScales[Dims4D::Act::C.ind()];
+                // Guard: post-ODU tile must map to an integer pre-ODU count.
+                if ((outCh * cScale.divisor) % cScale.multiplier != 0) {
+                    return true;
+                }
+                preCh = outCh * cScale.divisor / cScale.multiplier;
+            }
+            return llvm::find(supportedChannels, preCh) == supportedChannels.end();
         });
         if (invalidChannels) {
             invalidDepthwiseOps.insert(op);

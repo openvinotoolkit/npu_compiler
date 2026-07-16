@@ -181,8 +181,7 @@ private:
     // DMA task index {queue index, task index in queue}
     using DmaTaskIdx = std::pair<int64_t, size_t>;
 
-    int64_t _barrierProducerSlotCount = 0;
-    int64_t _barrierTotalSlotCount = 0;
+    int64_t _barrierSlotCountLimit = 0;
     int64_t _availableBarriers = 0;
     int64_t _usedBarriers = 0;
 

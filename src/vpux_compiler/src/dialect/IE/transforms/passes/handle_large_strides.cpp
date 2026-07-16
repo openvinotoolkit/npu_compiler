@@ -174,8 +174,8 @@ mlir::LogicalResult ConvGeneralRewriter::matchAndRewrite(IE::ConvolutionOp origO
             origOp.getPadsEnd(),
             [&](mlir::Location loc, mlir::Value input, OperationPart part) -> mlir::Operation* {
                 return IE::cloneConvolutionOp(rewriter, origOp, input, origOp.getFilter(), origOp.getBias(),
-                                              origOp.getScale(), part.strides, part.padBegin, part.padEnd,
-                                              origOp.getDilations(), loc);
+                                              origOp.getScale(), origOp.getZeroPoints(), part.strides, part.padBegin,
+                                              part.padEnd, origOp.getDilations(), loc);
             },
             _log.nest());
 }
@@ -245,8 +245,8 @@ mlir::LogicalResult MaxPoolGeneralRewriter::matchAndRewrite(IE::MaxPoolOp origOp
             [&](mlir::Location loc, mlir::Value input, OperationPart part) -> mlir::Operation* {
                 return rewriter.create<IE::MaxPoolOp>(loc, input, origOp.getKernelSize(), part.strides, part.padBegin,
                                                       part.padEnd, origOp.getRoundingType(), origOp.getPostOpAttr(),
-                                                      origOp.getClampAttr(), origOp.getOutputPaddingAttr(),
-                                                      origOp.getInputPaddingAttr());
+                                                      origOp.getClampAttr(), origOp.getStaticScaleAttr(),
+                                                      origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
             },
             _log.nest());
 }
@@ -370,7 +370,7 @@ mlir::LogicalResult opWithMaxPoolOptimization(
     rewriter.replaceOpWithNewOp<IE::MaxPoolOp>(origOp, newOp->getResult(0), getIntArrayAttr(ctx, maxPoolKernels),
                                                getIntArrayAttr(ctx, maxPoolStrides), padsAttr, padsAttr,
                                                vpux::IE::RoundingTypeAttr::get(ctx, vpux::IE::RoundingType::FLOOR),
-                                               nullptr, nullptr, nullptr, nullptr)
+                                               nullptr, nullptr, nullptr, nullptr, nullptr)
             ->setLoc(loc);
 
     return mlir::success();
@@ -515,7 +515,7 @@ mlir::LogicalResult MaxPoolMPOptimizationRewriter::matchAndRewrite(IE::MaxPoolOp
                 return rewriter.create<IE::MaxPoolOp>(
                         loc, input, origOp.getKernelSize(), strides, origOp.getPadsBegin(), origOp.getPadsEnd(),
                         origOp.getRoundingType(), origOp.getPostOpAttr(), origOp.getClampAttr(),
-                        origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+                        origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
             },
             _log.nest());
 }

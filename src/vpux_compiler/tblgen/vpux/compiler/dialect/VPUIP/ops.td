@@ -392,7 +392,8 @@ def VPUIP_DecompressDMAOp :
         UnitProp:$is_out_of_order,
         UnitProp:$is_critical,
         OptionalAttr<IntAttr>:$dma_hwp_id,
-        OptionalAttr<VPUIP_DmaProfilingMetadataAttr>:$profilingMetadata
+        OptionalAttr<VPUIP_DmaProfilingMetadataAttr>:$profilingMetadata,
+        DefaultValuedAttr<VPUIP_DMAEncodingAlgoAttr, "VPUIP::DMAEncodingAlgo::BTC">:$dma_encoding_algo
     );
 
     let results = (outs
@@ -776,6 +777,7 @@ def VPUIP_NCEClusterTaskOp :
         Optional<AnyTypeOf<[MemRefOf<[SI32]>, VPUIP_DistributedBuffer]>>:$weight_table_sp_ptr,
         Optional<AnyTypeOf<[MemRefOf<[F32, F8E8M0FNU, F8E5M2, F8E4M3FN]>, VPUIP_DistributedBuffer]>>:$weight_table_scale,
         Optional<AnyTypeOf<[MemRefOf<[F32]>, VPUIP_DistributedBuffer]>>:$weight_table_bias,
+        Optional<AnyTypeOf<[MemRefOf<[F32]>, VPUIP_DistributedBuffer]>>:$weight_table_alpha,
         Optional<AnyTypeOf<[MemRefOf<[I8, I4]>, VPUIP_DistributedBuffer]>>:$weight_zero_points,
 
         Optional<AnyTypeOf<[MemRefOf<[UI16]>, VPUIP_DistributedBuffer]>>:$spr_lookup_table,
@@ -968,6 +970,40 @@ def VPUIP_NCEClusterTaskOp :
             CArg<"VPUIP::DynamicScaleConfigAttr", "nullptr">:$dynamic_scale_config,
             CArg<"VPUIP::LocalRegionAttr", "nullptr">:$local_region,
             CArg<"VPU::S2DD2SConfigAttr", "nullptr">:$s2dd2s_config
+        )>,
+
+        OpBuilder<(ins
+            "mlir::Value":$input, "mlir::Value":$input_sparsity_map, "mlir::Value":$input_storage_element_table,
+            "mlir::Value":$weights, "mlir::Value":$weights_sparsity_map,
+            "mlir::Value":$weight_table,
+            "mlir::Value":$weight_table_data_ptr, "mlir::Value":$weight_table_sp_ptr,
+            "mlir::Value":$weight_table_scale, "mlir::Value":$weight_table_bias, "mlir::Value":$weight_table_alpha, "mlir::Value":$weight_zero_points,
+            "mlir::Value":$spr_lookup_table, "mlir::Value":$pallet_lookup_table,
+            "mlir::Value":$parent_input, "mlir::Value":$parent_input_sparsity_map, "mlir::Value":$parent_input_storage_element_table,
+            "mlir::Value":$parent_output, "mlir::Value":$parent_output_sparsity_map, "mlir::ValueRange":$output_ITI_buff,
+            "mlir::Value":$output_buff, "mlir::Value":$output_sparsity_map_buff, "mlir::Value":$profiling_data,
+            "mlir::Value":$dynamic_sequence_length,
+            "mlir::Value":$max_per_xy_buff, "mlir::Value":$min_per_xy_buff, "mlir::ValueRange":$min_max_per_tensor_buff,
+            "vpux::VPUIP::NCETaskType":$task_type,
+            "mlir::ArrayAttr":$kernel_size, "mlir::ArrayAttr":$kernel_strides, "vpux::VPU::PaddingAttr":$kernel_padding,
+            CArg<"bool", "false">:$is_continued,
+            CArg<"mlir::IntegerAttr", "nullptr">:$cm_sp_pattern,
+            CArg<"bool", "false">:$is_segmented,
+            CArg<"mlir::IntegerAttr", "nullptr">:$out_channel_offset,
+            CArg<"bool", "false">:$input_channels_compression,
+            CArg<"bool", "false">:$is_zero_offset_weights_table,
+            CArg<"bool", "false">:$is_superdense,
+            CArg<"mlir::BoolAttr", "nullptr">:$is_inplace,
+            CArg<"mlir::IntegerAttr", "nullptr">:$input_se_size,
+            CArg<"mlir::IntegerAttr", "nullptr">:$output_se_size,
+            CArg<"bool", "false">:$is_permute_quantize,
+            CArg<"bool", "false">:$is_small_kernel_optimized,
+            CArg<"VPU::MPEEngineAttr", "nullptr">:$mpe_engine,
+            CArg<"VPU::EltwiseTypeAttr", "nullptr">:$eltwise_type,
+            CArg<"VPUIP::SparsityConfigAttr", "nullptr">:$sparsity_config,
+            CArg<"VPUIP::DynamicScaleConfigAttr", "nullptr">:$dynamic_scale_config,
+            CArg<"VPUIP::LocalRegionAttr", "nullptr">:$local_region,
+            CArg<"VPU::S2DD2SConfigAttr", "nullptr">:$s2dd2s_config
         )>
     ];
 
@@ -984,6 +1020,7 @@ def VPUIP_NCEClusterTaskOp :
         (`weight_table_sp_ptr` `(` $weight_table_sp_ptr^  `:` type($weight_table_sp_ptr) `)`)?
         (`weight_table_scale` `(` $weight_table_scale^  `:` type($weight_table_scale) `)`)?
         (`weight_table_bias` `(` $weight_table_bias^  `:` type($weight_table_bias) `)`)?
+        (`weight_table_alpha` `(` $weight_table_alpha^  `:` type($weight_table_alpha) `)`)?
         (`weight_zero_points` `(` $weight_zero_points^  `:` type($weight_zero_points) `)`)?
         (`spr_lookup_table` `(` $spr_lookup_table^  `:` type($spr_lookup_table) `)`)?
         (`pallet_lookup_table` `(` $pallet_lookup_table^  `:` type($pallet_lookup_table) `)`)?
@@ -1936,7 +1973,8 @@ def VPUIP_ShapeCastOp :
         AnyTypeOf<[AnyMemRef, VPUIP_DistributedBuffer, VPUIP_SparseBuffer]>:$source,
         I64ArrayAttr:$shape,
         OptionalAttr<I64ArrayOfArraysAttr>:$explicit_output_shapes,
-        OptionalAttr<I64ArrayOfArraysAttr>:$explicit_output_offsets
+        OptionalAttr<I64ArrayOfArraysAttr>:$explicit_output_offsets,
+        OptionalAttr<I64ArrayAttr>:$explicit_output_alignment
     );
 
     let results = (outs
@@ -1960,6 +1998,15 @@ def VPUIP_ShapeCastOp :
         >,
         OpBuilder<
             (ins "mlir::Value":$source, "mlir::ArrayAttr":$shape)
+        >,
+        OpBuilder<
+            (ins "mlir::Value":$source, "mlir::ArrayAttr":$shape, "mlir::ArrayAttr":$explicit_output_shapes, "mlir::ArrayAttr":$explicit_output_offsets)
+        >,
+        OpBuilder<
+            (ins "vpux::NDTypeInterface":$result, "mlir::Value":$source, "mlir::ArrayAttr":$shape, "mlir::ArrayAttr":$explicit_output_shapes, "mlir::ArrayAttr":$explicit_output_offsets)
+        >,
+        OpBuilder<
+            (ins "vpux::NDTypeInterface":$result, "mlir::Value":$source, "mlir::ArrayAttr":$shape, "mlir::ArrayAttr":$explicit_output_shapes, "mlir::ArrayAttr":$explicit_output_offsets, "mlir::ArrayAttr":$explicit_output_alignment)
         >,
     ];
 }

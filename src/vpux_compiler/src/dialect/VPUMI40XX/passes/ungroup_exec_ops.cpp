@@ -9,8 +9,6 @@
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 
-#include <npu_40xx_nnrt.hpp>
-
 namespace vpux::VPUMI40XX {
 #define GEN_PASS_DECL_UNGROUPEXECUTIONOPS
 #define GEN_PASS_DEF_UNGROUPEXECUTIONOPS

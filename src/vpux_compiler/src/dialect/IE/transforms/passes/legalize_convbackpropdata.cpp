@@ -404,14 +404,14 @@ private:
 
         if (auto filterFqOp = mlir::dyn_cast_if_present<IE::FakeQuantizeOp>(filterDqOrFqOp)) {
             auto transposeFq = [&](mlir::Value input, const std::string& name) {
-                return transposeFqInput(rewriter, input, constFilterOp.getLoc(), name, rewriter.getContext(),
+                return transposeFqInput(rewriter, input, filterFqOp.getLoc(), name + suffix, rewriter.getContext(),
                                         outChannelDimIndex, inChannelDimIndex, false);
             };
 
-            auto inputLow = transposeFq(filterFqOp.getInputLow(), "transpose_input_low");
-            auto inputHigh = transposeFq(filterFqOp.getInputHigh(), "transpose_input_high");
-            auto outputLow = transposeFq(filterFqOp.getOutputLow(), "transpose_output_low");
-            auto outputHigh = transposeFq(filterFqOp.getOutputHigh(), "transpose_output_high");
+            auto inputLow = transposeFq(filterFqOp.getInputLow(), "transpose_in_low");
+            auto inputHigh = transposeFq(filterFqOp.getInputHigh(), "transpose_in_high");
+            auto outputLow = transposeFq(filterFqOp.getOutputLow(), "transpose_out_low");
+            auto outputHigh = transposeFq(filterFqOp.getOutputHigh(), "transpose_out_high");
 
             auto loc = takeOpLoc(filterFqOp, "fq_in" + suffix);
             currentFilter = rewriter.createOrFold<IE::FakeQuantizeOp>(
@@ -699,7 +699,7 @@ mlir::LogicalResult ConvBackpropDataToMultipleConvConversion::matchAndRewrite(IE
 
     mlir::RankedTensorType dataStorageType = mlir::RankedTensorType::get(splitFilterShape, elemType);
     for (int i = 0; i < numSplits; ++i) {
-        contentAttrSetups.emplace_back(dataStorageType);
+        contentAttrSetups.emplace_back(splitFilterAttrs[i], dataStorageType);
     }
 
     auto castElem = [&](mlir::Type type) {

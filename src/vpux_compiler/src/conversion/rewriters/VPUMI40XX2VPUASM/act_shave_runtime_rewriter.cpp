@@ -9,10 +9,6 @@
 namespace vpux {
 namespace vpumi40xx2vpuasm {
 
-llvm::SmallVector<mlir::FlatSymbolRefAttr> ActShaveRtRewriter::getSymbolicNames(VPUMI40XX::ActShaveRtOp, size_t) {
-    return {mlir::FlatSymbolRefAttr::get(getContext(), "ActShaveRt")};
-}
-
 mlir::FailureOr<SymbolizationResult> ActShaveRtRewriter::symbolize(VPUMI40XX::ActShaveRtOp op, SymbolMapper&,
                                                                    mlir::ConversionPatternRewriter& rewriter) const {
     auto result = op.getResult();

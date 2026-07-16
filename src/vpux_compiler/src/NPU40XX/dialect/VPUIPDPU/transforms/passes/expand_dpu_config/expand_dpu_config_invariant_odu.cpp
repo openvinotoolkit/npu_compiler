@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 #include "vpux/compiler/dialect/VPUIPDPU/rewriters/utils.hpp"
 
+using namespace vpux;
 using namespace VPUIPDPU;
 using namespace VPUIPDPU::arch40xx::ODU;
 

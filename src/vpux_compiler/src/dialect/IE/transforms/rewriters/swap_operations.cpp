@@ -20,6 +20,7 @@
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -44,7 +45,7 @@ namespace {
 const int64_t SUPPORTED_RANK = 4;
 const int8_t CHANNEL_ALIGNMENT = 16;
 
-bool checkOrderCompatible(mlir::Operation* origOp, DimsOrder origOrder, DimsOrder parentOrder) {
+bool checkOrderCompatible(mlir::Operation* origOp, const DimsOrder& origOrder, const DimsOrder& parentOrder) {
     if (origOrder != parentOrder) {
         auto iface = mlir::dyn_cast<IE::LayoutInfoOpInterface>(origOp);
         if (iface == nullptr) {
@@ -72,7 +73,7 @@ bool checkOrderCompatible(mlir::Operation* origOp, DimsOrder origOrder, DimsOrde
     return true;
 }
 
-void updateOutputOrder(mlir::Value output, DimsOrder origOrder, DimsOrder parentOrder) {
+void updateOutputOrder(mlir::Value output, const DimsOrder& origOrder, const DimsOrder& parentOrder) {
     if (origOrder != parentOrder) {
         const auto newAddOutputType = mlir::cast<vpux::NDTypeInterface>(output.getType());
         const auto newType = newAddOutputType.changeDimsOrder(parentOrder);
@@ -84,7 +85,57 @@ mlir::Value alignConstant(mlir::PatternRewriter& rewriter, mlir::Operation* pare
     return llvm::TypeSwitch<mlir::Operation*, mlir::Value>(parent)
             .Case<IE::AffineReshapeOp, IE::ReshapeOp>([&](auto origOp) {
                 const auto constInputShape = getShape(constInput);
-                const auto parentInputDimC = getShape(origOp.getInput())[Dims4D::Act::C];
+                const auto parentInputShape = getShape(origOp.getInput());
+
+                // For AffineReshapeOp, only swap if the bias non-trivial dim maps back to the C
+                // dimension of the parent input; otherwise the swapped Add cannot be fused as a
+                // per-channel bias into the preceding NCE op, which would cause AC regressions. A splat
+                // bias has a single value and can be re-aligned to any channel, so this only restricts a
+                // genuine per-channel Add bias.
+                bool isSplatConst = false;
+                if (auto declareOp = constInput.getDefiningOp<Const::DeclareOp>()) {
+                    isSplatConst = declareOp.getContent().isSplat();
+                }
+                auto affineReshapeOp = mlir::dyn_cast<IE::AffineReshapeOp>(origOp.getOperation());
+                if (affineReshapeOp != nullptr && !isSplatConst) {
+                    int64_t constNonTrivialDim = Dims4D::Act::C.ind();
+                    for (int64_t d = 0; d < static_cast<int64_t>(constInputShape.size()); ++d) {
+                        if (constInputShape[Dim(d)] > 1) {
+                            constNonTrivialDim = d;
+                            break;
+                        }
+                    }
+
+                    const auto nonTrivialSize = constInputShape[Dim(constNonTrivialDim)];
+                    const auto outputShape = getShape(affineReshapeOp.getOutput());
+                    const auto dimMapping = parseIntArrayOfArrayAttr<int64_t>(affineReshapeOp.getDimMapping());
+
+                    // Backtrace the bias non-trivial output dim to its source input dim. A single input dim may
+                    // be split into several output dims, so require that the whole mapped group carries the bias
+                    // (input dim size equals the bias size and every sibling output dim is trivial). Abort if the
+                    // mapping is ambiguous (more than one candidate) or no source dim is found.
+                    SmallVector<int64_t> candidates;
+                    for (size_t inDim = 0; inDim < dimMapping.size(); ++inDim) {
+                        bool mapsToBias = false;
+                        bool siblingsTrivial = true;
+                        for (const auto outDim : dimMapping[inDim]) {
+                            if (outDim == constNonTrivialDim) {
+                                mapsToBias = true;
+                            } else if (outputShape[Dim(outDim)] > 1) {
+                                siblingsTrivial = false;
+                            }
+                        }
+                        if (mapsToBias && siblingsTrivial && parentInputShape[Dim(inDim)] == nonTrivialSize) {
+                            candidates.push_back(static_cast<int64_t>(inDim));
+                        }
+                    }
+
+                    if (candidates.size() != 1 || candidates.front() != Dims4D::Act::C.ind()) {
+                        return mlir::Value();
+                    }
+                }
+
+                const auto parentInputDimC = parentInputShape[Dims4D::Act::C];
                 if (constInputShape.totalSize() != parentInputDimC) {
                     auto declareOp = constInput.getDefiningOp<Const::DeclareOp>();
                     if (declareOp != nullptr) {

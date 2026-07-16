@@ -66,7 +66,7 @@ def IE_ConcatOp :
         IE_LayerOp<
             "Concat",
             [
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine Concat layer";
@@ -120,7 +120,7 @@ def IE_DepthToSpaceOp :
         IE_LayerOp<
             "DepthToSpace",
             [
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine DepthToSpace layer";
@@ -834,7 +834,7 @@ def IE_TransposeOp :
         IE_LayerOp<
             "Transpose",
             [
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
                 DeclareOpInterfaceMethods<StaticShapeOpInterface, ["requiresStaticShape"]>
             ]
         > {

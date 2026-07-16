@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/core/attributes/dim.hpp"
 #include "vpux/compiler/core/attributes/dims_order.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
@@ -19,13 +20,15 @@
 #include "vpux/compiler/dialect/VPU/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/VPU/utils/conv_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/se_roll_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
-#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
+#include "vpux/compiler/dialect/config/constraints.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
+#include <mlir/Support/LLVM.h>
 
 using namespace vpux;
 
@@ -78,9 +81,8 @@ bool vpux::VPU::NCEInvariant::verifyPads(mlir::ArrayAttr kernelSizeAttr, mlir::A
 bool vpux::VPU::NCEInvariant::isAttrsSupported(mlir::Operation* op, int64_t KY, int64_t KX, int64_t SY, int64_t SX,
                                                int64_t padTop, int64_t padBottom, int64_t padLeft, int64_t padRight,
                                                LogCb logCb) {
-    if (config::hasMaxKernelSize(op)) {
-        const auto maxKernelSize = config::getMaxKernelSize(op);
-
+    const auto maxKernelSize = config::getNPUConstraints(op->getContext()).maxKernelSize;
+    if (maxKernelSize > 0) {
         if (KY > maxKernelSize || KY <= 0) {
             logCb(formatv("Unsupported kernel height dimension '{0}', must be in range [1, {1}]", KY, maxKernelSize));
             return false;
@@ -134,20 +136,57 @@ int64_t vpux::VPU::NCEInvariant::getAlignment(mlir::Type elemType) {
     return std::max<int64_t>(128 / typeSizeInBits.count(), 16);
 }
 
-bool vpux::VPU::NCEInvariant::isOutputActTypeSupported(vpux::NDTypeInterface type, int64_t alignment, LogCb logCb) {
-    if (type.getRank() == DimsGroups5D::Act::numDims) {
-        const auto channels = type.getShape()[DimsGroups5D::Act::C];
-        return channels % alignment == 0;
+int64_t VPU::NCEInvariant::getWeightSetAlignment(mlir::Operation* op, mlir::Type weightsElemType) {
+    const auto fullAlignment = getAlignment(weightsElemType);
+
+    if (!supportsHWWeightSetPacking(op)) {
+        return fullAlignment;
     }
 
-    if (type.getRank() != 4) {
-        logCb(formatv("Ouput activation has unsupported rank: {0}", type.getRank()));
+    return std::max<int64_t>(fullAlignment / VPU_WEIGHT_SET_BYTE_ALIGNMENT, 1);
+}
+
+bool vpux::VPU::NCEInvariant::supportsHWWeightSetPacking([[maybe_unused]] mlir::Operation* op) {
+    return false;
+}
+
+bool vpux::VPU::NCEInvariant::isOutputActTypeSupported(mlir::Operation* op, vpux::NDTypeInterface type,
+                                                       int64_t alignment, LogCb logCb) {
+    const auto getChannelsDimIndex = [](vpux::NDTypeInterface type) -> mlir::FailureOr<Dim> {
+        switch (type.getRank()) {
+        case DimsGroups5D::Act::numDims:
+            return DimsGroups5D::Act::C;
+        case Dims4D::Act::numDims:
+            return Dims4D::Act::C;
+        default:
+            return mlir::failure();
+        }
+    };
+
+    const auto cDimOpt = getChannelsDimIndex(type);
+    if (mlir::failed(cDimOpt)) {
+        logCb(formatv("Output activation has unsupported rank: {0}", type.getRank()));
         return false;
     }
+    const Dim cDim = cDimOpt.value();
 
-    const auto OC = type.getShape()[Dims4D::Act::C];
+    auto OC = type.getShape()[cDim];
+
+    const auto oduScales = VPU::getODUScaling(op);
+    if (!oduScales.empty()) {
+        const auto& cScale = oduScales[cDim.ind()];
+        if ((OC * cScale.divisor) % cScale.multiplier != 0) {
+            logCb(formatv("Output channels '{0}' with ODU scaling divisor '{1}' and multiplier '{2}' results in "
+                          "non-integer pre-ODU channels",
+                          OC, cScale.divisor, cScale.multiplier));
+            return false;
+        } else {
+            OC = OC * cScale.divisor / cScale.multiplier;
+        }
+    }
+
     if (OC % alignment != 0) {
-        logCb(formatv("Output input channels '{0}' are not aligned to '{1}'", OC, alignment));
+        logCb(formatv("Output channels '{0}' are not aligned to '{1}'", OC, alignment));
         return false;
     }
 
@@ -216,6 +255,26 @@ SmallVector<Byte> vpux::VPU::NCEInvariant::getWeightsTableSize(
     return newWeightTables;
 }
 
+//
+// WeightsTable information
+//
+
+Byte vpux::VPU::NCEInvariant::getWeightsTableSize(mlir::Operation* op, int64_t OC) {
+    auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op);
+    if (nceOp == nullptr) {
+        VPUX_THROW("The operation type should be one that implements NCEOpInterface");
+    }
+    auto tables = vpux::VPU::NCEInvariant::getWeightsTableSize(
+            op, OC, nceOp.getWeightsTableOperand(), nceOp.getWeightTableDataPtrOperand(),
+            nceOp.getWeightTableScaleOperand(), nceOp.getWeightTableBiasOperand(), nceOp.getWeightZeroPointsOperand());
+    Byte requiredCMX;
+
+    for (auto table : tables) {
+        requiredCMX += table;
+    }
+    return requiredCMX;
+}
+
 mlir::LogicalResult vpux::VPU::NCEInvariant::getWeightTableBuffers(mlir::Operation* op, SmallVector<Byte>& buffers,
                                                                    int64_t OC) {
     auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op);
@@ -240,7 +299,9 @@ mlir::LogicalResult vpux::VPU::NCEInvariant::verifyWeightTables(mlir::Operation*
     if (nceOp == nullptr) {
         return errorAt(op, "The operation type should be one that implements NCEOpInterface");
     }
-    if ((nceOp.getWeightTableDataPtrOperand() || nceOp.getWeightTableSpPtrOperand() ||
+    const auto arch = config::getArch(op);
+    if (arch <= config::ArchKind::NPU50XX &&
+        (nceOp.getWeightTableDataPtrOperand() || nceOp.getWeightTableSpPtrOperand() ||
          nceOp.getWeightTableScaleOperand() || nceOp.getWeightTableBiasOperand() ||
          nceOp.getWeightZeroPointsOperand())) {
         return errorAt(op, "Only weightsTable can be populated for NCEOp");
@@ -434,9 +495,8 @@ mlir::LogicalResult vpux::VPU::NCEInvariant::verifyKernel(mlir::Operation* op, i
                                                           int64_t padLeft, int64_t padRight, Logger log) {
     log.setName("NCEInvariant");
     auto loc = op->getLoc();
-    if (config::hasMaxKernelSize(op)) {
-        const auto maxKernelSize = config::getMaxKernelSize(op);
-
+    const auto maxKernelSize = config::getNPUConstraints(op->getContext()).maxKernelSize;
+    if (maxKernelSize > 0) {
         if (KY > maxKernelSize || KY <= 0) {
             log.trace("[{0}] Unsupported kernel height dimension '{1}', must be in range [1, {2}]", loc, KY,
                       maxKernelSize);
@@ -533,8 +593,7 @@ mlir::LogicalResult vpux::VPU::NCEInvariant::verifyPoolCMX(mlir::Location loc, m
 
     const auto outputShape = outputType.getShape();
     const auto OC = outputShape[Dims4D::Act::C];
-
-    const auto requiredCMX = VPU::getRequiredCMXSizeForNCEOps({inputType, outputType}, OC);
+    const auto requiredCMX = VPU::getRequiredCMXSizeForNCEOps(module.getOperation(), {inputType, outputType}, OC);
 
     const auto cmxSize = vpux::VPU::getTotalCMXSize(module);
     if (requiredCMX > cmxSize) {

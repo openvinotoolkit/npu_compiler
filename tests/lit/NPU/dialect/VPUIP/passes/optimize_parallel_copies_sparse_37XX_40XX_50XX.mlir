@@ -9,13 +9,13 @@
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!IODataDDRType = memref<1x32x28x28xf16, #NHWC, @DDR>
-!IOSMDDRType = memref<1x32x28x28xi1, #NHWC, @DDR>
+!IODataDDRType = memref<1x32x28x28xf16, {order = #NHWC}, @DDR>
+!IOSMDDRType = memref<1x32x28x28xi1, {order = #NHWC}, @DDR>
 
-!IODataCMXType = memref<1x32x28x28xf16, #NHWC, @CMX_NN>
-!IOSMCMXType = memref<1x32x28x28xi1, #NHWC, @CMX_NN>
+!IODataCMXType = memref<1x32x28x28xf16, {order = #NHWC}, @CMX_NN>
+!IOSMCMXType = memref<1x32x28x28xi1, {order = #NHWC}, @CMX_NN>
 
-!Weights_CMX = memref<32x32x1x1xf16, #NHWC, @CMX_NN>
+!Weights_CMX = memref<32x32x1x1xf16, {order = #NHWC}, @CMX_NN>
 
 !IODataDistrType = !VPUIP.DistributedBuffer<
   1x32x28x28xf16, #NHWC, @CMX_NN, {
@@ -110,11 +110,11 @@ func.func @OptimizeParallelMulticlusterCopiesSparse()
 
     return %16#0, %16#1, %24#0, %24#1: !IODataDistrType, !IOSMDistrType, !IODataDistrType, !IOSMDistrType
 
-    // CHECK:       [[BUFF_0_DATA:%.+]] = memref.alloc() : memref<1x32x28x28xf16, #NHWC, @CMX_NN>
-    // CHECK:       [[BUFF_0_SM:%.+]] = memref.alloc() : memref<1x32x28x28xi1, #NHWC, @CMX_NN>
+    // CHECK:       [[BUFF_0_DATA:%.+]] = memref.alloc() : memref<1x32x28x28xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK:       [[BUFF_0_SM:%.+]] = memref.alloc() : memref<1x32x28x28xi1, {order = #NHWC}, @CMX_NN>
 
-    // CHECK:       [[BUFF_1_DATA:%.+]] = memref.alloc() : memref<1x32x28x28xf16, #NHWC, @DDR>
-    // CHECK:       [[BUFF_1_SM:%.+]] = memref.alloc() : memref<1x32x28x28xi1, #NHWC, @DDR>
+    // CHECK:       [[BUFF_1_DATA:%.+]] = memref.alloc() : memref<1x32x28x28xf16, {order = #NHWC}, @DDR>
+    // CHECK:       [[BUFF_1_SM:%.+]] = memref.alloc() : memref<1x32x28x28xi1, {order = #NHWC}, @DDR>
 
     // CHECK:       [[COMMON_ROOT:%.+]] = VPUIP.Copy inputs([[BUFF_0_DATA]]
     // CHECK-SAME:      outputs([[BUFF_1_DATA]]
@@ -151,11 +151,11 @@ func.func @OptimizeParallelMulticlusterCopiesSparse()
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!IDataDDRType = memref<1x144x128x128xf16, #NHWC, @DDR>
-!ISMDDRType = memref<1x144x128x128xi1, #NHWC, @DDR>
+!IDataDDRType = memref<1x144x128x128xf16, {order = #NHWC}, @DDR>
+!ISMDDRType = memref<1x144x128x128xi1, {order = #NHWC}, @DDR>
 
-!IDataHalfCMXType = memref<1x144x64x128xf16, #NHWC, @CMX_NN>
-!ISMHalfCMXType = memref<1x144x64x128xi1, #NHWC, @CMX_NN>
+!IDataHalfCMXType = memref<1x144x64x128xf16, {order = #NHWC}, @CMX_NN>
+!ISMHalfCMXType = memref<1x144x64x128xi1, {order = #NHWC}, @CMX_NN>
 
 !ODistrDataType = !VPUIP.DistributedBuffer<
     1x144x64x128xf16, #NHWC, @CMX_NN, {
@@ -169,13 +169,13 @@ func.func @OptimizeParallelMulticlusterCopiesSparse()
 }>
 
 // CHECK-LABEL: @OptimizeParallelSubViewWithDistributedCopiesSparse
-// CHECK-SAME: [[ARG_0:%[^:]+]]: memref<1x144x128x128xf16, #NHWC, @DDR>,
-// CHECK-SAME: [[ARG_1:%[^:]+]]: memref<1x144x128x128xi1, #NHWC, @DDR>,
-// CHECK-SAME: [[ARG_2:%[^:]+]]: memref<32x144x1x1xf16, #NHWC, @CMX_NN>)
+// CHECK-SAME: [[ARG_0:%[^:]+]]: memref<1x144x128x128xf16, {order = #NHWC}, @DDR>,
+// CHECK-SAME: [[ARG_1:%[^:]+]]: memref<1x144x128x128xi1, {order = #NHWC}, @DDR>,
+// CHECK-SAME: [[ARG_2:%[^:]+]]: memref<32x144x1x1xf16, {order = #NHWC}, @CMX_NN>)
 func.func @OptimizeParallelSubViewWithDistributedCopiesSparse(
         %input: !IDataDDRType,
         %input_sm: !ISMDDRType,
-        %weights: memref<32x144x1x1xf16, #NHWC, @CMX_NN>)
+        %weights: memref<32x144x1x1xf16, {order = #NHWC}, @CMX_NN>)
          -> (!ODistrDataType, !ODistrSMType, !ODistrDataType, !ODistrSMType) {
 
     %0 = memref.alloc() : !IDataDDRType
@@ -209,7 +209,7 @@ func.func @OptimizeParallelSubViewWithDistributedCopiesSparse(
                 kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
         input(%in_data_0 : !ODistrDataType)
         input_sparsity_map(%in_sm_0 : !ODistrSMType)
-        weights(%weights : memref<32x144x1x1xf16, #NHWC, @CMX_NN>)
+        weights(%weights : memref<32x144x1x1xf16, {order = #NHWC}, @CMX_NN>)
         parent_input(%in_data_0 : !ODistrDataType)
         parent_input_sparsity_map(%in_sm_0 : !ODistrSMType)
         parent_output(%out_data_0 : !ODistrDataType)
@@ -244,7 +244,7 @@ func.func @OptimizeParallelSubViewWithDistributedCopiesSparse(
                 kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
         input(%in_data_1 : !ODistrDataType)
         input_sparsity_map(%in_sm_1 : !ODistrSMType)
-        weights(%weights : memref<32x144x1x1xf16, #NHWC, @CMX_NN>)
+        weights(%weights : memref<32x144x1x1xf16, {order = #NHWC}, @CMX_NN>)
         parent_input(%in_data_1 : !ODistrDataType)
         parent_input_sparsity_map(%in_sm_1 : !ODistrSMType)
         parent_output(%out_data_1 : !ODistrDataType)
@@ -258,15 +258,15 @@ func.func @OptimizeParallelSubViewWithDistributedCopiesSparse(
 
     return %12#0, %12#1, %21#0, %21#1 : !ODistrDataType, !ODistrSMType, !ODistrDataType, !ODistrSMType
 
-    // CHECK:       [[BUFF_0_DATA:%.+]] = memref.alloc() : memref<1x144x128x128xf16, #NHWC, @DDR>
-    // CHECK:       [[BUFF_0_SM:%.+]] = memref.alloc() : memref<1x144x128x128xi1, #NHWC, @DDR>
+    // CHECK:       [[BUFF_0_DATA:%.+]] = memref.alloc() : memref<1x144x128x128xf16, {order = #NHWC}, @DDR>
+    // CHECK:       [[BUFF_0_SM:%.+]] = memref.alloc() : memref<1x144x128x128xi1, {order = #NHWC}, @DDR>
 
     // CHECK:       [[PERMUTE:%.+]] = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC}
     // CHECK-SAME:      inputs([[BUFF_0_DATA]]
-    // CHECK-SAME:      -> memref<1x144x128x128xf16, #NHWC, @DDR>
+    // CHECK-SAME:      -> memref<1x144x128x128xf16, {order = #NHWC}, @DDR>
     // CHECK:       [[PERMUTE_SM:%.+]] = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC}
     // CHECK-SAME:      inputs([[BUFF_0_SM]]
-    // CHECK-SAME:      -> memref<1x144x128x128xi1, #NHWC, @DDR>
+    // CHECK-SAME:      -> memref<1x144x128x128xi1, {order = #NHWC}, @DDR>
 
     // CHECK:       [[SUBVIEW_0:%.+]] = VPUIP.SubView [[PERMUTE]] [0, 0, 64, 0] [1, 144, 64, 128]
     // CHECK-SAME:      to memref<1x144x64x128xf16, {order = #NHWC, strides = [2359296, 1, 18432, 144]}, @DDR>
@@ -307,11 +307,11 @@ func.func @OptimizeParallelSubViewWithDistributedCopiesSparse(
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!IDataDDRType = memref<1x144x128x128xf16, #NHWC, @DDR>
-!ISMDDRType = memref<1x144x128x128xi1, #NHWC, @DDR>
+!IDataDDRType = memref<1x144x128x128xf16, {order = #NHWC}, @DDR>
+!ISMDDRType = memref<1x144x128x128xi1, {order = #NHWC}, @DDR>
 
-!IDataHalfCMXType = memref<1x144x64x128xf16, #NHWC, @CMX_NN>
-!ISMHalfCMXType = memref<1x144x64x128xi1, #NHWC, @CMX_NN>
+!IDataHalfCMXType = memref<1x144x64x128xf16, {order = #NHWC}, @CMX_NN>
+!ISMHalfCMXType = memref<1x144x64x128xi1, {order = #NHWC}, @CMX_NN>
 
 !ODistrDataType = !VPUIP.DistributedBuffer<
     1x144x64x128xf16, #NHWC, @CMX_NN, {
@@ -325,13 +325,13 @@ func.func @OptimizeParallelSubViewWithDistributedCopiesSparse(
 }>
 
 // CHECK-LABEL: @NotOptimizeParallelDistributedCopiesWithSubviewHasDiffOffsetSparse
-// CHECK-SAME:      [[ARG_0:%[^:]+]]: memref<1x144x128x128xf16, #NHWC, @DDR>
-// CHECK-SAME:      [[ARG_1:%[^:]+]]: memref<1x144x128x128xi1, #NHWC, @DDR>
-// CHECK-SAME:      [[ARG_2:%[^:]+]]: memref<32x144x1x1xf16, #NHWC, @CMX_NN>
+// CHECK-SAME:      [[ARG_0:%[^:]+]]: memref<1x144x128x128xf16, {order = #NHWC}, @DDR>
+// CHECK-SAME:      [[ARG_1:%[^:]+]]: memref<1x144x128x128xi1, {order = #NHWC}, @DDR>
+// CHECK-SAME:      [[ARG_2:%[^:]+]]: memref<32x144x1x1xf16, {order = #NHWC}, @CMX_NN>
 func.func @NotOptimizeParallelDistributedCopiesWithSubviewHasDiffOffsetSparse(
         %input: !IDataDDRType,
         %input_sm: !ISMDDRType,
-        %weights: memref<32x144x1x1xf16, #NHWC, @CMX_NN>)
+        %weights: memref<32x144x1x1xf16, {order = #NHWC}, @CMX_NN>)
          -> (!ODistrDataType, !ODistrSMType, !ODistrDataType, !ODistrSMType) {
 
     %0 = memref.alloc() : !IDataDDRType
@@ -365,7 +365,7 @@ func.func @NotOptimizeParallelDistributedCopiesWithSubviewHasDiffOffsetSparse(
                 kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
         input(%in_data_0 : !ODistrDataType)
         input_sparsity_map(%in_sm_0 : !ODistrSMType)
-        weights(%weights : memref<32x144x1x1xf16, #NHWC, @CMX_NN>)
+        weights(%weights : memref<32x144x1x1xf16, {order = #NHWC}, @CMX_NN>)
         parent_input(%in_data_0 : !ODistrDataType)
         parent_input_sparsity_map(%in_sm_0 : !ODistrSMType)
         parent_output(%out_data_0 : !ODistrDataType)
@@ -400,7 +400,7 @@ func.func @NotOptimizeParallelDistributedCopiesWithSubviewHasDiffOffsetSparse(
                 kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
         input(%in_data_1 : !ODistrDataType)
         input_sparsity_map(%in_sm_1 : !ODistrSMType)
-        weights(%weights : memref<32x144x1x1xf16, #NHWC, @CMX_NN>)
+        weights(%weights : memref<32x144x1x1xf16, {order = #NHWC}, @CMX_NN>)
         parent_input(%in_data_1 : !ODistrDataType)
         parent_input_sparsity_map(%in_sm_1 : !ODistrSMType)
         parent_output(%out_data_1 : !ODistrDataType)
@@ -414,15 +414,15 @@ func.func @NotOptimizeParallelDistributedCopiesWithSubviewHasDiffOffsetSparse(
 
     return %12#0, %12#1, %21#0, %21#1 : !ODistrDataType, !ODistrSMType, !ODistrDataType, !ODistrSMType
 
-    // CHECK:       [[BUFF_0_DATA:%.+]] = memref.alloc() : memref<1x144x128x128xf16, #NHWC, @DDR>
-    // CHECK:       [[BUFF_0_SM:%.+]] = memref.alloc() : memref<1x144x128x128xi1, #NHWC, @DDR>
+    // CHECK:       [[BUFF_0_DATA:%.+]] = memref.alloc() : memref<1x144x128x128xf16, {order = #NHWC}, @DDR>
+    // CHECK:       [[BUFF_0_SM:%.+]] = memref.alloc() : memref<1x144x128x128xi1, {order = #NHWC}, @DDR>
 
     // CHECK:       [[PERMUTE:%.+]] = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC}
     // CHECK-SAME:      inputs([[BUFF_0_DATA]]
-    // CHECK-SAME:      -> memref<1x144x128x128xf16, #NHWC, @DDR>
+    // CHECK-SAME:      -> memref<1x144x128x128xf16, {order = #NHWC}, @DDR>
     // CHECK:       [[PERMUTE_SM:%.+]] = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC}
     // CHECK-SAME:      inputs([[BUFF_0_SM]]
-    // CHECK-SAME:      -> memref<1x144x128x128xi1, #NHWC, @DDR>
+    // CHECK-SAME:      -> memref<1x144x128x128xi1, {order = #NHWC}, @DDR>
 
     // CHECK:       [[SUBVIEW_0:%.+]] = VPUIP.SubView [[PERMUTE]] [0, 0, 64, 0] [1, 144, 64, 128]
     // CHECK-SAME:      to memref<1x144x64x128xf16, {order = #NHWC, strides = [2359296, 1, 18432, 144]}, @DDR>
@@ -467,7 +467,7 @@ func.func @NotOptimizeParallelDistributedCopiesWithSubviewHasDiffOffsetSparse(
     // CHECK:       [[NCE1_U:%.+]]:2 = VPUIP.NCEClusterTask
     // CHECK-SAME:      input([[DATA_2]] : !VPUIP.DistributedBuffer<1x144x64x128xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 4 : i64}>)
     // CHECK-SAME:      input_sparsity_map([[SM_2]] : !VPUIP.DistributedBuffer<1x144x64x128xi1, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 4 : i64}>)
-    // CHECK-SAME:      weights([[ARG_2]] : memref<32x144x1x1xf16, #NHWC, @CMX_NN>)
+    // CHECK-SAME:      weights([[ARG_2]] : memref<32x144x1x1xf16, {order = #NHWC}, @CMX_NN>)
     // CHECK-SAME:      parent_input([[DATA_2]] : !VPUIP.DistributedBuffer<1x144x64x128xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 4 : i64}>)
     // CHECK-SAME:      parent_input_sparsity_map([[SM_2]] : !VPUIP.DistributedBuffer<1x144x64x128xi1, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 4 : i64}>)
     // CHECK-SAME:      parent_output([[DATA_3]] : !VPUIP.DistributedBuffer<1x144x64x128xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 4 : i64}>)

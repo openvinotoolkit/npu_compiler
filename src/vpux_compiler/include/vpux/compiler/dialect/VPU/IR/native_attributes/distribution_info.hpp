@@ -9,6 +9,8 @@
 #include "vpux/utils/core/array_ref.hpp"
 #include "vpux/utils/core/small_vector.hpp"
 
+#include <utility>
+
 namespace vpux::VPU {
 enum class DistributionMode : uint64_t;
 class DistributionInfoAttr;
@@ -40,38 +42,25 @@ public:
                      ArrayRef<int64_t> alignment, const bool hasUniformDistributedSegments,
                      ArrayRef<SmallVector<int64_t>> computeShapes, ArrayRef<SmallVector<int64_t>> computeOffsets,
                      ArrayRef<SmallVector<int64_t>> memoryShapes, ArrayRef<SmallVector<int64_t>> memoryOffsets,
-                     const bool hasEqualMemoryAndComputeView, std::optional<ArrayRef<int64_t>> memoryNumTiles) {
-        _distributionMode = mode;
-        _numTiles = SmallVector<int64_t>(numTiles);
-        _kernel = SmallVector<int64_t>(kernel);
-        _strides = SmallVector<int64_t>(strides);
-        _pad = padding;
-        _numClusters = clusters;
-        _alignment = SmallVector<int64_t>(alignment);
-        _uniformDistributedSegments = hasUniformDistributedSegments;
-        for (const auto& v : computeShapes) {
-            _computeShapes.push_back(v);
-        }
-
-        for (const auto& v : computeOffsets) {
-            _computeOffsets.push_back(v);
-        }
-
-        for (const auto& v : memoryShapes) {
-            _memoryShapes.push_back(v);
-        }
-
-        for (const auto& v : memoryOffsets) {
-            _memoryOffsets.push_back(v);
-        }
-
-        _equalMemoryAndComputeView = hasEqualMemoryAndComputeView;
-        _memoryNumTiles = memoryNumTiles.has_value()
-                                  ? std::optional<SmallVector<int64_t>>(SmallVector<int64_t>(memoryNumTiles.value()))
-                                  : std::nullopt;
+                     const bool hasEqualMemoryAndComputeView, std::optional<ArrayRef<int64_t>> memoryNumTiles)
+            : _distributionMode(mode),
+              _numTiles(numTiles),
+              _kernel(kernel),
+              _pad(padding),
+              _strides(strides),
+              _numClusters(clusters),
+              _alignment(alignment),
+              _uniformDistributedSegments(hasUniformDistributedSegments),
+              _computeShapes(computeShapes),
+              _computeOffsets(computeOffsets),
+              _memoryShapes(memoryShapes),
+              _memoryOffsets(memoryOffsets),
+              _equalMemoryAndComputeView(hasEqualMemoryAndComputeView),
+              _memoryNumTiles(memoryNumTiles.has_value() ? std::optional<SmallVector<int64_t>>(
+                                                                   SmallVector<int64_t>(memoryNumTiles.value()))
+                                                         : std::nullopt) {
     }
 
-    ~DistributionInfo() = default;
     static DistributionInfo getClassFromAttr(DistributionInfoAttr distributionAttr);
     static DistributionInfoAttr getAttrFromClass(mlir::MLIRContext* ctx, const DistributionInfo& distribution);
 
@@ -105,12 +94,18 @@ public:
     void setNumTiles(ArrayRef<int64_t> numTiles) {
         _numTiles = SmallVector<int64_t>(numTiles);
     }
+    void setNumTiles(SmallVector<int64_t>&& numTiles) {
+        _numTiles = std::move(numTiles);
+    }
 
     ArrayRef<int64_t> getKernel() const {
         return _kernel;
     }
     void setKernel(ArrayRef<int64_t> kernel) {
         _kernel = SmallVector<int64_t>(kernel);
+    }
+    void setKernel(SmallVector<int64_t>&& kernel) {
+        _kernel = std::move(kernel);
     }
 
     ArrayRef<int64_t> getStrides() const {
@@ -119,12 +114,18 @@ public:
     void setStrides(ArrayRef<int64_t> strides) {
         _strides = SmallVector<int64_t>(strides);
     }
+    void setStrides(SmallVector<int64_t>&& strides) {
+        _strides = std::move(strides);
+    }
 
     ArrayRef<int64_t> getAlignment() const {
         return _alignment;
     }
     void setAlignment(ArrayRef<int64_t> alignment) {
         _alignment = SmallVector<int64_t>(alignment);
+    }
+    void setAlignment(SmallVector<int64_t>&& alignment) {
+        _alignment = std::move(alignment);
     }
 
     bool hasUniformDistributedSegments() const {
@@ -138,40 +139,40 @@ public:
         return _computeShapes;
     }
     void setComputeShapes(ArrayRef<SmallVector<int64_t>> computeShapes) {
-        _computeShapes.clear();
-        for (const auto& v : computeShapes) {
-            _computeShapes.push_back(SmallVector<int64_t>(v));
-        }
+        _computeShapes.assign(computeShapes.begin(), computeShapes.end());
+    }
+    void setComputeShapes(SmallVector<SmallVector<int64_t>>&& computeShapes) {
+        _computeShapes = std::move(computeShapes);
     }
 
     ArrayRef<SmallVector<int64_t>> getComputeOffsets() const {
         return _computeOffsets;
     }
     void setComputeOffsets(ArrayRef<SmallVector<int64_t>> computeOffsets) {
-        _computeOffsets.clear();
-        for (const auto& v : computeOffsets) {
-            _computeOffsets.push_back(SmallVector<int64_t>(v));
-        }
+        _computeOffsets.assign(computeOffsets.begin(), computeOffsets.end());
+    }
+    void setComputeOffsets(SmallVector<SmallVector<int64_t>>&& computeOffsets) {
+        _computeOffsets = std::move(computeOffsets);
     }
 
     ArrayRef<SmallVector<int64_t>> getMemoryShapes() const {
         return _memoryShapes;
     }
     void setMemoryShapes(ArrayRef<SmallVector<int64_t>> memoryShapes) {
-        _memoryShapes.clear();
-        for (const auto& v : memoryShapes) {
-            _memoryShapes.push_back(SmallVector<int64_t>(v));
-        }
+        _memoryShapes.assign(memoryShapes.begin(), memoryShapes.end());
+    }
+    void setMemoryShapes(SmallVector<SmallVector<int64_t>>&& memoryShapes) {
+        _memoryShapes = std::move(memoryShapes);
     }
 
     ArrayRef<SmallVector<int64_t>> getMemoryOffsets() const {
         return _memoryOffsets;
     }
     void setMemoryOffsets(ArrayRef<SmallVector<int64_t>> memoryOffsets) {
-        _memoryOffsets.clear();
-        for (const auto& v : memoryOffsets) {
-            _memoryOffsets.push_back(SmallVector<int64_t>(v));
-        }
+        _memoryOffsets.assign(memoryOffsets.begin(), memoryOffsets.end());
+    }
+    void setMemoryOffsets(SmallVector<SmallVector<int64_t>>&& memoryOffsets) {
+        _memoryOffsets = std::move(memoryOffsets);
     }
 
     bool hasEqualMemoryAndComputeView() const {
@@ -193,6 +194,9 @@ public:
     }
     void setMemoryNumTiles(ArrayRef<int64_t> memoryNumTiles) {
         _memoryNumTiles = SmallVector<int64_t>(memoryNumTiles);
+    }
+    void setMemoryNumTiles(SmallVector<int64_t>&& memoryNumTiles) {
+        _memoryNumTiles = std::move(memoryNumTiles);
     }
 
     void printFormat(llvm::raw_ostream& stream) const;

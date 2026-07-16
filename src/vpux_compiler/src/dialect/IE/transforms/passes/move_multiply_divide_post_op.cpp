@@ -12,6 +12,7 @@
 #include "vpux/compiler/dialect/IE/utils/concat_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -147,7 +148,32 @@ mlir::LogicalResult MoveMultiplyDividePostLayerGeneric<ConcreteOp>::matchAndRewr
     }
 
     if (!isBeneficialToConvert(getShape(origOp.getOutput()), getShape(layerOp->getResult(0)))) {
-        return matchFailed(_log, rewriter, origOp, "not benefical to swap op with layerOp");
+        return matchFailed(_log, rewriter, origOp, "not beneficial to swap op with layerOp");
+    }
+
+    mlir::Value newSingleData = singleDataInput;
+    bool createdScalarConst = false;
+    auto singleDataNDType = mlir::cast<vpux::NDTypeInterface>(singleDataInput.getType());
+    if (singleDataNDType.getNumElements() > 1) {
+        // singleDataInput is a splat const with numElements > 1 (e.g. broadcast via IE.Tile
+        // produced a dense<v> : tensor<1x4x16x32xf32>).  After moving Multiply past MatMul,
+        // the GEMM output shape is different, so we cannot use the original shape for
+        // broadcasting.  Create a scalar [1] const with the same splat value instead.
+        auto constOp = mlir::cast<Const::DeclareOp>(singleDataInput.getDefiningOp());
+        auto floatType = mlir::dyn_cast<mlir::FloatType>(singleDataNDType.getElementType());
+        if (floatType == nullptr) {
+            return matchFailed(_log, rewriter, origOp,
+                               "splat const element type is not floating-point, cannot create scalar");
+        }
+        rewriter.setInsertionPointAfter(constOp);
+        auto scalarType = mlir::RankedTensorType::get({1}, floatType);
+        auto splatVal = Const::getSplatValue<float>(constOp);
+        if (mlir::failed(splatVal)) {
+            return matchFailed(_log, rewriter, origOp, "failed to read splat const value for scalar creation");
+        }
+        newSingleData = Const::createFloatConst(rewriter, appendLoc(constOp->getLoc(), "scalar_const"), scalarType,
+                                                {splatVal.value()});
+        createdScalarConst = true;
     }
 
     rewriter.setInsertionPoint(layerOp);
@@ -161,14 +187,21 @@ mlir::LogicalResult MoveMultiplyDividePostLayerGeneric<ConcreteOp>::matchAndRewr
     auto newLayerOp = rewriter.clone(*layerOp, layerOpMapper);
     mlir::Value newLayerOpOutput = newLayerOp->getResult(0);
 
-    auto newInput1 = origOp.getInput1() == singleDataInput ? origOp.getInput1() : newLayerOpOutput;
-    auto newInput2 = origOp.getInput2() == singleDataInput ? origOp.getInput2() : newLayerOpOutput;
+    auto newInput1 = origOp.getInput1() == singleDataInput ? newSingleData : newLayerOpOutput;
+    auto newInput2 = origOp.getInput2() == singleDataInput ? newSingleData : newLayerOpOutput;
 
     rewriter.setInsertionPointAfter(newLayerOp);
     SmallVector<mlir::Value> newOrigOpOperands = {newInput1, newInput2};
     mlir::IRMapping origOpMapper;
     origOpMapper.map(origOp->getOperands(), newOrigOpOperands);
     auto newOrigOp = rewriter.clone(*origOp, origOpMapper);
+    // When a scalar const is created, the cloned op must use NUMPY broadcast mode to allow
+    // scalar broadcasting. If the original op used NONE_OR_EXPLICIT (because original shapes
+    // were identical), the rewritten op would fail verification.
+    if (createdScalarConst) {
+        mlir::cast<ConcreteOp>(newOrigOp).setAutoBroadcastAttr(
+                IE::AutoBroadcastTypeAttr::get(rewriter.getContext(), IE::AutoBroadcastType::NUMPY));
+    }
     vpux::inferReturnTypes(newOrigOp, vpux::InferShapedTypeMode::ALL);
     rewriter.replaceOp(layerOp, newOrigOp);
 

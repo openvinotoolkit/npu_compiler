@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX || arch-NPU50XX
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" %s | FileCheck %s
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
 bytecode.constant_section @constant_section {
     bytecode.constant @my_constant dense<[42, 100, 50]> : tensor<3xi64>

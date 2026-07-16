@@ -14,12 +14,13 @@
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/Support/Timing.h>
 
-namespace vpux {
-namespace ELFNPU37XX {
+#include <string>
+
+namespace vpux::ELFNPU37XX {
 
 std::vector<uint8_t> exportToELF(mlir::ModuleOp module, Logger log = Logger::global());
 std::pair<BlobView, BlobView> exportToELF(mlir::ModuleOp module, BlobAllocator& allocator,
-                                          Logger log = Logger::global(), bool generateCompatibilityString = false);
+                                          std::string& compatibilityString, Logger log = Logger::global(),
+                                          bool allocateCompatibilityString = false);
 
-}  // namespace ELFNPU37XX
-}  // namespace vpux
+}  // namespace vpux::ELFNPU37XX

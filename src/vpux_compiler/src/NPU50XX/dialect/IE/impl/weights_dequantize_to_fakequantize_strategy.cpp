@@ -54,10 +54,11 @@ mlir::LogicalResult commonMatchAndRewrite(OriginalOp origOp, IE::WeightsDequanti
         inHigh = (levels + inLow - 1);
     } else {
         // Floating point case
-        const auto lowFpRangeOrFail = vpux::getLowFpRange(inputElemType);
-        VPUX_THROW_WHEN(mlir::failed(lowFpRangeOrFail), "Unexpected data type {0}", inputElemType);
-
-        std::tie(inLow, inHigh) = lowFpRangeOrFail.value();
+        const auto storageParams = getStorageParams(inputElemType);
+        if (mlir::failed(storageParams)) {
+            return mlir::failure();
+        }
+        std::tie(inLow, inHigh, std::ignore) = *storageParams;
         lowFpTypeAttr = mlir::TypeAttr::get(inputElemType);
     }
 
@@ -122,8 +123,8 @@ public:
         }
         // Constant WD chains feeding a Gather are routed to DynamicDequantize.
         // The Gather accesses a small subset of rows, so offline dequantization wastes blob size.
-        if (wdInfo.isI4ConsumedByGather()) {
-            _log.trace("WD chain feeds a Gather op with i4/ui4 weights; deferring to DynamicDequantize path.");
+        if (wdInfo.isQuantizedConsumedByGather()) {
+            _log.trace("WD chain feeds a Gather op with quantized weights; deferring to DynamicDequantize path.");
             return mlir::failure();
         }
         if (!wdInfo.isKVcachedPattern() && IE::getTrueElemType(origOp).isInteger(2)) {

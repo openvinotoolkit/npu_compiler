@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/VPUIPDPU/rewriters/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 
+using namespace vpux;
 using namespace vpux::VPUIPDPU;
 
 namespace {
@@ -88,7 +89,14 @@ mlir::LogicalResult insertInvBlockArgs(VPUASM::DPUInvariantOp op, mlir::Block* i
         invBlockArgsPos[BlockArg::WEIGHTS_TABLE_BIAS] = invBlock->getNumArguments() - 1;
     }
 
-    // weights table bias
+    // weights table alpha
+    if (op.getWeightTableAlpha()) {
+        auto weightTableAlphaType = getBufferType(symRefMap.lookupSymbol(op.getWeightTableAlpha().value()));
+        invBlock->addArgument(weightTableAlphaType, op.getLoc());
+        invBlockArgsPos[BlockArg::WEIGHTS_TABLE_ALPHA] = invBlock->getNumArguments() - 1;
+    }
+
+    // weights table zero points
     if (op.getWeightZeroPoints()) {
         auto weightZeroPointsType = getBufferType(symRefMap.lookupSymbol(op.getWeightZeroPoints().value()));
         invBlock->addArgument(weightZeroPointsType, op.getLoc());

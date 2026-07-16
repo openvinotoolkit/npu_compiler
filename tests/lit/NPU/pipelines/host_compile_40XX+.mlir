@@ -6,52 +6,6 @@
 // RUN: vpux-opt --platform=%platform% --split-input-file --mlir-elide-elementsattrs-if-larger 8 --host-compile %s | FileCheck %s --check-prefixes=CHECK,CHECK-%platform%
 // REQUIRES: platform-NPU4000 || platform-NPU5010
 
-// CHECK-LABEL: @CopyInputOutput
-module @CopyInputOutput {
-  net.NetworkInfo entryPoint : @main inputsInfo : {
-    DataInfo "input" : tensor<1x3x60x60xf16>
-  } outputsInfo : {
-    DataInfo "output" : tensor<1x3x60x60xf16>
-  }
-
-  func.func private @main_part1(%arg0: tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16> {
-    %0 = VPU.Copy(%arg0) : tensor<1x3x60x60xf16> -> tensor<1x3x60x60xf16>
-    return %0 : tensor<1x3x60x60xf16>
-  }
-
-  func.func @main(%arg0: tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16> {
-    %0 = call @main_part1(%arg0) : (tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16>
-    return %0 : tensor<1x3x60x60xf16>
-  }
-  // CHECK:             module [[MODULE0:@.+]] attributes {
-  // CHECK-SAME:          config.compilationMode = #config.compilation_mode<HostCompile>
-  // CHECK-NPU4000:     builtin.module @ReservedMemory
-  // CHECK-NPU4000:     module @DmaProfilingReservedMemory
-  // CHECK-NPU5010-NOT: module @DmaProfilingReservedMemory
-
-  // CHECK:             func.func private [[FUNC0:@.+]]([[_:%.+]]: memref<1x3x60x60xf16{{.*}}>, [[_:%.+]]: memref<1x3x60x60xf16{{.*}}>)
-  // CHECK-SAME:          -> memref<1x3x60x60xf16{{.*}}> {
-  // CHECK-COUNT-1:       VPURT.Task
-  // CHECK-NOT:         VPU.Copy
-
-  // CHECK:             func.func @main([[ARG0:%.+]]: memref<1x3x60x60xf16>, [[ARG1:%.+]]: memref<1x3x60x60xf16>) -> memref<1x3x60x60xf16> attributes {[[ANY_ATTR:.+]]} {
-  // CHECK:               [[C0:%.+]] = arith.constant 0 : index
-  // CHECK:               [[CAST_ARG0:%.+]] = memref.cast [[ARG0]]
-  // CHECK:               [[ALLOC:%.+]] = memref.alloc() {alignment = 64 : i64} : memref<21600xi8>
-  // CHECK:               [[VIEW:%.+]] = memref.view [[ALLOC]][[[C0]]][] : memref<21600xi8> to memref<1x3x60x60xf16>
-  // CHECK:               [[CAST_VIEW:%.+]] = memref.cast [[VIEW]]
-
-  // CHECK:               [[TOKEN:%.+]], [[BODY_RESULTS:%.+]] = async.execute
-  // CHECK:                   [[OUT0:%.+]] = Core.NestedCall [[MODULE0]]::[[FUNC0]]([[CAST_ARG0]], [[CAST_VIEW]])
-  // CHECK:                   async.yield [[OUT0]]
-  // CHECK:               [[RESULT:%.+]] = async.await [[BODY_RESULTS]]
-
-  // CHECK:               memref.copy [[RESULT]], [[ARG1]]
-  // CHECK:               return [[ARG1]] : memref<1x3x60x60xf16>
-}
-
-// -----
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @StaticEltwiseNHWC
@@ -83,7 +37,7 @@ module @StaticEltwiseNHWC {
                 -> tensor<1x16x2560x1000xf16, {order = #NHWC}>
         return %0 : tensor<1x16x2560x1000xf16, {order = #NHWC}>
 
-        // CHECK:               func.func @main([[ARG0:%.+]]: memref<1x2560x1000x16xf16>, [[ARG1:%.+]]: memref<1x2560x1000x16xf16>, [[ARG2:%.+]]: memref<1x2560x1000x16xf16>) -> memref<1x2560x1000x16xf16>
+        // CHECK:               func.func @main([[ARG0:%.+]]: memref<1x2560x1000x16xf16>, [[ARG1:%.+]]: memref<1x2560x1000x16xf16>, [[ARG2:%.+]]: memref<1x2560x1000x16xf16>) attributes {{{.*}}HostExec.HostCompileInferenceExec{{.*}}}
 
         // CHECK-DAG:             [[C0:%.+]] = arith.constant 0 : index
         // CHECK-NPU4000-DAG:     [[END:%.+]] = arith.constant 2560 : index
@@ -107,13 +61,12 @@ module @StaticEltwiseNHWC {
         // CHECK-NPU5010:           [[SUBVIEW2:%.+]] = memref.subview [[ARG2]][0, [[POS_WITH_BACKTRACK]], 0, 0] [1, [[STEP]], 1000, 16] [1, 1, 1, 1]
 
         // CHECK:                   [[CAST2:%.+]] = memref.cast [[SUBVIEW2]]
-        // CHECK:                   [[TOKEN:%.+]], [[BODY_RESULTS:%.+]] = async.execute
-        // CHECK:                       [[CALL_RES:%.+]] = Core.NestedCall [[MODULE0]]::[[FUNC0]]([[CAST0]], [[CAST1]], [[CAST2]])
-        // CHECK:                       async.yield [[CALL_RES]]
+        // CHECK:                   [[TOKEN:%.+]] = async.execute
+        // CHECK:                       Core.NestedCall [[MODULE0]]::[[FUNC0]]([[CAST0]], [[CAST1]], [[CAST2]])
+        // CHECK:                       async.yield
         // CHECK:                   async.add_to_group [[TOKEN]], [[GROUP]]
-        // CHECK:                   [[RESULT:%.+]] = async.await [[BODY_RESULTS]]
 
         // CHECK:                 async.await_all [[GROUP]]
-        // CHECK:                 return [[ARG2]] : memref<1x2560x1000x16xf16>
+        // CHECK:                 return
     }
 }

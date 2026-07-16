@@ -13,6 +13,7 @@
 #include "vpux/compiler/icompiler.hpp"
 
 #include <memory>
+#include <mutex>
 
 namespace VPUXDriverCompiler {
 
@@ -26,12 +27,16 @@ public:
     CompilerLoader& operator=(const CompilerLoader&) = delete;
     CompilerLoader& operator=(CompilerLoader&&) = delete;
 
+    // Loads the compiler library and resolves its entry point.
+    void ensureLoaded();
+
     std::shared_ptr<vpux::ICompiler> getCompiler();
 
 private:
     static std::shared_ptr<vpux::ICompiler> createCompiler();
 
     std::shared_ptr<vpux::ICompiler> _compiler = nullptr;
+    std::once_flag _compilerInitOnce;
 };
 
 }  // namespace VPUXDriverCompiler

@@ -511,19 +511,70 @@ private:
 mlir::LogicalResult MoveThroughSoftmax::matchAndRewrite(IE::SoftMaxOp origOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
-    auto shapeCastOp = origOp.getInput().getDefiningOp<IE::ShapeCastOp>();
-    auto newSoftmaxAxis = getNewSoftmaxAxisAfterSwappingWithShapeCast(origOp, shapeCastOp, _log);
-    if (!newSoftmaxAxis.has_value()) {
-        return mlir::failure();
+    // Match ShapeCast -> PermuteCast -> Softmax or ShapeCast -> Softmax
+    auto inputOp = origOp.getInput().getDefiningOp();
+    IE::PermuteCastOp permuteCastOp = nullptr;
+    IE::ShapeCastOp shapeCastOp = nullptr;
+
+    if (auto pcOp = mlir::dyn_cast_if_present<IE::PermuteCastOp>(inputOp)) {
+        if (!pcOp->hasOneUse()) {
+            return matchFailed(_log, rewriter, origOp, "PermuteCastOp has multiple uses");
+        }
+        permuteCastOp = pcOp;
+        shapeCastOp = pcOp.getInput().getDefiningOp<IE::ShapeCastOp>();
+    } else {
+        shapeCastOp = mlir::dyn_cast_if_present<IE::ShapeCastOp>(inputOp);
     }
 
-    auto newSoftmaxAxisValue = newSoftmaxAxis.value();
+    if (shapeCastOp == nullptr || !shapeCastOp->hasOneUse()) {
+        return matchFailed(_log, rewriter, origOp, "ShapeCastOp not found or has multiple uses");
+    }
+
+    // Compute the remapped softmax axis
+    std::optional<int64_t> newSoftmaxAxis;
+
+    if (permuteCastOp) {
+        // Pattern: ShapeCast -> PermuteCast -> Softmax
+        // Remap softmax axis through PermuteCast inverse (accounting for mem_perm), then through ShapeCast
+        const auto softmaxLogicalAxis =
+                getPositiveAxisInd(origOp.getAxisIndAttr(), checked_cast<int64_t>(getShape(origOp.getInput()).size()));
+        const auto pcOutOrder = DimsOrder::fromValue(permuteCastOp.getOutput());
+        const auto pcInOrder = DimsOrder::fromValue(permuteCastOp.getInput());
+        const auto softmaxOutMemDim = pcOutOrder.toMemDim(Dim(softmaxLogicalAxis));
+        // Apply mem_perm: out_mem[i] = in_mem[mem_perm(i)]
+        const auto memPerm = DimsOrder::fromAffineMap(permuteCastOp.getMemPerm());
+        const auto inputMemDim = MemDim(memPerm.dimAt(softmaxOutMemDim.ind()).ind());
+        const auto axisInShapeCastOutput = pcInOrder.toDim(inputMemDim).ind();
+
+        newSoftmaxAxis = getNewSoftmaxAxisAfterSwappingWithShapeCast(axisInShapeCastOutput, shapeCastOp, _log);
+    } else {
+        // Pattern: ShapeCast -> Softmax
+        newSoftmaxAxis = getNewSoftmaxAxisAfterSwappingWithShapeCast(origOp, shapeCastOp, _log);
+    }
+
+    if (!newSoftmaxAxis.has_value()) {
+        return matchFailed(_log, rewriter, origOp, "Failed to compute remapped softmax axis");
+    }
+
+    // Create new Softmax on ShapeCast's input
     auto newSoftmaxOp =
             rewriter.create<IE::SoftMaxOp>(origOp.getLoc(), shapeCastOp.getInput().getType(), shapeCastOp.getInput(),
-                                           getIntAttr(getContext(), newSoftmaxAxisValue), origOp.getPadSizeAttr());
+                                           getIntAttr(getContext(), newSoftmaxAxis.value()), origOp.getPadSizeAttr(),
+                                           origOp.getDstElemTypeAttr(), origOp.getMaskAwareAttr());
+
+    // Reconstruct ShapeCast after Softmax
     auto newShapeCastOp = rewriter.create<IE::ShapeCastOp>(shapeCastOp.getLoc(), newSoftmaxOp.getOutput(),
                                                            shapeCastOp.getShapeAttr());
-    origOp.replaceAllUsesWith(newShapeCastOp.getOutput());
+
+    if (permuteCastOp) {
+        // Reconstruct PermuteCast after ShapeCast
+        auto newPermuteCastOp =
+                rewriter.create<IE::PermuteCastOp>(permuteCastOp.getLoc(), newShapeCastOp.getResult(),
+                                                   permuteCastOp.getDstOrderAttr(), permuteCastOp.getMemPermAttr());
+        origOp.replaceAllUsesWith(newPermuteCastOp.getOutput());
+    } else {
+        origOp.replaceAllUsesWith(newShapeCastOp.getOutput());
+    }
 
     return mlir::success();
 }

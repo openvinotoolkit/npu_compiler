@@ -224,8 +224,8 @@ func.func @PermuteCast(%input: tensor<1x320x1x1xf16>) -> tensor<1x320x1x1xf16, {
     %output = VPU.PermuteCast(%input) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x320x1x1xf16> -> tensor<1x320x1x1xf16, {order = #NHWC}>
     return %output :  tensor<1x320x1x1xf16, {order = #NHWC}>
 
-    // CHECK: [[OUTPUT:%.+]] = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC} inputs([[ARG]] : memref<1x320x1x1xf16>) -> memref<1x320x1x1xf16, #NHWC>
-    // CHECK: return [[OUTPUT]] : memref<1x320x1x1xf16, #NHWC>
+    // CHECK: [[OUTPUT:%.+]] = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC} inputs([[ARG]] : memref<1x320x1x1xf16>) -> memref<1x320x1x1xf16, {order = #NHWC}>
+    // CHECK: return [[OUTPUT]] : memref<1x320x1x1xf16, {order = #NHWC}>
 }
 
 // -----
@@ -236,13 +236,13 @@ func.func @PermuteCast(%input: tensor<1x320x1x1xf16>) -> tensor<1x320x1x1xf16, {
 !qElemType1 = !quant.uniform<u8:f16, 0.013744638480392158:128>
 
 // CHECK-LABEL: @QuantizeCast
-// CHECK-SAME:       ([[ARG:%.+]]: memref<1x32x256x256x!qElemType, #NHWC>)
+// CHECK-SAME:       ([[ARG:%.+]]: memref<1x32x256x256x!qElemType, {order = #NHWC}>)
 func.func @QuantizeCast(%input: tensor<1x32x256x256x!qElemType1, {order = #NHWC}>) -> (tensor<1x32x256x256x!qElemType, {order = #NHWC}>) {
     %output = VPU.QuantizeCast(%input) {dstElemType = !qElemType} : tensor<1x32x256x256x!qElemType1, {order = #NHWC}> -> tensor<1x32x256x256x!qElemType, {order = #NHWC}>
     return %output : tensor<1x32x256x256x!qElemType, {order = #NHWC}>
 
-    // CHECK: [[OUTPUT:%.+]] = VPUIP.QuantizeCast inputs([[ARG]] : memref<1x32x256x256x!qElemType, #NHWC>) -> memref<1x32x256x256x!qElemType1, #NHWC>
-    // CHECK: return [[OUTPUT]] : memref<1x32x256x256x!qElemType1, #NHWC>
+    // CHECK: [[OUTPUT:%.+]] = VPUIP.QuantizeCast inputs([[ARG]] : memref<1x32x256x256x!qElemType, {order = #NHWC}>) -> memref<1x32x256x256x!qElemType1, {order = #NHWC}>
+    // CHECK: return [[OUTPUT]] : memref<1x32x256x256x!qElemType1, {order = #NHWC}>
 
 }
 
@@ -254,8 +254,8 @@ func.func @StorageElementTable() -> tensor<1x1x16x16xi32, {order = #NHWC}> {
     %output = VPU.StorageElementTable {dataElemType = f16, dataShape = [1, 64, 16, 16], seDepth = 1 : i64, seSize = [64]} -> tensor<1x1x16x16xi32, {order = #NHWC}>
     return %output : tensor<1x1x16x16xi32, {order = #NHWC}>
 
-    // CHECK: [[OUTPUT:%.+]] = VPUIP.StorageElementTable {dataElemType = f16, dataShape = [1, 64, 16, 16], seDepth = 1 : i64, seSize = [64]} -> memref<1x1x16x16xi32, #NHWC>
-    // CHECK: return [[OUTPUT]] : memref<1x1x16x16xi32, #NHWC>
+    // CHECK: [[OUTPUT:%.+]] = VPUIP.StorageElementTable {dataElemType = f16, dataShape = [1, 64, 16, 16], seDepth = 1 : i64, seSize = [64]} -> memref<1x1x16x16xi32, {order = #NHWC}>
+    // CHECK: return [[OUTPUT]] : memref<1x1x16x16xi32, {order = #NHWC}>
 }
 
 // -----
@@ -275,13 +275,13 @@ func.func @ShapeCast(%input: tensor<1x3x32x32xf16>) -> tensor<1x16x16x12xf16> {
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 
 // CHECK-LABEL: @LayoutCast
-// CHECK-SAME:       ([[ARG:%.+]]: memref<1x3x32x32xf16, #NWCH>)
+// CHECK-SAME:       ([[ARG:%.+]]: memref<1x3x32x32xf16, {order = #NWCH}>)
 func.func @LayoutCast(%input: tensor<1x3x32x32xf16, {order = #NWCH}>) -> tensor<1x3x32x32xf16, {order = #NHWC}> {
     %output = VPU.LayoutCast(%input) {dst_order = #NHWC} : tensor<1x3x32x32xf16, {order = #NWCH}> -> tensor<1x3x32x32xf16, {order = #NHWC}>
     return %output : tensor<1x3x32x32xf16, {order = #NHWC}>
 
-    // CHECK: [[OUTPUT:%.+]] = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC} inputs([[ARG]] : memref<1x3x32x32xf16, #NWCH>) -> memref<1x3x32x32xf16, #NHWC>
-    // CHECK: return [[OUTPUT]] : memref<1x3x32x32xf16, #NHWC>
+    // CHECK: [[OUTPUT:%.+]] = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC} inputs([[ARG]] : memref<1x3x32x32xf16, {order = #NWCH}>) -> memref<1x3x32x32xf16, {order = #NHWC}>
+    // CHECK: return [[OUTPUT]] : memref<1x3x32x32xf16, {order = #NHWC}>
 }
 
 // -----
@@ -351,30 +351,30 @@ func.func @DistributedCast(%arg0: !InputDistributedTensor) -> !OutputDistributed
     is_weights
 >
 
-// CHECK: func.func @SliceSparseTensor({{[^:]+}}: memref<1x32x16x16xf16, #NHWC, @CMX_NN>, {{[^:]+}}: memref<1x32x16x16xi1, #NHWC, @CMX_NN>)
-// CHECK-SAME: !VPUIP.SparseBuffer<data=memref<1x4x8x16xf16, #NHWC, @CMX_NN>, sparsity_map=memref<1x1x1x512xi1, #NHWC, @CMX_NN>, is_weights>
+// CHECK: func.func @SliceSparseTensor({{[^:]+}}: memref<1x32x16x16xf16, {order = #NHWC}, @CMX_NN>, {{[^:]+}}: memref<1x32x16x16xi1, {order = #NHWC}, @CMX_NN>)
+// CHECK-SAME: !VPUIP.SparseBuffer<data=memref<1x4x8x16xf16, {order = #NHWC}, @CMX_NN>, sparsity_map=memref<1x1x1x512xi1, {order = #NHWC}, @CMX_NN>, is_weights>
 func.func @SliceSparseTensor(%arg0: tensor<1x32x16x16xf16, {order = #NHWC, mem_space = @CMX_NN}>, %arg1: tensor<1x32x16x16xi1, {order = #NHWC, mem_space = @CMX_NN}>) -> !OutputSparseTensor {
     %input_sparse = VPU.GroupSparseTensor(%arg0, %arg1) {is_weights} -> !InputSparseTensor
     %output = VPU.Slice %input_sparse [0, 0, 0, 0] [1, 4, 8, 16]: !InputSparseTensor to !OutputSparseTensor
     return %output: !OutputSparseTensor
 
-    // CHECK: [[SUBVIEW_RES:%.+]] = VPUIP.SubView {{%.+}} [0, 0, 0, 0] [1, 4, 8, 16] : !VPUIP.SparseBuffer<data=memref<1x32x16x16xf16, #NHWC, @CMX_NN>, sparsity_map=memref<1x32x16x16xi1, #NHWC, @CMX_NN>, is_weights>
+    // CHECK: [[SUBVIEW_RES:%.+]] = VPUIP.SubView {{%.+}} [0, 0, 0, 0] [1, 4, 8, 16] : !VPUIP.SparseBuffer<data=memref<1x32x16x16xf16, {order = #NHWC}, @CMX_NN>, sparsity_map=memref<1x32x16x16xi1, {order = #NHWC}, @CMX_NN>, is_weights>
     // CHECK-SAME:                                                                      to
     // CHECK-SAME:                                                                     !VPUIP.SparseBuffer<data=memref<1x4x8x16xf16, {order = #NHWC, strides = [8192, 1, 512, 32]}, @CMX_NN>,
-    // CHECK-SAME:                                                                                         sparsity_map=memref<1x1x1x512xi1, #NHWC, @CMX_NN>, is_weights>
+    // CHECK-SAME:                                                                                         sparsity_map=memref<1x1x1x512xi1, {order = #NHWC}, @CMX_NN>, is_weights>
 
-    // CHECK: [[ALLOC_DATA_BUF:%.+]] = memref.alloc() : memref<1x4x8x16xf16, #NHWC, @CMX_NN>
-    // CHECK: [[ALLOC_SM_BUF:%.+]] = memref.alloc() : memref<1x1x1x512xi1, #NHWC, @CMX_NN>
-    // CHECK: [[ALLOC_SPARSE_BUF:%.+]] = VPUIP.GroupSparseBuffer([[ALLOC_DATA_BUF]], [[ALLOC_SM_BUF]]) <{is_weights}> -> !VPUIP.SparseBuffer<data=memref<1x4x8x16xf16, #NHWC, @CMX_NN>, sparsity_map=memref<1x1x1x512xi1, #NHWC, @CMX_NN>, is_weights>
+    // CHECK: [[ALLOC_DATA_BUF:%.+]] = memref.alloc() : memref<1x4x8x16xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK: [[ALLOC_SM_BUF:%.+]] = memref.alloc() : memref<1x1x1x512xi1, {order = #NHWC}, @CMX_NN>
+    // CHECK: [[ALLOC_SPARSE_BUF:%.+]] = VPUIP.GroupSparseBuffer([[ALLOC_DATA_BUF]], [[ALLOC_SM_BUF]]) <{is_weights}> -> !VPUIP.SparseBuffer<data=memref<1x4x8x16xf16, {order = #NHWC}, @CMX_NN>, sparsity_map=memref<1x1x1x512xi1, {order = #NHWC}, @CMX_NN>, is_weights>
 
     // CHECK: {{%.+}} = VPUIP.Copy inputs([[SUBVIEW_RES]] : !VPUIP.SparseBuffer<data=memref<1x4x8x16xf16, {order = #NHWC, strides = [8192, 1, 512, 32]}, @CMX_NN>,
-    // CHECK-SAME:                                                              sparsity_map=memref<1x1x1x512xi1, #NHWC, @CMX_NN>, is_weights>)
-    // CHECK-SAME:                 outputs([[ALLOC_SPARSE_BUF]] : !VPUIP.SparseBuffer<data=memref<1x4x8x16xf16, #NHWC, @CMX_NN>, sparsity_map=memref<1x1x1x512xi1, #NHWC, @CMX_NN>, is_weights>)
+    // CHECK-SAME:                                                              sparsity_map=memref<1x1x1x512xi1, {order = #NHWC}, @CMX_NN>, is_weights>)
+    // CHECK-SAME:                 outputs([[ALLOC_SPARSE_BUF]] : !VPUIP.SparseBuffer<data=memref<1x4x8x16xf16, {order = #NHWC}, @CMX_NN>, sparsity_map=memref<1x1x1x512xi1, {order = #NHWC}, @CMX_NN>, is_weights>)
     // CHECK-SAME:                 ->
-    // CHECK-SAME:                 !VPUIP.SparseBuffer<data=memref<1x4x8x16xf16, #NHWC, @CMX_NN>, sparsity_map=memref<1x1x1x512xi1, #NHWC, @CMX_NN>, is_weights>
+    // CHECK-SAME:                 !VPUIP.SparseBuffer<data=memref<1x4x8x16xf16, {order = #NHWC}, @CMX_NN>, sparsity_map=memref<1x1x1x512xi1, {order = #NHWC}, @CMX_NN>, is_weights>
 
     // CHECK: return
-    // CHECK-SAME: !VPUIP.SparseBuffer<data=memref<1x4x8x16xf16, #NHWC, @CMX_NN>, sparsity_map=memref<1x1x1x512xi1, #NHWC, @CMX_NN>, is_weights>
+    // CHECK-SAME: !VPUIP.SparseBuffer<data=memref<1x4x8x16xf16, {order = #NHWC}, @CMX_NN>, sparsity_map=memref<1x1x1x512xi1, {order = #NHWC}, @CMX_NN>, is_weights>
 }
 
 // -----
@@ -632,42 +632,42 @@ func.func @ConcatSparseTensor(%arg0: tensor<1x32x16x16xf16, {order = #NHWC, mem_
     %res = VPU.Concat(%st1, %st2) {static_offsets = [[0, 0, 0, 0], [0, 0, 8, 0]]}: !InputSparseTensor, !InputSparseTensor -> !OutputSparseTensor
     return %res : !OutputSparseTensor
 
-    // CHECK:       [[ALLOC_DATA_BUF:%.+]] = memref.alloc() : memref<1x32x24x16xf16, #NHWC, @CMX_NN>
-    // CHECK:       [[ALLOC_SM_BUF:%.+]] = memref.alloc() : memref<1x32x24x16xi1, #NHWC, @CMX_NN>
+    // CHECK:       [[ALLOC_DATA_BUF:%.+]] = memref.alloc() : memref<1x32x24x16xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK:       [[ALLOC_SM_BUF:%.+]] = memref.alloc() : memref<1x32x24x16xi1, {order = #NHWC}, @CMX_NN>
     // CHECK:       [[ALLOC_SPARSE_BUF:%.+]] = VPUIP.GroupSparseBuffer([[ALLOC_DATA_BUF]], [[ALLOC_SM_BUF]]) <{is_weights}> ->
-    // CHECK-SAME:                             !VPUIP.SparseBuffer<data=memref<1x32x24x16xf16, #NHWC, @CMX_NN>, sparsity_map=memref<1x32x24x16xi1, #NHWC, @CMX_NN>, is_weights>
+    // CHECK-SAME:                             !VPUIP.SparseBuffer<data=memref<1x32x24x16xf16, {order = #NHWC}, @CMX_NN>, sparsity_map=memref<1x32x24x16xi1, {order = #NHWC}, @CMX_NN>, is_weights>
 
     // CHECK:       [[SUBVIEW_1_RES:%.+]] = VPUIP.SubView [[ALLOC_SPARSE_BUF]] [0, 0, 0, 0] [1, 32, 16, 16] :
-    // CHECK-SAME:                              !VPUIP.SparseBuffer<data=memref<1x32x24x16xf16, #NHWC, @CMX_NN>, sparsity_map=memref<1x32x24x16xi1, #NHWC, @CMX_NN>, is_weights>
+    // CHECK-SAME:                              !VPUIP.SparseBuffer<data=memref<1x32x24x16xf16, {order = #NHWC}, @CMX_NN>, sparsity_map=memref<1x32x24x16xi1, {order = #NHWC}, @CMX_NN>, is_weights>
     // CHECK-SAME:                              to
     // CHECK-SAME:                              !VPUIP.SparseBuffer<data=memref<1x32x16x16xf16, {order = #NHWC, strides = [12288, 1, 512, 32]}, @CMX_NN>,
-    // CHECK-SAME:                                                  sparsity_map=memref<1x1x1x8192xi1, #NHWC, @CMX_NN>, is_weights>
+    // CHECK-SAME:                                                  sparsity_map=memref<1x1x1x8192xi1, {order = #NHWC}, @CMX_NN>, is_weights>
 
-    // CHECK:       [[COPY_1_RES:%.+]] = VPUIP.Copy inputs({{%.+}} : !VPUIP.SparseBuffer<data=memref<1x32x16x16xf16, #NHWC, @CMX_NN>, sparsity_map=memref<1x32x16x16xi1, #NHWC, @CMX_NN>, is_weights>)
+    // CHECK:       [[COPY_1_RES:%.+]] = VPUIP.Copy inputs({{%.+}} : !VPUIP.SparseBuffer<data=memref<1x32x16x16xf16, {order = #NHWC}, @CMX_NN>, sparsity_map=memref<1x32x16x16xi1, {order = #NHWC}, @CMX_NN>, is_weights>)
     // CHECK-SAME:                                  outputs([[SUBVIEW_1_RES]] : !VPUIP.SparseBuffer<data=memref<1x32x16x16xf16, {order = #NHWC, strides = [12288, 1, 512, 32]}, @CMX_NN>,
-    // CHECK-SAME:                                                                                  sparsity_map=memref<1x1x1x8192xi1, #NHWC, @CMX_NN>,  is_weights>)
+    // CHECK-SAME:                                                                                  sparsity_map=memref<1x1x1x8192xi1, {order = #NHWC}, @CMX_NN>,  is_weights>)
     // CHECK-SAME:                                  -> !VPUIP.SparseBuffer<data=memref<1x32x16x16xf16, {order = #NHWC, strides = [12288, 1, 512, 32]}, @CMX_NN>,
-    // CHECK-SAME:                                                         sparsity_map=memref<1x1x1x8192xi1, #NHWC, @CMX_NN>, is_weights>
+    // CHECK-SAME:                                                         sparsity_map=memref<1x1x1x8192xi1, {order = #NHWC}, @CMX_NN>, is_weights>
 
     // CHECK:       [[SUBVIEW_2_RES:%.+]] = VPUIP.SubView [[ALLOC_SPARSE_BUF]] [0, 0, 8, 0] [1, 32, 16, 16] :
-    // CHECK-SAME:                              !VPUIP.SparseBuffer<data=memref<1x32x24x16xf16, #NHWC, @CMX_NN>, sparsity_map=memref<1x32x24x16xi1, #NHWC, @CMX_NN>, is_weights>
+    // CHECK-SAME:                              !VPUIP.SparseBuffer<data=memref<1x32x24x16xf16, {order = #NHWC}, @CMX_NN>, sparsity_map=memref<1x32x24x16xi1, {order = #NHWC}, @CMX_NN>, is_weights>
     // CHECK-SAME:                              to
     // CHECK-SAME:                              !VPUIP.SparseBuffer<data=memref<1x32x16x16xf16, {order = #NHWC, strides = [12288, 1, 512, 32]}, @CMX_NN>,
-    // CHECK-SAME:                                                  sparsity_map=memref<1x1x1x8192xi1, #NHWC, @CMX_NN>, is_weights>
+    // CHECK-SAME:                                                  sparsity_map=memref<1x1x1x8192xi1, {order = #NHWC}, @CMX_NN>, is_weights>
 
-    // CHECK:       [[COPY_2_RES:%.+]] = VPUIP.Copy inputs({{%.+}} : !VPUIP.SparseBuffer<data=memref<1x32x16x16xf16, #NHWC, @CMX_NN>, sparsity_map=memref<1x32x16x16xi1, #NHWC, @CMX_NN>, is_weights>)
+    // CHECK:       [[COPY_2_RES:%.+]] = VPUIP.Copy inputs({{%.+}} : !VPUIP.SparseBuffer<data=memref<1x32x16x16xf16, {order = #NHWC}, @CMX_NN>, sparsity_map=memref<1x32x16x16xi1, {order = #NHWC}, @CMX_NN>, is_weights>)
     // CHECK-SAME:                                  outputs([[SUBVIEW_2_RES]] : !VPUIP.SparseBuffer<data=memref<1x32x16x16xf16, {order = #NHWC, strides = [12288, 1, 512, 32]}, @CMX_NN>,
-    // CHECK-SAME:                                                                                  sparsity_map=memref<1x1x1x8192xi1, #NHWC, @CMX_NN>, is_weights>)
+    // CHECK-SAME:                                                                                  sparsity_map=memref<1x1x1x8192xi1, {order = #NHWC}, @CMX_NN>, is_weights>)
     // CHECK-SAME:                                  -> !VPUIP.SparseBuffer<data=memref<1x32x16x16xf16, {order = #NHWC, strides = [12288, 1, 512, 32]}, @CMX_NN>,
-    // CHECK-SAME:                                                         sparsity_map=memref<1x1x1x8192xi1, #NHWC, @CMX_NN>, is_weights>
+    // CHECK-SAME:                                                         sparsity_map=memref<1x1x1x8192xi1, {order = #NHWC}, @CMX_NN>, is_weights>
 
     // CHECK:       {{%.+}} = VPUIP.ConcatView inputs([[COPY_1_RES]], [[COPY_2_RES]] :
     // CHECK-SAME:                                    !VPUIP.SparseBuffer<data=memref<1x32x16x16xf16, {order = #NHWC, strides = [12288, 1, 512, 32]}, @CMX_NN>,
-    // CHECK-SAME:                                                        sparsity_map=memref<1x1x1x8192xi1, #NHWC, @CMX_NN>, is_weights>,
+    // CHECK-SAME:                                                        sparsity_map=memref<1x1x1x8192xi1, {order = #NHWC}, @CMX_NN>, is_weights>,
     // CHECK-SAME:                                    !VPUIP.SparseBuffer<data=memref<1x32x16x16xf16, {order = #NHWC, strides = [12288, 1, 512, 32]}, @CMX_NN>,
-    // CHECK-SAME:                                                        sparsity_map=memref<1x1x1x8192xi1, #NHWC, @CMX_NN>, is_weights>)
-    // CHECK-SAME:                             outputs([[ALLOC_SPARSE_BUF]] : !VPUIP.SparseBuffer<data=memref<1x32x24x16xf16, #NHWC, @CMX_NN>, sparsity_map=memref<1x32x24x16xi1, #NHWC, @CMX_NN>, is_weights>)
-    // CHECK-SAME:                             -> !VPUIP.SparseBuffer<data=memref<1x32x24x16xf16, #NHWC, @CMX_NN>, sparsity_map=memref<1x32x24x16xi1, #NHWC, @CMX_NN>, is_weights>
+    // CHECK-SAME:                                                        sparsity_map=memref<1x1x1x8192xi1, {order = #NHWC}, @CMX_NN>, is_weights>)
+    // CHECK-SAME:                             outputs([[ALLOC_SPARSE_BUF]] : !VPUIP.SparseBuffer<data=memref<1x32x24x16xf16, {order = #NHWC}, @CMX_NN>, sparsity_map=memref<1x32x24x16xi1, {order = #NHWC}, @CMX_NN>, is_weights>)
+    // CHECK-SAME:                             -> !VPUIP.SparseBuffer<data=memref<1x32x24x16xf16, {order = #NHWC}, @CMX_NN>, sparsity_map=memref<1x32x24x16xi1, {order = #NHWC}, @CMX_NN>, is_weights>
 }
 
 
@@ -1168,29 +1168,29 @@ func.func @SplitSparseTensor(%arg0: tensor<1x32x16x16xf16, {order = #NHWC, mem_s
     %parts:2 = VPU.Split(%st) {num_splits = 2, axis_value = 1} : !InputSparseTensor -> !OutputSparseTensor, !OutputSparseTensor
     return %parts#0, %parts#1 : !OutputSparseTensor, !OutputSparseTensor
 
-    // CHECK:      [[BUF_1_PART:%.+]] = memref.alloc() : memref<1x16x16x16xf16, #NHWC, @CMX_NN>
-    // CHECK:      [[MAP_FOR_1_PART:%.+]] = memref.alloc() : memref<1x1x1x4096xi1, #NHWC, @CMX_NN>
-    // CHECK:      [[SPARSE_BUF_FOR_1_PART:%.+]] = VPUIP.GroupSparseBuffer([[BUF_1_PART]], [[MAP_FOR_1_PART]]) -> !VPUIP.SparseBuffer<data=memref<1x16x16x16xf16, #NHWC, @CMX_NN>, sparsity_map=memref<1x1x1x4096xi1, #NHWC, @CMX_NN>>
+    // CHECK:      [[BUF_1_PART:%.+]] = memref.alloc() : memref<1x16x16x16xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK:      [[MAP_FOR_1_PART:%.+]] = memref.alloc() : memref<1x1x1x4096xi1, {order = #NHWC}, @CMX_NN>
+    // CHECK:      [[SPARSE_BUF_FOR_1_PART:%.+]] = VPUIP.GroupSparseBuffer([[BUF_1_PART]], [[MAP_FOR_1_PART]]) -> !VPUIP.SparseBuffer<data=memref<1x16x16x16xf16, {order = #NHWC}, @CMX_NN>, sparsity_map=memref<1x1x1x4096xi1, {order = #NHWC}, @CMX_NN>>
 
-    // CHECK:      [[BUF_FOR_2_PART:%.+]] = memref.alloc() : memref<1x16x16x16xf16, #NHWC, @CMX_NN>
-    // CHECK:      [[MAP_FOR_2_PART:%.+]] = memref.alloc() : memref<1x1x1x4096xi1, #NHWC, @CMX_NN>
-    // CHECK:      [[SPARSE_BUF_FOR_2_PART:%.+]] = VPUIP.GroupSparseBuffer([[BUF_FOR_2_PART]], [[MAP_FOR_2_PART]]) -> !VPUIP.SparseBuffer<data=memref<1x16x16x16xf16, #NHWC, @CMX_NN>, sparsity_map=memref<1x1x1x4096xi1, #NHWC, @CMX_NN>>
+    // CHECK:      [[BUF_FOR_2_PART:%.+]] = memref.alloc() : memref<1x16x16x16xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK:      [[MAP_FOR_2_PART:%.+]] = memref.alloc() : memref<1x1x1x4096xi1, {order = #NHWC}, @CMX_NN>
+    // CHECK:      [[SPARSE_BUF_FOR_2_PART:%.+]] = VPUIP.GroupSparseBuffer([[BUF_FOR_2_PART]], [[MAP_FOR_2_PART]]) -> !VPUIP.SparseBuffer<data=memref<1x16x16x16xf16, {order = #NHWC}, @CMX_NN>, sparsity_map=memref<1x1x1x4096xi1, {order = #NHWC}, @CMX_NN>>
 
     // CHECK:      [[SUBVIEW_1:%.+]] = VPUIP.SubView {{%.+}} [0, 0, 0, 0] [1, 16, 16, 16]
-    // CHECK-SAME:    : !VPUIP.SparseBuffer<data=memref<1x32x16x16xf16, #NHWC, @CMX_NN>, sparsity_map=memref<1x32x16x16xi1, #NHWC, @CMX_NN>>
+    // CHECK-SAME:    : !VPUIP.SparseBuffer<data=memref<1x32x16x16xf16, {order = #NHWC}, @CMX_NN>, sparsity_map=memref<1x32x16x16xi1, {order = #NHWC}, @CMX_NN>>
     // CHECK-SAME:    to !VPUIP.SparseBuffer<data=memref<1x16x16x16xf16, {order = #NHWC, strides = [8192, 1, 512, 32]}, @CMX_NN>, sparsity_map=memref<1x16x16x16xi1, {order = #NHWC, strides = [8192, 1, 512, 32]}, @CMX_NN>>
     // CHECK:      [[RES_1:%.+]] = VPUIP.Copy
     // CHECK-SAME:    inputs([[SUBVIEW_1]] : !VPUIP.SparseBuffer<data=memref<1x16x16x16xf16, {order = #NHWC, strides = [8192, 1, 512, 32]}, @CMX_NN>, sparsity_map=memref<1x16x16x16xi1, {order = #NHWC, strides = [8192, 1, 512, 32]}, @CMX_NN>>)
-    // CHECK-SAME:    outputs([[SPARSE_BUF_FOR_1_PART]] : !VPUIP.SparseBuffer<data=memref<1x16x16x16xf16, #NHWC, @CMX_NN>, sparsity_map=memref<1x1x1x4096xi1, #NHWC, @CMX_NN>>)
-    // CHECK-SAME:    -> !VPUIP.SparseBuffer<data=memref<1x16x16x16xf16, #NHWC, @CMX_NN>, sparsity_map=memref<1x1x1x4096xi1, #NHWC, @CMX_NN>>
+    // CHECK-SAME:    outputs([[SPARSE_BUF_FOR_1_PART]] : !VPUIP.SparseBuffer<data=memref<1x16x16x16xf16, {order = #NHWC}, @CMX_NN>, sparsity_map=memref<1x1x1x4096xi1, {order = #NHWC}, @CMX_NN>>)
+    // CHECK-SAME:    -> !VPUIP.SparseBuffer<data=memref<1x16x16x16xf16, {order = #NHWC}, @CMX_NN>, sparsity_map=memref<1x1x1x4096xi1, {order = #NHWC}, @CMX_NN>>
 
     // CHECK:      [[SUBVIEW_2:%.+]] = VPUIP.SubView {{%.+}} [0, 16, 0, 0] [1, 16, 16, 16]
-    // CHECK-SAME:    : !VPUIP.SparseBuffer<data=memref<1x32x16x16xf16, #NHWC, @CMX_NN>, sparsity_map=memref<1x32x16x16xi1, #NHWC, @CMX_NN>>
+    // CHECK-SAME:    : !VPUIP.SparseBuffer<data=memref<1x32x16x16xf16, {order = #NHWC}, @CMX_NN>, sparsity_map=memref<1x32x16x16xi1, {order = #NHWC}, @CMX_NN>>
     // CHECK-SAME:    to !VPUIP.SparseBuffer<data=memref<1x16x16x16xf16, {order = #NHWC, strides = [8192, 1, 512, 32]}, @CMX_NN>, sparsity_map=memref<1x16x16x16xi1, {order = #NHWC, strides = [8192, 1, 512, 32]}, @CMX_NN>>
     // CHECK:      [[RES_2:%.+]] = VPUIP.Copy
     // CHECK-SAME:    inputs([[SUBVIEW_2]] : !VPUIP.SparseBuffer<data=memref<1x16x16x16xf16, {order = #NHWC, strides = [8192, 1, 512, 32]}, @CMX_NN>, sparsity_map=memref<1x16x16x16xi1, {order = #NHWC, strides = [8192, 1, 512, 32]}, @CMX_NN>>)
-    // CHECK-SAME:    outputs([[SPARSE_BUF_FOR_2_PART]] : !VPUIP.SparseBuffer<data=memref<1x16x16x16xf16, #NHWC, @CMX_NN>, sparsity_map=memref<1x1x1x4096xi1, #NHWC, @CMX_NN>>)
-    // CHECK-SAME:    -> !VPUIP.SparseBuffer<data=memref<1x16x16x16xf16, #NHWC, @CMX_NN>, sparsity_map=memref<1x1x1x4096xi1, #NHWC, @CMX_NN>>
+    // CHECK-SAME:    outputs([[SPARSE_BUF_FOR_2_PART]] : !VPUIP.SparseBuffer<data=memref<1x16x16x16xf16, {order = #NHWC}, @CMX_NN>, sparsity_map=memref<1x1x1x4096xi1, {order = #NHWC}, @CMX_NN>>)
+    // CHECK-SAME:    -> !VPUIP.SparseBuffer<data=memref<1x16x16x16xf16, {order = #NHWC}, @CMX_NN>, sparsity_map=memref<1x1x1x4096xi1, {order = #NHWC}, @CMX_NN>>
 
     // CHECK:      return [[RES_1]], [[RES_2]]
 }
@@ -1291,7 +1291,7 @@ func.func @LayoutCastSparseTensor(%arg0: tensor<1x16x32x32xf16, {order = #NCHW, 
 
     // CHECK:      [[RES:%.+]] = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC} inputs({{%[0-9a-zA-Z]+}}
     // CHECK-SAME:   : !VPUIP.SparseBuffer<data=memref<1x16x32x32xf16, @CMX_NN>, sparsity_map=memref<1x16x32x32xi1, @CMX_NN>>)
-    // CHECK-SAME:   -> !VPUIP.SparseBuffer<data=memref<1x16x32x32xf16, #NHWC, @CMX_NN>, sparsity_map=memref<1x16x32x32xi1, #NHWC, @CMX_NN>>
+    // CHECK-SAME:   -> !VPUIP.SparseBuffer<data=memref<1x16x32x32xf16, {order = #NHWC}, @CMX_NN>, sparsity_map=memref<1x16x32x32xi1, {order = #NHWC}, @CMX_NN>>
     // CHECK:      return [[RES]]
 }
 
@@ -1394,17 +1394,17 @@ func.func @StridedConcat(%input0: tensor<1x16x16x16xf16>, %input1: tensor<1x16x1
 !type_CMX_tensor = tensor<1x32x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
 
 // CHECK-LABEL: @CopyOpTensorResult
-// CHECK-SAME: ([[ARG0:%.+]]: memref<1x32x16x16xf16, #NHWC, @DDR>)
+// CHECK-SAME: ([[ARG0:%.+]]: memref<1x32x16x16xf16, {order = #NHWC}, @DDR>)
 func.func @CopyOpTensorResult(%input0: !type_DDR_tensor) -> !type_CMX_tensor{
     %tensor_cmx = VPU.Copy(%input0) {out_mem_space = @CMX_NN} : !type_DDR_tensor -> !type_CMX_tensor
 
     return %tensor_cmx : !type_CMX_tensor
 
-    // CHECK:       [[ALLOC0:%.+]] = memref.alloc() : memref<1x32x16x16xf16, #NHWC, @CMX_NN>
+    // CHECK:       [[ALLOC0:%.+]] = memref.alloc() : memref<1x32x16x16xf16, {order = #NHWC}, @CMX_NN>
 
     // CHECK:       [[COPY_RES:%.+]] = VPUIP.Copy
-    // CHECK-SAME:       inputs([[ARG0]] : memref<1x32x16x16xf16, #NHWC, @DDR>)
-    // CHECK-SAME:      outputs([[ALLOC0]] : memref<1x32x16x16xf16, #NHWC, @CMX_NN>)
+    // CHECK-SAME:       inputs([[ARG0]] : memref<1x32x16x16xf16, {order = #NHWC}, @DDR>)
+    // CHECK-SAME:      outputs([[ALLOC0]] : memref<1x32x16x16xf16, {order = #NHWC}, @CMX_NN>)
 }
 
 // -----
@@ -1425,7 +1425,7 @@ func.func @CopyOpTensorResult(%input0: !type_DDR_tensor) -> !type_CMX_tensor{
 !type_CMX_tensor = tensor<1x32x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
 
 // CHECK-LABEL: @CopyOpDistributedResult
-// CHECK-SAME: ([[ARG0:%.+]]: memref<1x32x16x16xf16, #NHWC, @DDR>)
+// CHECK-SAME: ([[ARG0:%.+]]: memref<1x32x16x16xf16, {order = #NHWC}, @DDR>)
 func.func @CopyOpDistributedResult(%input0: !type_DDR_tensor) -> !typeCmxDistributed{
     %tensor_distributed_cmx = VPU.Copy(%input0) { out_mem_space = @CMX_NN } : !type_DDR_tensor -> !typeCmxDistributed
 
@@ -1434,7 +1434,7 @@ func.func @CopyOpDistributedResult(%input0: !type_DDR_tensor) -> !typeCmxDistrib
     // CHECK:       [[ALLOC0:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer
 
     // CHECK:       [[COPY_RES:%.+]] = VPUIP.Copy
-    // CHECK-SAME:       inputs([[ARG0]] : memref<1x32x16x16xf16, #NHWC, @DDR>)
+    // CHECK-SAME:       inputs([[ARG0]] : memref<1x32x16x16xf16, {order = #NHWC}, @DDR>)
     // CHECK-SAME:       outputs([[ALLOC0]] : !VPUIP.DistributedBuffer
 }
 
@@ -1453,12 +1453,12 @@ func.func @CopyOpDistributedResult(%input0: !type_DDR_tensor) -> !typeCmxDistrib
 }>
 
 !type_DDR_tensor = tensor<1x32x16x16xf16, {mem_space = @DDR, order = #NHWC}>
-!type_DDR_memref = memref<1x32x16x16xf16, #NHWC, @DDR>
+!type_DDR_memref = memref<1x32x16x16xf16, {order = #NHWC}, @DDR>
 !type_CMX_tensor = tensor<1x32x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
-!type_CMX_memref = memref<1x32x16x16xf16, #NHWC, @CMX_NN>
+!type_CMX_memref = memref<1x32x16x16xf16, {order = #NHWC}, @CMX_NN>
 
 // CHECK-LABEL: @DistributedCopy2CopyOp
-// CHECK-SAME: ([[ARG0:%.+]]: memref<1x32x16x16xf16, #NHWC, @DDR>)
+// CHECK-SAME: ([[ARG0:%.+]]: memref<1x32x16x16xf16, {order = #NHWC}, @DDR>)
 func.func @DistributedCopy2CopyOp(%input0: !type_DDR_tensor) -> !type_DDR_tensor {
     %tensor_distributed_cmx = VPU.Copy(%input0) { out_mem_space = @CMX_NN } : !type_DDR_tensor -> !typeCmxDistributed
 
@@ -1469,14 +1469,14 @@ func.func @DistributedCopy2CopyOp(%input0: !type_DDR_tensor) -> !type_DDR_tensor
     // CHECK:       [[ALLOC0:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer
 
     // CHECK:       [[COPY_RES0:%.+]] = VPUIP.Copy
-    // CHECK-SAME:       inputs([[ARG0]] : memref<1x32x16x16xf16, #NHWC, @DDR>)
+    // CHECK-SAME:       inputs([[ARG0]] : memref<1x32x16x16xf16, {order = #NHWC}, @DDR>)
     // CHECK-SAME:      outputs([[ALLOC0]] : !VPUIP.DistributedBuffer
 
-    // CHECK:       [[ALLOC1:%.+]] = memref.alloc() : memref<1x32x16x16xf16, #NHWC, @DDR>
+    // CHECK:       [[ALLOC1:%.+]] = memref.alloc() : memref<1x32x16x16xf16, {order = #NHWC}, @DDR>
 
     // CHECK:       [[COPY_RES1:%.+]] = VPUIP.Copy
     // CHECK-SAME:       inputs([[COPY_RES0]] : !VPUIP.DistributedBuffer
-    // CHECK-SAME:       outputs([[ALLOC1]] : memref<1x32x16x16xf16, #NHWC, @DDR>
+    // CHECK-SAME:       outputs([[ALLOC1]] : memref<1x32x16x16xf16, {order = #NHWC}, @DDR>
 
 }
 
@@ -1505,7 +1505,7 @@ func.func @DistributedCopy2CopyOp(%input0: !type_DDR_tensor) -> !type_DDR_tensor
 !SMTensor_CMX = tensor<32x1x1x256xi1, {mem_space = @CMX_NN}>
 
 // CHECK-LABEL: @SparseDistributedCopyCMXToDDR
-// CHECK-SAME:  [[ARG0:%.+]]: memref<32x16x3x3xf16, #NHWC, @DDR>
+// CHECK-SAME:  [[ARG0:%.+]]: memref<32x16x3x3xf16, {order = #NHWC}, @DDR>
 // CHECK-SAME:  [[ARG1:%.+]]: memref<32x1x1x256xi1, @DDR>
 func.func @SparseDistributedCopyCMXToDDR(%arg0: !Tensor_DDR, %arg1: !SMTensor_DDR)
         -> !VPU.SparseTensor<data=!TensorDistributed, sparsity_map=!SMTensorDistributed, is_weights> {
@@ -1516,7 +1516,7 @@ func.func @SparseDistributedCopyCMXToDDR(%arg0: !Tensor_DDR, %arg1: !SMTensor_DD
     return %tensor_distributed_cmx : !VPU.SparseTensor<data=!TensorDistributed, sparsity_map=!SMTensorDistributed, is_weights>
 
     // CHECK:       [[INPUT_SPARSE_DDR:%.+]] = VPUIP.GroupSparseBuffer([[ARG0]], [[ARG1]]) <{is_weights}>
-    // CHECK-SAME:          -> !VPUIP.SparseBuffer<data=memref<32x16x3x3xf16, #NHWC, @DDR>, sparsity_map=memref<32x1x1x256xi1, @DDR>, is_weights>
+    // CHECK-SAME:          -> !VPUIP.SparseBuffer<data=memref<32x16x3x3xf16, {order = #NHWC}, @DDR>, sparsity_map=memref<32x1x1x256xi1, @DDR>, is_weights>
 
     // CHECK:       [[DATA_DIST_CMX:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<32x16x3x3xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
     // CHECK:       [[SM_DIST_CMX:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<32x1x1x256xi1, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
@@ -1579,10 +1579,10 @@ func.func @ReinterpretCastToBoundedBufferNHWC(%input: tensor<1x3x?x?xf16>)
         -> tensor<1x3x16x24xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]> : tensor<4xsi64>, order = #NHWC}>
     return %output : tensor<1x3x16x24xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]> : tensor<4xsi64>, order = #NHWC}>
 
-    // CHECK: [[DATA:%.+]] = Core.ReinterpretCast([[ARG]]) : memref<1x3x?x?xf16> -> memref<1x3x16x24xf16, #NHWC>
+    // CHECK: [[DATA:%.+]] = Core.ReinterpretCast([[ARG]]) : memref<1x3x?x?xf16> -> memref<1x3x16x24xf16, {order = #NHWC}>
     // CHECK: [[SHAPE:%.+]] = memref.alloc() : memref<4xsi32>
     // CHECK: [[BB:%.+]] = VPUIP.GroupBoundedBuffer([[DATA]], [[SHAPE]])
-    // CHECK-SAME:     : memref<1x3x16x24xf16, #NHWC>, memref<4xsi32> -> !VPUIP.BoundedBuffer<data=memref<1x3x16x24xf16, #NHWC>, dynamic_shape=memref<4xsi32>>
+    // CHECK-SAME:     : memref<1x3x16x24xf16, {order = #NHWC}>, memref<4xsi32> -> !VPUIP.BoundedBuffer<data=memref<1x3x16x24xf16, {order = #NHWC}>, dynamic_shape=memref<4xsi32>>
     // CHECK: return [[BB]]
 }
 

@@ -9,9 +9,12 @@
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/image.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/pooling.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/utils/gather_dma_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
@@ -27,11 +30,13 @@ using namespace VPU;
 
 StrategyManager::StrategyManager(mlir::func::FuncOp func, int64_t numTiles, bool enablePrefetchTiling,
                                  VPU::MCOptimizationScope mcOptimizationScope, SiblingOpsAnalysis& siblingsOpsAnalysis,
-                                 std::shared_ptr<VPUNN::VPULayerCostModel> layerCostModelPtr, Logger log)
+                                 std::shared_ptr<VPUNN::VPULayerCostModel> layerCostModelPtr,
+                                 bool enableTilingFullSearchSpace, Logger log)
         : _func(func),
           _numTiles(numTiles),
           _log(log),
-          _costModel(func, enablePrefetchTiling, siblingsOpsAnalysis, layerCostModelPtr, log),
+          _costModel(func, enablePrefetchTiling, enableTilingFullSearchSpace, siblingsOpsAnalysis, layerCostModelPtr,
+                     log),
           _optimizer(func, enablePrefetchTiling, siblingsOpsAnalysis, std::move(layerCostModelPtr), log),
           _siblingsOpsAnalysis(siblingsOpsAnalysis),
           _mcOptimizationScope(mcOptimizationScope) {
@@ -67,16 +72,23 @@ void StrategyManager::assignMultiClusterStrategy(bool enableMultiClusterForSWLay
             return;
         }
 
-        for (const auto& input : op->getOperands()) {
-            const auto inputShape = mlir::cast<vpux::NDTypeInterface>(input.getType()).getShape();
-            if (inputShape.size() != RANK_REQUIRED_FOR_TILING && inputShape.size() != DimsGroups5D::Act::numDims) {
-                return;
+        // InterpolateDMA has non-4D parameter operands (e.g. scales tensor<2xf16>)
+        // that stay in DDR and are not distributed across clusters.
+        // The auxiliary buffer (identified via AuxiliaryBufferOpInterface) is
+        // always rank 4 and DUPLICATED. Skip the rank check for this op
+        if (!mlir::isa<VPU::InterpolateDMAOp>(op)) {
+            for (const auto& input : op->getOperands()) {
+                const auto inputShape = mlir::cast<vpux::NDTypeInterface>(input.getType()).getShape();
+                if (inputShape.size() != RANK_REQUIRED_FOR_TILING && inputShape.size() != DimsGroups5D::Act::numDims) {
+                    return;
+                }
             }
-        }
-        for (const auto& output : op->getResults()) {
-            const auto outputShape = mlir::cast<vpux::NDTypeInterface>(output.getType()).getShape();
-            if (outputShape.size() != RANK_REQUIRED_FOR_TILING && outputShape.size() != DimsGroups5D::Act::numDims) {
-                return;
+            for (const auto& output : op->getResults()) {
+                const auto outputShape = mlir::cast<vpux::NDTypeInterface>(output.getType()).getShape();
+                if (outputShape.size() != RANK_REQUIRED_FOR_TILING &&
+                    outputShape.size() != DimsGroups5D::Act::numDims) {
+                    return;
+                }
             }
         }
 
@@ -228,14 +240,48 @@ void StrategyManager::assignMultiClusterStrategy(bool enableMultiClusterForSWLay
                         auto memPermuteOp = mlir::dyn_cast<VPU::MemPermuteOp>(origOp.getOperation());
                         auto memPerm = memPermuteOp.getMemPerm();
                         auto module = getModuleOp(memPermuteOp.getOperation());
+                        const auto arch = config::getArch(memPermuteOp.getOperation());
                         const auto dmaPortNum =
                                 config::getAvailableExecutor(module, config::ExecutorKind::DMA_NN).getCount();
-                        if (VPUIP::isBeneficialForUsingPermuteDMA(config::getArch(memPermuteOp.getOperation()),
-                                                                  inputType, outputType, memPerm, dmaPortNum, _log)) {
+                        const auto isBeneficialForFusingWeightsPermutation =
+                                VPUIP::isBeneficialForFusingWeightsPermutation(arch, memPermuteOp.getOperation());
+                        const auto isBeneficialForUsingPermuteDMA = VPUIP::isBeneficialForUsingPermuteDMA(
+                                arch, inputType, outputType, memPerm, dmaPortNum, _log);
+                        // Building VF subgraph is expected if the consumer is a DynamicDequantize
+                        if (!isBeneficialForFusingWeightsPermutation && isBeneficialForUsingPermuteDMA) {
                             _log.trace("Operation {0} is mapped to permute DMA, do not assign strategy", origOp);
                             return;
                         }
                     }
+
+                    if (mlir::isa<VPU::AttentionOp>(origOp)) {
+                        // AttentionOp can handle batch > 1 and prefers Height-based tiling
+                        // Priority: SplitOverHeight > SplitOverBatch > SplitOverKernel
+                        auto clusteredOp = mlir::cast<VPU::ClusteredOpInterface>(origOp.getOperation());
+                        std::optional<VPU::MultiClusterStrategy> bestStrategy;
+
+                        // Try strategies in order of preference
+                        if (clusteredOp.checkStrategyCompatibility(VPU::MultiClusterStrategy::SplitOverHeight,
+                                                                   _numTiles)) {
+                            bestStrategy = VPU::MultiClusterStrategy::SplitOverHeight;
+                        } else if (clusteredOp.checkStrategyCompatibility(VPU::MultiClusterStrategy::SplitOverBatch,
+                                                                          _numTiles)) {
+                            bestStrategy = VPU::MultiClusterStrategy::SplitOverBatch;
+                        } else if (clusteredOp.checkStrategyCompatibility(VPU::MultiClusterStrategy::SplitOverKernel,
+                                                                          _numTiles)) {
+                            bestStrategy = VPU::MultiClusterStrategy::SplitOverKernel;
+                        } else if (clusteredOp.checkStrategyCompatibility(VPU::MultiClusterStrategy::Clustering,
+                                                                          _numTiles)) {
+                            bestStrategy = VPU::MultiClusterStrategy::Clustering;
+                        }
+
+                        if (bestStrategy.has_value()) {
+                            _log.trace("AttentionOp assigned strategy: {0}", bestStrategy.value());
+                            setLayerStrategy(bestStrategy.value(), origOp.getOperation());
+                        }
+                        return;
+                    }
+
                     // Non 4D Tensor or Tensor with larger batch size cannot be tiled properly.
                     // [E90039]MC support for Non 4D Tensor.
                     std::optional<VPU::MultiClusterStrategy> bestStrategy;

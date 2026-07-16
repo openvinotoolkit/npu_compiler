@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include <mlir/IR/TypeRange.h>
+#include <mlir/IR/ValueRange.h>
 #include "vpux/compiler/core/cost_model_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
@@ -42,10 +44,11 @@ mlir::async::ExecuteOp createCacheHandlingSwKernel(mlir::OpBuilder builder, OpBu
         vpux::VPUIP::initSwKernel(cacheHandlingSwKernel, buffersRange, buffersRange, args, log.nest(),
                                   /*swKernelRunOp=*/nullptr);
 
-        builder.create<mlir::async::YieldOp>(loc, std::nullopt);
+        builder.create<mlir::async::YieldOp>(loc, /* operands */ mlir::ValueRange{});
     };
 
-    auto execOp = builder.create<mlir::async::ExecuteOp>(loc, std::nullopt, dependencies, std::nullopt, bodyBuilder);
+    auto execOp = builder.create<mlir::async::ExecuteOp>(loc, /* resultTypes */ mlir::TypeRange{}, dependencies,
+                                                         /* operands */ mlir::ValueRange{}, bodyBuilder);
     VPUIP::VPUIPDialect::setExecutor(execOp,
                                      vpux::IndexedSymbolAttr::get(ctx, stringifyEnum(config::ExecutorKind::SHAVE_ACT)));
     return execOp;
@@ -132,10 +135,6 @@ void AddSwKernelCacheHandlingOpsPass::safeRunOnFunc() {
         bool hasInputsInDDR = !ddrInputBuffs.empty();
         bool hasOutputsInDDR = !ddrOutputBuffs.empty();
         if (!hasInputsInDDR && !hasOutputsInDDR) {
-            return;
-        }
-
-        if (isIoDmaSwKernel(origOp)) {
             return;
         }
 

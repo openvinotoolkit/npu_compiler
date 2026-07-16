@@ -10,14 +10,13 @@
 
 module @executors {
     config.Resources 6 of @NCE at 1.700000e+03 MHz {
-        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
         config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @ImproveOutputPipeliningForLargeActivation
     // CHECK-SAME:      [[INPUT:%arg[0-9]]]: tensor<1x16x340x256xf16, {order = #NHWC}>)
     func.func @ImproveOutputPipeliningForLargeActivation(%arg0: tensor<1x16x340x256xf16, {order = #NHWC}>) -> tensor<1x16x340x256xf16, {order = #NHWC}> {
-        %0 = VPU.NCE.MaxPool(%arg0) {
+        %0 = VPU.NCE.MaxPool(%arg0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             kernel_size = [3, 3],
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
@@ -45,7 +44,6 @@ module @executors {
 
 module @executors {
     config.Resources 3 of @NCE at 1.700000e+03 MHz {
-        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
         config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
@@ -57,7 +55,7 @@ module @executors {
             mem_perm = #NCHW
         } : tensor<1x1500x12x64xf16> -> tensor<1x64x1500x12xf16, {order = #NHWC}>
 
-        %1 = VPU.NCE.MaxPool(%0) {
+        %1 = VPU.NCE.MaxPool(%0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
             kernel_size = [1, 1],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,

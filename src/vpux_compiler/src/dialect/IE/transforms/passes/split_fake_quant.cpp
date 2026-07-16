@@ -242,12 +242,14 @@ mlir::LogicalResult UseQuantDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, 
     auto result = quantizeOp.getResult();
     if (inQuantizeElemType != outQuantizeElemType) {
         innerLog.trace("Insert QuantizeCast op '{0}' -> '{1}'", inQuantizeElemType, outQuantizeElemType);
-        auto quantizeCastOp = rewriter.create<IE::QuantizeCastOp>(origOp.getLoc(), result, outQuantizeElemType);
+        auto quantizeCastOp =
+                rewriter.create<IE::QuantizeCastOp>(takeOpLoc(origOp, "quantize_cast"), result, outQuantizeElemType);
         result = quantizeCastOp.getResult();
     }
 
     innerLog.trace("Insert Dequantize op '{0}' -> '{1}'", outQuantizeElemType, realElemType);
-    rewriter.replaceOpWithNewOp<IE::DequantizeOp>(origOp, result, realElemType);
+    auto dequantizeOp = rewriter.replaceOpWithNewOp<IE::DequantizeOp>(origOp, result, realElemType);
+    extendOpLoc(dequantizeOp, "dequant_out");
 
     return mlir::success();
 }
@@ -349,14 +351,16 @@ mlir::LogicalResult UseConstDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, 
 
             if (ratioHigh.value() == 1.0f) {
                 // FQ input and output ranges are equal, only remove FQ
-                rewriter.replaceOpWithNewOp<Const::DeclareOp>(origOp, origOp.getType(), inConst.getContentAttr())
-                        ->setLoc(inConst->getLoc());
+                auto newConstOp = rewriter.replaceOpWithNewOp<Const::DeclareOp>(origOp, origOp.getType(),
+                                                                                inConst.getContentAttr());
+                extendOpLoc(newConstOp, "const_no_rescale");
             } else {
                 // FQ input and output ranges are NOT equal, rescale weights
                 innerLog.trace("Rescale weights");
                 auto newConstAttr = inConst.transformContentAttr().rescale(ratioHigh.value()).get();
-                rewriter.replaceOpWithNewOp<Const::DeclareOp>(origOp, origOp.getType(), std::move(newConstAttr))
-                        ->setLoc(inConst->getLoc());
+                auto newConstOp = rewriter.replaceOpWithNewOp<Const::DeclareOp>(origOp, origOp.getType(),
+                                                                                std::move(newConstAttr));
+                extendOpLoc(newConstOp, "const_rescaled");
             }
 
             return mlir::success();
@@ -421,13 +425,16 @@ mlir::LogicalResult UseConstDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, 
     // Fuse dequantize to const directly since it could not convert to HW for multi zero point case
     if (shouldDequantize) {
         newInConstAttrSetup = newInConstAttrSetup.dequantize();
-        rewriter.replaceOpWithNewOp<Const::DeclareOp>(origOp, origOp.getType(), newInConstAttrSetup.get())
-                ->setLoc(inConst->getLoc());
+        auto newConstOp =
+                rewriter.replaceOpWithNewOp<Const::DeclareOp>(origOp, origOp.getType(), newInConstAttrSetup.get());
+        extendOpLoc(newConstOp, "const_dequantized");
         return mlir::success();
     }
 
-    auto newInOp = rewriter.create<Const::DeclareOp>(inConst->getLoc(), qType, newInConstAttrSetup.get());
-    rewriter.replaceOpWithNewOp<IE::DequantizeOp>(origOp, newInOp.getOutput(), realElemType);
+    auto newInOp =
+            rewriter.create<Const::DeclareOp>(takeOpLoc(origOp, "const_quantized"), qType, newInConstAttrSetup.get());
+    auto dequantizeOp = rewriter.replaceOpWithNewOp<IE::DequantizeOp>(origOp, newInOp.getOutput(), realElemType);
+    extendOpLoc(dequantizeOp, "dequant_out");
     return mlir::success();
 }
 

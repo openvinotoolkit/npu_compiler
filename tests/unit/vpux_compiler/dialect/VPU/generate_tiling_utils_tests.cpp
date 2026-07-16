@@ -10,11 +10,10 @@
 
 using namespace vpux;
 
-using vpux::config::ArchKind;
 using MLIR_VPU_Generate_Tiling = MLIR_UnitBase;
 
 TEST_F(MLIR_VPU_Generate_Tiling, Calculate_Workload_Number_NPU37XX) {
-    VPU::registerStrategies(registry, config::ArchKind::NPU37XX);
+    VPU::registerStrategies(registry, config::Platform::NPU3720);
     mlir::MLIRContext ctx(registry);
 
     SmallVector<Shape> shapesOf2Clusters{{1, 2048, 16, 16}, {1, 2032, 16, 16}};
@@ -54,7 +53,7 @@ TEST_F(MLIR_VPU_Generate_Tiling, Calculate_Workload_Number_NPU37XX) {
 }
 
 TEST_F(MLIR_VPU_Generate_Tiling, Calculate_Workload_Number_NPU40XX) {
-    VPU::registerStrategies(registry, config::ArchKind::NPU40XX);
+    VPU::registerStrategies(registry, config::Platform::NPU4000);
     mlir::MLIRContext ctx(registry);
 
     SmallVector<Shape> shapesOf6Clusters{{1, 128, 16, 16}, {1, 128, 16, 16}, {1, 128, 16, 16},

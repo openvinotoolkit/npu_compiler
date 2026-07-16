@@ -15,6 +15,7 @@
 #include "vpux/compiler/dialect/HostExec/IR/dialect.hpp"
 #include "vpux/compiler/dialect/HostExec/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/Shave/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPUASM/dialect.hpp"
@@ -93,7 +94,8 @@ void registerDialects(mlir::DialectRegistry& registry) {
                     vpux::NPUReg40XX::NPUReg40XXDialect,      //
                     vpux::NPUReg50XX::NPUReg50XXDialect,      //
                     vpux::ELFNPU37XX::ELFNPU37XXDialect,      //
-                    vpux::type::QuantileDialect>();
+                    vpux::type::QuantileDialect,              //
+                    vpux::Shave::ShaveDialect>();
 
     registry.insert<mlir::func::FuncDialect,       //
                     mlir::async::AsyncDialect,     //
@@ -132,7 +134,6 @@ mlir::DialectRegistry vpux::createDialectRegistry(DummyOpMode dummyOpMode) {
     Const::ConstDialect::setupExtraInterfaces(registry);
     Core::CoreDialect::setupExtraInterfaces(registry);
     VPUIP::VPUIPDialect::setupExtraInterfaces(registry);
-    VPU::registerAlignedChannelsOpInterfacesVPU(registry);
 
     // Register the translation to LLVM IR with MLIR
     mlir::registerBuiltinDialectTranslation(registry);

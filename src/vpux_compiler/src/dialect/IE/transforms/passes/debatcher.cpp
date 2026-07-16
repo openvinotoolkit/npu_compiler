@@ -800,8 +800,10 @@ void DebatcherPass::safeRunOnFunc() {
     _log.trace("{0}::safeRunOnModule", getName());
 
     auto main = getOperation();
-    mlir::ModuleOp module = main->getParentOfType<mlir::ModuleOp>();
-
+    if (config::isPureHostCompileFunc(main)) {
+        _log.debug("Skip the function: \"{0}\" as it isn't suitable for debatching", main.getName());
+        return;
+    }
     // Initialize an auxiliary activation operations cache.
     // We will gather such operations gradually during our main-function traversing.
     // This approach gives us an opportunity to make decision whether or not a particular operation
@@ -915,10 +917,19 @@ void DebatcherPass::safeRunOnFunc() {
                                                                  opResultsToDebatch[arg]};
     });
 
+    mlir::ModuleOp module = main->getParentOfType<mlir::ModuleOp>();
     if (!needDebatch) {
-        _log.debug("Debatching is not required");
+        _log.debug("Debatching is not required for the module: {0}", module.getName());
+        // The pass may be invoked recursively due to the way the HostCompile pipeline operates.
+        // On the second invocation, the pass can run on a nested module that inherits attributes
+        // from the top-level module. After the top module is debatched,
+        // the nested module may still inherit the same attribute even though it has not been debatched itself.
+        // To avoid introducing special-case handling for this scenario,
+        // we simply remove the attribute from the module whenever it is present.
+        config::removeCompileMethodDebatch(module);
         return;
     }
+
     config::setCompileMethodDebatch(module);
     _log.trace("Walk through `main` region and debatch all operations");
     detail::OpCastVisitor transformation(_log);

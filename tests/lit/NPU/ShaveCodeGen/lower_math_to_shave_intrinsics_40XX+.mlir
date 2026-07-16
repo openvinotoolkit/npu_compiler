@@ -8,10 +8,10 @@
 
 module @Foo {
   module @VPU.SW {
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK: func.func @generated_0(
 // CHECK: func.call @llvm.shave.sau.tanh.f16.l.r({{.+}}) : (f16) -> f16
-// CHECK: func.func private @llvm.shave.sau.tanh.f16.l.r(f16) -> f16 attributes {ShaveCodeGenIntrinsic}
+// CHECK: func.func nested @llvm.shave.sau.tanh.f16.l.r(f16) -> f16 attributes {ShaveCodeGenIntrinsic}
     func.func @generated_0(%arg0: memref<1x1x128x32xf16>, %arg1: memref<1x1x128x32xf16>) -> memref<1x1x128x32xf16> {
       affine.for %arg2 = 0 to 1 {
         affine.for %arg3 = 0 to 1 {
@@ -33,10 +33,10 @@ module @Foo {
 
 module @Bar {
   module @VPU.SW {
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK: func.func @generated_0(
 // CHECK: func.call @tanhf({{.+}}) : (f32) -> f32
-// CHECK: func.func private @tanhf(f32) -> f32 attributes {ShaveCodeGenIntrinsic}
+// CHECK: func.func nested @tanhf(f32) -> f32 attributes {ShaveCodeGenIntrinsic}
     func.func @generated_0(%arg0: memref<1x1x128x32xf32>, %arg1: memref<1x1x128x32xf32>) -> memref<1x1x128x32xf32> {
       affine.for %arg2 = 0 to 1 {
         affine.for %arg3 = 0 to 1 {
@@ -58,11 +58,11 @@ module @Bar {
 
 module @atanf16 {
   module @VPU.SW {
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK: func.func @generated_0(
 // CHECK: func.call @llvm.shave.sau.atn.f16.l.r({{.+}}) : (f16) -> f16
 // CHECK: arith.select
-// CHECK: func.func private @llvm.shave.sau.atn.f16.l.r(f16) -> f16 attributes {ShaveCodeGenIntrinsic}
+// CHECK: func.func nested @llvm.shave.sau.atn.f16.l.r(f16) -> f16 attributes {ShaveCodeGenIntrinsic}
     func.func @generated_0(%arg0: memref<1x1x128x32xf16>, %arg1: memref<1x1x128x32xf16>) -> memref<1x1x128x32xf16> {
       affine.for %arg2 = 0 to 1 {
         affine.for %arg3 = 0 to 1 {
@@ -84,11 +84,11 @@ module @atanf16 {
 
 module @atanf32 {
   module @VPU.SW {
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK: func.func @generated_0(
 // CHECK: func.call @atanf({{.+}}) : (f32) -> f32
 // CHECK-NEXT: affine.store
-// CHECK: func.func private @atanf(f32) -> f32 attributes {ShaveCodeGenIntrinsic}
+// CHECK: func.func nested @atanf(f32) -> f32 attributes {ShaveCodeGenIntrinsic}
     func.func @generated_0(%arg0: memref<1x1x128x32xf32>, %arg1: memref<1x1x128x32xf32>) -> memref<1x1x128x32xf32> {
       affine.for %arg2 = 0 to 1 {
         affine.for %arg3 = 0 to 1 {
@@ -110,11 +110,11 @@ module @atanf32 {
 
 module @acoshf32 {
   module @VPU.SW {
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK: func.func @generated_0(
 // CHECK: func.call @acoshf({{.+}}) : (f32) -> f32
 // CHECK-NEXT: affine.store
-// CHECK: func.func private @acoshf(f32) -> f32 attributes {ShaveCodeGenIntrinsic}
+// CHECK: func.func nested @acoshf(f32) -> f32 attributes {ShaveCodeGenIntrinsic}
     func.func @generated_0(%arg0: memref<1x1x128x32xf32>, %arg1: memref<1x1x128x32xf32>) -> memref<1x1x128x32xf32> {
       affine.for %arg2 = 0 to 1 {
         affine.for %arg3 = 0 to 1 {
@@ -136,11 +136,11 @@ module @acoshf32 {
 
 module @asinhf32 {
   module @VPU.SW {
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK: func.func @generated_0(
 // CHECK: func.call @asinhf({{.+}}) : (f32) -> f32
 // CHECK-NEXT: affine.store
-// CHECK: func.func private @asinhf(f32) -> f32 attributes {ShaveCodeGenIntrinsic}
+// CHECK: func.func nested @asinhf(f32) -> f32 attributes {ShaveCodeGenIntrinsic}
     func.func @generated_0(%arg0: memref<1x1x128x32xf32>, %arg1: memref<1x1x128x32xf32>) -> memref<1x1x128x32xf32> {
       affine.for %arg2 = 0 to 1 {
         affine.for %arg3 = 0 to 1 {

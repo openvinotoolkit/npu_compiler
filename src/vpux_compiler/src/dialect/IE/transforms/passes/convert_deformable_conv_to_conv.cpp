@@ -12,7 +12,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
-#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
+#include "vpux/compiler/dialect/config/constraints.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -81,7 +81,8 @@ mlir::LogicalResult ConvertDeformableConvToConv::matchAndRewrite(IE::DeformableC
     _log.trace("Found '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
     const auto kernelShape = getShape(origOp.getKernel());
-    const auto maxKernelSize = std::min(config::getMaxKernelSize(origOp), VPU::NCEInvariant::MAX_STRIDE);
+    const auto dpuMaxKernelSize = static_cast<int64_t>(config::getNPUConstraints(getContext()).maxKernelSize);
+    const auto maxKernelSize = std::min(dpuMaxKernelSize, VPU::NCEInvariant::MAX_STRIDE);
     if (kernelShape[Dims4D::Act::H] > maxKernelSize || kernelShape[Dims4D::Act::W] > maxKernelSize) {
         return matchFailed(rewriter, origOp, "DeformableConvolutionOp with kernel shape {0} is not supported.",
                            kernelShape);

@@ -74,13 +74,13 @@ func.func @SubView(%arg0: memref<4x4xf16>, %arg1: memref<4x4xf16>) -> memref<4x4
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-// CHECK: func.func @PermuteCast([[ARG0:%.+]]: memref<1x12x16x16xf16, #NHWC>, [[ARG1:%.+]]: memref<1x16x16x12xf16>) -> memref<1x16x16x12xf16> {
-func.func @PermuteCast(%arg0: memref<1x12x16x16xf16, #NHWC>, %arg1: memref<1x16x16x12xf16>) -> memref<1x16x16x12xf16> {
-    %in = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x12x16x16xf16, #NHWC>
+// CHECK: func.func @PermuteCast([[ARG0:%.+]]: memref<1x12x16x16xf16, {order = #NHWC}>, [[ARG1:%.+]]: memref<1x16x16x12xf16>) -> memref<1x16x16x12xf16> {
+func.func @PermuteCast(%arg0: memref<1x12x16x16xf16, {order = #NHWC}>, %arg1: memref<1x16x16x12xf16>) -> memref<1x16x16x12xf16> {
+    %in = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x12x16x16xf16, {order = #NHWC}>
     %out = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<1x16x16x12xf16>
 
     %0 = VPUIP.PermuteCast {dst_order = #NCHW, mem_perm = #NCHW}
-        inputs(%in : memref<1x12x16x16xf16, #NHWC>)
+        inputs(%in : memref<1x12x16x16xf16, {order = #NHWC}>)
         -> memref<1x16x16x12xf16>
 
     %1 = VPURT.DeclareBuffer <DDR> <2000> -> memref<1x16x16x12xf16, @DDR>
@@ -123,10 +123,10 @@ func.func @PermuteCast(%arg0: memref<1x12x16x16xf16, #NHWC>, %arg1: memref<1x16x
 }>
 
 // CHECK-LABEL: @DistributedCast
-func.func @DistributedCast(%arg0: memref<1x128x16x16xf16, #NHWC>) -> memref<1x128x16x16xf16, #NHWC> {
+func.func @DistributedCast(%arg0: memref<1x128x16x16xf16, {order = #NHWC}>) -> memref<1x128x16x16xf16, {order = #NHWC}> {
     %0 = VPURT.DeclareBuffer <CMX_NN> <0> -> !InputDistributedBuffer
     %1 = VPUIP.DistributedCast inputs(%0 : !InputDistributedBuffer) -> !OutputDistributedBuffer
-    return %arg0 : memref<1x128x16x16xf16, #NHWC>
+    return %arg0 : memref<1x128x16x16xf16, {order = #NHWC}>
 
     // CHECK:       VPURT.DeclareBuffer <CMX_NN> <0> -> !VPUIP.DistributedBuffer<1x128x16x16xf16, #NHWC, @CMX_NN,
     // CHECK-SAME:        {mode = "DUPLICATED|SEGMENTED", num_tiles = [1, 4, 1, 1], num_clusters = 4 : i64}>
@@ -148,14 +148,14 @@ func.func @DistributedCast(%arg0: memref<1x128x16x16xf16, #NHWC>) -> memref<1x12
 
 
 // CHECK-LABEL: @NonDistributedCast
-func.func @NonDistributedCast() -> memref<1x128x16x16xf16, #NHWC, [@CMX_NN, 0]> {
+func.func @NonDistributedCast() -> memref<1x128x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]> {
     %0 = VPURT.DeclareBuffer <CMX_NN> <1000> -> !InputDistributedBuffer
-    %1 = VPUIP.NonDistributedCastOp inputs(%0 : !InputDistributedBuffer) -> memref<1x128x16x16xf16, #NHWC, [@CMX_NN, 0]>
-    return %1 : memref<1x128x16x16xf16, #NHWC, [@CMX_NN, 0]>
+    %1 = VPUIP.NonDistributedCastOp inputs(%0 : !InputDistributedBuffer) -> memref<1x128x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    return %1 : memref<1x128x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     // CHECK:       VPURT.DeclareBuffer <CMX_NN> <1000> -> !VPUIP.DistributedBuffer<1x128x16x16xf16, #NHWC, @CMX_NN,
     // CHECK-SAME:        {mode = "DUPLICATED|SEGMENTED", num_tiles = [1, 4, 1, 1], num_clusters = 4 : i64}>
-    // CHECK:       VPURT.DeclareBuffer <CMX_NN> [0] <1000> -> memref<1x128x16x16xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:       VPURT.DeclareBuffer <CMX_NN> [0] <1000> -> memref<1x128x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
     // CHECK-NOT:   VPUIP.NonDistributedCastOp
 }
 
@@ -185,7 +185,7 @@ func.func @NonDistributedCast() -> memref<1x128x16x16xf16, #NHWC, [@CMX_NN, 0]> 
 }>
 
 !InputSliceBuffer = memref<1x64x8x16xf16, {order = #NHWC, strides = [16384, 1, 1024, 64]}, @CMX_NN>
-!OutputBuffer = memref<1x64x8x16xf16, #NHWC, @CMX_NN>
+!OutputBuffer = memref<1x64x8x16xf16, {order = #NHWC}, @CMX_NN>
 
 // CHECK-LABEL: @VPUIPSubViewDistributed
 func.func @VPUIPSubViewDistributed(%arg0: !OutputBuffer) -> !OutputBuffer {
@@ -236,7 +236,7 @@ func.func @VPUIPSubViewDistributed(%arg0: !OutputBuffer) -> !OutputBuffer {
 }>
 
 !InputSliceBuffer = memref<1x64x8x16xf16, {order = #NHWC, strides = [16384, 1, 1024, 64]}, @CMX_NN>
-!OutputBuffer = memref<1x64x8x16xf16, #NHWC, @CMX_NN>
+!OutputBuffer = memref<1x64x8x16xf16, {order = #NHWC}, @CMX_NN>
 
 // CHECK-LABEL: @VPUIPSubViewDistributedSegmentedOnSubviewAxis
 func.func @VPUIPSubViewDistributedSegmentedOnSubviewAxis(%arg0: !OutputBuffer) -> !OutputBuffer {
@@ -289,7 +289,7 @@ func.func @VPUIPSubViewDistributedSegmentedOnSubviewAxis(%arg0: !OutputBuffer) -
 }>
 
 !InputSliceBuffer = memref<1x64x8x16xf16, {order = #NHWC, strides = [16384, 1, 1024, 64]}, @CMX_NN>
-!OutputBuffer = memref<1x64x8x16xf16, #NHWC, @CMX_NN>
+!OutputBuffer = memref<1x64x8x16xf16, {order = #NHWC}, @CMX_NN>
 
 // CHECK-LABEL: @VPUIPSubViewOnHAndWDistributedSegmentedOnH
 func.func @VPUIPSubViewOnHAndWDistributedSegmentedOnH(%arg0: !OutputBuffer) -> !OutputBuffer {
@@ -342,7 +342,7 @@ func.func @VPUIPSubViewOnHAndWDistributedSegmentedOnH(%arg0: !OutputBuffer) -> !
 }>
 
 !InputSliceBuffer = memref<1x32x15x16xf16, {order = #NCHW, strides = [15360, 240, 16, 1]}, @CMX_NN>
-!OutputBuffer = memref<1x32x15x16xf16, #NCHW, @CMX_NN>
+!OutputBuffer = memref<1x32x15x16xf16, @CMX_NN>
 
 // CHECK-LABEL: @VPUIPSubViewOnCDistributedSegmentedOnH
 func.func @VPUIPSubViewOnCDistributedSegmentedOnH(%arg0: !OutputBuffer) -> !OutputBuffer {
@@ -394,10 +394,10 @@ func.func @VPUIPSubViewOnCDistributedSegmentedOnH(%arg0: !OutputBuffer) -> !Outp
     num_clusters = 2 : i64
 }>
 
-!InputBufferDDR = memref<1x1x128x128xf16, #NCHW, @DDR>
+!InputBufferDDR = memref<1x1x128x128xf16, @DDR>
 !InputSliceBuffer = memref<1x1x128x128xf16, {order = #NCHW, strides = [32768, 16384, 128, 1]}, @CMX_NN>
-!OutputBuffer = memref<1x2x128x128xf16, #NCHW, @CMX_NN>
-!OutputBufferDDR = memref<1x2x128x128xf16, #NCHW, @DDR>
+!OutputBuffer = memref<1x2x128x128xf16, @CMX_NN>
+!OutputBufferDDR = memref<1x2x128x128xf16, @DDR>
 
 // CHECK: func.func @ImplicitConcatViewOnCAndDistrubedSegmentedOnH([[IN0:%.+]]: memref<1x1x128x128xf16, @DDR>, [[IN1:%.+]]: memref<1x1x128x128xf16, @DDR>, [[OUT:%.+]]: memref<1x2x128x128xf16, @DDR>)
 func.func @ImplicitConcatViewOnCAndDistrubedSegmentedOnH(%arg0: !InputBufferDDR, %arg1: !InputBufferDDR, %arg2: !OutputBufferDDR) -> !OutputBufferDDR {
@@ -467,13 +467,13 @@ func.func @ImplicitConcatViewOnCAndDistrubedSegmentedOnH(%arg0: !InputBufferDDR,
     num_clusters = 4 : i64
 }>
 
-!InputBufferDdr = memref<1x64x8x16xf16, #NHWC, @DDR>
-!InputBuffer = memref<1x64x8x16xf16, #NHWC, @CMX_NN>
+!InputBufferDdr = memref<1x64x8x16xf16, {order = #NHWC}, @DDR>
+!InputBuffer = memref<1x64x8x16xf16, {order = #NHWC}, @CMX_NN>
 !InputSliceBuffer = memref<1x64x8x16xf16, {order = #NHWC, strides = [16384, 1, 1024, 64]}, @CMX_NN>
-!OutputBuffer = memref<1x64x16x16xf16, #NHWC, @CMX_NN>
-!OutputBufferDdr = memref<1x64x16x16xf16, #NHWC, @DDR>
+!OutputBuffer = memref<1x64x16x16xf16, {order = #NHWC}, @CMX_NN>
+!OutputBufferDdr = memref<1x64x16x16xf16, {order = #NHWC}, @DDR>
 
-// CHECK: func.func @ImplicitConcatView([[ARG0:%.+]]: memref<1x64x8x16xf16, #NHWC, @DDR>, [[ARG1:%.+]]: memref<1x64x16x16xf16, #NHWC, @DDR>)
+// CHECK: func.func @ImplicitConcatView([[ARG0:%.+]]: memref<1x64x8x16xf16, {order = #NHWC}, @DDR>, [[ARG1:%.+]]: memref<1x64x16x16xf16, {order = #NHWC}, @DDR>)
 func.func @ImplicitConcatView(%arg0: !InputBufferDdr, %arg1: !OutputBufferDdr) -> !OutputBufferDdr {
     // There is no explicit Concat, but %0 is "concat" buffer
     %0 = VPURT.DeclareBuffer <CMX_NN> <0> -> !InputDistributedBuffer
@@ -513,7 +513,7 @@ func.func @ImplicitConcatView(%arg0: !InputBufferDdr, %arg1: !OutputBufferDdr) -
     // CHECK-SAME:       inputs([[BUF_INPUT]]
     // CHECK-SAME:       outputs([[ARG1]]
 
-    // CHECK:       return [[ARG1]] : memref<1x64x16x16xf16, #NHWC, @DDR>
+    // CHECK:       return [[ARG1]] : memref<1x64x16x16xf16, {order = #NHWC}, @DDR>
 }
 
 // -----
@@ -521,19 +521,19 @@ func.func @ImplicitConcatView(%arg0: !InputBufferDdr, %arg1: !OutputBufferDdr) -
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @ShapeCast
-// CHECK-SAME: ([[ARG_0:%[^:]+]]: memref<64x3x7x7xf16, #NHWC>, [[ARG_1:%[^:]+]]: memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>)
-func.func @ShapeCast(%arg0: memref<64x3x7x7xf16, #NHWC>, %arg1: memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]> {
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: memref<64x3x7x7xf16, {order = #NHWC}>, [[ARG_1:%[^:]+]]: memref<1x64x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+func.func @ShapeCast(%arg0: memref<64x3x7x7xf16, {order = #NHWC}>, %arg1: memref<1x64x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]> {
 
-%0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x3x7x7xf16, #NHWC, [@CMX_NN, 0]>
+%0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x3x7x7xf16, {order = #NHWC}, [@CMX_NN, 0]>
 %weights = VPUIP.NNDMA
-    inputs(%arg0: memref<64x3x7x7xf16, #NHWC>)
-    outputs(%0: memref<64x3x7x7xf16, #NHWC, [@CMX_NN, 0]>) -> memref<64x3x7x7xf16, #NHWC, [@CMX_NN, 0]>
+    inputs(%arg0: memref<64x3x7x7xf16, {order = #NHWC}>)
+    outputs(%0: memref<64x3x7x7xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<64x3x7x7xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
 %weights_align = VPUIP.ShapeCast{shape = [64, 16, 7, 7]}
-    inputs(%weights: memref<64x3x7x7xf16, #NHWC, [@CMX_NN, 0]>)
-     -> memref<64x16x7x7xf16, #NHWC, [@CMX_NN, 0]>
+    inputs(%weights: memref<64x3x7x7xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+     -> memref<64x16x7x7xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
-%in = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x112x112xf16, #NHWC, [@CMX_NN, 0]>
+%in = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x112x112xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
 %1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
         kernel_padding = #VPU.Padding<left = 3 : i64, right = 3 : i64, top = 3 : i64, bottom = 3 : i64>,
@@ -541,11 +541,11 @@ func.func @ShapeCast(%arg0: memref<64x3x7x7xf16, #NHWC>, %arg1: memref<1x64x56x5
         kernel_strides = [2, 2],
         task_type = #VPUIP.nce_task_type<CONV>
     }>
-    input(%in : memref<1x16x112x112xf16, #NHWC, [@CMX_NN, 0]>)
-    weights(%weights_align : memref<64x16x7x7xf16, #NHWC, [@CMX_NN, 0]>)
-    parent_input(%in : memref<1x16x112x112xf16, #NHWC, [@CMX_NN, 0]>)
-    parent_output(%arg1 : memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>)
-    outputs(%arg1 : memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>
+    input(%in : memref<1x16x112x112xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    weights(%weights_align : memref<64x16x7x7xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    parent_input(%in : memref<1x16x112x112xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    parent_output(%arg1 : memref<1x64x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    outputs(%arg1 : memref<1x64x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]>
     variants :
     {
         DPUTask {outEnd = [55, 55, 63], mpe_mode = #VPU.mpe_mode<VECTOR_FP16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0]}
@@ -553,22 +553,22 @@ func.func @ShapeCast(%arg0: memref<64x3x7x7xf16, #NHWC>, %arg1: memref<1x64x56x5
     PPE :  {
     }
 
-return %1 : memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>
+return %1 : memref<1x64x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
-//CHECK:        [[VAR0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x3x7x7xf16, #NHWC, [@CMX_NN, 0]>
-//CHECK:        [[VAR1:%.+]] = VPUIP.NNDMA inputs([[ARG_0]] : memref<64x3x7x7xf16, #NHWC>) outputs([[VAR0]] : memref<64x3x7x7xf16, #NHWC, [@CMX_NN, 0]>) -> memref<64x3x7x7xf16, #NHWC, [@CMX_NN, 0]>
-//CHECK:        [[VAR2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x16x7x7xf16, #NHWC, [@CMX_NN, 0]>
-//CHECK:        [[VAR4:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x112x112xf16, #NHWC, [@CMX_NN, 0]>
+//CHECK:        [[VAR0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x3x7x7xf16, {order = #NHWC}, [@CMX_NN, 0]>
+//CHECK:        [[VAR1:%.+]] = VPUIP.NNDMA inputs([[ARG_0]] : memref<64x3x7x7xf16, {order = #NHWC}>) outputs([[VAR0]] : memref<64x3x7x7xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<64x3x7x7xf16, {order = #NHWC}, [@CMX_NN, 0]>
+//CHECK:        [[VAR2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x16x7x7xf16, {order = #NHWC}, [@CMX_NN, 0]>
+//CHECK:        [[VAR4:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x112x112xf16, {order = #NHWC}, [@CMX_NN, 0]>
 //CHECK:        [[VAR5:%.+]] = VPUIP.NCEClusterTask <{kernel_padding = #VPU.Padding<left = 3 : i64, right = 3 : i64, top = 3 : i64, bottom = 3 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2]
-//CHECK-SAME:           input([[VAR4]] : memref<1x16x112x112xf16, #NHWC, [@CMX_NN, 0]>)
-//CHECK-SAME:           weights([[VAR2]] : memref<64x16x7x7xf16, #NHWC, [@CMX_NN, 0]>)
-//CHECK-SAME:           parent_input([[VAR4]] : memref<1x16x112x112xf16, #NHWC, [@CMX_NN, 0]>)
-//CHECK-SAME:           parent_output([[ARG_1]] : memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>)
-//CHECK-SAME:           outputs([[ARG_1]] : memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>)
-//CHECK-SAME:           -> memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>
+//CHECK-SAME:           input([[VAR4]] : memref<1x16x112x112xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+//CHECK-SAME:           weights([[VAR2]] : memref<64x16x7x7xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+//CHECK-SAME:           parent_input([[VAR4]] : memref<1x16x112x112xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+//CHECK-SAME:           parent_output([[ARG_1]] : memref<1x64x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+//CHECK-SAME:           outputs([[ARG_1]] : memref<1x64x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+//CHECK-SAME:           -> memref<1x64x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]>
 //CHECK-SAME:           variants :  {
 //CHECK:       DPUTask {mpe_mode = #VPU.mpe_mode<VECTOR_FP16>, outEnd = [55, 55, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
-//CHECK:       return [[VAR5]] : memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>
+//CHECK:       return [[VAR5]] : memref<1x64x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]>
 }
 
 //
@@ -707,6 +707,35 @@ func.func @StridedTensorSubViewReshapePermute(%arg0: memref<4x6xui8, @DDR>, %arg
 
 // -----
 
+// Test that PermuteCast which preserves the logical shape (NCHW -> NHWC, same N/C/H/W counts)
+// passes the H-axis offset through unchanged. Without this, a non-zero H offset in the
+// SubView gets misplaced into the W slot, causing DMA to read from the wrong row.
+// This matches the H-axis SCF unroll scenario in the HostCompile pipeline.
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+net.NetworkInfo entryPoint :  @StridedTensorSubViewPermuteSameShape inputsInfo : {
+    DataInfo "Input_1" : tensor<1x1x8x4xui8> {dynamicStrides}
+} outputsInfo : {
+    DataInfo "Outputs_1" : tensor<1x1x5x4xui8>
+}
+
+func.func @StridedTensorSubViewPermuteSameShape(%arg0: memref<1x1x8x4xui8, @DDR>, %arg1: memref<1x1x5x4xui8, @DDR>) -> memref<1x1x5x4xui8, @DDR> {
+    %0 = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x1x8x4xui8, @DDR>
+    // Slice rows [3, 8) — H-offset = 3. Byte offset = 3 * W_stride = 3 * 4 = 12.
+    %1 = VPUIP.SubView %0 [0, 0, 3, 0] [1, 1, 5, 4] : memref<1x1x8x4xui8, @DDR> to memref<1x1x5x4xui8, {order = #NCHW, strides = [32, 32, 4, 1]}, @DDR>
+    // PermuteCast: logical shape unchanged (1x1x5x4 NCHW -> 1x1x5x4 NHWC).
+    // Logical offsets [0, 0, 3, 0] must survive unchanged (H-offset stays at index 2).
+    %2 = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC} inputs(%1 : memref<1x1x5x4xui8, {order = #NCHW, strides = [32, 32, 4, 1]}, @DDR>) -> memref<1x1x5x4xui8, {order = #NHWC, strides = [32, 32, 4, 1]}, @DDR>
+    // CHECK: VPURT.DeclareBuffer <NetworkInput> [0] <12> {offsets = [0, 0, 3, 0]} -> memref<1x1x5x4xui8, {order = #NCHW, strides = [32, 32, 4, 1]}, @DDR>
+    // CHECK-NEXT: VPURT.DeclareBuffer <NetworkInput> [0] <12> {offsets = [0, 0, 3, 0]} -> memref<1x1x5x4xui8, {order = #NHWC, strides = [32, 32, 4, 1]}, @DDR>
+
+    return %arg1 : memref<1x1x5x4xui8, @DDR>
+}
+
+// -----
+
 #NC = affine_map<(d0, d1) -> (d0, d1)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
@@ -781,12 +810,12 @@ func.func @StridedTensorFinalDimTiling(%arg0: memref<6x6xui8, @DDR>, %arg1: memr
 
 // CHECK-LABEL: @ComplexViewSequence
 func.func @ComplexViewSequence(%arg0: memref<512x1024x!qElemType, @DDR>,
-    %arg1: memref<16x16x32x32x!qElemType1, #NHCW, @DDR>)
-    -> memref<16x16x32x32x!qElemType1, #NHCW, @DDR> {
+    %arg1: memref<16x16x32x32x!qElemType1, {order = #NHCW}, @DDR>)
+    -> memref<16x16x32x32x!qElemType1, {order = #NHCW}, @DDR> {
     %in = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<512x1024x!qElemType, @DDR>
-    %out = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<16x16x32x32x!qElemType1, #NHCW, @DDR>
+    %out = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<16x16x32x32x!qElemType1, {order = #NHCW}, @DDR>
     // CHECK-DAG: [[IN:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<512x1024x!qElemType, @DDR>
-    // CHECK-DAG: [[OUT:%.+]] = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<16x16x32x32x!qElemType1, #NHCW, @DDR>
+    // CHECK-DAG: [[OUT:%.+]] = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<16x16x32x32x!qElemType1, {order = #NHCW}, @DDR>
 
     %0 = VPUIP.GenericReshape inputs(%in : memref<512x1024x!qElemType, @DDR>) -> memref<1x2x256x1024x!qElemType, @DDR>
     // CHECK: VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x2x256x1024x!qElemType, @DDR>
@@ -797,22 +826,22 @@ func.func @ComplexViewSequence(%arg0: memref<512x1024x!qElemType, @DDR>,
 
     %2 = VPUIP.PermuteCast {dst_order = #NHCW, mem_perm = #NHCW}
         inputs(%1 : memref<1x1x256x1024x!qElemType, {order = #NCHW, strides = [524288, 262144, 1024, 1]}, @DDR>)
-        -> memref<256x1x1024x1x!qElemType, #NHCW, @DDR>
-    // CHECK: VPURT.DeclareBuffer <NetworkInput> [0] <262144> -> memref<256x1x1024x1x!qElemType, #NHCW, @DDR>
+        -> memref<256x1x1024x1x!qElemType, {order = #NHCW}, @DDR>
+    // CHECK: VPURT.DeclareBuffer <NetworkInput> [0] <262144> -> memref<256x1x1024x1x!qElemType, {order = #NHCW}, @DDR>
 
     %3 = VPUIP.ShapeCast {shape = [16, 16, 32, 32]}
-        inputs(%2 : memref<256x1x1024x1x!qElemType, #NHCW, @DDR>)
-        -> memref<16x16x32x32x!qElemType, #NHCW, @DDR>
-    // CHECK: VPURT.DeclareBuffer <NetworkInput> [0] <262144> -> memref<16x16x32x32x!qElemType, #NHCW, @DDR>
+        inputs(%2 : memref<256x1x1024x1x!qElemType, {order = #NHCW}, @DDR>)
+        -> memref<16x16x32x32x!qElemType, {order = #NHCW}, @DDR>
+    // CHECK: VPURT.DeclareBuffer <NetworkInput> [0] <262144> -> memref<16x16x32x32x!qElemType, {order = #NHCW}, @DDR>
 
-    %4 = VPUIP.QuantizeCast inputs(%3 : memref<16x16x32x32x!qElemType, #NHCW, @DDR>) -> memref<16x16x32x32x!qElemType1, #NHCW, @DDR>
-    // CHECK: [[BUF_INPUT:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <262144> -> memref<16x16x32x32x!qElemType1, #NHCW, @DDR>
+    %4 = VPUIP.QuantizeCast inputs(%3 : memref<16x16x32x32x!qElemType, {order = #NHCW}, @DDR>) -> memref<16x16x32x32x!qElemType1, {order = #NHCW}, @DDR>
+    // CHECK: [[BUF_INPUT:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <262144> -> memref<16x16x32x32x!qElemType1, {order = #NHCW}, @DDR>
 
-    %5 = VPUIP.NNDMA inputs(%4 : memref<16x16x32x32x!qElemType1, #NHCW, @DDR>)
-        outputs(%out : memref<16x16x32x32x!qElemType1, #NHCW, @DDR>) -> memref<16x16x32x32x!qElemType1, #NHCW, @DDR>
-    // CHECK: VPUIP.NNDMA  inputs([[BUF_INPUT]] : memref<16x16x32x32x!qElemType1, #NHCW, @DDR>) outputs([[OUT]] : memref<16x16x32x32x!qElemType1, #NHCW, @DDR>) -> memref<16x16x32x32x!qElemType1, #NHCW, @DDR>
+    %5 = VPUIP.NNDMA inputs(%4 : memref<16x16x32x32x!qElemType1, {order = #NHCW}, @DDR>)
+        outputs(%out : memref<16x16x32x32x!qElemType1, {order = #NHCW}, @DDR>) -> memref<16x16x32x32x!qElemType1, {order = #NHCW}, @DDR>
+    // CHECK: VPUIP.NNDMA  inputs([[BUF_INPUT]] : memref<16x16x32x32x!qElemType1, {order = #NHCW}, @DDR>) outputs([[OUT]] : memref<16x16x32x32x!qElemType1, {order = #NHCW}, @DDR>) -> memref<16x16x32x32x!qElemType1, {order = #NHCW}, @DDR>
 
-    return %arg1 : memref<16x16x32x32x!qElemType1, #NHCW, @DDR>
+    return %arg1 : memref<16x16x32x32x!qElemType1, {order = #NHCW}, @DDR>
 }
 
 // -----

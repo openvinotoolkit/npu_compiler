@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/utils/cast_utils.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 using namespace vpux;
 
@@ -54,6 +55,16 @@ mlir::OpFoldResult vpux::VPU::QuantizeCastOp::fold(FoldAdaptor adaptor) {
     }
 
     return nullptr;
+}
+
+//
+// ReifyRankedShapedTypeOpInterface
+//
+
+mlir::LogicalResult vpux::VPU::QuantizeCastOp::reifyResultShapes(
+        mlir::OpBuilder& builder, mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    reifiedReturnShapes.emplace_back(reifyTrivialTensor(builder, getInput(), getLoc()));
+    return mlir::success();
 }
 
 //

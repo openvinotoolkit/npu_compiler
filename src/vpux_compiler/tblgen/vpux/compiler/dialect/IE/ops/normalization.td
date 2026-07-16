@@ -242,7 +242,8 @@ def IE_RMSOp :
     let arguments = (ins
         RankedTensorOf<[F16, F32, F64]>:$input,
         RankedTensorOf<[F16, F32, F64]>:$gamma,
-        F64Attr:$eps
+        F64Attr:$eps,
+        DefaultValuedAttr<BoolAttr, "false">:$conditionalEps
      );
    let results = (outs
         RankedTensorOf<[F16, F32, F64]>:$output

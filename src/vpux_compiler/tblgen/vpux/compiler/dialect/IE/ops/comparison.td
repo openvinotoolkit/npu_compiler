@@ -22,7 +22,7 @@ def IE_EqualOp :
                 IE_EltwiseOp,
                 Commutative,
                 DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine Equal layer";
@@ -45,7 +45,7 @@ def IE_GreaterOp :
             [
                 IE_EltwiseOp,
                 DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine Greater layer";
@@ -68,7 +68,7 @@ def IE_GreaterEqualOp :
             [
                 IE_EltwiseOp,
                 DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
 
             ]
         > {
@@ -92,7 +92,7 @@ def IE_LessOp :
             [
                 IE_EltwiseOp,
                 DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine Less layer";
@@ -115,7 +115,7 @@ def IE_LessEqualOp :
             [
                 IE_EltwiseOp,
                 DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine LessEqual layer";

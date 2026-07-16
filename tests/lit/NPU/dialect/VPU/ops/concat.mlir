@@ -560,7 +560,7 @@ func.func @SkipFuseConcatWithNCEOpNoWeights(%arg0: tensor<1x128x16x32xf16, {orde
     %cst1 = const.Declare tensor<1x128x16x64xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<1x128x16x64xf16>, [#const.Reorder<#NHWC>]
 
     %weights_table = const.Declare tensor<128x1x1x4xsi32, {order = #NCHW}> = dense<10> : tensor<128x1x1x4xsi32>
-    %maxpool = VPU.NCE.MaxPool(%arg0, %weights_table) {
+    %maxpool = VPU.NCE.MaxPool(%arg0, %weights_table) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         kernel_size = [1, 1],
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
@@ -576,14 +576,14 @@ func.func @SkipFuseConcatWithNCEOpNoWeights(%arg0: tensor<1x128x16x32xf16, {orde
 
     %weights_table_0 = const.Declare tensor<256x1x1x4xsi32, {order = #NCHW}> = dense<10> : tensor<256x1x1x4xsi32>
     %weights_table_1 = const.Declare tensor<256x1x1x4xsi32, {order = #NCHW}> = dense<10> : tensor<256x1x1x4xsi32>
-    %maxpool0 = VPU.NCE.MaxPool(%slice0, %weights_table_0) {
+    %maxpool0 = VPU.NCE.MaxPool(%slice0, %weights_table_0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         kernel_size = [1, 1],
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
         strides = [1, 1],
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>
     } -> tensor<1x256x16x32xf16, {order = #NHWC}>
-    %maxpool1 = VPU.NCE.MaxPool(%slice1, %weights_table_1) {
+    %maxpool1 = VPU.NCE.MaxPool(%slice1, %weights_table_1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         kernel_size = [1, 1],
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
@@ -597,7 +597,8 @@ func.func @SkipFuseConcatWithNCEOpNoWeights(%arg0: tensor<1x128x16x32xf16, {orde
     // CHECK:  [[CST1:%.+]] = const.Declare tensor<1x128x16x64xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<1x128x16x64xf16>, [#const.Reorder<#NHWC>]
     // CHECK:  [[CST2:%.+]] = const.Declare tensor<128x1x1x4xsi32, {order = #NCHW}> = dense<10> : tensor<128x1x1x4xsi32>
 
-    // CHECK:  [[MAXPOOL_IN:%.+]] = VPU.NCE.MaxPool([[INPUT0]], [[CST2]] ) {kernel_size = [1, 1], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, strides = [1, 1]} -> tensor<1x128x16x32xf16, {order = #NHWC}>
+    // CHECK:  [[MAXPOOL_IN:%.+]] = VPU.NCE.MaxPool([[INPUT0]], [[CST2]] ) {kernel_size = [1, 1], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
+    // CHECK-SAME: strides = [1, 1]} -> tensor<1x128x16x32xf16, {order = #NHWC}>
     // CHECK:  [[MAIN_CONCAT:%.+]] = VPU.Concat([[MAXPOOL_IN]], [[INPUT1]])
     // CHECK-SAME{LITERAL}:  {static_offsets = [[0, 0, 0, 0], [0, 0, 0, 32]]} : tensor<1x128x16x32xf16, {order = #NHWC}>, tensor<1x128x16x32xf16, {order = #NHWC}> -> tensor<1x128x16x64xf16, {order = #NHWC}>
 

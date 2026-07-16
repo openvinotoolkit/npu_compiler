@@ -28,6 +28,17 @@
 /*
  * API changelog
  * ------------
+ * 11.13.3:
+ *  - Added struct to contain floating-point operations in vpu_nnrt_wlm.h to support dynamic PVP.
+ *
+ * 11.13.2:
+ *   - Removed VpuTaskInfo, BarrierReferenceMap, VpuManagedMappedInferenceInfo debug structs.
+ *   - Renamed VpuManagedMappedInference::inference_info to deprecated.
+ *   - Renamed VpuNNShaveRuntimeConfigs::code_window_buffer_size to deprecated1.
+ *   - Renamed VpuNNShaveRuntimeConfigs::use_schedule_embedded_rt to deprecated2.
+ *   - Renamed VpuNNShaveRuntimeConfigs::dpu_perf_mode to deprecated3.
+ *   - Added @deprecated Doxygen tags and replaced C++ style comments with C style comments.
+ *
  * 11.13.1:
  *   - Replaced stack frame storage in VpuNNShaveRuntimeConfigs with a union,
  *     providing a fixed-size array for NPU4-6.
@@ -73,7 +84,7 @@
  */
 #define VPU_NNRT_40XX_API_VER_MAJOR 11
 #define VPU_NNRT_40XX_API_VER_MINOR 13
-#define VPU_NNRT_40XX_API_VER_PATCH 1
+#define VPU_NNRT_40XX_API_VER_PATCH 3
 #define VPU_NNRT_40XX_API_VER ((VPU_NNRT_40XX_API_VER_MAJOR << 16) | VPU_NNRT_40XX_API_VER_MINOR)
 
 /* Index in the API version table, same for all HW generations */

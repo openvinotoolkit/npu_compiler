@@ -13,7 +13,6 @@ module @OneDMAWithoutAttributes attributes {config.platform = #config.platform<N
   config.ExecutorResource 2 of @SHAVE_ACT
   config.ExecutorResource 1 of @M2I
   config.ExecutorResource 1 of @DMA_NN
-  config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
   config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
   config.MemoryResource 524288000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {

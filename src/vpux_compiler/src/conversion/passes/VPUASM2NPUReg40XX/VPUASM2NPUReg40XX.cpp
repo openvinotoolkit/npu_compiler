@@ -14,6 +14,8 @@
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg40XX/mi_version_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg40XX/nnrt_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg40XX/work_item_rewriter.hpp"
+#include "vpux/compiler/dialect/ELF/utils/utils.hpp"
+#include "vpux/compiler/dialect/VPUIPDPU/utils/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
@@ -63,6 +65,10 @@ void ConvertVPUASM2NPUReg40XXPass::safeRunOnModule() {
     auto elfMain = mainOps[0];
 
     ELF::SymbolReferenceMap symRefMap(elfMain, true);
+
+    if (_log.isActive(LogLevel::Info)) {
+        VPUIPDPU::computeDpuPvpCounts(elfMain, _log);
+    }
 
     mlir::RewritePatternSet patternNNDMA(&ctx);
     patternNNDMA.add<NNDMARewriter>(&ctx, _log, symRefMap);

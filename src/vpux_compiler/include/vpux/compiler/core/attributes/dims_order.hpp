@@ -15,6 +15,8 @@
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/Value.h>
 
+#include <array>
+#include <cstdint>
 #include <functional>
 
 namespace vpux {
@@ -95,6 +97,11 @@ public:
 
 public:
     DimsOrder() = default;
+    DimsOrder(const DimsOrder&) = default;
+    DimsOrder(DimsOrder&&) = default;
+    DimsOrder& operator=(const DimsOrder&) = default;
+    DimsOrder& operator=(DimsOrder&&) = default;
+    ~DimsOrder() = default;
 
     static DimsOrder fromCode(StorageType code);
     static DimsOrder fromNumDims(size_t numDims);
@@ -128,7 +135,7 @@ public:
 
 public:
     // Convert from packed format to array of dimensions from major to minor.
-    DimArr toPermutation() const;
+    const DimArr& toPermutation() const;
 
     bool isIdentity() const;
 
@@ -188,12 +195,14 @@ private:
 private:
     StorageType _code = 0;          // is serialized for the runtime
     StorageType _invertedCode = 0;  // to store permutation in major to minor order
+    uint16_t _numDims = 0;          // precomputed number of dimensions
+    DimArr _permutation;            // eagerly precomputed permutation (major to minor)
 };
 
-inline bool operator==(DimsOrder order1, DimsOrder order2) {
+inline bool operator==(const DimsOrder& order1, const DimsOrder& order2) {
     return order1.code() == order2.code();
 }
-inline bool operator!=(DimsOrder order1, DimsOrder order2) {
+inline bool operator!=(const DimsOrder& order1, const DimsOrder& order2) {
     return order1.code() != order2.code();
 }
 
@@ -213,7 +222,7 @@ namespace std {
 
 template <>
 struct hash<vpux::DimsOrder> final {
-    size_t operator()(vpux::DimsOrder order) const {
+    size_t operator()(const vpux::DimsOrder& order) const {
         return order.code();
     }
 };

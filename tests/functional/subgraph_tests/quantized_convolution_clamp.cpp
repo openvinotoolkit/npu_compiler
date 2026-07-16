@@ -164,11 +164,11 @@ TEST_P(QuantizedConvClampSubGraphTest_NPU4000, HW) {
     run(Platform::NPU4000);
 }
 
-class QuantizedConvClampSubGraphTest_NPU5000 : public QuantizedConvClampSubGraphTestCommon {};
+class QuantizedConvClampSubGraphTest_NPU5010 : public QuantizedConvClampSubGraphTestCommon {};
 
-TEST_P(QuantizedConvClampSubGraphTest_NPU5000, HW) {
+TEST_P(QuantizedConvClampSubGraphTest_NPU5010, HW) {
     setDefaultHardwareMode();
-    run(Platform::NPU5000);
+    run(Platform::NPU5010);
 }
 
 }  // namespace LayerTestsDefinitions
@@ -208,7 +208,7 @@ INSTANTIATE_TEST_SUITE_P(precommit_QuantizedConvClamp, QuantizedConvClampSubGrap
 INSTANTIATE_TEST_SUITE_P(precommit_QuantizedConvClamp, QuantizedConvClampSubGraphTest_NPU4000, basicCases,
                          QuantizedConvClampSubGraphTestCommon::getTestCaseName);
 
-INSTANTIATE_TEST_SUITE_P(precommit_QuantizedConvClamp, QuantizedConvClampSubGraphTest_NPU5000, basicCases,
+INSTANTIATE_TEST_SUITE_P(precommit_QuantizedConvClamp, QuantizedConvClampSubGraphTest_NPU5010, basicCases,
                          QuantizedConvClampSubGraphTestCommon::getTestCaseName);
 
 }  // namespace

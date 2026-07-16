@@ -199,6 +199,7 @@ mlir::LogicalResult rewriteSparsityOpWithEltwiseOp(mlir::PatternRewriter& rewrit
                                      : nullptr;
 
     auto nceOp = rewriter.create<VPU::NCEEltwiseOp>(origOp->getLoc(), outputType, input, input,
+                                                    /*weight_table_scale=*/nullptr, /*weight_table_bias=*/nullptr,
                                                     VPU::EltwiseTypeAttr::get(ctx, opType), ppeAttr, mpeEngineModeAttr,
                                                     /*multi_cluster_strategyAttr=*/nullptr,
                                                     /*is_inplace*/ nullptr, outputPaddingAttr, inputPaddingAttr);
@@ -248,7 +249,7 @@ mlir::Value createFilter(mlir::PatternRewriter& rewriter, mlir::Location loc, vp
     auto dataStorageType = mlir::RankedTensorType::get(shape.raw(), mlir::Float32Type::get(ctx));
     auto dataAttr = Const::createConstContent(dataStorageType, ArrayRef(content));
 
-    Const::ContentSetup contentAttrSetup(dataStorageType);
+    Const::ContentSetup contentAttrSetup(dataAttr, dataStorageType);
     if (auto qElemType = mlir::dyn_cast<mlir::quant::QuantizedType>(elemType)) {
         contentAttrSetup = contentAttrSetup.castElemType(qElemType);
     } else if (mlir::isa<mlir::Float16Type>(elemType)) {
@@ -368,11 +369,14 @@ mlir::LogicalResult rewriteSparsityOpWithConv(mlir::PatternRewriter& rewriter, m
             ppeConfig.getFactoryAs<VPU::IPpeAdapterFpPreluAlpha>().adaptTypeForPreluAlphaScaling(
                     ppeAttr, outputType.getElementType());
 
-    auto weightsTableVec = VPU::createWeightsTableData(origOp->getOperand(0), adaptedOutElemType, filter,
-                                                       /*bias=*/{}, OC, ppeConverter, biasConverter,
-                                                       /*constScale=*/nullptr, /*hasAutopad=*/false);
+    auto weightsTableVec = VPU::createWeightsTableData(
+            VPU::WeightsTableParams(origOp, origOp->getOperand(0), adaptedOutElemType, filter,
+                                    /*bias=*/{}, OC, ppeConverter, biasConverter, /*constScale=*/nullptr,
+                                    /*zeroPoints=*/nullptr),
+            /*hasAutopad=*/false);
     const auto wtShape = VPU::NCESparsity::inferWeightsTableShape(OC);
-    auto weightsTable = VPU::createWeightsTableTensor(rewriter, origOp->getLoc(), weightsTableVec, wtShape);
+    auto weightsTable = VPU::createTensorFromTableData<int32_t>(rewriter, origOp->getLoc(), weightsTableVec, wtShape,
+                                                                getSInt32Type(rewriter.getContext()));
 
     auto stridesAttr = getIntArrayAttr(ctx, SmallVector<int64_t>({1, 1}));
     auto padAttr = VPU::getPaddingAttr(ctx, pads);
@@ -386,11 +390,15 @@ mlir::LogicalResult rewriteSparsityOpWithConv(mlir::PatternRewriter& rewriter, m
                                      : nullptr;
 
     auto nceOp = rewriter.create<VPU::NCEConvolutionOp>(
-            origOp->getLoc(), outputType, input, filter, weightsTable,
+            origOp->getLoc(), outputType,
+            /*reduceXyMax*/ nullptr, /*reduceXyMin*/ nullptr,
+            /*reduceGlobalMinMax*/ nullptr, input, filter, weightsTable,
             /*weight_table_data_ptr=*/nullptr,
             /*weight_table_sp_ptr=*/nullptr, /*weight_table_scale=*/nullptr, /*weight_table_bias=*/nullptr,
-            /*weight_zero_points=*/nullptr, stridesAttr, padAttr, ppeAttr, mpeEngineModeAttr, rawFilterShape,
-            /*multi_cluster_strategyAttr=*/nullptr, outputPaddingAttr, inputPaddingAttr);
+            /*weight_zero_points=*/nullptr, stridesAttr, padAttr, ppeAttr, mpeEngineModeAttr,
+            /*rawFilterShape=*/mlir::ValueRange{}, parseIntArrayAttr<int64_t>(rawFilterShape),
+            /*multi_cluster_strategyAttr=*/nullptr, outputPaddingAttr, inputPaddingAttr,
+            /*axes_value=*/nullptr);
 
     auto newOutput = nceOp.getOutput();
 

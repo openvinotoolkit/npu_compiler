@@ -523,7 +523,7 @@ mlir::LogicalResult ConvertMemPermuteToPermuteQuantize::matchAndRewrite(IE::MemP
     const auto noPadBeginEnd = SmallVector<int64_t>(outType.getRank(), 0);
 
     auto permuteQuantizeOp = rewriter.create<IE::PermuteQuantizeOp>(
-            appendLoc(origOp->getLoc(), "PermuteQuantize"), outType, curInput,
+            takeOpLoc(origOp, "PermuteQuantize"), outType, curInput,
             mlir::AffineMapAttr::get(DimsOrder::NHWC.toAffineMap(ctx)), mlir::AffineMapAttr::get(memPerm),
             dstElemTypeAttr, getIntArrayAttr(ctx, noPadBeginEnd), getIntArrayAttr(ctx, noPadBeginEnd));
 

@@ -39,13 +39,14 @@ bool PipeliningVFScheduling::validate(VFConfig& config, const TilingOperationSto
     opNotSharedSize.reserve(operations.size());
     Byte totalSharedSize = Byte(0);
     for (auto* operation : operations) {
-        auto opTiling = tilingInfo->get(operation, index);
+        auto opTiling = tilingInfo->getRef(operation, index);
         if (!opTiling.has_value()) {
             return false;
         }
         Byte sharedInputsSize = Byte(0);
-        auto tileTypes = config.getOperationTypes(operation, opTiling.value().second, opTiling.value().first.tiles);
-        auto tilingSize = tileTypes.size();
+        const auto& opTilingValue = opTiling.value().get();
+        auto tiledTypes = config.getOperationTypes(operation, opTilingValue.second, opTilingValue.first.tiles);
+        auto tilingSize = tiledTypes.size();
         auto isInplaceOp = false;
         if (operation->hasAttr(isInPlace)) {
             auto isInplaceAttr = mlir::dyn_cast<mlir::BoolAttr>(operation->getAttr(isInPlace));
@@ -57,25 +58,24 @@ bool PipeliningVFScheduling::validate(VFConfig& config, const TilingOperationSto
         // Get the input size that requires buffer allocation
         // The tilingSize includes the output, so we need to subtract num results by default.
         VPUX_THROW_WHEN(tilingSize <= outputSize || tilingSize - outputSize > operation->getNumOperands() ||
-                                tilingSize - outputSize > opTiling.value().first.tiles.size(),
+                                tilingSize - outputSize > opTilingValue.first.tiles.size(),
                         "Incompatible number of tiles {0} for {1}", tilingSize, *operation);
         auto inputSize = tilingSize - outputSize;
 
         for (auto operandIndex : irange(inputSize)) {
-            auto offsets = opTiling.value().first.tiles[operandIndex].offsets;
+            auto offsets = opTilingValue.first.tiles[operandIndex].offsets;
 
             auto operandType = mlir::cast<vpux::NDTypeInterface>(operation->getOperand(operandIndex).getType());
             // looking for operands without tiling
             if (offsets != Shape(operandType.getRank(), 0)) {
                 continue;
             }
-            VPUX_THROW_WHEN(tileTypes.size() <= operandIndex, "Incorrect tiling info of operation {0} for operand {1}",
+            VPUX_THROW_WHEN(tiledTypes.size() <= operandIndex, "Incorrect tiling info of operation {0} for operand {1}",
                             *operation, operandIndex);
-            sharedInputsSize += tileTypes[operandIndex].getTotalAllocSize();
+            sharedInputsSize += tiledTypes[operandIndex].getTotalAllocSize();
         }
 
         totalSharedSize += sharedInputsSize;
-        auto tiledTypes = config.getOperationTypes(operation, opTiling.value().second, opTiling.value().first.tiles);
         if (isInplaceOp) {
             /* when the op is a inplace op, for example inplace eltwise op, which means the output will reuse the input
              buffer as output, so we need to remove it from the operand list to avoid duplicated calculation.

@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 #include "vpux/utils/core/custom_float.hpp"
 
 #include <mlir/IR/PatternMatch.h>
@@ -51,6 +52,12 @@ mlir::LogicalResult vpux::IE::ClampOp::inferReturnTypeComponents(
     const auto outDesc = vpux::getTensorAttr(inType);
     inferredReturnShapes.emplace_back(inType.getShape(), inType.getElementType(), outDesc);
 
+    return mlir::success();
+}
+
+mlir::LogicalResult vpux::IE::ClampOp::reifyResultShapes(mlir::OpBuilder& builder,
+                                                         mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    reifiedReturnShapes.emplace_back(reifyTrivialTensor(builder, getInput(), getLoc()));
     return mlir::success();
 }
 

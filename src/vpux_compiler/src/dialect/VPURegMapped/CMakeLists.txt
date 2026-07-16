@@ -13,9 +13,9 @@ add_npu_library(npu_compiler_dialect_vpureg
         npu_compiler_utils
         npu_core_utils
         MLIRFuncDialect
+        npu_compiler_dialect_config
       PRIVATE
         npu_elf
-        npu_compiler_dialect_config
         npu_compiler_dialect_const
         npu_compiler_dialect_elf
         npu_compiler_dialect_elfnpu37xx

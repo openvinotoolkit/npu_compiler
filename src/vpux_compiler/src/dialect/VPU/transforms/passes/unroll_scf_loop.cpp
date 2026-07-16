@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPU/utils/permute_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/scf/scf_analysis_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/scf/scf_unroll_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/scf/scf_utils.hpp"
@@ -39,7 +40,6 @@ namespace {
 
 struct LoopInfo {
     mlir::Operation* loopOp;
-    vpux::Dim dim;
     int64_t unrollFactor;
     int64_t depth;
 };
@@ -98,7 +98,7 @@ void UnrollSCFLoopPass::collectForOpsInnerToOuter(mlir::Operation* rootOp, Small
         for (auto forOp : depthMap[depth]) {
             forOp->setAttr("id",
                            mlir::IntegerAttr::get(mlir::IntegerType::get(forOp.getContext(), 64), getUniqueNumber()));
-            loops.push_back({forOp.getOperation(), vpux::Dim(0), 1, static_cast<int64_t>(depth)});
+            loops.push_back({forOp.getOperation(), 1, static_cast<int64_t>(depth)});
         }
     }
 }
@@ -130,7 +130,7 @@ mlir::scf::ForOp findParentForOpFromOffset(mlir::OpFoldResult offset) {
 // Computes an automatic unroll factor from the max trip count of the given scf.for loop.
 std::optional<int64_t> computeAutoUnrollFactor(mlir::scf::ForOp forOp, Logger log) {
     OpChainAnalysis opChainAnalysis;
-    auto [low, high, step] = opChainAnalysis.getForOpParams(forOp);
+    auto [low, high, step] = opChainAnalysis.getLoopBoundsAndStep(forOp);
     int64_t factor = (high - low) / step;
     if (factor < 2) {
         return std::nullopt;
@@ -139,64 +139,146 @@ std::optional<int64_t> computeAutoUnrollFactor(mlir::scf::ForOp forOp, Logger lo
     return factor;
 }
 
-// Maps manually specified unroll factors to loops by matching insert_slice offset dimensions.
-// Processes all dimensions without early return, preserving multi-dimension unrolling (e.g. [1,1,30,4]).
+struct LoopTileDimInfo {
+    vpux::Dim unrollDim;  // post-permute (NCHW space): indexes into unrollFactor[]
+    vpux::Dim tensorDim;  // pre-permute: actual dim in tensor extract/insert ops
+    mlir::Value offsetVal;
+};
+
+mlir::FailureOr<SmallVector<LoopTileDimInfo>> collectLoopTileDimInfos(mlir::scf::ForOp forOp,
+                                                                      mlir::func::FuncOp funcOp) {
+    mlir::tensor::ExtractSliceOp firstSliceOp = nullptr;
+    mlir::func::FuncOp newFuncOp = nullptr;
+    auto directSliceOps = llvm::to_vector(forOp.getOps<mlir::tensor::ExtractSliceOp>());
+    auto moduleOp = funcOp->getParentOfType<mlir::ModuleOp>();
+
+    if (!directSliceOps.empty()) {
+        firstSliceOp = directSliceOps.front();
+    } else {
+        auto switchOps = llvm::to_vector(forOp.getOps<mlir::scf::IndexSwitchOp>());
+        if (switchOps.empty()) {
+            return mlir::failure();
+        }
+        auto& defaultBlock = switchOps.front().getDefaultBlock();
+        auto switchSliceOps = llvm::to_vector(defaultBlock.getOps<mlir::tensor::ExtractSliceOp>());
+        if (switchSliceOps.empty()) {
+            return mlir::failure();
+        }
+        firstSliceOp = switchSliceOps.front();
+    }
+
+    for (auto user : firstSliceOp.getResult().getUsers()) {
+        if (auto callOp = mlir::dyn_cast<mlir::func::CallOp>(user)) {
+            newFuncOp = moduleOp.lookupSymbol<mlir::func::FuncOp>(callOp.getCallee());
+        } else if (auto castOp = mlir::dyn_cast<mlir::tensor::CastOp>(user)) {
+            for (auto castUser : castOp.getResult().getUsers()) {
+                if (auto callOp = mlir::dyn_cast<mlir::func::CallOp>(castUser)) {
+                    newFuncOp = moduleOp.lookupSymbol<mlir::func::FuncOp>(callOp.getCallee());
+                    break;
+                }
+            }
+        }
+
+        if (newFuncOp != nullptr) {
+            break;
+        }
+    }
+
+    SmallVector<vpux::Dim> tensorDims;
+    SmallVector<mlir::Value> offsetVals;
+    for (auto [idx, offset] : llvm::enumerate(firstSliceOp.getMixedOffsets())) {
+        auto val = mlir::dyn_cast_or_null<mlir::Value>(offset);
+        if (!val) {
+            continue;
+        }
+        auto* defOp = val.getDefiningOp();
+        if (defOp != nullptr && mlir::isa<mlir::arith::ConstantOp>(defOp)) {
+            continue;
+        }
+        tensorDims.push_back(vpux::Dim(idx));
+        offsetVals.push_back(val);
+    }
+
+    if (tensorDims.empty()) {
+        return mlir::failure();
+    }
+
+    // Use the called function for dim remapping when available so that
+    // unrollFactor indices are expressed in the function's output dim space
+    // (e.g. NCHW after a PermuteCast). Fall back to the enclosing function
+    // when no call is present (inline extract/insert pattern).
+    auto funcToUse = (newFuncOp != nullptr) ? newFuncOp : funcOp;
+    auto unrollDimsOrFailure = remapDimsThroughInputPermuteCast(funcToUse, tensorDims);
+    if (mlir::failed(unrollDimsOrFailure)) {
+        return mlir::failure();
+    }
+
+    SmallVector<LoopTileDimInfo> result;
+    for (auto [tensorDim, unrollDim, offsetVal] : llvm::zip(tensorDims, unrollDimsOrFailure.value(), offsetVals)) {
+        result.push_back({unrollDim, tensorDim, offsetVal});
+    }
+
+    return result;
+}
+
 void mapManualUnrollFactors(mlir::func::FuncOp funcOp, ArrayRef<int64_t> unrollFactor, SmallVector<LoopInfo>& loops,
                             Logger log) {
     funcOp.walk([&](mlir::scf::ForOp forOp) {
-        for (auto insertSliceOp : forOp.getOps<mlir::tensor::InsertSliceOp>()) {
-            for (auto [idx, offset] : llvm::enumerate(insertSliceOp.getMixedOffsets())) {
-                if (idx >= unrollFactor.size() || unrollFactor[idx] <= 1) {
+        auto infos = collectLoopTileDimInfos(forOp, funcOp);
+        if (mlir::failed(infos)) {
+            return;
+        }
+        for (const auto& info : infos.value()) {
+            if (checked_cast<size_t>(info.unrollDim.ind()) >= unrollFactor.size() ||
+                unrollFactor[info.unrollDim.ind()] <= 1) {
+                continue;
+            }
+            auto parentLoop = findParentForOpFromOffset(info.offsetVal);
+            if (parentLoop == nullptr) {
+                continue;
+            }
+            for (auto& loop : loops) {
+                if (loop.loopOp != parentLoop.getOperation()) {
                     continue;
                 }
-                mlir::scf::ForOp parentLoop = findParentForOpFromOffset(offset);
-                if (parentLoop == nullptr) {
-                    continue;
+                if (loop.unrollFactor > 1 && loop.unrollFactor != unrollFactor[info.unrollDim.ind()]) {
+                    log.warning("Loop already assigned factor {0}, overwriting with {1}", loop.unrollFactor,
+                                unrollFactor[info.unrollDim.ind()]);
                 }
-                for (auto& loop : loops) {
-                    if (loop.loopOp == parentLoop.getOperation()) {
-                        if (loop.unrollFactor > 1 &&
-                            (loop.unrollFactor != unrollFactor[idx] || loop.dim != vpux::Dim(idx))) {
-                            log.warning("Loop already assigned factor {0} at dim {1}, overwriting with {2} at dim {3}",
-                                        loop.unrollFactor, loop.dim.ind(), unrollFactor[idx], idx);
-                        }
-                        loop.unrollFactor = unrollFactor[idx];
-                        loop.dim = vpux::Dim(idx);
-                        break;
-                    }
-                }
+                loop.unrollFactor = unrollFactor[info.unrollDim.ind()];
+                break;
             }
         }
     });
 }
 
-// Computes and maps automatic unroll factors based on loop trip counts.
-// Uses DenseSet to track already-assigned loops across the entire function,
-// preventing auto-unrolling of multiple dimensions per loop (which causes IR blow-up).
 void mapAutoUnrollFactors(mlir::func::FuncOp funcOp, SmallVector<LoopInfo>& loops, Logger log) {
     llvm::DenseSet<mlir::Operation*> assignedLoops;
-    funcOp.walk([&](mlir::scf::ForOp forOp) -> mlir::WalkResult {
-        for (auto insertSliceOp : forOp.getOps<mlir::tensor::InsertSliceOp>()) {
-            for (auto [idx, offset] : llvm::enumerate(insertSliceOp.getMixedOffsets())) {
-                mlir::scf::ForOp parentLoop = findParentForOpFromOffset(offset);
-                if (parentLoop == nullptr || assignedLoops.contains(parentLoop.getOperation())) {
-                    continue;
-                }
-                auto factor = computeAutoUnrollFactor(parentLoop, log);
-                if (!factor.has_value()) {
-                    continue;
-                }
-                for (auto& loop : loops) {
-                    if (loop.loopOp == parentLoop.getOperation()) {
-                        loop.unrollFactor = factor.value();
-                        loop.dim = vpux::Dim(idx);
-                        assignedLoops.insert(parentLoop.getOperation());
-                        return mlir::WalkResult::advance();
-                    }
+
+    funcOp.walk([&](mlir::scf::ForOp forOp) {
+        auto infos = collectLoopTileDimInfos(forOp, funcOp);
+        if (mlir::failed(infos)) {
+            return;
+        }
+        for (const auto& info : infos.value()) {
+            auto parentLoop = findParentForOpFromOffset(info.offsetVal);
+            if (parentLoop == nullptr || assignedLoops.contains(parentLoop.getOperation())) {
+                continue;
+            }
+            auto factor = computeAutoUnrollFactor(parentLoop, log);
+            if (!factor.has_value()) {
+                continue;
+            }
+            for (auto& loop : loops) {
+                if (loop.loopOp == parentLoop.getOperation()) {
+                    loop.unrollFactor = factor.value();
+                    log.info("Assigned auto unroll factor {0} to loop with id {1}", factor.value(),
+                             parentLoop->getAttrOfType<mlir::IntegerAttr>("id").getInt());
+                    assignedLoops.insert(parentLoop.getOperation());
+                    break;
                 }
             }
         }
-        return mlir::WalkResult::advance();
     });
 }
 
@@ -280,63 +362,43 @@ mlir::LogicalResult fuseSiblingUnrolledLoops(mlir::func::FuncOp funcOp) {
     return mlir::success();
 }
 
-/**
- * @brief Processes and merges unrolled SCF loops within a function by analyzing tile dimensions
- * and applying unroll factors to optimize loop operations.
- *
- * This function walks through all SCF ForOp operations in the given function and processes
- * loops that contain tensor::InsertSliceOp operations. For each loop, it:
- * - Analyzes the mixed offsets of insert slice operations to identify tile dimensions
- * - Determines unroll factors for each dimension based on parent loop attributes
- * - Creates TileDimensionInfo structures containing loop IDs, dimensions, and unroll settings
- * - Sorts tile dimensions by depth (outermost to innermost) based on loop IDs
- * - Merges unrolled operations using the collected tile dimension information
- *
- * @param funcOp The MLIR function operation to process for loop unrolling
- * @param unrollFactor List of unroll factors per dimension, used as fallback when loop lacks
- *        the "unrolled-factor" attribute. May be empty in auto-unrolling mode, in which case
- *        the fallback is 1 (unrolled loops always carry the attribute from unrollLoopsAndSetAttributes).
- * @return mlir::LogicalResult Success if all loops were processed successfully,
- *         failure if any merge operation failed or was interrupted
- */
 mlir::LogicalResult processUnrolledLoops(mlir::func::FuncOp funcOp, ArrayRef<int64_t> unrollFactor) {
     auto walkResult = funcOp.walk([&](mlir::scf::ForOp forOp) {
         SmallVector<TileDimensionInfo> tileDimensionsInfo;
-        auto insertSliceOps = forOp.getOps<mlir::tensor::InsertSliceOp>();
-        auto numInsertSliceOps = std::distance(insertSliceOps.begin(), insertSliceOps.end());
-        if (numInsertSliceOps == 0) {
+
+        auto infos = collectLoopTileDimInfos(forOp, funcOp);
+        if (mlir::failed(infos)) {
             return mlir::WalkResult::advance();
         }
 
-        auto firstSliceOp = *insertSliceOps.begin();
-        for (auto [idx, offset] : llvm::enumerate(firstSliceOp.getMixedOffsets())) {
-            auto constOffset = getConstantIntValue(offset);
-            if (constOffset.has_value()) {
+        for (const auto& info : infos.value()) {
+            auto parentLoop = findParentForOpFromOffset(info.offsetVal);
+            if (parentLoop == nullptr) {
                 continue;
             }
-
-            auto parentLoop = findParentForOpFromOffset(offset);
-            if (parentLoop != nullptr) {
-                auto unrolledFactor = parentLoop->hasAttr("unrolled-factor")
-                                              ? parentLoop->getAttrOfType<mlir::IntegerAttr>("unrolled-factor").getInt()
-                                              : (idx < unrollFactor.size() ? unrollFactor[idx] : 1);
-                auto dimUnrollFactor = parentLoop->hasAttr("residual") ? 1 : unrolledFactor;
-                auto loopId = parentLoop->getAttrOfType<mlir::IntegerAttr>("id");
-                TileDimensionInfo dimInfo;
-                dimInfo.id = loopId.getInt();
-                dimInfo.dimension = vpux::Dim(idx);
-                dimInfo.numBlocks = dimUnrollFactor;
-                dimInfo.isUnrolled = (dimUnrollFactor > 1);
-                dimInfo.forOp = parentLoop;
-                tileDimensionsInfo.emplace_back(dimInfo);
+            auto unrolledFactor = parentLoop->hasAttr("unrolled-factor")
+                                          ? parentLoop->getAttrOfType<mlir::IntegerAttr>("unrolled-factor").getInt()
+                                          : (checked_cast<size_t>(info.unrollDim.ind()) < unrollFactor.size()
+                                                     ? unrollFactor[info.unrollDim.ind()]
+                                                     : 1);
+            auto dimUnrollFactor = parentLoop->hasAttr("residual") ? 1 : unrolledFactor;
+            auto loopIdAttr = parentLoop->getAttrOfType<mlir::IntegerAttr>("id");
+            if (!loopIdAttr) {
+                continue;
             }
+            TileDimensionInfo dimInfo;
+            dimInfo.id = loopIdAttr.getInt();
+            dimInfo.dimension = info.tensorDim;
+            dimInfo.numBlocks = dimUnrollFactor;
+            dimInfo.isUnrolled = (dimUnrollFactor > 1);
+            dimInfo.forOp = parentLoop;
+            tileDimensionsInfo.emplace_back(dimInfo);
         }
 
         if (tileDimensionsInfo.empty()) {
             return mlir::WalkResult::advance();
         }
 
-        // sort tileDimensionsInfo based on depth from outermost to innermost
         std::sort(tileDimensionsInfo.begin(), tileDimensionsInfo.end(),
                   [](const TileDimensionInfo& a, const TileDimensionInfo& b) {
                       return a.id > b.id;
@@ -450,23 +512,103 @@ mlir::LogicalResult postProcessUnrolledLoop(mlir::UnrolledLoopInfo& result, mlir
 /**
  * @brief Unrolls SCF loops by specified factors and sets corresponding attributes on the resulting operations.
  *
- * This function processes a collection of loop information structures, performing loop unrolling
- * for loops with unroll factors greater than 1. After unrolling, it marks the unrolled loop
- * with an "unrolled" attribute and identifies any residual sibling loops that handle remaining
- * iterations, marking them with a "residual" attribute.
+ * Processes a collection of loop info structures and unrolls each loop whose factor is > 1.
+ * After unrolling, marks the main loop with an "unrolled-factor" attribute and the residual
+ * sibling loop (remaining iterations) with a "residual" attribute.
  *
- * @param builder MLIR OpBuilder used for creating attributes and managing the IR
- * @param loops Vector of LoopInfo structures containing loop operations and their unroll factors
- * @param enableCascadedUnrolling Enable cascaded unrolling with decreasing factors (e.g., 10 -> 5 -> 2)
- * @param log Logger for standard logging
- * @param debugStream Optional output stream for detailed debug output
+ * In auto-unrolling mode (!hasManualUnrollFactors) two guards are applied per loop based on
+ * the autoUnrollingMode:
+ *   - Static upper bound: loops with a compile-time constant upper bound are skipped (all modes).
+ *   - Nesting guard (mode-dependent):
+ *       INNER – skip outer loop if any direct descendant ForOp already carries factor > 1
+ *       OUTER – skip inner loop if any ancestor loop in the candidate set has factor > 1
+ *       ALL   – no nesting guard; all loops with factor > 1 are unrolled.
+ *       BIGGEST – within each nesting chain (ancestors + descendants of a loop), unroll only
+ *               the loop with the maximum factor; sibling loops (no ancestor-descendant
+ *               relationship) are compared independently.
  *
- * @return mlir::LogicalResult Returns success if all loop unrolling operations complete successfully,
- *         failure if any unrolling operation fails
+ * @param builder              MLIR OpBuilder for IR mutations.
+ * @param loops                Loop info structures (loop op + unroll factor).
+ * @param enableCascadedUnrolling  Apply cascaded stages N → N/2 → N/4 → … instead of a single pass.
+ * @param hasManualUnrollFactors   True when factors come from loop-unroll-factor; disables auto-mode guards.
+ * @param autoUnrollingMode    Controls which loop nesting levels are eligible for auto-unrolling.
+ * @param log                  Logger.
  *
+ * @return mlir::success() if all unrolling operations complete; mlir::failure() otherwise.
  */
 mlir::LogicalResult unrollLoopsAndSetAttributes(mlir::OpBuilder& builder, SmallVector<LoopInfo>& loops,
-                                                bool enableCascadedUnrolling, Logger log) {
+                                                bool enableCascadedUnrolling, bool hasManualUnrollFactors,
+                                                AutoUnrollingMode autoUnrollingMode, Logger log) {
+    // Returns the subset of candidate loops related to currentOp under the given mode.
+    //
+    //   INNER   → descendants only  (inner / child loops of currentOp)
+    //   OUTER   → ancestors only    (outer / parent loops of currentOp)
+    //   ALL     → nesting chain     (ancestors + descendants; siblings excluded)
+    //   BIGGEST → nesting chain including currentOp itself, then filtered to the single loop
+    //             with the maximum unrollFactor. On a tie, the first entry in the candidate
+    //             set wins. Exactly one winner is returned to prevent 2-D unrolling.
+    //             The returned set is the "winners": if currentOp is in it, unroll it;
+    //             if not, skip it.
+    //
+    // In all cases loops with factor <= 1 are excluded.
+    // currentOp itself is excluded for INNER / OUTER / ALL, but included for BIGGEST.
+    auto getCompetingLoops = [&loops](mlir::Operation* currentOp,
+                                      AutoUnrollingMode mode) -> SmallVector<const LoopInfo*> {
+        SmallVector<const LoopInfo*> result;
+        for (const auto& candidate : loops) {
+            if (candidate.loopOp == currentOp || candidate.unrollFactor <= 1) {
+                continue;
+            }
+            const bool isAncestor = candidate.loopOp->isProperAncestor(currentOp);
+            const bool isDescendant = currentOp->isProperAncestor(candidate.loopOp);
+            switch (mode) {
+            case AutoUnrollingMode::INNER:
+                if (!isDescendant) {
+                    continue;
+                }
+                break;
+            case AutoUnrollingMode::OUTER:
+                if (!isAncestor) {
+                    continue;
+                }
+                break;
+            case AutoUnrollingMode::ALL:
+            case AutoUnrollingMode::BIGGEST:
+                if (!isAncestor && !isDescendant) {
+                    continue;
+                }
+                break;
+            default:
+                continue;
+            }
+            result.push_back(&candidate);
+        }
+        if (mode == AutoUnrollingMode::BIGGEST) {
+            // Add currentOp itself so the winner set is self-contained.
+            for (const auto& candidate : loops) {
+                if (candidate.loopOp == currentOp && candidate.unrollFactor > 1) {
+                    result.push_back(&candidate);
+                    break;
+                }
+            }
+            int64_t maxFactor = 0;
+            for (const auto* info : result) {
+                maxFactor = std::max(maxFactor, info->unrollFactor);
+            }
+            llvm::erase_if(result, [maxFactor](const LoopInfo* info) {
+                return info->unrollFactor < maxFactor;
+            });
+            // Multiple loops with equal max factor would cause 2-D unrolling — keep only one.
+            // collectForOpsInnerToOuter fills `loops` innermost-first, so the surviving loop
+            // is the innermost one (inner loop wins over outer loop in a 2-D tiling case and same automatically
+            // assigned unroll factor).
+            if (result.size() > 1) {
+                result.resize(1);
+            }
+        }
+        return result;
+    };
+
     for (auto& loopInfo : loops) {
         if (loopInfo.unrollFactor == 1) {
             continue;
@@ -475,7 +617,49 @@ mlir::LogicalResult unrollLoopsAndSetAttributes(mlir::OpBuilder& builder, SmallV
         auto forOp = mlir::dyn_cast<mlir::scf::ForOp>(loopInfo.loopOp);
         auto loopId = forOp->getAttrOfType<mlir::IntegerAttr>("id");
 
-        log.trace("Unrolling loop with id {0} by factor {1}", loopId.getInt(), loopInfo.unrollFactor);
+        if (!hasManualUnrollFactors) {
+            // Guard 1 (all modes): skip loops with a static (compile-time constant) upper bound.
+            // When the trip count is evenly divisible by the unroll factor, unrolling produces
+            // no epilogue and the main loop collapses to a single iteration, which is then
+            // canonicalized and inlined — eliminating the scf.for entirely and breaking
+            // downstream passes that rely on the loop structure. Conservative guard: skip all
+            // static loops.
+            // Track: E#218830
+            if (mlir::getConstantIntValue(forOp.getUpperBound()).has_value()) {
+                log.info("Skipping auto-unrolling for loop with id {0} because upper bound is static", loopId.getInt());
+                continue;
+            }
+            // Guard 2: nesting guard — behaviour depends on autoUnrollingMode.
+            if (autoUnrollingMode == AutoUnrollingMode::INNER) {
+                // INNER: skip an outer loop when any descendant loop in the candidate set has unrollFactor > 1
+                if (!getCompetingLoops(forOp, AutoUnrollingMode::INNER).empty()) {
+                    log.info("Skipping loop {0} (INNER mode: descendant loop has unroll factor > 1)", loopId.getInt());
+                    continue;
+                }
+            } else if (autoUnrollingMode == AutoUnrollingMode::OUTER) {
+                // OUTER: skip an inner loop when any ancestor loop in the candidate set already has unrollFactor > 1
+                if (!getCompetingLoops(forOp, AutoUnrollingMode::OUTER).empty()) {
+                    log.info("Skipping loop {0} (OUTER mode: ancestor loop has unroll factor > 1)", loopId.getInt());
+                    continue;
+                }
+            } else if (autoUnrollingMode == AutoUnrollingMode::BIGGEST) {
+                // BIGGEST: getCompetingLoops returns exactly one winner — the loop with the
+                // largest factor in the nesting chain. Skip the current loop if it is not that winner.
+                const auto winners = getCompetingLoops(forOp, AutoUnrollingMode::BIGGEST);
+                if (winners.size() != 1) {
+                    log.error("BIGGEST mode must produce exactly one winner, got {0}", winners.size());
+                    return mlir::failure();
+                }
+                if (winners.front()->loopOp != forOp.getOperation()) {
+                    log.info("Skipping loop {0} (BIGGEST mode: factor {1} < max factor {2} in nesting chain)",
+                             loopId.getInt(), loopInfo.unrollFactor, winners.front()->unrollFactor);
+                    continue;
+                }
+            }
+        }
+        // AutoUnrollingMode::ALL: no nesting guard — all loops with factor > 1 are unrolled.
+
+        log.info("Unrolling loop with id {0} by factor {1}", loopId.getInt(), loopInfo.unrollFactor);
 
         int64_t currentFactor = loopInfo.unrollFactor;
         SmallVector<int64_t> unrollFactors{currentFactor};
@@ -590,7 +774,8 @@ void UnrollSCFLoopPass::safeRunOnModule() {
     auto mainFuncOp = net::getMainFunc(moduleOp);
     mlir::OpBuilder builder(mainFuncOp);
 
-    if (_loopUnrollFactor.empty() && !enableAutoUnrolling.getValue()) {
+    const auto autoUnrollingModeValue = autoUnrollingMode.getValue();
+    if (_loopUnrollFactor.empty() && autoUnrollingModeValue == AutoUnrollingMode::DISABLED) {
         _log.trace("Unroll factor not specified and auto-unrolling disabled. Skipping unroll scf pass");
         return;
     }
@@ -617,21 +802,11 @@ void UnrollSCFLoopPass::safeRunOnModule() {
             _log.trace("No unroll factors greater than 1 specified. Skipping unroll scf pass");
             return;
         }
-
-        // Manual multi-dimension unrolling combined with cascaded unrolling is not supported.
-        // Cascaded unrolling generates multi-stage epilogue chains per loop, and combining that
-        // with nD manual factors produces untested and potentially incorrect results.
-        VPUX_THROW_WHEN(numDimsToUnroll > 1 && enableCascadedUnrolling.getValue(),
-                        "Manual multi-dimension loop unrolling ({0} dims) with cascaded unrolling "
-                        "enabled is not supported. Specify enable-cascaded-unrolling=false or "
-                        "use a single-dimension unroll factor",
-                        numDimsToUnroll);
     }
 
-    /* Collect all loops in the function from innermost to outermost
-       This is to ensure that the innermost loops are unrolled first and any
-       outer loops that need to be unrolled are unrolled after that
-    */
+    /* Collect all loops in the function from innermost to outermost.
+       This ensures innermost loops are unrolled first; outer loops that also
+       need unrolling are then processed after. */
     SmallVector<LoopInfo> loopInfoVector;
     collectForOpsInnerToOuter(mainFuncOp.getOperation(), loopInfoVector);
     if (loopInfoVector.empty()) {
@@ -654,7 +829,8 @@ void UnrollSCFLoopPass::safeRunOnModule() {
         return;
     }
 
-    if (mlir::failed(unrollLoopsAndSetAttributes(builder, loopInfoVector, enableCascadedUnrolling.getValue(), _log))) {
+    if (mlir::failed(unrollLoopsAndSetAttributes(builder, loopInfoVector, enableCascadedUnrolling.getValue(),
+                                                 hasManualFactors, autoUnrollingModeValue, _log))) {
         signalPassFailure();
         return;
     }
@@ -680,10 +856,10 @@ void UnrollSCFLoopPass::safeRunOnModule() {
 //
 
 std::unique_ptr<mlir::Pass> vpux::VPU::createUnrollSCFLoopPass(StringRef loopUnrollFactor, bool enableCascadedUnrolling,
-                                                               bool enableAutoUnrolling, Logger log) {
+                                                               AutoUnrollingMode autoUnrollingMode, Logger log) {
     UnrollSCFLoopOptions options;
     options.loopUnrollFactor = loopUnrollFactor.str();
     options.enableCascadedUnrolling = enableCascadedUnrolling;
-    options.enableAutoUnrolling = enableAutoUnrolling;
+    options.autoUnrollingMode = autoUnrollingMode;
     return std::make_unique<UnrollSCFLoopPass>(options, log);
 }

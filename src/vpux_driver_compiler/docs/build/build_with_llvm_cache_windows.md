@@ -73,6 +73,7 @@ set CommonBuildOptions=-D ENABLE_LTO=OFF ^
                               -D ENABLE_INTEL_NPU_PROTOPIPE=OFF ^
                               -D BUILD_COMPILER_FOR_DRIVER=ON ^
                               -D ENABLE_PRIVATE_TESTS=OFF ^
+                              -D ENABLE_DIRECTML=OFF ^
                               -D ENABLE_NPU_LSP_SERVER=OFF ^
                               -D CMAKE_TOOLCHAIN_FILE=%OPENVINO_HOME%\cmake\toolchains\onecoreuap.toolchain.cmake
 ```
@@ -114,7 +115,7 @@ cmake ^
     %CommonBuildOptions% ^
     ..
 
-ninja npu_driver_compiler compilerTest profilingTest vpuxCompilerL0Test loaderTest -j %NUMBER_OF_PROCESSORS%
+ninja openvino_intel_npu_compiler openvino_intel_npu_compiler_loader compilerTest profilingTest vpuxCompilerL0Test loaderTest -j %NUMBER_OF_PROCESSORS%
 
 @REM Optional, compress and pack all CiD targets
 cpack -V -D CPACK_COMPONENTS_ALL=CiD -D CPACK_CMAKE_GENERATOR=Ninja -D CPACK_PACKAGE_FILE_NAME=%CONFIG% -G "ZIP"
@@ -194,13 +195,13 @@ Once the LLVM cache is built and installed into a directory, it can be used for 
         %CommonBuildOptions% ^
         ..
 
-    ninja npu_driver_compiler compilerTest profilingTest vpuxCompilerL0Test loaderTest -j %NUMBER_OF_PROCESSORS%
+    ninja openvino_intel_npu_compiler openvino_intel_npu_compiler_loader compilerTest profilingTest vpuxCompilerL0Test loaderTest -j %NUMBER_OF_PROCESSORS%
     ```
     </details>
 
 2. Create final Driver Compiler package (Optional):
 
-    All Driver Compiler-related targets, including the `npu_driver_compiler.dll` binary, will be generated in `%OPENVINO_HOME%\bin\intel64\%CONFIG%` directory.
+    All Driver Compiler-related targets, including the `openvino_intel_npu_compiler_loader.dll` and `openvino_intel_npu_compiler.dll` binaries, will be generated in `%OPENVINO_HOME%\bin\intel64\%CONFIG%` directory.
     - **Compress and pack all CiD components:**
         <details>
         <summary>Compress and pack</summary>

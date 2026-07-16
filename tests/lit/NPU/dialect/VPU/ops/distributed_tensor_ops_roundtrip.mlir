@@ -11,62 +11,6 @@
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 !InputDistributed = !VPU.DistributedTensor<
-    1x64x28x28xf16, #NHWC, @CMX_NN, {
-    mode = "SEGMENTED",
-    num_tiles = [1, 1, 2, 1],
-    num_clusters = 2 : i64
-}>
-
-!OutputDistributed = !VPU.DistributedTensor<
-    1x80x28x28xf16, #NHWC, @CMX_NN, {
-    mode = "SEGMENTED",
-    num_tiles = [1, 1, 2, 1],
-    num_clusters = 2 : i64
-}>
-
-!WeightsDistributed = !VPU.DistributedTensor<
-    80x64x3x3xf16, #NHWC, @CMX_NN, {
-    mode = "DUPLICATED",
-    num_clusters = 2 : i64
-}>
-
-!WeightsTableDistributed = !VPU.DistributedTensor<
-    80x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "DUPLICATED",
-    num_clusters = 2 : i64
-}>
-
-// CHECK:       func.func @CheckConv([[INPUT:%.+]]: !VPU.DistributedTensor<1x64x28x28xf16, #NHWC, @CMX_NN,
-// CHECK-SAME:                                                                  {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>,
-// CHECK-SAME:                                                  [[WEIGHTS:%.+]]: !VPU.DistributedTensor<80x64x3x3xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>,
-// CHECK-SAME:                                                  [[WT:%.+]]: !VPU.DistributedTensor<80x1x1x4xsi32, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>)
-
-func.func @CheckConv(%input: !InputDistributed, %weights: !WeightsDistributed,
-                     %wt: !WeightsTableDistributed) -> !OutputDistributed {
-
-    %convOut= VPU.NCE.Convolution(%input, %weights, %wt) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
-                                                          pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-                                                          ppe = #VPU.PPEStub<>,
-                                                          rawFilterShape = [80, 64, 3, 3], strides = [1, 1]} : !InputDistributed, !WeightsDistributed, !WeightsTableDistributed -> !OutputDistributed
-    return %convOut : !OutputDistributed
-}
-
-//CHECK:        [[CONV:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS]], [[WT]])
-//CHECK-SAME:                           {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
-//CHECK-SAME:                           pad = #VPU.Padding<left = 1 : i64, right = 1 : i64,
-//CHECK-SAME:                                   top = 1 : i64, bottom = 1 : i64>,
-//CHECK-SAME:                           ppe = #VPU.PPEStub<>,
-//CHECK-SAME:                           rawFilterShape = [80, 64, 3, 3], strides = [1, 1]}
-//CHECK-SAME:   -> !VPU.DistributedTensor<1x80x28x28xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
-
-//CHECK:        return [[CONV]] : !VPU.DistributedTensor<1x80x28x28xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
-
-// -----
-
-#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
-#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-
-!InputDistributed = !VPU.DistributedTensor<
     1x32x14x14xf16, #NHWC, @CMX_NN, {
     mode = "DUPLICATED",
     num_clusters = 2 : i64
@@ -92,15 +36,15 @@ func.func @CheckConv(%input: !InputDistributed, %weights: !WeightsDistributed,
 
 func.func @CheckDepthConv(%input: !InputDistributed, %weights: !WeightsDistributed) -> !OutputDistributed {
 
-    %depthConvOut= VPU.NCE.DepthConvolution(%input, %weights) { pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+    %depthConvOut= VPU.NCE.DepthConvolution(%input, %weights) rawFilterShape [32, 1, 3, 3] { pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
                                                                  ppe = #VPU.PPEStub<>,
-                                                                 rawFilterShape = [32, 1, 3, 3], strides = [1, 1]} -> !OutputDistributed
+                                                                  strides = [1, 1]} -> !OutputDistributed
     return %depthConvOut : !OutputDistributed
 }
 
-//CHECK:        [[DCONV:%.+]] = VPU.NCE.DepthConvolution([[INPUT]], [[WEIGHTS]])
-//CHECK-SAME:                           {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-//CHECK-SAME:                            ppe = #VPU.PPEStub<>, rawFilterShape = [32, 1, 3, 3], strides = [1, 1]}
+//CHECK:        [[DCONV:%.+]] = VPU.NCE.DepthConvolution([[INPUT]], [[WEIGHTS]]) rawFilterShape [32, 1, 3, 3] {
+    // CHECK-SAME:                           pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+// CHECK-SAME:                          strides = [1, 1]}
 //CHECK-SAME:   -> !VPU.DistributedTensor<1x32x14x14xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, alignment = [1, 16, 1, 1]}>
 
 //CHECK:        return [[DCONV]] : !VPU.DistributedTensor<1x32x14x14xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, alignment = [1, 16, 1, 1]}>
@@ -151,19 +95,19 @@ func.func @CheckDepthConv(%input: !InputDistributed, %weights: !WeightsDistribut
 func.func @CheckCompressConv(%input: !InputDistributed, %weights: !WeightsDistributed,
                             %wt: !WeightsTableDistributed) -> !OutputDistributed {
 
-    %compressConvOut= VPU.NCE.CompressConvolution(%input, %weights, %wt)  {cm_sp_pattern = 15 : i64,
+    %compressConvOut= VPU.NCE.CompressConvolution(%input, %weights, %wt) rawFilterShape [64, 4, 7, 7] {cm_sp_pattern = 15 : i64,
                                                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeightOverlapped>,
                                                 pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>,
                                                 ppe = #VPU.PPEStub<>,
-                                                rawFilterShape = [64, 4, 7, 7], strides = [2, 2]} -> !OutputDistributed
+                                                 strides = [2, 2]} -> !OutputDistributed
     return %compressConvOut : !OutputDistributed
 }
 
-//CHECK:        [[COMPCONV:%.+]] = VPU.NCE.CompressConvolution([[INPUT]], [[WEIGHTS]], [[WT]])
-//CHECK-SAME:                          {cm_sp_pattern = 15 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeightOverlapped>,
+//CHECK:        [[COMPCONV:%.+]] = VPU.NCE.CompressConvolution([[INPUT]], [[WEIGHTS]], [[WT]]) rawFilterShape [64, 4, 7, 7] {
+    // CHECK-SAME:                          cm_sp_pattern = 15 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeightOverlapped>,
 //CHECK-SAME:                          pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>,
 //CHECK-SAME:                          ppe = #VPU.PPEStub<>,
-//CHECK-SAME:                          rawFilterShape = [64, 4, 7, 7], strides = [2, 2]}
+// CHECK-SAME:                         strides = [2, 2]}
 //CHECK-SAME:   -> !VPU.DistributedTensor<1x64x112x112xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
 
 //CHECK:        return [[COMPCONV]] : !VPU.DistributedTensor<1x64x112x112xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
@@ -228,14 +172,15 @@ func.func @CheckAvgPool(%input: !InputDistributed) -> !OutputDistributed {
 
 func.func @CheckMaxPool(%input: !InputDistributed) -> !OutputDistributed {
 
-    %maxPoolOut= VPU.NCE.MaxPool(%input) {kernel_size = [1, 1], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+    %maxPoolOut= VPU.NCE.MaxPool(%input) {resultSegmentSizes = array<i32: 1, 0, 0, 0>, kernel_size = [1, 1], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                                             ppe = #VPU.PPEStub<>,
                                             strides = [1, 1]} -> !OutputDistributed
     return %maxPoolOut : !OutputDistributed
 }
 
 //CHECK:        [[MAXPOOL:%.+]] = VPU.NCE.MaxPool([[INPUT]]) {
-//CHECK-SAME:                           kernel_size = [1, 1], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, strides = [1, 1]}
+//CHECK-SAME:                           kernel_size = [1, 1], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
+// CHECK-SAME:  strides = [1, 1]}
 //CHECK-SAME:   -> !VPU.DistributedTensor<1x32x112x112xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED",  num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
 
 //CHECK:        return [[MAXPOOL]] : !VPU.DistributedTensor<1x32x112x112xf16, #NHWC, @CMX_NN,

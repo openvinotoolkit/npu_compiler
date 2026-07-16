@@ -25,8 +25,8 @@ mlir::LogicalResult DPUVariantRewriter::matchAndRewrite(VPUASM::DPUVariantOp op,
             op.getLoc(), op.getSymNameAttr(), op.getTaskIndexAttr(), op.getTaskLocationAttr(), op.getNextLinkAttr(),
             op.getInvariantTaskLocationAttr(), op.getWeightsAttr(), op.getWeightTableAttr(),
             op.getWeightTableDataPtrAttr(), op.getWeightTableSpPtrAttr(), op.getWeightTableScaleAttr(),
-            op.getWeightTableBiasAttr(), op.getWeightZeroPointsAttr(), op.getNceTaskTypeAttr(), op.getWorkloadIdAttr(),
-            op.getVariantPrimitiveIdAttr());
+            op.getWeightTableBiasAttr(), op.getWeightTableAlphaAttr(), op.getWeightZeroPointsAttr(),
+            op.getNceTaskTypeAttr(), op.getWorkloadIdAttr(), op.getVariantPrimitiveIdAttr());
 
     auto& variantRegion = variant.getRegion();
     auto varBlock = rewriter.createBlock(&variantRegion);

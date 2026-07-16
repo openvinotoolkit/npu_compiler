@@ -111,21 +111,28 @@ bool vpux::VPU::ShapeCastOp::isSupportedTilingDim(DimArrRef tilingDims) {
     }
 
     auto reshapedDims = getReshapedDims(*this);
-    // Only support shape cast scenarios where exactly two adjacent dimensions are reshaped
-    if (reshapedDims.size() != 2) {
-        return false;
+    if (reshapedDims.empty()) {
+        return true;
     }
 
     auto dimOrder = DimsOrder::fromValue(getInput());
+
+    // Check that all reshaped dims are adjacent in memory order
+    SmallVector<size_t> reshapedPositions;
+    for (auto dim : reshapedDims) {
+        reshapedPositions.push_back(dimOrder.dimPos(dim));
+    }
+    llvm::sort(reshapedPositions);
+    for (size_t i = 1; i < reshapedPositions.size(); ++i) {
+        if (reshapedPositions[i] - reshapedPositions[i - 1] != 1) {
+            return false;
+        }
+    }
+
     auto innermostTilingDim = *std::max_element(tilingDims.begin(), tilingDims.end(), [&](Dim a, Dim b) {
         return dimOrder.dimPos(a) < dimOrder.dimPos(b);
     });
 
-    auto idx0 = checked_cast<int64_t>(dimOrder.dimPos(reshapedDims[0]));
-    auto idx1 = checked_cast<int64_t>(dimOrder.dimPos(reshapedDims[1]));
-    if (std::abs(idx0 - idx1) != 1) {
-        return false;
-    }
     auto outermostReshapedDim = *std::min_element(reshapedDims.begin(), reshapedDims.end(), [&](Dim a, Dim b) {
         return dimOrder.dimPos(a) < dimOrder.dimPos(b);
     });
@@ -240,10 +247,10 @@ mlir::FailureOr<std::pair<mlir::Type, VPU::DistributionInfo>> vpux::VPU::ShapeCa
     }
 
     auto outDistribution = distribution;
-    outDistribution.setMemoryShapes(outPerClusterMemShapes.value());
-    outDistribution.setComputeShapes(outPerClusterComputeShapes.value());
-    outDistribution.setMemoryOffsets(outPerClusterMemOffsets.value());
-    outDistribution.setComputeOffsets(outPerClusterComputeOffsets.value());
+    outDistribution.setMemoryShapes(std::move(outPerClusterMemShapes.value()));
+    outDistribution.setComputeShapes(std::move(outPerClusterComputeShapes.value()));
+    outDistribution.setMemoryOffsets(std::move(outPerClusterMemOffsets.value()));
+    outDistribution.setComputeOffsets(std::move(outPerClusterComputeOffsets.value()));
     const auto typeComponents = TypeComponents().setShape(outShape);
     return std::make_pair(mlir::cast<mlir::Type>(inType.changeTypeComponents(typeComponents)), outDistribution);
 }

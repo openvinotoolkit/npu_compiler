@@ -182,19 +182,19 @@ func.func @PermuteDMAForLayoutWithDuplicatedOutputWithExplicitShapesAndOffsets()
 // CHECK-SAME: 8.1867772136248799E-5:128,7.2379066955809501E-5:128,8.9968320931874069E-5:128,9.8173718388174099E-5:128}>
 
 // CHECK-LABEL: @PermuteDMAWithTileOverQuantAxisAndTransposeOfQuantAxis
-func.func @PermuteDMAWithTileOverQuantAxisAndTransposeOfQuantAxis() -> memref<1x32x1x8x!qElemType, #NHWC, [@CMX_NN, 0]> {
+func.func @PermuteDMAWithTileOverQuantAxisAndTransposeOfQuantAxis() -> memref<1x32x1x8x!qElemType, {order = #NHWC}, [@CMX_NN, 0]> {
     %BAR_0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    %input = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x8x1x32x!qElemType1, #NHWC, [@CMX_NN, 0]>
-    %output = VPURT.DeclareBuffer <CMX_NN> [0] <4096> -> memref<1x32x1x8x!qElemType, #NHWC, [@CMX_NN, 0]>
+    %input = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x8x1x32x!qElemType1, {order = #NHWC}, [@CMX_NN, 0]>
+    %output = VPURT.DeclareBuffer <CMX_NN> [0] <4096> -> memref<1x32x1x8x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
 
     VPURT.Task updates(%BAR_0: !VPURT.Barrier)  {
         VPUIP.PermuteDMA {dst_stride = 0 : i64, src_plane_stride = 0 : i64} <{mem_perm = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>, port = 0 : i64}>
-                inputs(%input : memref<1x8x1x32x!qElemType1, #NHWC, [@CMX_NN, 0]>)
-                outputs(%output : memref<1x32x1x8x!qElemType, #NHWC, [@CMX_NN, 0]>) -> memref<1x32x1x8x!qElemType, #NHWC, [@CMX_NN, 0]>
+                inputs(%input : memref<1x8x1x32x!qElemType1, {order = #NHWC}, [@CMX_NN, 0]>)
+                outputs(%output : memref<1x32x1x8x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x32x1x8x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
-    return %output: memref<1x32x1x8x!qElemType, #NHWC, [@CMX_NN, 0]>
+    return %output: memref<1x32x1x8x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
 
     //CHECK:    [[BAR_0:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
@@ -239,12 +239,12 @@ func.func @PermuteDMAWithTileOverQuantAxisAndTransposeOfQuantAxis() -> memref<1x
 func.func @PermuteDMAWithNoSplitForNonByteAlignedElementType() -> memref<4x3x3x3xui4, [@CMX_NN, 0]> {
     %BAR_0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    %input = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<4x3x3x3xui4, #NHWC, [@CMX_NN, 0]>
+    %input = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<4x3x3x3xui4, {order = #NHWC}, [@CMX_NN, 0]>
     %output = VPURT.DeclareBuffer <CMX_NN> [0] <4096> -> memref<4x3x3x3xui4, [@CMX_NN, 0]>
 
     VPURT.Task updates(%BAR_0: !VPURT.Barrier)  {
         VPUIP.PermuteDMA <{mem_perm = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>}>
-                inputs(%input : memref<4x3x3x3xui4, #NHWC, [@CMX_NN, 0]>)
+                inputs(%input : memref<4x3x3x3xui4, {order = #NHWC}, [@CMX_NN, 0]>)
                 outputs(%output : memref<4x3x3x3xui4, [@CMX_NN, 0]>) -> memref<4x3x3x3xui4, [@CMX_NN, 0]>
     }
 
@@ -285,12 +285,12 @@ func.func @PermuteDMAWithNoSplitForNonByteAlignedElementType() -> memref<4x3x3x3
 func.func @PermuteDMAWithTileOverQuantAxis() -> memref<4x3x3x3x!qElemType, [@CMX_NN, 0]> {
     %BAR_0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    %input = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<4x3x3x3x!qElemType, #NHWC, [@CMX_NN, 0]>
+    %input = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<4x3x3x3x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     %output = VPURT.DeclareBuffer <CMX_NN> [0] <4096> -> memref<4x3x3x3x!qElemType, [@CMX_NN, 0]>
 
     VPURT.Task updates(%BAR_0: !VPURT.Barrier)  {
         VPUIP.PermuteDMA <{mem_perm = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>}>
-                inputs(%input : memref<4x3x3x3x!qElemType, #NHWC, [@CMX_NN, 0]>)
+                inputs(%input : memref<4x3x3x3x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
                 outputs(%output : memref<4x3x3x3x!qElemType, [@CMX_NN, 0]>) -> memref<4x3x3x3x!qElemType, [@CMX_NN, 0]>
     }
 
@@ -343,12 +343,12 @@ func.func @PermuteDMAWithTileOverQuantAxis() -> memref<4x3x3x3x!qElemType, [@CMX
 func.func @PermuteDMAWithTileOverNonQuantAxis() -> memref<4x3x3x3x!qElemType, [@CMX_NN, 0]> {
     %BAR_0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    %input = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<4x3x3x3x!qElemType, #NHWC, [@CMX_NN, 0]>
+    %input = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<4x3x3x3x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
     %output = VPURT.DeclareBuffer <CMX_NN> [0] <4096> -> memref<4x3x3x3x!qElemType, [@CMX_NN, 0]>
 
     VPURT.Task updates(%BAR_0: !VPURT.Barrier)  {
         VPUIP.PermuteDMA <{mem_perm = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>}>
-                inputs(%input : memref<4x3x3x3x!qElemType, #NHWC, [@CMX_NN, 0]>)
+                inputs(%input : memref<4x3x3x3x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
                 outputs(%output : memref<4x3x3x3x!qElemType, [@CMX_NN, 0]>) -> memref<4x3x3x3x!qElemType, [@CMX_NN, 0]>
     }
 
@@ -397,12 +397,12 @@ func.func @PermuteDMAWithTileOverNonQuantAxis() -> memref<4x3x3x3x!qElemType, [@
 func.func @PermuteDMAWithNHWCToNCHW() -> memref<1x3x3x3xf16, [@CMX_NN, 0]> {
     %BAR_0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    %input = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x3x3x3xf16, #NHWC, [@CMX_NN, 0]>
+    %input = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x3x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %output = VPURT.DeclareBuffer <CMX_NN> [0] <4096> -> memref<1x3x3x3xf16, [@CMX_NN, 0]>
 
     VPURT.Task updates(%BAR_0: !VPURT.Barrier)  {
         VPUIP.PermuteDMA {dst_stride = 0 : i64, src_plane_stride = 0 : i64} <{mem_perm = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>, port = 0 : i64}>
-                inputs(%input : memref<1x3x3x3xf16, #NHWC, [@CMX_NN, 0]>)
+                inputs(%input : memref<1x3x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>)
                 outputs(%output : memref<1x3x3x3xf16, [@CMX_NN, 0]>) -> memref<1x3x3x3xf16, [@CMX_NN, 0]>
     }
 
@@ -431,18 +431,20 @@ func.func @PermuteDMAWithNHWCToNCHW() -> memref<1x3x3x3xf16, [@CMX_NN, 0]> {
 
 // -----
 
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @PermuteDMAWithNHWCToNCHW
 func.func @PermuteDMAWithNHWCToNCHW() -> memref<1x8x16x16xf16, [@CMX_NN, 0]> {
     %BAR_0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    %input = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x8x16x16xf16, #NHWC, [@CMX_NN, 0]>
+    %input = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x8x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %output = VPURT.DeclareBuffer <CMX_NN> [0] <4096> -> memref<1x8x16x16xf16, [@CMX_NN, 0]>
 
     VPURT.Task updates(%BAR_0: !VPURT.Barrier)  {
         VPUIP.PermuteDMA {dst_stride = 0 : i64, src_plane_stride = 0 : i64} <{mem_perm = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>, port = 0 : i64}>
-                inputs(%input : memref<1x8x16x16xf16, #NHWC, [@CMX_NN, 0]>)
+                inputs(%input : memref<1x8x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>)
                 outputs(%output : memref<1x8x16x16xf16, [@CMX_NN, 0]>) -> memref<1x8x16x16xf16, [@CMX_NN, 0]>
     }
 
@@ -488,19 +490,19 @@ func.func @PermuteDMAWithNHWCToNCHW() -> memref<1x8x16x16xf16, [@CMX_NN, 0]> {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @PermuteDMAFromTranspose
-func.func @PermuteDMAFromTranspose() -> memref<1x32x1x8xf16, #NHWC, [@CMX_NN, 0]> {
+func.func @PermuteDMAFromTranspose() -> memref<1x32x1x8xf16, {order = #NHWC}, [@CMX_NN, 0]> {
     %BAR_0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    %input = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x8x1x32xf16, #NHWC, [@CMX_NN, 0]>
-    %output = VPURT.DeclareBuffer <CMX_NN> [0] <4096> -> memref<1x32x1x8xf16, #NHWC, [@CMX_NN, 0]>
+    %input = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x8x1x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %output = VPURT.DeclareBuffer <CMX_NN> [0] <4096> -> memref<1x32x1x8xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     VPURT.Task updates(%BAR_0: !VPURT.Barrier)  {
         VPUIP.PermuteDMA {dst_stride = 0 : i64, src_plane_stride = 0 : i64} <{mem_perm = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>, port = 0 : i64}>
-                inputs(%input : memref<1x8x1x32xf16, #NHWC, [@CMX_NN, 0]>)
-                outputs(%output : memref<1x32x1x8xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x32x1x8xf16, #NHWC, [@CMX_NN, 0]>
+                inputs(%input : memref<1x8x1x32xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+                outputs(%output : memref<1x32x1x8xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x32x1x8xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
-    return %output: memref<1x32x1x8xf16, #NHWC, [@CMX_NN, 0]>
+    return %output: memref<1x32x1x8xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     //CHECK:    [[BAR_0:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
@@ -545,12 +547,12 @@ func.func @PermuteDMAFromTranspose() -> memref<1x32x1x8xf16, #NHWC, [@CMX_NN, 0]
 func.func @PermuteDMAWithLargePlaneNumber() -> memref<1x8x32x16xf16, [@CMX_NN, 0]> {
     %BAR_0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    %input = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x8x32x16xf16, #NHWC, [@CMX_NN, 0]>
+    %input = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x8x32x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %output = VPURT.DeclareBuffer <CMX_NN> [0] <8192> -> memref<1x8x32x16xf16, [@CMX_NN, 0]>
 
     VPURT.Task updates(%BAR_0: !VPURT.Barrier)  {
         VPUIP.PermuteDMA {dst_stride = 0 : i64, src_plane_stride = 0 : i64} <{mem_perm = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>, port = 0 : i64}>
-                inputs(%input : memref<1x8x32x16xf16, #NHWC, [@CMX_NN, 0]>)
+                inputs(%input : memref<1x8x32x16xf16, {order = #NHWC}, [@CMX_NN, 0]>)
                 outputs(%output : memref<1x8x32x16xf16, [@CMX_NN, 0]>) -> memref<1x8x32x16xf16, [@CMX_NN, 0]>
     }
     return %output: memref<1x8x32x16xf16, [@CMX_NN, 0]>
@@ -598,13 +600,13 @@ func.func @PermuteDMAWithLargePlaneNumber() -> memref<1x8x32x16xf16, [@CMX_NN, 0
 VPURT.SW.Runtime entryPoint: @VPU.SW::@runtime stack_configuration: [4096, 4096, 4096, 4096]
 
 module @VPU.SW {
-  func.func private @builtin_Convert(%input : memref<*xf16,  [@CMX_NN, 0]>, %output : memref<*xf16,  [@CMX_NN, 0]>) attributes { VPU.kernel_code = "convert_fp16.cpp", VPU.kernel_entry = "convert_fp16", VPU.task_type = @COMPUTE}
-  func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+  func.func nested @builtin_Convert(%input : memref<*xf16,  [@CMX_NN, 0]>, %output : memref<*xf16,  [@CMX_NN, 0]>) attributes { VPU.kernel_code = "convert_fp16.cpp", VPU.kernel_entry = "convert_fp16", VPU.task_type = @COMPUTE}
+  func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
 // CHECK-LABEL: @UnrollDistributedPermuteDMA
-func.func @UnrollDistributedPermuteDMA() -> memref<1x3x24x24xf16, #NHWC, @DDR> {
-    %result = VPURT.DeclareBuffer <NetworkOutput> <0> -> memref<1x3x24x24xf16, #NHWC, @DDR>
+func.func @UnrollDistributedPermuteDMA() -> memref<1x3x24x24xf16, {order = #NHWC}, @DDR> {
+    %result = VPURT.DeclareBuffer <NetworkOutput> <0> -> memref<1x3x24x24xf16, {order = #NHWC}, @DDR>
     %cst = const.Declare memref<1x1x1x16xui8> = dense<1> : tensor<1x1x1x16xui8>
     %cst_0 = const.Declare memref<16x1x1x4xsi32> = dense<1> : tensor<16x1x1x4xsi32>
 
@@ -622,15 +624,15 @@ func.func @UnrollDistributedPermuteDMA() -> memref<1x3x24x24xf16, #NHWC, @DDR> {
     %11 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
     %12 = VPURT.DeclareBuffer <NetworkInput> <0> -> memref<1x3x24x24xui8, @DDR>
-    %13 = VPURT.DeclareBuffer <NetworkOutput> <0> -> memref<1x3x12x24xf16, #NHWC, @DDR>
-    %14 = VPURT.DeclareBuffer <NetworkOutput> <1728> -> memref<1x3x12x24xf16, #NHWC, @DDR>
+    %13 = VPURT.DeclareBuffer <NetworkOutput> <0> -> memref<1x3x12x24xf16, {order = #NHWC}, @DDR>
+    %14 = VPURT.DeclareBuffer <NetworkOutput> <1728> -> memref<1x3x12x24xf16, {order = #NHWC}, @DDR>
     %15 = VPURT.DeclareBuffer <CMX_NN> [0] <3456> -> memref<1x3x24x24xui8, [@CMX_NN, 0]>
     %16 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x3x24x24xf16, [@CMX_NN, 0]>
     %17 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x3x24x24xf16, @DDR>
     %18 = VPURT.DeclareBuffer <DDR> <3456> -> memref<1x16x24x24xf16, @DDR>
     %19 = VPURT.DeclareBuffer <CMX_NN> <5440> -> !VPUIP.DistributedBuffer<1x16x24x24xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
-    %20 = VPURT.DeclareBuffer <CMX_NN> [0] <5440> -> memref<1x16x12x24xf16, #NHWC, [@CMX_NN, 0]>
-    %21 = VPURT.DeclareBuffer <CMX_NN> [1] <5440> -> memref<1x16x12x24xf16, #NHWC, [@CMX_NN, 1]>
+    %20 = VPURT.DeclareBuffer <CMX_NN> [0] <5440> -> memref<1x16x12x24xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %21 = VPURT.DeclareBuffer <CMX_NN> [1] <5440> -> memref<1x16x12x24xf16, {order = #NHWC}, [@CMX_NN, 1]>
     %22 = VPURT.DeclareBuffer <CMX_NN> [0] <5184> -> memref<16x1x1x4xsi32, [@CMX_NN, 0]>
     %23 = VPURT.DeclareBuffer <CMX_NN> [1] <5184> -> memref<16x1x1x4xsi32, [@CMX_NN, 1]>
     %24 = VPURT.DeclareBuffer <CMX_NN> [0, 1] <5184> -> !VPUIP.DistributedBuffer<16x1x1x4xsi32, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
@@ -638,8 +640,8 @@ func.func @UnrollDistributedPermuteDMA() -> memref<1x3x24x24xf16, #NHWC, @DDR> {
     %26 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x1x1x16xui8, [@CMX_NN, 1]>
     %27 = VPURT.DeclareBuffer <CMX_NN> [0, 1] <0> -> !VPUIP.DistributedBuffer<1x1x1x16xui8, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
     %28 = VPURT.DeclareBuffer <CMX_NN> <14656> -> !VPUIP.DistributedBuffer<1x16x24x24xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
-    %29 = VPURT.DeclareBuffer <CMX_NN> [0] <14656> -> memref<1x16x12x24xf16, #NHWC, [@CMX_NN, 0]>
-    %30 = VPURT.DeclareBuffer <CMX_NN> [1] <14656> -> memref<1x16x12x24xf16, #NHWC, [@CMX_NN, 1]>
+    %29 = VPURT.DeclareBuffer <CMX_NN> [0] <14656> -> memref<1x16x12x24xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %30 = VPURT.DeclareBuffer <CMX_NN> [1] <14656> -> memref<1x16x12x24xf16, {order = #NHWC}, [@CMX_NN, 1]>
     %31 = VPURT.DeclareBuffer <DDR> <3456> -> memref<1x3x24x24xf16, {order = #NCHW, strides = [9216, 576, 24, 1]}, @DDR>
     %32 = VPURT.DeclareBuffer <DDR> <6912> -> memref<1x3x24x24xf16, {order = #NCHW, strides = [9216, 576, 24, 1]}, @DDR>
     %33 = VPURT.DeclareBuffer <DDR> <10368> -> memref<1x3x24x24xf16, {order = #NCHW, strides = [9216, 576, 24, 1]}, @DDR>
@@ -695,14 +697,14 @@ func.func @UnrollDistributedPermuteDMA() -> memref<1x3x24x24xf16, #NHWC, @DDR> {
 
     // NCE task
     VPURT.Task waits(%10 : !VPURT.Barrier) updates(%11 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
-      %40 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_segmented, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<MAXPOOL>}> input(%20 : memref<1x16x12x24xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%22 : memref<16x1x1x4xsi32, [@CMX_NN, 0]>) parent_input(%19 : !VPUIP.DistributedBuffer<1x16x24x24xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) parent_output(%28 : !VPUIP.DistributedBuffer<1x16x24x24xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) outputs(%29 : memref<1x16x12x24xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x16x12x24xf16, #NHWC, [@CMX_NN, 0]> variants : {
+      %40 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_segmented, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<MAXPOOL>}> input(%20 : memref<1x16x12x24xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%22 : memref<16x1x1x4xsi32, [@CMX_NN, 0]>) parent_input(%19 : !VPUIP.DistributedBuffer<1x16x24x24xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) parent_output(%28 : !VPUIP.DistributedBuffer<1x16x24x24xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) outputs(%29 : memref<1x16x12x24xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x16x12x24xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
         DPUTask {cluster_id = 0 : i64, outEnd = [23, 11, 15], mpe_mode = #VPU.mpe_mode<CUBOID_4x16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0]}
       } PPE : {
         PPETask {ppe = #VPU.PPEStub<>}
       }
     }
     VPURT.Task waits(%10 : !VPURT.Barrier) updates(%11 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
-      %40 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_segmented, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<MAXPOOL>}> input(%21 : memref<1x16x12x24xf16, #NHWC, [@CMX_NN, 1]>) weight_table(%23 : memref<16x1x1x4xsi32, [@CMX_NN, 1]>) parent_input(%19 : !VPUIP.DistributedBuffer<1x16x24x24xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) parent_output(%28 : !VPUIP.DistributedBuffer<1x16x24x24xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) outputs(%30 : memref<1x16x12x24xf16, #NHWC, [@CMX_NN, 1]>) -> memref<1x16x12x24xf16, #NHWC, [@CMX_NN, 1]> variants : {
+      %40 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_segmented, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<MAXPOOL>}> input(%21 : memref<1x16x12x24xf16, {order = #NHWC}, [@CMX_NN, 1]>) weight_table(%23 : memref<16x1x1x4xsi32, [@CMX_NN, 1]>) parent_input(%19 : !VPUIP.DistributedBuffer<1x16x24x24xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) parent_output(%28 : !VPUIP.DistributedBuffer<1x16x24x24xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) outputs(%30 : memref<1x16x12x24xf16, {order = #NHWC}, [@CMX_NN, 1]>) -> memref<1x16x12x24xf16, {order = #NHWC}, [@CMX_NN, 1]> variants : {
         DPUTask {cluster_id = 1 : i64, outEnd = [23, 23, 15], mpe_mode = #VPU.mpe_mode<CUBOID_4x16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 12, 0]}
       } PPE : {
         PPETask {ppe = #VPU.PPEStub<>}
@@ -710,14 +712,14 @@ func.func @UnrollDistributedPermuteDMA() -> memref<1x3x24x24xf16, #NHWC, @DDR> {
     }
     // copy result
     VPURT.Task waits(%11 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
-      %40 = VPUIP.NNDMA inputs(%38 : memref<1x3x12x24xf16, {order = #NHWC, strides = [9216, 1, 384, 16]}, [@CMX_NN, 0]>) outputs(%13 : memref<1x3x12x24xf16, #NHWC, @DDR>) -> memref<1x3x12x24xf16, #NHWC, @DDR>
+      %40 = VPUIP.NNDMA inputs(%38 : memref<1x3x12x24xf16, {order = #NHWC, strides = [9216, 1, 384, 16]}, [@CMX_NN, 0]>) outputs(%13 : memref<1x3x12x24xf16, {order = #NHWC}, @DDR>) -> memref<1x3x12x24xf16, {order = #NHWC}, @DDR>
     }
     VPURT.Task waits(%11 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
-      %40 = VPUIP.NNDMA <{port = 1 : i64}> inputs(%39 : memref<1x3x12x24xf16, {order = #NHWC, strides = [9216, 1, 384, 16]}, [@CMX_NN, 1]>) outputs(%14 : memref<1x3x12x24xf16, #NHWC, @DDR>) -> memref<1x3x12x24xf16, #NHWC, @DDR>
+      %40 = VPUIP.NNDMA <{port = 1 : i64}> inputs(%39 : memref<1x3x12x24xf16, {order = #NHWC, strides = [9216, 1, 384, 16]}, [@CMX_NN, 1]>) outputs(%14 : memref<1x3x12x24xf16, {order = #NHWC}, @DDR>) -> memref<1x3x12x24xf16, {order = #NHWC}, @DDR>
     }
-    return %result : memref<1x3x24x24xf16, #NHWC, @DDR>
+    return %result : memref<1x3x24x24xf16, {order = #NHWC}, @DDR>
 
-    //CHECK:    [[RET_BUF:%.+]] = VPURT.DeclareBuffer <NetworkOutput> <0> -> memref<1x3x24x24xf16, #NHWC, @DDR>
+    //CHECK:    [[RET_BUF:%.+]] = VPURT.DeclareBuffer <NetworkOutput> <0> -> memref<1x3x24x24xf16, {order = #NHWC}, @DDR>
     //CHECK:    [[BAR_0:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     //CHECK:    [[BAR_1:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     //CHECK:    [[BAR_2:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
@@ -831,7 +833,7 @@ func.func @UnrollDistributedPermuteDMA() -> memref<1x3x24x24xf16, #NHWC, @DDR> {
     //CHECK:    VPURT.Task waits([[BAR_11]] : !VPURT.Barrier)
     //CHECK:      VPUIP.NNDMA <{port = 1 : i64}>
     //CHECK:    }
-    //CHECK:    return [[RET_BUF]] : memref<1x3x24x24xf16, #NHWC, @DDR>
+    //CHECK:    return [[RET_BUF]] : memref<1x3x24x24xf16, {order = #NHWC}, @DDR>
 
 }
 
@@ -840,19 +842,19 @@ func.func @UnrollDistributedPermuteDMA() -> memref<1x3x24x24xf16, #NHWC, @DDR> {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @PermuteDMAWithNCHWToNHWCForNetworkOutput
-func.func @PermuteDMAWithNCHWToNHWCForNetworkOutput() -> memref<1x32x14x7xf16, #NHWC, [@CMX_NN, 0]> {
+func.func @PermuteDMAWithNCHWToNHWCForNetworkOutput() -> memref<1x32x14x7xf16, {order = #NHWC}, [@CMX_NN, 0]> {
     %BAR_0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
     %input = VPURT.DeclareBuffer <NetworkOutput> <0> -> memref<1x32x14x7xf16, @DDR>
-    %output = VPURT.DeclareBuffer <CMX_NN> [0] <6272> -> memref<1x32x14x7xf16, #NHWC, [@CMX_NN, 0]>
+    %output = VPURT.DeclareBuffer <CMX_NN> [0] <6272> -> memref<1x32x14x7xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     VPURT.Task updates(%BAR_0 : !VPURT.Barrier)  {
       VPUIP.PermuteDMA <{mem_perm = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
             inputs(%input : memref<1x32x14x7xf16, @DDR>)
-            outputs(%output : memref<1x32x14x7xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x32x14x7xf16, #NHWC, [@CMX_NN, 0]>
+            outputs(%output : memref<1x32x14x7xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x32x14x7xf16, {order = #NHWC}, [@CMX_NN, 0]>
    }
 
-    return %output: memref<1x32x14x7xf16, #NHWC, [@CMX_NN, 0]>
+    return %output: memref<1x32x14x7xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     //CHECK:    [[BAR_0:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
@@ -894,19 +896,19 @@ func.func @PermuteDMAWithNCHWToNHWCForNetworkOutput() -> memref<1x32x14x7xf16, #
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @PermuteDMAWithNCHWToNHWCForNetworkInput
-func.func @PermuteDMAWithNCHWToNHWCForNetworkInput() -> memref<1x32x14x7xf16, #NHWC, [@CMX_NN, 0]> {
+func.func @PermuteDMAWithNCHWToNHWCForNetworkInput() -> memref<1x32x14x7xf16, {order = #NHWC}, [@CMX_NN, 0]> {
     %BAR_0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
     %input = VPURT.DeclareBuffer <NetworkInput> <0> -> memref<1x32x14x7xf16, @DDR>
-    %output = VPURT.DeclareBuffer <CMX_NN> [0] <6272> -> memref<1x32x14x7xf16, #NHWC, [@CMX_NN, 0]>
+    %output = VPURT.DeclareBuffer <CMX_NN> [0] <6272> -> memref<1x32x14x7xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     VPURT.Task updates(%BAR_0 : !VPURT.Barrier)  {
       VPUIP.PermuteDMA <{mem_perm = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
             inputs(%input : memref<1x32x14x7xf16, @DDR>)
-            outputs(%output : memref<1x32x14x7xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x32x14x7xf16, #NHWC, [@CMX_NN, 0]>
+            outputs(%output : memref<1x32x14x7xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x32x14x7xf16, {order = #NHWC}, [@CMX_NN, 0]>
    }
 
-    return %output: memref<1x32x14x7xf16, #NHWC, [@CMX_NN, 0]>
+    return %output: memref<1x32x14x7xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     //CHECK:    [[BAR_0:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
@@ -1293,12 +1295,12 @@ func.func @PermuteDMAWithNCHWToNHWC2D() -> !OutputDistributed {
 func.func @UniformPermuteDMAPlaneSizeRequiresTwoDMAs() -> memref<1x16x1x261xf16, [@CMX_NN, 0]> {
     %BAR_0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    %input = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x1x261xf16, #NHWC, [@CMX_NN, 0]>
+    %input = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x1x261xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %output = VPURT.DeclareBuffer <CMX_NN> [0] <8352> -> memref<1x16x1x261xf16, [@CMX_NN, 0]>
 
     VPURT.Task updates(%BAR_0: !VPURT.Barrier)  {
         VPUIP.PermuteDMA {dst_stride = 0 : i64, src_plane_stride = 0 : i64} <{mem_perm = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>, port = 0 : i64}>
-                inputs(%input : memref<1x16x1x261xf16, #NHWC, [@CMX_NN, 0]>)
+                inputs(%input : memref<1x16x1x261xf16, {order = #NHWC}, [@CMX_NN, 0]>)
                 outputs(%output : memref<1x16x1x261xf16, [@CMX_NN, 0]>) -> memref<1x16x1x261xf16, [@CMX_NN, 0]>
     }
 
@@ -1347,12 +1349,12 @@ func.func @UniformPermuteDMAPlaneSizeRequiresTwoDMAs() -> memref<1x16x1x261xf16,
 func.func @UniformPermuteDMAPlaneSizeDoesNotRequireFourDMAs() -> memref<1x16x1x520xf16, [@CMX_NN, 0]> {
     %BAR_0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    %input = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x1x520xf16, #NHWC, [@CMX_NN, 0]>
+    %input = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x1x520xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %output = VPURT.DeclareBuffer <CMX_NN> [0] <16640> -> memref<1x16x1x520xf16, [@CMX_NN, 0]>
 
     VPURT.Task updates(%BAR_0: !VPURT.Barrier)  {
         VPUIP.PermuteDMA {dst_stride = 0 : i64, src_plane_stride = 0 : i64} <{mem_perm = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>, port = 0 : i64}>
-                inputs(%input : memref<1x16x1x520xf16, #NHWC, [@CMX_NN, 0]>)
+                inputs(%input : memref<1x16x1x520xf16, {order = #NHWC}, [@CMX_NN, 0]>)
                 outputs(%output : memref<1x16x1x520xf16, [@CMX_NN, 0]>) -> memref<1x16x1x520xf16, [@CMX_NN, 0]>
     }
 
@@ -1391,4 +1393,87 @@ func.func @UniformPermuteDMAPlaneSizeDoesNotRequireFourDMAs() -> memref<1x16x1x5
     //CHECK:    }
 
     //CHECK:    return [[RETURN_BUFFER_0]] : [[RETURN_TYPE_0]]
+}
+
+// -----
+
+!qElemType = !quant.uniform<i4:f16, 1.000000e+00>
+
+!InputStridedDDR = memref<1x32x512x128x!qElemType,
+    {order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, strides = [58720256, 1835008, 128, 1]}, @DDR>
+
+!OutputDistributed = !VPUIP.DistributedBuffer<
+    1x512x32x128x!qElemType, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN,
+    {
+      mode = "SEGMENTED",
+      num_tiles = [1, 4, 1, 1],
+      num_clusters = 4 : i64,
+      uniform_distributed_segments,
+      compute_shapes = [[1, 128, 32, 128], [1, 128, 32, 128], [1, 128, 32, 128], [1, 128, 32, 128]],
+      compute_offsets = [[0, 0, 0, 0], [0, 128, 0, 0], [0, 256, 0, 0], [0, 384, 0, 0]],
+      memory_shapes = [[1, 128, 32, 128], [1, 128, 32, 128], [1, 128, 32, 128], [1, 128, 32, 128]],
+      memory_offsets = [[0, 0, 0, 0], [0, 128, 0, 0], [0, 256, 0, 0], [0, 384, 0, 0]]
+    }
+>
+
+// CHECK-LABEL: @UnrollDistributedInt4PermuteDMA
+func.func @UnrollDistributedInt4PermuteDMA() -> !OutputDistributed {
+    %BAR_0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
+
+    %input = VPURT.DeclareBuffer <DDR> <0> -> !InputStridedDDR
+    %output = VPURT.DeclareBuffer <CMX_NN> <0> -> !OutputDistributed
+
+    VPURT.Task updates(%BAR_0 : !VPURT.Barrier) {
+      %0 = VPUIP.PermuteDMA <{mem_perm = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>, port = 0 : i64}>
+              inputs(%input : !InputStridedDDR)
+              outputs(%output : !OutputDistributed)
+              -> !OutputDistributed
+    }
+
+    return %output : !OutputDistributed
+
+    // CHECK:       [[BAR0:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
+
+    // CHECK:       [[IN0:%.+]] = VPURT.DeclareBuffer <DDR> <0>
+    // CHECK-SAME:      memref<1x32x128x128x!qElemType, {order = #NCHW, strides = [58720256, 1835008, 128, 1]}, @DDR>
+    // CHECK:       [[IN1:%.+]] = VPURT.DeclareBuffer <DDR> <8192>
+    // CHECK-SAME:      memref<1x32x128x128x!qElemType, {order = #NCHW, strides = [58720256, 1835008, 128, 1]}, @DDR>
+    // CHECK:       [[IN2:%.+]] = VPURT.DeclareBuffer <DDR> <16384>
+    // CHECK-SAME:      memref<1x32x128x128x!qElemType, {order = #NCHW, strides = [58720256, 1835008, 128, 1]}, @DDR>
+    // CHECK:       [[IN3:%.+]] = VPURT.DeclareBuffer <DDR> <24576>
+    // CHECK-SAME:      memref<1x32x128x128x!qElemType, {order = #NCHW, strides = [58720256, 1835008, 128, 1]}, @DDR>
+
+    // CHECK:       [[OUT_DIST:%.+]] = VPURT.DeclareBuffer <CMX_NN> <0>
+    // CHECK-SAME:      !VPUIP.DistributedBuffer<1x512x32x128x!qElemType, {{.*}}mode = "SEGMENTED", num_tiles = [1, 4, 1, 1], num_clusters = 4 : i64
+
+    // CHECK:       [[OUT0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x128x32x128x!qElemType, [@CMX_NN, 0]>
+    // CHECK:       [[OUT1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x128x32x128x!qElemType, [@CMX_NN, 1]>
+    // CHECK:       [[OUT2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <0> -> memref<1x128x32x128x!qElemType, [@CMX_NN, 2]>
+    // CHECK:       [[OUT3:%.+]] = VPURT.DeclareBuffer <CMX_NN> [3] <0> -> memref<1x128x32x128x!qElemType, [@CMX_NN, 3]>
+
+    // CHECK:       VPURT.Task updates([[BAR0]] : !VPURT.Barrier) {
+    // CHECK:         VPUIP.PermuteDMA
+    // CHECK-SAME:        port = 0 : i64
+    // CHECK-SAME:        inputs([[IN0]] : memref<1x32x128x128x!qElemType, {order = #NCHW, strides = [58720256, 1835008, 128, 1]}, @DDR>)
+    // CHECK-SAME:        outputs([[OUT0]] : memref<1x128x32x128x!qElemType, [@CMX_NN, 0]>)
+
+    // CHECK:       VPURT.Task updates([[BAR0]] : !VPURT.Barrier) {
+    // CHECK:         VPUIP.PermuteDMA
+    // CHECK-SAME:        port = 1 : i64
+    // CHECK-SAME:        inputs([[IN1]] : memref<1x32x128x128x!qElemType, {order = #NCHW, strides = [58720256, 1835008, 128, 1]}, @DDR>)
+    // CHECK-SAME:        outputs([[OUT1]] : memref<1x128x32x128x!qElemType, [@CMX_NN, 1]>)
+
+    // CHECK:       VPURT.Task updates([[BAR0]] : !VPURT.Barrier) {
+    // CHECK:         VPUIP.PermuteDMA
+    // CHECK-SAME:        port = 0 : i64
+    // CHECK-SAME:        inputs([[IN2]] : memref<1x32x128x128x!qElemType, {order = #NCHW, strides = [58720256, 1835008, 128, 1]}, @DDR>)
+    // CHECK-SAME:        outputs([[OUT2]] : memref<1x128x32x128x!qElemType, [@CMX_NN, 2]>)
+
+    // CHECK:       VPURT.Task updates([[BAR0]] : !VPURT.Barrier) {
+    // CHECK:         VPUIP.PermuteDMA
+    // CHECK-SAME:        port = 1 : i64
+    // CHECK-SAME:        inputs([[IN3]] : memref<1x32x128x128x!qElemType, {order = #NCHW, strides = [58720256, 1835008, 128, 1]}, @DDR>)
+    // CHECK-SAME:        outputs([[OUT3]] : memref<1x128x32x128x!qElemType, [@CMX_NN, 3]>)
+
+    // CHECK:       return [[OUT_DIST]]
 }

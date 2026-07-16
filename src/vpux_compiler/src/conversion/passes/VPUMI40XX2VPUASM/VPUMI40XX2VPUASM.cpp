@@ -30,11 +30,11 @@
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 
+#include <llvm/ADT/TypeSwitch.h>
 #include <mlir/IR/IRMapping.h>
 #include <mlir/Transforms/DialectConversion.h>
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
-#include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
 #include "vpux/compiler/utils/symbolization.hpp"
 
@@ -48,6 +48,77 @@ using namespace vpux;
 using namespace vpumi40xx2vpuasm;
 
 namespace {
+
+// Single-pass symbol name pre-population.
+// Walks all operations once and populates the symbol mapper for all op types
+void populateSymbolMappings(mlir::func::FuncOp netFunc, mlir::MLIRContext* ctx,
+                            llvm::DenseMap<mlir::Value, mlir::SymbolRefAttr>& mapper) {
+    // Resolve ELF::MainOp once
+    auto elfMains = to_small_vector(netFunc.getOps<ELF::MainOp>());
+    mlir::Block& opsBlock = elfMains.empty() ? netFunc.getBody().front() : *elfMains[0].getBody();
+
+    // Per-type counters for ops that use counter-based naming
+    size_t declareBufferCounter = 0;
+    size_t declareConstBufferCounter = 0;
+
+    for (auto& op : opsBlock) {
+        // Ops implementing SymbolicNameOpInterface build their own name (includes
+        // index-based generic ops and singleton overrides such as MappedInferenceOp).
+        if (auto symNameOp = mlir::dyn_cast<VPUMI40XX::SymbolicNameOpInterface>(&op)) {
+            auto sym = symNameOp.buildSymbolicName(ctx);
+            if (sym) {
+                mapper.try_emplace(op.getResult(0), sym);
+            }
+        } else {
+            llvm::TypeSwitch<mlir::Operation*>(&op)
+                    // DeclareTaskBuffer uses taskType string as suffix
+                    .Case<VPUMI40XX::DeclareTaskBufferOp>([&](VPUMI40XX::DeclareTaskBufferOp taskBufOp) {
+                        auto sym = buildSymbolicName(taskBufOp, ctx,
+                                                     VPURegMapped::stringifyTaskType(taskBufOp.getTaskType()).str());
+                        if (sym) {
+                            mapper.try_emplace(taskBufOp->getResult(0), sym);
+                        }
+                    })
+                    // DeclareBuffer uses counter, skips MAC_Accumulators
+                    .Case<VPURT::DeclareBufferOp>([&](VPURT::DeclareBufferOp bufOp) {
+                        size_t counter = declareBufferCounter++;
+                        if (bufOp.getSection() == VPURT::BufferSection::MAC_Accumulators) {
+                            // Null symbol — matches original DeclareBufferRewriter behavior
+                            return;
+                        }
+                        auto sym = buildSymbolicName(bufOp, ctx, std::nullopt, counter);
+                        if (sym) {
+                            mapper.try_emplace(bufOp->getResult(0), sym);
+                        }
+                    })
+                    // Const::DeclareOp uses counter
+                    .Case<Const::DeclareOp>([&](Const::DeclareOp constOp) {
+                        size_t counter = declareConstBufferCounter++;
+                        auto sym = buildSymbolicName(constOp, ctx, std::nullopt, counter);
+                        if (sym) {
+                            mapper.try_emplace(constOp->getResult(0), sym);
+                        }
+                    })
+                    // EnqueueOp uses the default index-based name (foreign dialect, no interface)
+                    .Case<VPURegMapped::EnqueueOp>([&](mlir::Operation* matched) {
+                        auto sym = buildSymbolicName(matched, ctx);
+                        if (sym) {
+                            mapper.try_emplace(matched->getResult(0), sym);
+                        }
+                    })
+                    // ViewTaskRange depends on mapper being already populated for referenced ops
+                    .Case<VPURegMapped::ViewTaskRangeOp>([&](VPURegMapped::ViewTaskRangeOp viewOp) {
+                        auto it = mapper.find(viewOp.getFirst());
+                        if (it != mapper.end()) {
+                            auto sym = mlir::dyn_cast<mlir::FlatSymbolRefAttr>(it->getSecond());
+                            if (sym) {
+                                mapper.try_emplace(viewOp->getResult(0), sym);
+                            }
+                        }
+                    });
+        }
+    }
+}
 
 //
 // ConvertVPUMI40XX2VPUASMPass
@@ -114,6 +185,9 @@ void ConvertVPUMI40XX2VPUASMPass::safeRunOnModule() {
 
     ELF::insertELFMain(netFunc);
 
+    // Populate all symbol name mappings in a single pass over the IR
+    populateSymbolMappings(netFunc, &ctx, symbolNameMappings);
+
     SymbolizationPatternSet patterns(&ctx);
     patterns.add<DeclareBufferRewriter>(netFunc, typeConverter, symbolNameMappings, sectionMap, &ctx, _log);
     patterns.add<DeclareConstBufferRewriter>(netFunc, typeConverter, symbolNameMappings, sectionMap, &ctx, _log);
@@ -139,7 +213,6 @@ void ConvertVPUMI40XX2VPUASMPass::safeRunOnModule() {
     patterns.add<PlatformInfoRewriter>(netFunc, typeConverter, symbolNameMappings, sectionMap, &ctx, _log);
     patterns.add<MappedInferenceVersionRewriter>(netFunc, typeConverter, symbolNameMappings, sectionMap, &ctx, _log);
     patterns.add<ShaveStackRewriter>(netFunc, typeConverter, symbolNameMappings, sectionMap, &ctx, _log);
-
     if (mlir::failed(
                 mlir::applyFullConversion(netFunc, target, SymbolizationPatternSet::freeze(std::move(patterns))))) {
         signalPassFailure();

@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
+#include "vpux/compiler/utils/types.hpp"
 
 #include "vpux/utils/profiling/common.hpp"
 
@@ -36,7 +37,7 @@ void insertCaptureDma(mlir::OpBuilder& builder, int64_t profOutputId, size_t dst
     auto hwRegOp = builder.create<VPURT::DeclareBufferOp>(loc, hwTimerType, VPURT::BufferSection::Register,
                                                           VPUIP::HW_PLL_WORKPOINT_ABSOLUTE_ADDR);
 
-    const auto profilingOutputType = mlir::MemRefType::get(hwTimerType.getShape().raw(), hwTimerType.getElementType());
+    const auto profilingOutputType = vpux::getMemRefType(hwTimerType.getShape(), hwTimerType.getElementType());
     auto dstBufProfResultOp = builder.create<VPURT::DeclareBufferOp>(
             loc, profilingOutputType, VPURT::BufferSection::ProfilingOutput, profOutputId, dstDdrOffset);
 

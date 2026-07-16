@@ -29,7 +29,7 @@ Here are the steps to clone repositories and **configure environment variables**
 
 ## How to build related targets locally
 
-Driver Compiler provides `npu_driver_compiler`, `compilerTest`, `profilingTest` and `loaderTest` to compile network and test. To build Driver Compiler-related targets locally, please refer to
+Driver Compiler provides `openvino_intel_npu_compiler`, `openvino_intel_npu_compiler_loader`, `compilerTest`, `profilingTest` and `loaderTest` to compile network and test. To build Driver Compiler-related targets locally, please refer to
 
 - (Recommended) Build using CMake Presets, requiring CMake version 3.19 or higher.
     - [Linux](./docs/build/build_with_cmake_presets_linux.md)

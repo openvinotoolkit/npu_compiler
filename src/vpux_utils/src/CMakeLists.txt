@@ -4,7 +4,6 @@
 #
 
 add_subdirectory(algorithm)
-add_subdirectory(bytecode)
 add_subdirectory(core)
 add_subdirectory(logger)
 add_subdirectory(ov)

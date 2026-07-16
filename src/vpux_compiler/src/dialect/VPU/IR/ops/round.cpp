@@ -7,9 +7,9 @@
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 using namespace vpux;
-
 mlir::LogicalResult vpux::VPU::RoundOp::inferReturnTypes(mlir::MLIRContext* ctx, std::optional<mlir::Location> optLoc,
                                                          mlir::ValueRange operands, mlir::DictionaryAttr attrs,
                                                          mlir::OpaqueProperties prop, mlir::RegionRange /*regions*/,
@@ -84,4 +84,10 @@ bool vpux::VPU::RoundOp::supportCycleCostCalculation() {
 void vpux::VPU::RoundOp::build(::mlir::OpBuilder& builder, ::mlir::OperationState& state, ::mlir::Value input,
                                vpux::IE::RoundModeAttr mode) {
     build(builder, state, input, mode, {});
+}
+
+mlir::LogicalResult vpux::VPU::RoundOp::reifyResultShapes(mlir::OpBuilder& builder,
+                                                          mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    reifiedReturnShapes.emplace_back(reifyTrivialTensor(builder, getInput(), getLoc()));
+    return mlir::success();
 }

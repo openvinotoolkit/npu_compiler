@@ -15,7 +15,11 @@ namespace vpux {
 
 class PipelineRegistry50XX final : public IPipelineRegistry {
 public:
+    explicit PipelineRegistry50XX(config::Platform platform);
     void registerPipelines() override;
+
+private:
+    config::Platform _platform;
 };
 
 }  // namespace vpux

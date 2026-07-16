@@ -78,21 +78,21 @@
     uniform_distributed_segments
 }>
 
-!Input_DDR = memref<1x16x33x33xf16, #NHWC, @DDR>
-!Output_DDR = memref<1x16x33x33xf16, #NHWC, @DDR>
-!Weights_DDR = memref<16x16x3x3xf16, #NHWC, @DDR>
+!Input_DDR = memref<1x16x33x33xf16, {order = #NHWC}, @DDR>
+!Output_DDR = memref<1x16x33x33xf16, {order = #NHWC}, @DDR>
+!Weights_DDR = memref<16x16x3x3xf16, {order = #NHWC}, @DDR>
 !WeightsTable_DDR = memref<16x1x1x4xsi32>
 
-!InputStub_CMX = memref<1x16x33x33xf16, #NHWC, @CMX_NN>
-!InputSparseMapStub_CMX = memref<1x16x33x33xi1, #NHWC, @CMX_NN>
-!InputSETableStub_CMX = memref<1x16x33x33xi32, #NHWC, @CMX_NN>
-!OutputStub_CMX = memref<1x16x33x33xf16, #NHWC, @CMX_NN>
-!OutputSparsityStub_CMX = memref<1x16x33x33xi1, #NHWC, @CMX_NN>
-!WeightsStub_CMX = memref<16x16x3x3xf16, #NHWC, @CMX_NN>
+!InputStub_CMX = memref<1x16x33x33xf16, {order = #NHWC}, @CMX_NN>
+!InputSparseMapStub_CMX = memref<1x16x33x33xi1, {order = #NHWC}, @CMX_NN>
+!InputSETableStub_CMX = memref<1x16x33x33xi32, {order = #NHWC}, @CMX_NN>
+!OutputStub_CMX = memref<1x16x33x33xf16, {order = #NHWC}, @CMX_NN>
+!OutputSparsityStub_CMX = memref<1x16x33x33xi1, {order = #NHWC}, @CMX_NN>
+!WeightsStub_CMX = memref<16x16x3x3xf16, {order = #NHWC}, @CMX_NN>
 !WeightsTableStub_CMX = memref<16x1x1x4xsi32, @CMX_NN>
 
 // CHECK-LABEL: @UnrollNceSoHOutputOverlapped
-// CHECK-SAME: ([[ARG_0:%.+]]: memref<1x16x33x33xf16, #NHWC, @DDR>, [[ARG_1:%.+]]: memref<1x16x33x33xf16, #NHWC, @DDR>)
+// CHECK-SAME: ([[ARG_0:%.+]]: memref<1x16x33x33xf16, {order = #NHWC}, @DDR>, [[ARG_1:%.+]]: memref<1x16x33x33xf16, {order = #NHWC}, @DDR>)
 func.func @UnrollNceSoHOutputOverlapped(%input: !Input_DDR, %output: !Output_DDR) -> !Output_DDR {
     // Barriers
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
@@ -182,29 +182,29 @@ func.func @UnrollNceSoHOutputOverlapped(%input: !Input_DDR, %output: !Output_DDR
     return %output: !Output_DDR
 
     //CHECK:    [[WEIGHTS_TABLE_CST:%.+]] = const.Declare memref<16x1x1x4xsi32>
-    //CHECK:    [[WEIGHTS_CST:%.+]] = const.Declare memref<16x16x3x3xf16, #NHWC, @DDR>
+    //CHECK:    [[WEIGHTS_CST:%.+]] = const.Declare memref<16x16x3x3xf16, {order = #NHWC}, @DDR>
 
     //CHECK:    [[BAR0:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     //CHECK:    [[BAR1:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
-    //CHECK:    [[IN1_DDR:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x16x12x33xf16, #NHWC, @DDR>
-    //CHECK:    [[IN2_DDR:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <10560> -> memref<1x16x13x33xf16, #NHWC, @DDR>
-    //CHECK:    [[IN3_DDR:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <22176> -> memref<1x16x12x33xf16, #NHWC, @DDR>
+    //CHECK:    [[IN1_DDR:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x16x12x33xf16, {order = #NHWC}, @DDR>
+    //CHECK:    [[IN2_DDR:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <10560> -> memref<1x16x13x33xf16, {order = #NHWC}, @DDR>
+    //CHECK:    [[IN3_DDR:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <22176> -> memref<1x16x12x33xf16, {order = #NHWC}, @DDR>
 
-    //CHECK:    [[OUT1_DDR:%.+]] = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<1x16x13x33xf16, #NHWC, @DDR>
-    //CHECK:    [[OUT2_DDR:%.+]] = VPURT.DeclareBuffer <NetworkOutput> [0] <12672> -> memref<1x16x11x33xf16, #NHWC, @DDR>
-    //CHECK:    [[OUT3_DDR:%.+]] = VPURT.DeclareBuffer <NetworkOutput> [0] <23232> -> memref<1x16x11x33xf16, #NHWC, @DDR>
+    //CHECK:    [[OUT1_DDR:%.+]] = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<1x16x13x33xf16, {order = #NHWC}, @DDR>
+    //CHECK:    [[OUT2_DDR:%.+]] = VPURT.DeclareBuffer <NetworkOutput> [0] <12672> -> memref<1x16x11x33xf16, {order = #NHWC}, @DDR>
+    //CHECK:    [[OUT3_DDR:%.+]] = VPURT.DeclareBuffer <NetworkOutput> [0] <23232> -> memref<1x16x11x33xf16, {order = #NHWC}, @DDR>
 
-    //CHECK:    [[IN1_CMX:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x33xf16, #NHWC, [@CMX_NN, 0]>
-    //CHECK:    [[IN2_CMX:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x16x13x33xf16, #NHWC, [@CMX_NN, 1]>
-    //CHECK:    [[IN3_CMX:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <0> -> memref<1x16x12x33xf16, #NHWC, [@CMX_NN, 2]>
-    //CHECK:    [[IN1_CMX_COPY:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x33xf16, #NHWC, [@CMX_NN, 0]>
-    //CHECK:    [[IN2_CMX_COPY:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x16x13x33xf16, #NHWC, [@CMX_NN, 1]>
-    //CHECK:    [[IN3_CMX_COPY:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <0> -> memref<1x16x12x33xf16, #NHWC, [@CMX_NN, 2]>
+    //CHECK:    [[IN1_CMX:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x33xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    //CHECK:    [[IN2_CMX:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x16x13x33xf16, {order = #NHWC}, [@CMX_NN, 1]>
+    //CHECK:    [[IN3_CMX:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <0> -> memref<1x16x12x33xf16, {order = #NHWC}, [@CMX_NN, 2]>
+    //CHECK:    [[IN1_CMX_COPY:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x12x33xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    //CHECK:    [[IN2_CMX_COPY:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x16x13x33xf16, {order = #NHWC}, [@CMX_NN, 1]>
+    //CHECK:    [[IN3_CMX_COPY:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <0> -> memref<1x16x12x33xf16, {order = #NHWC}, [@CMX_NN, 2]>
 
-    //CHECK:    [[OUT1_CMX_COPY:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <13728> -> memref<1x16x13x33xf16, #NHWC, [@CMX_NN, 0]>
-    //CHECK:    [[OUT2_CMX_COPY:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <13728> -> memref<1x16x11x33xf16, #NHWC, [@CMX_NN, 1]>
-    //CHECK:    [[OUT3_CMX_COPY:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <13728> -> memref<1x16x11x33xf16, #NHWC, [@CMX_NN, 2]>
+    //CHECK:    [[OUT1_CMX_COPY:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <13728> -> memref<1x16x13x33xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    //CHECK:    [[OUT2_CMX_COPY:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <13728> -> memref<1x16x11x33xf16, {order = #NHWC}, [@CMX_NN, 1]>
+    //CHECK:    [[OUT3_CMX_COPY:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <13728> -> memref<1x16x11x33xf16, {order = #NHWC}, [@CMX_NN, 2]>
 
     //CHECK:    [[OUT1_CMX:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <13728> ->
     //CHECK-SAME: !VPUIP.ITIBuffer<
@@ -240,22 +240,22 @@ func.func @UnrollNceSoHOutputOverlapped(%input: !Input_DDR, %output: !Output_DDR
     //CHECK-NEXT:       #VPUIP.HaloRegionAttr<shape = [1, 16, 1, 33], offset = [0, 0, 10, 0], cluster_id = 1 : i64>
     //CHECK-NEXT:   ]
 
-    //CHECK:    [[WEIGHTS1_CMX:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <26400> -> memref<16x16x3x3xf16, #NHWC, [@CMX_NN, 0]>
-    //CHECK:    [[WEIGHTS2_CMX:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <26400> -> memref<16x16x3x3xf16, #NHWC, [@CMX_NN, 1]>
-    //CHECK:    [[WEIGHTS3_CMX:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <26400> -> memref<16x16x3x3xf16, #NHWC, [@CMX_NN, 2]>
+    //CHECK:    [[WEIGHTS1_CMX:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <26400> -> memref<16x16x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    //CHECK:    [[WEIGHTS2_CMX:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <26400> -> memref<16x16x3x3xf16, {order = #NHWC}, [@CMX_NN, 1]>
+    //CHECK:    [[WEIGHTS3_CMX:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <26400> -> memref<16x16x3x3xf16, {order = #NHWC}, [@CMX_NN, 2]>
     //CHECK:    [[WEIGHTS_CMX_COPY:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0, 1, 2] <26400> -> !VPUIP.DistributedBuffer<16x16x3x3xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 3 : i64, uniform_distributed_segments}>
 
     //CHECK:    [[WEIGHTS_TABLE1_CMX:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <31008> -> memref<16x1x1x4xsi32, [@CMX_NN, 0]>
-    //CHECK:    [[WEIGHTS_TABLE2_CMX:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <31008> -> memref<16x1x1x4xsi32, [@CMX_NN, 1]>
+    //CHECK:    [[WEIGHTS_TABLE2_CMX:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <31008> -> memref<16x1x1x4xsi32
     //CHECK:    [[WEIGHTS_TABLE3_CMX:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <31008> -> memref<16x1x1x4xsi32, [@CMX_NN, 2]>
     //CHECK:    [[WEIGHTS_TABLE_CMX_COPY:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0, 1, 2] <31008> -> !VPUIP.DistributedBuffer<16x1x1x4xsi32, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 3 : i64, uniform_distributed_segments}>
 
-    //CHECK:    [[IN_SPARSE_MAP_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <31264> -> memref<1x16x12x33xi1, #NHWC, [@CMX_NN, 0]>
-    //CHECK:    [[IN_SPARSE_MAP_2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <31264> -> memref<1x16x13x33xi1, #NHWC, [@CMX_NN, 1]>
-    //CHECK:    [[IN_SPARSE_MAP_3:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <31264> -> memref<1x16x12x33xi1, #NHWC, [@CMX_NN, 2]>
-    //CHECK:    [[IN_SE_TABLE_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <33442> -> memref<1x16x12x33xi32, #NHWC, [@CMX_NN, 0]>
-    //CHECK:    [[IN_SE_TABLE_2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <33442> -> memref<1x16x13x33xi32, #NHWC, [@CMX_NN, 1]>
-    //CHECK:    [[IN_SE_TABLE_3:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <33442> -> memref<1x16x12x33xi32, #NHWC, [@CMX_NN, 2]>
+    //CHECK:    [[IN_SPARSE_MAP_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <31264> -> memref<1x16x12x33xi1, {order = #NHWC}, [@CMX_NN, 0]>
+    //CHECK:    [[IN_SPARSE_MAP_2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <31264> -> memref<1x16x13x33xi1, {order = #NHWC}, [@CMX_NN, 1]>
+    //CHECK:    [[IN_SPARSE_MAP_3:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <31264> -> memref<1x16x12x33xi1, {order = #NHWC}, [@CMX_NN, 2]>
+    //CHECK:    [[IN_SE_TABLE_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <33442> -> memref<1x16x12x33xi32, {order = #NHWC}, [@CMX_NN, 0]>
+    //CHECK:    [[IN_SE_TABLE_2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <33442> -> memref<1x16x13x33xi32, {order = #NHWC}, [@CMX_NN, 1]>
+    //CHECK:    [[IN_SE_TABLE_3:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <33442> -> memref<1x16x12x33xi32, {order = #NHWC}, [@CMX_NN, 2]>
 
     //CHECK:    [[OUT_SPARSE_MAP_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <103138> ->
     //CHECK-SAME: !VPUIP.ITIBuffer<
@@ -296,28 +296,28 @@ func.func @UnrollNceSoHOutputOverlapped(%input: !Input_DDR, %output: !Output_DDR
     // Upload 1st part of input
     //CHECK:        VPURT.Task updates([[BAR0]] : !VPURT.Barrier) {
     //CHECK:          VPUIP.NNDMA
-    //CHECK-SAME:       inputs([[IN1_DDR]] : memref<1x16x12x33xf16, #NHWC, @DDR>
-    //CHECK-SAME:       outputs([[IN1_CMX_COPY]] : memref<1x16x12x33xf16, #NHWC, [@CMX_NN, 0]>)
+    //CHECK-SAME:       inputs([[IN1_DDR]] : memref<1x16x12x33xf16, {order = #NHWC}, @DDR>
+    //CHECK-SAME:       outputs([[IN1_CMX_COPY]] : memref<1x16x12x33xf16, {order = #NHWC}, [@CMX_NN, 0]>)
     //CHECK:        }
 
     // Upload 2nd part of input
     //CHECK:        VPURT.Task updates([[BAR0]] : !VPURT.Barrier) {
     //CHECK:          VPUIP.NNDMA
-    //CHECK-SAME:       inputs([[IN2_DDR]] : memref<1x16x13x33xf16, #NHWC, @DDR>
-    //CHECK-SAME:       outputs([[IN2_CMX_COPY]] : memref<1x16x13x33xf16, #NHWC, [@CMX_NN, 1]>)
+    //CHECK-SAME:       inputs([[IN2_DDR]] : memref<1x16x13x33xf16, {order = #NHWC}, @DDR>
+    //CHECK-SAME:       outputs([[IN2_CMX_COPY]] : memref<1x16x13x33xf16, {order = #NHWC}, [@CMX_NN, 1]>)
     //CHECK:        }
 
     // Upload 3rd part of input
     //CHECK:        VPURT.Task updates([[BAR0]] : !VPURT.Barrier) {
     //CHECK:          VPUIP.NNDMA
-    //CHECK-SAME:       inputs([[IN3_DDR]] : memref<1x16x12x33xf16, #NHWC, @DDR>
-    //CHECK-SAME:       outputs([[IN3_CMX_COPY]] : memref<1x16x12x33xf16, #NHWC, [@CMX_NN, 2]>)
+    //CHECK-SAME:       inputs([[IN3_DDR]] : memref<1x16x12x33xf16, {order = #NHWC}, @DDR>
+    //CHECK-SAME:       outputs([[IN3_CMX_COPY]] : memref<1x16x12x33xf16, {order = #NHWC}, [@CMX_NN, 2]>)
     //CHECK:        }
 
     // Upload weights
     //CHECK:        VPURT.Task updates([[BAR0]] : !VPURT.Barrier) {
     //CHECK:          VPUIP.NNDMA
-    //CHECK-SAME:       inputs([[WEIGHTS_CST]] : memref<16x16x3x3xf16, #NHWC, @DDR>)
+    //CHECK-SAME:       inputs([[WEIGHTS_CST]] : memref<16x16x3x3xf16, {order = #NHWC}, @DDR>)
     //CHECK-SAME:       outputs([[WEIGHTS_CMX_COPY]] : !VPUIP.DistributedBuffer<16x16x3x3xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 3 : i64, uniform_distributed_segments}>)
     //CHECK:        }
 
@@ -333,14 +333,14 @@ func.func @UnrollNceSoHOutputOverlapped(%input: !Input_DDR, %output: !Output_DDR
     //CHECK:          VPUIP.NCEClusterTask <{
     //CHECK-SAME:           kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 0 : i64>,
     //CHECK-SAME:           kernel_size = [3, 3], kernel_strides = [1, 1]
-    //CHECK-SAME:       }> input([[IN1_CMX]] : memref<1x16x12x33xf16, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:           input_sparsity_map([[IN_SPARSE_MAP_1]] : memref<1x16x12x33xi1, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:           input_storage_element_table([[IN_SE_TABLE_1]] : memref<1x16x12x33xi32, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:           weights([[WEIGHTS1_CMX]] : memref<16x16x3x3xf16, #NHWC, [@CMX_NN, 0]>)
+    //CHECK-SAME:       }> input([[IN1_CMX]] : memref<1x16x12x33xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:           input_sparsity_map([[IN_SPARSE_MAP_1]] : memref<1x16x12x33xi1, {order = #NHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:           input_storage_element_table([[IN_SE_TABLE_1]] : memref<1x16x12x33xi32, {order = #NHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:           weights([[WEIGHTS1_CMX]] : memref<16x16x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>)
     //CHECK-SAME:           weight_table([[WEIGHTS_TABLE1_CMX]] : memref<16x1x1x4xsi32, [@CMX_NN, 0]>)
-    //CHECK-SAME:           parent_input([[IN1_CMX]] : memref<1x16x12x33xf16, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:           parent_input_sparsity_map([[IN_SPARSE_MAP_1]] : memref<1x16x12x33xi1, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:           parent_input_storage_element_table([[IN_SE_TABLE_1]] : memref<1x16x12x33xi32, #NHWC, [@CMX_NN, 0]>)
+    //CHECK-SAME:           parent_input([[IN1_CMX]] : memref<1x16x12x33xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:           parent_input_sparsity_map([[IN_SPARSE_MAP_1]] : memref<1x16x12x33xi1, {order = #NHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:           parent_input_storage_element_table([[IN_SE_TABLE_1]] : memref<1x16x12x33xi32, {order = #NHWC}, [@CMX_NN, 0]>)
     //CHECK-SAME:           parent_output([[OUT1_CMX]] : !VPUIP.ITIBuffer<
     //CHECK-NEXT:               1x16x13x33xf16, {order = #NHWC}, [@CMX_NN, 0]
     //CHECK:                parent_output_sparsity_map([[OUT_SPARSE_MAP_1]] : !VPUIP.ITIBuffer<
@@ -358,14 +358,14 @@ func.func @UnrollNceSoHOutputOverlapped(%input: !Input_DDR, %output: !Output_DDR
     //CHECK:          VPUIP.NCEClusterTask <{
     //CHECK-SAME:           kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64>,
     //CHECK-SAME:           kernel_size = [3, 3], kernel_strides = [1, 1]
-    //CHECK-SAME:       }> input([[IN2_CMX]] : memref<1x16x13x33xf16, #NHWC, [@CMX_NN, 1]>)
-    //CHECK-SAME:           input_sparsity_map([[IN_SPARSE_MAP_2]] : memref<1x16x13x33xi1, #NHWC, [@CMX_NN, 1]>)
-    //CHECK-SAME:           input_storage_element_table([[IN_SE_TABLE_2]] : memref<1x16x13x33xi32, #NHWC, [@CMX_NN, 1]>)
-    //CHECK-SAME:           weights([[WEIGHTS2_CMX]] : memref<16x16x3x3xf16, #NHWC, [@CMX_NN, 1]>)
+    //CHECK-SAME:       }> input([[IN2_CMX]] : memref<1x16x13x33xf16, {order = #NHWC}, [@CMX_NN, 1]>)
+    //CHECK-SAME:           input_sparsity_map([[IN_SPARSE_MAP_2]] : memref<1x16x13x33xi1, {order = #NHWC}, [@CMX_NN, 1]>)
+    //CHECK-SAME:           input_storage_element_table([[IN_SE_TABLE_2]] : memref<1x16x13x33xi32, {order = #NHWC}, [@CMX_NN, 1]>)
+    //CHECK-SAME:           weights([[WEIGHTS2_CMX]] : memref<16x16x3x3xf16, {order = #NHWC}, [@CMX_NN, 1]>)
     //CHECK-SAME:           weight_table([[WEIGHTS_TABLE2_CMX]] : memref<16x1x1x4xsi32, [@CMX_NN, 1]>)
-    //CHECK-SAME:           parent_input([[IN2_CMX]] : memref<1x16x13x33xf16, #NHWC, [@CMX_NN, 1]>)
-    //CHECK-SAME:           parent_input_sparsity_map([[IN_SPARSE_MAP_2]] : memref<1x16x13x33xi1, #NHWC, [@CMX_NN, 1]>)
-    //CHECK-SAME:           parent_input_storage_element_table([[IN_SE_TABLE_2]] : memref<1x16x13x33xi32, #NHWC, [@CMX_NN, 1]>)
+    //CHECK-SAME:           parent_input([[IN2_CMX]] : memref<1x16x13x33xf16, {order = #NHWC}, [@CMX_NN, 1]>)
+    //CHECK-SAME:           parent_input_sparsity_map([[IN_SPARSE_MAP_2]] : memref<1x16x13x33xi1, {order = #NHWC}, [@CMX_NN, 1]>)
+    //CHECK-SAME:           parent_input_storage_element_table([[IN_SE_TABLE_2]] : memref<1x16x13x33xi32, {order = #NHWC}, [@CMX_NN, 1]>)
     //CHECK-SAME:           parent_output([[OUT2_CMX]] : !VPUIP.ITIBuffer<
     //CHECK-NEXT:               1x16x11x33xf16, {order = #NHWC}, [@CMX_NN, 1]
     //CHECK:            parent_output_sparsity_map([[OUT_SPARSE_MAP_2]] : !VPUIP.ITIBuffer<
@@ -385,14 +385,14 @@ func.func @UnrollNceSoHOutputOverlapped(%input: !Input_DDR, %output: !Output_DDR
     //CHECK:          VPUIP.NCEClusterTask <{
     //CHECK-SAME:           kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64>,
     //CHECK-SAME:           kernel_size = [3, 3], kernel_strides = [1, 1]
-    //CHECK-SAME:       }> input([[IN3_CMX]] : memref<1x16x12x33xf16, #NHWC, [@CMX_NN, 2]>)
-    //CHECK-SAME:           input_sparsity_map([[IN_SPARSE_MAP_3]] : memref<1x16x12x33xi1, #NHWC, [@CMX_NN, 2]>)
-    //CHECK-SAME:           input_storage_element_table([[IN_SE_TABLE_3]] : memref<1x16x12x33xi32, #NHWC, [@CMX_NN, 2]>)
-    //CHECK-SAME:           weights([[WEIGHTS3_CMX]] : memref<16x16x3x3xf16, #NHWC, [@CMX_NN, 2]>)
+    //CHECK-SAME:       }> input([[IN3_CMX]] : memref<1x16x12x33xf16, {order = #NHWC}, [@CMX_NN, 2]>)
+    //CHECK-SAME:           input_sparsity_map([[IN_SPARSE_MAP_3]] : memref<1x16x12x33xi1, {order = #NHWC}, [@CMX_NN, 2]>)
+    //CHECK-SAME:           input_storage_element_table([[IN_SE_TABLE_3]] : memref<1x16x12x33xi32, {order = #NHWC}, [@CMX_NN, 2]>)
+    //CHECK-SAME:           weights([[WEIGHTS3_CMX]] : memref<16x16x3x3xf16, {order = #NHWC}, [@CMX_NN, 2]>)
     //CHECK-SAME:           weight_table([[WEIGHTS_TABLE3_CMX]] : memref<16x1x1x4xsi32, [@CMX_NN, 2]>)
-    //CHECK-SAME:           parent_input([[IN3_CMX]] : memref<1x16x12x33xf16, #NHWC, [@CMX_NN, 2]>)
-    //CHECK-SAME:           parent_input_sparsity_map([[IN_SPARSE_MAP_3]] : memref<1x16x12x33xi1, #NHWC, [@CMX_NN, 2]>)
-    //CHECK-SAME:           parent_input_storage_element_table([[IN_SE_TABLE_3]] : memref<1x16x12x33xi32, #NHWC, [@CMX_NN, 2]>)
+    //CHECK-SAME:           parent_input([[IN3_CMX]] : memref<1x16x12x33xf16, {order = #NHWC}, [@CMX_NN, 2]>)
+    //CHECK-SAME:           parent_input_sparsity_map([[IN_SPARSE_MAP_3]] : memref<1x16x12x33xi1, {order = #NHWC}, [@CMX_NN, 2]>)
+    //CHECK-SAME:           parent_input_storage_element_table([[IN_SE_TABLE_3]] : memref<1x16x12x33xi32, {order = #NHWC}, [@CMX_NN, 2]>)
     //CHECK-SAME:           parent_output([[OUT3_CMX]] : !VPUIP.ITIBuffer<
     //CHECK-NEXT:               1x16x11x33xf16, {order = #NHWC}, [@CMX_NN, 2]
     //CHECK:                parent_output_sparsity_map([[OUT_SPARSE_MAP_3]] : !VPUIP.ITIBuffer<
@@ -409,23 +409,23 @@ func.func @UnrollNceSoHOutputOverlapped(%input: !Input_DDR, %output: !Output_DDR
 
     //CHECK:        VPURT.Task waits([[BAR1]] : !VPURT.Barrier) {
     //CHECK:          VPUIP.NNDMA
-    //CHECK-SAME:       inputs([[OUT1_CMX_COPY]] : memref<1x16x13x33xf16, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:       outputs([[OUT1_DDR]] : memref<1x16x13x33xf16, #NHWC, @DDR>)
+    //CHECK-SAME:       inputs([[OUT1_CMX_COPY]] : memref<1x16x13x33xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    //CHECK-SAME:       outputs([[OUT1_DDR]] : memref<1x16x13x33xf16, {order = #NHWC}, @DDR>)
     //CHECK:        }
 
     //CHECK:        VPURT.Task waits([[BAR1]] : !VPURT.Barrier) {
     //CHECK:          VPUIP.NNDMA
-    //CHECK-SAME:       inputs([[OUT2_CMX_COPY]] : memref<1x16x11x33xf16, #NHWC, [@CMX_NN, 1]>)
-    //CHECK-SAME:       outputs([[OUT2_DDR]] : memref<1x16x11x33xf16, #NHWC, @DDR>)
+    //CHECK-SAME:       inputs([[OUT2_CMX_COPY]] : memref<1x16x11x33xf16, {order = #NHWC}, [@CMX_NN, 1]>)
+    //CHECK-SAME:       outputs([[OUT2_DDR]] : memref<1x16x11x33xf16, {order = #NHWC}, @DDR>)
     //CHECK:        }
 
     //CHECK:        VPURT.Task waits([[BAR1]] : !VPURT.Barrier) {
     //CHECK:          VPUIP.NNDMA
-    //CHECK-SAME:       inputs([[OUT3_CMX_COPY]] : memref<1x16x11x33xf16, #NHWC, [@CMX_NN, 2]>)
-    //CHECK-SAME:       outputs([[OUT3_DDR]] : memref<1x16x11x33xf16, #NHWC, @DDR>)
+    //CHECK-SAME:       inputs([[OUT3_CMX_COPY]] : memref<1x16x11x33xf16, {order = #NHWC}, [@CMX_NN, 2]>)
+    //CHECK-SAME:       outputs([[OUT3_DDR]] : memref<1x16x11x33xf16, {order = #NHWC}, @DDR>)
     //CHECK:        }
 
-    //CHECK:    return [[ARG_1]] : memref<1x16x33x33xf16, #NHWC, @DDR>
+    //CHECK:    return [[ARG_1]] : memref<1x16x33x33xf16, {order = #NHWC}, @DDR>
 }
 
 // -----
@@ -483,8 +483,8 @@ func.func @UnrollNceSoHOutputOverlapped(%input: !Input_DDR, %output: !Output_DDR
 
 // CHECK-LABEL: @OmitHaloRegionsForEqualMemView
 func.func @OmitHaloRegionsForEqualMemView(%arg0: memref<1x3x224x224xf16, @DDR>,
-                                          %arg1: memref<1x224x4x224x!qElemType, #NWCH, @DDR>)
-        -> memref<1x224x4x224x!qElemType, #NWCH, @DDR> {
+                                          %arg1: memref<1x224x4x224x!qElemType, {order = #NWCH}, @DDR>)
+        -> memref<1x224x4x224x!qElemType, {order = #NWCH}, @DDR> {
     %NET_INPUT = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x224x224xf16, @DDR>
     %CMX_INPUT = VPURT.DeclareBuffer <CMX_NN> <512> -> !InputDistributed
     %CMX_OUTPUT = VPURT.DeclareBuffer <CMX_NN> <155072> -> !OutputDistributed
@@ -563,7 +563,7 @@ func.func @OmitHaloRegionsForEqualMemView(%arg0: memref<1x3x224x224xf16, @DDR>,
                 -> !OutputType_DDR
     }
 
-    return %arg1 : memref<1x224x4x224x!qElemType, #NWCH, @DDR>
+    return %arg1 : memref<1x224x4x224x!qElemType, {order = #NWCH}, @DDR>
 
     // CHECK-NOT: inwardHaloRegions
     // CHECK-NOT: outwardHaloRegions
@@ -728,11 +728,11 @@ func.func @DifferentSizeOverlapedCMXToDDR(%output: !Compact_DDR) -> !Compact_DDR
     >
 
 //CHECK-LABEL: @UnrollNceOutputOverlappedHaloOverNonadjacentCluster
-func.func @UnrollNceOutputOverlappedHaloOverNonadjacentCluster() -> memref<1x784x32x6xf16, #NWCH, @DDR> {
+func.func @UnrollNceOutputOverlappedHaloOverNonadjacentCluster() -> memref<1x784x32x6xf16, {order = #NWCH}, @DDR> {
   %BAR0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
   %CONV_INPUT = VPURT.DeclareBuffer <CMX_NN> <151104> -> !InputDistributed
   %CONV_OUTPUT = VPURT.DeclareBuffer <CMX_NN> <576> -> !OutputDistributed
-  %OUTPUT = VPURT.DeclareBuffer <DDR> <0> -> memref<1x784x32x6xf16, #NWCH, @DDR>
+  %OUTPUT = VPURT.DeclareBuffer <DDR> <0> -> memref<1x784x32x6xf16, {order = #NWCH}, @DDR>
   VPURT.Task updates(%BAR0 : !VPURT.Barrier) {
     %1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4751 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>}
      <{is_permute_quantize, task_type = #VPUIP.nce_task_type<ELTWISE>}>
@@ -752,23 +752,23 @@ func.func @UnrollNceOutputOverlappedHaloOverNonadjacentCluster() -> memref<1x784
     }
   }
   VPURT.Task waits(%BAR0 : !VPURT.Barrier) {
-    %1 = VPUIP.NNDMA inputs(%CONV_OUTPUT : !OutputDistributed) outputs(%OUTPUT : memref<1x784x32x6xf16, #NWCH, @DDR>) -> memref<1x784x32x6xf16, #NWCH, @DDR>
+    %1 = VPUIP.NNDMA inputs(%CONV_OUTPUT : !OutputDistributed) outputs(%OUTPUT : memref<1x784x32x6xf16, {order = #NWCH}, @DDR>) -> memref<1x784x32x6xf16, {order = #NWCH}, @DDR>
   }
-  return %OUTPUT : memref<1x784x32x6xf16, #NWCH, @DDR>
+  return %OUTPUT : memref<1x784x32x6xf16, {order = #NWCH}, @DDR>
 
   //CHECK: [[BAR0:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-  //CHECK: [[WEIGHT0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <151104> -> memref<1x784x32x2xf16, #NHWC, [@CMX_NN, 0]>
-  //CHECK: [[WEIGHT1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <151104> -> memref<1x784x32x2xf16, #NHWC, [@CMX_NN, 1]>
-  //CHECK: [[WEIGHT2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <151104> -> memref<1x784x32x1xf16, #NHWC, [@CMX_NN, 2]>
-  //CHECK: [[WEIGHT3:%.+]] = VPURT.DeclareBuffer <CMX_NN> [3] <151104> -> memref<1x784x32x1xf16, #NHWC, [@CMX_NN, 3]>
-  //CHECK: [[IN0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <151104> -> memref<1x784x32x2xf16, #NHWC, [@CMX_NN, 0]>
-  //CHECK: [[IN1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <151104> -> memref<1x784x32x2xf16, #NHWC, [@CMX_NN, 1]>
-  //CHECK: [[IN2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <151104> -> memref<1x784x32x1xf16, #NHWC, [@CMX_NN, 2]>
-  //CHECK: [[IN3:%.+]] = VPURT.DeclareBuffer <CMX_NN> [3] <151104> -> memref<1x784x32x1xf16, #NHWC, [@CMX_NN, 3]>
-  //CHECK: [[COPY_IN0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <576> -> memref<1x784x32x3xf16, #NWCH, [@CMX_NN, 0]>
-  //CHECK: [[COPY_IN1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <576> -> memref<1x784x32x3xf16, #NWCH, [@CMX_NN, 1]>
-  //CHECK: [[COPY_IN2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <576> -> memref<1x784x32x3xf16, #NWCH, [@CMX_NN, 2]>
-  //CHECK: [[COPY_IN3:%.+]] = VPURT.DeclareBuffer <CMX_NN> [3] <576> -> memref<1x784x32x3xf16, #NWCH, [@CMX_NN, 3]>
+  //CHECK: [[WEIGHT0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <151104> -> memref<1x784x32x2xf16, {order = #NHWC}, [@CMX_NN, 0]>
+  //CHECK: [[WEIGHT1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <151104> -> memref<1x784x32x2xf16, {order = #NHWC}, [@CMX_NN, 1]>
+  //CHECK: [[WEIGHT2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <151104> -> memref<1x784x32x1xf16, {order = #NHWC}, [@CMX_NN, 2]>
+  //CHECK: [[WEIGHT3:%.+]] = VPURT.DeclareBuffer <CMX_NN> [3] <151104> -> memref<1x784x32x1xf16, {order = #NHWC}, [@CMX_NN, 3]>
+  //CHECK: [[IN0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <151104> -> memref<1x784x32x2xf16, {order = #NHWC}, [@CMX_NN, 0]>
+  //CHECK: [[IN1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <151104> -> memref<1x784x32x2xf16, {order = #NHWC}, [@CMX_NN, 1]>
+  //CHECK: [[IN2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <151104> -> memref<1x784x32x1xf16, {order = #NHWC}, [@CMX_NN, 2]>
+  //CHECK: [[IN3:%.+]] = VPURT.DeclareBuffer <CMX_NN> [3] <151104> -> memref<1x784x32x1xf16, {order = #NHWC}, [@CMX_NN, 3]>
+  //CHECK: [[COPY_IN0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <576> -> memref<1x784x32x3xf16, {order = #NWCH}, [@CMX_NN, 0]>
+  //CHECK: [[COPY_IN1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <576> -> memref<1x784x32x3xf16, {order = #NWCH}, [@CMX_NN, 1]>
+  //CHECK: [[COPY_IN2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <576> -> memref<1x784x32x3xf16, {order = #NWCH}, [@CMX_NN, 2]>
+  //CHECK: [[COPY_IN3:%.+]] = VPURT.DeclareBuffer <CMX_NN> [3] <576> -> memref<1x784x32x3xf16, {order = #NWCH}, [@CMX_NN, 3]>
   //CHECK: [[OUT0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <576> -> !VPUIP.ITIBuffer<
   //CHECK-NEXT:             1x784x32x3xf16, {order = #NWCH}, [@CMX_NN, 0],
   //CHECK-NEXT:              inwardHaloRegions = [
@@ -812,15 +812,15 @@ func.func @UnrollNceOutputOverlappedHaloOverNonadjacentCluster() -> memref<1x784
   //CHECK-NEXT:                 #VPUIP.HaloRegionAttr<shape = [1, 784, 32, 1], offset = [0, 0, 0, 0], cluster_id = 3 : i64>,
   //CHECK-NEXT:                 #VPUIP.HaloRegionAttr<shape = [1, 784, 32, 1], offset = [0, 0, 0, 1], cluster_id = 3 : i64>
   //CHECK-NEXT:              ]>
-  //CHECK: [[DDR_OUT:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<1x784x32x6xf16, #NWCH, @DDR>
-  //CHECK: [[COPY_OUT0:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<1x784x32x3xf16, #NWCH, @DDR>
-  //CHECK: [[COPY_OUT1:%.+]] = VPURT.DeclareBuffer <DDR> <50176> -> memref<1x784x32x3xf16, #NWCH, @DDR>
-  //CHECK: [[COPY_OUT2:%.+]] = VPURT.DeclareBuffer <DDR> <100352> -> memref<1x784x32x3xf16, #NWCH, @DDR>
-  //CHECK: [[COPY_OUT3:%.+]] = VPURT.DeclareBuffer <DDR> <150528> -> memref<1x784x32x3xf16, #NWCH, @DDR>
+  //CHECK: [[DDR_OUT:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<1x784x32x6xf16, {order = #NWCH}, @DDR>
+  //CHECK: [[COPY_OUT0:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<1x784x32x3xf16, {order = #NWCH}, @DDR>
+  //CHECK: [[COPY_OUT1:%.+]] = VPURT.DeclareBuffer <DDR> <50176> -> memref<1x784x32x3xf16, {order = #NWCH}, @DDR>
+  //CHECK: [[COPY_OUT2:%.+]] = VPURT.DeclareBuffer <DDR> <100352> -> memref<1x784x32x3xf16, {order = #NWCH}, @DDR>
+  //CHECK: [[COPY_OUT3:%.+]] = VPURT.DeclareBuffer <DDR> <150528> -> memref<1x784x32x3xf16, {order = #NWCH}, @DDR>
   //CHECK:              VPURT.Task updates([[BAR0]] : !VPURT.Barrier) {
   //CHECK:                  VPUIP.NCEClusterTask <{is_permute_quantize
-  //CHECK-SAME:                 input([[IN0]] : memref<1x784x32x2xf16, #NHWC, [@CMX_NN, 0]>)
-  //CHECK-SAME:                 weights([[WEIGHT0]] : memref<1x784x32x2xf16, #NHWC, [@CMX_NN, 0]>)
+  //CHECK-SAME:                 input([[IN0]] : memref<1x784x32x2xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+  //CHECK-SAME:                 weights([[WEIGHT0]] : memref<1x784x32x2xf16, {order = #NHWC}, [@CMX_NN, 0]>)
   //CHECK:                      output_ITI_buff([[OUT1]] : !VPUIP.ITIBuffer<
   //CHECK-NEXT:                     1x784x32x3xf16, {order = #NWCH}, [@CMX_NN, 1]
   //CHECK:                      outputs([[OUT0]] : !VPUIP.ITIBuffer<
@@ -833,8 +833,8 @@ func.func @UnrollNceOutputOverlappedHaloOverNonadjacentCluster() -> memref<1x784
   //CHECK:               }
   //CHECK:              VPURT.Task updates([[BAR0]] : !VPURT.Barrier) {
   //CHECK:                  VPUIP.NCEClusterTask <{is_permute_quantize
-  //CHECK-SAME:                 input([[IN1]] : memref<1x784x32x2xf16, #NHWC, [@CMX_NN, 1]>)
-  //CHECK-SAME:                 weights([[WEIGHT1]] : memref<1x784x32x2xf16, #NHWC, [@CMX_NN, 1]>)
+  //CHECK-SAME:                 input([[IN1]] : memref<1x784x32x2xf16, {order = #NHWC}, [@CMX_NN, 1]>)
+  //CHECK-SAME:                 weights([[WEIGHT1]] : memref<1x784x32x2xf16, {order = #NHWC}, [@CMX_NN, 1]>)
   //CHECK:                      output_ITI_buff([[OUT0]], [[OUT2]], [[OUT3]]
   //CHECK:                 outputs([[OUT1]] : !VPUIP.ITIBuffer<
   //CHECK-NEXT:                     1x784x32x3xf16, {order = #NWCH}, [@CMX_NN, 1]
@@ -846,8 +846,8 @@ func.func @UnrollNceOutputOverlappedHaloOverNonadjacentCluster() -> memref<1x784
   //CHECK:               }
   //CHECK:              VPURT.Task updates([[BAR0]] : !VPURT.Barrier) {
   //CHECK:                  VPUIP.NCEClusterTask <{is_permute_quantize
-  //CHECK-SAME:                 input([[IN2]] : memref<1x784x32x1xf16, #NHWC, [@CMX_NN, 2]>)
-  //CHECK-SAME:                 weights([[WEIGHT2]] : memref<1x784x32x1xf16, #NHWC, [@CMX_NN, 2]>)
+  //CHECK-SAME:                 input([[IN2]] : memref<1x784x32x1xf16, {order = #NHWC}, [@CMX_NN, 2]>)
+  //CHECK-SAME:                 weights([[WEIGHT2]] : memref<1x784x32x1xf16, {order = #NHWC}, [@CMX_NN, 2]>)
   //CHECK:                      output_ITI_buff([[OUT3]] : !VPUIP.ITIBuffer<
   //CHECK-NEXT:                     1x784x32x3xf16, {order = #NWCH}, [@CMX_NN, 3],
   //CHECK:                      outputs([[OUT2]] : !VPUIP.ITIBuffer<
@@ -860,9 +860,9 @@ func.func @UnrollNceOutputOverlappedHaloOverNonadjacentCluster() -> memref<1x784
   //CHECK:               }
   //CHECK:              VPURT.Task updates([[BAR0]] : !VPURT.Barrier) {
   //CHECK:                  VPUIP.NCEClusterTask <{is_permute_quantize
-  //CHECK-SAME:                 input([[IN3]] : memref<1x784x32x1xf16, #NHWC, [@CMX_NN, 3]>)
-  //CHECK-SAME:                 weights([[WEIGHT3]] : memref<1x784x32x1xf16, #NHWC, [@CMX_NN, 3]>)
-  //CHECK-SAME:                 parent_input([[IN3]] : memref<1x784x32x1xf16, #NHWC, [@CMX_NN, 3]>)
+  //CHECK-SAME:                 input([[IN3]] : memref<1x784x32x1xf16, {order = #NHWC}, [@CMX_NN, 3]>)
+  //CHECK-SAME:                 weights([[WEIGHT3]] : memref<1x784x32x1xf16, {order = #NHWC}, [@CMX_NN, 3]>)
+  //CHECK-SAME:                 parent_input([[IN3]] : memref<1x784x32x1xf16, {order = #NHWC}, [@CMX_NN, 3]>)
   //CHECK-SAME:                 parent_output([[OUT3]] : !VPUIP.ITIBuffer<
   //CHECK-NEXT:                     1x784x32x3xf16, {order = #NWCH}, [@CMX_NN, 3]
   //CHECK:                      variants : {
@@ -874,19 +874,19 @@ func.func @UnrollNceOutputOverlappedHaloOverNonadjacentCluster() -> memref<1x784
 
   //CHECK:              VPURT.Task waits([[BAR0]] : !VPURT.Barrier) {
   //CHECK:                 VPUIP.NNDMA
-  //CHECK-SAME:                 inputs([[COPY_IN0]] : memref<1x784x32x3xf16, #NWCH, [@CMX_NN, 0]>) outputs([[COPY_OUT0]] : memref<1x784x32x3xf16, #NWCH, @DDR>) -> memref<1x784x32x3xf16, #NWCH, @DDR>
+  //CHECK-SAME:                 inputs([[COPY_IN0]] : memref<1x784x32x3xf16, {order = #NWCH}, [@CMX_NN, 0]>) outputs([[COPY_OUT0]] : memref<1x784x32x3xf16, {order = #NWCH}, @DDR>) -> memref<1x784x32x3xf16, {order = #NWCH}, @DDR>
   //CHECK:              }
   //CHECK:              VPURT.Task waits([[BAR0]] : !VPURT.Barrier) {
   //CHECK:                 VPUIP.NNDMA
-  //CHECK-SAME:                 inputs([[COPY_IN1]] : memref<1x784x32x3xf16, #NWCH, [@CMX_NN, 1]>) outputs([[COPY_OUT1]] : memref<1x784x32x3xf16, #NWCH, @DDR>) -> memref<1x784x32x3xf16, #NWCH, @DDR>
+  //CHECK-SAME:                 inputs([[COPY_IN1]] : memref<1x784x32x3xf16, {order = #NWCH}, [@CMX_NN, 1]>) outputs([[COPY_OUT1]] : memref<1x784x32x3xf16, {order = #NWCH}, @DDR>) -> memref<1x784x32x3xf16, {order = #NWCH}, @DDR>
   //CHECK:              }
   //CHECK:              VPURT.Task waits([[BAR0]] : !VPURT.Barrier) {
   //CHECK:                 VPUIP.NNDMA
-  //CHECK-SAME:                 inputs([[COPY_IN2]] : memref<1x784x32x3xf16, #NWCH, [@CMX_NN, 2]>) outputs([[COPY_OUT2]] : memref<1x784x32x3xf16, #NWCH, @DDR>) -> memref<1x784x32x3xf16, #NWCH, @DDR>
+  //CHECK-SAME:                 inputs([[COPY_IN2]] : memref<1x784x32x3xf16, {order = #NWCH}, [@CMX_NN, 2]>) outputs([[COPY_OUT2]] : memref<1x784x32x3xf16, {order = #NWCH}, @DDR>) -> memref<1x784x32x3xf16, {order = #NWCH}, @DDR>
   //CHECK:              }
   //CHECK:              VPURT.Task waits([[BAR0]] : !VPURT.Barrier) {
   //CHECK:                 VPUIP.NNDMA
-  //CHECK-SAME:                 inputs([[COPY_IN3]] : memref<1x784x32x3xf16, #NWCH, [@CMX_NN, 3]>) outputs([[COPY_OUT3]] : memref<1x784x32x3xf16, #NWCH, @DDR>) -> memref<1x784x32x3xf16, #NWCH, @DDR>
+  //CHECK-SAME:                 inputs([[COPY_IN3]] : memref<1x784x32x3xf16, {order = #NWCH}, [@CMX_NN, 3]>) outputs([[COPY_OUT3]] : memref<1x784x32x3xf16, {order = #NWCH}, @DDR>) -> memref<1x784x32x3xf16, {order = #NWCH}, @DDR>
   //CHECK:              }
-  //CHECK:              return [[DDR_OUT]] : memref<1x784x32x6xf16, #NWCH, @DDR>
+  //CHECK:              return [[DDR_OUT]] : memref<1x784x32x6xf16, {order = #NWCH}, @DDR>
 }

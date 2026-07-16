@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/activation.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/normalization.hpp"
@@ -15,6 +16,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_matmul_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/factors.hpp"
@@ -206,9 +208,21 @@ mlir::LogicalResult AdjustShapeForSoftmax::matchAndRewrite(VPU::SoftMaxOp softma
 
     auto reshapeInOp = rewriter.create<VPU::ShapeCastOp>(softmaxOp.getLoc(), inType.changeShape(shape),
                                                          softmaxOp.getInput(), getIntArrayAttr(ctx, shape));
-    auto newSoftmaxOp =
-            rewriter.create<VPU::SoftMaxOp>(softmaxOp.getLoc(), reshapeInOp.getResult(), getIntAttr(ctx, axisInd),
-                                            softmaxOp.getPadSizeAttr(), softmaxOp.getDstElemTypeAttr());
+
+    mlir::Value newMax;
+    if (const auto origMax = softmaxOp.getMax()) {
+        // max shape = adjusted input shape with the new axis dim set to 1
+        auto maxShape = std::move(shape);
+        maxShape[Dim(axisInd)] = 1;
+        const auto maxType = mlir::cast<vpux::NDTypeInterface>(origMax.getType());
+        auto reshapeMaxOp = rewriter.create<VPU::ShapeCastOp>(softmaxOp.getLoc(), maxType.changeShape(maxShape),
+                                                              origMax, getIntArrayAttr(ctx, maxShape));
+        newMax = reshapeMaxOp.getResult();
+    }
+
+    auto newSoftmaxOp = rewriter.create<VPU::SoftMaxOp>(softmaxOp.getLoc(), reshapeInOp.getResult(), newMax,
+                                                        getIntAttr(ctx, axisInd), softmaxOp.getPadSizeAttr(),
+                                                        softmaxOp.getDstElemTypeAttr(), softmaxOp.getMaskAwareAttr());
     auto reshapeOutOp = rewriter.create<VPU::ShapeCastOp>(softmaxOp.getLoc(), outType, newSoftmaxOp.getOutput(),
                                                           getIntArrayAttr(ctx, inShape));
 
@@ -256,78 +270,86 @@ mlir::LogicalResult adjustForMultiShaveOptGeneric(Shape& shape, const DimsOrder&
 }
 
 //
-// AdjustShapeForGelu
+// AdjustShapeForUnaryMultiShave
 //
-// This rewritter adjusts shape of Gelu by gathering dimensions on the tiling dim for multi-Clusters and multi-SHAVEs
-// optimization:
-// 1. Shape is adjusted when SW layer has batch, otherwise Clustering strategy would be assigned.
-// 2. Shape is adjusted to ensure the dim size of the highest dimension is enough for SHAVEs engines.
-class AdjustShapeForGelu final : public mlir::OpRewritePattern<VPU::GeluOp> {
+// Shared rewriter for unary elementwise SW ops (e.g. Gelu, Convert, Swish) that gathers dimensions on the
+// tiling dim for multi-Cluster and multi-SHAVE optimization:
+// 1. Shape is adjusted when the SW layer has a batch dimension, otherwise Clustering strategy would
+//    be assigned.
+// 2. Shape is adjusted to ensure the tile-dim size is large enough for all SHAVE engines.
+// The adjusted op is built via rewriter.clone to avoid per-op builder overloads.
+template <class UnaryOp>
+class AdjustShapeForUnaryMultiShave final : public mlir::OpRewritePattern<UnaryOp> {
 public:
-    AdjustShapeForGelu(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<VPU::GeluOp>(ctx), _log(log) {
-        this->setDebugName("AdjustShapeForGelu");
+    AdjustShapeForUnaryMultiShave(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<UnaryOp>(ctx), _log(log) {
+        this->setDebugName("AdjustShapeForUnaryMultiShave");
     }
 
 private:
-    mlir::LogicalResult matchAndRewrite(VPU::GeluOp geluOp, mlir::PatternRewriter& rewriter) const final;
-    mlir::LogicalResult adjustForMultiShaveOpt(Shape& shape, const DimsOrder& order, const int64_t numActShaves) const;
+    mlir::LogicalResult matchAndRewrite(UnaryOp op, mlir::PatternRewriter& rewriter) const final;
 
 private:
     Logger _log;
 };
 
-mlir::LogicalResult AdjustShapeForGelu::adjustForMultiShaveOpt(Shape& shape, const DimsOrder& order,
-                                                               const int64_t numActShaves) const {
-    return adjustForMultiShaveOptGeneric(shape, order, numActShaves);
-}
+template <class UnaryOp>
+mlir::LogicalResult AdjustShapeForUnaryMultiShave<UnaryOp>::matchAndRewrite(UnaryOp op,
+                                                                            mlir::PatternRewriter& rewriter) const {
+    _log.trace("Got {0} at loc '{1}'", op->getName(), op->getLoc());
 
-mlir::LogicalResult AdjustShapeForGelu::matchAndRewrite(VPU::GeluOp geluOp, mlir::PatternRewriter& rewriter) const {
-    _log.trace("Got {0} at loc '{1}'", geluOp->getName(), geluOp->getLoc());
+    // Skip SwishOp with a tensor beta operand: reshaping both input and beta would require
+    // per-operand shape analysis. Only the scalar beta_value attribute path is supported.
+    if constexpr (std::is_same_v<UnaryOp, VPU::SwishOp>) {
+        if (op.getBeta() != nullptr) {
+            _log.trace("SwishOp has a beta tensor operand at {0}, skipping adjustment", op->getLoc());
+            return mlir::failure();
+        }
+    }
 
-    const auto ctx = getContext();
+    const auto ctx = rewriter.getContext();
 
-    const auto origIOType = mlir::cast<vpux::NDTypeInterface>(geluOp.getOutput().getType());
-    const auto origIOOrder = origIOType.getDimsOrder();
-    const auto origIOShape = origIOType.getShape();
+    const auto origInputType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType());
+    const auto origOutputType = mlir::cast<vpux::NDTypeInterface>(op.getOutput().getType());
+    const auto origIOOrder = origOutputType.getDimsOrder();
+    const auto origIOShape = origOutputType.getShape();
 
     auto shape = origIOShape.toValues();
 
     // [Tracking number E#178570] skip dynamic shapes as ShapeCastOp cannot handle them yet
     if (shape.isDynamic()) {
-        _log.trace("GeluOp has dynamic shape at {0}, no adjustment is required", geluOp->getLoc());
+        _log.trace("Op has dynamic shape at {0}, no adjustment is required", op->getLoc());
         return mlir::failure();
     }
 
-    const auto numActShaves = config::getTotalNumOfEngines(geluOp, config::ExecutorKind::SHAVE_ACT);
-    const auto multiShaveOpt = adjustForMultiShaveOpt(shape, origIOOrder, numActShaves);
-    if (mlir::failed(multiShaveOpt)) {
-        _log.trace("MultiShaveOpt is not required at {0}", geluOp->getLoc());
+    const auto numActShaves = config::getTotalNumOfEngines(op, config::ExecutorKind::SHAVE_ACT);
+    if (mlir::failed(adjustForMultiShaveOptGeneric(shape, origIOOrder, numActShaves))) {
+        _log.trace("MultiShaveOpt is not required at {0}", op->getLoc());
         return mlir::failure();
     }
 
-    auto dimN = origIOOrder.dimAt(0);
-    auto nonNDims = irange(static_cast<size_t>(1), origIOOrder.numDims());
-    auto anyNonNDimIsGreaterThanShaveNum = llvm::any_of(nonNDims, [&](int64_t idx) {
+    const auto dimN = origIOOrder.dimAt(0);
+    const auto nonNDims = irange(static_cast<size_t>(1), origIOOrder.numDims());
+    const auto anyNonNDimIsGreaterThanShaveNum = llvm::any_of(nonNDims, [&](int64_t idx) {
         return origIOShape[origIOOrder.dimAt(idx)] >= numActShaves;
     });
     if (origIOShape[dimN] == 1 && anyNonNDimIsGreaterThanShaveNum) {
-        _log.nest(1).trace("MultiShaveOpt is not required since some dim can support multi shave tiling at {1}",
-                           geluOp->getLoc());
+        _log.nest(1).trace("MultiShaveOpt is not required since some dim can support multi shave tiling at {0}",
+                           op->getLoc());
         return mlir::failure();
     }
 
-    _log.nest(1).trace("Adjusted shape to {0} for MultiShaveOpt at {1}", shape, geluOp->getLoc());
+    _log.nest(1).trace("Adjusted shape to {0} for MultiShaveOpt at {1}", shape, op->getLoc());
 
-    auto reshapeInOp = rewriter.create<VPU::ShapeCastOp>(geluOp->getLoc(), origIOType.changeShape(shape),
-                                                         geluOp.getInput(), getIntArrayAttr(ctx, shape));
+    auto reshapeInOp = rewriter.create<VPU::ShapeCastOp>(op->getLoc(), origInputType.changeShape(shape), op.getInput(),
+                                                         getIntArrayAttr(ctx, shape));
 
-    auto newGeluOp = rewriter.create<VPU::GeluOp>(geluOp->getLoc(), reshapeInOp.getResult(), nullptr);
+    mlir::IRMapping mapping;
+    mapping.map(op.getInput(), reshapeInOp.getResult());
+    auto* clonedOp = rewriter.clone(*op, mapping);
+    clonedOp->getResult(0).setType(origOutputType.changeShape(shape));
 
-    auto reshapeOutOp = rewriter.create<VPU::ShapeCastOp>(geluOp->getLoc(), origIOType, newGeluOp.getOutput(),
-                                                          getIntArrayAttr(ctx, origIOShape));
-
-    geluOp.replaceAllUsesWith(reshapeOutOp.getResult());
-    rewriter.eraseOp(geluOp);
+    rewriter.replaceOpWithNewOp<VPU::ShapeCastOp>(op, origOutputType, clonedOp->getResult(0),
+                                                  getIntArrayAttr(ctx, origIOShape));
 
     return mlir::success();
 }
@@ -422,14 +444,14 @@ public:
 
 private:
     mlir::LogicalResult matchAndRewrite(VPU::MVNOp mvnOp, mlir::PatternRewriter& rewriter) const final;
-    mlir::LogicalResult adjustForMultiShaveOpt(Shape& shape, bool& isAcrossChannels, const DimsOrder order) const;
+    mlir::LogicalResult adjustForMultiShaveOpt(Shape& shape, bool& isAcrossChannels, const DimsOrder& order) const;
 
 private:
     Logger _log;
 };
 
 mlir::LogicalResult AdjustShapeForMVN::adjustForMultiShaveOpt(Shape& shape, bool& isAcrossChannels,
-                                                              const DimsOrder order) const {
+                                                              const DimsOrder& order) const {
     const auto N = shape[Dims4D::Act::N];
     if (order != DimsOrder::NCHW || N == 1) {
         return mlir::failure();
@@ -736,13 +758,31 @@ mlir::LogicalResult AdjustShapeForNCEMatMul::matchAndRewrite(VPU::NCEMatMulOp or
     auto input2Type = mlir::cast<vpux::NDTypeInterface>(origOp.getWeights().getType());
     auto origOutputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
     auto outputType = VPU::inferNCEMatmulOutputType(input1Type, input2Type, origOutputType);
+    SmallVector<mlir::Type> extraReduceTypes;
+    const auto resultSegmentSizes = origOp.getProperties().getResultSegmentSizes();
+    // Fall back to the original op's reduce types; override with re-inferred types when available.
+    mlir::Type reduceXyMaxType = origOp.getReduceXyMax() ? origOp.getReduceXyMax().getType() : nullptr;
+    mlir::Type reduceXyMinType = origOp.getReduceXyMin() ? origOp.getReduceXyMin().getType() : nullptr;
+    mlir::Type reduceTensorMinMaxType =
+            origOp.getReduceTensorMinMax() ? origOp.getReduceTensorMinMax().getType() : nullptr;
+    if (mlir::succeeded(VPU::inferReduceExtraNCETypes(origOp.getLoc(), outputType, origOp.getAxesValueAttr(),
+                                                      resultSegmentSizes, extraReduceTypes)) &&
+        !extraReduceTypes.empty()) {
+        // resultSegmentSizes layout: [output, reduceXyMax, reduceXyMin, reduceTensorMinMax].
+        // extraReduceTypes is densely packed — one entry per active reduce slot (indices 1-3).
+        size_t reduceIdx = 0;
+        reduceXyMaxType = resultSegmentSizes[1] ? extraReduceTypes[reduceIdx++] : nullptr;
+        reduceXyMinType = resultSegmentSizes[2] ? extraReduceTypes[reduceIdx++] : nullptr;
+        reduceTensorMinMaxType = resultSegmentSizes[3] ? extraReduceTypes[reduceIdx++] : nullptr;
+    }
 
     auto newMatMulOp = rewriter.create<VPU::NCEMatMulOp>(
-            origOp.getLoc(), outputType, newInput.getOutput(), origOp.getWeights(), origOp.getWeightsTable(),
-            origOp.getWeightTableDataPtr(), origOp.getWeightTableSpPtr(), origOp.getWeightTableScale(),
-            origOp.getWeightTableBias(), origOp.getWeightZeroPoints(), origOp.getStridesAttr(), origOp.getPadAttr(),
-            origOp.getPpeAttr(), origOp.getMpeEngineAttr(), origOp.getRawFilterShapeAttr(),
-            /* multiClusterStrategyAttr = */ nullptr);
+            origOp.getLoc(), outputType, reduceXyMaxType, reduceXyMinType, reduceTensorMinMaxType, newInput.getOutput(),
+            origOp.getWeights(), origOp.getWeightsTable(), origOp.getWeightTableDataPtr(), origOp.getWeightTableSpPtr(),
+            origOp.getWeightTableScale(), origOp.getWeightTableBias(), origOp.getWeightZeroPoints(),
+            origOp.getStridesAttr(), origOp.getPadAttr(), origOp.getPpeAttr(), origOp.getMpeEngineAttr(),
+            /*rawFilterShape=*/origOp.getRawFilterShape(), origOp.getStaticRawFilterShape(),
+            /* multiClusterStrategyAttr = */ nullptr, origOp.getAxesValueAttr());
 
     const auto outShape = getShape(origOp.getOutput()).toValues();
     SmallVector<SmallVector<int64_t>> outDimMapping{{DimsGroups5D::Act::G.ind()},
@@ -889,7 +929,9 @@ void AdjustForOptimizedLayersPass::safeRunOnFunc() {
 
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<AdjustShapeForSoftmax>(&ctx, _log);
-    patterns.add<AdjustShapeForGelu>(&ctx, _log);
+    patterns.add<AdjustShapeForUnaryMultiShave<VPU::GeluOp>>(&ctx, _log);
+    patterns.add<AdjustShapeForUnaryMultiShave<VPU::ConvertOp>>(&ctx, _log);
+    patterns.add<AdjustShapeForUnaryMultiShave<VPU::SwishOp>>(&ctx, _log);
     patterns.add<AdjustShapeForMultiply>(&ctx, _log);
     patterns.add<AdjustShapeForMVN>(&ctx, _log);
 

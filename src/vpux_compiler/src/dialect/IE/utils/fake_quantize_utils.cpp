@@ -12,6 +12,7 @@
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/loop.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/utils/core/mem_size.hpp"
 
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 
@@ -266,16 +267,13 @@ mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(IE::Subt
                                                                                           : mlir::failure();
 }
 
-mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(IE::ConvertOp& convertOp) {
+mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(IE::ConvertOp& convertOp,
+                                                                        mlir::Operation* opUser) {
     opChain.push_back(convertOp.getOperation());
 
-    // Check following ops
-    if (!convertOp->hasOneUse()) {
-        // We decided to only treat the single-use case for now
-        log.trace("Match failed: Got {0} with 0 or multiple users", convertOp->getName());
-        return mlir::failure();
+    if (opUser == nullptr) {
+        opUser = *convertOp->user_begin();
     }
-    auto opUser = *convertOp->user_begin();
 
     inputValue = convertOp.getOutput();
     if (const auto inputBlock = mlir::dyn_cast<mlir::BlockArgument>(convertOp.getInput())) {
@@ -313,7 +311,8 @@ mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(IE::Conv
     return mlir::failure();
 }
 
-mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(Const::DeclareOp& declareOp) {
+mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(Const::DeclareOp& declareOp,
+                                                                        mlir::Operation* opUser) {
     opChain.push_back(declareOp.getOperation());
 
     const auto& inputAttr = declareOp.getContentAttr();
@@ -342,25 +341,26 @@ mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(Const::D
         return mlir::failure();
     }
 
-    // Check following ops
-    const auto users = declareOp->getUsers();
-    if (users.empty()) {
-        return mlir::failure();
+    // When a specific user is provided use it directly; otherwise find the first
+    // user that hasn't already been quantized.
+    mlir::Operation* nextOp = opUser;
+    if (nextOp == nullptr) {
+        const auto users = declareOp->getUsers();
+        const auto it = llvm::find_if_not(users, [](const mlir::OpOperand& use) {
+            return mlir::isa<IE::FakeQuantizeOp>(use.getOwner());
+        });
+        nextOp = (it != users.end()) ? *it : nullptr;
     }
 
-    const auto nonFqOp = llvm::find_if_not(users, [](const mlir::OpOperand& use) {
-        return mlir::isa<IE::FakeQuantizeOp>(use.getOwner());
-    });
-    // Prevent matching ops that were already quantized
-    if (nonFqOp == users.end()) {
+    if (nextOp == nullptr || mlir::isa<IE::FakeQuantizeOp>(nextOp)) {
         log.trace("Match failed: FakeQuantizeOp already present at end of structure");
         return mlir::failure();
     }
 
-    if (auto subtractOp = mlir::dyn_cast<IE::SubtractOp>(*nonFqOp)) {
+    if (auto subtractOp = mlir::dyn_cast<IE::SubtractOp>(nextOp)) {
         return this->initializeStructure(subtractOp);
     }
-    if (auto multiplyOp = mlir::dyn_cast<IE::MultiplyOp>(*nonFqOp)) {
+    if (auto multiplyOp = mlir::dyn_cast<IE::MultiplyOp>(nextOp)) {
         return this->initializeStructure(multiplyOp);
     }
 
@@ -371,9 +371,10 @@ WeightsDequantizeStructureInfo::WeightsDequantizeStructureInfo(const Logger& log
 }
 
 mlir::FailureOr<WeightsDequantizeStructureInfo> WeightsDequantizeStructureInfo::create(Const::DeclareOp origOp,
-                                                                                       const Logger& log) {
+                                                                                       const Logger& log,
+                                                                                       mlir::Operation* opUser) {
     WeightsDequantizeStructureInfo info(log);
-    const auto status = info.initializeStructure(origOp);
+    const auto status = info.initializeStructure(origOp, opUser);
     if (mlir::succeeded(status)) {
         return info;
     }
@@ -381,9 +382,10 @@ mlir::FailureOr<WeightsDequantizeStructureInfo> WeightsDequantizeStructureInfo::
 }
 
 mlir::FailureOr<WeightsDequantizeStructureInfo> WeightsDequantizeStructureInfo::create(IE::ConvertOp origOp,
-                                                                                       const Logger& log) {
+                                                                                       const Logger& log,
+                                                                                       mlir::Operation* opUser) {
     WeightsDequantizeStructureInfo info(log);
-    const auto status = info.initializeStructure(origOp);
+    const auto status = info.initializeStructure(origOp, opUser);
     if (mlir::succeeded(status)) {
         return info;
     }
@@ -681,16 +683,60 @@ type::QuantileType tryParsingNF4(Const::DeclareOp constOp) {
     return nullptr;
 }
 
-bool WeightsDequantizeStructureInfo::isI4ConsumedByGather() const {
+bool WeightsDequantizeStructureInfo::isQuantizedConsumedByGather() const {
+    // Only defer when weights are a type supported by the DynamicDequantize SHAVE kernel:
+    // I4, I8, U2
+    const auto elemType = getLowPrecisionElemType();
+    const auto intType = mlir::dyn_cast<mlir::IntegerType>(elemType);
+    const bool isQuantizedType =
+            intType && ((!intType.isUnsigned() && (intType.getWidth() == 4 || intType.getWidth() == 8)) ||
+                        (intType.isUnsigned() && intType.getWidth() == 2));
+    if (!isQuantizedType) {
+        return false;
+    }
+
     auto* lastOp = getLastOp();
     if (!lastOp->getResult(0).hasOneUse()) {
         return false;
     }
-    if (!mlir::isa<IE::GatherOp>(*lastOp->getResult(0).user_begin())) {
+    // A ConvertOp may sit between the WD chain and the Gather when the Gather
+    // operates on a higher-precision type (e.g. FP32). Look through it.
+    auto* consumer = *lastOp->getResult(0).user_begin();
+    if (auto convertOp = mlir::dyn_cast<IE::ConvertOp>(consumer)) {
+        if (!convertOp.getOutput().hasOneUse()) {
+            return false;
+        }
+        consumer = *convertOp.getOutput().user_begin();
+    }
+    auto gatherOp = mlir::dyn_cast<IE::GatherOp>(consumer);
+    if (!gatherOp) {
         return false;
     }
-    auto elemType = getLowPrecisionElemType();
-    return elemType.isInteger(4);
+
+    // If the Gather can be fully folded at compile time, deferring
+    // dequantization has no benefit. Return false to allow conversion to
+    // FakeQuantize instead.
+    const bool indicesAreConst = gatherOp.getIndices().getDefiningOp<Const::DeclareOp>() != nullptr;
+    const bool axisIsKnown =
+            gatherOp.getAxisValue().has_value() ||
+            (gatherOp.getAxis() != nullptr && gatherOp.getAxis().getDefiningOp<Const::DeclareOp>() != nullptr);
+    if (indicesAreConst && axisIsKnown) {
+        return false;
+    }
+
+    // For I8, deferring dequantization only pays off when the table is large enough for
+    // the blob size reduction (2x compression vs FP16) to outweigh the DynamicDequantize
+    // runtime overhead.  Apply only when the table exceeds kMinTableSizeForI8.
+    if (intType && !intType.isUnsigned() && intType.getWidth() == 8) {
+        constexpr auto kMinTableSizeForI8 = 32_MB;
+        const Byte tableSizeBytes(getInputType().getShape().totalSize());
+        if (tableSizeBytes < Byte(kMinTableSizeForI8)) {
+            log.trace("Skip I8 gather-dequant: table is {0}, below minimum {1}", tableSizeBytes, kMinTableSizeForI8);
+            return false;
+        }
+    }
+
+    return true;
 }
 
 }  // namespace IE

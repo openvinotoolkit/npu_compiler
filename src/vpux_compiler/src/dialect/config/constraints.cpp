@@ -22,3 +22,10 @@ const NPUConstraints& vpux::config::getNPUConstraints(mlir::MLIRContext* context
     auto& registeredInterface = getCache<ConfigCache, ConfigDialect>(context);
     return registeredInterface.getConstraints();
 }
+
+const NPUConstraints& vpux::config::updateMaxKernelSize(mlir::MLIRContext* context, uint32_t maxKernelSize) {
+    auto& registeredInterface = getCache<ConfigCache, ConfigDialect>(context);
+    auto& npuConstraints = registeredInterface._npuConstraints;
+    npuConstraints.maxKernelSize = maxKernelSize;
+    return npuConstraints;
+}

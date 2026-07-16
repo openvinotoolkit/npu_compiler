@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "vpux/compiler/dialect/config/constraints_initializer.hpp"
+#include "vpux/compiler/dialect/config/IR/attributes.hpp"
 
 #include <mlir/IR/DialectRegistry.h>
 
@@ -23,24 +23,24 @@ namespace vpux::config {
 // registerConstraints
 //
 
-void registerConstraints(mlir::DialectRegistry& registry, PlatformOrArch target);
+void registerConstraints(mlir::DialectRegistry& registry, config::Platform platform);
 
 }  // namespace vpux::config
 
 namespace vpux::IE {
 
-void registerStrategies(mlir::DialectRegistry& registry, config::ArchKind arch);
+void registerStrategies(mlir::DialectRegistry& registry, config::Platform platform);
 
 }  // namespace vpux::IE
 
 namespace vpux::VPU {
 
-void registerStrategies(mlir::DialectRegistry& registry, config::ArchKind arch);
+void registerStrategies(mlir::DialectRegistry& registry, config::Platform platform);
 
 }  // namespace vpux::VPU
 
 namespace vpux::VPUIP {
 
-void registerStrategies(mlir::DialectRegistry& registry, config::ArchKind arch);
+void registerStrategies(mlir::DialectRegistry& registry, config::Platform platform);
 
 }  // namespace vpux::VPUIP

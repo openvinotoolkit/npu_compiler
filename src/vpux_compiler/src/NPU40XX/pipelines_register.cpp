@@ -28,7 +28,7 @@ void PipelineRegistry40XX::registerPipelines() {
     mlir::PassPipelineRegistration<DefaultHWOptions40XX>(
             "reference-sw-mode", "Compile IE Network in Reference Software mode (SW only execution) for VPU40XX",
             [](mlir::OpPassManager& pm, const DefaultHWOptions40XX& options) {
-                VPU::InitCompilerOptions initCompilerOptions{config::ArchKind::NPU40XX,
+                VPU::InitCompilerOptions initCompilerOptions{config::Platform::NPU4000,
                                                              config::CompilationMode::ReferenceSW, options};
                 auto createPipelineStartegy = [&](config::CompilationMode) {
                     return createDialectPipelineStrategy40XXReferenceSW<DefaultHWOptions40XX>(&initCompilerOptions,
@@ -41,7 +41,7 @@ void PipelineRegistry40XX::registerPipelines() {
     mlir::PassPipelineRegistration<DefaultHWOptions40XX>(
             "default-hw-mode", "Compile IE Network in Default Hardware mode (HW and SW execution) for VPU40XX",
             [](mlir::OpPassManager& pm, const DefaultHWOptions40XX& options) {
-                VPU::InitCompilerOptions initCompilerOptions{config::ArchKind::NPU40XX,
+                VPU::InitCompilerOptions initCompilerOptions{config::Platform::NPU4000,
                                                              config::CompilationMode::DefaultHW, options};
                 auto createPipelineStartegy = [&](config::CompilationMode) {
                     return createDialectPipelineStrategy40XX<DefaultHWOptions40XX>(&initCompilerOptions, &options);
@@ -53,7 +53,7 @@ void PipelineRegistry40XX::registerPipelines() {
     mlir::PassPipelineRegistration<DefaultHWOptions40XX>(
             "host-compile", "Compile IE Network in Host mode (host and HW execution) for NPU40XX",
             [](mlir::OpPassManager& pm, const DefaultHWOptions40XX& options) {
-                VPU::InitCompilerOptions initCompilerOptions{config::ArchKind::NPU40XX,
+                VPU::InitCompilerOptions initCompilerOptions{config::Platform::NPU4000,
                                                              config::CompilationMode::HostCompile, options};
                 auto createPipelineStrategy = [&](config::CompilationMode compilationMode) {
                     return createDialectPipelineStrategy40XXHostCompile<DefaultHWOptions40XX>(

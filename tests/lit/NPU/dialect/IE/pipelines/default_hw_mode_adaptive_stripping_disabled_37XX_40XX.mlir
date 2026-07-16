@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW enable-adaptive-stripping=false" --mlir-elide-elementsattrs-if-larger 8 --default-hw-mode-ie %s | FileCheck %s --strict-whitespace
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW enable-adaptive-stripping=false" --mlir-elide-elementsattrs-if-larger 8 --default-hw-mode-ie %s | FileCheck %s --strict-whitespace
+// REQUIRES: platform-NPU3720 || platform-NPU4000
 
 // E#129083
 // CHECK-LABEL: @NoMultiplyFQFusion

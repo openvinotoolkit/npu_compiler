@@ -22,7 +22,7 @@ using namespace vpux;
 using MLIR_MCStrategy_Getter = MLIR_UnitBase;
 
 TEST_F(MLIR_MCStrategy_Getter, MCGetterListNPU37XX) {
-    VPU::registerStrategies(registry, config::ArchKind::NPU37XX);
+    VPU::registerStrategies(registry, config::Platform::NPU3720);
     mlir::MLIRContext ctx(registry);
     ctx.loadDialect<VPU::VPUDialect>();
 
@@ -43,7 +43,7 @@ TEST_F(MLIR_MCStrategy_Getter, MCGetterListNPU37XX) {
 }
 
 TEST_F(MLIR_MCStrategy_Getter, MCGetterListNPU40XX) {
-    VPU::registerStrategies(registry, config::ArchKind::NPU40XX);
+    VPU::registerStrategies(registry, config::Platform::NPU4000);
     mlir::MLIRContext ctx(registry);
     ctx.loadDialect<VPU::VPUDialect>();
 

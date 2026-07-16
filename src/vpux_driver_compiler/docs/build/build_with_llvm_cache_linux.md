@@ -71,6 +71,7 @@ export CommonBuildOptions="-D ENABLE_LTO=OFF \
                           -D ENABLE_INTEL_NPU_PROTOPIPE=OFF \
                           -D BUILD_COMPILER_FOR_DRIVER=ON \
                           -D ENABLE_PRIVATE_TESTS=OFF \
+                          -D ENABLE_DIRECTML=OFF \
                           -D ENABLE_NPU_LSP_SERVER=OFF"
 ```
 </details>
@@ -111,7 +112,7 @@ cmake \
     ${CommonBuildOptions} \
     ..
 
-ninja npu_driver_compiler compilerTest profilingTest vpuxCompilerL0Test loaderTest -j$(nproc)
+ninja openvino_intel_npu_compiler openvino_intel_npu_compiler_loader compilerTest profilingTest vpuxCompilerL0Test loaderTest -j$(nproc)
 
 # Optional, compress and pack all CiD targets
 cpack -V -D CPACK_COMPONENTS_ALL=CiD -D CPACK_CMAKE_GENERATOR=Ninja -D CPACK_PACKAGE_FILE_NAME="${CONFIG}" -G "TGZ"
@@ -191,7 +192,7 @@ Once the LLVM cache is built and installed into a directory, it can be used for 
         ${CommonBuildOptions} \
         ..
 
-    ninja npu_driver_compiler compilerTest profilingTest vpuxCompilerL0Test loaderTest -j${nproc}
+    ninja openvino_intel_npu_compiler openvino_intel_npu_compiler_loader compilerTest profilingTest vpuxCompilerL0Test loaderTest -j${nproc}
     ```
     </details>
 

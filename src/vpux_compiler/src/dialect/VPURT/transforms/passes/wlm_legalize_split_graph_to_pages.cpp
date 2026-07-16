@@ -34,15 +34,9 @@ private:
 
 void WlmLegalizeSplitGraphToPagesPass::safeRunOnFunc() {
     auto func = getOperation();
-    auto module = func->getParentOfType<mlir::ModuleOp>();
 
     const auto numBarriers =
             numBarriersOpt.hasValue() ? numBarriersOpt.getValue() : VPUIP::getNumAvailableBarriers(func);
-
-    if (config::getWorkloadManagementStatus(module) != WorkloadManagementStatus::ENABLED) {
-        // WLM is not supported, no need to run this pass
-        return;
-    }
 
     auto& barrierInfo = getAnalysis<BarrierInfo>();
     VPURT::BarrierPagesSplitHandler barrierPagesSplitHandler(func, barrierInfo, numBarriers, _log);

@@ -113,3 +113,158 @@ func.func @NotShrinkForUnbeneficialGroupMatMul(%arg0: tensor<1x24x1024x64xf32>, 
 
     // CHECK:       IE.Broadcast
 }
+
+// -----
+
+// Case 3: Broadcast -> Transpose(5D swap last 2 dims) -> AffineReshape -> MatMul
+// Models the KV-cache V-matmul pattern in Qwen2 decode:
+//   RHS: 1x2x1x1152x64 -> Broadcast -> 1x2x7x1152x64
+//         -> Transpose(d0,d1,d2,d4,d3) -> 1x2x7x64x1152
+//         -> AffineReshape -> 1x14x64x1152
+//   LHS: 1x14x1x1152
+// Shrinks to a 2-group MatMul.
+
+#NDHWC_SWAP = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d4, d3)>
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+
+// CHECK-LABEL: @ShrinkMatmulGroupsCase3VMatMul
+// CHECK-SAME:      [[INPUT1:%.+]]: tensor<1x14x1x1152xf32>,
+// CHECK-SAME:      [[INPUT2:%.+]]: tensor<1x2x1x1152x64xf32>
+func.func @ShrinkMatmulGroupsCase3VMatMul(%arg0: tensor<1x14x1x1152xf32>, %arg1: tensor<1x2x1x1152x64xf32>) -> tensor<1x14x1x64xf32> {
+    %cst = const.Declare tensor<5xsi64> = dense<[1, 2, 7, 1152, 64]> : tensor<5xsi64>
+
+    %0 = IE.Broadcast(%arg1, %cst) {mode = #IE.broadcast_type<BIDIRECTIONAL>} : tensor<1x2x1x1152x64xf32>, tensor<5xsi64> -> tensor<1x2x7x1152x64xf32>
+    %1 = IE.Transpose(%0) {order_value = #NDHWC_SWAP} : tensor<1x2x7x1152x64xf32> -> tensor<1x2x7x64x1152xf32>
+    %2 = IE.AffineReshape(%1) {dim_mapping = [[0], [1], [1], [2], [3]], shape_value = [1, 14, 64, 1152]} : tensor<1x2x7x64x1152xf32> -> tensor<1x14x64x1152xf32>
+    %3 = IE.MatMul(%arg0, %2) {transpose_b} : tensor<1x14x1x1152xf32>, tensor<1x14x64x1152xf32> -> tensor<1x14x1x64xf32>
+
+    return %3 : tensor<1x14x1x64xf32>
+
+    // CHECK:       [[LHS:%.+]] = IE.Reshape([[INPUT1]]) {shape_value = [1, 2, 7, 1152]} : tensor<1x14x1x1152xf32> -> tensor<1x2x7x1152xf32>
+    // CHECK:       [[RHS_RESHAPE:%.+]] = IE.Reshape([[INPUT2]]) {shape_value = [1, 2, 1152, 64]} : tensor<1x2x1x1152x64xf32> -> tensor<1x2x1152x64xf32>
+    // CHECK:       [[RHS_TRANSPOSE:%.+]] = IE.Transpose([[RHS_RESHAPE]]) {order_value = #NCWH} : tensor<1x2x1152x64xf32> -> tensor<1x2x64x1152xf32>
+    // CHECK:       [[MATMUL:%.+]] = IE.MatMul([[LHS]], [[RHS_TRANSPOSE]]) {transpose_b} : tensor<1x2x7x1152xf32>, tensor<1x2x64x1152xf32> -> tensor<1x2x7x64xf32>
+    // CHECK:       [[RESULT:%.+]] = IE.Reshape([[MATMUL]]) {shape_value = [1, 14, 1, 64]} : tensor<1x2x7x64xf32> -> tensor<1x14x1x64xf32>
+    // CHECK:       return [[RESULT]] : tensor<1x14x1x64xf32>
+}
+
+// -----
+
+// Case 3 variant: inner 5D Transpose swaps last 2 dims of the Broadcast output
+// then the AffineReshape collapses (d1,d2) into C, matching the K-matmul pattern
+// in Qwen2 decode where RHS is 1x2x1x64x1152 (transposed KV-cache).
+
+#NDHWC_SWAP = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d4, d3)>
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+
+// CHECK-LABEL: @ShrinkMatmulGroupsCase3KMatMul
+// CHECK-SAME:      [[INPUT1:%.+]]: tensor<1x14x1x64xf32>,
+// CHECK-SAME:      [[INPUT2:%.+]]: tensor<1x2x1x64x1152xf32>
+func.func @ShrinkMatmulGroupsCase3KMatMul(%arg0: tensor<1x14x1x64xf32>, %arg1: tensor<1x2x1x64x1152xf32>) -> tensor<1x14x1x1152xf32> {
+    %cst = const.Declare tensor<5xsi64> = dense<[1, 2, 7, 64, 1152]> : tensor<5xsi64>
+
+    %0 = IE.Broadcast(%arg1, %cst) {mode = #IE.broadcast_type<BIDIRECTIONAL>} : tensor<1x2x1x64x1152xf32>, tensor<5xsi64> -> tensor<1x2x7x64x1152xf32>
+    %1 = IE.Transpose(%0) {order_value = #NDHWC_SWAP} : tensor<1x2x7x64x1152xf32> -> tensor<1x2x7x1152x64xf32>
+    %2 = IE.AffineReshape(%1) {dim_mapping = [[0], [1], [1], [2], [3]], shape_value = [1, 14, 1152, 64]} : tensor<1x2x7x1152x64xf32> -> tensor<1x14x1152x64xf32>
+    %3 = IE.MatMul(%arg0, %2) {transpose_b} : tensor<1x14x1x64xf32>, tensor<1x14x1152x64xf32> -> tensor<1x14x1x1152xf32>
+
+    return %3 : tensor<1x14x1x1152xf32>
+
+    // CHECK:       [[LHS:%.+]] = IE.Reshape([[INPUT1]]) {shape_value = [1, 2, 7, 64]} : tensor<1x14x1x64xf32> -> tensor<1x2x7x64xf32>
+    // CHECK:       [[RHS_RESHAPE:%.+]] = IE.Reshape([[INPUT2]]) {shape_value = [1, 2, 64, 1152]} : tensor<1x2x1x64x1152xf32> -> tensor<1x2x64x1152xf32>
+    // CHECK:       [[RHS_TRANSPOSE:%.+]] = IE.Transpose([[RHS_RESHAPE]]) {order_value = #NCWH} : tensor<1x2x64x1152xf32> -> tensor<1x2x1152x64xf32>
+    // CHECK:       [[MATMUL:%.+]] = IE.MatMul([[LHS]], [[RHS_TRANSPOSE]]) {transpose_b} : tensor<1x2x7x64xf32>, tensor<1x2x1152x64xf32> -> tensor<1x2x7x1152xf32>
+    // CHECK:       [[RESULT:%.+]] = IE.Reshape([[MATMUL]]) {shape_value = [1, 14, 1, 1152]} : tensor<1x2x7x1152xf32> -> tensor<1x14x1x1152xf32>
+    // CHECK:       return [[RESULT]] : tensor<1x14x1x1152xf32>
+}
+
+// -----
+
+// Case 3 with dim_mapping = [[0],[0],[1],[2],[3]]: the AffineReshape collapses d0+d1
+// (trivial N=1) rather than d1+d2, mirroring ShrinkMatmulGroupsWithTrivialD1 but with
+// an inner 5D Transpose present. This exercises the [[0],[0],[1],[2],[3]] path in the
+// unified RHS reshape logic and ensures the rewrite correctly drops the unit d2 from
+// the broadcast input regardless of which leading dims are folded.
+// newGroupNum = broadcastOutputShape[C] = 1.
+
+#NDHWC_SWAP = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d4, d3)>
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+
+// CHECK-LABEL: @ShrinkMatmulGroupsCase3TrivialC
+// CHECK-SAME:      [[INPUT1:%.+]]: tensor<1x7x1x1152xf32>,
+// CHECK-SAME:      [[INPUT2:%.+]]: tensor<1x1x1x1152x64xf32>
+func.func @ShrinkMatmulGroupsCase3TrivialC(%arg0: tensor<1x7x1x1152xf32>, %arg1: tensor<1x1x1x1152x64xf32>) -> tensor<1x7x1x64xf32> {
+    %cst = const.Declare tensor<5xsi64> = dense<[1, 1, 7, 1152, 64]> : tensor<5xsi64>
+
+    %0 = IE.Broadcast(%arg1, %cst) {mode = #IE.broadcast_type<BIDIRECTIONAL>} : tensor<1x1x1x1152x64xf32>, tensor<5xsi64> -> tensor<1x1x7x1152x64xf32>
+    %1 = IE.Transpose(%0) {order_value = #NDHWC_SWAP} : tensor<1x1x7x1152x64xf32> -> tensor<1x1x7x64x1152xf32>
+    %2 = IE.AffineReshape(%1) {dim_mapping = [[0], [0], [1], [2], [3]], shape_value = [1, 7, 64, 1152]} : tensor<1x1x7x64x1152xf32> -> tensor<1x7x64x1152xf32>
+    %3 = IE.MatMul(%arg0, %2) {transpose_b} : tensor<1x7x1x1152xf32>, tensor<1x7x64x1152xf32> -> tensor<1x7x1x64xf32>
+
+    return %3 : tensor<1x7x1x64xf32>
+
+    // CHECK:       [[LHS:%.+]] = IE.Reshape([[INPUT1]]) {shape_value = [1, 1, 7, 1152]} : tensor<1x7x1x1152xf32> -> tensor<1x1x7x1152xf32>
+    // CHECK:       [[RHS_RESHAPE:%.+]] = IE.Reshape([[INPUT2]]) {shape_value = [1, 1, 1152, 64]} : tensor<1x1x1x1152x64xf32> -> tensor<1x1x1152x64xf32>
+    // CHECK:       [[RHS_TRANSPOSE:%.+]] = IE.Transpose([[RHS_RESHAPE]]) {order_value = #NCWH} : tensor<1x1x1152x64xf32> -> tensor<1x1x64x1152xf32>
+    // CHECK:       [[MATMUL:%.+]] = IE.MatMul([[LHS]], [[RHS_TRANSPOSE]]) {transpose_b} : tensor<1x1x7x1152xf32>, tensor<1x1x64x1152xf32> -> tensor<1x1x7x64xf32>
+    // CHECK:       [[RESULT:%.+]] = IE.Reshape([[MATMUL]]) {shape_value = [1, 7, 1, 64]} : tensor<1x1x7x64xf32> -> tensor<1x7x1x64xf32>
+    // CHECK:       return [[RESULT]] : tensor<1x7x1x64xf32>
+}
+
+// -----
+
+// Negative test for Case 3: inner Transpose is NOT a last-2-dims swap
+// (swaps dims 1 and 2 instead of dims 3 and 4), so
+// checkSwapLast2DimsTranspose() rejects it and the pass must not fire.
+// Shapes are chosen so checkMatMul and checkAffineReshape both pass, ensuring
+// the rejection happens inside the checkSwapLast2DimsTranspose() guard.
+
+#SWAP_D1_D2 = affine_map<(d0, d1, d2, d3, d4) -> (d0, d2, d1, d3, d4)>
+
+// CHECK-LABEL: @NotShrinkCase3WrongInnerTranspose
+// CHECK-SAME:      [[INPUT1:%.+]]: tensor<1x14x1x64xf32>,
+// CHECK-SAME:      [[INPUT2:%.+]]: tensor<1x2x1x1152x64xf32>
+func.func @NotShrinkCase3WrongInnerTranspose(%arg0: tensor<1x14x1x64xf32>, %arg1: tensor<1x2x1x1152x64xf32>) -> tensor<1x14x1x1152xf32> {
+    %cst = const.Declare tensor<5xsi64> = dense<[1, 2, 7, 1152, 64]> : tensor<5xsi64>
+
+    %0 = IE.Broadcast(%arg1, %cst) {mode = #IE.broadcast_type<BIDIRECTIONAL>} : tensor<1x2x1x1152x64xf32>, tensor<5xsi64> -> tensor<1x2x7x1152x64xf32>
+    %1 = IE.Transpose(%0) {order_value = #SWAP_D1_D2} : tensor<1x2x7x1152x64xf32> -> tensor<1x7x2x1152x64xf32>
+    %2 = IE.AffineReshape(%1) {dim_mapping = [[0], [1], [1], [2], [3]], shape_value = [1, 14, 1152, 64]} : tensor<1x7x2x1152x64xf32> -> tensor<1x14x1152x64xf32>
+    %3 = IE.MatMul(%arg0, %2) {transpose_b} : tensor<1x14x1x64xf32>, tensor<1x14x1152x64xf32> -> tensor<1x14x1x1152xf32>
+
+    return %3 : tensor<1x14x1x1152xf32>
+
+    // CHECK:       IE.Broadcast
+    // CHECK:       IE.Transpose
+    // CHECK:       IE.AffineReshape
+    // CHECK:       IE.MatMul
+}
+
+// -----
+
+// Negative test for Case 3: inner Transpose IS a valid last-2-dims swap, but the
+// AffineReshape uses dim_mapping = [[0], [1], [2], [2], [3]] (merges d2+d3 into output d2),
+// so the last two dims are NOT preserved (outputShape[H]=448 != inputShape[H]=64).
+// Shapes are chosen so checkMatMul passes (LHS C=2 matches RHS C=2, LHS W=1152 matches
+// RHS W=1152), ensuring the rejection happens at checkAffineReshape.
+
+#NDHWC_SWAP = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d4, d3)>
+
+// CHECK-LABEL: @NotShrinkCase3WrongDimMapping
+// CHECK-SAME:      [[INPUT1:%.+]]: tensor<1x2x1x1152xf32>,
+// CHECK-SAME:      [[INPUT2:%.+]]: tensor<1x2x1x1152x64xf32>
+func.func @NotShrinkCase3WrongDimMapping(%arg0: tensor<1x2x1x1152xf32>, %arg1: tensor<1x2x1x1152x64xf32>) -> tensor<1x2x1x448xf32> {
+    %cst = const.Declare tensor<5xsi64> = dense<[1, 2, 7, 1152, 64]> : tensor<5xsi64>
+
+    %0 = IE.Broadcast(%arg1, %cst) {mode = #IE.broadcast_type<BIDIRECTIONAL>} : tensor<1x2x1x1152x64xf32>, tensor<5xsi64> -> tensor<1x2x7x1152x64xf32>
+    %1 = IE.Transpose(%0) {order_value = #NDHWC_SWAP} : tensor<1x2x7x1152x64xf32> -> tensor<1x2x7x64x1152xf32>
+    %2 = IE.AffineReshape(%1) {dim_mapping = [[0], [1], [2], [2], [3]], shape_value = [1, 2, 448, 1152]} : tensor<1x2x7x64x1152xf32> -> tensor<1x2x448x1152xf32>
+    %3 = IE.MatMul(%arg0, %2) {transpose_b} : tensor<1x2x1x1152xf32>, tensor<1x2x448x1152xf32> -> tensor<1x2x1x448xf32>
+
+    return %3 : tensor<1x2x1x448xf32>
+
+    // CHECK:       IE.Broadcast
+    // CHECK:       IE.Transpose
+    // CHECK:       IE.AffineReshape
+    // CHECK:       IE.MatMul
+}

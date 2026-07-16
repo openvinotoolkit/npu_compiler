@@ -178,3 +178,23 @@ func.func @SliceWithDynamicWTensorType(%arg0: !InputDistributed)
     // CHECK:        return [[SLICE]] : tensor<1x12x400x?xf32, {bounds = #const.OpaqueI64Elements<[1, 12, 400, 1280]> : tensor<4xsi64>, order = #NCHW}>
 
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!BoundedInput = tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>
+!BoundedOutput = tensor<1x4x1440x2560xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>
+
+// CHECK-LABEL: @SliceWithBoundedDynamicInput
+// CHECK-SAME:        ([[INPUT:%.+]]: tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>)
+func.func @SliceWithBoundedDynamicInput(%arg0: !BoundedInput)
+    -> !BoundedOutput {
+
+    %0 = VPU.Slice %arg0 [0, 0, 0, 0] [1, 4, 1440, 2560] : !BoundedInput to !BoundedOutput
+    return %0 : !BoundedOutput
+
+    // CHECK:        [[SLICE:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 4, 1440, 2560] : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x4x1440x2560xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>
+    // CHECK:        return [[SLICE]] : tensor<1x4x1440x2560xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>
+
+}

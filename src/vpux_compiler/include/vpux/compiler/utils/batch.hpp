@@ -112,6 +112,6 @@ struct DebatchCoefficients {
     std::string to_string(bool includeNodeNames = false) const;
 
 private:
-    std::multimap<std::string, DebatchCoeffDescription> orderedInputCoefficients;
+    std::multimap<std::string, DebatchCoeffDescription, std::less<>> orderedInputCoefficients;
 };
 }  // namespace vpux

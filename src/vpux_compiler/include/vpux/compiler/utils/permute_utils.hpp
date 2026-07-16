@@ -35,12 +35,12 @@ details::DimValues<MemDim, T, Tag> applyPerm(const details::DimValues<MemDim, T,
 
 SmallVector<int64_t> getPermutateDims(MemShapeRef inShape, mlir::AffineMap memPerm);
 bool isTrivialPermute(MemShapeRef inShape, mlir::AffineMap memPerm);
-bool isTrivialReorder(DimsOrder inOrder, DimsOrder outOrder, ShapeRef shape);
+bool isTrivialReorder(const DimsOrder& inOrder, const DimsOrder& outOrder, ShapeRef shape);
 
-mlir::AffineMap getPermutationFromOrders(DimsOrder inOrder, DimsOrder outOrder, mlir::MLIRContext* ctx);
-DimsOrder applyPermutation(const DimsOrder lhs, const DimsOrder rhs);
+mlir::AffineMap getPermutationFromOrders(const DimsOrder& inOrder, const DimsOrder& outOrder, mlir::MLIRContext* ctx);
+DimsOrder applyPermutation(const DimsOrder& srcOrder, const DimsOrder& dstOrder);
 
-DimsOrder moveD0ToTheFront(DimsOrder inOrder);
+DimsOrder moveD0ToTheFront(const DimsOrder& inOrder);
 
 std::pair<SmallVector<uint32_t>, SmallVector<int64_t>> getMergedPermutationAndShape(NDTypeInterface input,
                                                                                     mlir::AffineMap permutation,
@@ -49,8 +49,8 @@ void extendPermutationAndShape(SmallVector<uint32_t>& permutation, SmallVector<i
 
 NDTypeInterface inferNewTypeWithMemPerm(NDTypeInterface oldType, mlir::AffineMap memPerm, const DimsOrder& dstOrder);
 
-std::optional<mlir::AffineMap> tryToFindPermutationForPermuteCast(NDTypeInterface inputType, DimsOrder outOrder,
+std::optional<mlir::AffineMap> tryToFindPermutationForPermuteCast(NDTypeInterface inputType, const DimsOrder& outOrder,
                                                                   ShapeRef outShape, mlir::MLIRContext* ctx);
 
-Dim inferDimAfterPermutation(Dim dim, DimsOrder srcOrder, DimsOrder dstOrder, mlir::AffineMap perm);
+Dim inferDimAfterPermutation(Dim dim, const DimsOrder& srcOrder, const DimsOrder& dstOrder, mlir::AffineMap perm);
 }  // namespace vpux

@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
+#include "vpux/compiler/dialect/Shave/IR/ops/meta-ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/IR/tiling_info.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
@@ -29,8 +30,6 @@ namespace vpux {
 namespace VPUIP {
 
 constexpr int64_t NPU40XX_SW_KERNEL_ADDRESS_ALIGNMENT = 32;
-constexpr size_t MIN_FREE_CYCLES_FOR_PREFETCH_280K = 280000;
-constexpr size_t MIN_FREE_CYCLES_FOR_PREFETCH_250K = 250000;
 
 SmallVector<mlir::Attribute> kernelArgsRange(VPUIP::SwKernelOp swKernelOp) {
     SmallVector<mlir::Attribute> attrStorage;
@@ -106,7 +105,7 @@ mlir::SymbolRefAttr createBuiltInFunction(mlir::ModuleOp module, StringRef built
                                                                    funcType);
 
     // modifying attributes
-    builtInOp.setSymVisibilityAttr(mlir::StringAttr::get(ctx, "private"));
+    builtInOp.setSymVisibilityAttr(mlir::StringAttr::get(ctx, "nested"));
 
     builtInOp->setAttr("VPU.kernel_entry", mlir::StringAttr::get(ctx, kernelEntryName));
     builtInOp->setAttr("VPU.kernel_code", mlir::StringAttr::get(ctx, kernelSourceFileName));
@@ -124,7 +123,7 @@ mlir::SymbolRefAttr createBuiltInFunction(mlir::ModuleOp module, VPU::LayerOpInt
     OpBuilderLogger builderLog(log);
 
     SmallString builtInFunctionName{VPUIP::SW_KERNEL_NAME_PREFIX};
-    if (auto externalKernelOp = mlir::dyn_cast<VPU::ExternalKernelOp>(origOp.getOperation())) {
+    if (auto externalKernelOp = mlir::dyn_cast<Shave::ExternalKernelOp>(origOp.getOperation())) {
         builtInFunctionName.append(externalKernelOp.getUniqueId().str());
     } else {
         auto nonNamespaceOpName = origOp->getName().getStringRef().slice(
@@ -170,7 +169,7 @@ mlir::SymbolRefAttr createBuiltInFunction(mlir::ModuleOp module, VPU::LayerOpInt
                                         kernelInfo.sourceFileName, kernelInfo.layerName, log);
 }
 
-void createRuntimeKernelDefinition(mlir::ModuleOp module, const Logger& log, vpux::config::ArchKind arch) {
+void createRuntimeKernelDefinition(mlir::ModuleOp module, const Logger& log) {
     auto vpuswModule = getVPUSWModule(module, log);
 
     static const SmallString runtimeKernelName{"runtime"};
@@ -193,7 +192,7 @@ void createRuntimeKernelDefinition(mlir::ModuleOp module, const Logger& log, vpu
             innerModuleBuilder.create<mlir::func::FuncOp>(mlir::UnknownLoc::get(ctx), runtimeKernelName, funcType);
 
     // modifying attributes
-    runtimeFunctionOp.setSymVisibilityAttr(mlir::StringAttr::get(ctx, "private"));
+    runtimeFunctionOp.setSymVisibilityAttr(mlir::StringAttr::get(ctx, "nested"));
 
     runtimeFunctionOp->setAttr("VPU.kernel_code", mlir::StringAttr::get(ctx, runtimeKernelEntryName));
 
@@ -205,14 +204,9 @@ void createRuntimeKernelDefinition(mlir::ModuleOp module, const Logger& log, vpu
 
     static constexpr int64_t defaultStackSize = 4096;
 
-    constexpr int nShavePerTile = 2;
-    auto tilesUsed = VPUIP::getNumTilesUsed(module);
-    auto maxShaves = tilesUsed * nShavePerTile;
-    if (arch == vpux::config::ArchKind::NPU40XX) {
-        maxShaves = std::min(maxShaves, static_cast<int64_t>(12));
-    } else if (arch == vpux::config::ArchKind::NPU50XX) {
-        maxShaves = std::min(maxShaves, static_cast<int64_t>(6));
-    }
+    const auto tilesUsed = VPUIP::getNumTilesUsed(module);
+    const auto numShavesPerTile = vpux::config::getNumOfEnginesOnTile(module, config::ExecutorKind::SHAVE_ACT);
+    const auto maxShaves = tilesUsed * numShavesPerTile;
     SmallVector<int64_t> stacksArray(maxShaves, defaultStackSize);
 
     //  adding runtime kernel configuration - stacks, etc
@@ -293,7 +287,15 @@ void initSwKernel(VPUIP::SwKernelOp swKernelOp, mlir::ValueRange inputs, mlir::V
 }
 
 SmallVector<int64_t> reversePermutation(mlir::AffineMap map) {
-    const auto origPerm = DimsOrder::fromAffineMap(map).toPermutation();
+    if (map.isEmpty()) {
+        return {};
+    }
+    // In 2 steps (order + origPerm) just to pass coverity
+    const auto order = DimsOrder::fromAffineMap(map);
+    const auto& origPerm = order.toPermutation();
+    if (origPerm.empty()) {
+        return {};
+    }
     SmallVector<int64_t> revPerm(origPerm.size());
     for (const auto srcInd : irange(origPerm.size())) {
         const auto dstInd = origPerm[srcInd].ind();
@@ -394,21 +396,31 @@ bool isJitKernelOp(VPUIP::SwKernelOp swKernelOp) {
     return !kernelFunc.isExternal();
 }
 
-SmallString getSwKernelEntryName(VPUIP::SwKernelOp swKernelOp) {
+std::optional<SmallString> getSwKernelEntryNameOpt(VPUIP::SwKernelOp swKernelOp) {
     auto module = swKernelOp->getParentOfType<mlir::ModuleOp>();
     auto kernelFunc = module.lookupSymbol<mlir::FunctionOpInterface>(swKernelOp.getKernelFunctionAttr());
-    VPUX_THROW_WHEN(kernelFunc == nullptr, "Cannot find kernel function symbol at '{0}'", swKernelOp->getLoc());
+    if (kernelFunc == nullptr) {
+        return std::nullopt;
+    }
     if (!kernelFunc.isExternal()) {
         // ShaveCodeGen kernel, just return its name.
-        return kernelFunc.getName();
+        return SmallString(kernelFunc.getName());
     }
     auto kernelEntryPoint = kernelFunc->getAttrOfType<mlir::StringAttr>("VPU.kernel_name");
     // Ensure backward compatibility; kernel_name can be the same as kernel_entry.
     if (kernelEntryPoint == nullptr) {
         kernelEntryPoint = kernelFunc->getAttrOfType<mlir::StringAttr>("VPU.kernel_entry");
     }
-    VPUX_THROW_WHEN(kernelEntryPoint == nullptr, "Cannot find kernel entry point at '{0}'", swKernelOp->getLoc());
-    return kernelEntryPoint.getValue();
+    if (kernelEntryPoint == nullptr) {
+        return std::nullopt;
+    }
+    return SmallString(kernelEntryPoint.getValue());
+}
+
+SmallString getSwKernelEntryName(VPUIP::SwKernelOp swKernelOp) {
+    auto entryName = getSwKernelEntryNameOpt(swKernelOp);
+    VPUX_THROW_UNLESS(entryName.has_value(), "Cannot find kernel entry point at '{0}'", swKernelOp->getLoc());
+    return entryName.value();
 }
 
 // Check whether SwKernelOp is activation.
@@ -435,6 +447,19 @@ bool isSwKernelUseDpu(VPUIP::SwKernelOp swKernelOp) {
     if (llvm::find(SW_KERNELS_USE_DPU, kernelEntryName) != SW_KERNELS_USE_DPU.end()) {
         return true;
     }
+    return false;
+}
+
+// Check if the given task is SHV Sync DMA
+
+// SHV Sync DMAs are special DMAs legalized for SHV submitting DMAs such that the task immediately after them is a
+// ReleaseDMA for SHV task If such release DMA doesn't exist the legalization pass ensures to create one.
+//  SHV Sync DMAs are used as insertion point for Skip DMAs for SHV
+bool isShvSyncDmaTask(VPURT::TaskOp taskOp) {
+    if (auto syncDMAOp = mlir::dyn_cast<VPUIP::SyncDMAOp>(taskOp.getInnerTaskOp())) {
+        return syncDMAOp->getAttr(VPUIP::LOGICAL_TASK_INDEX_ATTR_NAME) != nullptr;
+    }
+
     return false;
 }
 
@@ -465,14 +490,12 @@ bool isDpuShaveKernelType(VPURT::TaskOp taskOp) {
 
 // Check if SwKernelOp uses DMA exclusively to access Input/Output data
 bool isIoDmaSwKernel(VPUIP::SwKernelOp swKernelOp) {
-    try {
-        SmallString kernelEntryName = getSwKernelEntryName(swKernelOp);
-        return llvm::is_contained(SW_KERNELS_IO_DMA, kernelEntryName);
-    } catch (...) {
-        // - cache_flush/invalidate ops which don't have IOs or entry point
-        // - phony SW ops from LIT tests
+    auto kernelEntryName = getSwKernelEntryNameOpt(swKernelOp);
+    if (!kernelEntryName.has_value()) {
+        // Expected case: cache_flush/invalidate ops or phony SW ops
         return false;
     }
+    return llvm::is_contained(SW_KERNELS_IO_DMA, kernelEntryName.value());
 }
 
 bool isStridedMemPermuteSupported(VPUIP::SwKernelOp swKernelOp) {
@@ -595,14 +618,20 @@ void getQuantParamsAttr(mlir::Value qValue, mlir::Type pType, mlir::ArrayAttr& p
 
 namespace {
 // reverse int attribute from the physical order
-int64_t reverseMemDim(DimsOrder inOrder, int64_t dimIdx) {
-    const auto origPerm = inOrder.toPermutation();
+int64_t reverseMemDim(const DimsOrder& inOrder, int64_t dimIdx) {
+    const auto& origPerm = inOrder.toPermutation();
+    VPUX_THROW_UNLESS(!origPerm.empty(), "Got empty dims order");
+    VPUX_THROW_UNLESS(dimIdx >= 0 && checked_cast<size_t>(dimIdx) < origPerm.size(),
+                      "Dim index '{0}' is out of bounds for dims order '{1}'", dimIdx, inOrder);
     return origPerm[origPerm.size() - 1 - dimIdx].ind();
 }
 
 // reverse int array attribute from the physical order
-SmallVector<int64_t> reverseIntArrayAttr(DimsOrder inOrder, mlir::ArrayAttr arrayAttr) {
-    const auto origPerm = inOrder.toPermutation();
+SmallVector<int64_t> reverseIntArrayAttr(const DimsOrder& inOrder, mlir::ArrayAttr arrayAttr) {
+    if (inOrder.empty() || arrayAttr.empty()) {
+        return {};
+    }
+    const auto& origPerm = inOrder.toPermutation();
     const auto origArray = parseIntArrayAttr<int64_t>(arrayAttr);
     SmallVector<int64_t> permArray(arrayAttr.size());
     for (const auto srcInd : irange(origPerm.size())) {
@@ -615,8 +644,11 @@ SmallVector<int64_t> reverseIntArrayAttr(DimsOrder inOrder, mlir::ArrayAttr arra
 }
 
 // permute int array attribute in the physical order
-SmallVector<int64_t> permuteIntArrayAttr(DimsOrder inOrder, ArrayRef<int64_t> origArray) {
-    const auto origPerm = inOrder.toPermutation();
+SmallVector<int64_t> permuteIntArrayAttr(const DimsOrder& inOrder, ArrayRef<int64_t> origArray) {
+    if (inOrder.empty() || origArray.empty()) {
+        return {};
+    }
+    const auto& origPerm = inOrder.toPermutation();
     SmallVector<int64_t> permArray(origArray.size());
     for (const auto srcInd : irange(origPerm.size())) {
         const auto dstInd = origPerm[srcInd].ind();
@@ -659,11 +691,17 @@ InputTiling backInferInterpolateSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, 
     const auto initialInputOffset = reverseIntArrayAttr(inOrder, mlir::dyn_cast<mlir::ArrayAttr>(attrs[10]));
     const auto initialOutputOffset = reverseIntArrayAttr(inOrder, mlir::dyn_cast<mlir::ArrayAttr>(attrs[11]));
 
+    // Extract scalingAxis (attrs[8]), calcMode (attrs[12]) and originalScales (attrs[13])
+    const auto scalingAxis = parseIntArrayAttr<int64_t>(mlir::dyn_cast<mlir::ArrayAttr>(attrs[8]));
+    const auto calcMode = static_cast<IE::InterpolateCalcMode>(mlir::dyn_cast<mlir::IntegerAttr>(attrs[12]).getInt());
+    const auto originalScalesArr = parseFPArrayAttr<double>(mlir::dyn_cast<mlir::ArrayAttr>(attrs[13]));
+
     const auto currentInputDims = to_small_vector(getShape(inputs[0]));
 
     return vpux::backInferInterpolateTile(outputTile, initialInputDims, initialOutputDims, initialInputOffset,
                                           initialOutputOffset, currentInputDims, coordinatesShape, lambdasShape,
-                                          interpolateMode, coordMode, nearestMode, log);
+                                          interpolateMode, coordMode, nearestMode, calcMode, originalScalesArr,
+                                          scalingAxis, log);
 }
 
 int64_t convertKernelAxisToOrigAxis(mlir::Value tensorArg, int64_t kernelAxis) {
@@ -1010,11 +1048,9 @@ InputTiling backInferAttentionSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, co
     const auto inputsMask = mlir::cast<mlir::IntegerAttr>(attrsD[1]).getInt();
     const auto hasAttentionMask = static_cast<bool>(inputsMask & (1 << 3));
     const auto hasScale = static_cast<bool>(inputsMask & (1 << 4));
-    const auto isSinkLayout =
-            static_cast<bool>(inputsMask & (1 << 9));  // Sink kernel uses bit 9 for output; original kernel uses bit 8
-    const auto hasSink = isSinkLayout ? static_cast<bool>(inputsMask & (1 << 5)) : false;
-    const auto hasBias =
-            isSinkLayout ? static_cast<bool>(inputsMask & (1 << 6)) : static_cast<bool>(inputsMask & (1 << 5));
+    const auto hasSink = static_cast<bool>(inputsMask & (1 << 5));
+    const auto hasBias = static_cast<bool>(inputsMask & (1 << 6));
+
     const auto attentionMaskIndex = 3;
     if (hasAttentionMask) {
         TileInfo unknownTile(getShape(swKernelOp->getOperand(attentionMaskIndex)));
@@ -1990,8 +2026,11 @@ InputTiling backInferFlashSDPASwKernelInputTile(VPUIP::SwKernelOp swKernelOp, co
     auto weightsTable0Shape = getShape(swKernelOp.getOperand(5));
     auto weightsTable1Shape = getShape(swKernelOp.getOperand(6));
 
+    auto queryShape = getShape(swKernelOp.getOperand(0));
+    auto qHeads = queryShape[Dims4D::Act::C];
+
     auto inputTiling =
-            vpux::VPU::FlashSDPAOpInputTiling(outputTile, keyShape, attentionMaskShape, auxBufferShape,
+            vpux::VPU::FlashSDPAOpInputTiling(outputTile, qHeads, keyShape, attentionMaskShape, auxBufferShape,
                                               dpuDescriptorBufferShape, weightsTable0Shape, weightsTable1Shape);
 
     auto module = getModuleOp(swKernelOp.getOperation());
@@ -2078,7 +2117,8 @@ InputTiling backInferSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const Small
         return backInferGatherElementsSwKernelInputTile(swKernelOp, outputTile, log);
     } else if (kernelEntryName == "rms_norm") {
         return backInferRMSSwKernelInputTile(swKernelOp, outputTile, log);
-    } else if (kernelEntryName == "rope" || kernelEntryName == "rope_ilv" || kernelEntryName == "rope_pairwise") {
+    } else if (kernelEntryName == "rope" || kernelEntryName == "rope_ilv" || kernelEntryName == "rope_pairwise" ||
+               kernelEntryName == "rope_pairwise_ilv") {
         return backInferRoPESwKernelInputTile(swKernelOp, outputTile, log);
     } else if (kernelEntryName == "sdpa") {
         return backInferSDPASwKernelInputTile(swKernelOp, outputTile, log);
@@ -2318,7 +2358,8 @@ SmallVector<vpux::NDTypeInterface> getSwKernelTiledTypes(VPUIP::SwKernelOp swKer
         }
 
         return {inputType, outputType};
-    } else if (kernelEntryName == "rope" || kernelEntryName == "rope_ilv" || kernelEntryName == "rope_pairwise") {
+    } else if (kernelEntryName == "rope" || kernelEntryName == "rope_ilv" || kernelEntryName == "rope_pairwise" ||
+               kernelEntryName == "rope_pairwise_ilv") {
         const auto inputType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getOperand(0).getType());
         const auto cosType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getOperand(1).getType());
         const auto sinType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getOperand(2).getType());
@@ -2418,18 +2459,6 @@ int64_t getSwKernelTilingAddressAlignment(VPUIP::SwKernelOp swkernelOp, config::
     return NPU40XX_SW_KERNEL_ADDRESS_ALIGNMENT;
 }
 
-std::pair<bool, size_t> getSwKernelInstructionPrefetchConfig(config::ArchKind arch) {
-    // Return {useDummyKernelForInstructionPrefetch, minimumShaveStartTimeForPrefetch}
-    switch (arch) {
-    case config::ArchKind::NPU40XX:
-        return std::make_pair(true, MIN_FREE_CYCLES_FOR_PREFETCH_280K);
-    case config::ArchKind::NPU50XX:
-        return std::make_pair(false, MIN_FREE_CYCLES_FOR_PREFETCH_250K);
-    default:
-        VPUX_THROW("Unsupported Arch {0} to do Shave Instruction Prefetch", arch);
-    }
-}
-
 mlir::SymbolRefAttr createCacheHandlingFunction(mlir::MLIRContext* ctx, OpBuilderLogger& builderLog, Logger log,
                                                 VPUIP::SwKernelOp origOp, mlir::StringRef functionName,
                                                 VPU::ActShaveTaskType type) {
@@ -2447,24 +2476,11 @@ mlir::SymbolRefAttr createCacheHandlingFunction(mlir::MLIRContext* ctx, OpBuilde
                 innerModuleBuilder.create<mlir::func::FuncOp>(mlir::UnknownLoc::get(ctx), functionName, funcType);
 
         // modify attributes
-        newFuncOp.setSymVisibilityAttr(mlir::StringAttr::get(ctx, "private"));
+        newFuncOp.setSymVisibilityAttr(mlir::StringAttr::get(ctx, "nested"));
         newFuncOp->setAttr(vpuTaskTypeAttrName, mlir::SymbolRefAttr::get(ctx, VPU::stringifyActShaveTaskType(type)));
     }
 
     return functionSymbol;
-}
-
-// Check whether SwKernelOp dispatches dynamic DMAs.
-bool isSwKernelUsingDma(VPUIP::SwKernelOp swKernelOp) {
-    // Ignore cache_flush_invalidate/cache_flush ops which don't have IOs
-    if (swKernelOp.getInputs().empty() || swKernelOp.getOutputBuffs().empty()) {
-        return false;
-    }
-    auto kernelEntryName = getSwKernelEntryName(swKernelOp);
-    if (llvm::find(SW_KERNELS_USING_DMA, kernelEntryName) != SW_KERNELS_USING_DMA.end()) {
-        return true;
-    }
-    return false;
 }
 
 }  // namespace VPUIP

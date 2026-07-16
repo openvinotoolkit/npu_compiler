@@ -10,6 +10,10 @@ using namespace ov::test::utils;
 
 namespace ov {
 namespace test {
+
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(NormalizeL2LayerTest);
+
 class NormalizeL2LayerTestCommon : public NormalizeL2LayerTest, virtual public VpuOv2LayerTest {};
 class NormalizeL2LayerTest_6DPU : public NormalizeL2LayerTestCommon {};
 class NormalizeL2LayerTest_2DPU : public NormalizeL2LayerTestCommon {};

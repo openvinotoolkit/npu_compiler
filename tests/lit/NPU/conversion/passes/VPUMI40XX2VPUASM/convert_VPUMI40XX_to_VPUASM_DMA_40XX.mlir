@@ -24,7 +24,7 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
   }
   VPUASM.ProfilingBindings profilingDeclarations : {
   }
-  func.func private @nndma_4d_to_4d_with_single_shape() {
+  func.func nested @nndma_4d_to_4d_with_single_shape() {
     %0 = VPUMI40XX.DeclareTaskBuffer <DMA> -> !VPURegMapped.Index<0:0:0>
     %1 = VPURT.DeclareBuffer <NetworkInput> [0] <0> {swizzlingKey = 0 : i64} -> memref<2x2x2x2xf16, {order = #NCHW, strides = [256, 64, 16, 1]}, @DDR>
     %2 = VPURT.DeclareBuffer <NetworkOutput> [0] <0> {swizzlingKey = 0 : i64} -> memref<2x2x2x2xf16, {order = #NCHW, strides = [256, 64, 16, 1]}, @DDR>
@@ -63,19 +63,19 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
     VPUASM.DeclareBuffer @input_buffDecl !VPUASM.Buffer< "NetworkInput"[0] <0> : memref<1x320x3x103xf32, {order = #NHWC, strides = [2764800, 1, 921600, 1280]}, @DDR> :  swizzling(0)>
   }
   VPUASM.OutputBindings outputDeclarations : {
-    VPUASM.DeclareBuffer @output_buffDecl !VPUASM.Buffer< "NetworkOutput"[0] <0> : memref<1x320x3x103xf16, #NHWC, @DDR> :  swizzling(0)>
+    VPUASM.DeclareBuffer @output_buffDecl !VPUASM.Buffer< "NetworkOutput"[0] <0> : memref<1x320x3x103xf16, {order = #NHWC}, @DDR> :  swizzling(0)>
   }
   VPUASM.ProfilingBindings profilingDeclarations : {
   }
 
-  func.func private @ConvertDMAWithF32ToF16() {
+  func.func nested @ConvertDMAWithF32ToF16() {
     %0 = VPUMI40XX.DeclareTaskBuffer <DMA> -> !VPURegMapped.Index<0:0:0>
     %1 = VPURT.DeclareBuffer <NetworkInput> [0] <0> {swizzlingKey = 0 : i64} -> memref<1x320x3x103xf32, {order = #NHWC, strides = [2764800, 1, 921600, 1280]}, @DDR>
-    %2 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x320x3x103xf16, #NHWC, [@CMX_NN, 0]>
+    %2 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x320x3x103xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     %3 = VPUMI40XX.NNDMA <{port = 0 : i64}> taskLocation(%0 : !VPURegMapped.Index<0:0:0>)
          inputs(%1 : memref<1x320x3x103xf32, {order = #NHWC, strides = [2764800, 1, 921600, 1280]}, @DDR>)
-         outputs(%2 : memref<1x320x3x103xf16, #NHWC, [@CMX_NN, 0]>) start_after(1) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:0:0>
+         outputs(%2 : memref<1x320x3x103xf16, {order = #NHWC}, [@CMX_NN, 0]>) start_after(1) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:0:0>
 
     %miV = VPUMI40XX.MappedInferenceVersion(11 _ 4 _ 10) -> !VPURegMapped.Index<0:0:0>
     %mi = VPUMI40XX.MappedInference dmas((%3) : (!VPURegMapped.Index<0:0:0>)) dmaCount([[1, 0]]) invariantCount([0]) variantCount([0]) actKernelRangesCount([[0, 0]]) actKernelInvocationsCount([[0, 0]]) mediaCount(0) barrierCount(0) bootstrapBarriersCount(0) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>

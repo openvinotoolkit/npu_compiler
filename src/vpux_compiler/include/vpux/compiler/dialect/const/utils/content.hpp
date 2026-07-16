@@ -404,6 +404,8 @@ private:
                 return dispatchByElemTypeImpl<I + 1, N, Caller, Types..., int8_t>(types, std::forward<Caller>(caller));
             } else if (elemType.isSignedInteger(2)) {
                 return dispatchByElemTypeImpl<I + 1, N, Caller, Types..., int8_t>(types, std::forward<Caller>(caller));
+            } else if (elemType.isInteger(1)) {
+                return dispatchByElemTypeImpl<I + 1, N, Caller, Types..., uint8_t>(types, std::forward<Caller>(caller));
             } else if (elemType.isSignedInteger(16)) {
                 return dispatchByElemTypeImpl<I + 1, N, Caller, Types..., int16_t>(types, std::forward<Caller>(caller));
             } else if (elemType.isSignedInteger(32)) {

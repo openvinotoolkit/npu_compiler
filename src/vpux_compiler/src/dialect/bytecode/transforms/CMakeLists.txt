@@ -13,9 +13,11 @@ add_npu_library(${TARGET_NAME}
       PUBLIC
         npu_core_utils
         npu_logger
-        npu_compiler_core
         npu_compiler_utils
       PRIVATE
         npu_compiler_dialect_bytecode
         npu_compiler_dialect_hostexec
+        npu_compiler_dialect_core
+        npu_compiler_dialect_net
+        npu_compiler_dialect_bytecode_utils
 )

@@ -1066,8 +1066,17 @@ template <>
 mlir::Value emitLinalgRegion<IE::AbsOp>(IE::AbsOp op, mlir::ValueRange args, llvm::ArrayRef<mlir::Type> resultTypes,
                                         mlir::PatternRewriter& rewriter) {
     auto loc = op.getLoc();
+    const auto elemType = args[0].getType();
 
-    return rewriter.create<mlir::math::AbsFOp>(loc, resultTypes, args);
+    if (mlir::isa<mlir::FloatType>(elemType)) {
+        return rewriter.create<mlir::math::AbsFOp>(loc, resultTypes, args);
+    }
+
+    if (mlir::isa<mlir::IntegerType>(elemType)) {
+        return rewriter.create<mlir::math::AbsIOp>(loc, resultTypes, args);
+    }
+
+    VPUX_THROW("Unsupported element type '{0}' for IE::AbsOp", elemType);
 }
 
 // Sign layer
@@ -1436,6 +1445,51 @@ mlir::Value emitLinalgRegion<IE::AcosOp>(IE::AcosOp op, mlir::ValueRange args, l
     return rewriter.create<mlir::math::AcosOp>(op->getLoc(), resultTypes[0], args[0], mlir::arith::FastMathFlags::afn);
 }
 
+// Remove quantized types from capsule block arguments and yielded values by inserting storage casts.
+static void stripQuantFromCapsuleSignature(IE::CodeGenCapsuleOp capsuleOp) {
+    auto getStorageTensorType = [](mlir::Type type) -> mlir::TensorType {
+        auto rankedType = mlir::dyn_cast<mlir::RankedTensorType>(type);
+        if (rankedType == nullptr) {
+            return nullptr;
+        }
+
+        auto quantizedType = mlir::dyn_cast<mlir::quant::QuantizedType>(rankedType.getElementType());
+        if (quantizedType == nullptr) {
+            return nullptr;
+        }
+
+        return mlir::RankedTensorType::get(rankedType.getShape(), quantizedType.getStorageType(),
+                                           rankedType.getEncoding());
+    };
+
+    auto* capsuleBlock = capsuleOp.getBody();
+    auto builder = mlir::OpBuilder::atBlockBegin(capsuleBlock);
+
+    for (auto blockArg : capsuleBlock->getArguments()) {
+        auto storageTensorType = getStorageTensorType(blockArg.getType());
+        if (storageTensorType == nullptr) {
+            continue;
+        }
+        const auto originalType = blockArg.getType();
+        blockArg.setType(storageTensorType);
+        auto castBack = builder.create<mlir::quant::StorageCastOp>(capsuleOp.getLoc(), originalType, blockArg);
+        blockArg.replaceAllUsesExcept(castBack.getResult(), castBack.getOperation());
+    }
+
+    auto yieldOp = mlir::cast<IE::CGCYieldOp>(capsuleBlock->getTerminator());
+    builder.setInsertionPoint(yieldOp);
+    for (unsigned operandIdx = 0; operandIdx < yieldOp->getNumOperands(); ++operandIdx) {
+        auto operand = yieldOp->getOperand(operandIdx);
+        auto storageTensorType = getStorageTensorType(operand.getType());
+        if (storageTensorType == nullptr) {
+            continue;
+        }
+
+        auto castToStorage = builder.create<mlir::quant::StorageCastOp>(yieldOp.getLoc(), storageTensorType, operand);
+        yieldOp->setOperand(operandIdx, castToStorage.getResult());
+    }
+}
+
 void ConvertEltwiseLayers2MathPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
@@ -1510,23 +1564,31 @@ void ConvertEltwiseLayers2MathPass::safeRunOnFunc() {
     ShaveCodeGen::populateIESoftmaxToLinalgPatterns(patterns, typeConverter);
     mlir::FrozenRewritePatternSet frozenPatterns(std::move(patterns));
 
+    mlir::RewritePatternSet eltwisePatterns(&ctx);
+    mlir::linalg::populateElementwiseToLinalgConversionPatterns(eltwisePatterns);
+    mlir::FrozenRewritePatternSet frozenEltwisePatterns(std::move(eltwisePatterns));
+
     // E#172607 [ShaveCodeGen] Make Linalg lowering pass run on CodeGenCapsuleOps
-    func->walk([&](IE::CodeGenCapsuleOp capsuleOp) {
+    func->walk([&](IE::CodeGenCapsuleOp capsuleOp) -> mlir::WalkResult {
         if (mlir::failed(mlir::applyPartialConversion(capsuleOp, target, frozenPatterns))) {
             signalPassFailure();
+            return mlir::WalkResult::interrupt();
         }
+
+        // We're applying linalg conversion patterns separately using greedy rewrite
+        // (without a type converter) to avoid having to mark all elementwise ops as
+        // illegal in the main ConversionTarget.
+        if (mlir::failed(mlir::applyPatternsGreedily(capsuleOp, frozenEltwisePatterns,
+                                                     vpux::getDefaultGreedyRewriteConfig()))) {
+            signalPassFailure();
+            return mlir::WalkResult::interrupt();
+        }
+
+        stripQuantFromCapsuleSignature(capsuleOp);
+
+        // CodeGenCapsule ops shouldn't be nested so return skip here.
+        return mlir::WalkResult::skip();
     });
-
-    // We're applying linalg conversion patterns separately using greedy rewrite
-    // (without type converter) to avoid having to mark all elementwise ops as
-    // illegal in the main ConversionTarget.
-    mlir::RewritePatternSet elementwisePatterns(&ctx);
-    mlir::linalg::populateElementwiseToLinalgConversionPatterns(elementwisePatterns);
-
-    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(elementwisePatterns),
-                                                 vpux::getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
-    }
 }
 
 }  // namespace

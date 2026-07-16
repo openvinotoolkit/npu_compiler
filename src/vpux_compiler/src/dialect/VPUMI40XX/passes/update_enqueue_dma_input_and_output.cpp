@@ -16,6 +16,7 @@
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/passes.hpp"
+#include "vpux/compiler/utils/types.hpp"
 
 namespace vpux::VPUMI40XX {
 #define GEN_PASS_DECL_UPDATEENQUEUEDMAINPUTANDOUTPUT
@@ -36,29 +37,29 @@ private:
     void safeRunOnFunc() final;
 
     mlir::Value getOrCreateRegisterBuffer(mlir::OpBuilder& builder, mlir::Operation* bufferInsertionPoint,
-                                          mlir::MemRefType memType, uint32_t fifoAddr);
+                                          mlir::MemRefType memType, uint32_t fifoAddr,
+                                          llvm::DenseMap<std::pair<mlir::Type, uint32_t>, mlir::Value>& regBufferCache);
     Const::DeclareOp createEnqueueConstant(mlir::OpBuilder& builder, mlir::Operation* insertionPoint,
                                            const uint32_t& val);
 
     void updateInputAndOutput(mlir::OpBuilder& builder, VPUMI40XX::NNDMAOp enqueueDma,
                               VPURegMapped::TaskOpInterface taskOp, uint32_t fifoAddr,
-                              mlir::Operation* bufferInsertionPoint, mlir::Operation* cstInsertionPoint);
+                              mlir::Operation* bufferInsertionPoint, mlir::Operation* cstInsertionPoint,
+                              llvm::DenseMap<std::pair<mlir::Type, uint32_t>, mlir::Value>& regBufferCache);
 
-    uint32_t getFifoAddr(VPURegMapped::TaskType type, size_t tile, size_t list);
-
-    llvm::DenseMap<std::pair<mlir::Type, uint32_t>, mlir::Value> _regBufferCache;
-    SmallVector<uint32_t> _shvFIFOAddrs;
-    SmallVector<uint32_t> _dpuFIFOAddrs;
-
-    uint32_t _shavesCountPerTile = 0;
-    uint32_t _tilesCount = 0;
+    uint32_t getFifoAddr(VPURegMapped::TaskType type, size_t tile, size_t list,
+                         const SmallVector<uint32_t>& shvFIFOAddrs, const SmallVector<uint32_t>& dpuFIFOAddrs,
+                         const uint32_t& tilesCount, const uint32_t& shavesCountPerTile);
 };
 
-uint32_t UpdateEnqueueDMAInputAndOutput::getFifoAddr(VPURegMapped::TaskType type, size_t tile, size_t list) {
-    VPUX_THROW_WHEN(tile >= _tilesCount || list > _shavesCountPerTile - 1, "Invalid tile index {0} or list index {1}",
+uint32_t UpdateEnqueueDMAInputAndOutput::getFifoAddr(VPURegMapped::TaskType type, size_t tile, size_t list,
+                                                     const SmallVector<uint32_t>& shvFIFOAddrs,
+                                                     const SmallVector<uint32_t>& dpuFIFOAddrs,
+                                                     const uint32_t& tilesCount, const uint32_t& shavesCountPerTile) {
+    VPUX_THROW_WHEN(tile >= tilesCount || list > shavesCountPerTile - 1, "Invalid tile index {0} or list index {1}",
                     tile, list);
-    return type == VPURegMapped::TaskType::DPUVariant ? _dpuFIFOAddrs[tile]
-                                                      : _shvFIFOAddrs[(_shavesCountPerTile * tile) + list];
+    return type == VPURegMapped::TaskType::DPUVariant ? dpuFIFOAddrs[tile]
+                                                      : shvFIFOAddrs[(shavesCountPerTile * tile) + list];
 }
 
 Const::DeclareOp UpdateEnqueueDMAInputAndOutput::createEnqueueConstant(mlir::OpBuilder& builder,
@@ -68,7 +69,7 @@ Const::DeclareOp UpdateEnqueueDMAInputAndOutput::createEnqueueConstant(mlir::OpB
     const auto dataStorageType = mlir::RankedTensorType::get(valShape.raw(), getUInt32Type(builder.getContext()));
     const auto dataAttr = mlir::DenseElementsAttr::get(dataStorageType, ArrayRef(val));
 
-    auto memType = mlir::MemRefType::get(dataStorageType.getShape(), dataStorageType.getElementType());
+    auto memType = getMemRefType(ShapeRef(dataStorageType.getShape()), dataStorageType.getElementType());
     builder.setInsertionPoint(insertionPoint);
     auto configurationConstOp =
             builder.create<Const::DeclareOp>(builder.getUnknownLoc(), memType, Const::ContentAttr::get(dataAttr));
@@ -76,13 +77,13 @@ Const::DeclareOp UpdateEnqueueDMAInputAndOutput::createEnqueueConstant(mlir::OpB
     return configurationConstOp;
 }
 
-mlir::Value UpdateEnqueueDMAInputAndOutput::getOrCreateRegisterBuffer(mlir::OpBuilder& builder,
-                                                                      mlir::Operation* bufferInsertionPoint,
-                                                                      mlir::MemRefType memType, uint32_t fifoAddr) {
+mlir::Value UpdateEnqueueDMAInputAndOutput::getOrCreateRegisterBuffer(
+        mlir::OpBuilder& builder, mlir::Operation* bufferInsertionPoint, mlir::MemRefType memType, uint32_t fifoAddr,
+        llvm::DenseMap<std::pair<mlir::Type, uint32_t>, mlir::Value>& regBufferCache) {
     std::pair<mlir::Type, uint32_t> key = {memType, fifoAddr};
 
-    auto it = _regBufferCache.find(key);
-    if (it != _regBufferCache.end()) {
+    auto it = regBufferCache.find(key);
+    if (it != regBufferCache.end()) {
         return it->second;
     }
 
@@ -91,16 +92,16 @@ mlir::Value UpdateEnqueueDMAInputAndOutput::getOrCreateRegisterBuffer(mlir::OpBu
                                                           VPURT::BufferSection::Register, fifoAddr);
 
     mlir::Value buffer = declBuf.getBuffer();
-    _regBufferCache[key] = buffer;
+    regBufferCache[key] = buffer;
     return buffer;
 }
 
 // For given enqueue DMA operation create a new enqueue DMA that will have correct input and output buffers and will
 // replace original op
-void UpdateEnqueueDMAInputAndOutput::updateInputAndOutput(mlir::OpBuilder& builder, VPUMI40XX::NNDMAOp enqueueDma,
-                                                          VPURegMapped::TaskOpInterface taskOp, uint32_t fifoAddr,
-                                                          mlir::Operation* bufferInsertionPoint,
-                                                          mlir::Operation* cstInsertionPoint) {
+void UpdateEnqueueDMAInputAndOutput::updateInputAndOutput(
+        mlir::OpBuilder& builder, VPUMI40XX::NNDMAOp enqueueDma, VPURegMapped::TaskOpInterface taskOp,
+        uint32_t fifoAddr, mlir::Operation* bufferInsertionPoint, mlir::Operation* cstInsertionPoint,
+        llvm::DenseMap<std::pair<mlir::Type, uint32_t>, mlir::Value>& regBufferCache) {
     auto ctx = builder.getContext();
     auto cmxTaskLocationBuf = mlir::cast<VPUMI40XX::DeclareTaskBufferOp>(taskOp.getTaskLocation().getDefiningOp());
 
@@ -115,7 +116,6 @@ void UpdateEnqueueDMAInputAndOutput::updateInputAndOutput(mlir::OpBuilder& build
     auto enqueueConstOp = createEnqueueConstant(builder, cstInsertionPoint, descriptorOffsetInCMX);
     const auto constOutputType = mlir::cast<vpux::NDTypeInterface>(enqueueConstOp.getOutput().getType());
 
-    const auto layout = mlir::MemRefLayoutAttrInterface{};
     const auto regMemSpace = vpux::IndexedSymbolAttr::get(ctx, stringifyEnum(VPU::MemoryKind::Register));
     auto outputType = constOutputType.changeMemSpace(regMemSpace);
 
@@ -124,9 +124,9 @@ void UpdateEnqueueDMAInputAndOutput::updateInputAndOutput(mlir::OpBuilder& build
     // ----------------------------------------
 
     builder.setInsertionPoint(bufferInsertionPoint);
-    auto memType = mlir::MemRefType::get(outputType.getShape().raw(), outputType.getElementType(), layout,
-                                         outputType.getMemSpace());
-    mlir::Value dstBuffer = getOrCreateRegisterBuffer(builder, bufferInsertionPoint, memType, fifoAddr);
+    auto memType = getMemRefType(outputType.getShape(), outputType.getElementType(),
+                                 DimsOrder::fromNumDims(outputType.getShape().size()), outputType.getMemSpace());
+    mlir::Value dstBuffer = getOrCreateRegisterBuffer(builder, bufferInsertionPoint, memType, fifoAddr, regBufferCache);
 
     // ----------------------------------------
     // Step 3: Create new DMA operation with proper input and output
@@ -161,12 +161,12 @@ void UpdateEnqueueDMAInputAndOutput::safeRunOnFunc() {
     auto netFunc = getOperation();
     auto mpi = VPUMI40XX::getMPI(netFunc);
 
-    auto parentModule = netFunc.getOperation()->getParentOfType<mlir::ModuleOp>();
-    _shvFIFOAddrs = config::getConstraint<llvm::SmallVector<uint32_t>>(parentModule, config::SHV_FIFO_ADDRS);
-    _dpuFIFOAddrs = config::getConstraint<llvm::SmallVector<uint32_t>>(parentModule, config::DPU_FIFO_ADDRS);
+    auto parentModule = getOperation()->getParentOfType<mlir::ModuleOp>();
+    auto shvFIFOAddrs = config::getConstraint<llvm::SmallVector<uint32_t>>(parentModule, config::SHV_FIFO_ADDRS);
+    auto dpuFIFOAddrs = config::getConstraint<llvm::SmallVector<uint32_t>>(parentModule, config::DPU_FIFO_ADDRS);
 
-    _tilesCount = config::getTileExecutor(parentModule).getCount();
-    _shavesCountPerTile = config::getAvailableExecutor(parentModule, config::ExecutorKind::SHAVE_ACT).getCount();
+    auto tilesCount = config::getTileExecutor(parentModule).getCount();
+    auto shavesCountPerTile = config::getAvailableExecutor(parentModule, config::ExecutorKind::SHAVE_ACT).getCount();
 
     auto dmaTile0List0Head = mpi.getListHead(VPURegMapped::TaskType::DMA, 0, 0);
     if (!dmaTile0List0Head) {
@@ -174,6 +174,7 @@ void UpdateEnqueueDMAInputAndOutput::safeRunOnFunc() {
     }
 
     auto builder = mlir::OpBuilder(mpi.getOperation());
+    llvm::DenseMap<std::pair<mlir::Type, uint32_t>, mlir::Value> regBufferCache;
 
     // Set insertion point where new buffers representing HW FIFO register address will be placed
     auto bufferOps = netFunc.getOps<VPURT::DeclareBufferOp>();
@@ -189,12 +190,12 @@ void UpdateEnqueueDMAInputAndOutput::safeRunOnFunc() {
 
     const mlir::DenseSet<std::pair<VPURegMapped::TaskType, uint32_t>> taskTypesWithListCountPerTile = {
             {{VPURegMapped::TaskType::DPUVariant, 1},
-             {VPURegMapped::TaskType::ActKernelInvocation, _shavesCountPerTile}}};
+             {VPURegMapped::TaskType::ActKernelInvocation, shavesCountPerTile}}};
 
     // Iterate over DPU/SHV tasks on each tile and list and check if task is the head of the enqueued task by the
     // enqueue DMA. If yes update input and output buffer of the enqueue DMA so that it will push task
     // descriptor to HW FIFO register.
-    for (uint32_t tileIdx = 0; tileIdx < _tilesCount; tileIdx++) {
+    for (uint32_t tileIdx = 0; tileIdx < tilesCount; tileIdx++) {
         for (const auto& [taskType, listCount] : taskTypesWithListCountPerTile) {
             for (uint32_t listIdx = 0; listIdx < listCount; listIdx++) {
                 auto listHead = mpi.getListHead(taskType, tileIdx, listIdx);
@@ -206,7 +207,8 @@ void UpdateEnqueueDMAInputAndOutput::safeRunOnFunc() {
                 auto taskOp = mlir::cast<VPURegMapped::TaskOpInterface>(listHead.getDefiningOp());
 
                 auto hwQueue = VPUMI40XX::HwQueueType{taskType, tileIdx, listIdx};
-                auto fifoAddr = getFifoAddr(taskType, tileIdx, listIdx);
+                auto fifoAddr = getFifoAddr(taskType, tileIdx, listIdx, shvFIFOAddrs, dpuFIFOAddrs, tilesCount,
+                                            shavesCountPerTile);
 
                 VPUX_THROW_WHEN(enqueueDmasPerHwQueue.find(hwQueue) == enqueueDmasPerHwQueue.end(),
                                 "No Enqueue DMAs available for task type {0} on tile {1}, list {2}", taskType, tileIdx,
@@ -246,7 +248,7 @@ void UpdateEnqueueDMAInputAndOutput::safeRunOnFunc() {
                     if (taskInd == enqueueDmaStartIdx) {
                         _log.trace("Update input and output data of enqueue DMA for task {0} ", taskInd);
                         updateInputAndOutput(builder, enqueueDmaOp, taskOp, fifoAddr, bufferInsertionPoint,
-                                             cstInsertionPoint);
+                                             cstInsertionPoint, regBufferCache);
                     }
 
                     taskOp = taskOp.getNextTask();

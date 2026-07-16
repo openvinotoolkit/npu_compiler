@@ -37,14 +37,14 @@ module @OneInputOneOutput {
 
 // CHECK: DataInfo "output" : tensor<1x48x60x60xf16>
 
-// CHECK: func.func private @main_part1([[ARG0:%.+]]: tensor<1x3x62x62xf32>) -> tensor<1x48x60x60xf32> {
+// CHECK: func.func nested @main_part1([[ARG0:%.+]]: tensor<1x3x62x62xf32>) -> tensor<1x48x60x60xf32> {
 // CHECK:   [[CST:%.+]] = const.Declare tensor<48x3x3x3xf32> = dense<1.000000e+00> : tensor<48x3x3x3xf32>
 // CHECK:   [[CONV:%.+]] = IE.Convolution([[ARG0]], [[CST]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x3x62x62xf32>, tensor<48x3x3x3xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   [[SOFT:%.+]] = IE.SoftMax([[CONV]]) {axisInd = 1 : i64} : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   return [[SOFT]] : tensor<1x48x60x60xf32>
 // CHECK: }
 
-// CHECK: func.func private @main_part2([[ARG0:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
+// CHECK: func.func nested @main_part2([[ARG0:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
 // CHECK:   [[ADD:%.+]] = IE.Add([[ARG0]], [[ARG0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   [[SOFT:%.+]] = IE.SoftMax([[ADD]]) {axisInd = 1 : i64} : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   return [[SOFT]] : tensor<1x48x60x60xf32>
@@ -93,14 +93,14 @@ module @MultipleInputsOneOutput {
 
 // CHECK: DataInfo "output" : tensor<1x48x60x60xf16>
 
-// CHECK: func.func private @main_part1([[ARG0:%.+]]: tensor<1x3x62x62xf32>) -> tensor<1x48x60x60xf32> {
+// CHECK: func.func nested @main_part1([[ARG0:%.+]]: tensor<1x3x62x62xf32>) -> tensor<1x48x60x60xf32> {
 // CHECK:   [[CST:%.+]] = const.Declare tensor<48x3x3x3xf32> = dense<1.000000e+00> : tensor<48x3x3x3xf32>
 // CHECK:   [[CONV:%.+]] = IE.Convolution([[ARG0]], [[CST]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x3x62x62xf32>, tensor<48x3x3x3xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   [[SOFT:%.+]] = IE.SoftMax([[CONV]]) {axisInd = 1 : i64} : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   return [[SOFT]] : tensor<1x48x60x60xf32>
 // CHECK: }
 
-// CHECK: func.func private @main_part2([[ARG0:%.+]]: tensor<1x48x60x60xf32>, [[ARG1:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
+// CHECK: func.func nested @main_part2([[ARG0:%.+]]: tensor<1x48x60x60xf32>, [[ARG1:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
 // CHECK:   [[ADD:%.+]] = IE.Add([[ARG0]], [[ARG1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   [[SOFT:%.+]] = IE.SoftMax([[ADD]]) {axisInd = 1 : i64} : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   return [[SOFT]] : tensor<1x48x60x60xf32>
@@ -149,14 +149,14 @@ module @OneInputMultipleOutputsFirstSlice {
 // CHECK: DataInfo "output0" : tensor<1x48x60x60xf16>
 // CHECK: DataInfo "output1" : tensor<1x48x60x60xf16>
 
-// CHECK: func.func private @main_part1([[ARG0:%.+]]: tensor<1x3x62x62xf32>) -> (tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>) {
+// CHECK: func.func nested @main_part1([[ARG0:%.+]]: tensor<1x3x62x62xf32>) -> (tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>) {
 // CHECK:   [[CST:%.+]] = const.Declare tensor<48x3x3x3xf32> = dense<1.000000e+00> : tensor<48x3x3x3xf32>
 // CHECK:   [[CONV:%.+]] = IE.Convolution([[ARG0]], [[CST]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x3x62x62xf32>, tensor<48x3x3x3xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   [[SOFT:%.+]] = IE.SoftMax([[CONV]]) {axisInd = 1 : i64} : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   return [[CONV]], [[SOFT]] : tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>
 // CHECK: }
 
-// CHECK: func.func private @main_part2([[ARG0:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
+// CHECK: func.func nested @main_part2([[ARG0:%.+]]: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
 // CHECK:   [[ADD:%.+]] = IE.Add([[ARG0]], [[ARG0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   [[SOFT:%.+]] = IE.SoftMax([[ADD]]) {axisInd = 1 : i64} : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   return [[SOFT]] : tensor<1x48x60x60xf32>
@@ -205,14 +205,14 @@ module @OneInputMultipleOutputsLastSlice {
 // CHECK: DataInfo "output0" : tensor<1x48x60x60xf16>
 // CHECK: DataInfo "output1" : tensor<1x48x60x60xf16>
 
-// CHECK: func.func private @main_part1([[ARG0:%.+]]: tensor<1x3x62x62xf32>) -> tensor<1x48x60x60xf32> {
+// CHECK: func.func nested @main_part1([[ARG0:%.+]]: tensor<1x3x62x62xf32>) -> tensor<1x48x60x60xf32> {
 // CHECK:   [[CST:%.+]] = const.Declare tensor<48x3x3x3xf32> = dense<1.000000e+00> : tensor<48x3x3x3xf32>
 // CHECK:   [[CONV:%.+]] = IE.Convolution([[ARG0]], [[CST]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x3x62x62xf32>, tensor<48x3x3x3xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   [[SOFT:%.+]] = IE.SoftMax([[CONV]]) {axisInd = 1 : i64} : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   return [[SOFT]] : tensor<1x48x60x60xf32>
 // CHECK: }
 
-// CHECK: func.func private @main_part2([[ARG0:%.+]]: tensor<1x48x60x60xf32>) -> (tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>) {
+// CHECK: func.func nested @main_part2([[ARG0:%.+]]: tensor<1x48x60x60xf32>) -> (tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>) {
 // CHECK:   [[ADD:%.+]] = IE.Add([[ARG0]], [[ARG0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   [[SOFT:%.+]] = IE.SoftMax([[ADD]]) {axisInd = 1 : i64} : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   return [[ADD]], [[SOFT]] : tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>
@@ -272,14 +272,14 @@ module @MultipleInputsMultipleOutputs {
 // CHECK: DataInfo "output3" : tensor<1x48x60x60xf16>
 // CHECK: DataInfo "output4" : tensor<1x48x60x60xf16>
 
-// CHECK: func.func private @main_part1([[ARG0:%.+]]: tensor<1x3x62x62xf32>) -> (tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>) {
+// CHECK: func.func nested @main_part1([[ARG0:%.+]]: tensor<1x3x62x62xf32>) -> (tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>) {
 // CHECK:   [[CST:%.+]] = const.Declare tensor<48x3x3x3xf32> = dense<1.000000e+00> : tensor<48x3x3x3xf32>
 // CHECK:   [[CONV:%.+]] = IE.Convolution([[ARG0]], [[CST]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x3x62x62xf32>, tensor<48x3x3x3xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   [[SOFT:%.+]] = IE.SoftMax([[CONV]]) {axisInd = 1 : i64} : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   return [[CONV]], [[SOFT]] : tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>
 // CHECK: }
 
-// CHECK: func.func private @main_part2([[ARG0:%.+]]: tensor<1x48x60x60xf32>, [[ARG1:%.+]]: tensor<1x48x60x60xf32>) -> (tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>) {
+// CHECK: func.func nested @main_part2([[ARG0:%.+]]: tensor<1x48x60x60xf32>, [[ARG1:%.+]]: tensor<1x48x60x60xf32>) -> (tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>) {
 // CHECK:   [[ADD1:%.+]] = IE.Add([[ARG0]], [[ARG1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   [[ADD2:%.+]] = IE.Add([[ARG0]], [[ARG0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   return [[ADD1]], [[ADD2]] : tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>
@@ -342,14 +342,14 @@ module @MultipleInputsMultipleOutputsFourOutputsInSlice {
 // CHECK: DataInfo "output4" : tensor<1x48x60x60xf16>
 // CHECK: DataInfo "output5" : tensor<1x48x60x60xf16>
 
-// CHECK: func.func private @main_part1([[ARG0:%.+]]: tensor<1x3x62x62xf32>) -> (tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>) {
+// CHECK: func.func nested @main_part1([[ARG0:%.+]]: tensor<1x3x62x62xf32>) -> (tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>) {
 // CHECK:   [[CST:%.+]] = const.Declare tensor<48x3x3x3xf32> = dense<1.000000e+00> : tensor<48x3x3x3xf32>
 // CHECK:   [[CONV:%.+]] = IE.Convolution([[ARG0]], [[CST]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x3x62x62xf32>, tensor<48x3x3x3xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   [[SOFT:%.+]] = IE.SoftMax([[CONV]]) {axisInd = 1 : i64} : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   return [[CONV]], [[SOFT]] : tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>
 // CHECK: }
 
-// CHECK: func.func private @main_part2([[ARG0:%.+]]: tensor<1x48x60x60xf32>, [[ARG1:%.+]]: tensor<1x48x60x60xf32>) -> (tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>) {
+// CHECK: func.func nested @main_part2([[ARG0:%.+]]: tensor<1x48x60x60xf32>, [[ARG1:%.+]]: tensor<1x48x60x60xf32>) -> (tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32>) {
 // CHECK:   [[ADD1:%.+]] = IE.Add([[ARG0]], [[ARG1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   [[ADD2:%.+]] = IE.Add([[ARG0]], [[ARG0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
 // CHECK:   [[ADD3:%.+]] = IE.Add([[ARG0]], [[ARG0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x60x60xf32>, tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
@@ -397,14 +397,14 @@ module @SharedConstant {
 
 // CHECK: DataInfo "output" : tensor<1x3x300x300xf32>
 
-// CHECK: func.func private @main_part1([[INPUT:%.+]]: tensor<1x3x300x300xf32>) -> tensor<1x3x300x300xf32> {
+// CHECK: func.func nested @main_part1([[INPUT:%.+]]: tensor<1x3x300x300xf32>) -> tensor<1x3x300x300xf32> {
 // CHECK:   [[CST:%.+]] = const.Declare tensor<3x3x3x3xf32> = dense<1.000000e+00> : tensor<3x3x3x3xf32>
 // CHECK:   [[CONV:%.+]] = IE.Convolution([[INPUT]], [[CST]]) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x3x300x300xf32>, tensor<3x3x3x3xf32> -> tensor<1x3x300x300xf32>
 // CHECK:   [[MAXPOOL:%.+]] = IE.MaxPool([[CONV]]) {kernel_size = [3, 3], pads_begin = [1, 1], pads_end = [1, 1], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x3x300x300xf32> -> tensor<1x3x300x300xf32>
 // CHECK:   return [[MAXPOOL]] : tensor<1x3x300x300xf32>
 // CHECK: }
 
-// CHECK: func.func private @main_part2([[ARG0:%.+]]: tensor<1x3x300x300xf32>) -> tensor<1x3x300x300xf32> {
+// CHECK: func.func nested @main_part2([[ARG0:%.+]]: tensor<1x3x300x300xf32>) -> tensor<1x3x300x300xf32> {
 // CHECK:   [[CST:%.+]] = const.Declare tensor<3x3x3x3xf32> = dense<1.000000e+00> : tensor<3x3x3x3xf32>
 // CHECK:   [[CONV:%.+]] = IE.Convolution([[ARG0:%.+]], [[CST]]) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x3x300x300xf32>, tensor<3x3x3x3xf32> -> tensor<1x3x300x300xf32>
 // CHECK:   return [[CONV]] : tensor<1x3x300x300xf32>
@@ -452,14 +452,14 @@ module @OneInputOneOutputWithPreprocessOp {
 
 // CHECK: DataInfo "output" : tensor<1x3x62x62xf32>
 
-// CHECK: func.func private @main_part1([[ARG0:%.+]]: tensor<1x3x62x62xf16>) -> tensor<1x3x62x62xf32> {
+// CHECK: func.func nested @main_part1([[ARG0:%.+]]: tensor<1x3x62x62xf16>) -> tensor<1x3x62x62xf32> {
 // CHECK:   [[CST:%.+]] = const.Declare tensor<3x3x3x3xf32> = dense<1.000000e+00> : tensor<3x3x3x3xf32>
 // CHECK:   [[CONVERT:%.+]] = IE.Convert([[ARG0]]) {dstElemType = f32} : tensor<1x3x62x62xf16> -> tensor<1x3x62x62xf32>
 // CHECK:   [[CONV:%.+]] = IE.Convolution([[CONVERT]], [[CST]]) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x3x62x62xf32>, tensor<3x3x3x3xf32> -> tensor<1x3x62x62xf32>
 // CHECK:   return [[CONV]] : tensor<1x3x62x62xf32>
 // CHECK: }
 
-// CHECK: func.func private @main_part2([[ARG0:%.+]]: tensor<1x3x62x62xf32>, [[ARG1:%.+]]: tensor<1x3x62x62xf16>) -> tensor<1x3x62x62xf32> {
+// CHECK: func.func nested @main_part2([[ARG0:%.+]]: tensor<1x3x62x62xf32>, [[ARG1:%.+]]: tensor<1x3x62x62xf16>) -> tensor<1x3x62x62xf32> {
 // CHECK:   [[SOFT:%.+]] = IE.SoftMax([[ARG0]]) {axisInd = 1 : i64} : tensor<1x3x62x62xf32> -> tensor<1x3x62x62xf32>
 // CHECK:   [[CONVERT:%.+]] = IE.Convert([[ARG1]]) {dstElemType = f32} : tensor<1x3x62x62xf16> -> tensor<1x3x62x62xf32>
 // CHECK:   [[ADD:%.+]] = IE.Add([[SOFT]], [[CONVERT]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x3x62x62xf32>, tensor<1x3x62x62xf32> -> tensor<1x3x62x62xf32>
@@ -575,7 +575,7 @@ module @OneInputOneOutputWithMultiplePreprocessOps {
 
 // CHECK: DataInfo "output" : tensor<1x3x62x62xf32>
 
-// CHECK: func.func private @main_part1([[ARG0:%.+]]: tensor<1x3x62x62xf16>) -> tensor<1x3x62x62xf32> {
+// CHECK: func.func nested @main_part1([[ARG0:%.+]]: tensor<1x3x62x62xf16>) -> tensor<1x3x62x62xf32> {
 // CHECK:   [[CST:%.+]] = const.Declare tensor<3x3x3x3xf32> = dense<1.000000e+00> : tensor<3x3x3x3xf32>
 // CHECK:   [[CST_0:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1x1xf32>
 // CHECK:   [[CST_1:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<-2.000000e+00> : tensor<1x1x1x1xf32>
@@ -588,7 +588,7 @@ module @OneInputOneOutputWithMultiplePreprocessOps {
 // CHECK:   return [[CONV]] : tensor<1x3x62x62xf32>
 // CHECK: }
 
-// CHECK: func.func private @main_part2([[ARG0:%.+]]: tensor<1x3x62x62xf32>, [[ARG1:%.+]]: tensor<1x3x62x62xf16>) -> tensor<1x3x62x62xf32> {
+// CHECK: func.func nested @main_part2([[ARG0:%.+]]: tensor<1x3x62x62xf32>, [[ARG1:%.+]]: tensor<1x3x62x62xf16>) -> tensor<1x3x62x62xf32> {
 // CHECK:   [[CST:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1x1xf32>
 // CHECK:   [[CST_0:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<-2.000000e+00> : tensor<1x1x1x1xf32>
 // CHECK:   [[CST_1:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>

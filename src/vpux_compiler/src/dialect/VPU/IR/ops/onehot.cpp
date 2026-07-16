@@ -26,8 +26,11 @@ mlir::LogicalResult vpux::VPU::OneHotOp::inferReturnTypes(mlir::MLIRContext* ctx
             to_small_vector(mlir::cast<vpux::NDTypeInterface>(oneHot.getInput().getType()).getShape());
     const auto axis = oneHot.getAxis();
     int64_t depth = oneHot.getDepthAttr().getInt();
-    if (axis < 0) {
-        outShape.insert(outShape.end() + 1 + axis, depth);
+
+    if (oneHot.getRankExpanded().value_or(false)) {
+        // rank_expanded mode: input rank == output rank.
+        // The axis dim of the input is a placeholder 1; replace it with depth.
+        outShape[axis] = depth;
     } else {
         outShape.insert(outShape.begin() + axis, depth);
     }

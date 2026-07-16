@@ -110,7 +110,7 @@ mlir::Value createWeightsConstantImpl(vpux::NDTypeInterface inputType, SmallVect
     const auto dataStorageType = mlir::RankedTensorType::get(weightShape.raw(), mlir::Float32Type::get(ctx));
     const auto dataAttr = Const::createConstContent(dataStorageType, ArrayRef(content));
 
-    Const::ContentSetup contentAttrSetup(dataStorageType);
+    Const::ContentSetup contentAttrSetup(dataAttr, dataStorageType);
 
     if (const auto qElemType = mlir::dyn_cast<mlir::quant::QuantizedType>(elemType)) {
         contentAttrSetup = contentAttrSetup.castElemType(qElemType);
@@ -162,36 +162,49 @@ mlir::Value convertOpToConv(mlir::Operation* origOp, mlir::Value weights, mlir::
     if (isNewWeightTableFormat) {
         const auto newWtShape = VPU::NCESparsity::inferWeightsTableShape(OC, /*newFormat=*/true);
         const auto newWeightsTableTensors = VPU::NewWeightsTableTensors(
-                origOp, isNewWeightTableFormat, /*isDataPointerTableSupported=*/true,
-                /*isZeroPointTableSupported=*/true, rewriter, origOp->getLoc(), origOp->getOperand(0),
-                adaptedOutElemType, weights, nullptr, newWtShape, ppeConverter, biasConverter, nullptr);
+                isNewWeightTableFormat,
+                VPU::WeightsTableParams(origOp, origOp->getOperand(0), adaptedOutElemType, weights, /*bias=*/nullptr,
+                                        OC, ppeConverter, biasConverter, /*constScale=*/nullptr,
+                                        /*zeroPoints=*/nullptr),
+                rewriter, origOp->getLoc(), newWtShape);
 
         return rewriter
                 .create<VPU::NCEConvolutionOp>(
-                        origOp->getLoc(), outputType, sparseInput, weights, /*weightsTable*/ nullptr,
-                        newWeightsTableTensors.dataPointerTensor, newWeightsTableTensors.sparsityPointerTensor,
-                        newWeightsTableTensors.scaleTensor, newWeightsTableTensors.biasTensor,
-                        newWeightsTableTensors.zeroPointTensor, stridesAttr, padAttr, ppeAttr, mpeEngineModeAttr,
-                        rawFilterShape,
-                        /*multi_cluster_strategyAttr=*/nullptr, outputPaddingAttr, inputPaddingAttr)
-                .getResult();
+                        origOp->getLoc(), outputType,
+                        /*reduceXyMax*/ nullptr, /*reduceXyMin*/ nullptr,
+                        /*reduceGlobalMinMax*/ nullptr, sparseInput, weights,
+                        /*weightsTable*/ nullptr, newWeightsTableTensors.dataPointerTensor,
+                        newWeightsTableTensors.sparsityPointerTensor, newWeightsTableTensors.scaleTensor,
+                        newWeightsTableTensors.biasTensor, newWeightsTableTensors.zeroPointTensor, stridesAttr, padAttr,
+                        ppeAttr, mpeEngineModeAttr,
+                        /*rawFilterShape=*/mlir::ValueRange{}, parseIntArrayAttr<int64_t>(rawFilterShape),
+                        /*multi_cluster_strategyAttr=*/nullptr, outputPaddingAttr, inputPaddingAttr,
+                        /*axes_value=*/nullptr)
+                .getResult(0);
     }
 
-    auto weightsTableVec = VPU::createWeightsTableData(origOp->getOperand(0), adaptedOutElemType, weights,
-                                                       /*bias=*/{}, OC, ppeConverter, biasConverter,
-                                                       /*constScale=*/nullptr, /*hasAutopad=*/false);
+    auto weightsTableVec = VPU::createWeightsTableData(
+            VPU::WeightsTableParams(origOp, origOp->getOperand(0), adaptedOutElemType, weights,
+                                    /*bias=*/{}, OC, ppeConverter, biasConverter, /*constScale=*/nullptr,
+                                    /*zeroPoints=*/nullptr),
+            /*hasAutopad=*/false);
     const auto wtShape = VPU::NCESparsity::inferWeightsTableShape(OC);
-    const auto weightsTable = VPU::createWeightsTableTensor(rewriter, origOp->getLoc(), weightsTableVec, wtShape);
+    const auto weightsTable = VPU::createTensorFromTableData<int32_t>(rewriter, origOp->getLoc(), weightsTableVec,
+                                                                      wtShape, getSInt32Type(rewriter.getContext()));
 
     return rewriter
-            .create<VPU::NCEConvolutionOp>(origOp->getLoc(), outputType, sparseInput, weights, weightsTable,
-                                           /*weight_table_data_ptr=*/nullptr,
-                                           /*weight_table_sp_ptr=*/nullptr, /*weight_table_scale=*/nullptr,
-                                           /*weight_table_bias=*/nullptr,
-                                           /*weight_zero_points=*/nullptr, stridesAttr, padAttr, ppeAttr,
-                                           mpeEngineModeAttr, rawFilterShape,
-                                           /*multi_cluster_strategyAttr=*/nullptr, outputPaddingAttr, inputPaddingAttr)
-            .getResult();
+            .create<VPU::NCEConvolutionOp>(
+                    origOp->getLoc(), outputType,
+                    /*reduceXyMax*/ nullptr, /*reduceXyMin*/ nullptr,
+                    /*reduceGlobalMinMax*/ nullptr, sparseInput, weights, weightsTable,
+                    /*weight_table_data_ptr=*/nullptr,
+                    /*weight_table_sp_ptr=*/nullptr, /*weight_table_scale=*/nullptr,
+                    /*weight_table_bias=*/nullptr,
+                    /*weight_zero_points=*/nullptr, stridesAttr, padAttr, ppeAttr, mpeEngineModeAttr,
+                    /*rawFilterShape=*/mlir::ValueRange{}, parseIntArrayAttr<int64_t>(rawFilterShape),
+                    /*multi_cluster_strategyAttr=*/nullptr, outputPaddingAttr, inputPaddingAttr,
+                    /*axes_value=*/nullptr)
+            .getResult(0);
 }
 
 //
@@ -275,7 +288,8 @@ mlir::Value InterpolateToNCE::createSparseInput(VPU::InterpolateOp origOp, mlir:
         auto smElemType = mlir::IntegerType::get(ctx, 1);
         auto smType = mlir::RankedTensorType::get(smShape, smElemType, tensorAttr);
         auto contentAttr = Const::ContentAttr::get(
-                baseAttr, Const::ContentSetup(smContentType).reorder(inputDimsOrder).castElemType(smElemType));
+                baseAttr,
+                Const::ContentSetup(baseAttr, smContentType).reorder(inputDimsOrder).castElemType(smElemType));
         smConst = rewriter.create<Const::DeclareOp>(origOp.getLoc(), smType, std::move(contentAttr)).getOutput();
     }
 
@@ -340,18 +354,18 @@ mlir::LogicalResult InterpolateToNCE::matchAndRewrite(VPU::InterpolateOp origOp,
     const auto ppeConverter = VPU::NCESparsity::getPPEConverterCb(_arch, isNewWeightTableFormat);
     const auto biasConverter = VPU::NCESparsity::getBiasConverterCb(_arch, isNewWeightTableFormat);
     const auto wtShape = VPU::NCESparsity::inferWeightsTableShape(OC, isNewWeightTableFormat);
-    const auto weightsTableVec =
-            isNewWeightTableFormat
-                    ? std::vector<int32_t>{}
-                    : VPU::createWeightsTableData(origOp.getInput(), adaptedOutElemType, weights, {}, OC, ppeConverter,
-                                                  biasConverter, nullptr, /*hasAutopad=*/false);
+    const auto weightsTableParams =
+            VPU::WeightsTableParams(origOp, origOp.getInput(), adaptedOutElemType, weights, {}, OC, ppeConverter,
+                                    biasConverter, /*constScale=*/nullptr, /*zeroPoints=*/nullptr);
+    const auto weightsTableVec = isNewWeightTableFormat
+                                         ? std::vector<int32_t>{}
+                                         : VPU::createWeightsTableData(weightsTableParams, /*hasAutopad=*/false);
     const auto weightsTable = isNewWeightTableFormat ? nullptr
-                                                     : VPU::createWeightsTableTensor(rewriter, origOp->getLoc(),
-                                                                                     weightsTableVec, wtShape);
-    const auto newWeightsTableTensors = VPU::NewWeightsTableTensors(
-            origOp.getOperation(), isNewWeightTableFormat, /*isDataPointerTableSupported=*/false,
-            /*isZeroPointTableSupported=*/false, rewriter, origOp->getLoc(), origOp.getInput(), adaptedOutElemType,
-            weights, nullptr, wtShape, ppeConverter, biasConverter);
+                                                     : VPU::createTensorFromTableData<int32_t>(
+                                                               rewriter, origOp->getLoc(), weightsTableVec, wtShape,
+                                                               getSInt32Type(rewriter.getContext()));
+    const auto newWeightsTableTensors = VPU::NewWeightsTableTensors(isNewWeightTableFormat, weightsTableParams,
+                                                                    rewriter, origOp->getLoc(), wtShape);
 
     const auto strides = VPU::getNCEInterpolateStrides(scales, modeAttr, origOp.getAttr().getCoordMode());
     auto stridesAttr = getIntArrayAttr(rewriter, strides);
@@ -361,7 +375,8 @@ mlir::LogicalResult InterpolateToNCE::matchAndRewrite(VPU::InterpolateOp origOp,
             origOp->getLoc(), outputType, sparseInput, weights, weightsTable, newWeightsTableTensors.dataPointerTensor,
             newWeightsTableTensors.sparsityPointerTensor, newWeightsTableTensors.scaleTensor,
             newWeightsTableTensors.biasTensor, newWeightsTableTensors.zeroPointTensor, stridesAttr,
-            VPU::PPEStubAttr::get(ctx), mpeEngineModeAttr, rawFilterShape,
+            VPU::PPEStubAttr::get(ctx), mpeEngineModeAttr, /*rawFilterShape=*/mlir::ValueRange{},
+            parseIntArrayAttr<int64_t>(rawFilterShape),
             /*multi_cluster_strategyAttr=*/nullptr, modeAttr);
     // The "artificial" weights quantization scale must be taken into account when computing the PPE attribute. This
     // info is not present in the original InterpolateOp, thus the PPE attribute is post-generated based on the new
@@ -494,7 +509,7 @@ mlir::Value TransposedConvolutionToNCE::createSparseInput(VPU::TransposedConvolu
     auto smElemType = mlir::IntegerType::get(ctx, 1);
     auto smType = mlir::RankedTensorType::get(smShape, smElemType, tensorAttr);
     auto contentAttr = Const::ContentAttr::get(
-            baseAttr, Const::ContentSetup(smContentType).reorder(inputDimsOrder).castElemType(smElemType));
+            baseAttr, Const::ContentSetup(baseAttr, smContentType).reorder(inputDimsOrder).castElemType(smElemType));
     auto smConstOp = rewriter.create<Const::DeclareOp>(origOp->getLoc(), smType, std::move(contentAttr));
 
     auto groupOp = rewriter.create<VPU::GroupSparseTensorOp>(origOp->getLoc(), origOp.getInput(), smConstOp.getOutput(),
@@ -570,32 +585,42 @@ mlir::LogicalResult TransposedConvolutionToNCE::matchAndRewrite(VPU::TransposedC
         if (isNewWTFormat) {
             const auto newWtShape = VPU::NCESparsity::inferWeightsTableShape(OC, /*newFormat=*/true);
             const auto newWeightsTableTensors = VPU::NewWeightsTableTensors(
-                    origOp.getOperation(), isNewWeightTableFormat, /*isDataPointerTableSupported=*/true,
-                    /*isZeroPointTableSupported=*/true, rewriter, origOp->getLoc(), origOp->getOperand(0),
-                    adaptedOutElemType, weights, bias, newWtShape, ppeConverter, biasConverter, nullptr);
+                    isNewWeightTableFormat,
+                    VPU::WeightsTableParams(origOp, origOp->getOperand(0), adaptedOutElemType, weights, bias, OC,
+                                            ppeConverter, biasConverter, /*constScale=*/nullptr,
+                                            /*zeroPoints=*/nullptr),
+                    rewriter, origOp->getLoc(), newWtShape);
 
             return rewriter.create<VPU::NCEConvolutionOp>(
-                    origOp->getLoc(), outputType, sparseInput, weights, /*weightsTable*/ nullptr,
+                    origOp->getLoc(), outputType,
+                    /*reduceXyMax*/ nullptr, /*reduceXyMin*/ nullptr,
+                    /*reduceGlobalMinMax*/ nullptr, sparseInput, weights, /*weightsTable*/ nullptr,
                     newWeightsTableTensors.dataPointerTensor, newWeightsTableTensors.sparsityPointerTensor,
                     newWeightsTableTensors.scaleTensor, newWeightsTableTensors.biasTensor,
                     newWeightsTableTensors.zeroPointTensor, stridesAttr, padAttr, ppeAttr, mpeEngineModeAttr,
-                    rawFilterShape,
-                    /*multi_cluster_strategyAttr=*/nullptr, origOp.getOutputPaddingAttr(),
-                    origOp.getInputPaddingAttr());
+                    /*rawFilterShape=*/mlir::ValueRange{}, parseIntArrayAttr<int64_t>(rawFilterShape),
+                    /*multi_cluster_strategyAttr=*/nullptr, origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr(),
+                    /*axes_value=*/nullptr);
         } else {
             const auto weightsTableVec =
-                    VPU::createWeightsTableData(origOp.getInput(), adaptedOutElemType, weights, bias, OC, ppeConverter,
-                                                biasConverter, nullptr, /*hasAutopad=*/false);
+                    VPU::createWeightsTableData(VPU::WeightsTableParams(origOp, origOp.getInput(), adaptedOutElemType,
+                                                                        weights, bias, OC, ppeConverter, biasConverter,
+                                                                        /*constScale=*/nullptr, /*zeroPoints=*/nullptr),
+                                                /*hasAutopad=*/false);
             const auto wtShape = VPU::NCESparsity::inferWeightsTableShape(OC);
-            const auto weightsTable =
-                    VPU::createWeightsTableTensor(rewriter, origOp->getLoc(), weightsTableVec, wtShape);
+            const auto weightsTable = VPU::createTensorFromTableData<int32_t>(
+                    rewriter, origOp->getLoc(), weightsTableVec, wtShape, getSInt32Type(rewriter.getContext()));
 
             return rewriter.create<VPU::NCEConvolutionOp>(
-                    origOp->getLoc(), outputType, sparseInput, weights, weightsTable, /*weight_table_data_ptr=*/nullptr,
+                    origOp->getLoc(), outputType,
+                    /*reduceXyMax*/ nullptr, /*reduceXyMin*/ nullptr,
+                    /*reduceGlobalMinMax*/ nullptr, sparseInput, weights, weightsTable,
+                    /*weight_table_data_ptr=*/nullptr,
                     /*weight_table_sp_ptr=*/nullptr, /*weight_table_scale=*/nullptr, /*weight_table_bias=*/nullptr,
-                    /*weight_zero_points=*/nullptr, stridesAttr, padAttr, ppeAttr, mpeEngineModeAttr, rawFilterShape,
-                    /*multi_cluster_strategyAttr=*/nullptr, origOp.getOutputPaddingAttr(),
-                    origOp.getInputPaddingAttr());
+                    /*weight_zero_points=*/nullptr, stridesAttr, padAttr, ppeAttr, mpeEngineModeAttr,
+                    /*rawFilterShape=*/mlir::ValueRange{}, parseIntArrayAttr<int64_t>(rawFilterShape),
+                    /*multi_cluster_strategyAttr=*/nullptr, origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr(),
+                    /*axes_value=*/nullptr);
         }
     };
     auto nceOp = getCorrectConvFormat(isNewWeightTableFormat);
@@ -809,18 +834,24 @@ mlir::LogicalResult DilatedConvolutionToNCE::matchAndRewrite(VPU::GroupConvoluti
     const auto biasConverter = VPU::NCESparsity::getBiasConverterCb(_arch, isNewWeightTableFormat);
 
     const auto weightsTableVec =
-            isNewWeightTableFormat ? std::vector<int32_t>{}
-                                   : VPU::createWeightsTableData(origOp.getInput(), adaptedOutElemType, alignedWeights,
-                                                                 bias, outputChannels, ppeConverter, biasConverter,
-                                                                 nullptr, /*hasAutopad=*/false);
+            isNewWeightTableFormat
+                    ? std::vector<int32_t>{}
+                    : VPU::createWeightsTableData(
+                              VPU::WeightsTableParams(origOp, origOp.getInput(), adaptedOutElemType, alignedWeights,
+                                                      bias, outputChannels, ppeConverter, biasConverter,
+                                                      /*constScale=*/nullptr, /*zeroPoints=*/nullptr),
+                              /*hasAutopad=*/false);
     const auto wtShape = VPU::NCESparsity::inferWeightsTableShape(outputChannels, isNewWeightTableFormat);
     const auto weightsTable = isNewWeightTableFormat ? nullptr
-                                                     : VPU::createWeightsTableTensor(rewriter, origOp->getLoc(),
-                                                                                     weightsTableVec, wtShape);
+                                                     : VPU::createTensorFromTableData<int32_t>(
+                                                               rewriter, origOp->getLoc(), weightsTableVec, wtShape,
+                                                               getSInt32Type(rewriter.getContext()));
     const auto newWeightsTableTensors = VPU::NewWeightsTableTensors(
-            origOp.getOperation(), isNewWeightTableFormat, /*isDataPointerTableSupported=*/false,
-            /*isZeroPointTableSupported=*/false, rewriter, origOp->getLoc(), origOp.getInput(), adaptedOutElemType,
-            alignedWeights, nullptr, wtShape, ppeConverter, biasConverter);
+            isNewWeightTableFormat,
+            VPU::WeightsTableParams(origOp, origOp.getInput(), adaptedOutElemType, alignedWeights, /*bias=*/nullptr,
+                                    outputChannels, ppeConverter, biasConverter, /*constScale=*/nullptr,
+                                    /*zeroPoints=*/nullptr),
+            rewriter, origOp->getLoc(), wtShape);
 
     // Generate sub-convolutions
     SmallVector<mlir::Value> subConvolutions;
@@ -849,7 +880,8 @@ mlir::LogicalResult DilatedConvolutionToNCE::matchAndRewrite(VPU::GroupConvoluti
                     weightsTable, newWeightsTableTensors.dataPointerTensor,
                     newWeightsTableTensors.sparsityPointerTensor, newWeightsTableTensors.scaleTensor,
                     newWeightsTableTensors.biasTensor, newWeightsTableTensors.zeroPointTensor, strides, padAttr,
-                    ppeAttr, mpeEngineModeAttr, rawFilterShape,
+                    ppeAttr, mpeEngineModeAttr, /*rawFilterShape=*/mlir::ValueRange{},
+                    parseIntArrayAttr<int64_t>(rawFilterShape),
                     /* multiClusterStrategyAttr = */ nullptr, origOp.getOutputPaddingAttr(),
                     origOp.getInputPaddingAttr());
             auto convType = mlir::cast<vpux::NDTypeInterface>(nceDepthConvolutionOp.getResult().getType());
@@ -980,7 +1012,8 @@ mlir::Value PadToNCE::createSparseInput(VPU::PadOp origOp, mlir::PatternRewriter
         auto smElemType = mlir::IntegerType::get(ctx, 1);
         auto smType = mlir::RankedTensorType::get(smShape, smElemType, tensorAttr);
         auto contentAttr = Const::ContentAttr::get(
-                baseAttr, Const::ContentSetup(smContentType).reorder(inputDimsOrder).castElemType(smElemType));
+                baseAttr,
+                Const::ContentSetup(baseAttr, smContentType).reorder(inputDimsOrder).castElemType(smElemType));
         smConst = rewriter.create<Const::DeclareOp>(origOp->getLoc(), smType, std::move(contentAttr)).getOutput();
     }
 
@@ -1099,7 +1132,8 @@ mlir::Value RollToNCE::createSparseInput(VPU::RollOp origOp, SmallVector<int64_t
         auto smElemType = mlir::IntegerType::get(ctx, 1);
         auto smType = mlir::RankedTensorType::get(smShape, smElemType, tensorAttr);
         auto contentAttr = Const::ContentAttr::get(
-                baseAttr, Const::ContentSetup(smContentType).reorder(inputDimsOrder).castElemType(smElemType));
+                baseAttr,
+                Const::ContentSetup(baseAttr, smContentType).reorder(inputDimsOrder).castElemType(smElemType));
         smConst = rewriter.create<Const::DeclareOp>(origOp->getLoc(), smType, std::move(contentAttr)).getOutput();
     }
 

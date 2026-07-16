@@ -32,9 +32,6 @@ public:
     }
 
     void SetUp() override {
-#ifdef __linux__
-        GTEST_SKIP() << "Skipping for linux due to driver bug related to shared scratch buffer";
-#endif
         // Network schema:
         //
         //                   Input [1, 3, H, W]

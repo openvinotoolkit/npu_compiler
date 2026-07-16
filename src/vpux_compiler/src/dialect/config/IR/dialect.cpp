@@ -7,6 +7,7 @@
 #include <vpux/compiler/dialect/config/IR/ops.hpp>
 #include <vpux/compiler/dialect/config/constraints.hpp>
 #include <vpux/compiler/dialect/core/IR/dialect.hpp>
+#include <vpux/compiler/utils/npu_action_handler.hpp>
 
 using namespace vpux;
 
@@ -18,6 +19,11 @@ void vpux::config::ConfigDialect::initialize() {
 
     registerAttributes();
     addInterfaces<ConfigCache>();
+
+#ifdef VPUX_DEVELOPER_BUILD
+    auto ctx = getContext();
+    ctx->registerActionHandler(NpuActionHandler());
+#endif  // VPUX_DEVELOPER_BUILD
 }
 
 //

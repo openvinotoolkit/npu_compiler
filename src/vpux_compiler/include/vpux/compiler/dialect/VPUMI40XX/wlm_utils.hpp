@@ -98,20 +98,18 @@ mlir::DenseMap<VPUMI40XX::HwQueueType, SmallVector<EnqDmaInfo>> getEnqueueDmaDat
 }  // namespace VPUMI40XX
 }  // namespace vpux
 
-using namespace vpux;
-
 namespace llvm {
 template <>
-struct DenseMapInfo<VPUMI40XX::HwQueueType> {
-    static VPUMI40XX::HwQueueType getEmptyKey() {
-        return VPUMI40XX::HwQueueType{DenseMapInfo<VPURegMapped::TaskType>::getEmptyKey(), 0, 0};
+struct DenseMapInfo<vpux::VPUMI40XX::HwQueueType> {
+    static vpux::VPUMI40XX::HwQueueType getEmptyKey() {
+        return vpux::VPUMI40XX::HwQueueType{DenseMapInfo<vpux::VPURegMapped::TaskType>::getEmptyKey(), 0, 0};
     }
 
-    static VPUMI40XX::HwQueueType getTombstoneKey() {
-        return VPUMI40XX::HwQueueType{DenseMapInfo<VPURegMapped::TaskType>::getTombstoneKey(), 0, 0};
+    static vpux::VPUMI40XX::HwQueueType getTombstoneKey() {
+        return vpux::VPUMI40XX::HwQueueType{DenseMapInfo<vpux::VPURegMapped::TaskType>::getTombstoneKey(), 0, 0};
     }
 
-    static unsigned getHashValue(VPUMI40XX::HwQueueType val) {
+    static unsigned getHashValue(vpux::VPUMI40XX::HwQueueType val) {
         auto h1 = hash_value(val.type);
         auto h2 = hash_value(val.tile);
         auto h3 = hash_value(val.index);
@@ -119,7 +117,7 @@ struct DenseMapInfo<VPUMI40XX::HwQueueType> {
         return static_cast<unsigned>(hash_combine(h1, h2, h3));
     }
 
-    static bool isEqual(VPUMI40XX::HwQueueType lhs, VPUMI40XX::HwQueueType rhs) {
+    static bool isEqual(vpux::VPUMI40XX::HwQueueType lhs, vpux::VPUMI40XX::HwQueueType rhs) {
         return rhs == lhs;
     }
 };

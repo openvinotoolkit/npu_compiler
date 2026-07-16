@@ -184,63 +184,70 @@ protected:
     }
 };
 
-template <class ConcreteModel, class ArchSpecificOptionsType>
-class WSInitSetupBase : public OptionsSetup<ConcreteModel, ArchSpecificOptionsType> {
-public:
-    using Base = OptionsSetup<ConcreteModel, ArchSpecificOptionsType>;
-    using Base::Base;
-    friend Base;
+template <class ArchSpecificOptionsType>
+static void setupHostPipelineOptionsCommon(ArchSpecificOptionsType& options) {
+    overwriteIfUnset(options.enableDynamicShapeTransformationsPipeline, false);
+    overwriteIfUnset(options.enableSCFTiling, true);
+    overwriteIfUnset(options.vfMergeConfiguration, VFMergeConfiguration::GREEDY);
+    overwriteIfUnset(options.enableScfComputeOpsOutlining, true);
+    overwriteIfUnset(options.useMemrefForHostFunctionBufferization, true);
+    overwriteIfUnset(options.disablePassOnEntryFunctionForHostCompile, true);
+    overwriteIfUnset(options.setMemorySpaceForFunctionBoundaries, false);
 
-protected:
-    static void setupLitTestOptionsImpl(ArchSpecificOptionsType& options, VPU::InitCompilerOptions&) {
-        setupOptionsCommon(options);
-    }
+    // the below options enable DepthToSpace as a SHAVE operator
+    overwriteIfUnset(options.enableD2SToTransposedConvConversion, false);
+    overwriteIfUnset(options.enableFuseD2SExpand, true);
+    overwriteIfUnset(options.enableConvertExpandToConvPass, false);
+    overwriteIfUnset(options.deferExpandToExpandDMA, true);
 
-    static void setupOptionsImpl(ArchSpecificOptionsType& options, VPU::InitCompilerOptions&,
-                                 const intel_npu::Config&) {
-        setupOptionsCommon(options);
-    }
+    // tiling over channels is not supported for HostCompile, so we disable propagation of permute through eltwise
+    overwriteIfUnset(options.enablePropagateMemPermuteThroughEltwise, false);
+    overwriteIfUnset(options.enableAdjustMemPermuteAroundOp, false);
+    overwriteIfUnset(options.enableMovePermutePostEltwise, false);
+    overwriteIfUnset(options.enableAdjustConvShapePass, false);
 
-private:
-    static void setupOptionsCommon(ArchSpecificOptionsType& options) {
-        // E#176454: Profiling is disabled for the @init() function.
-        overwriteIfUnset(options.enableProfiling, false);
-        // E#176434: remove option
-        overwriteIfUnset(options.enableConvertQuantizeOpsToNceOps, false);
-        overwriteIfUnset(options.enableAdjustPrecisionPipeline, false);
-        overwriteIfUnset(options.enableConvertWeightsToU8I4, false);
-        // E#180631: remove option
-        overwriteIfUnset(options.forceConvertGatherTo4D, true);
-    }
-};
+    // enable YUV to RGB SHAVE scale conversion
+    overwriteIfUnset(options.enableYuvToRgbShaveScale, true);
 
-template <class ConcreteModel, class ArchSpecificOptionsType>
-class WSMainSetupBase : public OptionsSetup<ConcreteModel, ArchSpecificOptionsType> {
-public:
-    using Base = OptionsSetup<ConcreteModel, ArchSpecificOptionsType>;
-    using Base::Base;
-    friend Base;
+    // Performance optimizations enabled by default
+    overwriteIfUnset(options.enableDynamicDimAlignment, true);
+    // OUTER: unroll only the outer loops in each nesting chain.
+    // This avoids 2-D unrolling (H-axis + W-axis simultaneously) which can increase blob size and compilation time
+    overwriteIfUnset(options.autoUnrollingMode, AutoUnrollingMode::OUTER);
+}
 
-protected:
-    static void setupLitTestOptionsImpl(ArchSpecificOptionsType& options, VPU::InitCompilerOptions&) {
-        setupOptionsCommon(options);
-    }
+template <class ArchSpecificOptionsType>
+static void setupWSInitOptionsCommon(ArchSpecificOptionsType& options) {
+    // E#176454: Profiling is disabled for the @init() function.
+    overwriteIfUnset(options.enableProfiling, false);
+    // E#176434: remove option
+    overwriteIfUnset(options.enableConvertQuantizeOpsToNceOps, false);
+    overwriteIfUnset(options.enableAdjustPrecisionPipeline, false);
+    overwriteIfUnset(options.enableConvertWeightsToU8I4, false);
+    // E#180631: remove option
+    overwriteIfUnset(options.forceConvertGatherTo4D, true);
+}
 
-    static void setupOptionsImpl(ArchSpecificOptionsType& options, VPU::InitCompilerOptions&,
-                                 const intel_npu::Config& config) {
-        setupOptionsCommon(options);
-        // Profiling is enabled for the @main() function.
-        overwriteIfUnset(options.enableProfiling, config.get<intel_npu::PERF_COUNT>());
-    }
+template <class ArchSpecificOptionsType>
+static void setupWSMainOptionsCommon(ArchSpecificOptionsType& options) {
+    // E#127228 Introduce IE.Swizzle operation
+    overwriteIfUnset(options.enableWeightsSwizzling, false);
+    // E#127235 Introduce IE.Sparsify operation
+    overwriteIfUnset(options.enableWeightsSparsity, false);
+    // E#180631: remove option
+    overwriteIfUnset(options.forceConvertGatherTo4D, true);
+}
 
-private:
-    static void setupOptionsCommon(ArchSpecificOptionsType& options) {
-        // E#127228 Introduce IE.Swizzle operation
-        overwriteIfUnset(options.enableWeightsSwizzling, false);
-        // E#127235 Introduce IE.Sparsify operation
-        overwriteIfUnset(options.enableWeightsSparsity, false);
-        // E#180631: remove option
-        overwriteIfUnset(options.forceConvertGatherTo4D, true);
-    }
-};
+template <class OptionsSetupType, class OptionsType>
+std::tuple<std::unique_ptr<VPU::InitCompilerOptions>, std::unique_ptr<OptionsType>> createOptionsDefaultHWHelper(
+        std::unique_ptr<OptionsSetupType> optionsSetup) {
+    auto initCompilerOptions = std::make_unique<VPU::InitCompilerOptions>();
+    auto pipelineOptions = std::make_unique<OptionsType>();
+
+    initCompilerOptions->copyOptionValuesFrom(optionsSetup->getInitCompilerOptions());
+    pipelineOptions->copyOptionValuesFrom(optionsSetup->getPipelineOptions());
+
+    return std::make_tuple(std::move(initCompilerOptions), std::move(pipelineOptions));
+}
+
 }  // namespace vpux

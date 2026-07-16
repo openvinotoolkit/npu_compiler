@@ -33,9 +33,9 @@ func.func @FuseInterpolateNearestWithConv(%arg0: tensor<1x16x3x3xf16, {order = #
                            #VPU.SEInterpolate<mode = <NEAREST>, coordinate_transformation_mode = <ASYMMETRIC>,
                                               scale = [1.0, 1.0, 2.0, 2.0], nearest_mode = <FLOOR>, offsets = [0, 0, 0, 0], sizes = [1, 16, 6, 6]>>
 
-    %interp_output = VPU.NCE.Interpolate(%interp_input, %interp_weights, %interp_weights_table) {
+    %interp_output = VPU.NCE.Interpolate(%interp_input, %interp_weights, %interp_weights_table) rawFilterShape [16, 16, 1, 1] {
         strides = [1, 1],
-        rawFilterShape = [16, 16, 1, 1],
+        
         mode = #VPU.nce_interpolate_mode<NEAREST>,
         multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>,
         scales_attr = [2, 2],
@@ -43,10 +43,10 @@ func.func @FuseInterpolateNearestWithConv(%arg0: tensor<1x16x3x3xf16, {order = #
     } -> tensor<1x16x6x6xf16, {order = #NHWC}>
 
     %conv_weights = const.Declare tensor<32x16x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<32x16x1x1xf16>, [#const.Reorder<#NHWC>]
-    %conv_output = VPU.NCE.Convolution(%interp_output, %conv_weights) {
+    %conv_output = VPU.NCE.Convolution(%interp_output, %conv_weights) rawFilterShape [32, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            rawFilterShape = [32, 16, 1, 1],
+            
             strides = [1, 1]
         } : tensor<1x16x6x6xf16, {order = #NHWC}>, tensor<32x16x1x1xf16, {order = #NHWC}> -> tensor<1x32x6x6xf16, {order = #NHWC}>
 
@@ -79,10 +79,9 @@ func.func @FuseInterpolateNearestWithConv(%arg0: tensor<1x16x3x3xf16, {order = #
 
     // CHECK-NOT:  VPU.NCE.Interpolate
 
-    // CHECK:      [[CONV_OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[CST_WEIGHTS]]) {
+    // CHECK:      [[CONV_OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[CST_WEIGHTS]]) rawFilterShape [32, 16, 1, 1] {
     // CHECK-SAME:     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
     // CHECK-SAME:     ppe = #VPU.PPEStub<>,
-    // CHECK-SAME:     rawFilterShape = [32, 16, 1, 1],
     // CHECK-SAME:     strides = [1, 1]
     // CHECK-SAME: }
     // CHECK-SAME: -> tensor<1x32x6x6xf16, {order = #NHWC}>
@@ -117,9 +116,9 @@ func.func @DoNotFuseInterpolateBilinearWithConv(%arg0: tensor<1x16x3x3xf16, {ord
                            #VPU.SEInterpolate<mode = <BILINEAR>, coordinate_transformation_mode = <ASYMMETRIC>,
                                               scale = [1.0, 1.0, 2.0, 2.0], nearest_mode = <FLOOR>, offsets = [0, 0, 0, 0], sizes = [1, 16, 7, 7]>>
 
-    %interp_output = VPU.NCE.Interpolate(%interp_input, %interp_weights) {
+    %interp_output = VPU.NCE.Interpolate(%interp_input, %interp_weights) rawFilterShape [16, 16, 2, 2] {
         strides = [1, 1],
-        rawFilterShape = [16, 16, 2, 2],
+        
         mode = #VPU.nce_interpolate_mode<BILINEAR>,
         multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>,
         scales_attr = [2, 2],
@@ -127,10 +126,10 @@ func.func @DoNotFuseInterpolateBilinearWithConv(%arg0: tensor<1x16x3x3xf16, {ord
     } -> tensor<1x16x6x6xf16, {order = #NHWC}>
 
     %conv_weights = const.Declare tensor<32x16x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<32x16x1x1xf16>, [#const.Reorder<#NHWC>]
-    %conv_output = VPU.NCE.Convolution(%interp_output, %conv_weights) {
+    %conv_output = VPU.NCE.Convolution(%interp_output, %conv_weights) rawFilterShape [32, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            rawFilterShape = [32, 16, 1, 1],
+            
             strides = [1, 1]
         } : tensor<1x16x6x6xf16, {order = #NHWC}>, tensor<32x16x1x1xf16, {order = #NHWC}> -> tensor<1x32x6x6xf16, {order = #NHWC}>
 

@@ -8,13 +8,126 @@
 #pragma once
 
 #include "intel_npu/config/config.hpp"
+#include "npu_driver_compiler.h"
+
+#include "openvino/core/extension.hpp"
+#include "openvino/core/model.hpp"
 #include "openvino/runtime/profiling_info.hpp"
+
 #include "vpux/compiler/network_metadata.hpp"
 #include "vpux/utils/core/mem_size.hpp"
+
+#include <cstdint>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 namespace vpux {
 
 constexpr uint32_t SUPPORTED_OPSET = 11;
+
+// Same as defined in ze_graph_profiling_ext.h
+namespace ze {
+
+#define ZE_MAX_GRAPH_PROFILING_LAYER_NAME 256
+#define ZE_MAX_GRAPH_PROFILING_LAYER_TYPE 50
+
+typedef enum _ze_layer_status_t {
+    ZE_LAYER_STATUS_NOT_RUN = 1,
+    ZE_LAYER_STATUS_OPTIMIZED_OUT,
+    ZE_LAYER_STATUS_EXECUTED
+
+} ze_layer_status_t;
+
+typedef struct _ze_profiling_layer_info {
+    char name[ZE_MAX_GRAPH_PROFILING_LAYER_NAME];
+    char layer_type[ZE_MAX_GRAPH_PROFILING_LAYER_TYPE];
+
+    ze_layer_status_t status;
+    uint64_t start_time_ns;   ///< Absolute start time
+    uint64_t duration_ns;     ///< Total duration (from start time until last compute task completed)
+    uint32_t layer_id;        ///< Not used
+    uint64_t fused_layer_id;  ///< Not used
+
+    // Aggregate compute time  (aka. "CPU" time, will include DPU, SW, DMA)
+    uint64_t dpu_ns;
+    uint64_t sw_ns;
+    uint64_t dma_ns;
+
+} ze_profiling_layer_info;
+
+typedef enum _ze_task_execute_type_t {
+    ZE_TASK_EXECUTE_NONE = 0,
+    ZE_TASK_EXECUTE_DPU,
+    ZE_TASK_EXECUTE_SW,
+    ZE_TASK_EXECUTE_DMA
+
+} ze_task_execute_type_t;
+
+typedef struct _ze_profiling_task_info {
+    char name[ZE_MAX_GRAPH_PROFILING_LAYER_NAME];
+    char layer_type[ZE_MAX_GRAPH_PROFILING_LAYER_TYPE];
+
+    ze_task_execute_type_t exec_type;
+    uint64_t start_time_ns;
+    uint64_t duration_ns;
+    uint32_t active_cycles;
+    uint32_t stall_cycles;
+    uint32_t task_id;
+    uint32_t parent_layer_id;  ///< Not used
+
+} ze_profiling_task_info;
+
+static_assert(sizeof(ze_profiling_task_info) == 344);
+static_assert(sizeof(ze_profiling_layer_info) == 368);
+
+}  // namespace ze
+
+/**
+ * @brief Input and output precisions from user
+ */
+struct Precisions {
+    using PrecisionMap = std::unordered_map<std::string, ov::element::Type_t>;
+
+    PrecisionMap inputPrecisions;
+    PrecisionMap outputPrecisions;
+
+    bool isValid() const {
+        return !inputPrecisions.empty() && !outputPrecisions.empty();
+    }
+};
+
+/**
+ * @brief Input and output layouts from user
+ */
+struct Layouts {
+    using LayoutMap = std::unordered_map<std::string, std::string>;
+
+    LayoutMap inputLayouts;
+    LayoutMap outputLayouts;
+
+    bool isValid() const {
+        return !inputLayouts.empty() && !outputLayouts.empty();
+    }
+};
+
+/**
+ * @brief Aggregates a model and its I/O precision/layout configuration.
+ */
+struct ModelData {
+    std::shared_ptr<ov::Model> model;
+
+    Precisions precisions;
+    Layouts layouts;
+};
+
+class InvalidIrError : public std::runtime_error {
+public:
+    explicit InvalidIrError(const std::string& message): runtime_error(message) {
+    }
+};
 
 class BlobAllocator {
 public:
@@ -57,7 +170,7 @@ struct NetworkDescriptionView {
     ~NetworkDescriptionView() = default;
 
     BlobView compiledNetwork;
-    BlobView compatibilityString;
+    BlobView compatibilityString;  // To be removed E#219950
     NetworkMetadata metadata;
 };
 
@@ -84,7 +197,7 @@ public:
      * @param model a shared pointer to the OpenVINO model to be compiled
      * @param config a reference to NPUConfig containing plugin config options
      *        including config options related to compilation
-     * @return a shared pointer on an object implementing NetworkDescription interface
+     * @return Compiled network description
      */
     virtual NetworkDescription compile(const std::shared_ptr<const ov::Model>& model,
                                        const intel_npu::Config& config) const = 0;
@@ -136,37 +249,52 @@ public:
      * @param config a reference to NPUConfig containing plugin config options
      *        Note: compilation options will be ignored,
      *        since the network is already compiled
-     * @return a shared pointer on an object implementing NetworkDescription interface
+     * @return Network metadata extracted from the compiled network
      */
     virtual NetworkMetadata parse(const std::vector<uint8_t>& network, const intel_npu::Config& config) const = 0;
 
-    virtual std::vector<ov::ProfilingInfo> process_profiling_output(const std::vector<uint8_t>& profData,
-                                                                    const std::vector<uint8_t>& network,
-                                                                    const intel_npu::Config& config) const = 0;
+    virtual std::vector<ov::ProfilingInfo> processProfilingOutput(const std::vector<uint8_t>& profData,
+                                                                  const std::vector<uint8_t>& network,
+                                                                  const intel_npu::Config& config) const = 0;
+
+    virtual std::vector<ze::ze_profiling_layer_info> getLayerInfo(const uint8_t* blobData, uint64_t blobSize,
+                                                                  const uint8_t* profData, uint64_t profSize) const = 0;
+
+    virtual std::vector<ze::ze_profiling_task_info> getTaskInfo(const uint8_t* blobData, uint64_t blobSize,
+                                                                const uint8_t* profData, uint64_t profSize) const = 0;
 
     // CiD-specific methods
 
     virtual NetworkDescriptionView compile(const std::shared_ptr<ov::Model>& model, const intel_npu::Config& config,
                                            BlobAllocator& allocator,
-                                           bool generateCompatibilityString = false) const = 0;
+                                           bool allocateCompatibilityString = false) const = 0;
 
     virtual NetworkDescriptionView compile(const std::shared_ptr<const ov::Model>& model,
                                            const intel_npu::Config& config, BlobAllocator& allocator,
-                                           bool generateCompatibilityString = false) const = 0;
+                                           bool allocateCompatibilityString = false) const = 0;
 
-    // WS VCL-specific methods
+    // VCL specific methods
 
-    /// @brief Returns Init schedules and Main in a single call. The blobs are allocated using the provided allocator.
-    /// There is always exactly one Main schedule, placed at the back of the vector.
-    virtual std::vector<std::shared_ptr<NetworkDescriptionView>> compileWsOneShot(
-            const std::shared_ptr<ov::Model>& model, const intel_npu::Config& config,
-            BlobAllocator& allocator) const = 0;
+    virtual ov::SupportedOpsMap queryFromDesc(const vcl_query_desc_t& desc, vcl_compiler_desc_t& compilerDesc,
+                                              vcl_compiler_properties_t& compilerProp, vcl_device_desc_t& deviceDesc,
+                                              intel_npu::Config& config, bool isDeviceDescEmpty) const = 0;
 
-    /// @brief Sequentially compiles Init and Main schedules. The blob is allocated using the provided allocator. The
-    /// Main schedule is always last.
-    virtual NetworkDescriptionView compileWsIterative(const std::shared_ptr<ov::Model>& model,
-                                                      const intel_npu::Config& config, size_t callIdx,
-                                                      BlobAllocator& allocator) const = 0;
+    virtual NetworkDescription compileFromDesc(const vcl_executable_desc_t& desc,
+                                               const vcl_compiler_properties_t& compilerProp,
+                                               vcl_compiler_desc_t& compilerDesc, vcl_device_desc_t& deviceDesc,
+                                               intel_npu::Config& config, bool isDeviceDescEmpty) const = 0;
+
+    virtual NetworkDescriptionView compileFromDesc(const vcl_executable_desc_t& desc,
+                                                   const vcl_compiler_properties_t& compilerProp,
+                                                   vcl_compiler_desc_t& compilerDesc, vcl_device_desc_t& deviceDesc,
+                                                   intel_npu::Config& config, bool isDeviceDescEmpty,
+                                                   BlobAllocator& allocator,
+                                                   bool generateCompatibilityString = false) const = 0;
+
+    virtual std::vector<std::shared_ptr<NetworkDescriptionView>> compileFromDescWsOneShot(
+            const vcl_executable_desc_t& desc, const vcl_compiler_properties_t& compilerProp,
+            vcl_compiler_desc_t& compilerDesc, vcl_device_desc_t& deviceDesc, intel_npu::Config& config,
+            bool isDeviceDescEmpty, BlobAllocator& allocator) const = 0;
 };
 
 }  // namespace vpux

@@ -27,7 +27,7 @@ vpux::MemRefAttr::HwFields getHwSpecificFields(mlir::MemRefLayoutAttrInterface l
 }
 
 StridedShape alignStridedShape(const StridedShape& stridedTiledShape, VPU::DistributionInfoAttr distribution,
-                               const DimsOrder order) {
+                               const DimsOrder& order) {
     if (distribution.getAlignment() == nullptr) {
         return stridedTiledShape;
     }
@@ -41,7 +41,7 @@ StridedShape alignStridedShape(const StridedShape& stridedTiledShape, VPU::Distr
 }
 
 Byte getStridedAllocSize(const StridedShape& stridedTiledShape, ShapeRef stridedTiledOffsets,
-                         VPUIP::SparsityCompressionAttr sparsityCompression, const DimsOrder order,
+                         VPUIP::SparsityCompressionAttr sparsityCompression, const DimsOrder& order,
                          const Bit elemBitSize) {
     if (sparsityCompression == nullptr) {
         // the size should be calcuted base on shape and stride based on memory d0
@@ -1081,7 +1081,7 @@ NDTypeInterface VPUIP::DistributedBufferType::changeShapeElemType(ShapeRef shape
     return newType;
 }
 
-NDTypeInterface VPUIP::DistributedBufferType::changeDimsOrder(DimsOrder order) const {
+NDTypeInterface VPUIP::DistributedBufferType::changeDimsOrder(const DimsOrder& order) const {
     const auto ctx = getContext();
 
     auto layoutAttr = getLayout();

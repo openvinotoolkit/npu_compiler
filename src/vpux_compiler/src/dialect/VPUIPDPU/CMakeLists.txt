@@ -13,6 +13,7 @@ add_npu_library(npu_compiler_dialect_vpuipdpu
         npu_compiler_dialect_vpuip
         npu_compiler_dialect_vpureg
         npu_compiler_dialect_elf_utils
+        npu_compiler_dialect_elf
         npu_compiler_dialect_vpuasm
         npu_logger
       PRIVATE

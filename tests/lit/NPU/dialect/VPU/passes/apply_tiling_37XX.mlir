@@ -81,11 +81,11 @@ func.func @ApplyTilingSETransposedConv(%arg0: tensor<1x16x128x128xf16, {order = 
                                storage_element_table=tensor<1x1x386x386xi32, {order = #NHWC}>,
             #VPU.SEUpsampling<factors = [2, 2], padding = [3, 1, 1, 3]>>
 
-    %2 = VPU.NCE.Convolution(%1, %cst_1, %cst) {
+    %2 = VPU.NCE.Convolution(%1, %cst_1, %cst) rawFilterShape [16, 16, 5, 5] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
             ppe = #VPU.PPEStub<>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-            rawFilterShape = [16, 16, 5, 5], strides = [1, 1],
+             strides = [1, 1],
             tilingStrategy = [1, 1, 1, 2]
         } : !VPU.SparseTensor<data=tensor<1x16x128x128xf16, {order = #NHWC}>, sparsity_map=tensor<1x16x386x386xi1, {order = #NHWC}>, storage_element_table=tensor<1x1x386x386xi32, {order = #NHWC}>, #VPU.SEUpsampling<factors = [2, 2], padding = [3, 1, 1, 3]>>, tensor<16x16x5x5xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x382x382xf16, {order = #NHWC}>
 
@@ -143,9 +143,9 @@ func.func @SplitSEDepthConvolutionAlignedOnChannels(%arg0: tensor<1x192x65x65xf1
         sparsity_map=tensor<1x192x32x32xi1, {order =#NHWC}>, storage_element_table=tensor<1x12x32x32xi32,
         {order =#NHWC}>, #VPU.SEDilatedConv<dilation = [2, 2], kernelStride = [1, 1], kernelSize = [3, 3],
         dataOffset = [0, 0, 1, 1], dataSizes = [1, 192, 64, 64]>>
-    %9 = VPU.NCE.DepthConvolution(%8, %weight, %weight_table) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 1 : i64,
+    %9 = VPU.NCE.DepthConvolution(%8, %weight, %weight_table) rawFilterShape [192, 1, 3, 3] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 1 : i64,
         right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64,
-        lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>, rawFilterShape = [192, 1, 3, 3], strides = [1, 1], tilingStrategy = [1, 3, 1, 1]} -> tensor<1x192x32x32xf16>
+        lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 3, 1, 1]} -> tensor<1x192x32x32xf16>
 
     return %9 : tensor<1x192x32x32xf16>
 

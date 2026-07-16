@@ -39,5 +39,10 @@ const CostModelShaveUtil& getShaveCostModelUtils(mlir::MLIRContext* context) {
     return registeredInterface.getShaveCostModelUtils();
 }
 
+PrecomputedStrategyTable& getPrecomputedStrategyTable(mlir::MLIRContext* context) {
+    auto& registeredInterface = getCache<VPU::SingletonCache, VPU::VPUDialect>(context);
+    return registeredInterface.getPrecomputedStrategyTable();
+}
+
 }  // namespace VPU
 }  // namespace vpux

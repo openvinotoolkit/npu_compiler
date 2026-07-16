@@ -26,7 +26,7 @@ module @TestBufferOutput {
   }
 
   module @VPU.SW {
-  func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {
+  func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {
           VPU.kernel_code = "activation_relu.cpp", VPU.kernel_entry = "activation_relu", VPU.task_type = @COMPUTE
       }
   }

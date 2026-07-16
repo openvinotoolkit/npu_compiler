@@ -48,7 +48,7 @@ endif()
 
 target_link_libraries(${FUNCTIONAL_TARGET}
     PRIVATE
-        openvino_intel_npu_compiler_loader
+        npu_compiler_loader_utils
         gtest
         gtest_main
         LLVMSupport
@@ -73,9 +73,17 @@ target_include_directories(${FUNCTIONAL_TARGET}
         ${LLVM_INCLUDE_DIRS}
 )
 
+if(OpenVINO_SOURCE_DIR)
+    target_include_directories(${FUNCTIONAL_TARGET}
+        PRIVATE
+            "${OpenVINO_SOURCE_DIR}/src/plugins/intel_npu/src/utils/include"
+    )
+endif()
+
 ov_add_api_validator_post_build_step(TARGET vpuxCompilerL0Test)
 
-# Install functional test to CiD component
-if(BUILD_COMPILER_FOR_DRIVER)
-    install_target_with_debug_files(vpuxCompilerL0Test ${INSTALL_DESTINATION} ${INSTALL_COMPONENT})
-endif()
+install(TARGETS ${FUNCTIONAL_TARGET}
+        RUNTIME DESTINATION tests
+        COMPONENT ${VPUX_TESTS_COMPONENT}
+        EXCLUDE_FROM_ALL
+)

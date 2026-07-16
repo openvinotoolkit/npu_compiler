@@ -28,13 +28,14 @@ add_npu_library(${TARGET_NAME}
         npu_compiler_dialect_config
         npu_compiler_dialect_const
         npu_compiler_dialect_core
-        npu_compiler_dialect_elf
         npu_compiler_dialect_elf_utils
         npu_compiler_dialect_ie
         npu_compiler_dialect_vpu_utils
+        npu_compiler_dialect_vpureg
         npu_core_utils
       PRIVATE
         npu_profiling_utils
+        MLIRDebug
         MLIRIR
         # npu_compiler_utils should not depend on other dialects (IE, VPU, VPUIP...),
         # to avoid circular dependencies, except for the net dialect.
@@ -45,6 +46,7 @@ add_npu_library(${TARGET_NAME}
         npu_compiler_dialect_ie_utils
         npu_compiler_dialect_vpumi40xx
         npu_compiler_act_kernels
+        npu_compiler_dialect_shave
 )
 
 set(LINKER_SCRIPT_INPUT "${PROJECT_SOURCE_DIR}/sw_runtime_kernels/kernels/prebuild/shave_kernel.ld")

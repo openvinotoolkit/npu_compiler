@@ -9,21 +9,25 @@
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(TopKLayerTest);
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(TopK11LayerTest);
+
 class TopKLayerTestCommon : virtual public TopKLayerTest, virtual public VpuOv2LayerTest {
     void configure_model() override {
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp16";
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp";
     }
 };
 class TopK11LayerTestCommon : public TopK11LayerTest, virtual public VpuOv2LayerTest {};
 class TopKDDRLayerTestCommon : public TopK11LayerTest, virtual public VpuOv2LayerTest {
     void configure_model() override {
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp16";
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp";
     }
 };
 class TopK_SCFTilingLayerTest : public TopKLayerTestCommon {
     void configure_model() override {
         configuration[ov::intel_npu::compilation_mode_params.name()] =
-                "disabled-passes=convert-precision-to-fp16 scf-tiling=true";
+                "disabled-passes=convert-precision-to-fp scf-tiling=true";
         // E-190336 for MC support
         VpuOv2LayerTest::configuration["NPU_TILES"] = "1";
     }
@@ -165,7 +169,7 @@ const auto paramsConfigPrecommitFP32 = ::testing::Combine(
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_TopK_FP32, TopKLayerTestCommon, paramsConfigPrecommitFP32,
                          TopKLayerTestCommon::getTestCaseName);
 
-INSTANTIATE_TEST_SUITE_P(smoke_precommit_TopK_FP32_SCFTiling, TopK_SCFTilingLayerTest, paramsConfigPrecommitFP32,
+INSTANTIATE_TEST_SUITE_P(smoke_TopK_FP32_SCFTiling, TopK_SCFTilingLayerTest, paramsConfigPrecommitFP32,
                          TopK_SCFTilingLayerTest::getTestCaseName);
 
 // Tiling tests
@@ -233,6 +237,16 @@ INSTANTIATE_TEST_SUITE_P(smoke_TopK11, TopK11LayerTestCommon,
                                             ::testing::Values(ov::test::static_shapes_to_test_representation(
                                                     std::vector<ov::Shape>({{{10, 10, 10}}}))),
                                             ::testing::Values(true), ::testing::Values(test_utils::TARGET_DEVICE)),
+                         TopK11LayerTestCommon::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_TopK11_GPT, TopK11LayerTestCommon,
+                         ::testing::Combine(::testing::Values(4), ::testing::Values(3),
+                                            ::testing::Values(ov::op::v3::TopK::Mode::MAX),
+                                            ::testing::Values(ov::op::v3::TopK::SortType::SORT_VALUES),
+                                            ::testing::Values(ov::element::f16),
+                                            ::testing::Values(ov::test::static_shapes_to_test_representation(
+                                                    std::vector<ov::Shape>({{{1, 1, 1024, 32}}}))),
+                                            ::testing::Values(false), ::testing::Values(test_utils::TARGET_DEVICE)),
                          TopK11LayerTestCommon::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(

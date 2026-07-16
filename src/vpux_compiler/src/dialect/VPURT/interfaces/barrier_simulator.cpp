@@ -186,8 +186,7 @@ bool vpux::VPURT::BarrierWlmHandler::canBarrierReusePidFromBarrier(size_t vid, s
 //
 
 vpux::VPURT::BarrierSimulator::BarrierSimulator(mlir::func::FuncOp funcOp) {
-    _barrierProducerSlotCount = static_cast<int64_t>(VPUIP::getBarrierMaxVariantCount(funcOp));
-    _barrierTotalSlotCount = static_cast<int64_t>(VPUIP::getBarrierMaxVariantSum(funcOp));
+    _barrierSlotCountLimit = static_cast<int64_t>(VPUIP::getBarrierMaxSlotCount(funcOp));
     _availableBarriers = VPUIP::getNumAvailableBarriers(funcOp);
     _dmaTasks.resize(VPUIP::getNumberOfIndependentDmaQueues(funcOp));
     assignVirtualIds(funcOp);
@@ -374,9 +373,9 @@ mlir::LogicalResult vpux::VPURT::BarrierSimulator::checkProducerCount(Logger log
     for (auto vid : irange(_barriers.size())) {
         const auto producerCount = _barriers[vid].producerCount;
 
-        if (producerCount > _barrierProducerSlotCount) {
+        if (producerCount >= _barrierSlotCountLimit) {
             log.warning("Barrier {0} at '{1}' has {2} producers (max {3})", vid, _barriers[vid].loc, producerCount,
-                        _barrierProducerSlotCount);
+                        _barrierSlotCountLimit - 1);
             return mlir::failure();
         }
     }
@@ -386,12 +385,12 @@ mlir::LogicalResult vpux::VPURT::BarrierSimulator::checkProducerCount(Logger log
 
 mlir::LogicalResult vpux::VPURT::BarrierSimulator::checkProducerAndConsumerCount(Logger log) const {
     for (auto vid : irange(_barriers.size())) {
-        const auto producerCount = _barriers[vid].producerCount;
-        const auto consumerCount = _barriers[vid].consumerCount;
-
-        if (producerCount + consumerCount > _barrierTotalSlotCount) {
-            log.warning("Barrier {0} at '{1}' has {2} producers and {3} consumers (max sum {4})", vid,
-                        _barriers[vid].loc, producerCount, consumerCount, _barrierTotalSlotCount);
+        if ((_barriers[vid].consumerCount >= _barrierSlotCountLimit) ||
+            (_barriers[vid].producerCount >= _barrierSlotCountLimit)) {
+            log.warning("Barrier {0} at '{1}' has {2} consumers and {3} producers, the maximum value either "
+                        "consumers/producers can have is: {4}",
+                        vid, _barriers[vid].loc, _barriers[vid].consumerCount, _barriers[vid].producerCount,
+                        _barrierSlotCountLimit - 1);
             return mlir::failure();
         }
     }

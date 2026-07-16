@@ -24,6 +24,9 @@ using ov::test::utils::SequenceTestsMode;
 // prins statistics for every cell produced
 // #define LSTM_PRINT_DEBUG_STATISTICS
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(LSTMSequenceTest);
+
 class LSTMSequenceLayerTestCommon : public LSTMSequenceTest, virtual public VpuOv2LayerTest {
     void SetUp() override {
         SequenceTestsMode mode;

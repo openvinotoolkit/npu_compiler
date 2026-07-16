@@ -54,6 +54,7 @@ add_subdirectory(tblgen)
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/interface/include
+    ${PROJECT_SOURCE_DIR}/src/vpux_driver_compiler/include
 )
 include_directories(SYSTEM ${CMAKE_CURRENT_BINARY_DIR}/include)
 # GraphFile schema is used in tblgen and therefore in entire compiler
@@ -99,7 +100,9 @@ add_library(npu_compiler_interface OBJECT
 target_include_directories(npu_compiler_interface
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/interface/include>
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/vpux_driver_compiler/include>
         $<INSTALL_INTERFACE:include>
+        $<INSTALL_INTERFACE:include/vpux_driver_compiler>
 )
 
 # Link only essential dependencies that are part of the public API
@@ -142,15 +145,6 @@ endif()
 
 if(UNIX)
     target_link_options(${COMPILER_LIB} PRIVATE -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/compiler.exports)
-endif()
-
-# Install library related files to component
-if(BUILD_COMPILER_FOR_DRIVER)
-    set(INSTALL_COMPONENT "CiD")
-    set(INSTALL_DESTINATION cid)
-else()
-    set(INSTALL_COMPONENT "CiP")
-    set(INSTALL_DESTINATION cip)
 endif()
 
 include(${PROJECT_SOURCE_DIR}/cmake/npu_compiler_version.cmake)

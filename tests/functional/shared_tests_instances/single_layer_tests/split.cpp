@@ -12,6 +12,9 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(SplitLayerTest);
+
 class SplitLayerTestCommon : public SplitLayerTest, virtual public VpuOv2LayerTest {
     void generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) override {
         VpuOv2LayerTest::inputs.clear();

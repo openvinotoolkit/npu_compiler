@@ -277,7 +277,9 @@ RawProfilingRecords parseDPUTaskProfiling(
                 } else {
                     const HwpDpuIduOduData_t dpuTimings =
                             reinterpret_cast<const HwpDpuIduOduData_t*>(output)[currentPos];
-                    const auto taskWloadId = taskMeta->workloadIds()->Get(variantId);
+                    const auto fbWloadIds = taskMeta->workloadIds();
+                    VPUX_THROW_WHEN(!fbWloadIds || variantId >= fbWloadIds->size(), "Missing DPU metadata");
+                    const auto taskWloadId = fbWloadIds->Get(variantId);
                     bool isValidWorkloadIdConfiguration =
                             (dpuTimings.idu_wl_id == dpuTimings.odu_wl_id) && (dpuTimings.idu_wl_id == taskWloadId);
                     warnOrFail(!ignoreSanitizationErrors, log, !isValidWorkloadIdConfiguration,
@@ -387,12 +389,12 @@ RawDataLayout getRawDataLayoutFB(const ProfilingFB::ProfilingBuffer* profBuffer,
     uint32_t prevSectionEnd = 0;
     RawDataLayout sections;
     for (const auto& section : *profBuffer->sections()) {
-        const auto sectionBegin = section->offset();
-        const auto sectionSize = section->size();
-        const auto sectionEnd = sectionBegin + sectionSize;
+        const uint64_t sectionBegin = section->offset();
+        const uint64_t sectionSize = section->size();
+        const uint64_t sectionEnd = sectionBegin + sectionSize;
 
         VPUX_THROW_UNLESS((sectionBegin < profSize && sectionEnd <= profSize),
-                          "Section [{0};{1}] exceeds profiling buffer size({2}b)", sectionBegin, sectionEnd, profSize);
+                          "Section(type {0}) is out of profiling data bounds", section->type());
         VPUX_THROW_WHEN(sectionBegin < prevSectionEnd, "Section(type {0}) overlaps with previous section",
                         section->type());
 

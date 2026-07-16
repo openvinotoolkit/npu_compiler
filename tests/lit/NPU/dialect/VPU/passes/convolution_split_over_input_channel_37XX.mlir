@@ -18,12 +18,12 @@ func.func @SplitOverInputChannelOn2T(%arg0: tensor<1x3072x128x4xf16, {order = #N
   // scale = 1082549862 = 0x40866666 = 4.2f
   // bias will have the same value
   %cst = const.Declare tensor<768x1x1x4xsi32> = dense<1082549862> : tensor<768x1x1x4xsi32>
-  %0 = VPU.NCE.Convolution(%arg0, %arg1, %cst)  {
+  %0 = VPU.NCE.Convolution(%arg0, %arg1, %cst) rawFilterShape [768, 3072, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
     mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
     ppe = #VPU.PPEInt<mode = <LPRELU>, clamp_low = -2147483648 : i64, clamp_high = 3121953301 : i64,
                       lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 2.000000e-01 : f64>,
-    rawFilterShape = [768, 3072, 1, 1], strides = [1, 1], tilingStrategy = [1, 2, 5, 1]}
+     strides = [1, 1], tilingStrategy = [1, 2, 5, 1]}
   : tensor<1x3072x128x4xf16, {order = #NHWC}>, tensor<768x3072x1x1xf16, {order = #NHWC}>, tensor<768x1x1x4xsi32> -> tensor<1x768x128x4xf16, {order = #NHWC}>
 
   return %0 : tensor<1x768x128x4xf16, {order = #NHWC}>
@@ -83,11 +83,11 @@ func.func @SplitOverInputChannelOn1T(%arg0: tensor<1x3072x128x4xf16, {order = #N
   // scale = 1065353216 = 0x3f800000 = 1.f
   // bias will have the same value
   %cst = const.Declare tensor<768x1x1x4xsi32> = dense<1065353216> : tensor<768x1x1x4xsi32>
-  %0 = VPU.NCE.Convolution(%arg0, %arg1, %cst)  {
+  %0 = VPU.NCE.Convolution(%arg0, %arg1, %cst) rawFilterShape [768, 3072, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
     mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
     ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
                       lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
-    rawFilterShape = [768, 3072, 1, 1], strides = [1, 1], tilingStrategy = [1, 3, 10, 1]}
+     strides = [1, 1], tilingStrategy = [1, 3, 10, 1]}
   : tensor<1x3072x128x4xf16, {order = #NHWC}>, tensor<768x3072x1x1xf16, {order = #NHWC}>, tensor<768x1x1x4xsi32>
   -> tensor<1x768x128x4xf16, {order = #NCHW}>
 
@@ -153,12 +153,12 @@ func.func @SplitOverInputChannelWithDequantizeOpAsWeights(%arg0: tensor<1x3072x1
     dstElemType = f16, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, tilingStrategy = [2, 1, 1, 1]
   } : tensor<768x3072x1x1x!quant.uniform<u8:f16, 0.0084632095168618599:87>, {order = #NHWC}> -> tensor<768x3072x1x1xf16, {order = #NHWC}>
 
-  %1 = VPU.NCE.Convolution(%arg0, %0, %cst) {
+  %1 = VPU.NCE.Convolution(%arg0, %0, %cst) rawFilterShape [768, 3072, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
     mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
     ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
                       lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
-    rawFilterShape = [768, 3072, 1, 1], strides = [1, 1], tilingStrategy = [1, 2, 6, 1]
+     strides = [1, 1], tilingStrategy = [1, 2, 6, 1]
   } : tensor<1x3072x128x4xf16, {order = #NHWC}>, tensor<768x3072x1x1xf16, {order = #NHWC}>, tensor<768x1x1x4xsi32>
     -> tensor<1x768x128x4xf16, {order = #NHWC}>
 

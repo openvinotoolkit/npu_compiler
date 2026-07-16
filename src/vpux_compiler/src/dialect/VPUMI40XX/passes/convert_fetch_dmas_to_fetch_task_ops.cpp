@@ -70,7 +70,6 @@ public:
 
 private:
     void safeRunOnFunc() final;
-    llvm::DenseMap<FetchDMAKey, VPUMI40XX::NNDMAOp> _placeHolderFetchDMAMap;
 };
 
 VPURegMapped::TaskType convertTargetToTaskType(config::ExecutorKind kind) {
@@ -168,6 +167,7 @@ void ConvertFetchDmasToFetchTaskOpsPass::safeRunOnFunc() {
     auto dmaTaskOps = netFunc.getOps<VPUMI40XX::NNDMAOp>();
 
     _log.trace("Get placeholder Fetch DMAs");
+    llvm::DenseMap<FetchDMAKey, VPUMI40XX::NNDMAOp> placeHolderFetchDMAMap;
     for (auto dmaOp : llvm::make_early_inc_range(llvm::make_filter_range(dmaTaskOps, [](auto dma) {
              // DescID suggests this DMA is to fetch single DMA descriptor for logical task, and thus should not be of
              // concern in this pass
@@ -181,22 +181,18 @@ void ConvertFetchDmasToFetchTaskOpsPass::safeRunOnFunc() {
         const auto targetExecutorKind = fetchAttr.getTargetExecutorKindAttr();
 
         FetchDMAKey key{tileIdx, listIdx, groupIdx, convertTargetToTaskType(targetExecutorKind.getValue())};
-        _placeHolderFetchDMAMap[key] = dmaOp;
+        placeHolderFetchDMAMap[key] = dmaOp;
     }
 
     _log.trace("Add Fetch Tasks");
     SmallVector<VPURegMapped::FetchTaskOp> fetchTasks;
-    if (mlir::failed(addFetchTasks(mpi, VPURegMapped::TaskType::DPUInvariant, tilesCount, _placeHolderFetchDMAMap,
+    if (mlir::failed(addFetchTasks(mpi, VPURegMapped::TaskType::DPUInvariant, tilesCount, placeHolderFetchDMAMap,
                                    fetchTasks))) {
-        config::setWorkloadManagementStatus(parentModule, WorkloadManagementStatus::FAILED);
-        signalPassFailure();
-        return;
+        VPUX_THROW("addFetchTasks for DPUInvariant failed");
     }
-    if (mlir::failed(addFetchTasks(mpi, VPURegMapped::TaskType::ActKernelRange, tilesCount, _placeHolderFetchDMAMap,
+    if (mlir::failed(addFetchTasks(mpi, VPURegMapped::TaskType::ActKernelRange, tilesCount, placeHolderFetchDMAMap,
                                    fetchTasks, shavesCountPerTile))) {
-        config::setWorkloadManagementStatus(parentModule, WorkloadManagementStatus::FAILED);
-        signalPassFailure();
-        return;
+        VPUX_THROW("addFetchTasks for ActKernelRange failed");
     }
 
     _log.trace("Reindex list");

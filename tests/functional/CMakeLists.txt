@@ -19,7 +19,13 @@ if(ENABLE_NPU_EXECUTION_ENGINE AND BUILD_SHARED_LIBS)
     list(APPEND OPTIONAL_FUNC_TESTS_LIBS
         openvino::npu_zero_utils
         npu_compiler_interface
-        openvino::npu_vm_runtime_api
+        npu_interpreter_runtime
+    )
+    # Private allocator headers so the vm_runtime device tests can reach the internal allocator. Scoped to the
+    # utils/ folder that holds those headers, not the whole runtime src/, so the rest of the runtime internals
+    # stay hidden from the test build.
+    list(APPEND OPTIONAL_FUNC_TESTS_INCLUDES
+        "${PROJECT_SOURCE_DIR}/src/npu_interpreter_runtime/src/utils"
     )
 else()
     list(APPEND EXCLUDED_FUNC_TESTS_DIR
@@ -33,6 +39,7 @@ ov_add_test_target(
     EXCLUDED_SOURCE_PATHS
         ${EXCLUDED_FUNC_TESTS_DIR}
     INCLUDES
+        ${OPTIONAL_FUNC_TESTS_INCLUDES}
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${PROJECT_SOURCE_DIR}/tests/functional/shared_tests_instances
         ${PROJECT_SOURCE_DIR}/tests/functional/behavior
@@ -102,20 +109,17 @@ install(DIRECTORY "${VM_RUNTIME_TEST_DATA_DIR}/"
         EXCLUDE_FROM_ALL
 )
 
-get_target_property(EXE_LOCATION ${TARGET_NAME} RUNTIME_OUTPUT_DIRECTORY)
-
-# Copies test data to local build directory
-if(EXE_LOCATION)
-    configure_file(
-        ${SKIP_CONFIG_PATH}
-        ${EXE_LOCATION}/${SKIP_CONFIG}
-        COPYONLY
-    )
-
-    file(COPY "${VM_RUNTIME_TEST_DATA_DIR}/"
-         DESTINATION "${EXE_LOCATION}"
-    )
-endif()
+# Copies test data next to test executable in local build directory.
+# POST_BUILD + TARGET_FILE_DIR works reliably for both single-config and multi-config generators.
+add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${SKIP_CONFIG_PATH}
+            $<TARGET_FILE_DIR:${TARGET_NAME}>/${SKIP_CONFIG}
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${VM_RUNTIME_TEST_DATA_DIR}
+            $<TARGET_FILE_DIR:${TARGET_NAME}>
+    VERBATIM
+)
 
 if(ENABLE_DEVELOPER_BUILD AND UNIX)
     # add npuFuncTest improved with gtest-parallel to ctest

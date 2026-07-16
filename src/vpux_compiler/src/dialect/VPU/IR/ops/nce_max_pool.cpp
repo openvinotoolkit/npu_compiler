@@ -18,13 +18,19 @@
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
+#include "vpux/compiler/dialect/VPU/utils/odu_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_support.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sprlut_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
+
+#include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
+
+#include <mlir/Dialect/Arith/Utils/Utils.h>
 
 using namespace vpux;
 
@@ -41,8 +47,12 @@ bool vpux::VPU::NCEMaxPoolOp::fitIntoCMX(vpux::NDTypeInterface input, vpux::NDTy
     auto ppeAttr = getPpe();
     addSprLutBufferIfPresent(ppeAttr, buffers);
 
-    if (getWeightsTable() != nullptr) {
-        buffers.push_back(NCEInvariant::getWeightsTableSize(outputChannels));
+    const auto weightsTableBuffer = NCEInvariant::getWeightsTableSize(getOperation(), outputChannels);
+    if (weightsTableBuffer.count() > 0) {
+        buffers.push_back(weightsTableBuffer);
+    }
+    if (mlir::failed(getReduceOutputBuffers(getOperation(), buffers, output))) {
+        VPUX_THROW("getReduceOutputBuffers function failed");
     }
 
     auto totalAvailableCMXSize = reservedMem.count() == 0 ? getTotalCMXSize(getOperation()).count()
@@ -104,7 +114,7 @@ bool vpux::VPU::NCEMaxPoolOp::isSupported(IE::MaxPoolOp op, LogCb logCb, bool ch
     if (checkChannelAlignment) {
         auto iface = mlir::cast<IE::AlignedChannelsOpInterface>(op.getOperation());
         if (!NCEInvariant::isInputActTypeSupported(inputType, iface.getInputChannelAlignment(), false) ||
-            !NCEInvariant::isOutputActTypeSupported(outputType, iface.getOutputChannelAlignment())) {
+            !NCEInvariant::isOutputActTypeSupported(op.getOperation(), outputType, iface.getOutputChannelAlignment())) {
             logCb(formatv("Misaligned tensor shape"));
             return false;
         }
@@ -218,13 +228,38 @@ mlir::LogicalResult vpux::VPU::NCEMaxPoolOp::inferReturnTypes(mlir::MLIRContext*
         return mlir::failure();
     }
 
-    const auto outDesc =
-            vpux::getTensorAttr(ctx, inType.getDimsOrder(), /*memSpace=*/nullptr, BoundsRef(outShapeInfo.bounds));
+    // When the ODU D2S/S2D feature is active, apply the spatial transform so that consumers
+    // of the op see the correct output type.
+    // D2S: [N, C, D1, ..., DK] -> [N, C/blkSize^K, D1*blkSize, ..., DK*blkSize]
+    // S2D: [N, C, D1, ..., DK] -> [N, C*blkSize^K, D1/blkSize, ..., DK/blkSize]
+    //
+    // outBounds mirrors outShape: non-empty only for dynamically-shaped inputs.  Both must receive
+    // the same reshape so that downstream passes see correct bounded output types.
+    auto outBounds = outShapeInfo.bounds;
+    if (const auto s2dd2sConfig = op.getS2dd2sConfigAttr()) {
+        const auto rank = static_cast<int64_t>(outShape.size());
+        const auto transformInfo = VPU::getODUS2DD2STransformInfo(s2dd2sConfig, rank);
+        if (transformInfo.has_value()) {
+            const auto scales = VPU::getODUS2DD2SScaling(*transformInfo, rank);
+            const auto result = VPU::applyODUScaling(scales, vpux::ShapeInfo{outShape, outBounds}, loc);
+            if (mlir::failed(result)) {
+                return mlir::failure();
+            }
+            outShape = result->shape;
+            outBounds = result->bounds;
+        }
+    }
+
+    const auto outDesc = vpux::getTensorAttr(ctx, inType.getDimsOrder(), /*memSpace=*/nullptr, BoundsRef(outBounds));
+
     auto outType = mlir::RankedTensorType::get(outShape, inType.getElementType(), outDesc);
 
     inferredReturnTypes.push_back(outType);
 
-    return mlir::success();
+    // Infer the extra NCE output types if any
+    auto resultSegmentSizes = op.getProperties().getResultSegmentSizes();
+
+    return inferReduceExtraNCETypes(loc, outType, op.getAxesValue(), resultSegmentSizes, inferredReturnTypes);
 }
 
 //
@@ -235,7 +270,14 @@ vpux::InputTiling vpux::VPU::NCEMaxPoolOp::backInferTileInfo(const vpux::TileInf
     const auto origInputShape = getBoundedShape(getInput());
     const auto origPadding = toPadInfo(getPad());
 
-    auto inputTiling = vpux::backInferPoolTile(outputTile, origInputShape, getKernelSize(), getStrides(), origPadding);
+    // Invert the per-dimension ODU scaling to recover the pre-ODU tile before pool back-inference.
+    const auto scales = VPU::getODUScaling(getOperation());
+    const auto poolOutputTileResult = VPU::invertODUScaling(scales, outputTile, getLoc());
+    VPUX_THROW_UNLESS(mlir::succeeded(poolOutputTileResult), "Failed to invert ODU scaling for NCEMaxPoolOp at '{0}'",
+                      getLoc());
+
+    auto inputTiling =
+            vpux::backInferPoolTile(*poolOutputTileResult, origInputShape, getKernelSize(), getStrides(), origPadding);
     VPUX_THROW_UNLESS(mlir::succeeded(checkAndAlignActInputTiling(
                               mlir::cast<VPU::NCEOpInterface>(*this->getOperation()), inputTiling, log)),
                       "Failed to get an aligned act input tiling");
@@ -244,7 +286,6 @@ vpux::InputTiling vpux::VPU::NCEMaxPoolOp::backInferTileInfo(const vpux::TileInf
         inputTiling.tiles.push_back(
                 VPU::getWeightsTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
     }
-
     return inputTiling;
 }
 
@@ -308,25 +349,30 @@ bool VPU::NCEMaxPoolOp::isOperationSplitOverBatchCompatible(vpux::ShapeRef outpu
 bool VPU::NCEMaxPoolOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy strategy, SiblingOpsAnalysis& siblingsAnalysis,
                                             Byte reservedMem) {
     auto nceOp = mlir::cast<VPU::NCEMaxPoolOp>(getOperation());
-    const auto outputType = mlir::cast<vpux::NDTypeInterface>(nceOp->getResult(0).getType());
-    auto numClusters = VPU::getOptimalNumClusters(nceOp, outputType.getShape(), strategy);
     auto output = mlir::cast<vpux::NDTypeInterface>(nceOp.getOutput().getType());
+    const auto outputShape = getBoundedShape(output);
+    auto numClusters = VPU::getOptimalNumClusters(nceOp, outputShape, strategy);
 
-    const auto outputShape = output.getShape();
-    const auto outputChannels = outputShape[Dims4D::Act::C];
+    const auto outputDistributionMap = std::make_pair(
+            output, getOutputDistributionAttrFromOp(nceOp, output, numClusters, strategy, siblingsAnalysis));
 
     SmallVector<Byte> buffers = {
             VPU::getTotalAllocSizeWithDistribution(
                     getInput().getType(), getActivationDistributionAttrFromOp(nceOp, getInput(), getInput().getType(),
                                                                               numClusters, strategy, siblingsAnalysis)),
-            VPU::getTotalAllocSizeWithDistribution(
-                    getOutput().getType(), getOutputDistributionAttrFromOp(nceOp, getOutput().getType(), numClusters,
-                                                                           strategy, siblingsAnalysis))};
+            VPU::getTotalAllocSizeWithDistribution(outputDistributionMap.first, outputDistributionMap.second)};
+
     auto ppeAttr = getPpe();
     addSprLutBufferIfPresent(ppeAttr, buffers);
 
-    if (getWeightsTable() != nullptr) {
-        buffers.push_back(NCEInvariant::getWeightsTableSize(outputChannels));
+    if (mlir::failed(getReduceOutputBuffers(getOperation(), buffers, outputDistributionMap))) {
+        VPUX_THROW("getReduceOutputBuffers function failed");
+    }
+
+    const auto outputChannels = outputShape[Dims4D::Act::C];
+    const auto weightsTableBuffer = NCEInvariant::getWeightsTableSize(nceOp, outputChannels);
+    if (weightsTableBuffer.count() > 0) {
+        buffers.push_back(weightsTableBuffer);
     }
 
     auto totalAvailableCMXSize = reservedMem.count() == 0 ? getTotalCMXSize(getOperation()).count()
@@ -357,6 +403,12 @@ vpux::NDTypeInterface vpux::VPU::NCEMaxPoolOp::getDistributedTypeForOpOperand(ml
         return VPU::getDistributedActivationTypeForOpOperand(clusteredOp, getInput(), strategy,
                                                              hasExplicitDistributedAttr, siblingsAnalysis);
     } else if (operand.get() == getWeightsTable()) {
+        return VPU::getDistributedWeightsTypeForOpOperand(clusteredOp, operand.get(), strategy,
+                                                          hasExplicitDistributedAttr, siblingsAnalysis);
+    } else if (operand.get() == getWeightTableScale()) {
+        return VPU::getDistributedWeightsTypeForOpOperand(clusteredOp, operand.get(), strategy,
+                                                          hasExplicitDistributedAttr, siblingsAnalysis);
+    } else if (operand.get() == getWeightTableBias()) {
         return VPU::getDistributedWeightsTypeForOpOperand(clusteredOp, operand.get(), strategy,
                                                           hasExplicitDistributedAttr, siblingsAnalysis);
     }
@@ -427,6 +479,33 @@ mlir::LogicalResult vpux::VPU::NCEMaxPoolOp::reifyResultShapes(mlir::OpBuilder& 
         return outShape;
     }
 
-    reifiedReturnShapes.emplace_back(std::move(outShape.value()));
+    auto dims = std::move(outShape.value());
+
+    // Apply per-dimension ODU scaling to dynamic dims. For static dims the output type already
+    // encodes the correct value so no arith ops are needed.
+    const auto oduScales = VPU::getODUScaling(getOperation());
+    if (!oduScales.empty()) {
+        const auto outputType = mlir::cast<mlir::ShapedType>(getOutput().getType());
+        const auto loc = getLoc();
+        for (size_t i = 0; i < oduScales.size(); ++i) {
+            const auto& scale = oduScales[i];
+            if (scale.multiplier == 1 && scale.divisor == 1) {
+                continue;
+            }
+            if (!outputType.isDynamicDim(static_cast<unsigned>(i))) {
+                continue;
+            }
+            auto dimVal = mlir::getValueOrCreateConstantIndexOp(builder, loc, dims[i]);
+            if (scale.multiplier > 1) {
+                auto factor = builder.create<mlir::arith::ConstantIndexOp>(loc, scale.multiplier);
+                dims[i] = builder.create<mlir::arith::MulIOp>(loc, dimVal, factor).getResult();
+            } else {
+                auto factor = builder.create<mlir::arith::ConstantIndexOp>(loc, scale.divisor);
+                dims[i] = builder.create<mlir::arith::DivSIOp>(loc, dimVal, factor).getResult();
+            }
+        }
+    }
+
+    reifiedReturnShapes.emplace_back(std::move(dims));
     return mlir::success();
 }

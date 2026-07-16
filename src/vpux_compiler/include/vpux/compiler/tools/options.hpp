@@ -11,9 +11,6 @@
 
 namespace vpux {
 
-std::optional<config::ArchKind> parseArchKind(int argc, char* argv[]);
-std::optional<config::Platform> parseNpuPlatform(int argc, char* argv[]);
-
-std::optional<config::ArchKind> parseParamsAndDeduceArch(int argc, char* argv[]);
+std::optional<config::Platform> parsePlatform(int argc, char* argv[]);
 
 }  // namespace vpux

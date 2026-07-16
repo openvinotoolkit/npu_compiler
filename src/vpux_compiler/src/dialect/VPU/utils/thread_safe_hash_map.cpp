@@ -16,8 +16,10 @@
 
 #include "vpux/compiler/core/attributes/dim.hpp"
 #include "vpux/compiler/core/attributes/shape.hpp"
+#include "vpux/compiler/dialect/VPU/utils/scheduling/temporal_tiling_utils.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/utils/core/small_vector.hpp"
+#include "vpux/utils/core/thread_safe_accessors.hpp"
 
 namespace vpux {
 namespace details {
@@ -30,27 +32,25 @@ template <typename KeyT, typename ValueT>
 class MutexHashMapImpl {
 public:
     std::optional<ValueT> find(const KeyT& key) const {
-        std::lock_guard<std::mutex> lock(_mutex);
-        auto it = _map.find(key);
-        if (it != _map.end()) {
+        auto handle = _map.lock();
+        const auto& map = *handle;
+        auto it = map.find(key);
+        if (it != map.end()) {
             return it->second;
         }
         return std::nullopt;
     }
 
     void insert(const KeyT& key, const ValueT& value) {
-        std::lock_guard<std::mutex> lock(_mutex);
-        _map[key] = value;
+        _map->insert({key, value});
     }
 
     void clear() {
-        std::lock_guard<std::mutex> lock(_mutex);
-        _map.clear();
+        _map->clear();
     }
 
 private:
-    DenseMap<KeyT, ValueT> _map;
-    mutable std::mutex _mutex;
+    SimpleThreadSafeAccessor<DenseMap<KeyT, ValueT>> _map;
 };
 
 // ============================================================================
@@ -159,4 +159,5 @@ template class ThreadSafeHashMap<llvm::hash_code, SmallVector<DimArr>>;
 template class ThreadSafeHashMap<llvm::hash_code, DimArr>;
 template class ThreadSafeHashMap<llvm::hash_code, SmallVector<vpux::NDTypeInterface>>;
 template class ThreadSafeHashMap<llvm::hash_code, size_t>;
+template class ThreadSafeHashMap<llvm::hash_code, std::optional<VPU::TemporalTilingInfo>>;
 }  // namespace vpux

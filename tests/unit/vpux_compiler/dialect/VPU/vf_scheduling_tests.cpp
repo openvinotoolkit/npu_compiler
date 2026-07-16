@@ -19,7 +19,7 @@
 
 #include <gtest/gtest.h>
 
-using vpux::config::ArchKind;
+using vpux::config::Platform;
 using namespace vpux;
 
 using MLIR_VPU_VFScheduling = vpux::VPU::arch40xx::UnitTest;
@@ -63,11 +63,10 @@ module @main {
                 -> tensor<1x48x160x16xf16, {order = #NHWC}>
             %2 = VPU.ShapeCast {shape = [64, 48, 1, 1]} inputs(%arg2 : tensor<64x48x1x1xf16, {order = #NHWC}>)
                 -> tensor<64x48x1x1xf16, {order = #NHWC}>
-            %3 = VPU.NCE.Convolution(%1, %2, %arg3)
-                {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+            %3 = VPU.NCE.Convolution(%1, %2, %arg3) rawFilterShape [64, 48, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                rawFilterShape = [64, 48, 1, 1], strides = [1, 1]}
+                 strides = [1, 1]}
                 : tensor<1x48x160x16xf16, {order = #NHWC}>, tensor<64x48x1x1xf16, {order = #NHWC}>, tensor<64x1x1x4xsi32> -> tensor<1x64x160x16xf16, {order = #NHWC}>
             VPU.Yield %3
         }
@@ -83,7 +82,7 @@ module @main {
     ASSERT_TRUE(func != nullptr);
 
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    auto initCompilerOptions = VPU::InitCompilerOptions(ArchKind::NPU40XX, config::CompilationMode::DefaultHW);
+    auto initCompilerOptions = VPU::InitCompilerOptions(Platform::NPU4000, config::CompilationMode::DefaultHW);
     VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
     ASSERT_TRUE(mlir::succeeded(pm.run(module.get())));
 
@@ -119,11 +118,19 @@ TEST_F(MLIR_VPU_VFScheduling, ViewLikeOpDMACostWithGroupSparseTensor) {
 module @main {
     func.func @main(%arg0: tensor<1x256x128x128x!qElemType, {order = #NHWC}>,
                     %sparsityMap: tensor<1x256x257x257xi1, {order = #NHWC}>,
-                    %storageElemTable: tensor<1x1x257x257xi32, {order = #NHWC}>,
                     %preWeights: tensor<256x256x1x1x!qElemType, {order = #NHWC}>,
                     %preScale: tensor<256x1x1x4xsi32>,
                     %weights: tensor<64x256x2x2x!qElemType, {order = #NHWC}>,
                     %scale: tensor<64x1x1x4xsi32>) -> tensor<1x64x256x256x!qElemType, {order = #NHWC}> {
+
+        %storageElemTable = VPU.StorageElementTable {
+            dataElemType = !qElemType,
+            dataShape = [1, 256, 128, 128],
+            seAttr = #VPU.SEUpsampling<factors = [1, 1], padding = [1, 1, 1, 1]>,
+            seDepth = 1 : i64,
+            seSize = [256]
+        } -> tensor<1x1x257x257xi32, {order = #NHWC}>
+
         %0 = VPU.VerticalFusion (%arg0 as %arg1: tensor<1x256x128x128x!qElemType, {order = #NHWC}>,
                                  %sparsityMap as %arg2: tensor<1x256x257x257xi1, {order = #NHWC}>,
                                  %storageElemTable as %arg3: tensor<1x1x257x257xi32, {order = #NHWC}>,
@@ -132,11 +139,11 @@ module @main {
                                  %weights as %arg6: tensor<64x256x2x2x!qElemType, {order = #NHWC}>,
                                  %scale as %arg7: tensor<64x1x1x4xsi32>)
             attributes {tilingStrategy = [1, 1, 1, 5]} -> tensor<1x64x256x256x!qElemType, {order = #NHWC}> {
-            %preConv = VPU.NCE.Convolution(%arg1, %arg4, %arg5) {
+            %preConv = VPU.NCE.Convolution(%arg1, %arg4, %arg5) rawFilterShape [256, 256, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 ppe = #VPU.PPEStub<>,
-                rawFilterShape = [256, 256, 1, 1], strides = [1, 1]}
+                 strides = [1, 1]}
                 : tensor<1x256x128x128x!qElemType, {order = #NHWC}>,
                   tensor<256x256x1x1x!qElemType, {order = #NHWC}>,
                   tensor<256x1x1x4xsi32>
@@ -147,11 +154,11 @@ module @main {
                                      sparsity_map=tensor<1x256x257x257xi1, {order = #NHWC}>,
                                      storage_element_table=tensor<1x1x257x257xi32, {order = #NHWC}>,
                                      #VPU.SEUpsampling<factors = [1, 1], padding = [1, 1, 1, 1]>>
-            %conv = VPU.NCE.Convolution(%sparse, %arg6, %arg7) {
+            %conv = VPU.NCE.Convolution(%sparse, %arg6, %arg7) rawFilterShape [64, 256, 2, 2] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 ppe = #VPU.PPEStub<>,
-                rawFilterShape = [64, 256, 2, 2], strides = [1, 1]}
+                 strides = [1, 1]}
                 : !VPU.SparseTensor<data=tensor<1x256x128x128x!qElemType, {order = #NHWC}>,
                                      sparsity_map=tensor<1x256x257x257xi1, {order = #NHWC}>,
                                      storage_element_table=tensor<1x1x257x257xi32, {order = #NHWC}>,
@@ -173,7 +180,7 @@ module @main {
     ASSERT_TRUE(func != nullptr);
 
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    auto initCompilerOptions = VPU::InitCompilerOptions(ArchKind::NPU50XX, config::CompilationMode::DefaultHW);
+    auto initCompilerOptions = VPU::InitCompilerOptions(Platform::NPU5010, config::CompilationMode::DefaultHW);
     VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
     ASSERT_TRUE(mlir::succeeded(pm.run(module.get())));
 
@@ -182,6 +189,7 @@ module @main {
 
     auto vfOp = vfOps.front();
     auto operationStorage = std::make_unique<VPU::TilingOperationStorage>();
+    restoreTilingRegions(vfOp, vpux::Logger::global(), operationStorage);
     // Find the GroupSparseTensor operation
     auto groupSparseOps = to_small_vector(vfOp.getBody()->getOps<VPU::GroupSparseTensorOp>());
     ASSERT_EQ(groupSparseOps.size(), 1);
@@ -191,7 +199,6 @@ module @main {
     auto layerCost = std::make_unique<VPU::LayerVPUNNCost>(func);
     auto scheduling = TestVFScheduling(vpux::Logger::global());
 
-    // getViewLikeOpDMACost should correctly handle sparse tensor by extracting underlying data type
     const auto dmaCost = scheduling.getViewLikeOpDMACost(groupSparseOp, config, operationStorage, 0, layerCost);
-    EXPECT_FALSE(dmaCost.has_value());
+    EXPECT_TRUE(dmaCost.has_value());
 }

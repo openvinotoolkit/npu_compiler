@@ -75,7 +75,6 @@ void vpux::ShaveCodeGen::buildShaveCodeGenPipelineIE(mlir::OpPassManager& pm, Lo
     pm.addPass(ShaveCodeGen::createFoldUnitDimReshapesPass(log));
 
     pm.addPass(ShaveCodeGen::createOutlineCodeGenCapsulesPass());
-    pm.addPass(ShaveCodeGen::createStripFuncQuantTypesCodeGenPass());
 }
 
 void vpux::ShaveCodeGen::buildShaveCodeGenPipelineVPU(mlir::OpPassManager& pm, Logger) {

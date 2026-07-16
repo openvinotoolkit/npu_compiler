@@ -149,3 +149,23 @@ func.func @MultiplePrecisionExpands(%arg0: memref<1x3x9x4xf16>, %arg1: memref<1x
 
     // CHECK: return [[OUT]] : memref<1x9x9x4x!qElemType>
 }
+
+// -----
+
+!qElemType = !quant.uniform<f8E4M3FN:f16, 0.01:1>
+
+// CHECK-LABEL: @SkipNonZeroZeroPointF8E4M3FN
+// CHECK-SAME:      [[INPUT:%.+]]: memref<1x3x4x4x!qElemType>
+// CHECK-SAME: -> memref<1x4x4x4x!qElemType>
+func.func @SkipNonZeroZeroPointF8E4M3FN(%arg0: memref<1x3x4x4x!qElemType>) -> memref<1x4x4x4x!qElemType> {
+    %0 = memref.alloc() : memref<1x4x4x4x!qElemType>
+    %1 = VPUIP.Expand {pads_begin = [0, 0, 0, 0], pads_end = [0, 1, 0, 0]} inputs(%arg0 : memref<1x3x4x4x!qElemType>) outputs(%0 : memref<1x4x4x4x!qElemType>) -> memref<1x4x4x4x!qElemType>
+
+    return %1 : memref<1x4x4x4x!qElemType>
+
+    // CHECK-NOT:    const.Declare
+    // CHECK:        [[EXPAND:%.+]] = VPUIP.Expand
+    // CHECK-SAME:       pads_begin = [0, 0, 0, 0], pads_end = [0, 1, 0, 0]
+    // CHECK-NOT:    VPUIP.ConcatView
+    // CHECK:        return [[EXPAND]] : memref<1x4x4x4x!qElemType>
+}

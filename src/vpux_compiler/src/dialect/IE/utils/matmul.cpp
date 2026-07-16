@@ -8,7 +8,7 @@
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/VPUIP/interfaces/nce_invariant.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
-#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
+#include "vpux/compiler/dialect/config/constraints.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
@@ -134,7 +134,7 @@ bool isGroupedMatMulBeneficialToGroupConv(IE::MatMulOp matmulOp) {
     if (input2Shape.size() > rank3D) {
         input2Shape3d[Dims3D::Act::B] *= *input2Shape.begin();
     }
-    const auto maxKernelSize = config::getMaxKernelSize(matmulOp);
+    const auto maxKernelSize = config::getNPUConstraints(matmulOp->getContext()).maxKernelSize;
     auto inputChannel = matmulOp.getTransposeB() ? input2Shape3d[Dims3D::Act::IC] : input2Shape3d[Dims3D::Act::H];
     auto outputChannel = matmulOp.getTransposeB() ? input2Shape3d[Dims3D::Act::H] : input2Shape3d[Dims3D::Act::IC];
 
@@ -166,6 +166,11 @@ bool isGroupedMatMulBeneficial(IE::MatMulOp matmulOp, ShapeRef input1Shape, Shap
 
     // EnsureNCEOpsSizeRequirements pass doesn't promise handling of IC out of NCE dimension limit
     if (input1Shape3d[Dims3D::Act::IC] > VPU::NCEInvariant::VPU_DIMENSION_LIMIT) {
+        return false;
+    }
+
+    // NCEMatMulOp requires all inputs to share the same G dimension (no broadcast across groups).
+    if (input1Shape3d[Dims3D::Act::B] != input2Shape3d[Dims3D::Act::B]) {
         return false;
     }
 

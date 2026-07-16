@@ -8,14 +8,11 @@ set(TARGET_NAME openvino_intel_npu_compiler_loader)
 add_library(${TARGET_NAME}
     SHARED
         vcl_bridge.cpp
-        vcl_common.cpp
         vcl_compiler.cpp
         vcl_compiler_loader.cpp
         vcl_executable.cpp
         vcl_profiling.cpp
         vcl_query_network.cpp
-        xml_deserializer.cpp
-        vcl_deserializer.cpp
 )
 
 find_package(Git REQUIRED)
@@ -38,12 +35,8 @@ npu_compiler_configure_version(${TARGET_NAME})
 target_link_libraries(${TARGET_NAME}
     PRIVATE
         openvino::npu_al
-        openvino::npu_ops
         openvino::util
-        openvino::xml_util
-        openvino::core::dev
         npu_ov_utils
-        npu_profiling_utils
         npu_compiler_interface
 )
 

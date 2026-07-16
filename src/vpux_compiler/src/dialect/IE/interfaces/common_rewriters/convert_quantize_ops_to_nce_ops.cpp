@@ -14,6 +14,11 @@
 
 namespace vpux::IE {
 
+bool isSignedInt8QuantizedElemType(mlir::Type elemType) {
+    auto quantType = mlir::cast<mlir::quant::QuantizedType>(elemType);
+    return quantType.isSigned() && mlir::cast<mlir::IntegerType>(quantType.getStorageType()).getWidth() == 8;
+}
+
 //
 // QuantizeToDwRewriterImpl
 //
@@ -23,7 +28,9 @@ mlir::LogicalResult QuantizeToDwRewriter::matchAndRewrite(IE::QuantizeOp originO
     if (_canSkipConversion(originOp)) {
         return mlir::failure();
     }
-    const auto origType = mlir::cast<vpux::NDTypeInterface>(originOp.getInput().getType());
+
+    const auto input = originOp.getInput();
+    const auto origType = mlir::cast<vpux::NDTypeInterface>(input.getType());
     const auto origShape = origType.getShape();
     const auto OC = origShape[Dims4D::Act::C];
     auto weights = IE::buildDwWeights(originOp->getLoc(), OC, origType.getElementType(), rewriter);
@@ -35,7 +42,7 @@ mlir::LogicalResult QuantizeToDwRewriter::matchAndRewrite(IE::QuantizeOp originO
     const auto dilationsAttr = getIntArrayAttr(ctx, SmallVector<int64_t>{1, 1});
 
     rewriter.replaceOpWithNewOp<IE::GroupConvolutionOp>(
-            originOp, originOp.getOutput().getType(), originOp.getInput(), weights,
+            originOp, originOp.getOutput().getType(), input, weights,
             /*bias=*/nullptr, attrStrides, attrPadsBegin, attrPadsEnd, dilationsAttr, getIntAttr(ctx, OC),
             /*post_opAttr=*/nullptr, /*clampAttr*/ nullptr, /*outputPadding=*/nullptr, /*inputPadding=*/nullptr);
 
@@ -51,12 +58,21 @@ mlir::LogicalResult DequantizeToDwRewriter::matchAndRewrite(IE::DequantizeOp ori
     if (_canSkipConversion(originOp)) {
         return mlir::failure();
     }
-    const auto origType = mlir::cast<vpux::NDTypeInterface>(originOp.getInput().getType());
-    auto intType = mlir::cast<mlir::quant::QuantizedType>(origType.getElementType());
+
+    const auto input = originOp.getInput();
+    const auto origType = mlir::cast<vpux::NDTypeInterface>(input.getType());
+    const auto inElemType = origType.getElementType();
+    if (isSignedInt8QuantizedElemType(inElemType)) {
+        _log.trace("SI8 Dequantize conversion to NCE is not supported.");
+        return mlir::failure();
+    }
+
+    auto intType = mlir::cast<mlir::quant::QuantizedType>(inElemType);
     if (intType.getStorageTypeIntegralWidth() > 8) {
         _log.trace("Invalid storage bit width, expected 8, but got {0}", intType.getStorageTypeIntegralWidth());
         return mlir::failure();
     }
+
     const auto origShape = origType.getShape();
     const auto OC = origShape[Dims4D::Act::C];
     const auto ctx = rewriter.getContext();
@@ -72,7 +88,7 @@ mlir::LogicalResult DequantizeToDwRewriter::matchAndRewrite(IE::DequantizeOp ori
     const auto dilationsAttr = getIntArrayAttr(ctx, SmallVector<int64_t>{1, 1});
 
     rewriter.replaceOpWithNewOp<IE::GroupConvolutionOp>(
-            originOp, originOp.getOutput().getType(), originOp.getInput(), quantWeightsOp,
+            originOp, originOp.getOutput().getType(), input, quantWeightsOp,
             /*bias=*/nullptr, attrStrides, attrPadsBegin, attrPadsEnd, dilationsAttr, getIntAttr(ctx, OC),
             /*post_opAttr=*/nullptr, /*clampAttr*/ nullptr, /*outputPadding=*/nullptr, /*inputPadding=*/nullptr);
 
@@ -88,10 +104,18 @@ mlir::LogicalResult DequantizeToAddRewriter::matchAndRewrite(IE::DequantizeOp or
     if (_canSkipConversion(originOp)) {
         return mlir::failure();
     }
+
+    const auto input = originOp.getInput();
+    const auto inNDType = mlir::cast<vpux::NDTypeInterface>(input.getType());
+    const auto inElemType = inNDType.getElementType();
+    if (isSignedInt8QuantizedElemType(inElemType)) {
+        _log.trace("SI8 Dequantize conversion to NCE is not supported.");
+        return mlir::failure();
+    }
+
     const auto broadcastType =
             vpux::IE::AutoBroadcastTypeAttr::get(getContext(), IE::AutoBroadcastType::NONE_OR_EXPLICIT);
 
-    auto inElemType = mlir::cast<vpux::NDTypeInterface>(originOp.getInput().getType()).getElementType();
     auto uniformQInElemType = mlir::cast<mlir::quant::UniformQuantizedType>(inElemType);
     const auto scale = uniformQInElemType.getScale();
     // originQElemType = <u8:fp32, scale>
@@ -105,8 +129,7 @@ mlir::LogicalResult DequantizeToAddRewriter::matchAndRewrite(IE::DequantizeOp or
             qType.getFlags(), qType.getStorageType(), qType.getExpressedType(), newScale, zeroPoint,
             qType.getStorageTypeMin(), qType.getStorageTypeMax());
 
-    auto quantizeCastOp =
-            rewriter.create<IE::QuantizeCastOp>(originOp.getLoc(), originOp.getInput(), outQuantizeElemType);
+    auto quantizeCastOp = rewriter.create<IE::QuantizeCastOp>(originOp.getLoc(), input, outQuantizeElemType);
 
     rewriter.replaceOpWithNewOp<IE::AddOp>(originOp, originOp.getType(), quantizeCastOp.getResult(),
                                            quantizeCastOp.getResult(), broadcastType, nullptr, nullptr, nullptr,
@@ -159,14 +182,21 @@ mlir::LogicalResult DequantizeToConvRewriter::matchAndRewrite(IE::DequantizeOp o
     if (_canSkipConversion(originOp)) {
         return mlir::failure();
     }
-    if (IE::isQuantizedPerAxis(originOp.getInput())) {
+
+    const auto input = originOp.getInput();
+    const auto inNDType = mlir::cast<vpux::NDTypeInterface>(input.getType());
+    const auto inElemType = inNDType.getElementType();
+    if (isSignedInt8QuantizedElemType(inElemType)) {
+        _log.trace("SI8 Dequantize conversion to NCE is not supported.");
+        return mlir::failure();
+    }
+
+    if (IE::isQuantizedPerAxis(input)) {
         _log.trace("Activations only support per tensor quantization");
         return mlir::failure();
     }
 
-    auto inNDType = mlir::cast<vpux::NDTypeInterface>(originOp.getInput().getType());
-    auto inputShape = inNDType.getShape();
-    auto inChannels = inputShape[Dims4D::Act::C];
+    auto inChannels = inNDType.getShape()[Dims4D::Act::C];
     auto outChannels = inChannels;
 
     // Create an identity filter
@@ -175,14 +205,14 @@ mlir::LogicalResult DequantizeToConvRewriter::matchAndRewrite(IE::DequantizeOp o
         filterValues[i * inChannels + i] = 1.0f;
     }
     auto filterType = mlir::RankedTensorType::get(
-            {static_cast<int64_t>(outChannels), static_cast<int64_t>(inChannels), 1, 1}, inNDType.getElementType());
+            {static_cast<int64_t>(outChannels), static_cast<int64_t>(inChannels), 1, 1}, inElemType);
     auto filter = Const::buildWeightsConst(rewriter, originOp.getLoc(), filterType, filterValues);
     auto strides = rewriter.getI64ArrayAttr({1, 1});
     auto pads_begin = rewriter.getI64ArrayAttr({0, 0});
     auto pads_end = rewriter.getI64ArrayAttr({0, 0});
     auto dilations = rewriter.getI64ArrayAttr({1, 1});
-    auto convOp = rewriter.create<IE::ConvolutionOp>(originOp.getLoc(), originOp.getType(), originOp.getInput(), filter,
-                                                     strides, pads_begin, pads_end, dilations);
+    auto convOp = rewriter.create<IE::ConvolutionOp>(originOp.getLoc(), originOp.getType(), input, filter, strides,
+                                                     pads_begin, pads_end, dilations);
     rewriter.replaceOp(originOp, convOp.getResult());
     return mlir::success();
 }

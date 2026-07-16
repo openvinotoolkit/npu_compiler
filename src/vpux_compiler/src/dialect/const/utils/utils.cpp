@@ -176,7 +176,7 @@ mlir::Value buildWeightsConst(mlir::OpBuilder& builder, mlir::Location loc, mlir
     const auto dataType = mlir::RankedTensorType::get(type.getShape(), mlir::Float32Type::get(ctx));
     const auto dataAttr = createConstContent(dataType, values);
 
-    Const::ContentSetup contentAttrSetup(dataType);
+    Const::ContentSetup contentAttrSetup(dataAttr, dataType);
     VPUX_THROW_WHEN(!(mlir::isa<mlir::quant::QuantizedType, mlir::Float16Type>(origElemType)), "Unsupported type {0}",
                     origElemType);
     if (auto qElemType = mlir::dyn_cast<mlir::quant::QuantizedType>(filterElemType)) {
@@ -230,8 +230,8 @@ void foldSingleConstant(Const::DeclareOp& origOp) {
     auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(contentType);
 
     const auto elemTypeBitSize = contentType.getElemTypeSize().count();
-    // As of now sub byte types are not supported as DenseElementsAttr storage, I1 is an exception
-    const auto isUnsupportedSubByteStorageType = elemTypeBitSize < CHAR_BIT && elemTypeBitSize > 1;
+    // As of now sub byte types are not supported as DenseElementsAttr storage
+    const auto isUnsupportedSubByteStorageType = elemTypeBitSize < CHAR_BIT;
     if (isUnsupportedSubByteStorageType) {
         rankedTensorType = mlir::cast<mlir::RankedTensorType>(contentType.changeShapeElemType(
                 ShapeRef({1, 1, 1, checked_cast<int32_t>(bufSize)}), getUInt8Type(contentType.getContext())));
@@ -249,7 +249,7 @@ void foldSingleConstant(Const::DeclareOp& origOp) {
         // from accepting future transformations due to the fact of packed
         // sub byte values stored, which would require an unpacking and a repacking
         origOp.getProperties().content =
-                Const::ContentAttr::get(denseAttr, Const::ContentSetup(denseAttr.getType())
+                Const::ContentAttr::get(denseAttr, Const::ContentSetup(denseAttr, denseAttr.getType())
                                                            .reshape(origType.getShape())
                                                            .castElemType(origType.getElementType()));
     } else {

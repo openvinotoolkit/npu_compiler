@@ -8,34 +8,34 @@
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
 module @VPU.SW {
-    func.func private @builtin_TanhOp(memref<*xf16>, memref<*xf16>, i64) attributes {VPU.kernel_code = "activation_tanh.cpp", VPU.kernel_entry = "activation_tanh"}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    func.func nested @builtin_TanhOp(memref<*xf16>, memref<*xf16>, i64) attributes {VPU.kernel_code = "activation_tanh.cpp", VPU.kernel_entry = "activation_tanh"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @ExceedingVariantCount
-func.func @ExceedingVariantCount(%arg0: memref<1x16x32x32xf16, #NHWC>, %arg1: memref<1x16x32x32xf16>) -> memref<1x16x32x32xf16> {
-    %cst0 = const.Declare memref<16x16x1x1xf16, #NHWC> =
+func.func @ExceedingVariantCount(%arg0: memref<1x16x32x32xf16, {order = #NHWC}>, %arg1: memref<1x16x32x32xf16>) -> memref<1x16x32x32xf16> {
+    %cst0 = const.Declare memref<16x16x1x1xf16, {order = #NHWC}> =
         dense<1.0> : tensor<16x16x1x1xf16>, [#const.Reorder<#NHWC>]
     %cst1 = const.Declare memref<16x1x1x4xsi32> = dense<1> : tensor<16x1x1x4xsi32>
 
     // input buffers for SOH tiling
-    %buf0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x16x32x32xf16, #NHWC, @DDR>
-    %buf1 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x16x8x32xf16, #NHWC, @DDR>
-    %buf2 = VPURT.DeclareBuffer <DDR> <8192> -> memref<1x16x8x32xf16, #NHWC, @DDR>
+    %buf0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x16x32x32xf16, {order = #NHWC}, @DDR>
+    %buf1 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x16x8x32xf16, {order = #NHWC}, @DDR>
+    %buf2 = VPURT.DeclareBuffer <DDR> <8192> -> memref<1x16x8x32xf16, {order = #NHWC}, @DDR>
 
     // output buffers for SOH tiling
-    %buf6 = VPURT.DeclareBuffer <DDR> <32768> -> memref<1x16x8x32xf16, #NHWC, @DDR>
-    %buf7 = VPURT.DeclareBuffer <DDR> <40960> -> memref<1x16x8x32xf16, #NHWC, @DDR>
+    %buf6 = VPURT.DeclareBuffer <DDR> <32768> -> memref<1x16x8x32xf16, {order = #NHWC}, @DDR>
+    %buf7 = VPURT.DeclareBuffer <DDR> <40960> -> memref<1x16x8x32xf16, {order = #NHWC}, @DDR>
 
     // CMX buffers
-    %buf10 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
-    %buf11 = VPURT.DeclareBuffer <CMX_NN> [0] <8192> -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
-    %buf12 = VPURT.DeclareBuffer <CMX_NN> [0] <16384> -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
-    %buf13 = VPURT.DeclareBuffer <CMX_NN> [0] <24576> -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
-    %buf14 = VPURT.DeclareBuffer <CMX_NN> [0] <32768> -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+    %buf10 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %buf11 = VPURT.DeclareBuffer <CMX_NN> [0] <8192> -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %buf12 = VPURT.DeclareBuffer <CMX_NN> [0] <16384> -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %buf13 = VPURT.DeclareBuffer <CMX_NN> [0] <24576> -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %buf14 = VPURT.DeclareBuffer <CMX_NN> [0] <32768> -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %buf15 = VPURT.DeclareBuffer <CMX_NN> [0] <33280> -> memref<16x1x1x4xsi32, [@CMX_NN, 0]>
 
     %buf16 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x4x256x1xf16, [@CMX_NN, 0]>
@@ -53,9 +53,9 @@ func.func @ExceedingVariantCount(%arg0: memref<1x16x32x32xf16, #NHWC>, %arg1: me
 
     VPURT.Task updates(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%cst0: memref<16x16x1x1xf16, #NHWC>)
-            outputs(%buf14: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-            -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+            inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>)
+            outputs(%buf14: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
     VPURT.Task updates(%bar0: !VPURT.Barrier) {
@@ -67,16 +67,16 @@ func.func @ExceedingVariantCount(%arg0: memref<1x16x32x32xf16, #NHWC>, %arg1: me
 
     VPURT.Task updates(%bar0: !VPURT.Barrier) {
         VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%arg0: memref<1x16x32x32xf16, #NHWC>)
-            outputs(%buf0: memref<1x16x32x32xf16, #NHWC, @DDR>)
-            -> memref<1x16x32x32xf16, #NHWC, @DDR>
+            inputs(%arg0: memref<1x16x32x32xf16, {order = #NHWC}>)
+            outputs(%buf0: memref<1x16x32x32xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x32x32xf16, {order = #NHWC}, @DDR>
     }
 
     VPURT.Task waits(%bar0: !VPURT.Barrier) updates(%bar1: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf1: memref<1x16x8x32xf16, #NHWC, @DDR>)
-            outputs(%buf10: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
-            -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
+            inputs(%buf1: memref<1x16x8x32xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf10: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
     // DPU task
@@ -88,13 +88,13 @@ func.func @ExceedingVariantCount(%arg0: memref<1x16x32x32xf16, #NHWC>, %arg1: me
                 kernel_strides = [1, 1],
                 task_type = #VPUIP.nce_task_type<CONV>
             }>
-            input(%buf10: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
-            weights(%buf14: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
+            input(%buf10: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            weights(%buf14: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
             weight_table(%buf15: memref<16x1x1x4xsi32, [@CMX_NN, 0]>)
-            parent_input(%buf10: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
-            parent_output(%buf11: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
-            outputs(%buf11: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
-            -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
+            parent_input(%buf10: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            parent_output(%buf11: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            outputs(%buf11: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
             variants : {
                 DPUTask {
                     outStart = [0, 0, 0],
@@ -132,9 +132,9 @@ func.func @ExceedingVariantCount(%arg0: memref<1x16x32x32xf16, #NHWC>, %arg1: me
 
     VPURT.Task waits(%bar1: !VPURT.Barrier) updates(%bar2: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%cst0: memref<16x16x1x1xf16, #NHWC>)
-            outputs(%buf14: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
-            -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+            inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>)
+            outputs(%buf14: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
     VPURT.Task waits(%bar1: !VPURT.Barrier) updates(%bar2: !VPURT.Barrier) {
@@ -146,16 +146,16 @@ func.func @ExceedingVariantCount(%arg0: memref<1x16x32x32xf16, #NHWC>, %arg1: me
 
     VPURT.Task waits(%bar1: !VPURT.Barrier) updates(%bar2: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf2: memref<1x16x8x32xf16, #NHWC, @DDR>)
-            outputs(%buf12: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
-            -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
+            inputs(%buf2: memref<1x16x8x32xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf12: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
     VPURT.Task waits(%bar1: !VPURT.Barrier) updates(%bar2: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf11: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
-            outputs(%buf6: memref<1x16x8x32xf16, #NHWC, @DDR>)
-            -> memref<1x16x8x32xf16, #NHWC, @DDR>
+            inputs(%buf11: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            outputs(%buf6: memref<1x16x8x32xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x8x32xf16, {order = #NHWC}, @DDR>
     }
 
     // DPU task
@@ -167,13 +167,13 @@ func.func @ExceedingVariantCount(%arg0: memref<1x16x32x32xf16, #NHWC>, %arg1: me
                 kernel_strides = [1, 1],
                 task_type = #VPUIP.nce_task_type<CONV>
             }>
-            input(%buf12: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
-            weights(%buf14: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
+            input(%buf12: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            weights(%buf14: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
             weight_table(%buf15: memref<16x1x1x4xsi32, [@CMX_NN, 0]>)
-            parent_input(%buf12: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
-            parent_output(%buf13: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
-            outputs(%buf13: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
-            -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
+            parent_input(%buf12: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            parent_output(%buf13: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            outputs(%buf13: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
             variants : {
                 DPUTask {
                     outStart = [0, 0, 0],
@@ -187,9 +187,9 @@ func.func @ExceedingVariantCount(%arg0: memref<1x16x32x32xf16, #NHWC>, %arg1: me
 
     VPURT.Task waits(%bar3: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf13: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>)
-            outputs(%buf7: memref<1x16x8x32xf16, #NHWC, @DDR>)
-            -> memref<1x16x8x32xf16, #NHWC, @DDR>
+            inputs(%buf13: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+            outputs(%buf7: memref<1x16x8x32xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x8x32xf16, {order = #NHWC}, @DDR>
     }
 
     return %arg1 : memref<1x16x32x32xf16>
@@ -238,15 +238,15 @@ func.func @ExceedingVariantCount(%arg0: memref<1x16x32x32xf16, #NHWC>, %arg1: me
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @ExceedingProducersEqual
-func.func @ExceedingProducersEqual() -> memref<1x16x1x1xf16, #NHWC, @DDR> {
+func.func @ExceedingProducersEqual() -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR> {
     // barriers
 
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
     // dummy buffers
 
-    %buf0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x16x1x1xf16, #NHWC, @DDR>
-    %buf1 = VPURT.DeclareBuffer <DDR> <32> -> memref<1x16x1x1xf16, #NHWC, @DDR>
+    %buf0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
+    %buf1 = VPURT.DeclareBuffer <DDR> <32> -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
 
     //   0 1 2 3 4 5
     //        |
@@ -258,56 +258,56 @@ func.func @ExceedingProducersEqual() -> memref<1x16x1x1xf16, #NHWC, @DDR> {
 
     VPURT.Task updates(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     VPURT.Task updates(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     VPURT.Task updates(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     VPURT.Task updates(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     VPURT.Task updates(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     VPURT.Task updates(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     // active barrier consumer
 
     VPURT.Task waits(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
-    return %buf1 : memref<1x16x1x1xf16, #NHWC, @DDR>
+    return %buf1 : memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
 
     //   0 1 2    3 4 5
     //     |        |
@@ -334,15 +334,15 @@ func.func @ExceedingProducersEqual() -> memref<1x16x1x1xf16, #NHWC, @DDR> {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @ExceedingProducersUnEqual
-func.func @ExceedingProducersUnEqual() -> memref<1x16x1x1xf16, #NHWC, @DDR> {
+func.func @ExceedingProducersUnEqual() -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR> {
     // barriers
 
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
     // dummy buffers
 
-    %buf0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x16x1x1xf16, #NHWC, @DDR>
-    %buf1 = VPURT.DeclareBuffer <DDR> <32> -> memref<1x16x1x1xf16, #NHWC, @DDR>
+    %buf0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
+    %buf1 = VPURT.DeclareBuffer <DDR> <32> -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
 
     //    0 1 2 3 4
     //        |
@@ -354,49 +354,49 @@ func.func @ExceedingProducersUnEqual() -> memref<1x16x1x1xf16, #NHWC, @DDR> {
 
     VPURT.Task updates(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     VPURT.Task updates(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     VPURT.Task updates(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     VPURT.Task updates(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     VPURT.Task updates(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     // active barrier consumer
 
     VPURT.Task waits(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
-    return %buf1 : memref<1x16x1x1xf16, #NHWC, @DDR>
+    return %buf1 : memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
 
     //   0 1 2     3 4
     //     |        |
@@ -422,15 +422,15 @@ func.func @ExceedingProducersUnEqual() -> memref<1x16x1x1xf16, #NHWC, @DDR> {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @ExceedingConsumersEqual
-func.func @ExceedingConsumersEqual() -> memref<1x16x1x1xf16, #NHWC, @DDR> {
+func.func @ExceedingConsumersEqual() -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR> {
     // barriers
 
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
     // dummy buffers
 
-    %buf0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x16x1x1xf16, #NHWC, @DDR>
-    %buf1 = VPURT.DeclareBuffer <DDR> <32> -> memref<1x16x1x1xf16, #NHWC, @DDR>
+    %buf0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
+    %buf1 = VPURT.DeclareBuffer <DDR> <32> -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
 
     //        0
     //        |
@@ -442,56 +442,56 @@ func.func @ExceedingConsumersEqual() -> memref<1x16x1x1xf16, #NHWC, @DDR> {
 
     VPURT.Task updates(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     // multiple active barrier consumers
 
     VPURT.Task waits(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     VPURT.Task waits(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     VPURT.Task waits(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     VPURT.Task waits(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     VPURT.Task waits(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     VPURT.Task waits(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
-    return %buf1 : memref<1x16x1x1xf16, #NHWC, @DDR>
+    return %buf1 : memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
 
     //     0        0
     //     |        |
@@ -518,15 +518,15 @@ func.func @ExceedingConsumersEqual() -> memref<1x16x1x1xf16, #NHWC, @DDR> {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @ExceedingConsumersUnEqual
-func.func @ExceedingConsumersUnEqual() -> memref<1x16x1x1xf16, #NHWC, @DDR> {
+func.func @ExceedingConsumersUnEqual() -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR> {
     // barriers
 
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
     // dummy buffers
 
-    %buf0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x16x1x1xf16, #NHWC, @DDR>
-    %buf1 = VPURT.DeclareBuffer <DDR> <32> -> memref<1x16x1x1xf16, #NHWC, @DDR>
+    %buf0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
+    %buf1 = VPURT.DeclareBuffer <DDR> <32> -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
 
     //        0
     //        |
@@ -538,49 +538,49 @@ func.func @ExceedingConsumersUnEqual() -> memref<1x16x1x1xf16, #NHWC, @DDR> {
 
     VPURT.Task updates(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     // multiple active barrier consumers
 
     VPURT.Task waits(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     VPURT.Task waits(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     VPURT.Task waits(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     VPURT.Task waits(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     VPURT.Task waits(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
-    return %buf1 : memref<1x16x1x1xf16, #NHWC, @DDR>
+    return %buf1 : memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
 
     //     0        0
     //     |        |
@@ -606,15 +606,15 @@ func.func @ExceedingConsumersUnEqual() -> memref<1x16x1x1xf16, #NHWC, @DDR> {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @NoChange
-func.func @NoChange() -> memref<1x16x1x1xf16, #NHWC, @DDR> {
+func.func @NoChange() -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR> {
     // barriers
 
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
     // dummy buffers
 
-    %buf0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x16x1x1xf16, #NHWC, @DDR>
-    %buf1 = VPURT.DeclareBuffer <DDR> <32> -> memref<1x16x1x1xf16, #NHWC, @DDR>
+    %buf0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
+    %buf1 = VPURT.DeclareBuffer <DDR> <32> -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
 
     //      0 1 2
     //        |
@@ -626,49 +626,49 @@ func.func @NoChange() -> memref<1x16x1x1xf16, #NHWC, @DDR> {
 
     VPURT.Task updates(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     VPURT.Task updates(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     VPURT.Task updates(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     // multiple active barrier consumers
 
     VPURT.Task waits(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     VPURT.Task waits(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
     VPURT.Task waits(%bar0: !VPURT.Barrier) {
          VPUIP.NNDMA <{port = 0 : i64}>
-            inputs(%buf0: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            outputs(%buf1: memref<1x16x1x1xf16, #NHWC, @DDR>)
-            -> memref<1x16x1x1xf16, #NHWC, @DDR>
+            inputs(%buf0: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            outputs(%buf1: memref<1x16x1x1xf16, {order = #NHWC}, @DDR>)
+            -> memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
     }
 
-    return %buf1 : memref<1x16x1x1xf16, #NHWC, @DDR>
+    return %buf1 : memref<1x16x1x1xf16, {order = #NHWC}, @DDR>
 
     //      0 1 2
     //        |

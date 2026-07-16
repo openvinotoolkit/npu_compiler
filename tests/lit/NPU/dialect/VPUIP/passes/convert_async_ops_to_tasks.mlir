@@ -244,38 +244,38 @@ func.func @TwoOutputs(%arg0: memref<2xf16>, %arg1: memref<2xf16>, %arg2: memref<
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-// CHECK: func.func @AwaitWithoutUsers([[ARG0:%.+]]: memref<1x16x112x112xf16, #NHWC>, [[ARG1:%.+]]: memref<1x16x112x112xf16, #NHWC>, [[ARG2:%.+]]: memref<1x32x112x112xf16, #NHWC>)
-func.func @AwaitWithoutUsers(%arg0: memref<1x16x112x112xf16, #NHWC>, %arg1: memref<1x16x112x112xf16, #NHWC>, %arg2: memref<1x32x112x112xf16, #NHWC>) -> memref<1x32x112x112xf16, #NHWC> {
+// CHECK: func.func @AwaitWithoutUsers([[ARG0:%.+]]: memref<1x16x112x112xf16, {order = #NHWC}>, [[ARG1:%.+]]: memref<1x16x112x112xf16, {order = #NHWC}>, [[ARG2:%.+]]: memref<1x32x112x112xf16, {order = #NHWC}>)
+func.func @AwaitWithoutUsers(%arg0: memref<1x16x112x112xf16, {order = #NHWC}>, %arg1: memref<1x16x112x112xf16, {order = #NHWC}>, %arg2: memref<1x32x112x112xf16, {order = #NHWC}>) -> memref<1x32x112x112xf16, {order = #NHWC}> {
     %t1, %f1 = async.execute -> !async.value<memref<1x16x112x112xf16, {order = #NHWC, strides = [401408, 1, 3584, 32]}>>
         attributes { VPUIP.executor = @DMA_NN, VPUIP.num_units = 1 } {
-        %1 = VPUIP.SubView %arg2 [0, 0, 0, 0] [1, 16, 112, 112] : memref<1x32x112x112xf16, #NHWC> to memref<1x16x112x112xf16, {order = #NHWC, strides = [401408, 1, 3584, 32]}>
-        %2 = VPUIP.NNDMA {set_crit = false, set_ord = true} inputs(%arg0 : memref<1x16x112x112xf16, #NHWC>) outputs(%1 : memref<1x16x112x112xf16, {order = #NHWC, strides = [401408, 1, 3584, 32]}>) -> memref<1x16x112x112xf16, {order = #NHWC, strides = [401408, 1, 3584, 32]}>
+        %1 = VPUIP.SubView %arg2 [0, 0, 0, 0] [1, 16, 112, 112] : memref<1x32x112x112xf16, {order = #NHWC}> to memref<1x16x112x112xf16, {order = #NHWC, strides = [401408, 1, 3584, 32]}>
+        %2 = VPUIP.NNDMA {set_crit = false, set_ord = true} inputs(%arg0 : memref<1x16x112x112xf16, {order = #NHWC}>) outputs(%1 : memref<1x16x112x112xf16, {order = #NHWC, strides = [401408, 1, 3584, 32]}>) -> memref<1x16x112x112xf16, {order = #NHWC, strides = [401408, 1, 3584, 32]}>
         async.yield %2 : memref<1x16x112x112xf16, {order = #NHWC, strides = [401408, 1, 3584, 32]}>
     }
 
     %t2, %f2 = async.execute [%t1] -> !async.value<memref<1x16x112x112xf16, {order = #NHWC, strides = [401408, 1, 3584, 32]}>>
         attributes { VPUIP.executor = @DMA_NN, VPUIP.num_units = 1 } {
-        %1 = VPUIP.SubView %arg2 [0, 16, 0, 0] [1, 16, 112, 112] : memref<1x32x112x112xf16, #NHWC> to memref<1x16x112x112xf16, {order = #NHWC, strides = [401408, 1, 3584, 32]}>
-        %2 = VPUIP.NNDMA {set_crit = false, set_ord = true} inputs(%arg1 : memref<1x16x112x112xf16, #NHWC>) outputs(%1 : memref<1x16x112x112xf16, {order = #NHWC, strides = [401408, 1, 3584, 32]}>) -> memref<1x16x112x112xf16, {order = #NHWC, strides = [401408, 1, 3584, 32]}>
+        %1 = VPUIP.SubView %arg2 [0, 16, 0, 0] [1, 16, 112, 112] : memref<1x32x112x112xf16, {order = #NHWC}> to memref<1x16x112x112xf16, {order = #NHWC, strides = [401408, 1, 3584, 32]}>
+        %2 = VPUIP.NNDMA {set_crit = false, set_ord = true} inputs(%arg1 : memref<1x16x112x112xf16, {order = #NHWC}>) outputs(%1 : memref<1x16x112x112xf16, {order = #NHWC, strides = [401408, 1, 3584, 32]}>) -> memref<1x16x112x112xf16, {order = #NHWC, strides = [401408, 1, 3584, 32]}>
         async.yield %2 : memref<1x16x112x112xf16, {order = #NHWC, strides = [401408, 1, 3584, 32]}>
     }
 
     %1 = async.await %f1 : !async.value<memref<1x16x112x112xf16, {order = #NHWC, strides = [401408, 1, 3584, 32]}>>
     %2 = async.await %f2 : !async.value<memref<1x16x112x112xf16, {order = #NHWC, strides = [401408, 1, 3584, 32]}>>
-    return %arg2 : memref<1x32x112x112xf16, #NHWC>
+    return %arg2 : memref<1x32x112x112xf16, {order = #NHWC}>
 
     // CHECK-DAG:   [[BARR:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK:       [[SUBVIEW0:%.+]] = VPUIP.SubView [[ARG2]] [0, 0, 0, 0] [1, 16, 112, 112] : memref<1x32x112x112xf16, #NHWC> to memref<1x16x112x112xf16, {order = #NHWC, strides = [401408, 1, 3584, 32]}>
+    // CHECK:       [[SUBVIEW0:%.+]] = VPUIP.SubView [[ARG2]] [0, 0, 0, 0] [1, 16, 112, 112] : memref<1x32x112x112xf16, {order = #NHWC}> to memref<1x16x112x112xf16, {order = #NHWC, strides = [401408, 1, 3584, 32]}>
     // CHECK:       VPURT.Task updates([[BARR]] : !VPURT.Barrier) {
     // CHECK:           VPUIP.NNDMA {set_crit = false, set_ord = true}
-    // CHECK-SAME:              inputs([[ARG0]] : memref<1x16x112x112xf16, #NHWC>)
+    // CHECK-SAME:              inputs([[ARG0]] : memref<1x16x112x112xf16, {order = #NHWC}>)
     // CHECK-SAME:              outputs([[SUBVIEW0]] : memref<1x16x112x112xf16, {order = #NHWC, strides = [401408, 1, 3584, 32]}>)
 
-    // CHECK:       [[SUBVIEW1:%.+]] = VPUIP.SubView [[ARG2]] [0, 16, 0, 0] [1, 16, 112, 112] : memref<1x32x112x112xf16, #NHWC> to memref<1x16x112x112xf16, {order = #NHWC, strides = [401408, 1, 3584, 32]}>
+    // CHECK:       [[SUBVIEW1:%.+]] = VPUIP.SubView [[ARG2]] [0, 16, 0, 0] [1, 16, 112, 112] : memref<1x32x112x112xf16, {order = #NHWC}> to memref<1x16x112x112xf16, {order = #NHWC, strides = [401408, 1, 3584, 32]}>
     // CHECK:       VPURT.Task waits([[BARR]] : !VPURT.Barrier) {
     // CHECK:           VPUIP.NNDMA {set_crit = false, set_ord = true}
-    // CHECK-SAME:              inputs([[ARG1]] : memref<1x16x112x112xf16, #NHWC>)
+    // CHECK-SAME:              inputs([[ARG1]] : memref<1x16x112x112xf16, {order = #NHWC}>)
     // CHECK-SAME:              outputs([[SUBVIEW1]] : memref<1x16x112x112xf16, {order = #NHWC, strides = [401408, 1, 3584, 32]}>)
 
-    // CHECK:       return [[ARG2]] : memref<1x32x112x112xf16, #NHWC>
+    // CHECK:       return [[ARG2]] : memref<1x32x112x112xf16, {order = #NHWC}>
 }

@@ -20,7 +20,7 @@ using namespace ov::test::utils;
 using namespace ov::test;
 namespace ov::test {
 
-enum RoPEModes { SPLIT_HALF, INTERLEAVED, PAIRWISE };
+enum RoPEModes { SPLIT_HALF, INTERLEAVED, INTERLEAVED_STRIDED, PAIRWISE, PAIRWISE_INTERLEAVED };
 
 struct RoPEParams {
     ov::Shape inputShape;
@@ -148,6 +148,64 @@ public:
         return multiply3;
     }
 
+    // Pattern: Multiply1(input*cos) -> StridedSlice(input, begin=1, stride=2) -> Multiply2(*(-1))
+    //          -> Reshape(Unsqueeze) -> StridedSlice(input, begin=0, stride=2) -> Reshape(Unsqueeze)
+    //          -> Concat -> Reshape(Flatten) -> Multiply3(Reshape*sin) -> Add(Multiply1,Multiply3)
+
+    std::shared_ptr<ov::Node> buildRoPEInterleavedStrided(const ov::Output<ov::Node>& input,
+                                                          const ov::Output<ov::Node>& inputSin,
+                                                          const ov::Shape& inputShape) {
+        const size_t N = inputShape[0];
+        const size_t C = inputShape[1];
+        const size_t H = inputShape[2];
+        const size_t W = inputShape[3];
+        const size_t halfW = W / 2;
+
+        std::vector<int64_t> beginMask(4, 0);
+        std::vector<int64_t> endMask(4, 0);
+        std::vector<int64_t> emptyMask;
+        const auto stridesConst = ov::op::v0::Constant::create(ov::element::i64, ov::Shape{4}, {1, 1, 1, 2});
+
+        // Odd elements: begin=1, stride=2
+        const auto beginOdd = ov::op::v0::Constant::create(ov::element::i64, ov::Shape{4}, {0, 0, 0, 1});
+        const auto endOdd = ov::op::v0::Constant::create(ov::element::i64, ov::Shape{4}, inputShape.data());
+        const auto sliceOdd = std::make_shared<ov::op::v1::StridedSlice>(
+                input, beginOdd, endOdd, stridesConst, beginMask, endMask, emptyMask, emptyMask, emptyMask);
+
+        // Negate odd elements
+        const auto negConst = ov::op::v0::Constant::create(ov::element::f32, ov::Shape{1, 1, 1, 1}, {-1.0f});
+        const auto negOdd = std::make_shared<ov::op::v1::Multiply>(sliceOdd, negConst);
+
+        // Unsqueeze for stack
+        const ov::Shape unsqShape = {N, C, H, halfW, 1};
+        const auto unsqShapeConst1 =
+                ov::op::v0::Constant::create(ov::element::i64, ov::Shape{unsqShape.size()}, unsqShape);
+        const auto unsqNeg = std::make_shared<ov::op::v1::Reshape>(negOdd, unsqShapeConst1, true);
+
+        // Even elements: begin=0, stride=2
+        const auto beginEven = ov::op::v0::Constant::create(ov::element::i64, ov::Shape{4}, {0, 0, 0, 0});
+        const auto endEven = ov::op::v0::Constant::create(ov::element::i64, ov::Shape{4}, inputShape.data());
+        const auto sliceEven = std::make_shared<ov::op::v1::StridedSlice>(
+                input, beginEven, endEven, stridesConst, beginMask, endMask, emptyMask, emptyMask, emptyMask);
+
+        // Unsqueeze for stack
+        const auto unsqShapeConst2 =
+                ov::op::v0::Constant::create(ov::element::i64, ov::Shape{unsqShape.size()}, unsqShape);
+        const auto unsqEven = std::make_shared<ov::op::v1::Reshape>(sliceEven, unsqShapeConst2, true);
+
+        // Stack (Concat along last dim)
+        const auto stack = std::make_shared<ov::op::v0::Concat>(ov::OutputVector({unsqNeg, unsqEven}), 4);
+
+        // Flatten back to original shape
+        const auto flatShapeConst =
+                ov::op::v0::Constant::create(ov::element::i64, ov::Shape{inputShape.size()}, inputShape);
+        const auto flat = std::make_shared<ov::op::v1::Reshape>(stack, flatShapeConst, true);
+
+        // Rotated * sin
+        const auto mulSin = std::make_shared<ov::op::v1::Multiply>(flat, inputSin);
+        return mulSin;
+    }
+
     // Pattern: x0 = Slice(input, 0:W/2), x1 = Slice(input, W/2:W)
     //          first = x0 * cos - x1 * sin
     //          second = x0 * sin + x1 * cos
@@ -189,6 +247,61 @@ public:
         return std::make_shared<ov::op::v0::Concat>(ov::OutputVector{first, second}, -1);
     }
 
+    // Pattern: even = Slice(input, ::2), odd = Slice(input, 1::2)
+    //          neg = even * cos - odd * sin
+    //          pos = odd * cos + even * sin
+    //          interleave(neg, pos)
+    std::shared_ptr<ov::Node> buildRoPEPairwiseInterleavedFusion(const ov::Output<ov::Node>& input,
+                                                                 const ov::Output<ov::Node>& inputCos,
+                                                                 const ov::Output<ov::Node>& inputSin,
+                                                                 const ov::Shape& inputShape) {
+        std::vector<int64_t> beginMask{1, 1, 1, 0};
+        std::vector<int64_t> endMask{1, 1, 1, 0};
+        const size_t N = inputShape[0];
+        const size_t C = inputShape[1];
+        const size_t H = inputShape[2];
+        const size_t W = inputShape[3];
+        const size_t halfW = W / 2;
+
+        const auto stridesConst = ov::op::v0::Constant::create(ov::element::i64, ov::Shape{4}, {1, 1, 1, 2});
+        const auto end = ov::op::v0::Constant::create(
+                ov::element::i64, ov::Shape{4}, std::vector<int64_t>{(int64_t)N, (int64_t)C, (int64_t)H, (int64_t)W});
+
+        const auto beginEven =
+                ov::op::v0::Constant::create(ov::element::i64, ov::Shape{4}, std::vector<int64_t>{0, 0, 0, 0});
+        const auto beginOdd =
+                ov::op::v0::Constant::create(ov::element::i64, ov::Shape{4}, std::vector<int64_t>{0, 0, 0, 1});
+
+        const auto even = std::make_shared<ov::op::v1::StridedSlice>(input, beginEven, end, stridesConst, beginMask,
+                                                                     endMask, std::vector<int64_t>{},
+                                                                     std::vector<int64_t>{}, std::vector<int64_t>{});
+        const auto odd = std::make_shared<ov::op::v1::StridedSlice>(input, beginOdd, end, stridesConst, beginMask,
+                                                                    endMask, std::vector<int64_t>{},
+                                                                    std::vector<int64_t>{}, std::vector<int64_t>{});
+
+        const auto evenCos = std::make_shared<ov::op::v1::Multiply>(even, inputCos);
+        const auto oddSin = std::make_shared<ov::op::v1::Multiply>(odd, inputSin);
+        const auto sub = std::make_shared<ov::op::v1::Subtract>(evenCos, oddSin);
+
+        const auto oddCos = std::make_shared<ov::op::v1::Multiply>(odd, inputCos);
+        const auto evenSin = std::make_shared<ov::op::v1::Multiply>(even, inputSin);
+        const auto add = std::make_shared<ov::op::v1::Add>(oddCos, evenSin);
+
+        // Reshape sub/add to [..., halfW, 1]
+        const std::vector<int64_t> shape5d{(int64_t)N, (int64_t)C, (int64_t)H, (int64_t)halfW, 1};
+        const auto shapeConst5d = ov::op::v0::Constant::create(ov::element::i64, ov::Shape{5}, shape5d);
+        const auto sub5d = std::make_shared<ov::op::v1::Reshape>(sub, shapeConst5d, false);
+        const auto add5d = std::make_shared<ov::op::v1::Reshape>(add, shapeConst5d, false);
+
+        // Concat on axis=4 → [..., halfW, 2]  (interleaved pairs)
+        const auto interleaved = std::make_shared<ov::op::v0::Concat>(ov::OutputVector{sub5d, add5d}, 4);
+
+        // Reshape back to [..., W]
+        const std::vector<int64_t> shape4d{(int64_t)N, (int64_t)C, (int64_t)H, (int64_t)W};
+        const auto shapeConst4d = ov::op::v0::Constant::create(ov::element::i64, ov::Shape{4}, shape4d);
+        return std::make_shared<ov::op::v1::Reshape>(interleaved, shapeConst4d, false);
+    }
+
     void SetUp() override {
         inType = outType = ov::element::f32;
         const auto testParams = GetParam();
@@ -206,10 +319,18 @@ public:
         std::shared_ptr<ov::Node> output = nullptr;
         if (mode == RoPEModes::PAIRWISE) {
             output = buildRoPEPairwiseFusion(input, inputCos, inputSin, inputShape);
+        } else if (mode == RoPEModes::PAIRWISE_INTERLEAVED) {
+            output = buildRoPEPairwiseInterleavedFusion(input, inputCos, inputSin, inputShape);
         } else {
             const auto multiply1 = std::make_shared<ov::opset1::Multiply>(input, inputCos);
-            const auto multiply3 = mode == RoPEModes::INTERLEAVED ? buildRoPEInterleaved(input, inputSin, inputShape)
-                                                                  : buildRoPE(input, inputSin, inputShape);
+            std::shared_ptr<ov::Node> multiply3;
+            if (mode == RoPEModes::INTERLEAVED) {
+                multiply3 = buildRoPEInterleaved(input, inputSin, inputShape);
+            } else if (mode == RoPEModes::INTERLEAVED_STRIDED) {
+                multiply3 = buildRoPEInterleavedStrided(input, inputSin, inputShape);
+            } else {
+                multiply3 = buildRoPE(input, inputSin, inputShape);
+            }
             output = std::make_shared<ov::op::v1::Add>(multiply1, multiply3);
         }
 
@@ -238,18 +359,23 @@ TEST_P(FuseRoPETestCommon, NPU5020_HW) {
 
 const std::vector<RoPEParams> precommit_testValues = {
         {{1, 32, 32, 96}, {1, 1, 32, 96}, {1, 1, 32, 96}, RoPEModes::SPLIT_HALF},
+        {{1, 40, 1, 128}, {1, 1, 1, 128}, {1, 1, 1, 128}, RoPEModes::SPLIT_HALF},
         {{1, 32, 2, 64}, {1, 32, 1, 32}, {1, 32, 1, 32}, RoPEModes::PAIRWISE},
-        {{1, 1, 256, 80}, {1, 1, 256, 80}, {1, 1, 256, 80}, RoPEModes::INTERLEAVED}};
+        {{1, 1, 256, 80}, {1, 1, 256, 80}, {1, 1, 256, 80}, RoPEModes::INTERLEAVED},
+        {{1, 6, 1024, 128}, {1, 1024, 64}, {1, 1024, 64}, RoPEModes::PAIRWISE_INTERLEAVED},
+        {{1, 16, 32, 128}, {1, 1, 32, 128}, {1, 1, 32, 128}, RoPEModes::INTERLEAVED_STRIDED}};
 
 INSTANTIATE_TEST_SUITE_P(precommit_FuseRoPE, FuseRoPETestCommon, ::testing::ValuesIn(precommit_testValues),
                          FuseRoPETestCommon::getTestCaseName);
 
 const std::vector<RoPEParams> smoke_testValues = {
         {{1, 512, 18, 80}, {1, 512, 1, 80}, {1, 512, 1, 80}, RoPEModes::SPLIT_HALF},
-        {{1, 256, 1, 256}, {1, 256, 1, 128}, {1, 256, 1, 128}, RoPEModes::PAIRWISE},
         {{1, 256, 2, 256}, {1, 256, 1, 128}, {1, 256, 1, 128}, RoPEModes::PAIRWISE},
-        {{1, 256, 3, 256}, {1, 256, 1, 128}, {1, 256, 1, 128}, RoPEModes::PAIRWISE},
-        {{2, 1, 256, 64}, {2, 1, 256, 64}, {2, 1, 256, 64}, RoPEModes::INTERLEAVED}};
+        {{2, 1, 256, 64}, {2, 1, 256, 64}, {2, 1, 256, 64}, RoPEModes::INTERLEAVED},
+        {{1, 24, 1, 128}, {1, 1, 64}, {1, 1, 64}, RoPEModes::PAIRWISE_INTERLEAVED},
+        {{1, 16, 1, 128}, {1, 1, 64}, {1, 1, 64}, RoPEModes::PAIRWISE_INTERLEAVED},
+        {{1, 4, 1, 128}, {1, 1, 64}, {1, 1, 64}, RoPEModes::PAIRWISE_INTERLEAVED},
+        {{1, 256, 2, 256}, {1, 256, 1, 128}, {1, 256, 1, 128}, RoPEModes::PAIRWISE_INTERLEAVED}};
 INSTANTIATE_TEST_SUITE_P(smoke_FuseRoPE, FuseRoPETestCommon, ::testing::ValuesIn(smoke_testValues),
                          FuseRoPETestCommon::getTestCaseName);
 }  // namespace ov::test

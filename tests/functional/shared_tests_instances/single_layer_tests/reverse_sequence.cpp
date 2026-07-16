@@ -14,6 +14,9 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ReverseSequenceLayerTest);
+
 class ReverseSequenceLayerTestCommon : public ReverseSequenceLayerTest, virtual public VpuOv2LayerTest {
     void TearDown() override {
         VpuOv2LayerTest::TearDown();

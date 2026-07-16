@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 
 #include "vpux/compiler/conversion.hpp"
@@ -14,6 +15,7 @@
 #include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
 
 #include "vpux/compiler/utils/analysis.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/utils/core/error.hpp"
 
 #include "vpux/compiler/conversion/rewriters/VPUIP2VPUMI40XX/barrier_rewriter.hpp"
@@ -21,9 +23,11 @@
 #include "vpux/compiler/conversion/rewriters/VPUIP2VPUMI40XX/nce_cluster_task_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUIP2VPUMI40XX/sw_kernel_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUIP2VPUMI40XX/task_rewriter.hpp"
+#include "vpux/utils/core/range.hpp"
 
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/IRMapping.h>
+#include <mlir/IR/Value.h>
 #include <mlir/Transforms/DialectConversion.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
@@ -31,6 +35,7 @@
 #include <llvm/ADT/TypeSwitch.h>
 #include <llvm/Support/FileSystem.h>
 
+#include <cstdint>
 #include <vector>
 
 namespace vpux {
@@ -201,16 +206,16 @@ struct MappedInferenceTaskInfo {
 MappedInferenceTaskInfo collectMappedInferenceTaskInfo(mlir::func::FuncOp funcOp, size_t tileCount, size_t dmaTileCount,
                                                        size_t shavesPerTileCount, size_t dmaDirectionRank) {
     MappedInferenceTaskInfo info;
-    info.dmaHeads.assign(dmaTileCount, mlir::SmallVector<mlir::Value>(dmaDirectionRank));
-    info.actKernelRangeHeads.assign(tileCount, mlir::SmallVector<mlir::Value>(shavesPerTileCount));
-    info.actKernelInvocationHeads.assign(tileCount, mlir::SmallVector<mlir::Value>(shavesPerTileCount));
+    info.dmaHeads.assign(dmaTileCount, SmallVector<mlir::Value>(dmaDirectionRank));
+    info.actKernelRangeHeads.assign(tileCount, SmallVector<mlir::Value>(shavesPerTileCount));
+    info.actKernelInvocationHeads.assign(tileCount, SmallVector<mlir::Value>(shavesPerTileCount));
     info.invariantHeads.assign(tileCount, mlir::Value());
     info.variantHeads.assign(tileCount, mlir::Value());
-    info.dmaCount.assign(dmaTileCount, mlir::SmallVector<int64_t>(dmaDirectionRank, 0));
+    info.dmaCount.assign(dmaTileCount, SmallVector<int64_t>(dmaDirectionRank, 0));
     info.invariantCount.assign(tileCount, 0);
     info.variantCount.assign(tileCount, 0);
-    info.rangeCount.assign(tileCount, mlir::SmallVector<int64_t>(shavesPerTileCount, 0));
-    info.invocationCount.assign(tileCount, mlir::SmallVector<int64_t>(shavesPerTileCount, 0));
+    info.rangeCount.assign(tileCount, SmallVector<int64_t>(shavesPerTileCount, 0));
+    info.invocationCount.assign(tileCount, SmallVector<int64_t>(shavesPerTileCount, 0));
 
     // Use getOps instead of walk to avoid recursing into nested regions (e.g. DPUInvariantOp).
     // Dispatch via TaskType enum switch instead of TypeSwitch dyn_cast chain.
@@ -353,8 +358,8 @@ void createMappedInferenceOp(mlir::func::FuncOp funcOp, AllocateDDRStackFrames a
     auto taskInfo =
             collectMappedInferenceTaskInfo(funcOp, tileCount, dmaTileCount, shavesPerTileCount, dmaDirectionRank);
 
-    mlir::SmallVector<mlir::SmallVector<mlir::Value>> dmaTasks(dmaTileCount);
-    mlir::SmallVector<mlir::ValueRange> dmaTasksArg(dmaTileCount);
+    SmallVector<SmallVector<mlir::Value>> dmaTasks(dmaTileCount);
+    SmallVector<mlir::ValueRange> dmaTasksArg(dmaTileCount);
     size_t dmaTasksArgLength = 0;
     for (size_t tileIdx = 0; tileIdx < dmaTileCount; ++tileIdx) {
         // dmaTasks
@@ -369,12 +374,12 @@ void createMappedInferenceOp(mlir::func::FuncOp funcOp, AllocateDDRStackFrames a
         }
     }
 
-    mlir::SmallVector<mlir::Value> invariantTasks;
-    mlir::SmallVector<mlir::Value> variantTasks;
+    SmallVector<mlir::Value> invariantTasks;
+    SmallVector<mlir::Value> variantTasks;
     invariantTasks.reserve(tileCount);
     variantTasks.reserve(tileCount);
-    mlir::SmallVector<mlir::SmallVector<mlir::Value>> actKernelRanges(tileCount), actKernelInvocations(tileCount);
-    mlir::SmallVector<mlir::ValueRange> actKernelRangesArgs(tileCount), actKernelInvocationsArgs(tileCount);
+    SmallVector<SmallVector<mlir::Value>> actKernelRanges(tileCount), actKernelInvocations(tileCount);
+    SmallVector<mlir::ValueRange> actKernelRangesArgs(tileCount), actKernelInvocationsArgs(tileCount);
     size_t actKernRangesTasksArgLength = 0;
     size_t actKernInvocationsTasksArgLength = 0;
     for (size_t tileIdx = 0; tileIdx < tileCount; ++tileIdx) {
@@ -451,8 +456,7 @@ void createMappedInferenceOp(mlir::func::FuncOp funcOp, AllocateDDRStackFrames a
             nullptr,                                            // mlir::IntegerAttr barrierConfigurationTasksCount
             nullptr,                                            // mlir::Value numOfBarrierReprogrammings
             nullptr,                                            // mlir::Value mappedInferenceVersion
-            nullptr                                             // VPURegMapped::BarrierProgrammingModeAttr
-    );
+            nullptr);                                           // VPURegMapped::BarrierProgrammingModeAttr
 }
 
 void foldActKernelTextAndEntry(mlir::func::FuncOp funcOp) {
@@ -600,6 +604,7 @@ private:
         tasksConverters.add<FetchDMARewriter>(&ctx, _enableMemorySideCacheOption);
         tasksConverters.add<EnqueueDMARewriter>(&ctx, _enableMemorySideCacheOption);
         tasksConverters.add<ReadOnlyDMARewriter>(&ctx, _enableMemorySideCacheOption);
+        tasksConverters.add<SkipDMARewriter>(&ctx, _enableMemorySideCacheOption);
         tasksConverters.add<NCEClusterTaskRewriter>(&ctx);
         tasksConverters.add<SWKernelRewriter>(&ctx);
 

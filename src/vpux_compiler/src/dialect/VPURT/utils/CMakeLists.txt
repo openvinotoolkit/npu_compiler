@@ -17,4 +17,5 @@ add_npu_library(npu_compiler_dialect_vpurt_utils
         npu_elf
         npu_compiler_dialect_config
         npu_compiler_dialect_vpuip
+        npu_compiler_dialect_vpuip_utils
 )

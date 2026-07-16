@@ -7,7 +7,9 @@
 
 #include "vpux/utils/core/array_ref.hpp"
 
+#include <functional>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 
 namespace vpux {
@@ -51,6 +53,9 @@ public:
 
     // get information about object for exact tile
     std::optional<VFValue> get(VFKey key, size_t tile);
+
+    // get information about object for exact tile without copying stored value
+    std::optional<std::reference_wrapper<const VFValue>> getRef(VFKey key, size_t tile) const;
 
     // function returns information gathered together for all tiles
     const VFTileContainer& gatherValue(VFKey key);
@@ -110,6 +115,24 @@ std::optional<VFValue> vpux::VPU::VFContainer<VFKey, VFValue, Compare>::get(VFKe
     }
 
     return foundTile->second;
+}
+
+template <class VFKey, class VFValue, class Compare>
+std::optional<std::reference_wrapper<const VFValue>> vpux::VPU::VFContainer<VFKey, VFValue, Compare>::getRef(
+        VFKey key, size_t tile) const {
+    auto foundItem = vfContainer.find(key);
+
+    if (foundItem == vfContainer.end()) {
+        return std::nullopt;
+    }
+
+    auto foundTile = foundItem->second.find(tile);
+
+    if (foundTile == foundItem->second.end()) {
+        return std::nullopt;
+    }
+
+    return std::cref(foundTile->second);
 }
 
 template <class VFKey, class VFValue, class Compare>

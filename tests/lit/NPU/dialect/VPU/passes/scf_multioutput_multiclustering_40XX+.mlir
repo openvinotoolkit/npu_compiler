@@ -385,3 +385,91 @@ func.func @LSTMGatesClustering(%arg0: tensor<1x1x1x2048xf16>, %arg1: tensor<1x1x
 // CHECK: return [[EXT_H]], [[EXT_C]]
 }
 }
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+module {
+config.Resources 6 of @NCE at 1.850000e+03 MHz {
+  config.ExecutorResource 1 of @DPU
+}
+
+// Multiclustering: standalone LSTMGates with SplitOverHeight (not pre-tiled).
+// Validates multi-result op is correctly handled by the multiclustering algorithm:
+// one parallel_insert_slice per result, with tensor.empty reuse allowed after canonicalization/CSE.
+
+// CHECK-LABEL: @StandaloneLSTMGatesSOH
+// CHECK-SAME:       [[GATES:%[^:]+]]: tensor<1x1x128x512xf16>
+// CHECK-SAME:       [[CELL:%[^:]+]]: tensor<1x1x128x128xf16>
+func.func @StandaloneLSTMGatesSOH(
+    %arg0: tensor<1x1x128x512xf16>,
+    %arg1: tensor<1x1x128x128xf16>
+) -> (tensor<1x1x128x128xf16>, tensor<1x1x128x128xf16>) {
+  %h, %c = VPU.LSTMGates(%arg0, %arg1) {
+      multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+  } : tensor<1x1x128x512xf16>, tensor<1x1x128x128xf16>
+    -> tensor<1x1x128x128xf16>, tensor<1x1x128x128xf16>
+  return %h, %c : tensor<1x1x128x128xf16>, tensor<1x1x128x128xf16>
+}
+
+// CHECK-DAG:  [[EMPTY_H:%.+]] = tensor.empty() : tensor<1x1x128x128xf16>
+// CHECK:      [[FORALL:%.+]]:2 = scf.forall ([[IV:%.+]]) = (0) to (128) step ({{[0-9]+}}) shared_outs([[OUT_H:%.+]] = [[EMPTY_H]], [[OUT_C:%.+]] = [[EMPTY_H]]) -> (tensor<1x1x128x128xf16>, tensor<1x1x128x128xf16>) {
+// CHECK:          [[MIN:%.+]] = affine.min
+// CHECK:          [[SLICE_GATES:%.+]] = tensor.extract_slice [[GATES]][0, 0, [[IV]], 0] [1, 1, [[MIN]], 512]
+// CHECK:          [[SLICE_CELL:%.+]] = tensor.extract_slice [[CELL]][0, 0, [[IV]], 0] [1, 1, [[MIN]], 128]
+// CHECK:          [[H:%.+]], [[C:%.+]] = VPU.LSTMGates([[SLICE_GATES]], [[SLICE_CELL]])
+// CHECK:          scf.forall.in_parallel {
+// CHECK:              tensor.parallel_insert_slice [[H]] into [[OUT_H]][0, 0, [[IV]], 0] [1, 1, [[MIN]], 128]
+// CHECK:              tensor.parallel_insert_slice [[C]] into [[OUT_C]][0, 0, [[IV]], 0] [1, 1, [[MIN]], 128]
+// CHECK:          }
+// CHECK:      }
+// CHECK:      return [[FORALL]]#0, [[FORALL]]#1 : tensor<1x1x128x128xf16>, tensor<1x1x128x128xf16>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+module {
+config.Resources 6 of @NCE at 1.850000e+03 MHz {
+  config.ExecutorResource 1 of @DPU
+}
+
+// Multiclustering: standalone TopK with SplitOverHeight (not pre-tiled).
+// TopK has mixed-type multi-result outputs (f32 values, si32 indices).
+// Validates that the multi-result tiling code creates correct typed
+// tensor.empty, parallel_insert_slice, and forall results.
+
+// CHECK-LABEL: @StandaloneTopKSOH
+// CHECK-SAME:       [[INPUT:%[^:]+]]: tensor<1x64x128x128xf32>
+func.func @StandaloneTopKSOH(
+    %arg0: tensor<1x64x128x128xf32>
+) -> (tensor<1x8x128x128xf32>, tensor<1x8x128x128xsi32>) {
+  %k_buf = VPU.Empty : tensor<1x1x1x1024xui8>
+  %vals, %inds = VPU.TopK(%arg0, %k_buf) {
+      axis = 1 : i64,
+      element_type = si32,
+      k_value = 8 : i64,
+      mode = #IE.topk_mode<MAX>,
+      sort = #IE.topk_sort_type<SORT_INDICES>,
+      multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+  } : tensor<1x64x128x128xf32>, tensor<1x1x1x1024xui8>
+    -> tensor<1x8x128x128xf32>, tensor<1x8x128x128xsi32>
+  return %vals, %inds : tensor<1x8x128x128xf32>, tensor<1x8x128x128xsi32>
+}
+
+// CHECK-DAG:  [[K_BUF:%.+]] = VPU.Empty : tensor<1x1x1x1024xui8>
+// CHECK-DAG:  [[EMPTY_VALS:%.+]] = tensor.empty() : tensor<1x8x128x128xf32>
+// CHECK-DAG:  [[EMPTY_INDS:%.+]] = tensor.empty() : tensor<1x8x128x128xsi32>
+// CHECK:      [[FORALL:%.+]]:2 = scf.forall ([[IV:%.+]]) = (0) to (128) step ({{[0-9]+}}) shared_outs([[OUT_VALS:%.+]] = [[EMPTY_VALS]], [[OUT_INDS:%.+]] = [[EMPTY_INDS]]) -> (tensor<1x8x128x128xf32>, tensor<1x8x128x128xsi32>) {
+// CHECK:          [[MIN:%.+]] = affine.min
+// CHECK:          [[SLICE_IN:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IV]], 0] [1, 64, [[MIN]], 128]
+// CHECK:          [[V:%.+]], [[S:%.+]] = VPU.TopK([[SLICE_IN]], [[K_BUF]])
+// CHECK:          scf.forall.in_parallel {
+// CHECK:              tensor.parallel_insert_slice [[V]] into [[OUT_VALS]][0, 0, [[IV]], 0] [1, 8, [[MIN]], 128]
+// CHECK:              tensor.parallel_insert_slice [[S]] into [[OUT_INDS]][0, 0, [[IV]], 0] [1, 8, [[MIN]], 128]
+// CHECK:          }
+// CHECK:      }
+// CHECK:      return [[FORALL]]#0, [[FORALL]]#1 : tensor<1x8x128x128xf32>, tensor<1x8x128x128xsi32>
+}

@@ -9,14 +9,10 @@
 
 #include <cstdint>
 
-namespace vpux::config {
-enum class ArchKind : uint64_t;
-}
-
 namespace vpux {
 namespace VPU {
 
-VPU::PerBarrierVariantConstraint getPerBarrierVariantConstraint(config::ArchKind arch, bool workloadManagementEnable);
+VPU::PerBarrierSlotConstraint getPerBarrierSlotConstraint();
 
 }  // namespace VPU
 }  // namespace vpux

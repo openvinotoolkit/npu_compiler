@@ -8,16 +8,16 @@
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-func.func @DmaGraph() -> memref<16x16x1x1xf16,  #NHWC, [@CMX_NN, 0]> {
+func.func @DmaGraph() -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]> {
     %bar0 = VPURT.DeclareVirtualBarrier <{isStartBarrier, wlmPage = 0 : i64}> -> !VPURT.Barrier
     %bar1 = VPURT.DeclareVirtualBarrier <{wlmPage = 1 : i64}> -> !VPURT.Barrier
     %bar2 = VPURT.DeclareVirtualBarrier <{wlmPage = 1 : i64}> -> !VPURT.Barrier
     %bar3 = VPURT.DeclareVirtualBarrier <{isFinalBarrier, wlmPage = 2 : i64}> -> !VPURT.Barrier
 
     // dummy buffer
-    %cst0 = const.Declare memref<16x16x1x1xf16, #NHWC> =
+    %cst0 = const.Declare memref<16x16x1x1xf16, {order = #NHWC}> =
         dense<1.0> : tensor<16x16x1x1xf16>, [#const.Reorder<#NHWC>]
-    %buf0 = VPURT.DeclareBuffer <CMX_NN> [0] <32768> -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+    %buf0 = VPURT.DeclareBuffer <CMX_NN> [0] <32768> -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
 
     // Simple subgraph with page split (barX(PageY)):
@@ -44,30 +44,30 @@ func.func @DmaGraph() -> memref<16x16x1x1xf16,  #NHWC, [@CMX_NN, 0]> {
 
     VPURT.Task updates(%bar0: !VPURT.Barrier) wlmPage(0)
     {
-         VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst0: memref<16x16x1x1xf16, #NHWC>) outputs(%buf0: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+         VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf0: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
     VPURT.Task waits(%bar0: !VPURT.Barrier) wlmPage(0)
     {
-         VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst0: memref<16x16x1x1xf16, #NHWC>) outputs(%buf0: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+         VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf0: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
     VPURT.Task updates(%bar1: !VPURT.Barrier) wlmPage(0)
     {
-         VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst0: memref<16x16x1x1xf16, #NHWC>) outputs(%buf0: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+         VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf0: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
     VPURT.Task waits(%bar1: !VPURT.Barrier) updates(%bar2: !VPURT.Barrier) wlmPage(1)
     {
-         VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst0: memref<16x16x1x1xf16, #NHWC>) outputs(%buf0: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+         VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf0: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
     VPURT.Task waits(%bar2: !VPURT.Barrier) updates(%bar3: !VPURT.Barrier) wlmPage(1)
     {
-         VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst0: memref<16x16x1x1xf16, #NHWC>) outputs(%buf0: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+         VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf0: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
-    return %buf0: memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+    return %buf0: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
 
     // Simple subgraph with page split after inserting dummy barrier

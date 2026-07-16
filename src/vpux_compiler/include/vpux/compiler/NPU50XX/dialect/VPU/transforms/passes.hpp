@@ -26,6 +26,10 @@ struct DefaultHWOptions : public VPU::DefaultHWOptionsDialectBase, virtual vpux:
     StrOption actSparsityProfile{*this, "act-sparsity-profile", llvm::cl::desc("Activation sparsity profile"),
                                  llvm::cl::init("S0")};
 
+    BoolOption enableTilingFullSearchSpace{*this, "enable-tiling-full-search-space",
+                                           llvm::cl::desc("Enable full search space for tiling"),
+                                           llvm::cl::init(false)};
+
     BoolOption enableVPUNNCostForTiling{*this, "enable-vpunn-cost-for-tiling",
                                         llvm::cl::desc("Use VPUNN cost model to get the best tiling strategy"),
                                         llvm::cl::init(true)};
@@ -41,6 +45,10 @@ struct DefaultHWOptions : public VPU::DefaultHWOptionsDialectBase, virtual vpux:
             llvm::cl::desc("Enable dequantize weight op size ensurance before strategy is assigned in "
                            "EnsureNCEOpsSizeRequirements pass"),
             llvm::cl::init(true)};
+
+    BoolOption enableLegacyConvSplitOverIC{
+            *this, "enable-legacy-conv-split-over-ic",
+            llvm::cl::desc("Enable ConvolutionSplitOverInputChannel pass in tiling pipeline"), llvm::cl::init(false)};
 };
 
 //
@@ -58,9 +66,10 @@ struct MCAndTilingOptionsDevice : public vpux::MCAndTilingOptionsBase {
 void buildDefaultHWPipeline(mlir::OpPassManager& pm, const DefaultHWOptions& options, Logger log = Logger::global());
 
 void buildIncrementalPipeline(mlir::OpPassManager& pm, const vpux::MCAndTilingOptionsBase& options,
-                              Logger log = Logger::global());
+                              Logger log = Logger::global(), bool enableLegacyConvSplitOverIC = true);
 
 std::unique_ptr<mlir::Pass> createAutopadChannelsPass(const Logger& log = Logger::global());
+std::unique_ptr<mlir::Pass> createDecomposeSoftmaxInSdpaPass(const Logger& log = Logger::global());
 
 //
 // Registration

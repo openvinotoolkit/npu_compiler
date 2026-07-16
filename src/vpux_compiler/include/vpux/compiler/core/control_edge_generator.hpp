@@ -110,7 +110,7 @@ public:
     using IntervalType = typename Traits::IntervalType;
     using IntervalUtilsType = IntervalUtils<IntervalType>;
     using IntervalTreeType = DisjointIntervalSet<UnitType, IntervalType>;
-    using ProdConsType = typename IntervalTreeType::ProdConsType;
+    using IntervalUsersType = typename IntervalTreeType::IntervalUsersType;
     using IntervalQueryIteratorType = typename IntervalTreeType::IntervalIteratorType;
     struct NoopFunctorType {
         void operator()(const IntervalType&, const IntervalType&) {
@@ -174,43 +174,35 @@ protected:
             auto qbeg = qitr.intervalBegin();
             auto qend = qitr.intervalEnd();
 
-            auto qitrProdCons = qitr.getProdCons();
-            auto newProdCons = qitrProdCons;
-            ProdConsType currIntervalProdCons(currInterval);
+            auto qitrIntervalUsers = qitr.getIntervalUsers();
+            auto newIntervalUsers = qitrIntervalUsers;
+            IntervalUsersType currIntervalUsers(currInterval);
             if (isCurrIntervalProducer) {
                 // Check if currInterval producer can coexist with already present producers of this interval
                 // Same range can have multiple producers as each can give different view of interval
-                auto canProdCoexist = llvm::all_of(qitrProdCons._producers, [&](const IntervalType& prod) {
+                auto canProdCoexist = llvm::all_of(qitrIntervalUsers._producers, [&](const IntervalType& prod) {
                     return Traits::canProducersCoexist(currInterval, prod);
                 });
 
                 if (canProdCoexist) {
-                    // TODO: E#120027 optimize controlEdge to avoid multiple iterations
-                    // Add control edge from source of currProducers to currInterval
-                    std::set<size_t> currProducers;
-                    std::set<size_t> sourcesOfCurrProducers;
-                    for (auto& prod : qitrProdCons._producers) {
-                        currProducers.insert(Traits::intervalOp(prod));
-                    }
-                    for (auto itr = outputDependency.begin(); itr != outputDependency.end(); ++itr) {
-                        if (llvm::is_contained(currProducers, itr->_sink) && itr->_source != itr->_sink) {
-                            sourcesOfCurrProducers.insert(itr->_source);
-                        }
-                    }
-
-                    for (const auto& source : sourcesOfCurrProducers) {
-                        outputDependency(source, Traits::intervalOp(currInterval));
+                    // Add control edges from the consumers that existed before the
+                    // current producer(s) took ownership of this interval to the new
+                    // coexisting producer. The previous consumers are tracked inside
+                    // IntervalUsersType (populated by newProducer), so this avoids a linear
+                    // scan over the entire outputDependency container.
+                    for (const auto& prevCons : qitrIntervalUsers._prevUsers) {
+                        outputDependency(prevCons, currInterval);
                         ++edgeCount;
                     }
 
                     // Add additional producer for this interval
-                    newProdCons.addProducer(currInterval);
+                    newIntervalUsers.addProducer(currInterval);
                 } else {
-                    if (qitrProdCons._consumers.empty()) {
+                    if (qitrIntervalUsers._consumers.empty()) {
                         // If previous interval had no consumers just
                         // output the control edge from it to new producer
                         // of this interval
-                        for (auto& prod : qitrProdCons._producers) {
+                        for (auto& prod : qitrIntervalUsers._producers) {
                             outputDependency(prod, currInterval);
                             ++edgeCount;
                         }
@@ -218,18 +210,18 @@ protected:
                         // If previous interval had consumers output
                         // control edges from all of them to new producer
                         // of this interval
-                        for (auto& cons : qitrProdCons._consumers) {
+                        for (auto& cons : qitrIntervalUsers._consumers) {
                             outputDependency(cons, currInterval);
                             ++edgeCount;
                         }
                     }
                     // Set new producer for new interval. This will
                     // also clear previous info about users
-                    newProdCons.newProducer(currInterval);
+                    newIntervalUsers.newProducer(currInterval);
                 }
             } else {
                 // Add edge from interval producer to new user
-                for (auto& prod : qitrProdCons._producers) {
+                for (auto& prod : qitrIntervalUsers._producers) {
                     // If range has multiple producers each providing different view of interval
                     // then add edge to new user only from producer with matching interval access
                     if (Traits::sameIntervalAccess(currInterval, prod)) {
@@ -239,7 +231,7 @@ protected:
                 }
 
                 // Update interval owners with new user
-                newProdCons.addConsumer(currInterval);
+                newIntervalUsers.addConsumer(currInterval);
             }
 
             // erase the current interval //
@@ -253,7 +245,7 @@ protected:
             assert(interBeg <= interEnd);
 
             UnitType resultBeg[2UL], resultEnd[2UL];
-            ProdConsType const* resultVal[2UL];
+            IntervalUsersType const* resultVal[2UL];
             size_t rcount;
 
             // now compute the xor interval(s) //
@@ -265,7 +257,7 @@ protected:
 
             if (!rcount) {
                 // no xor intervals //
-                const bool status = _intervalTree.insert(interBeg, interEnd, newProdCons);
+                const bool status = _intervalTree.insert(interBeg, interEnd, newIntervalUsers);
                 assert(status);
                 std::ignore = status;
             } else {
@@ -284,10 +276,10 @@ protected:
                 //          (--------------]
                 for (size_t r = 0; r < rcount; r++) {
                     if (IntervalUtilsType::isSubset(resultBeg[r], resultEnd[r], currRemBeg, currRemEnd)) {
-                        resultVal[r] = &currIntervalProdCons;
+                        resultVal[r] = &currIntervalUsers;
                     } else {
                         assert(IntervalUtilsType::isSubset(resultBeg[r], resultEnd[r], qbeg, qend));
-                        resultVal[r] = &qitrProdCons;
+                        resultVal[r] = &qitrIntervalUsers;
                     }
                 }
 
@@ -301,11 +293,11 @@ protected:
                 }
 
                 // insert the intersection part //
-                _intervalTree.insert(interBeg, interEnd, newProdCons);
+                _intervalTree.insert(interBeg, interEnd, newIntervalUsers);
 
                 // process the interval above the intersection part //
                 if (nextXorIntervalIndex < rcount) {
-                    if (resultVal[nextXorIntervalIndex] != &currIntervalProdCons) {
+                    if (resultVal[nextXorIntervalIndex] != &currIntervalUsers) {
                         // need to insert this part back in the interval tree //
                         _intervalTree.insert(resultBeg[nextXorIntervalIndex], resultEnd[nextXorIntervalIndex],
                                              *(resultVal[nextXorIntervalIndex]));
@@ -349,11 +341,17 @@ protected:
         UnitType iend = Traits::intervalEnd(currInterval);
         IntervalQueryIteratorType qitr = _intervalTree.query(ibeg, iend);
         IntervalQueryIteratorType qitrEnd = _intervalTree.end(), qitrNext, qitrStart;
-        const ProdConsType currIntervalProdCons(currInterval);
+        // Consider merging only in case there are abutting intervals with the same producer
+        // and no consumers
+        IntervalUsersType currIntervalUsers(currInterval);
 
-        if ((qitr == qitrEnd) || !(qitr.getProdCons() == currIntervalProdCons)) {
+        if ((qitr == qitrEnd) || !(qitr.getIntervalUsers()._consumers.empty()) ||
+            !(qitr.getIntervalUsers()._producers == currIntervalUsers._producers)) {
             return;
         }
+
+        // Populate prevUsers of current interval producer
+        currIntervalUsers.addPrevUsers(qitr.getIntervalPrevUsers());
 
         qitrStart = qitr;
         UnitType prevLeftEnd = qitr.intervalBegin();
@@ -361,19 +359,26 @@ protected:
 
         ++qitr;
         while ((qitr != qitrEnd) &&
-               ((qitr.getProdCons() == currIntervalProdCons) && ((prevRightEnd + 1) == qitr.intervalBegin()))) {
+               ((qitr.getIntervalUsers() == currIntervalUsers) && ((prevRightEnd + 1) == qitr.intervalBegin()))) {
             prevRightEnd = qitr.intervalEnd();
             // TODO: implement an erase using iterators instead of
             // end point values so that this takes O(1) time.
             qitrNext = qitr;
             ++qitrNext;
+
+            // Before erasing maintain information about previous users
+            currIntervalUsers.addPrevUsers(qitr.getIntervalPrevUsers());
             _intervalTree.erase(qitr.intervalBegin(), qitr.intervalEnd());
             qitr = qitrNext;
         }
 
         if (prevRightEnd > qitrStart.intervalEnd()) {
+            // Before erasing maintain information about previous users
+            currIntervalUsers.addPrevUsers(qitrStart.getIntervalPrevUsers());
             _intervalTree.erase(qitrStart.intervalBegin(), qitrStart.intervalEnd());
-            _intervalTree.insert(prevLeftEnd, prevRightEnd, currIntervalProdCons);
+            // Insert new merged interval with updated prevUsers info. This will allow future coexisting producers
+            // to add control edges from all prev users.
+            _intervalTree.insert(prevLeftEnd, prevRightEnd, currIntervalUsers);
         }
     }
 
