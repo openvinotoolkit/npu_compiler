@@ -76,8 +76,6 @@ endforeach()
 
 include(cmake/features.cmake)
 include(cmake/compile_options.cmake)
-add_compile_definitions(INTEL_EMBARGO_NPU5)
-add_compile_definitions(INTEL_EMBARGO_NPU5020)
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/dependencies.cmake")
     include(cmake/dependencies.cmake)
