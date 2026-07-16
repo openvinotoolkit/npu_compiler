@@ -71,7 +71,7 @@ private:
 
     Logger _log;
     const std::unique_ptr<ICodec> _codec;
-    [[maybe_unused]] bool _huffmanEnable = false;
+    bool _huffmanEnable = false;
     mlir::FailureOr<std::vector<uint8_t>> compressDataFromDeclareOp(Const::DeclareOp constOp,
                                                                     ICodec::CompressionMode compressionMode,
                                                                     ICodec::CompressionPath compPath) const;
