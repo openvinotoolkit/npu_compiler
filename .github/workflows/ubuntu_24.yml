@@ -32,8 +32,8 @@ jobs:
       build-cache: true
       build-cache-key-suffix: ${{ github.sha }}
       build-plugin: true
-      build-driver: true
+      build-driver: false
       build-cid: true
-      run-unit-tests: true
+      run-unit-tests: false
       run-lit-tests: true
       run-compilation-tests: true

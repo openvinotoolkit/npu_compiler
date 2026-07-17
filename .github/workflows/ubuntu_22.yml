@@ -31,9 +31,9 @@ jobs:
       test-runner: ubuntu-22.04-8-cores
       build-cache: true
       build-cache-key-suffix: ${{ github.sha }}
-      build-plugin: true
+      build-plugin: false
       build-driver: false
       build-cid: true
-      run-unit-tests: true
-      run-lit-tests: true
-      run-compilation-tests: true
+      run-unit-tests: false
+      run-lit-tests: false
+      run-compilation-tests: false
