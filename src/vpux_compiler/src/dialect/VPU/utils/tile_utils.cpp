@@ -1253,7 +1253,7 @@ Byte getRequiredCMXSizeForDataPointerTable(mlir::Operation* op, int64_t OC) {
         const auto maxVariantsPerCluster =
                 static_cast<int32_t>(config::getConstraint(op, config::METADATA_MAX_VARIANT_COUNT) / 2);
 
-        requiredCMX += Byte(maxClusters * maxVariantsPerCluster * (maxDataPointerTableAlignment * 4_Byte));
+        requiredCMX += (maxDataPointerTableAlignment * 4_Byte) * maxVariantsPerCluster * maxClusters;
     } else {
         requiredCMX += Byte(maxClusters * (maxDataPointerTableAlignment * 4_Byte));
     }
