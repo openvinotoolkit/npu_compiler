@@ -7,3 +7,4 @@ requests>=2.34.2
 urllib3>=2.7.0
 filelock>=3.29.0
 pygments>=2.20.0
+idna>=3.15
