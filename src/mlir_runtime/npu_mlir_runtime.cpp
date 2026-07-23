@@ -553,10 +553,11 @@ void NPUMLIRRuntime::createExecutionContext(npu_mlir_runtime_execution_context_h
         OPENVINO_THROW("MLIR ExecutionEngine is not initialized");
     }
 
-    auto pContext = std::make_unique<ExecutionContext>(this);
+    ExecutionContext* pContext = new ExecutionContext(this);
     const std::string funcName = "_mlir_ciface_create_execution_context";
     auto expectedFPtr = _engine->lookupPacked(funcName);
     if (!expectedFPtr) {
+        delete pContext;
         OPENVINO_THROW("Function " + funcName + " not found in MLIR module");
     }
 
@@ -569,10 +570,11 @@ void NPUMLIRRuntime::createExecutionContext(npu_mlir_runtime_execution_context_h
     mlir::ExecutionEngine::Argument<void*>::pack(packedArgs, executionContextHandlePtr);
     auto error = _engine->invokePacked(funcName, packedArgs);
     if (error) {
+        delete pContext;
         OPENVINO_THROW("Error invoking main: " + llvm::toString(std::move(error)));
     }
 
-    *phExecutionContextHandle = reinterpret_cast<npu_mlir_runtime_execution_context_handle_t>(pContext.release());
+    *phExecutionContextHandle = reinterpret_cast<npu_mlir_runtime_execution_context_handle_t>(pContext);
 }
 
 void NPUMLIRRuntime::destroyExecutionContext(npu_mlir_runtime_execution_context_handle_t hExecutionContextHandle) {
