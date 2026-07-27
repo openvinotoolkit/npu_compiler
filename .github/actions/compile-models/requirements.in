@@ -20,7 +20,7 @@ typing-extensions>=4.16.0
 # Utils
 pillow>=12.3.0
 requests>=2.34.2
-tqdm>=4.69.0
+tqdm>=4.70.0
 accelerate>=1.14.0
 urllib3>=2.7.0
 filelock>=3.32.0
