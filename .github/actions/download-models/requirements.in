@@ -5,6 +5,6 @@ hf-xet==1.5.2
 # Utils
 requests>=2.34.2
 urllib3>=2.7.0
-filelock>=3.32.0
+filelock>=3.32.2
 pygments>=2.20.0
 idna>=3.18
