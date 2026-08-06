@@ -105,6 +105,14 @@ bool DecomposeSoftmax::isBeneficialAndFeasible(VPU::SoftMaxOp origOp) const {
         return false;
     }
 
+    auto shape = getShape(output);
+    auto axisLength = shape[Dim(axis)];
+    if (axisLength > VPU::NCEInvariant::VPU_DIMENSION_LIMIT) {
+        _log.info("decompose failed '{0}' at '{1}', channel dimension of softmax > 8k", origOp->getName(),
+                  origOp->getLoc());
+        return false;
+    }
+
     const auto firstUserOp = *output.getUsers().begin();
     if (!mlir::isa<VPU::NCEConvolutionOp>(firstUserOp)) {
         _log.info("decompose failed '{0}' at '{1}', not NCEOpInterface", origOp->getName(), origOp->getLoc());
