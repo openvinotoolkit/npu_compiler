@@ -1,6 +1,6 @@
 # Hugging Face Hub
 huggingface_hub==1.24.0
-hf-xet==1.5.2
+hf-xet==1.6.0
 
 # Utils
 requests>=2.34.2
