@@ -5,6 +5,8 @@
 
 #include "vpux/utils/core/developer_build_utils.hpp"
 
+#include <cstdlib>
+
 using namespace vpux;
 
 void vpux::parseEnv(StringRef envVarName, std::string& var) {
