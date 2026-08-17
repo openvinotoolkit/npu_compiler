@@ -8,7 +8,7 @@ torch==2.13.0+cpu
 torchvision==0.28.0+cpu
 protobuf==7.35.1
 onnx==1.22.0
-onnxruntime==1.27.0
+onnxruntime==1.28.0
 onnxruntime-tools>=1.7.0
 onnxscript==0.7.1
 
