@@ -23,6 +23,6 @@ requests>=2.34.2
 tqdm>=4.69.0
 accelerate>=1.14.0
 urllib3>=2.7.0
-filelock>=3.32.0
+filelock>=3.32.2
 idna>=3.18
 ml-dtypes>=0.5.4
