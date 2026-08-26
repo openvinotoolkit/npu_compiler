@@ -77,6 +77,11 @@ TEST_F(MLIR_AsyncDepsInfo, AddDependencySCSPWithCircle) {
     auto op2Consumers = info.getConsumerOps(2);
     EXPECT_EQ(op2Consumers.size(), 0);
 
+    // Prime the dependency cache before adding a new edge.
+    auto op2Deps = info.getOpDeps(2);
+    ASSERT_EQ(op2Deps.size(), 1);
+    EXPECT_EQ(op2Deps[0], 1);
+
     // Calling addDependency twice should not duplicate entries
     info.addDependency(0, 2);
     info.addDependency(0, 2);
@@ -86,9 +91,9 @@ TEST_F(MLIR_AsyncDepsInfo, AddDependencySCSPWithCircle) {
     EXPECT_TRUE(std::find(op0ConsumersAfter.begin(), op0ConsumersAfter.end(), 2) != op0ConsumersAfter.end());
 
     auto op2DepsAfter = info.getOpDeps(2);
-    EXPECT_EQ(op2DepsAfter.size(), 2);
-    EXPECT_TRUE(std::find(op2DepsAfter.begin(), op2DepsAfter.end(), 0) != op2DepsAfter.end());
-    EXPECT_TRUE(std::find(op2DepsAfter.begin(), op2DepsAfter.end(), 1) != op2DepsAfter.end());
+    ASSERT_EQ(op2DepsAfter.size(), 2);
+    EXPECT_EQ(op2DepsAfter[0], 0);
+    EXPECT_EQ(op2DepsAfter[1], 1);
 
     // Introduce a cycle and verifyAcyclic should throw
     info.addDependency(2, 0);
@@ -222,10 +227,15 @@ TEST_F(MLIR_AsyncDepsInfo, OptimizeDepsMap) {
     ASSERT_TRUE(func != nullptr);
 
     vpux::AsyncDepsInfo info(func);
+    info.buildConsMap();
 
     // Before optimization: op2 depends on both op0 and op1
     auto op2DepsBefore = info.getOpDeps(2);
     EXPECT_EQ(op2DepsBefore.size(), 2);
+
+    // Prime the consumer cache before optimizeDepsMap rebuilds the consumer map.
+    auto op0ConsumersBefore = info.getConsumerOps(0);
+    EXPECT_EQ(op0ConsumersBefore.size(), 2);
 
     // Optimize: since op1 depends on op0, and op2 depends on both,
     // the dependency from op2 to op0 is redundant
@@ -235,6 +245,10 @@ TEST_F(MLIR_AsyncDepsInfo, OptimizeDepsMap) {
     auto op2DepsAfter = info.getOpDeps(2);
     EXPECT_EQ(op2DepsAfter.size(), 1);
     EXPECT_EQ(op2DepsAfter[0], 1);
+
+    auto op0ConsumersAfter = info.getConsumerOps(0);
+    EXPECT_EQ(op0ConsumersAfter.size(), 1);
+    EXPECT_EQ(op0ConsumersAfter[0], 1);
 }
 
 TEST_F(MLIR_AsyncDepsInfo, CalculateInOutDegree) {
@@ -314,6 +328,11 @@ TEST_F(MLIR_AsyncDepsInfo, InsertNewExecOp) {
     ASSERT_TRUE(func != nullptr);
 
     vpux::AsyncDepsInfo info(func);
+    info.buildConsMap();
+
+    // Prime both caches before extending the maps.
+    EXPECT_TRUE(info.getOpDeps(0).empty());
+    EXPECT_TRUE(info.getConsumerOps(0).empty());
 
     // Initial count should be 1
     EXPECT_EQ(info.getExecOpCount(), 1);
@@ -326,9 +345,9 @@ TEST_F(MLIR_AsyncDepsInfo, InsertNewExecOp) {
     auto asyncValueType = mlir::async::ValueType::get(memrefType);
     auto tokenType = builder.getType<mlir::async::TokenType>();
 
-    auto newExecOp =
-            builder.create<mlir::async::ExecuteOp>(builder.getUnknownLoc(), mlir::TypeRange{tokenType, asyncValueType},
-                                                   mlir::ValueRange{}, mlir::ValueRange{});
+    auto newExecOp = builder.create<mlir::async::ExecuteOp>(
+            builder.getUnknownLoc(), mlir::TypeRange{tokenType, asyncValueType},
+            mlir::ValueRange{info.getExecuteOpAtIndex(0).getToken()}, mlir::ValueRange{});
 
     auto& bodyBlock = newExecOp.getBodyRegion().emplaceBlock();
     builder.setInsertionPointToStart(&bodyBlock);
@@ -344,4 +363,12 @@ TEST_F(MLIR_AsyncDepsInfo, InsertNewExecOp) {
 
     auto retrievedOp = info.getExecuteOpAtIndex(newIdx);
     EXPECT_EQ(retrievedOp, newExecOp);
+
+    auto newOpDeps = info.getOpDeps(newIdx);
+    ASSERT_EQ(newOpDeps.size(), 1);
+    EXPECT_EQ(newOpDeps[0], 0);
+
+    auto op0Consumers = info.getConsumerOps(0);
+    ASSERT_EQ(op0Consumers.size(), 1);
+    EXPECT_EQ(op0Consumers[0], newIdx);
 }
